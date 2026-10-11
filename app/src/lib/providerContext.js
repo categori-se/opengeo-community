@@ -30,7 +30,7 @@ export function appendProviderContext(knowledge, {provider, identifier, attribut
       attribution: attribution.trim() || null, license: null, accessRights: null, rights: null, policy: null,
       verification: "user_supplied_unverified"}, provenance: "curator_asserted", evidence,
     method: "Manual provider reference; no provider retrieval or rights verification", timestamp: now,
-    agent: "OpenGeo Studio", ...(confidence === null ? {} : {confidence})});
+    agent: "OpenGeo.Tools Studio", ...(confidence === null ? {} : {confidence})});
   return next;
 }
 

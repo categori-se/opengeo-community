@@ -15,7 +15,7 @@ export const OPEN_TERRAIN_SOURCE = Object.freeze({
   coverage: "Global Web Mercator terrain surface",
   zoom: "0–12",
   termsUrl: "https://mapterhorn.com/attribution/",
-  availability: "third-party best-effort service; no OpenGeo or provider SLA"
+  availability: "third-party best-effort service; no OpenGeo.Tools or provider SLA"
 });
 
 export const TERRAIN_LIMITS = Object.freeze({

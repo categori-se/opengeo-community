@@ -1,5 +1,5 @@
 ---
-title: Public OpenGeo workbench
+title: Public OpenGeo Studio workbench
 toc: false
 ---
 

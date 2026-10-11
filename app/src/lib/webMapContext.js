@@ -71,7 +71,7 @@ export function importWebMapContext(text, {DOMParser: Parser = globalThis.DOMPar
   const generalExtension = directChild(general, "Extension");
 
   addField(report, "$.ViewContext.@id", "mapped", "Context identity mapped to the portable WMC extension.", "$.definition.extensions.wmc.contextId");
-  addField(report, "$.ViewContext.General.Title", "mapped", "Context title mapped to the OpenGeo project name.", "$.map.name");
+  addField(report, "$.ViewContext.General.Title", "mapped", "Context title mapped to the OpenGeo Studio project name.", "$.map.name");
   addField(report, "$.ViewContext.General.BoundingBox", "mapped", "Context extent and CRS mapped to the primary map view and retained exactly in the WMC extension.", "$.definition.mapViews[0]");
   if (window) addField(report, "$.ViewContext.General.Window", "preserved_extension", "Suggested client dimensions remain in the WMC extension.", "$.definition.extensions.wmc.window");
   if (keywords.length) addField(report, "$.ViewContext.General.KeywordList", "mapped", "Context keywords mapped to structured project metadata.", "$.definition.metadata.keywords");
@@ -131,7 +131,7 @@ export function exportWebMapContext(openGeo, {width = 1_280, height = 720, bound
   if (!openGeo || typeof openGeo !== "object" || Array.isArray(openGeo)) throw wmcError("opengeo_project_required");
   const definition = openGeo.definition && typeof openGeo.definition === "object" ? openGeo.definition : openGeo;
   const report = createReport("export", OPENGEO_RELEASE, WMC_RELEASE);
-  const title = boundedText(openGeo.name ?? definition.name ?? "OpenGeo map", 240, "opengeo_project_name_invalid");
+  const title = boundedText(openGeo.name ?? definition.name ?? "OpenGeo Studio map", 240, "opengeo_project_name_invalid");
   const description = optionalString(openGeo.description ?? definition.description, 4_096);
   const contextId = safeId(definition.extensions?.wmc?.contextId ?? title);
   const outputBounds = exportBounds(bounds, definition);
@@ -171,7 +171,7 @@ export function exportWebMapContext(openGeo, {width = 1_280, height = 720, bound
   if (byteLength(xml) > MAX_WMC_BYTES) throw wmcError("exported_wmc_too_large");
   addField(report, "$.definition.layers", "mapped", `${exportable.length} WMS layers exported in WMC bottom-to-top draw order.`, "$.ViewContext.LayerList");
   if (sourceLayers.length !== exportable.length) {
-    addField(report, "$.definition.layers", "unsupported", `${sourceLayers.length - exportable.length} non-WMS layers remain in OpenGeo and are not represented as WMC layers.`);
+    addField(report, "$.definition.layers", "unsupported", `${sourceLayers.length - exportable.length} non-WMS layers remain in OpenGeo Studio and are not represented as WMC layers.`);
   }
   finishReport(report);
   return {schemaVersion: "1.0.0", xml, report, context: {id: contextId, bounds: outputBounds, window: viewport}};
@@ -337,13 +337,13 @@ function exportLayer(layer, index, report) {
   };
   addField(report, path, "mapped", "WMS endpoint, layer identity, visibility, format, CRS, and current named style mapped to WMC.", `$.ViewContext.LayerList.Layer[${index}]`);
   if (names.length > 1) {
-    addField(report, `${path}.sourceConfiguration.layers`, "unsupported", "WMC receives the first layer from this compound OpenGeo WMS request; the compound request remains in OpenGeo.");
+    addField(report, `${path}.sourceConfiguration.layers`, "unsupported", "WMC receives the first layer from this compound OpenGeo Studio WMS request; the compound request remains in OpenGeo Studio.");
   }
   if (layer.opacity !== undefined && layer.opacity !== 1) {
     addField(report, `${path}.opacity`, "unsupported", "WMC 1.1 has no portable layer opacity field.");
   }
   if (layer.style && Object.keys(layer.style).length) {
-    addField(report, `${path}.style`, "preserved_extension", "OpenGeo renderer style remains in the project; WMC receives only the named WMS style.");
+    addField(report, `${path}.style`, "preserved_extension", "OpenGeo Studio renderer style remains in the project; WMC receives only the named WMS style.");
   }
   return candidate;
 }

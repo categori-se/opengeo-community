@@ -88,7 +88,7 @@ describe("public demo project collection", () => {
       {
         workspaceId: "public-opengeo-workbench-demo",
         pageId: COMMUNITY_DEMO_PAGE_ID,
-        title: "OpenGeo starter map"
+        title: "OpenGeo.Tools starter map"
       },
       {
         workspaceId: MASSGIS_CONFIG.project.id,
@@ -112,7 +112,7 @@ describe("public demo project collection", () => {
     assert.deepEqual({kind: starter.kind, id: starter.id, title: starter.title}, {
       kind: "page",
       id: COMMUNITY_DEMO_PAGE_ID,
-      title: "OpenGeo starter map"
+      title: "OpenGeo.Tools starter map"
     });
     assert.deepEqual({kind: massgisFolder.kind, id: massgisFolder.id, open: massgisFolder.open}, {
       kind: "group",
@@ -167,7 +167,7 @@ describe("public demo presentations", () => {
       geometryType: "Point",
       featureCount: 1,
       license: "CC0-1.0",
-      attribution: "OpenGeo.tools synthetic demonstration data"
+      attribution: "OpenGeo.Tools synthetic demonstration data"
     });
     assert.deepEqual({
       layerId: layer.layerId,
@@ -191,7 +191,7 @@ describe("public demo presentations", () => {
       pitch: 0,
       bearing: 0
     });
-    assert.equal(presentation.noticeTitle, "Public OpenGeo workbench");
+    assert.equal(presentation.noticeTitle, "Public OpenGeo Studio workbench");
   });
 
   it("reuses one MassGIS dataset identity while keeping each map style independent", () => {

@@ -653,7 +653,7 @@ describe("protected-copy workbench flow", () => {
     // A programmatic command invocation exercises the shared one-modal state
     // transition even though real pointer interaction behind an aria-modal is blocked.
     clickButton(shell, "Save as");
-    clickButton(document.querySelector('dialog[aria-label="Save as or export Project"]'), "Save a new OpenGeo map");
+    clickButton(document.querySelector('dialog[aria-label="Save as or export Project"]'), "Save a new OpenGeo Studio map");
     assert.equal(shell.querySelectorAll(".gis-preservation-dialog").length, 0);
     assert.equal(shell.querySelectorAll(".gis-save-as-dialog").length, 1);
     assert.equal(shell.querySelector(".gis-modal-layer").children.length, 1);

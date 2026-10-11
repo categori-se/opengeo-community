@@ -1,4 +1,16 @@
-# OpenGeo API
+# OpenGeo Studio API
+
+The API connects Studio to persistent Catalog resources, Projects, processing
+jobs and Publications. It verifies sign-in and current resource permissions,
+then commits versioned changes and activity through PostgreSQL transactions.
+
+Start with the [architecture and API entry points](../../docs/community-architecture.md#api-entry-points),
+then [run the connected local environment](../../docs/community-development.md)
+or follow the [AWS installation guide](../../docs/community-aws.md).
+The interface notes below describe implementation boundaries and retained
+acceptance history; they do not establish production acceptance of every route.
+
+## Implemented API surface
 
 This is the production API runtime foundation. The current surface includes:
 
@@ -6,7 +18,7 @@ This is the production API runtime foundation. The current surface includes:
 - `GET /health/ready` proves PostgreSQL accepts `SELECT 1`; failures return a sanitized `503` body.
 - `GET /auth/session` verifies a Cognito RS256 access token, resolves the subject to the application identity store, and returns its organization memberships.
 - `GET /organizations/current` performs the first RLS-protected domain read using verified user and organization values local to one PostgreSQL transaction.
-- organization/project membership reads plus client, project, and persistent-map REST operations described in [`docs/api.md`](../../docs/api.md).
+- organization/project membership reads plus client, project, and persistent-map REST operations described by the [workspace route modules](src/opengeo_api/workspace_routes.py) and their focused tests.
 - map compare-and-swap updates, version history, duplication, and archive status, with every durable write and activity event committed in one transaction.
 - project dataset list/read plus an exact signed S3 POST request→upload→verified completion flow that atomically creates object, logical version, queued job, and activity records without exposing storage coordinates in catalog responses.
 - organization/project catalog search and filters, authorized logical-version history, per-user dataset grants, and exact immutable-object download tickets with server-computed capabilities and no exposed storage coordinates.

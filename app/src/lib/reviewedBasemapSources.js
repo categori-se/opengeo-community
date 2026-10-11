@@ -161,7 +161,7 @@ export const BASEMAP_SOURCE_REVIEW_DECISIONS = deepFreeze([
     capabilityUrl: "https://tiles.maps.eox.at/wmts/1.0.0/WMTSCapabilities.xml",
     termsUrl: "https://cloudless.eox.at/documentation/license",
     decision: "not-default",
-    reason: "Current free imagery terms are non-commercial; OpenGeo's multi-tenant default catalog needs broader use rights."
+    reason: "Current free imagery terms are non-commercial; OpenGeo.Tools's multi-tenant default catalog needs broader use rights."
   },
   {
     candidateId: "osm-standard-public-tiles",

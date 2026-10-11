@@ -13,7 +13,7 @@ export async function writeStudioPwaAssets({
   outputRoot,
   applicationId,
   name,
-  shortName = "OpenGeo",
+  shortName = "OpenGeo Studio",
   description,
   startUrl = "/",
   routes = ["/"]
@@ -109,7 +109,7 @@ export function isCredentialFreeShellPath(path) {
 
 function serviceWorkerSource({applicationId, version, precacheUrls, routes}) {
   const cacheName = `${SHELL_CACHE_PREFIX}${applicationId}-${version}`;
-  return `/* Generated from a sealed OpenGeo build. Do not edit the release artifact. */
+  return `/* Generated from a sealed OpenGeo Studio build. Do not edit the release artifact. */
 const CACHE_PREFIX = ${JSON.stringify(`${SHELL_CACHE_PREFIX}${applicationId}-`)};
 const CACHE_NAME = ${JSON.stringify(cacheName)};
 const CAPTURE_SYNC_TAG = "opengeo-field-capture-v1";
@@ -210,7 +210,7 @@ function offlineHtml({name}) {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#4f8cff"><title>${title} · Offline</title>
 <style>html{color-scheme:dark;background:#111827;color:#f3f4f6;font:16px/1.5 system-ui,sans-serif}body{margin:0;display:grid;min-height:100vh;place-items:center}main{max-width:36rem;padding:2rem}a{color:#82b0ff}</style></head>
-<body><main><h1>You’re offline</h1><p>The sealed ${title} shell is installed, but this page was not cached. Reconnect to load managed data. Field observations already saved on this device remain queued without an access token.</p><p><a href="/">Return to OpenGeo</a></p></main></body></html>
+<body><main><h1>You’re offline</h1><p>The sealed ${title} shell is installed, but this page was not cached. Reconnect to load managed data. Field observations already saved on this device remain queued without an access token.</p><p><a href="/">Return to OpenGeo Studio</a></p></main></body></html>
 `;
 }
 

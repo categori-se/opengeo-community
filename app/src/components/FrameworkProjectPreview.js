@@ -294,7 +294,7 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
     try {await operation();}
     catch (error) {
       status.textContent = ['github_build_connection_not_configured','github_build_connection_ambiguous'].includes(error?.code)
-        ? 'Ask the deployment administrator to configure the build service, then retry. Your private draft remains saved in OpenGeo. No build was created.'
+        ? 'Ask the deployment administrator to configure the build service, then retry. Your private draft remains saved in OpenGeo Studio. No build was created.'
         : `Preview unavailable: ${error.message}. No replacement build or publication was started.`;
     } finally {
       busy = false; root.removeAttribute('aria-busy');

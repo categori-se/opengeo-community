@@ -22,8 +22,8 @@ export function PublicLibrary({library}) {
   const copy = document.createElement("div");
   copy.append(
     text("p", "Legacy publication archive", "start-eyebrow"),
-    text("h1", library?.title ?? "OpenGeo.tools publication library"),
-    text("p", library?.description ?? "Preserved OpenGeo articles, tutorials, maps, and working methods.")
+    text("h1", library?.title ?? "OpenGeo.Tools publication library"),
+    text("p", library?.description ?? "Preserved OpenGeo.Tools articles, tutorials, maps, and working methods.")
   );
   const app = link(
     "/workspaces?view=publishing",

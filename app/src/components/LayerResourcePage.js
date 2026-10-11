@@ -205,7 +205,7 @@ export function renderLayerResource({dataset, source: recordedSource = null, kno
   root.append(rights);
   const metadata = node("section");
   metadata.append(node("h2", "Metadata"),
-    node("p", "The catalog fields above are recorded OpenGeo facts. Original provider responses, curated assertions and machine inferences are not interchangeable."),
+    node("p", "The catalog fields above are recorded OpenGeo Studio facts. Original provider responses, curated assertions and machine inferences are not interchangeable."),
     jsonDetails("Recorded catalog fields", dataset));
   root.append(metadata, LayerGovernedMetadata({adapter, datasetId: dataset.id}), resourceKnowledge);
   if (dataset.sourceType === "upload" && dataset.status === "active" && dataset.capabilities?.edit

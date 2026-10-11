@@ -49,7 +49,7 @@ it("does no reads on page/open, checks deliberately and discloses omitted accoun
   command(root, "Check saved work").click(); await tick();
   assert.equal(checks, 1); assert.equal(downloads, 0);
   assert.match(root.querySelector('[role="status"]').textContent, /1 saved publications · 1 maps/);
-  assert.match(root.querySelector('[role="status"]').textContent, /2.0 KiB.*2 source file reads and 4 other OpenGeo reads/);
+  assert.match(root.querySelector('[role="status"]').textContent, /2.0 KiB.*2 source file reads and 4 other OpenGeo Studio reads/);
   assert.equal(root.querySelector("script"), null);
   assert.match(root.querySelector("ul").textContent, /Ownership unavailable/);
   command(root, "Download ZIP").click(); await tick();

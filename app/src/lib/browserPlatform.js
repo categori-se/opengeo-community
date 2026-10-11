@@ -158,7 +158,7 @@ export function createMapExportManifest({
     workspaceId: identifier(workspace?.workspaceId ?? workspace?.id),
     projectId: identifier(project?.projectId ?? project?.id ?? workspace?.projectId),
     mapId: identifier(project?.mapId ?? project?.id),
-    title: String(project?.name ?? project?.title ?? workspace?.title ?? "OpenGeo map").slice(0, 240),
+    title: String(project?.name ?? project?.title ?? workspace?.title ?? "OpenGeo Studio map").slice(0, 240),
     classification: String(workspace?.classification ?? "unclassified").slice(0, 64),
     image: {
       mediaType: format === "jpeg" ? "image/jpeg" : "image/png",

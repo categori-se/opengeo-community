@@ -42,7 +42,7 @@ export function publicationMapInsert({entryPath, name, blob, existingPaths = [],
       || modulePath.toLowerCase().startsWith(existing.toLowerCase() + '/'))) {
       throw Error('The map module path already exists or conflicts with the source tree.');
     }
-    files.push({relativePath: modulePath, blob: new Blob([`// OpenGeo portable map viewer.\nexport ${createView.toString()}\n`], {type: 'text/javascript'}), contentType: 'text/javascript'});
+    files.push({relativePath: modulePath, blob: new Blob([`// OpenGeo Studio portable map viewer.\nexport ${createView.toString()}\n`], {type: 'text/javascript'}), contentType: 'text/javascript'});
   }
 
   if (notebook) {

@@ -223,7 +223,7 @@ describe("GeoMoose-comparable temporary annotation workflow", () => {
     const exportDialog = document.querySelector('dialog[aria-label="Save as or export Project"]');
     assert.ok(exportDialog);
     assert.deepEqual([...exportDialog.querySelectorAll('option')].map(option => option.value),
-      ['geolibre', 'geomoose', 'wmc', 'png', 'html']);
+      ['geolibre', 'geomoose', 'wmc', 'png', 'jpeg', 'html']);
     clickableButton(exportDialog, "Close").click();
 
     shell.querySelector('.gis-primary-command[data-primary-command="open-file"]').click();
@@ -245,7 +245,7 @@ describe("GeoMoose-comparable temporary annotation workflow", () => {
     Object.defineProperty(input, 'files', {configurable: true, value: [{name: 'another-project.json', size: source.length, text: async () => source}]});
     input.dispatchEvent(new harness.dom.window.Event('change'));
     const review = await waitFor(() => document.querySelector('dialog[aria-label="Review Project file"]'));
-    assert.match(review.textContent, /another-project\.json · OpenGeo browser Project/);
+    assert.match(review.textContent, /another-project\.json · OpenGeo Studio browser Project/);
     assert.match(review.textContent, /Opening replaces this browser draft/);
     assert.ok(clickableButton(review, 'Open in this Project'));
     clickableButton(review, 'Cancel').click();

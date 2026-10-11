@@ -99,7 +99,7 @@ function preserveOnlySource({id, label, section, tier, summary, loss, evidence})
     summary,
     operations: operations({
       preserve: preserveOnly("The source definition can be retained inertly in a project conversion report.")
-    }, "No executable OpenGeo source adapter is registered for this GeoLibre source family."),
+    }, "No executable OpenGeo Studio source adapter is registered for this GeoLibre source family."),
     losses: [loss],
     evidence
   });
@@ -205,7 +205,7 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
       stream: bounded("Anonymous browser tile streaming from the registered public host."),
       preview: bounded("Current map view only; source completeness is not inferred."),
       preserve: available("Versioned source configuration is retained without credentials.")
-    }, "OpenGeo does not write or edit upstream XYZ tiles."),
+    }, "OpenGeo Studio does not write or edit upstream XYZ tiles."),
     losses: ["No complete archive, upstream availability guarantee, private credentials, or write-back is claimed."],
     evidence: ["services/api/src/opengeo_api/external_source_routes.py", "app/src/lib/basemapSource.js"]
   }),
@@ -222,7 +222,7 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
       stream: bounded("Browser image reads only; service discovery is a separate reviewed action."),
       preview: bounded("Current map extent and declared layer list."),
       preserve: bounded("Versioned configuration and one explicit protected PNG custody object."),
-    }, "OpenGeo does not edit or write to the upstream WMS."),
+    }, "OpenGeo Studio does not edit or write to the upstream WMS."),
     losses: ["Capabilities breadth, dimensions, alternate CRS/formats, private upstream auth, and complete archival are not claimed."],
     evidence: ["services/api/src/opengeo_api/external_source_routes.py", "services/api/src/opengeo_api/source_archiver.py"]
   }),
@@ -279,13 +279,13 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
   }),
   preserveOnlySource({
     id: "wmts", label: "WMTS", section: "web-services", tier: "intermediate",
-    summary: "External WMTS definitions are retained separately from OpenGeo's administered WMTS output.",
+    summary: "External WMTS definitions are retained separately from OpenGeo Studio's administered WMTS output.",
     loss: "Arbitrary upstream capabilities, matrices, encodings, dimensions, and tile templates are not registered.",
     evidence: ["app/src/lib/geolibreProject.js", "services/api/src/opengeo_api/tile_cache_routes.py"]
   }),
   preserveOnlySource({
     id: "ogc-features", label: "OGC API Features", section: "web-services", tier: "intermediate",
-    summary: "External OGC API Features definitions are retained; OpenGeo's own collection output remains separate.",
+    summary: "External OGC API Features definitions are retained; OpenGeo Studio's own collection output remains separate.",
     loss: "External landing-page discovery, collection paging, filters, CRS, and writes are not registered.",
     evidence: ["app/src/lib/geolibreProject.js", "services/api/src/opengeo_api/ogc_feature_routes.py"]
   }),
@@ -358,7 +358,7 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
   }),
   preserveOnlySource({
     id: "flatgeobuf", label: "FlatGeobuf", section: "cloud", tier: "intermediate",
-    summary: "FlatGeobuf definitions are retained; exact MapServer compatibility is evidence, not managed OpenGeo ingest.",
+    summary: "FlatGeobuf definitions are retained; exact MapServer compatibility is evidence, not managed OpenGeo Studio ingest.",
     loss: "Remote range streaming, spatial index use, managed upload, derivatives, and editing are not supported.",
     evidence: ["parity/reports/mapserver-004-format-matrix-peer.json"]
   }),

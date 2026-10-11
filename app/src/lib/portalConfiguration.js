@@ -30,7 +30,7 @@ export function createPortalConfiguration({
   catalog = [],
   tools = [],
   locations = [],
-  theme = {id: "opengeo-default", title: "OpenGeo default", colorMode: "dark"},
+  theme = {id: "opengeo-default", title: "OpenGeo Studio default", colorMode: "dark"},
   upstream = null
 } = {}) {
   return normalizePortalConfiguration({

@@ -51,10 +51,29 @@ def digest(body):
     return hashlib.sha256(body).hexdigest()
 
 
+def database_initialization_sources(baseline=None, root=None):
+    root = root or ROOT
+    baseline = baseline or BASELINE
+    version = int(baseline.name.split("_", 1)[0])
+    migrations = sorted(
+        path for path in (root / "database/migrations").glob("[0-9][0-9][0-9][0-9]_*.sql")
+        if int(path.name.split("_", 1)[0]) > version
+    )
+    return [baseline, *migrations]
+
+
+def stage_database_initialization(init, sources=None):
+    init.chmod(0o755)
+    for index, source in enumerate(sources or database_initialization_sources(), 1):
+        target = init / f"{index:03}.sql"
+        shutil.copyfile(source, target)
+        target.chmod(0o444)
+
+
 def source_fingerprints():
     paths = [
         Path(__file__),
-        BASELINE,
+        *database_initialization_sources(),
         ROOT / "database/baselines/0082_opengeo_schema.sql",
         ROOT / "database/migrations/0083_user_dataset_connection_revision_read.sql",
         ROOT / "database/migrations/0084_map_resource_version_bindings.sql",
@@ -656,16 +675,24 @@ async def api(stage):
             )
             reopened = await request("GET", f"{base}/maps/{map_record['id']}")
             assert reopened["definition"]["layers"][0]["datasetVersionId"] == version_id
+            # Map creation owns the canonical governed record. Reuse that
+            # identity rather than attempting a second resource for the same map.
+            map_resources = await request("GET", f"{base}/resources?kind=map")
+            matching = [item for item in map_resources if item["map_id"] == map_record["id"]]
+            assert len(matching) == 1
+            map_resource = await request("GET", f"{base}/resources/{matching[0]['id']}")
             map_resource = await request(
-                "POST",
-                f"{base}/resources",
+                "PUT",
+                f"{base}/resources/{map_resource['id']}",
                 {
-                    "kind": "map",
-                    "slug": "watershed-map",
-                    "map_id": map_record["id"],
+                    "expected_version": map_resource["version_number"],
+                    "expected_map_version": reopened["version"],
+                    "visibility": map_resource["visibility"],
                     "metadata": metadata("Watershed map"),
+                    "content": map_resource["content"],
+                    "provenance": map_resource["provenance"],
+                    "change_message": "Prepare the retained canonical map for local publication",
                 },
-                201,
             )
             map_resource = await publish_resource(map_resource)
             story = await request(
@@ -1010,7 +1037,7 @@ def orchestrate():
     work = Path(tempfile.mkdtemp(prefix="opengeo-integrated-pilot-"))
     init = work / "init"
     init.mkdir()
-    shutil.copyfile(BASELINE, init / "001-baseline.sql")
+    stage_database_initialization(init)
     template = subprocess.run(
         [
             "node",

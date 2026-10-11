@@ -405,7 +405,7 @@ export function ProjectFederations({state}) {
     submit.type = "submit";
     const feedback = text(
       "p",
-      "Only the sealed OpenGeo GeoNode 5.1 configuration schema is accepted. Secret-bearing fields are rejected.",
+      "Only the sealed OpenGeo Studio GeoNode 5.1 configuration schema is accepted. Secret-bearing fields are rejected.",
       "project-resource-feedback"
     );
     form.append(field("Configuration JSON", source), submit, feedback);

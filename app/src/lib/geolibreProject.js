@@ -101,7 +101,7 @@ export function importGeoLibreProject(input) {
       ...(isRecord(secondary.layerVisibility) ? {layerVisibility: cloneJson(secondary.layerVisibility)} : {})
     });
   }
-  addField(report, "$.mapView", "mapped", "Primary camera mapped to the OpenGeo primary view.", "$.definition.mapViews[0]");
+  addField(report, "$.mapView", "mapped", "Primary camera mapped to the OpenGeo Studio primary view.", "$.definition.mapViews[0]");
   if (mapViews.length > 1) {
     addField(report, "$.secondaryMapViews", "mapped", "Secondary camera records mapped without changing their layer visibility overrides.", "$.definition.mapViews[1:]");
   }
@@ -167,21 +167,21 @@ export function importGeoLibreProject(input) {
   };
   if (project.primaryRenderer === "cesium" || project.primaryRenderer === "maplibre") {
     definition.extensions.opengeoRenderer = {id: project.primaryRenderer};
-    addField(report, "$.primaryRenderer", "mapped", "Primary renderer mapped to the saved OpenGeo preference; activation still checks content compatibility.", "$.definition.extensions.opengeoRenderer.id");
+    addField(report, "$.primaryRenderer", "mapped", "Primary renderer mapped to the saved OpenGeo Studio preference; activation still checks content compatibility.", "$.definition.extensions.opengeoRenderer.id");
   } else if (project.primaryRenderer !== undefined && project.primaryRenderer !== null) {
-    addField(report, "$.primaryRenderer", "unsupported", "Unknown primary renderer retained in the source extension; OpenGeo opens with MapLibre.", "$.definition.extensions.geolibre.project.primaryRenderer");
+    addField(report, "$.primaryRenderer", "unsupported", "Unknown primary renderer retained in the source extension; OpenGeo Studio opens with MapLibre.", "$.definition.extensions.geolibre.project.primaryRenderer");
   }
   if (raw.primaryRenderer !== undefined) {
     report.warnings.push("Renderer mapping uses the pinned GeoLibre 3.0.0 source. The file declares its project format, not its producing application release; the reference pin is not file provenance.");
   }
   if (project.preferences?.map?.cesiumBasemap !== undefined || project.preferences?.map?.terrainEnabled === true) {
-    addField(report, "$.preferences.map", "preserved_extension", "GeoLibre native basemap and terrain settings are retained as preferences but are not activated by renderer conversion. Review the background and terrain in OpenGeo.", "$.definition.preferences.map");
+    addField(report, "$.preferences.map", "preserved_extension", "GeoLibre native basemap and terrain settings are retained as preferences but are not activated by renderer conversion. Review the background and terrain in OpenGeo Studio.", "$.definition.preferences.map");
   }
-  addField(report, "$.name", "mapped", "Project name mapped to the OpenGeo map record.", "$.map.name");
+  addField(report, "$.name", "mapped", "Project name mapped to the OpenGeo Studio map record.", "$.map.name");
   addField(report, "$.styles", "mapped", "Named styles retained in the map definition and the GeoLibre extension.", "$.definition.styles");
-  addField(report, "$.metadata", "mapped", "Project metadata retained as structured OpenGeo metadata.", "$.definition.metadata");
+  addField(report, "$.metadata", "mapped", "Project metadata retained as structured OpenGeo Studio metadata.", "$.definition.metadata");
   for (const [key, target] of Object.entries(NATIVE_ROOT_MAPPINGS)) {
-    if (project[key] !== undefined) addField(report, `$.${key}`, "mapped", `${key} retained as structured OpenGeo project state.`, `$.definition.${target}`);
+    if (project[key] !== undefined) addField(report, `$.${key}`, "mapped", `${key} retained as structured OpenGeo Studio project state.`, `$.definition.${target}`);
   }
   for (const model of processingConversion.models) {
     for (const step of model.steps) {
@@ -190,7 +190,7 @@ export function importGeoLibreProject(input) {
         `$.models.${model.id}.steps.${step.id}`,
         step.status === "mapped" ? "mapped" : "unsupported",
         step.status === "mapped"
-          ? `GeoLibre tool ${step.sourceToolId} maps to OpenGeo tool ${step.openGeoToolId}; import remains non-executing.`
+          ? `GeoLibre tool ${step.sourceToolId} maps to OpenGeo Studio tool ${step.openGeoToolId}; import remains non-executing.`
           : `GeoLibre tool ${step.sourceToolId} is preserved with an operation-level unsupported result and is never executed during import.`,
         `$.definition.extensions.geolibre.processingConversion.models.${model.id}.steps.${step.id}`
       );
@@ -202,8 +202,8 @@ export function importGeoLibreProject(input) {
       `$.processingHistory.${run.id}`,
       run.status === "mapped" ? "mapped" : "unsupported",
       run.status === "mapped"
-        ? `GeoLibre history tool ${run.sourceToolId} maps to OpenGeo tool ${run.openGeoToolId}.`
-        : `GeoLibre history tool ${run.sourceToolId} remains preserved and cannot be re-run in OpenGeo.`,
+        ? `GeoLibre history tool ${run.sourceToolId} maps to OpenGeo Studio tool ${run.openGeoToolId}.`
+        : `GeoLibre history tool ${run.sourceToolId} remains preserved and cannot be re-run in OpenGeo Studio.`,
       `$.definition.extensions.geolibre.processingConversion.history.${run.id}`
     );
   }
@@ -226,7 +226,7 @@ export function importGeoLibreProject(input) {
 }
 
 export function exportGeoLibreProject(openGeo, options = {}) {
-  if (!isRecord(openGeo)) throw new Error("OpenGeo project must be an object.");
+  if (!isRecord(openGeo)) throw new Error("OpenGeo Studio project must be an object.");
   const inputDefinition = isRecord(openGeo.definition) ? openGeo.definition : openGeo;
   // Workbench snapshots contain unset optional object properties. Match saved
   // JSON's omission of these while still rejecting invalid arrays/values before
@@ -242,7 +242,7 @@ export function exportGeoLibreProject(openGeo, options = {}) {
   const primaryView = array(definition.mapViews)[0];
   const basemap = array(definition.basemaps).find((entry) => entry?.visible !== false) ?? array(definition.basemaps)[0];
   project.version = GEOLIBRE_PROJECT_VERSION;
-  project.name = requiredName(openGeo.name ?? definition.name ?? project.name ?? "OpenGeo project", "OpenGeo project name");
+  project.name = requiredName(openGeo.name ?? definition.name ?? project.name ?? "OpenGeo Studio project", "OpenGeo Studio project name");
   project.mapView = geoLibreView(primaryView ?? project.mapView);
   project.basemapStyleUrl = typeof basemap?.url === "string" ? basemap.url : stringOr(project.basemapStyleUrl, "");
   project.basemapVisible = basemap ? basemap.visible !== false : project.basemapVisible !== false;
@@ -258,7 +258,7 @@ export function exportGeoLibreProject(openGeo, options = {}) {
     if (renderer === "maplibre") {
       addField(report, "$.definition.extensions.opengeoRenderer.id", "mapped", "MapLibre is the default GeoLibre primary renderer; the non-default field is omitted.", "$.primaryRenderer");
     } else {
-      addField(report, "$.definition.extensions.opengeoRenderer.id", "preserved_extension", "This renderer has no native primaryRenderer value in the reviewed GeoLibre format. Its preference remains in OpenGeo metadata; GeoLibre opens its default renderer.", "$.metadata.opengeo.definitionExtensions.opengeoRenderer");
+      addField(report, "$.definition.extensions.opengeoRenderer.id", "preserved_extension", "This renderer has no native primaryRenderer value in the reviewed GeoLibre format. Its preference remains in OpenGeo Studio metadata; GeoLibre opens its default renderer.", "$.metadata.opengeo.definitionExtensions.opengeoRenderer");
     }
   }
   if (project.primaryRenderer === "cesium") {
@@ -290,15 +290,15 @@ export function exportGeoLibreProject(openGeo, options = {}) {
       addField(report, `$.extensions.geolibre.project.layers.${id}`, "preserved_extension", "A GeoLibre-only layer remains a native GeoLibre layer on compatibility export.", `$.layers[${project.layers.length - 1}]`);
     }
   }
-  addField(report, "$.definition.mapViews[0]", "mapped", "Primary OpenGeo camera mapped to GeoLibre mapView.", "$.mapView");
-  addField(report, "$.definition.basemaps", "mapped", "The active OpenGeo basemap mapped to the GeoLibre style reference.", "$.basemapStyleUrl");
+  addField(report, "$.definition.mapViews[0]", "mapped", "Primary OpenGeo Studio camera mapped to GeoLibre mapView.", "$.mapView");
+  addField(report, "$.definition.basemaps", "mapped", "The active OpenGeo Studio basemap mapped to the GeoLibre style reference.", "$.basemapStyleUrl");
   if (definition.models !== undefined) {
     addField(report, "$.definition.models", "mapped", "Saved processing models mapped to GeoLibre native model records.", "$.models");
   }
   if (definition.processingHistory !== undefined) {
-    addField(report, "$.definition.processingHistory", "mapped", "Portable processing history mapped to GeoLibre native run records; OpenGeo receipt extensions remain in OpenGeo metadata.", "$.processingHistory");
+    addField(report, "$.definition.processingHistory", "mapped", "Portable processing history mapped to GeoLibre native run records; OpenGeo Studio receipt extensions remain in OpenGeo Studio metadata.", "$.processingHistory");
   }
-  addField(report, "$.definition.extensions", "preserved_extension", "OpenGeo extensions are nested under project metadata instead of flattened.", "$.metadata.opengeo.definitionExtensions");
+  addField(report, "$.definition.extensions", "preserved_extension", "OpenGeo Studio extensions are nested under project metadata instead of flattened.", "$.metadata.opengeo.definitionExtensions");
   finishReport(report);
   const sanitized = sanitizeProject(project, report);
   finishReport(report);
@@ -405,7 +405,7 @@ function importLayer(layer, index, report, externalSources, embeddedDatasets) {
     addField(report, `$.layers[${index}]`, "mapped", `${type} URL mapped without dereferencing it.`, `$.definition.layers[${index}]`);
     return common;
   }
-  addField(report, `$.layers[${index}]`, "unsupported", `GeoLibre ${type} is retained in the extension but has no safe native OpenGeo mapping in this increment.`);
+  addField(report, `$.layers[${index}]`, "unsupported", `GeoLibre ${type} is retained in the extension but has no safe native OpenGeo Studio mapping in this increment.`);
   return null;
 }
 
@@ -423,10 +423,10 @@ function reportLayerPreservation(layer, index, report) {
 }
 
 function exportLayer(layer, index, original, embedded, report) {
-  const id = requiredId(layer.layerId ?? original?.id ?? `layer-${index}`, `OpenGeo layer ${index} id`);
+  const id = requiredId(layer.layerId ?? original?.id ?? `layer-${index}`, `OpenGeo Studio layer ${index} id`);
   const output = isRecord(original) ? cloneJson(original) : {};
   output.id = id;
-  output.name = requiredName(layer.title ?? original?.name ?? id, `OpenGeo layer ${id} name`);
+  output.name = requiredName(layer.title ?? original?.name ?? id, `OpenGeo Studio layer ${id} name`);
   output.visible = layer.visible !== false;
   output.opacity = clamp(numberOr(layer.opacity, 1), 0, 1);
   output.style = geoLibreStyle(layer.style, layer.labels, output.style);
@@ -463,13 +463,13 @@ function exportLayer(layer, index, original, embedded, report) {
     output.source = {type: "geojson", url: layer.sourceUrl};
     delete output.geojson;
   } else if (isRecord(original)) {
-    addField(report, `$.definition.layers[${index}].sourceType`, "preserved_extension", "The original GeoLibre source is retained; the current OpenGeo record is nested in layer metadata.", `$.layers[${index}].metadata.opengeo.layer`);
+    addField(report, `$.definition.layers[${index}].sourceType`, "preserved_extension", "The original GeoLibre source is retained; the current OpenGeo Studio record is nested in layer metadata.", `$.layers[${index}].metadata.opengeo.layer`);
   } else {
     output.type = "geojson";
     output.source = {type: "geojson"};
     output.geojson = {type: "FeatureCollection", features: []};
     output.visible = false;
-    report.losses.push(`Layer ${id} has no GeoLibre source mapping; GeoLibre receives a hidden empty placeholder while the OpenGeo record remains in metadata.`);
+    report.losses.push(`Layer ${id} has no GeoLibre source mapping; GeoLibre receives a hidden empty placeholder while the OpenGeo Studio record remains in metadata.`);
     addField(report, `$.definition.layers[${index}].sourceType`, "unsupported", "No GeoLibre source adapter exists; a reversible metadata envelope accompanies a hidden placeholder.", `$.layers[${index}].metadata.opengeo.layer`);
   }
   addField(report, `$.definition.layers[${index}]`, "mapped", "Layer identity, presentation, and supported style fields mapped to GeoLibre.", `$.layers[${index}]`);
@@ -530,7 +530,7 @@ function sanitizeValue(value, path, report, state, depth) {
     const nextPath = `${path}.${key}`;
     const environmentValue = key === "value" && /\.preferences\.environmentVariables\[\d+\]$/.test(path);
     if (environmentValue || SENSITIVE_KEY.test(key)) {
-      rejectSensitive(report, nextPath, "Sensitive value was removed; OpenGeo does not persist imported credentials in project JSON.");
+      rejectSensitive(report, nextPath, "Sensitive value was removed; OpenGeo Studio does not persist imported credentials in project JSON.");
       continue;
     }
     output[key] = sanitizeValue(entry, nextPath, report, state, depth + 1);

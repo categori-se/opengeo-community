@@ -24,6 +24,8 @@ import {
   legacyStudioRoutes
 } from "./application-route-inventory.mjs";
 
+import {communityDeploymentEnabled, reviewedStudioOrigin} from "./studio-release-config.mjs";
+
 const PRODUCTION_ACCOUNT = "111111111111";
 
 export async function deployStaticRelease(options) {
@@ -771,9 +773,16 @@ function matchesApplicationRouteContract(manifest, routes) {
 }
 
 function isReviewedStudioOrigin(value) {
-  return value === "https://studio.opengeo.tools"
-    || value === "https://dev.studio.opengeo.tools"
-    || /^https:\/\/d[a-z0-9]{5,30}\.cloudfront\.net$/.test(value ?? "");
+  if (!communityDeploymentEnabled()) {
+    return value === "https://studio.opengeo.tools"
+      || value === "https://dev.studio.opengeo.tools"
+      || /^https:\/\/d[a-z0-9]{5,30}\.cloudfront\.net$/.test(value ?? "");
+  }
+  try {
+    return reviewedStudioOrigin(value) === value;
+  } catch {
+    return false;
+  }
 }
 
 export function assertLegacyPublicRollbackSupplement(value) {
@@ -994,11 +1003,15 @@ async function createAndWaitForInvalidation(distributionId, profile, onCreated =
 }
 
 function aws(args, profile) {
-  execFileSync("aws", [...args, "--profile", profile], {stdio: "inherit"});
+  execFileSync("aws", [...args, "--profile", profile,
+    ...(communityDeploymentEnabled() ? ["--region", "us-east-1"] : [])
+  ], {stdio: "inherit"});
 }
 
 function awsJson(args, profile) {
-  const output = execFileSync("aws", [...args, "--profile", profile, "--output", "json"], {
+  const output = execFileSync("aws", [...args, "--profile", profile, "--output", "json",
+    ...(communityDeploymentEnabled() ? ["--region", "us-east-1"] : [])
+  ], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"]
   });

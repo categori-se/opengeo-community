@@ -1,4 +1,4 @@
-# Community development on Linux
+# Develop OpenGeo Studio on Linux
 
 The community source uses the maintained Studio, API, PostgreSQL/PostGIS schema,
 GIS worker and publication components. It is a prerelease. The existing integrated
@@ -6,13 +6,27 @@ runner now has a durable **local development** mode; its default automated
 acceptance mode remains disposable. This mode is not an internet-facing or
 multiuser production installation.
 
-On October 11, 2026, one bounded headless Chromium journey created a Project and
-empty map through Studio, stopped the local database, restarted it, and reopened
-the exact saved map through Studio and the authorized API. It reused existing
-container images and sealed frontend bytes, took 43.873 seconds, and removed its
-temporary database and named volume afterward. Focused runner and built-shell
-checks pass. This does not establish a fresh dependency/image build, graphical
-Chromium sandbox startup, large uploads or the full publication workflow.
+For the relationship between our public site, hosted Studio and anonymous demo,
+see [OpenGeo Studio deployment examples](community-deployments.md).
+
+On October 11, 2026, Studio was built from the public source into a sealed
+819-file frontend tree using existing installed dependencies and a newly populated
+Observable build cache. A bounded Chromium journey created a Project and map,
+stopped and restarted the database, and reopened the exact saved map through
+Studio and the authorized API in 39.811 seconds. It reused cached API/worker
+images. Temporary smoke containers and the named database volume were removed.
+Runner checks and focused Catalog preview, Project save and navigation checks pass.
+
+A separate API/PostGIS/worker pilot completed in 57.952 seconds. It processed
+real features into PMTiles and PNG, composed and reopened a map, exported metadata,
+packaged a two-page Publication ZIP, and checked anonymous access, reviewer
+permissions and revocation. It used cached images and synthetic identities;
+native Notebook/Framework compilation and the full browser publication journey
+remain acceptance items in the rollout.
+
+The recorded scope covers source-built frontend behavior and local persistence.
+Clean-machine dependency/container builds, graphical Chromium sandbox startup,
+large uploads and native publication delivery remain separate acceptance items.
 
 Development mode opens a managed Chromium window with synthetic owner sign-in.
 Only `127.0.0.1` is served. API and database containers have no external network or
@@ -26,8 +40,8 @@ transports are development substitutes, not Cognito, S3 encryption or AWS eviden
 Use Linux, Node.js 24/npm, Python 3.13, rootless Podman, and system Chromium at
 `/usr/bin/chromium`, `/usr/bin/chromium-browser` or `/usr/bin/google-chrome`.
 Interactive development requires a graphical session and a functioning Chromium
-sandbox. Internet access is required to install dependencies and build the initial
-images. This setup does not require AWS credentials or a provider account.
+sandbox. Internet access is required to install dependencies, build the initial
+images and populate the Observable cache during the first Studio build. This setup does not require AWS credentials or a provider account.
 
 From the repository root:
 
@@ -106,11 +120,11 @@ availability, hosted publication delivery or operational recovery. The existing
 [focused checks](../scripts/test_integrated_local.py) retain the development and
 automated acceptance modes in one maintained path.
 
-The production self-host roadmap must finish durable real identity, configurable
-storage/queue transports, repeatable migration/backup operations and a supported
-installation journey before claiming a complete production edition. Reuse the
-existing components, deployment and acceptance paths for those outcomes. Optional
-renderer adapters and historical parity gaps do not block the core local workflow.
+Use the [AWS deployment guide](community-aws.md) for account-owned Cognito,
+encrypted storage, queues, database initialization, infrastructure deployment and
+sealed Studio releases. That guide records standalone AWS acceptance and the
+remaining native publication deployment increment. The
+[community roadmap](../ROADMAP.md) sequences feature work by public benefit.
 
 Preserve the [foundation register](../governance/open-source-foundations.json),
 [license and attribution guidance](open-source-foundations.md), upstream license

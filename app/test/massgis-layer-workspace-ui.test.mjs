@@ -88,14 +88,14 @@ describe("MassGIS multi-layer project workspace", () => {
     assert.equal(loading.getAttribute("role"), "status");
     assert.equal(loading.getAttribute("aria-live"), "polite");
     assert.equal(loading.dataset.pending, "0");
-    assert.match(loading.textContent, /Map sources ready/);
+    assert.match(loading.textContent, /Starting map…/);
     assert.match(
       layerRow(shell, "massgis_pm25_concentration").querySelector(".gis-layer-popover-meta").textContent,
       /Polygon/
     );
     button(shell, "Project").click();
     assert.ok([...shell.querySelectorAll(".gis-menu-dropdown button")]
-      .some((control) => control.querySelector("span")?.textContent === "Export current map PNG"));
+      .some((control) => control.querySelector("span")?.textContent === "Save as / export…"));
   });
 
   it("treats KML as a styled layer with compact source-content controls", () => {
@@ -215,7 +215,7 @@ describe("MassGIS multi-layer project workspace", () => {
     assert.equal(switcher.disabled, false);
     assert.equal(switcher.getAttribute("aria-label"), "Switch public project or map");
     assert.equal(switcher.options.length, 32);
-    assert.equal(switcher.options[0].textContent, "OpenGeo starter map");
+    assert.equal(switcher.options[0].textContent, "OpenGeo.Tools starter map");
     assert.ok([...switcher.options].some(({textContent}) => textContent === "PM2.5 concentration"));
     switcher.value = "community-facilities";
     switcher.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));

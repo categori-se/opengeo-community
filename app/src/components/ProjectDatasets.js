@@ -892,7 +892,7 @@ async function loadRepositorySource({state, dataset, details, history}) {
       text("h4", "Connected repository source"),
       text(
         "p",
-        "OpenGeo registered this exact provider version without copying its bytes. Import or preservation remains a separate reviewed action.",
+        "OpenGeo Studio registered this exact provider version without copying its bytes. Import or preservation remains a separate reviewed action.",
         "project-catalog-feedback"
       )
     );
@@ -968,7 +968,7 @@ function renderRepositoryProtectedCopyPanel({
     text("h4", "Protected repository copy"),
     text(
       "p",
-      "Keep the live, exact provider reference and create a separate immutable managed version. OpenGeo fetches only the registered S3 VersionId, verifies its recorded facts, stores it with KMS encryption, and sends it through ordinary dataset validation.",
+      "Keep the live, exact provider reference and create a separate immutable managed version. OpenGeo Studio fetches only the registered S3 VersionId, verifies its recorded facts, stores it with KMS encryption, and sends it through ordinary dataset validation.",
       "project-catalog-feedback"
     )
   );
@@ -1090,7 +1090,7 @@ function repositoryCopyAcceptanceForm({state, dataset, details, source, jobs, es
   for (const [label, value] of [
     ["Sealed size", repositorySize(estimate.maximumOutputBytes)],
     ["Maximum requests", estimate.maximumRequests],
-    ["Estimated OpenGeo cost", `$${Number(estimate.estimatedCostUsd).toFixed(6)}`],
+    ["Estimated OpenGeo Studio cost", `$${Number(estimate.estimatedCostUsd).toFixed(6)}`],
     ["Estimate expires", new Date(estimate.expiresAt).toLocaleString()]
   ]) estimateFacts.append(fact(label, value));
 
@@ -1992,7 +1992,7 @@ function featureFieldDraftsRead(drafts, {depth = 0, counter = {value: 0}} = {}) 
     }
     const folded = name.toLocaleLowerCase();
     if (FEATURE_FIELD_RESERVED_NAMES.has(folded)) {
-      throw featureSchemaError(`${position} uses a reserved OpenGeo field name.`);
+      throw featureSchemaError(`${position} uses a reserved OpenGeo Studio field name.`);
     }
     if (seen.has(folded)) {
       throw featureSchemaError(`${position} duplicates another stable field name in its group.`);
@@ -4092,7 +4092,7 @@ function uploadForm(state, refresh, section) {
     text("h3", "Register a dataset, image, or PDF"),
     text(
       "p",
-      "The browser hashes the file, uploads it directly with a short-lived exact S3 policy, then asks OpenGeo to verify and queue it. Private originals are malware-scanned; images are normalized and PDFs receive an isolated first-page preview before activation.",
+      "The browser hashes the file, uploads it directly with a short-lived exact S3 policy, then asks OpenGeo Studio to verify and queue it. Private originals are malware-scanned; images are normalized and PDFs receive an isolated first-page preview before activation.",
       "note"
     )
   );

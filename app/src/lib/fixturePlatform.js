@@ -88,7 +88,7 @@ export class FixturePlatformAdapter {
     const fixtureNow = this.catalog.workspaces[0]?.updatedAt ?? new Date().toISOString();
     this.teams = [{
       id: TEAM_ID,
-      name: "OpenGeo research team",
+      name: "OpenGeo.Tools research team",
       description: "Shared project collaborators",
       status: "active",
       callerRole: "owner",
@@ -103,7 +103,7 @@ export class FixturePlatformAdapter {
       id: crypto.randomUUID(),
       projectId: FIXTURE_PROJECTS[0].projectId,
       teamId: TEAM_ID,
-      teamName: "OpenGeo research team",
+      teamName: "OpenGeo.Tools research team",
       role: "editor",
       createdAt: fixtureNow,
       updatedAt: fixtureNow
@@ -291,7 +291,7 @@ export class FixturePlatformAdapter {
   async getCurrentOrganization() {
     return {
       id: ORGANIZATION_ID,
-      name: this.catalog.tenants[0]?.name ?? "OpenGeo Fixture Organization",
+      name: this.catalog.tenants[0]?.name ?? "OpenGeo.Tools Fixture Organization",
       slug: "opengeo-fixture",
       status: "active",
       callerRole: "admin"
@@ -6134,7 +6134,7 @@ function fixtureResource(binding, index) {
       : "A governed project document available without an upstream runtime.",
     language: "en",
     license: "CC-BY-4.0",
-    attribution: "OpenGeo fixture research team",
+    attribution: "OpenGeo.Tools fixture research team",
     keywords: geonode ? ["energy", "research", "geonode"] : ["brief"],
     spatialExtent: geonode ? [80.0, 26.0, 88.2, 30.5] : null,
     temporalStart: geonode ? "2025-01-01T00:00:00Z" : null,
@@ -6152,7 +6152,7 @@ function fixtureResource(binding, index) {
           ne: {
             title: "नेपाल ऊर्जा पहुँच कथा",
             abstract: "अनुसन्धान र नक्सालाई एउटै प्रकाशनमा जोड्ने ऊर्जा पहुँच कथा।",
-            attribution: "OpenGeo नमुना अनुसन्धान टोली",
+            attribution: "OpenGeo.Tools नमुना अनुसन्धान टोली",
             keywords: ["ऊर्जा", "अनुसन्धान"]
           }
         }

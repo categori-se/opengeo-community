@@ -1,5 +1,0 @@
-[profile opengeo-dev-operator]
-role_arn = arn:aws:iam::794092248692:role/opengeo/dev/OpenGeoDevOperatorRole
-source_profile = opengeo-dev-bootstrap
-region = us-east-1
-role_session_name = opengeo-dev-operator

@@ -1,4 +1,4 @@
-# OpenGeo builder cache seed
+# OpenGeo.Tools builder cache seed
 
 ```js
 import {html} from "npm:htl@1.0.0";

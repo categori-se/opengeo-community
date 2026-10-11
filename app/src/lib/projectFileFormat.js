@@ -16,7 +16,7 @@ export function savedProjectVersionFile(compositionId, retained) {
 
 // A file's original IDs and history are descriptive, never authority or a save target.
 export function readSavedProjectVersionFile(source) {
-  if (identifyProjectFileFormat(source) !== "opengeo-managed") throw new TypeError("Choose a saved OpenGeo Project snapshot.");
+  if (identifyProjectFileFormat(source) !== "opengeo-managed") throw new TypeError("Choose a saved OpenGeo Studio Project snapshot.");
   const snapshot = JSON.parse(source, (_key, value) => {
     if (typeof value === "number" && !Number.isFinite(value)) throw new TypeError("Saved Project contains a non-finite number.");
     return value;
@@ -45,7 +45,7 @@ export function identifyProjectFileFormat(source, {Parser = globalThis.DOMParser
     if (value.persistence?.mode === "browser-only-demo") return "opengeo-browser";
     if (value.persistence?.provider || value.persistence?.mode) return "opengeo-managed";
     if (["0.1.0", "0.2.0"].includes(value.version) && Array.isArray(value.layers) && value.mapView) return "geolibre";
-    throw new TypeError("Unsupported Project JSON. Choose a supported OpenGeo or GeoLibre Project file.");
+    throw new TypeError("Unsupported Project JSON. Choose a supported OpenGeo Studio or GeoLibre Project file.");
   }
   if (content.startsWith("<")) {
     if (new TextEncoder().encode(source).byteLength > MAX_XML_BYTES) throw new TypeError("Project XML exceeds the 256 KiB open limit.");

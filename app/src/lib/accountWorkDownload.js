@@ -651,7 +651,7 @@ export async function createAccountSavedPublicationDownload({adapter, plan, sign
         kmsRequests: "unknown", charges: "unknown"},
       grantsIncluded: false, rightsGranted: false});
     entries["opengeo-account-download.json"] = strToU8(JSON.stringify(manifest, null, 2) + "\n");
-    entries["README.txt"] = strToU8("Saved work from one OpenGeo account and owner.\n"
+    entries["README.txt"] = strToU8("Saved work from one OpenGeo Studio account and owner.\n"
       + "Each publications/<id>/saved-source.zip contains exact saved source files and their original revision context.\n"
       + (plan.includeSavedPublicationVersions
         ? "Selected older Publication sources are in publications/<id>/versions/vN.saved-source.zip; unresolved entries disclose unavailable or limited history.\n"

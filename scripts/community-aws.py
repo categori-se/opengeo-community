@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""Deploy a standalone Community installation. Default is an offline plan.
+
+Reuses the maintained CDK stacks, migration runner and sealed Studio publisher.
+Each --apply step is explicit and checks the AWS account before any mutation.
+No credentials or secret values are saved in deployment state.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+from urllib.parse import urlsplit
+
+ROOT = Path(__file__).resolve().parents[1]
+STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "studio", "owner", "status", "rollback")
+
+
+def load_config(path: Path) -> dict:
+    cfg = json.loads(path.read_text())
+    required = {"account", "region", "name", "profile", "budgetAlertEmail"}
+    if not isinstance(cfg, dict) or not required <= cfg.keys() or cfg.keys() - (required | {"withWorker"}):
+        raise ValueError("config requires account, region, name, profile, budgetAlertEmail; optional withWorker")
+    if not re.fullmatch(r"[0-9]{12}", str(cfg["account"])) or not isinstance(cfg["account"], str):
+        raise ValueError("account must be an explicit 12-digit string")
+    if cfg["region"] != "us-east-1":
+        raise ValueError("this first deployment profile supports us-east-1")
+    if not re.fullmatch(r"[a-z][a-z0-9-]{1,22}[a-z0-9]", cfg["name"]):
+        raise ValueError("name must be a 3–24 character lowercase DNS slug starting with a letter and ending alphanumeric")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cfg["profile"]):
+        raise ValueError("profile must name a local AWS CLI profile")
+    if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", cfg["budgetAlertEmail"]):
+        raise ValueError("budgetAlertEmail must be an email address")
+    if type(cfg.get("withWorker", False)) is not bool:
+        raise ValueError("withWorker must be a boolean")
+    return cfg
+
+
+def run(args: list[str], *, env: dict | None = None, cwd: Path = ROOT, capture=False, stdin=None, timeout=1800):
+    result = subprocess.run(args, cwd=cwd, env=env, input=stdin, text=True,
+                            stdout=subprocess.PIPE if capture else None, check=True, timeout=timeout)
+    return result.stdout if capture else None
+
+
+def write_json(path: Path, value: dict):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n")
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
+class Deployment:
+    def __init__(self, cfg: dict):
+        self.cfg = cfg
+        self.state = ROOT / ".opengeo" / "aws" / cfg["name"]
+        self.prefix = f"OpenGeoCommunity-{cfg['name']}"
+        # Private operator settings must not leak into the independent profile.
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("OPEN_GEO_", "CDK_"))}
+        self.env.update({"AWS_PROFILE": cfg["profile"], "AWS_REGION": cfg["region"],
+            "AWS_DEFAULT_REGION": cfg["region"], "AWS_PAGER": "", "AWS_MAX_ATTEMPTS": "2",
+            "CDK_DEFAULT_ACCOUNT": cfg["account"], "CDK_DEFAULT_REGION": cfg["region"],
+            "OPEN_GEO_COMMUNITY_ACCOUNT": cfg["account"], "OPEN_GEO_COMMUNITY_REGION": cfg["region"],
+            "OPEN_GEO_COMMUNITY_NAME": cfg["name"], "OPEN_GEO_BUDGET_ALERT_EMAIL": cfg["budgetAlertEmail"]})
+        marker = self.read("deployment.json")
+        if marker and marker != {k: cfg[k] for k in ("account", "region", "name")}:
+            raise ValueError("state directory belongs to another AWS deployment")
+        web = self.read("web.outputs.json")
+        if web:
+            domain = web["StudioDistributionDomainName"]
+            if not re.fullmatch(r"d[a-z0-9]{5,30}\.cloudfront\.net", domain):
+                raise ValueError("invalid retained CloudFront domain")
+            self.env["OPEN_GEO_COMMUNITY_WEB_ORIGIN"] = f"https://{domain}"
+        images = self.read("images.json")
+        for key, variable in (("api", "OPEN_GEO_API_IMAGE"), ("compiler", "OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST"), ("worker", "OPEN_GEO_WORKER_IMAGE")):
+            if key in images and (key != "worker" or cfg.get("withWorker")):
+                if not re.fullmatch(r"sha256:[0-9a-f]{64}", images[key]):
+                    raise ValueError("retained image must be an immutable digest")
+                self.env[variable] = images[key]
+        api = self.read("api.outputs.json")
+        if api:
+            host = urlsplit(api["ApiEndpoint"]).hostname or ""
+            if not re.fullmatch(r"[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com", host):
+                raise ValueError("invalid retained API endpoint")
+            self.env["OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN"] = host
+
+    def read(self, name: str):
+        path = self.state / name
+        if path.is_symlink():
+            raise ValueError("deployment state must not contain symlinks")
+        return json.loads(path.read_text()) if path.exists() else {}
+
+    def save(self, name: str, value: dict):
+        if self.state.is_symlink():
+            raise ValueError("deployment state must not be a symlink")
+        write_json(self.state / name, value)
+
+    def aws(self, args: list[str], *, capture=True):
+        value = run(["aws", *args, "--profile", self.cfg["profile"], "--region", self.cfg["region"], "--output", "json"], env=self.env, capture=capture, timeout=120)
+        return json.loads(value) if capture else None
+
+    def identity(self):
+        actual = self.aws(["sts", "get-caller-identity"])
+        if actual.get("Account") != self.cfg["account"]:
+            raise ValueError("AWS caller does not match the explicitly configured account; no changes made")
+        self.save("deployment.json", {k: self.cfg[k] for k in ("account", "region", "name")})
+
+    def outputs(self, kind: str) -> dict:
+        response = self.aws(["cloudformation", "describe-stacks", "--stack-name", f"{self.prefix}-{kind}"])
+        outputs = {o["OutputKey"]: o["OutputValue"] for o in response["Stacks"][0].get("Outputs", [])}
+        self.save(f"{kind.lower()}.outputs.json", outputs)
+        return outputs
+
+    def cdk(self, *args: str):
+        run([str(ROOT / "infrastructure/node_modules/.bin/cdk"), *args,
+             "--app", "node --import tsx bin/opengeo-community.ts", "--profile", self.cfg["profile"]],
+            env=self.env, cwd=ROOT / "infrastructure")
+
+    def deploy(self, *kinds: str):
+        self.cdk("deploy", *(f"{self.prefix}-{kind}" for kind in kinds), "--exclusively", "--require-approval", "broadening")
+        for kind in kinds:
+            self.outputs(kind)
+
+    def need(self, file: str):
+        value = self.read(file)
+        if not value:
+            raise ValueError(f"missing {file}; finish the preceding deployment step")
+        return value
+
+    def image(self, component: str):
+        foundation = self.need("foundation.outputs.json")
+        key, context, dockerfile, arch = {
+            "api": ("ApiRepositoryUri", "services/api", "Dockerfile.lambda", "arm64"),
+            "compiler": ("ObservableBuilderRepositoryUri", "services/observable-builder", "Dockerfile", "amd64"),
+            "worker": ("WorkerRepositoryUri", "services/worker", "Dockerfile", "arm64"),
+        }[component]
+        uri = foundation[key]
+        expected = f"{self.cfg['account']}.dkr.ecr.{self.cfg['region']}.amazonaws.com/"
+        if not uri.startswith(expected) or not re.fullmatch(r"[a-z0-9/_-]+", uri[len(expected):]):
+            raise ValueError("ECR output differs from expected account and region")
+        repository = uri[len(expected):]
+        source = ROOT / context
+        digest = hashlib.sha256()
+        # Build input identity includes Dockerfile, locks, source and vendored assets;
+        # omit developer artifacts that are also excluded by container context rules.
+        for path in sorted(source.rglob("*")):
+            if not path.is_file() or path.is_symlink() or any(p in {"node_modules", ".venv", "__pycache__", ".pytest_cache", "dist", ".observablehq", ".test-tmp", ".test-tmp-auth"} for p in path.relative_to(source).parts):
+                continue
+            digest.update(str(path.relative_to(source)).encode() + b"\0" + path.read_bytes() + b"\0")
+        tag = f"community-{digest.hexdigest()[:24]}"
+        # Inspect only this exact image; auth/network errors must stop the step,
+        # rather than being interpreted as permission to rebuild and push.
+        lookup = subprocess.run(["aws", "ecr", "describe-images", "--repository-name", repository,
+            "--image-ids", f"imageTag={tag}", "--profile", self.cfg["profile"], "--region", self.cfg["region"],
+            "--output", "json"], env=self.env, text=True, capture_output=True, timeout=120, check=False)
+        if lookup.returncode and "(ImageNotFoundException)" not in lookup.stderr:
+            raise ValueError(f"ECR image lookup failed: {lookup.stderr.strip()}")
+        found = [] if lookup.returncode else [json.loads(lookup.stdout)["imageDetails"][0]["imageDigest"]]
+        if not found:
+            image = f"{uri}:{tag}"
+            run(["podman", "build", "--platform", f"linux/{arch}", "--tag", image, "--file", str(source / dockerfile), str(source)], env=self.env, timeout=3600)
+            password = run(["aws", "ecr", "get-login-password", "--profile", self.cfg["profile"], "--region", self.cfg["region"]], env=self.env, capture=True, timeout=120)
+            with tempfile.TemporaryDirectory(prefix="opengeo-ecr-") as directory:
+                authfile = str(Path(directory) / "auth.json")
+                run(["podman", "login", "--authfile", authfile, "--username", "AWS", "--password-stdin", uri.split("/")[0]], env=self.env, stdin=password)
+                run(["podman", "push", "--authfile", authfile, image], env=self.env, timeout=1800)
+            details = self.aws(["ecr", "describe-images", "--repository-name", repository, "--image-ids", f"imageTag={tag}"])
+            found = [details["imageDetails"][0]["imageDigest"]]
+        images = self.read("images.json")
+        images[component] = found[0]
+        self.save("images.json", images)
+        print(f"Retained {component} image digest {found[0]}")
+
+    def database_args(self):
+        foundation = self.need("foundation.outputs.json")
+        return ["--profile", self.cfg["profile"], "--region", self.cfg["region"], "--expected-account", self.cfg["account"],
+            "--cluster-arn", foundation["DatabaseClusterArn"], "--admin-secret-arn", foundation["DatabaseSecretArn"],
+            "--runtime-secret-arn", foundation["RuntimeDatabaseSecretArn"]]
+
+    def studio_env(self):
+        web = self.need("web.outputs.json")
+        foundation = self.need("foundation.outputs.json")
+        origin = f"https://{web['StudioDistributionDomainName']}"
+        env = {**self.env, "OPEN_GEO_COMMUNITY_DEPLOYMENT": "true", "OPEN_GEO_STUDIO_ORIGIN": origin,
+            "OPEN_GEO_WEB_ORIGIN": origin, "OPEN_GEO_STUDIO_EXPECTED_ACCOUNT": self.cfg["account"],
+            "OPEN_GEO_STUDIO_BUCKET": web["StudioBucketName"], "OPEN_GEO_STUDIO_STACK_NAME": f"{self.prefix}-Web",
+            "OPEN_GEO_STUDIO_DISTRIBUTION_ID": web["StudioDistributionId"], "OPEN_GEO_AWS_PROFILE": self.cfg["profile"],
+            "OPEN_GEO_AWS_REGION": self.cfg["region"], "OPEN_GEO_COGNITO_REGION": self.cfg["region"],
+            "OPEN_GEO_COGNITO_USER_POOL_ID": foundation["UserPoolId"], "OPEN_GEO_COGNITO_CLIENT_ID": foundation["UserPoolClientId"],
+            "OPEN_GEO_COGNITO_HOSTED_UI_BASE_URL": foundation["CognitoHostedUiBaseUrl"],
+            "OPEN_GEO_STUDIO_DEPLOY_MODE": "bootstrap", "OPEN_GEO_STUDIO_BOOTSTRAP_DOMAIN": web["StudioDistributionDomainName"],
+            "OPEN_GEO_STUDIO_DEPLOYMENT_RECORD_PATH": str(self.state / "studio-deployment.json")}
+        return env
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("step", choices=STEPS)
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--apply", action="store_true", help="execute this one step; otherwise print an offline plan")
+    parser.add_argument("--component", choices=("api", "compiler", "worker", "all"), default="all")
+    parser.add_argument("--execution-policy-arn", help="explicit managed CloudFormation execution policy for bootstrap")
+    parser.add_argument("--email")
+    parser.add_argument("--display-name")
+    parser.add_argument("--organization-name", default="Community workspace")
+    parser.add_argument("--organization-slug", default="community-workspace")
+    parser.add_argument("--release-origin", help="exact previous /releases/opengeo-studio-* pointer for rollback")
+    args = parser.parse_args(argv)
+    deployment = Deployment(load_config(args.config))
+    if args.step == "plan" or (not args.apply and args.step != "synth"):
+        print(json.dumps({"mode": "offline-plan", "step": args.step, "account": deployment.cfg["account"],
+            "region": deployment.cfg["region"], "name": deployment.cfg["name"], "withWorker": deployment.cfg.get("withWorker", False),
+            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "web", "studio", "owner", "status"],
+            "next": "Read docs/community-aws.md; --apply runs only the named step. synth is offline."}, indent=2))
+        return 0
+    if args.step == "synth":
+        # Invoke the app directly so synthesis cannot query AWS credentials/context.
+        run(["node", "--import", "tsx", "bin/opengeo-community.ts"], env=deployment.env, cwd=ROOT / "infrastructure")
+        print("Offline CloudFormation assembly written to infrastructure/cdk.out")
+        return 0
+    if args.step == "owner" and (not args.email or not args.display_name):
+        raise ValueError("owner requires --email and --display-name; first invite the user and verify the email in your own Cognito pool")
+    if args.step == "bootstrap" and not re.fullmatch(r"arn:aws:iam::(?:aws|" + deployment.cfg["account"] + r"):policy/[A-Za-z0-9+=,.@_/-]+", args.execution_policy_arn or ""):
+        raise ValueError("bootstrap requires an explicit --execution-policy-arn in your account or AWS managed policy")
+    deployment.identity()
+    if args.step == "bootstrap":
+        deployment.cdk("bootstrap", f"aws://{deployment.cfg['account']}/{deployment.cfg['region']}", "--cloudformation-execution-policies", args.execution_policy_arn)
+    elif args.step == "web":
+        deployment.deploy("Web")
+    elif args.step == "foundation":
+        deployment.need("web.outputs.json")
+        deployment.deploy("Foundation")
+    elif args.step == "images":
+        components = [args.component] if args.component != "all" else ["api", "compiler"] + (["worker"] if deployment.cfg.get("withWorker") else [])
+        for component in components:
+            deployment.image(component)
+    elif args.step == "database":
+        foundation = deployment.need("foundation.outputs.json")
+        run([sys.executable, "database/scripts/apply_migrations.py", "--apply", *deployment.database_args(), "--worker-secret-arn", foundation["WorkerDatabaseSecretArn"]], env=deployment.env)
+    elif args.step == "runtime":
+        images = deployment.need("images.json")
+        if not {"api", "compiler"} <= images.keys() or (deployment.cfg.get("withWorker") and "worker" not in images):
+            raise ValueError("runtime requires all selected image digests from the images step")
+        # The initial Foundation template has no runtime consumers. Re-deploy
+        # it with the complete assembly to create their cross-stack exports.
+        kinds = ["Foundation", "PrivateRuntimeEndpoints", "Worker", "Api"] if deployment.cfg.get("withWorker") else ["Foundation", "Api"]
+        deployment.deploy(*kinds)
+    elif args.step == "studio":
+        deployment.need("api.outputs.json")
+        env = deployment.studio_env()
+        run(["npm", "--prefix", "app", "run", "prepare:studio"], env=env, timeout=600)
+        run(["npm", "--prefix", "app", "run", "check:studio-release"], env=env, timeout=120)
+        env["OPEN_GEO_STUDIO_BOOTSTRAP_DEPLOY_CONFIRM"] = f"deploy-{deployment.need('web.outputs.json')['StudioDistributionDomainName']}"
+        run(["node", "app/scripts/deploy-studio-site.mjs"], env=env, timeout=1800)
+    elif args.step == "rollback":
+        if not re.fullmatch(r"/releases/opengeo-studio-[0-9]{14}-[0-9a-f]{12}", args.release_origin or ""):
+            raise ValueError("rollback requires an exact --release-origin from the retained deployment record")
+        env = deployment.studio_env()
+        env["OPEN_GEO_STUDIO_ROLLBACK_ORIGIN"] = args.release_origin
+        env["OPEN_GEO_STUDIO_BOOTSTRAP_ROLLBACK_CONFIRM"] = f"rollback-{deployment.need('web.outputs.json')['StudioDistributionDomainName']}"
+        run(["node", "app/scripts/rollback-studio-site.mjs"], env=env, timeout=1800)
+    elif args.step == "owner":
+        pool = deployment.need("foundation.outputs.json")["UserPoolId"]
+        user = deployment.aws(["cognito-idp", "admin-get-user", "--user-pool-id", pool, "--username", args.email])
+        attrs = {a["Name"]: a["Value"] for a in user["UserAttributes"]}
+        if attrs.get("email_verified") != "true" or attrs.get("email", "").lower() != args.email.lower() or not user.get("Enabled"):
+            raise ValueError("owner must be an enabled principal with the exact verified email")
+        run([sys.executable, "database/scripts/bootstrap_owner.py", "--apply", *deployment.database_args(),
+            "--subject", attrs["sub"], "--email", args.email.lower(), "--display-name", args.display_name,
+            "--organization-name", args.organization_name, "--organization-slug", args.organization_slug,
+            "--project-name", "Community content", "--project-code", "community-content"], env=deployment.env)
+    elif args.step == "status":
+        for kind in ("Web", "Foundation", "Api"):
+            outputs = deployment.outputs(kind)
+            print(json.dumps({"stack": f"{deployment.prefix}-{kind}", "outputs": outputs}, indent=2))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (ValueError, KeyError, OSError, subprocess.SubprocessError) as error:
+        print(f"community deployment stopped: {error}", file=sys.stderr)
+        raise SystemExit(1)

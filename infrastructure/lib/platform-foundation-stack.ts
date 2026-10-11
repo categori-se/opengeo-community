@@ -41,6 +41,12 @@ export interface PlatformFoundationStackProps extends StackProps {
   readonly existingBudgetName?: string;
   readonly existingUserPoolClientId?: string;
   readonly observablePreview?: ObservablePreviewEdgeConfiguration;
+  /** Create an independent user pool for a community deployment. */
+  readonly standaloneAuthDomainPrefix?: string;
+  /** Retain durable data even with development processing limits. */
+  readonly retainData?: boolean;
+  /** Explicit CloudFormation AZ selections avoid account lookups in offline synthesis. */
+  readonly availabilityZones?: readonly string[];
 }
 
 export class PlatformFoundationStack extends Stack {
@@ -50,6 +56,9 @@ export class PlatformFoundationStack extends Stack {
   readonly geodataBucket: s3.Bucket;
   readonly userPool: cognito.IUserPool;
   readonly userPoolClient: cognito.IUserPoolClient;
+  readonly cognitoRegion: string;
+  readonly cognitoHostedUiBaseUrl: string;
+  readonly observableBuilderRepository?: ecr.Repository;
   readonly database: rds.DatabaseCluster;
   readonly cluster: ecs.Cluster;
   readonly processingQueue: sqs.Queue;
@@ -71,7 +80,7 @@ export class PlatformFoundationStack extends Stack {
     super(scope, id, props);
 
     const {config, budgetAlertEmail} = props;
-    const removalPolicy = config.production
+    const removalPolicy = config.production || props.retainData === true
       ? RemovalPolicy.RETAIN
       : RemovalPolicy.DESTROY;
     const logRetention = this.logRetention(config.logRetentionDays);
@@ -108,7 +117,9 @@ export class PlatformFoundationStack extends Stack {
 
     this.vpc = new ec2.Vpc(this, "Vpc", {
       ipAddresses: ec2.IpAddresses.cidr("10.42.0.0/16"),
-      maxAzs: 2,
+      ...(props.availabilityZones
+        ? {availabilityZones: [...props.availabilityZones]}
+        : {maxAzs: 2}),
       natGateways: 0,
       restrictDefaultSecurityGroup: true,
       subnetConfiguration: [
@@ -190,21 +201,53 @@ export class PlatformFoundationStack extends Stack {
         "Federation providers are managed by the shared auth.categori.se pool, not OpenGeo"
       );
     }
-    const sharedUserPoolArn = this.formatArn({
-      service: "cognito-idp",
-      region: config.sharedAuth.region,
-      account: config.sharedAuth.accountId,
-      resource: "userpool",
-      resourceName: config.sharedAuth.userPoolId
-    });
-    this.userPool = cognito.UserPool.fromUserPoolArn(this, "SharedUserPool", sharedUserPoolArn);
-    this.identityProvisioningEnabled =
-      Token.isUnresolved(this.account) || this.account === config.sharedAuth.accountId;
-    if (!this.identityProvisioningEnabled && props.existingUserPoolClientId === undefined) {
-      throw new Error(
-        "the shared auth.categori.se pool belongs to a different AWS account; "
-        + "supply an existing public user-pool client id and keep identity provisioning disabled"
-      );
+    if (props.standaloneAuthDomainPrefix !== undefined) {
+      if (props.existingUserPoolClientId !== undefined) {
+        throw new Error("Independent community authentication creates its own public client");
+      }
+      if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(props.standaloneAuthDomainPrefix)) {
+        throw new Error("Community Cognito domain prefix must be a bounded DNS label");
+      }
+      const pool = new cognito.UserPool(this, "CommunityUserPool", {
+        userPoolName: `opengeo-${config.stage}-community`,
+        signInAliases: {email: true},
+        selfSignUpEnabled: false,
+        autoVerify: {email: true},
+        standardAttributes: {email: {required: true, mutable: true}},
+        accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+        passwordPolicy: {
+          minLength: 12, requireDigits: true, requireLowercase: true,
+          requireUppercase: true, requireSymbols: true
+        },
+        deletionProtection: config.deletionProtection,
+        removalPolicy
+      });
+      const domain = pool.addDomain("CommunityHostedUi", {
+        cognitoDomain: {domainPrefix: props.standaloneAuthDomainPrefix}
+      });
+      this.userPool = pool;
+      this.cognitoRegion = this.region;
+      this.cognitoHostedUiBaseUrl = domain.baseUrl();
+      this.identityProvisioningEnabled = true;
+    } else {
+      const sharedUserPoolArn = this.formatArn({
+        service: "cognito-idp",
+        region: config.sharedAuth.region,
+        account: config.sharedAuth.accountId,
+        resource: "userpool",
+        resourceName: config.sharedAuth.userPoolId
+      });
+      this.userPool = cognito.UserPool.fromUserPoolArn(this, "SharedUserPool", sharedUserPoolArn);
+      this.cognitoRegion = config.sharedAuth.region;
+      this.cognitoHostedUiBaseUrl = config.sharedAuth.hostedUiBaseUrl;
+      this.identityProvisioningEnabled =
+        Token.isUnresolved(this.account) || this.account === config.sharedAuth.accountId;
+      if (!this.identityProvisioningEnabled && props.existingUserPoolClientId === undefined) {
+        throw new Error(
+          "the shared auth.categori.se pool belongs to a different AWS account; "
+          + "supply an existing public user-pool client id and keep identity provisioning disabled"
+        );
+      }
     }
     this.userPoolClient = props.existingUserPoolClientId
       ? cognito.UserPoolClient.fromUserPoolClientId(
@@ -214,6 +257,7 @@ export class PlatformFoundationStack extends Stack {
         )
       : new cognito.UserPoolClient(this, "WebClient", {
           userPool: this.userPool,
+          generateSecret: false,
           userPoolClientName: `opengeo-${config.stage}-web`,
           oAuth: {
             flows: {authorizationCodeGrant: true},
@@ -269,6 +313,18 @@ export class PlatformFoundationStack extends Stack {
       removalPolicy
     );
 
+    if (props.standaloneAuthDomainPrefix !== undefined) {
+      this.observableBuilderRepository = this.createRepository(
+        "ObservableBuilderRepository", `opengeo/${config.stage}/observable-builder`,
+        config, removalPolicy
+      );
+      new CfnOutput(this, "ObservableBuilderRepositoryUri", {
+        value: this.observableBuilderRepository.repositoryUri
+      });
+    }
+    new CfnOutput(this, "ApiRepositoryUri", {value: this.apiRepository.repositoryUri});
+    new CfnOutput(this, "WorkerRepositoryUri", {value: this.workerRepository.repositoryUri});
+
     this.cluster = new ecs.Cluster(this, "Cluster", {
       clusterName: `opengeo-${config.stage}`,
       vpc: this.vpc,
@@ -278,6 +334,17 @@ export class PlatformFoundationStack extends Stack {
       enableFargateCapacityProviders: true
     });
 
+    const administratorSecret = props.retainData === true
+      ? new secretsmanager.Secret(this, "AdministratorDatabaseSecret", {
+          description: `OpenGeo ${config.stage} retained database administrator credential`,
+          encryptionKey: this.dataKey,
+          generateSecretString: {
+            secretStringTemplate: JSON.stringify({username: "opengeo_admin"}),
+            generateStringKey: "password", passwordLength: 32, excludePunctuation: true
+          },
+          removalPolicy: RemovalPolicy.RETAIN
+        })
+      : undefined;
     this.database = new rds.DatabaseCluster(this, "Database", {
       defaultDatabaseName: "opengeo",
       engine: rds.DatabaseClusterEngine.auroraPostgres({
@@ -286,9 +353,9 @@ export class PlatformFoundationStack extends Stack {
           "16"
         )
       }),
-      credentials: rds.Credentials.fromGeneratedSecret("opengeo_admin", {
-        encryptionKey: this.dataKey
-      }),
+      credentials: administratorSecret
+        ? rds.Credentials.fromSecret(administratorSecret)
+        : rds.Credentials.fromGeneratedSecret("opengeo_admin", {encryptionKey: this.dataKey}),
       writer: rds.ClusterInstance.serverlessV2("Writer", {
         autoMinorVersionUpgrade: true,
         publiclyAccessible: false
@@ -423,22 +490,23 @@ export class PlatformFoundationStack extends Stack {
     new CfnOutput(this, "GeodataBucketName", {
       value: this.geodataBucket.bucketName
     });
+    new CfnOutput(this, "CognitoRegion", {value: this.cognitoRegion});
     new CfnOutput(this, "UserPoolId", {value: this.userPool.userPoolId});
     new CfnOutput(this, "BudgetName", {value: budgetName});
     new CfnOutput(this, "UserPoolClientId", {
       value: this.userPoolClient.userPoolClientId
     });
     new CfnOutput(this, "CognitoHostedUiBaseUrl", {
-      value: config.sharedAuth.hostedUiBaseUrl
+      value: this.cognitoHostedUiBaseUrl
     });
     new CfnOutput(this, "ApplicationWebOrigin", {value: config.webOrigin});
     new CfnOutput(this, "BrowserAuthConfigJson", {
       value: this.toJsonString({
         version: 1,
-        region: config.sharedAuth.region,
+        region: this.cognitoRegion,
         userPoolId: this.userPool.userPoolId,
         clientId: this.userPoolClient.userPoolClientId,
-        hostedUiBaseUrl: config.sharedAuth.hostedUiBaseUrl,
+        hostedUiBaseUrl: this.cognitoHostedUiBaseUrl,
         redirectUri: `${config.webOrigin}/login`,
         logoutUri: `${config.webOrigin}/login`,
         scopes: ["openid", "email", "profile"]
@@ -503,7 +571,7 @@ export class PlatformFoundationStack extends Stack {
           }
         ] : [])
       ],
-      autoDeleteObjects: !options.config.production,
+      autoDeleteObjects: options.removalPolicy === RemovalPolicy.DESTROY,
       removalPolicy: options.removalPolicy
     });
   }
@@ -520,7 +588,7 @@ export class PlatformFoundationStack extends Stack {
       imageTagMutability: ecr.TagMutability.IMMUTABLE,
       encryption: ecr.RepositoryEncryption.KMS,
       encryptionKey: this.dataKey,
-      emptyOnDelete: !config.production,
+      emptyOnDelete: removalPolicy === RemovalPolicy.DESTROY,
       lifecycleRules: [{maxImageCount: config.production ? 100 : 20}],
       removalPolicy
     });

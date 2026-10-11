@@ -103,7 +103,7 @@ export function terrainActivationDecision(governance, outage) {
 export function terrainGovernanceMessage(decision) {
   switch (decision?.status) {
     case "fresh-upstream":
-      return "Terrain loads directly from Mapterhorn. No API key or OpenGeo-hosted copy is needed; availability depends on the provider.";
+      return "Terrain loads directly from Mapterhorn. No API key or OpenGeo.Tools-hosted copy is needed; availability depends on the provider.";
     case "source-review-due":
       return "Terrain loads directly from Mapterhorn. Its recorded source check is due for review; this does not prevent viewing.";
     case "receipt-invalid":

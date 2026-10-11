@@ -229,7 +229,7 @@ describe("connected repository datasets", () => {
     const panel = root.querySelector(".project-dataset-version-panel");
     assert.match(panel.textContent, /Connected repository source/);
     assert.match(panel.textContent, /registered this exact provider version without copying its bytes/);
-    assert.match(panel.textContent, /s3:\/\/geospatial\.data\/usa\/ma\//);
+    assert.match(panel.textContent, /s3:\/\/example-geodata\/usa\/ma\//);
     assert.match(panel.textContent, /version-0001/);
     assert.doesNotMatch(panel.textContent, /secret|credential|role arn/i);
   });
@@ -346,7 +346,7 @@ describe("connected repository datasets", () => {
     assert.doesNotMatch(copyPanel.textContent, /secret|credential|role arn/i);
 
     click(root, "Review size, cost, and rights");
-    await waitFor(() => root.textContent.includes("Estimated OpenGeo cost"));
+    await waitFor(() => root.textContent.includes("Estimated OpenGeo Studio cost"));
     root.querySelector('[aria-label="Rights basis for copying this source"]').value =
       "Reviewed public terms";
     root.querySelector('[aria-label="Required source attribution"]').value = "MassGIS";

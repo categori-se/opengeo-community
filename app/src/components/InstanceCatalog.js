@@ -19,14 +19,14 @@ export function InstanceCatalog({publicCatalog = null, auth = null} = {}) {
     catch {status.textContent = "Sign-in could not open. Please try again."; signIn.disabled = false;}
   });
   if (!publicCatalog) {
-    root.append(text("p", "Your browser draft is not part of an account catalog. Sign in to browse projects and files saved to your OpenGeo instance."),
+    root.append(text("p", "Your browser draft is not part of an account catalog. Sign in to browse projects and files saved to your OpenGeo Studio instance."),
       text("h2", "Projects"), text("p", "No account projects loaded."),
       text("h2", "Data and files"), text("p", "No account data loaded. Opening a local file on the map does not upload it."), signIn, status);
     return root;
   }
   const {catalog, massgis} = publicCatalog;
   const demo = publicDemoNavigation(massgis, COMMUNITY_DEMO_PAGE_ID, null);
-  root.append(text("p", "Published projects and data in the OpenGeo public demo. Sign in to see additional projects your account can access."), signIn, status,
+  root.append(text("p", "Published projects and data in the OpenGeo Studio public demo. Sign in to see additional projects your account can access."), signIn, status,
     text("h2", "Projects"));
   const projects = document.createElement("div");
   projects.className = "platform-project-directory-results";

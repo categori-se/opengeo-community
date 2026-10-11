@@ -1,68 +1,140 @@
-# OpenGeo Community development roadmap
+# OpenGeo Studio roadmap
 
-Updated October 11, 2026. This is an early source release, not a production
-readiness or upstream-parity certification. Work follows the core user journey;
-adapter breadth does not delay a usable release.
+We are building a workspace where researchers, planners and environmental and
+social practitioners can retain spatial inputs, explain their methods and share
+work others can inspect. The rollout prioritizes connecting real data, reusing
+maps, collaborating and publishing useful results. Low idle infrastructure cost
+is a design goal; workload costs depend on storage, processing, traffic and
+deployment choices.
 
-## Release 0.1: complete application source
+## Current release boundary
 
-- Release Studio, API, schema/migrations, workers, compiler and necessary build
-  source under Apache-2.0, retaining upstream exceptions and asset notices.
-- Preserve the existing foundation register, references and acknowledgements.
-- Document a connected local development environment using the existing runner.
-- Publish an honest record of checks and limits in `COMMUNITY-RELEASE.json`.
-- Preserve private operational history, credentials and hosted datasets outside
-  the public repository. Keep the original application repository intact.
+This is an early community source edition containing the full suite of tools.
+A bounded connected check demonstrates Project/map creation, a database restart
+and exact saved-map reopening. A further local pilot exercises selected GIS
+processing, static publication and access controls. Fresh-install/image builds,
+independent-account AWS acceptance and the complete standalone native
+Notebook/Framework publication journey remain open. Hosted deployment examples
+do not establish those independent-install outcomes.
 
-Status: initial source edition prepared. A bounded Linux check created a Project
-and map through Studio, stopped/restarted its retained database, and reopened the
-same map through Studio and the authorized API. It reused an existing built Studio
-and cached images. Source availability is distinct from a successful fresh-install
-or production deployment.
+The [capability matrix](docs/community-capabilities.md) separates executable
+operations, metadata-only imports and retained definitions. The
+[illustrated workflow](docs/community-workflow.md) labels demonstrated and
+unfinished steps. See [release notes](RELEASE_NOTES.md) for a concise account
+of this source edition.
 
-## Next: reliable local core workflow
+We weight public benefit by how widely a workflow is used, how much work it lets
+people reuse, and how much installation or operating effort it removes. Community
+issues, contributions and practical GIS examples help refine that order.
 
-The acceptance journey is: start Studio, register/inspect a supported source,
-preview one Layer without creating a Project, compose a Project with reusable
-Layers and Styles, save, stop/restart, reopen, compile a Publication, and serve or
-export its result. Include a second local identity for resource-isolation checks.
+## Rollout priorities
 
-Reuse the existing integration runner and representative checks. Close actual
-blockers before extending unused adapters. Maintain a persistent developer state,
-clear startup failures, deliberate worker dispatch and exact versioned inputs.
-Prove the documented installation on a clean machine before calling it a supported
-quick start. Local synthetic authentication is never a production login system.
+| Stage | Community outcome | Public benefit | Open comparison families |
+| --- | --- | --- | --- |
+| 1 | Connect data and carry maps between projects | Highest: everyday GIS work and reusable source libraries | GeoLibre projects/authoring; GeoLens composition; GeoNode catalog/resource editing |
+| 2 | Publish maps, reports and interactive analysis | High: useful outputs for everyone who consumes GIS work | GeoLibre layouts/stories/print; GeoNode publishing; GeoMoose print/delivery |
+| 3 | Curate and collaborate across teams | High: shared data stewardship and reproducible work | GeoNode resources, metadata, discovery and community |
+| 4 | Exchange services with the wider GIS ecosystem | Broad: existing desktop tools, portals and data infrastructure | GeoServer services; MapServer OGC publication; GeoMoose distributed services; OpenLayers sources |
+| 5 | Extend specialist mapping and exploration | Focused: advanced editing, globe, terrain and time workflows | OpenLayers interactions; GeoLibre authoring breadth; Google Earth Pro comparison families |
 
-## Next: supported self-hosting
+Each stage extends the current platform. The
+[reference application comparison](docs/reference-applications.md) records the
+version-pinned feature families and their relative parity. The
+[foundation inventory](docs/open-source-foundations.md) identifies the software,
+contributors and licenses that make this work possible.
 
-- Provide a durable deployment profile with real identity, storage, queues and
-  PostGIS; reuse the existing application interfaces and infrastructure source.
-- Make all installation inputs operator-owned; remove assumptions about private
-  image caches, registries, account IDs and the original hosting environment.
-- Document backup/restore, forward migrations, upgrades, security updates and
-  rollback. Exercise persistence and isolation on one representative installation.
-- For any published images, generate exact SBOMs and ship required license,
-  notice and corresponding-source material. Resolve the Python BiDi expression
-  and stale Psycopg inventory entry before those binary releases.
-- Include ordinary authentication and basic multiuser permissions in Community.
+## 1. Connect data and reuse maps
 
-## Then: adoption and focused interoperability
+Make the path from an existing source to a useful map straightforward for GIS
+practitioners and web developers.
 
-Improve onboarding, error recovery and documentation from real user feedback.
-Prioritize supported source formats and standards handoffs that named users need.
-Retain unsupported content with clear limitations. Preserve Layer/Style identity,
-custody, provenance, private data and usable exports across upgrades.
+- Complete portable Project and view round trips, preserving Layer identity,
+  source references, cartography and geographic context.
+- Close the remaining Catalog-to-Project composition and reusable Style gaps.
+- Improve source inspection, field handling, editing and version recovery in the
+  selected GeoLibre and GeoNode workflows.
+- Provide a dependable connected development environment and an independent
+  AWS installation using the maintained infrastructure and deployment scripts.
 
-Contribution review uses the affected checks and a representative core journey.
-Historical parity evidence remains historical; a reference version or a test
-count does not establish current upstream parity or formal standards conformance.
+**Outcome:** connect a supported source, inspect its Layer, compose a Project,
+save it, reopen it and reuse its data and Styles in another composition.
 
-## Community maintenance
+## 2. Publish maps and analysis
 
-Keep the source, installation guide, working examples and acceptance limits current.
-Preserve a standalone Community path, version public integration interfaces and
-review contributions against the core workflows. Keep attribution, security fixes
-and data-preservation work part of the community project.
+Carry GIS work through to a useful result that colleagues and the public can
+read, explore and cite.
 
-Paid support may be considered separately in the future. Its scope, terms and
-availability are not defined by this roadmap.
+- Complete the standalone Notebook/Framework authoring, compilation, preview and
+  delivery workflow with operator-owned build and publication configuration.
+- Close mixed map, chart, table and narrative layout gaps in the GeoLibre and
+  GeoNode comparison families.
+- Extend responsive delivery and print outputs from the GeoMoose comparison,
+  preserving attribution, citations and selected resource versions.
+- Reuse compiled Project Artifacts across Publications and preserve publication
+  paths and release history through updates.
+
+**Outcome:** publish an interactive analysis and a useful static or printable
+edition from the same curated sources, then revise and republish it.
+
+## 3. Curate and collaborate
+
+Help organizations build a shared geographic library that remains understandable
+as people, sources and analyses change.
+
+- Complete the remaining GeoNode metadata, resource and discovery workflows,
+  including explicit rights, provenance and source relationships.
+- Improve invitations, resource review, discussions and community discovery in
+  the open sharing comparison items.
+- Make Collections, account roles and publication audiences easy to manage while
+  preserving each resource's ownership and permissions.
+- Keep source, normalized and curated knowledge distinct across import, editing
+  and export.
+
+**Outcome:** a team can discover, review, reuse and publish shared work while
+retaining the evidence and responsibility behind it.
+
+## 4. Connect the wider GIS ecosystem
+
+Make OpenGeo Studio a practical companion to QGIS, existing spatial services and
+established web GIS applications.
+
+- Close selected GeoServer and MapServer service operation/version gaps, with
+  independent clients and explicit standards acceptance.
+- Extend the source and protocol coverage identified by OpenLayers and GeoMoose
+  comparisons.
+- Improve cartographic and service handoffs that preserve styles, coordinate
+  systems, feature identities and metadata across tools.
+- Refresh upstream version comparisons, starting with GeoLibre, and prioritize
+  changes that affect common workflows.
+
+**Outcome:** teams can move between OpenGeo Studio and their existing GIS tools through
+well-defined formats, services and repeatable interoperability examples.
+
+## 5. Extend editing and geographic exploration
+
+Build on the everyday workspace with tools for more specialized spatial work.
+
+- Advance remaining geometry interaction and editing items from OpenLayers and
+  GeoLibre comparisons.
+- Extend globe, terrain, KML/KMZ, saved views, measurement and time workflows
+  identified by the Google Earth Pro behavioral reference.
+- Sequence additional scene, imagery, tour and output capabilities around
+  concrete community use cases.
+
+**Outcome:** more demanding workflows fit the same reusable Layer, Project,
+Style and Publication model.
+
+## Throughout the rollout
+
+Security, resource isolation, data preservation, low idle cost and upstream credit
+remain part of every stage. Reuse connections and compiled outputs, keep builds
+deliberate, and verify the selected user journey through its actual interface.
+
+The [development guide](docs/community-development.md),
+[AWS guide](docs/community-aws.md) and `COMMUNITY-RELEASE.json` hold installation
+instructions and validation details. Image releases carry exact dependency
+inventories, licenses, notices and applicable corresponding source.
+
+[Contribute a focused improvement](CONTRIBUTING.md),
+[share a reproducible GIS example](SUPPORT.md), or
+[propose a priority](https://github.com/categori-se/opengeo-community/issues).

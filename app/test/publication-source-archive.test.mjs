@@ -219,7 +219,7 @@ it('requires complete materialized dependency coverage and immutable bytes/pins,
     options.dependencies.map((item, index) => index ? {...item, blob: new Blob(['changed bytes'])} : item),
     options.dependencies.map((item, index) => index ? {...item, pin: {...item.pin, version: null}} : item),
     options.dependencies.map((item, index) => index ? item : {...item, pin: {...item.pin, s3VersionId: 'null'}})]) {
-    await assert.rejects(createPublicationSourceBackup({...options, dependencies}), /OpenGeo source-project export/);
+    await assert.rejects(createPublicationSourceBackup({...options, dependencies}), /OpenGeo Studio source-project export/);
   }
   await assert.rejects(createPublicationSourceBackup({...options, artifactReferences: null}), /inventory/);
   const pinned = {...options, artifactReferences: {revision: 4, references: [{...options.artifactReferences.references[0], mode: 'pinned', version: 3}]}};

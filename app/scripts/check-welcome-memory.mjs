@@ -26,7 +26,7 @@ try {
   const origin = "http://127.0.0.1:" + server.address().port;
   await context.route("**/*", route => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const page = await context.newPage();
-  const welcome = page.getByRole("dialog", {name:"OpenGeo.Tools Studio start"});
+  const welcome = page.getByRole("dialog", {name:"OpenGeo Studio start"});
   await page.goto(origin);
   await welcome.waitFor();
   assert.equal(await page.getByRole("combobox", {name:"Show welcome screen"}).inputValue(), "daily");
@@ -37,16 +37,16 @@ try {
   const tab = await context.newPage();
   await tab.goto(origin);
   await tab.locator(".start-workbench-frame").waitFor();
-  assert.equal(await tab.getByRole("dialog", {name:"OpenGeo.Tools Studio start"}).isVisible(), false);
+  assert.equal(await tab.getByRole("dialog", {name:"OpenGeo Studio start"}).isVisible(), false);
   // Simulate a day of absence without a long-running test or auth changes.
   await tab.evaluate(() => localStorage.setItem("opengeo.studio.welcome.visit", String(Date.now() - 86_400_001)));
   await tab.reload();
-  await tab.getByRole("dialog", {name:"OpenGeo.Tools Studio start"}).waitFor();
+  await tab.getByRole("dialog", {name:"OpenGeo Studio start"}).waitFor();
   await tab.getByRole("combobox", {name:"Show welcome screen"}).selectOption("manual");
   await tab.getByRole("button", {name:"Continue with an empty map"}).click();
   await tab.reload();
   await tab.locator(".start-workbench-frame").waitFor();
-  assert.equal(await tab.getByRole("dialog", {name:"OpenGeo.Tools Studio start"}).isVisible(), false);
+  assert.equal(await tab.getByRole("dialog", {name:"OpenGeo Studio start"}).isVisible(), false);
   console.log(JSON.stringify({status:"passed",checks:["fresh opening", "dismiss", "refresh", "new tab", "day away", "manual preference"],liveAuthentication:false}));
 } finally {
   await browser?.close();

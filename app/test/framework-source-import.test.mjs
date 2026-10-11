@@ -1333,7 +1333,7 @@ it("local adapter acceptance: Jupyter cell text and structure save and reopen wh
 });
 
 function selectSourceArchive(root, blob) {
-  const control = root.querySelector('[aria-label="OpenGeo source project ZIP"]');
+  const control = root.querySelector('[aria-label="OpenGeo Studio source project ZIP"]');
   Object.defineProperty(control, 'files', {configurable: true, value: [blob]});
   control.dispatchEvent(new dom.window.Event('change'));
 }

@@ -4,7 +4,7 @@
     {
       "id": "public-community-facilities",
       "title": "Public community facilities",
-      "summary": "A synthetic, permissively licensed layer for exploring the anonymous OpenGeo GIS workbench without exposing a private workspace.",
+      "summary": "A synthetic, permissively licensed layer for exploring the anonymous OpenGeo.Tools GIS workbench without exposing a private workspace.",
       "kind": "map",
       "path": "/",
       "sourceFiles": [
@@ -12,7 +12,7 @@
           "path": "/data/sample-public-facilities.geojson",
           "public": true,
           "license": "CC0-1.0",
-          "attribution": "OpenGeo.tools synthetic demonstration data"
+          "attribution": "OpenGeo.Tools synthetic demonstration data"
         }
       ]
     },

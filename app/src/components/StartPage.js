@@ -123,7 +123,7 @@ function startWorkbench(projects, defaultRoute, library, adapterKind, state, map
   dialog.classList.add("start-map-dialog");
   dialog.role = "dialog";
   dialog.ariaModal = "true";
-  dialog.setAttribute("aria-label", "OpenGeo.Tools Studio start");
+  dialog.setAttribute("aria-label", "OpenGeo Studio start");
 
   const close = document.createElement("button");
   close.type = "button";
@@ -206,7 +206,7 @@ function startHeader(state = null) {
   const header = document.createElement("header");
   header.className = "start-header";
   const brand = link("/", "start-brand");
-  brand.append(icon("map"), text("strong", "OpenGeo.Tools Studio"));
+  brand.append(icon("map"), text("strong", "OpenGeo Studio"));
   const search = document.createElement("label");
   search.className = "start-global-search";
   search.append(icon("project"));
@@ -229,7 +229,7 @@ function startRail(adapterKind = null) {
   const rail = document.createElement("aside");
   rail.className = "start-rail";
   const nav = document.createElement("nav");
-  nav.ariaLabel = "OpenGeo navigation";
+  nav.ariaLabel = "OpenGeo Studio navigation";
   nav.append(
     railLink("/", "map", "Start", true),
     railLink(directoryRoute(adapterKind), "project", "Projects"),
@@ -251,7 +251,8 @@ function startMain(workspaces, defaultRoute, library, adapterKind, state) {
   intro.className = "start-intro";
   intro.append(
     text("p", "Connect once. Curate once. Reuse continuously.", "start-eyebrow"),
-    text("h1", "A persistent workspace for spatial data, maps and publications"),
+    text("h1", "OpenGeo Studio, the geospatial workspace from OpenGeo.Tools"),
+    text("p", "An open workspace for geospatial analysis and publishing."),
     text("p", "Discover reusable data, preserve what you know about it, compose maps, and explain your findings in publications.")
   );
 
@@ -279,7 +280,7 @@ function startMain(workspaces, defaultRoute, library, adapterKind, state) {
       "p",
       state?.status === "ready"
         ? "No project activity has been recorded for this account yet."
-        : "Sign in to load recent projects from your OpenGeo activity history.",
+        : "Sign in to load recent projects from your OpenGeo Studio activity history.",
       "start-search-empty"
     ));
   }
@@ -290,7 +291,7 @@ function startMain(workspaces, defaultRoute, library, adapterKind, state) {
   const more = document.createElement("details");
   more.className = "start-more";
   const summary = document.createElement("summary");
-  summary.append(icon("settings"), text("span", "More OpenGeo tools"), icon("chevron"));
+  summary.append(icon("settings"), text("span", "More OpenGeo Studio tools"), icon("chevron"));
   const moreGrid = document.createElement("div");
   moreGrid.className = "start-more-grid";
   moreGrid.append(
@@ -298,7 +299,7 @@ function startMain(workspaces, defaultRoute, library, adapterKind, state) {
     compactLink(directoryHref({view: "data", adapterKind}), "data", "Data catalog", "Find reusable datasets and services; adding data does not require an upload"),
     compactLink(directoryHref({view: "sources", adapterKind}), "data", "Sources", "Manage connections to supported remote services and storage"),
     compactLink(adapterKind === "fixture" ? "/admin?adapter=fixture" : "/admin", "settings", "Team administration", "Memberships, roles, and invitations"),
-    compactLink(`${PUBLICATION_ORIGIN}/methods/index.html`, "learn", "Methods and tutorials", "Published on OpenGeo.tools")
+    compactLink(`${PUBLICATION_ORIGIN}/methods/index.html`, "learn", "Methods and tutorials", "Published on OpenGeo.Tools")
   );
   more.append(summary, moreGrid);
 
@@ -331,7 +332,7 @@ function libraryStrip(library, adapterKind) {
   );
   panel.append(icon("learn"), copy,
     link(directoryHref({view: "publishing", adapterKind}), "start-text-link", "Browse publications"),
-    link(`${PUBLICATION_ORIGIN}/`, "start-text-link", "View OpenGeo.tools"));
+    link(`${PUBLICATION_ORIGIN}/`, "start-text-link", "View OpenGeo.Tools"));
   return panel;
 }
 

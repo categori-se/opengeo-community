@@ -654,7 +654,7 @@ function deploymentSwitcher(deployment, federation) {
   const summary = document.createElement("summary");
   const summaryCopy = document.createElement("span");
   summaryCopy.append(
-    text("small", "OpenGeo site"),
+    text("small", "OpenGeo Studio site"),
     text("strong", current.name)
   );
   summary.append(summaryCopy, text("span", "⌄", "platform-site-switcher-caret"));
@@ -1354,12 +1354,12 @@ function basemapConnectionsSection(state, rerender) {
     text("h2", "Your basemap provider connections"),
     text(
       "p",
-      "Hosted providers such as Protomaps and CARTO require browser API keys. OpenGeo saves each key centrally and binds the connection to projects, so authorized project viewers can inspect the key in the resulting browser requests. Record only the exact sites that may use it.",
+      "Hosted providers such as Protomaps and CARTO require browser API keys. OpenGeo Studio saves each key centrally and binds the connection to projects, so authorized project viewers can inspect the key in the resulting browser requests. Record only the exact sites that may use it.",
       "platform-subtitle"
     ),
     text(
       "p",
-      "OpenGeo returns a resolved style only for an authorized project binding and marks the response private and no-store. The saved map contains the binding and flavor, never the resolved key-bearing URL.",
+      "OpenGeo Studio returns a resolved style only for an authorized project binding and marks the response private and no-store. The saved map contains the binding and flavor, never the resolved key-bearing URL.",
       "platform-note"
     )
   );
@@ -1459,7 +1459,7 @@ function basemapConnectionTargetForm(connection, state, rerender) {
   submit.type = "submit";
   const feedback = text(
     "p",
-    `Changing this OpenGeo allowlist does not change ${basemapProviderName(connection.provider)}. Update the provider's site or domain declaration separately.`,
+    `Changing this OpenGeo Studio allowlist does not change ${basemapProviderName(connection.provider)}. Update the provider's site or domain declaration separately.`,
     "platform-note"
   );
   form.append(
@@ -1620,7 +1620,7 @@ function datasetConnectionCreationForm(state, rerender) {
   prefix.spellcheck = false;
   const mode = document.createElement("select");
   mode.append(
-    option("workload_identity", "OpenGeo workload identity (no user secret)"),
+    option("workload_identity", "OpenGeo Studio workload identity (no user secret)"),
     option("assume_role", "Assume an IAM role"),
     option("access_key", "Access key (write-only secret)")
   );
@@ -1695,7 +1695,7 @@ function datasetConnectionRecord(connection, state, rerender) {
   if (connection.credentialMode === "workload_identity") {
     body.append(text(
       "p",
-      "This connection uses the scoped OpenGeo runtime identity and has no user-managed secret.",
+      "This connection uses the scoped OpenGeo Studio runtime identity and has no user-managed secret.",
       "platform-note"
     ));
   } else {
@@ -1935,7 +1935,7 @@ function renderRepositoryObject(root, record, {
   }
   const note = text(
     "p",
-    "Metadata only. OpenGeo has not downloaded, imported, copied, or published this object.",
+    "Metadata only. OpenGeo Studio has not downloaded, imported, copied, or published this object.",
     "platform-note"
   );
   const controls = document.createElement("div");
@@ -3057,7 +3057,7 @@ function publicCatalogTable(page, adapter) {
       ),
       text(
         "small",
-        `${record.community.organizationName} · ${record.provenance.namespace ?? "OpenGeo native"}`
+        `${record.community.organizationName} · ${record.provenance.namespace ?? "OpenGeo Studio native"}`
       ),
       ...(record.ratings.count > 0
         ? [text(
@@ -3122,7 +3122,7 @@ function publicResourceDetail(record, adapter) {
     ["Attribution", record.attribution ?? "Not stated"],
     ["Language", record.language],
     ["Updated", new Date(record.freshness.catalogUpdatedAt).toLocaleString()],
-    ["Source", record.provenance.namespace ?? "OpenGeo native"],
+    ["Source", record.provenance.namespace ?? "OpenGeo Studio native"],
     ["Source version", record.freshness.sourceVersion ?? "Not reported"],
     ["Public relationships", String(record.relationships.publicCount)],
     ["Rating", record.ratings.count > 0

@@ -46,7 +46,7 @@ describe("GEP-002D governed terrain activation", () => {
     const production = evaluateTerrainGovernance({now: OBSERVED_AT_MS, deploymentClass: "production"});
     assert.equal(production.allowed, true);
     assert.equal(production.status, "fresh-upstream");
-    assert.match(terrainGovernanceMessage(production), /No API key or OpenGeo-hosted copy is needed/);
+    assert.match(terrainGovernanceMessage(production), /No API key or OpenGeo\.Tools-hosted copy is needed/);
     const older = evaluateTerrainGovernance({now: OBSERVED_AT_MS + 30 * 86400000, deploymentClass: "production"});
     assert.equal(older.status, "source-review-due");
     assert.equal(older.allowed, true);

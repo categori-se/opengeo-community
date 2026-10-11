@@ -67,7 +67,7 @@ function authStatePanel(state, auth, replaceState, returnTo) {
         "p",
         fixtureHref
           ? "This local preview can use synthetic browser test data, or an operator can provide an exact-origin Cognito configuration."
-          : "An operator must publish auth-config.json from the OpenGeo client registered with shared auth.categori.se.",
+          : "An operator must publish auth-config.json from the OpenGeo Studio client registered with shared auth.categori.se.",
         "platform-note"
       )
     );
@@ -82,7 +82,7 @@ function authStatePanel(state, auth, replaceState, returnTo) {
         actions,
         text(
           "p",
-          "Local test mode uses synthetic records, makes memory-only changes, and does not authenticate against Cognito or call the OpenGeo API.",
+          "Local test mode uses synthetic records, makes memory-only changes, and does not authenticate against Cognito or call the OpenGeo Studio API.",
           "platform-note"
         )
       );
@@ -103,9 +103,9 @@ function authStatePanel(state, auth, replaceState, returnTo) {
       : callbackError
         ? callbackMessage(state.code)
         : "Sign in securely to continue to your projects, files, teams, and account settings."),
-    text("p", "Your password and MFA stay with auth.categori.se. OpenGeo keeps the resulting short-lived access token only in this browser tab.", "platform-note")
+    text("p", "Your password and MFA stay with auth.categori.se. OpenGeo Studio keeps the resulting short-lived access token only in this browser tab.", "platform-note")
   );
-  const signInLabel = callbackError ? "Try sign-in again" : "Sign in to OpenGeo";
+  const signInLabel = callbackError ? "Try sign-in again" : "Sign in to OpenGeo Studio";
   const signIn = text("button", signInLabel, "platform-button");
   signIn.type = "button";
   signIn.addEventListener("click", async () => {

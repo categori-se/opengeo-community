@@ -16,7 +16,7 @@ export function platformStatePanel(
       const title = text("h2", "Opening secure sign-in…");
       const detail = text(
         "p",
-        "After signing in, you will return directly to this OpenGeo screen."
+        "After signing in, you will return directly to this OpenGeo Studio screen."
       );
       const signIn = action("Continue to sign in", begin);
       let started = false;
@@ -42,7 +42,7 @@ export function platformStatePanel(
     }
     panel.append(
       text("h2", "Sign in required"),
-      text("p", "Sign in to continue, then OpenGeo will return to this screen."),
+      text("p", "Sign in to continue, then OpenGeo Studio will return to this screen."),
       link("Continue to sign in", loginHrefForReturnTo(returnTo), "platform-button")
     );
     return panel;
@@ -124,7 +124,7 @@ export function platformStatePanel(
   const messages = {
     forbidden: ["Access unavailable", "Your identity is valid, but it has no permission for this organization or resource."],
     not_found: notFound,
-    error: ["OpenGeo is temporarily unavailable", "Studio could not load your account. Try again in a moment. If this continues, share the request ID below so we can investigate."]
+    error: ["OpenGeo Studio is temporarily unavailable", "Studio could not load your account. Try again in a moment. If this continues, share the request ID below so we can investigate."]
   };
   if (state.code === "directory_load_timeout") {
     messages.error = ["Your projects are taking too long to load", "Loading stopped after 90 seconds. Try again, or return to the map. Your saved projects have not changed."];

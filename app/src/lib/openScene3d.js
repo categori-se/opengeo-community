@@ -20,7 +20,7 @@ export const OPEN_3D_SCENE_SOURCE = deepFreeze({
   maximumZoom: 14,
   buildingSourceLayer: "building",
   vegetationSourceLayer: "landcover",
-  availability: "third-party community service; no OpenGeo or provider SLA"
+  availability: "third-party community service; no OpenGeo.Tools or provider SLA"
 });
 
 export const OPEN_3D_SCENE_RECEIPT = Object.freeze({

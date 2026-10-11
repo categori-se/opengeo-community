@@ -11,7 +11,7 @@ import {
   verifyManifestSeal,
   writeJson
 } from "./release-utils.mjs";
-import {reviewedStudioOrigin} from "./studio-release-config.mjs";
+import {assertStudioAuthConfig, reviewedStudioOrigin} from "./studio-release-config.mjs";
 
 const STUDIO_ORIGIN = reviewedStudioOrigin();
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -47,11 +47,7 @@ if (authBytes.length !== authArtifact.bytes || sha256(authBytes) !== authArtifac
 const authConfig = parseAuthConfig(JSON.parse(authBytes.toString("utf8")), {
   currentOrigin: STUDIO_ORIGIN
 });
-if (authConfig.redirectUri !== `${STUDIO_ORIGIN}/login`
-  || authConfig.logoutUri !== `${STUDIO_ORIGIN}/login`
-  || authConfig.hostedUiBaseUrl !== "https://auth.categori.se") {
-  throw new Error("Studio authentication configuration is not bound to the reviewed origin");
-}
+assertStudioAuthConfig(authConfig, STUDIO_ORIGIN);
 
 const releaseManifest = sealManifest({
   schemaVersion: "opengeo.studio-release.1.0.0",

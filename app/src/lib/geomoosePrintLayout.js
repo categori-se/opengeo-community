@@ -340,7 +340,7 @@ export function convertGeoMoosePrintLayout(value, {
           index,
           element.type,
           "template_tokens_unresolved",
-          `OpenGeo retained unsupported template tokens literally: ${substitution.unresolved.join(", ")}.`
+          `OpenGeo Studio retained unsupported template tokens literally: ${substitution.unresolved.join(", ")}.`
         ));
       }
       if (element.size !== 13 || element.font !== "NotoSans"
@@ -349,7 +349,7 @@ export function convertGeoMoosePrintLayout(value, {
           index,
           element.type,
           "text_style_coarsened",
-          "Font family, exact point size, color, and face were mapped to one semantic OpenGeo text style."
+          "Font family, exact point size, color, and face were mapped to one semantic OpenGeo Studio text style."
         ));
       }
     } else if (element.type === "legend") {
@@ -369,7 +369,7 @@ export function convertGeoMoosePrintLayout(value, {
         index,
         element.type,
         "legend_source_governed",
-        "GeoMoose's live legend images were replaced by the exact legend sealed with the OpenGeo map snapshot."
+        "GeoMoose's live legend images were replaced by the exact legend sealed with the OpenGeo Studio map snapshot."
       ));
     } else if (element.type === "image") {
       const blockId = Object.hasOwn(bindings, index) ? bindings[index] : undefined;
@@ -407,7 +407,7 @@ export function convertGeoMoosePrintLayout(value, {
         index,
         element.type,
         "drawing_omitted",
-        `OpenGeo print-layout 1.1 has no ${element.type} drawing frame; the shape was not approximated.`
+        `OpenGeo Studio print-layout 1.1 has no ${element.type} drawing frame; the shape was not approximated.`
       ));
     }
     outcomes.push({
@@ -460,7 +460,7 @@ export function convertGeoMoosePrintLayout(value, {
         },
         {
           code: "geopdf_extent_not_converted",
-          detail: "GeoMoose's jsPDF GeoArea extent is not represented by OpenGeo print-layout 1.1."
+          detail: "GeoMoose's jsPDF GeoArea extent is not represented by OpenGeo Studio print-layout 1.1."
         }
       ],
       networkRequests: 0,

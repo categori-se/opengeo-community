@@ -385,7 +385,7 @@ function metadataImportPanel(state, catalog, count, detail) {
   managedProfile.ariaLabel = "Imported resource metadata profile";
   const core = document.createElement("option");
   core.value = "";
-  core.textContent = "OpenGeo core profile";
+  core.textContent = "OpenGeo Studio core profile";
   managedProfile.append(core);
   for (const profile of state.metadataProfiles ?? []) {
     const option = document.createElement("option");
@@ -825,7 +825,7 @@ function resourceCatalog(state, resources, detail) {
     const facts = document.createElement("dl");
     facts.append(
       fact("Version", `v${resource.versionNumber}`),
-      fact("Origin", resource.originNamespace ? `${resource.originNamespace} · ${resource.originIdentifier}` : "OpenGeo native"),
+      fact("Origin", resource.originNamespace ? `${resource.originNamespace} · ${resource.originIdentifier}` : "OpenGeo Studio native"),
       fact("Relations", String(resource.relationshipCount)),
       fact("Extent", resource.spatialExtent ? resource.spatialExtent.join(", ") : "Not declared"),
       fact("Time", temporalLabel(resource))

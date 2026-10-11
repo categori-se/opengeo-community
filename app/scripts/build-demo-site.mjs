@@ -48,7 +48,7 @@ await buildPublicationEditor(outputRoot);
 const pwa = await writeStudioPwaAssets({
   outputRoot,
   applicationId: "opengeo-browser-demo",
-  name: "OpenGeo GIS Workbench Demo",
+  name: "OpenGeo Studio GIS Workbench Demo",
   description: "An anonymous browser-only geospatial workbench with nonpersistent local editing.",
   routes: ["/"]
 });

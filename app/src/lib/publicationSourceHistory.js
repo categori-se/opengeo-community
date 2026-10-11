@@ -112,7 +112,7 @@ export async function createSourceHistoryBackup({adapter, projectId, sourceProje
 
 export async function readSourceHistoryBackup(blob) {
   const loaded = await readPublicationSourceArchive(blob), metadata = loaded.manifest.metadata;
-  if (metadata.schemaVersion !== SCHEMA || metadata.content !== "saved-source-file-history") throw invalid("Choose an OpenGeo Source file history ZIP.");
+  if (metadata.schemaVersion !== SCHEMA || metadata.content !== "saved-source-file-history") throw invalid("Choose an OpenGeo Studio Source file history ZIP.");
   const synthetic = metadata.revisions.map(revision => ({...revision, files: revision.files}));
   const plan = planSourceHistoryBackup({sourceProject: metadata.sourceProject, revisions: synthetic});
   const original = new Map();

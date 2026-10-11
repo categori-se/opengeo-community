@@ -849,7 +849,7 @@ export function WorkbenchView({
   mapContainer.className = "gis-map";
   mapContainer.role = "region";
   mapContainer.tabIndex = 0;
-  mapContainer.setAttribute("aria-label", `${project?.name ?? workspace?.title ?? "OpenGeo"} interactive map`);
+  mapContainer.setAttribute("aria-label", `${project?.name ?? workspace?.title ?? "OpenGeo Studio"} interactive map`);
   const mapChrome = document.createElement("div");
   mapChrome.className = "gis-map-chrome";
   const statusbar = document.createElement("footer");
@@ -1738,7 +1738,7 @@ function renderTopbar(topbar, context) {
   const right = document.createElement("div");
   right.className = "gis-top-actions";
   const roleBadge = textElement("span", landingMode ? "Browser draft" : publicDemo ? "public demo" : role ?? "viewer");
-  if (landingMode) roleBadge.title = "Saved in this browser only, not in your OpenGeo account. Signing in does not upload this map.";
+  if (landingMode) roleBadge.title = "Saved in this browser only, not in your OpenGeo Studio account. Signing in does not upload this map.";
   roleBadge.className = `badge ${publicDemo || landingMode ? "demo" : role ?? "viewer"}`;
   roleBadge.classList.add("gis-role-badge");
   const commands = workbenchCommandRegistry(context);
@@ -1760,8 +1760,8 @@ function renderTopbar(topbar, context) {
         ...state.portalConfiguration,
         revision: state.portalConfiguration.revision + 1,
         theme: state.colorMode === "light"
-          ? {id: "opengeo-light", title: "OpenGeo light", colorMode: "light"}
-          : {id: "opengeo-default", title: "OpenGeo default", colorMode: "dark"}
+          ? {id: "opengeo-light", title: "OpenGeo Studio light", colorMode: "light"}
+          : {id: "opengeo-default", title: "OpenGeo Studio default", colorMode: "dark"}
       });
     }
     context.render();
@@ -1936,7 +1936,7 @@ function workbenchCommandRegistry(context) {
     },
     {
       id: "save", label: context.landingMode ? "Save in browser" : publicDemo ? "Save locally" : "Save", symbol: "save", sheet: true,
-      title: context.landingMode ? "Save this browser draft on this device, not to your OpenGeo account. Browser data can be cleared; export a backup for important work." : publicDemo
+      title: context.landingMode ? "Save this browser draft on this device, not to your OpenGeo Studio account. Browser data can be cleared; export a backup for important work." : publicDemo
         ? "Save this demo draft in this browser until the daily reset"
         : canPersist(context) ? "Save the authoritative map record" : "Your current role cannot update this map",
       active: false, disabled: !publicDemo && !canPersist(context),
@@ -2825,8 +2825,8 @@ function toolbarMenus(context) {
           menuAction("About OpenGeo Studio", () => {
             state.activePanel = "help";
             setStatus(context, context.publicDemo
-              ? "This public workbench demonstrates browser-native OpenGeo GIS workflows without private data or credentials."
-              : "OpenGeo.Tools keeps desktop GIS-style workflows in a browser-native AWS workspace.");
+              ? "This public workbench demonstrates browser-native OpenGeo Studio GIS workflows without private data or credentials."
+              : "OpenGeo Studio keeps desktop GIS-style workflows in a browser-native AWS workspace.");
           })
         ]
       ]
@@ -3904,10 +3904,10 @@ function portalConfigurationDock(context) {
   section.dataset.unresolvedCatalogLayers = String(analysis.counts.unresolved);
   section.append(
     textElement("h3", "Configured portal"),
-    textElement("p", "This project carries a versioned portal composition. Catalog entries become map layers only through an authorized OpenGeo dataset and exact source revision."),
+    textElement("p", "This project carries a versioned portal composition. Catalog entries become map layers only through an authorized OpenGeo Studio dataset and exact source revision."),
     compactKeyValues({
       "Configuration": `revision ${portal.revision}`,
-      "Reference": portal.upstream ? `GeoMoose ${portal.upstream.version}` : "OpenGeo native",
+      "Reference": portal.upstream ? `GeoMoose ${portal.upstream.version}` : "OpenGeo Studio native",
       "Sources": portal.sources.length,
       "Catalog entries": countPortalNodes(portal.catalog),
       "Tools": countPortalNodes(portal.tools),
@@ -4212,7 +4212,7 @@ function appendPortalToolNodes(parent, nodes, context) {
       control.disabled = !handler;
       control.title = handler
         ? `Run configured ${node.type} tool`
-        : "This configured tool remains visible and requires an OpenGeo service binding before it can run.";
+        : "This configured tool remains visible and requires an OpenGeo Studio service binding before it can run.";
       item.append(control, textElement("small", node.type));
     }
     if (node.children.length) {
@@ -6880,7 +6880,7 @@ function regionalBasemapSourceStudio(context) {
   const draft = context.state.regionalBasemapDraft;
   const section = editorSection(
     "Regional XYZ basemap",
-    "Register an anonymous HTTPS tile source as a project dataset. OpenGeo records its exact revision, license, WGS84 coverage, and coordinate behavior before it can become a map background. Registration performs syntax checks only."
+    "Register an anonymous HTTPS tile source as a project dataset. OpenGeo Studio records its exact revision, license, WGS84 coverage, and coordinate behavior before it can become a map background. Registration performs syntax checks only."
   );
   const title = textInput("Name", draft.title);
   const url = textInput("XYZ tile URL", draft.url);
@@ -7039,7 +7039,7 @@ function customStyleBasemap(context) {
       });
       void selectBasemapChoice(context, basemap);
     } catch {
-      setStatus(context, "Custom basemap rejected. Use a public, query-free HTTPS style URL or an XYZ URL with {z}, {x}, and {y}; include attribution. Key-based providers require a reusable OpenGeo connection.");
+      setStatus(context, "Custom basemap rejected. Use a public, query-free HTTPS style URL or an XYZ URL with {z}, {x}, and {y}; include attribution. Key-based providers require a reusable OpenGeo Studio connection.");
       context.render();
     }
   });
@@ -7710,7 +7710,7 @@ function formatTemporaryCoordinate(coordinates) {
 function temporaryPromotionReview(context, layer) {
   const section = editorSection(
     "Governed promotion review",
-    "OpenGeo will serialize this bounded copy as GeoJSON, then use the managed upload pipeline to hash, upload, verify, and queue a dataset revision for review. The temporary source remains separate."
+    "OpenGeo Studio will serialize this bounded copy as GeoJSON, then use the managed upload pipeline to hash, upload, verify, and queue a dataset revision for review. The temporary source remains separate."
   );
   section.classList.add("gis-temporary-promotion-review");
   section.append(compactKeyValues({
@@ -8348,7 +8348,7 @@ function discoverableFeatureForm(context, sourceType) {
     textElement("strong", `Find layers from a ${sourceLabel} service`),
     textElement(
       "span",
-      "Enter the service endpoint once. OpenGeo inspects it through the isolated on-demand worker, then lets you choose and review one layer before anything is saved."
+      "Enter the service endpoint once. OpenGeo Studio inspects it through the isolated on-demand worker, then lets you choose and review one layer before anything is saved."
     )
   );
   const discover = actionButton(
@@ -9281,7 +9281,7 @@ function pmtilesDerivativeEditor(context) {
   const eligibility = pmtilesDerivativeEligibility(context, dataset, layer);
   const section = editorSection(
     "Create an archived PMTiles derivative",
-    "OpenGeo starts isolated conversion capacity for this exact managed dataset version, writes the result under its immutable archive path, records lineage, and closes request compute when the queue drains."
+    "OpenGeo Studio starts isolated conversion capacity for this exact managed dataset version, writes the result under its immutable archive path, records lineage, and closes request compute when the queue drains."
   );
   section.classList.add("gis-pmtiles-derivative-editor");
   section.dataset.pmtilesDerivativeEditor = "true";
@@ -9552,7 +9552,7 @@ function cameraTourPanel(context) {
 
 function cameraTourImportControl(context) {
   const section = editorSection(
-    "OpenGeo tour file",
+    "OpenGeo Studio tour file",
     `Import one bounded .json tour file up to ${Math.floor(CAMERA_TOUR_LIMITS.maximumSerializedBytes / 1024)} KiB. Opening it performs no network requests.`
   );
   const label = document.createElement("label");
@@ -9984,7 +9984,7 @@ function flightSessionPanel(context) {
 
   const controller = editorSection(
     "Optional controller",
-    "After explicit activation, OpenGeo reads only the first connected standard browser gamepad. It requests no additional device, network, storage, data, or publication authority."
+    "After explicit activation, OpenGeo Studio reads only the first connected standard browser gamepad. It requests no additional device, network, storage, data, or publication authority."
   );
   const toggle = actionButton(state.flightControllerEnabled ? "Disable controller" : "Enable standard controller", () => {
     state.flightControllerEnabled = !state.flightControllerEnabled;
@@ -10575,7 +10575,7 @@ function historicalImageryPanel(context) {
     "Source revision": source.sourceRevision,
     "Coverage statement": source.coverageMeaning,
     "Capability observed": source.capabilityObservedAt.slice(0, 10),
-    "Access": "Anonymous provider request · no OpenGeo credentials"
+    "Access": "Anonymous provider request · no OpenGeo Studio credentials"
   }));
   const sourceLink = document.createElement("a");
   sourceLink.className = "gis-button gis-link-button";
@@ -10672,7 +10672,7 @@ function waybackHistoryPanel(context) {
     const open = document.createElement("a");
     open.href = "https://livingatlas.arcgis.com/wayback/"; open.target = "_blank"; open.rel = "noopener noreferrer"; open.textContent = "Open Wayback viewer ↗"; section.append(open);
   }
-  const provenance = editorSection("Source and coverage", "Esri hosts the imagery. Embedded use in OpenGeo requires applicable Esri rights; this option opens the provider viewer and does not download or archive imagery.");
+  const provenance = editorSection("Source and coverage", "Esri hosts the imagery. Embedded use in OpenGeo Studio requires applicable Esri rights; this option opens the provider viewer and does not download or archive imagery.");
   provenance.classList.add("gis-history-provenance");
   provenance.append(compactKeyValues({Provider: "Esri World Imagery Wayback", "Date meaning": "Basemap publication date; acquisition date varies by location", Access: "Provider-hosted viewer", Attribution: "Esri and its imagery providers; see the selected release for credits and terms"}));
   panel.append(intro, section, provenance);
@@ -13085,7 +13085,7 @@ function toggleOpenScene3d(context) {
   if (context.rendererAdapter.id !== "maplibre") {setStatus(context, "Switch to MapLibre for terrain and 3D scene tools."); return;}
   const {state} = context;
   if (state.spatialBody.id !== "earth") {
-    setStatus(context, `OpenGeo's current 3D scene contains Earth data and is unavailable on ${state.spatialBody.title}.`);
+    setStatus(context, `OpenGeo Studio's current 3D scene contains Earth data and is unavailable on ${state.spatialBody.title}.`);
     return;
   }
   if (!state.globe) {
@@ -13120,7 +13120,7 @@ function toggleTerrain(context) {
   if (context.rendererAdapter.id !== "maplibre") {setStatus(context, "Switch to MapLibre for terrain and 3D scene tools."); return;}
   const {state} = context;
   if (state.spatialBody.id !== "earth") {
-    setStatus(context, `OpenGeo's current terrain source is Earth-only and is unavailable on ${state.spatialBody.title}.`);
+    setStatus(context, `OpenGeo Studio's current terrain source is Earth-only and is unavailable on ${state.spatialBody.title}.`);
     return;
   }
   if (!state.globe) {
@@ -13249,7 +13249,7 @@ function openScene3dGovernanceLabel(reason) {
 
 function openScene3dGovernanceMessage(reason) {
   switch (reason) {
-    case "fresh-upstream": return "Buildings load directly from OpenFreeMap. No API key or OpenGeo-hosted copy is needed.";
+    case "fresh-upstream": return "Buildings load directly from OpenFreeMap. No API key or OpenGeo Studio-hosted copy is needed.";
     case "source-review-due": return "Buildings load directly from OpenFreeMap. Its recorded source check is due for review; this does not prevent viewing.";
     case "receipt-invalid": return "Open 3D content is disabled because its source audit receipt is invalid.";
     case "clock-invalid": return "Open 3D content is disabled because receipt freshness cannot be established from this clock.";
@@ -15853,7 +15853,7 @@ function renderMobileCommandSheet(layer, context) {
       .filter(item => ["home", "projects", "data", "collections", "publishing"].includes(item.id));
   const browse = document.createElement("nav");
   browse.className = "gis-mobile-command-navigation";
-  browse.ariaLabel = "Browse OpenGeo";
+  browse.ariaLabel = "Browse OpenGeo Studio";
   browse.append(textElement("h3", "Browse"));
   for (const item of destinations) browse.append(navLink(item.label, item.href));
   categories.append(browse);
@@ -16046,7 +16046,7 @@ function preservationEstimateReview(model) {
   const largeCapture = estimate.maximumOutputBytes > 1_000_000_000;
   const section = editorSection(
     "Review archive limits and rights",
-    "OpenGeo will start isolated capacity only after this confirmation. The durable project, source revision, output, and lineage remain after compute closes."
+    "OpenGeo Studio will start isolated capacity only after this confirmation. The durable project, source revision, output, and lineage remain after compute closes."
   );
   section.append(compactKeyValues({
     "Capture": estimate.copyMethod === "bounded_map_capture"
@@ -16350,7 +16350,7 @@ function openProjectFile(context) {
       if (format === "opengeo-browser") {
         if (context.publicDemo) reviewBrowserProjectFile(context, file, sourceText);
         else showProjectFileReview(context, {
-          file, format: "OpenGeo browser Project",
+          file, format: "OpenGeo Studio browser Project",
           description: "This file can reopen in the browser workbench. Importing it as a managed Project with governed data and access is still in development."
         });
         return;
@@ -16359,7 +16359,7 @@ function openProjectFile(context) {
         const raw = JSON.parse(sourceText);
         if (raw.schemaVersion !== "opengeo.project-version.1.0.0") {
           showProjectFileReview(context, {
-            file, format: "OpenGeo managed Project",
+            file, format: "OpenGeo Studio managed Project",
             description: "This file is not a saved snapshot. Open its saved Project from Projects."
           });
           return;
@@ -16367,7 +16367,7 @@ function openProjectFile(context) {
         const snapshot = readSavedProjectVersionFile(sourceText);
         const supported = ["opengeo.map-definition.1.3.0", "opengeo.map-definition.1.4.0"].includes(snapshot.definition.schemaVersion);
         showProjectFileReview(context, {
-          file, format: "OpenGeo managed Project snapshot",
+          file, format: "OpenGeo Studio managed Project snapshot",
           inspected: `Saved version ${snapshot.version} · ${Array.isArray(snapshot.definition.layers) ? snapshot.definition.layers.length : 0} Layer references`,
           description: supported
             ? "Create a separate map in this workspace. Current Layer and Style access will be checked; linked files, old history and access are not imported."
@@ -16406,10 +16406,10 @@ function openProjectFile(context) {
       showProjectFileReview(context, {
         file, format: label, inspected,
         description: format === "geomoose"
-          ? "Opening adds portal configuration to this working OpenGeo Project. Save the map to keep it."
+          ? "Opening adds portal configuration to this working OpenGeo Studio Project. Save the map to keep it."
           : format === "wmc"
             ? "Opening adds compatible map layers. In a saved Project, this may register governed sources before you save the map."
-            : "Opening imports compatible layers into this saved OpenGeo Project. Review the conversion report before continuing.",
+            : "Opening imports compatible layers into this saved OpenGeo Studio Project. Review the conversion report before continuing.",
         canOpen,
         onOpen: () => format === "geolibre" ? void applyInspectedGeoLibreProject(context)
           : format === "geomoose" ? applyInspectedGeoMooseMapbook(context)
@@ -16461,7 +16461,7 @@ function openProjectExportDialog(context) {
   dialog.append(textElement("h2", "Save as or export"),
     textElement("p", context.publicDemo
       ? "Download this browser Project or export it in another supported format. Opening a file is reviewed before it replaces your browser draft."
-      : "Save a new map in this OpenGeo Project, or download a file for another application. Review the conversion report for preserved and unsupported fields."));
+      : "Save a new map in this OpenGeo Studio Project, or download a file for another application. Review the conversion report for preserved and unsupported fields."));
   const label = document.createElement("label");
   label.textContent = "File format";
   const format = document.createElement("select");
@@ -16470,8 +16470,8 @@ function openProjectExportDialog(context) {
     && typeof context.styleAdapter?.listCompositionVersions === "function"
     && typeof context.styleAdapter?.getCompositionVersion === "function";
   const choices = [
-    ...(context.publicDemo ? [["opengeo", "OpenGeo Project (.opengeo-project.json)"]] : []),
-    ...(savedVersionAvailable ? [["opengeo-saved", "OpenGeo Project — saved version (.opengeo-project.json)"]] : []),
+    ...(context.publicDemo ? [["opengeo", "OpenGeo Studio Project (.opengeo-project.json)"]] : []),
+    ...(savedVersionAvailable ? [["opengeo-saved", "OpenGeo Studio Project — saved version (.opengeo-project.json)"]] : []),
     ["geolibre", "GeoLibre Project (.geolibre.json)"],
     ["geomoose", "GeoMoose mapbook (.mapbook.xml)"],
     ["wmc", "OGC Web Map Context (.wmc)"],
@@ -16504,7 +16504,7 @@ function openProjectExportDialog(context) {
   const actions = document.createElement("div"); actions.className = "platform-actions";
   const close = () => closeProjectFileDialog(dialog);
   if (!context.publicDemo && canSaveAs(context)) {
-    actions.append(actionButton("Save a new OpenGeo map", () => {close(); openSaveAsDialog(context);}));
+    actions.append(actionButton("Save a new OpenGeo Studio map", () => {close(); openSaveAsDialog(context);}));
   }
   const exportFile = actionButton("Export file", async () => {
     exportFile.disabled = true; format.disabled = true;
@@ -16578,7 +16578,7 @@ function reviewBrowserProjectFile(context, file, sourceText) {
   const dialog = document.createElement("dialog"); dialog.className = "browser-project-open-dialog browser-layer-registration";
   dialog.setAttribute("aria-label", "Review Project file");
   dialog.append(textElement("h2", "Open Project file"),
-    textElement("p", `${file.name} · OpenGeo browser Project · ${draft.layers.length} Layers. Opening replaces this browser draft. Export the current Project first if you want to keep it.`),
+    textElement("p", `${file.name} · OpenGeo Studio browser Project · ${draft.layers.length} Layers. Opening replaces this browser draft. Export the current Project first if you want to keep it.`),
     textElement("p", "Files stay in this browser and follow Demo's daily reset. Referenced services may load when the map opens."));
   const status = textElement("p", ""); status.setAttribute("role", "status");
   dialog.oncancel = () => dialog.remove();
@@ -16849,7 +16849,7 @@ function downloadGeoLibreProject(context) {
       ...currentProjectDefinition(context)
     };
     const result = exportGeoLibreProject(
-      {name: context.project?.name ?? context.workspace?.title ?? "OpenGeo project", definition},
+      {name: context.project?.name ?? context.workspace?.title ?? "OpenGeo Studio project", definition},
       {embeddedDataByLayerId: context.dataByLayerId}
     );
     context.lastConversionReport = result.report;
@@ -16864,7 +16864,7 @@ function exportInteractiveMap(context, initialMode = "live") {
   if (context.rendererAdapter.id !== "maplibre") {setStatus(context, "Switch to MapLibre for portable map export."); return false;}
   const map = context.state.map;
   if (!map || !map.isStyleLoaded()) {setStatus(context, "Wait for the map to load before exporting."); return false;}
-  const title = context.project?.name ?? context.workspace?.title ?? "OpenGeo map";
+  const title = context.project?.name ?? context.workspace?.title ?? "OpenGeo Studio map";
   openStaticMapExport({map, title, savedProjectOrigin: context.savedProjectOrigin, layers: context.layers, handles: context.state.layerHandles, initialMode,
     onInsert: context.onPublicationMapExport,
     downloadManifest: manifest => downloadBlob(`${slug(title)}.html.artifact.json`, JSON.stringify(manifest, null, 2), "application/json"),
@@ -16923,10 +16923,10 @@ function downloadGeoMooseMapbook(context) {
       ...structuredClone(context.project ?? {}),
       ...currentProjectDefinition(context)
     };
-    const result = exportGeoMooseMapbook({name: context.project?.name ?? context.workspace?.title ?? "OpenGeo portal", definition});
+    const result = exportGeoMooseMapbook({name: context.project?.name ?? context.workspace?.title ?? "OpenGeo Studio portal", definition});
     context.lastConversionReport = result.report;
     downloadBlob(`${slug(context.project?.name ?? context.workspace?.title ?? "project")}.mapbook.xml`, result.xml, "application/xml");
-    setStatus(context, `GeoMoose 3.15 mapbook exported with ${result.report.summary.preserved} OpenGeo-only fields retained in the project conversion report.`);
+    setStatus(context, `GeoMoose 3.15 mapbook exported with ${result.report.summary.preserved} OpenGeo Studio-only fields retained in the project conversion report.`);
   } catch (error) {
     setStatus(context, `GeoMoose export failed safely (${error?.code ?? "invalid_portal_configuration"}).`);
   }
@@ -16941,7 +16941,7 @@ function downloadWebMapContext(context) {
     const canvas = context.state.map?.getCanvas?.();
     const result = exportWebMapContext(
       {
-        name: context.project?.name ?? context.workspace?.title ?? "OpenGeo map",
+        name: context.project?.name ?? context.workspace?.title ?? "OpenGeo Studio map",
         description: context.project?.description ?? null,
         definition
       },

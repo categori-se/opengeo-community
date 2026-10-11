@@ -156,7 +156,7 @@ export function basemapGovernanceMessage(basemap, {savedProject = false} = {}) {
     return `${title} was retired from new-project choices. ${governance.lifecycleReason} ${savedProject ? "This project keeps its exact saved source until you explicitly choose a replacement." : ""} ${observed}`.replaceAll(/\s+/g, " ").trim();
   }
   if (governance.lifecycle === "disabled") {
-    return `${title} is disabled by an operator. ${governance.lifecycleReason} ${savedProject ? "OpenGeo preserved the saved selection but did not request its network resources." : ""} ${observed}`.replaceAll(/\s+/g, " ").trim();
+    return `${title} is disabled by an operator. ${governance.lifecycleReason} ${savedProject ? "OpenGeo Studio preserved the saved selection but did not request its network resources." : ""} ${observed}`.replaceAll(/\s+/g, " ").trim();
   }
   if (governance.observation.status === "degraded") {
     return `${title} has a degraded catalog observation. ${governance.observation.summary} Browser-session activation still checks the candidate before switching. ${observed}`;

@@ -1,4 +1,17 @@
-# OpenGeo GIS worker
+# OpenGeo Studio GIS worker
+
+The GIS worker validates registered inputs and produces bounded working data,
+map tiles, document previews and rendered derivatives. Exact input versions and
+checksums connect each result to its source; the worker uses a limited job lease
+rather than general database table access.
+
+Read the [processing architecture](../../docs/community-architecture.md#processing-and-deployment)
+and [local development guide](../../docs/community-development.md) first.
+The [AWS guide](../../docs/community-aws.md) covers optional worker deployment,
+permissions and costs. The detailed notes below retain their stated check and
+release limits.
+
+## Implementation notes
 
 Working vector conversion preserves source geometry without `MakeValid`; previews and
 tiles keep their separate display repair path. Measured working Parquet enables GDAL's
@@ -82,7 +95,7 @@ Sealed composition jobs add two through sixteen exact layer snapshots. The worke
 
 The optional CDK worker service starts at zero and scales from visible queue messages. Investigate the oldest-message alarm for unavailable dependencies, lease churn, or unexpectedly expensive files. Any DLQ message requires operator review: preserve its message id and safe error code, determine whether it is a poison event or a fixed dependency failure, then redrive only after the cause is understood. Never copy source contents, credentials, signed headers, database DSNs, or raw parser output into an incident ticket.
 
-Deployment and adversarial live-acceptance steps are in [`docs/deployment.md`](../../docs/deployment.md). Local and CI evidence does not authorize live parsing on its own.
+Deployment configuration, image review and operating limits are in the [AWS guide](../../docs/community-aws.md). Review the exact worker image and its security evidence before enabling live processing; local and CI evidence alone does not authorize live parsing.
 
 Working vector files are reopened with bounded read-only `ogrinfo` after conversion.
 Known source/working count differences stop ingestion before artifacts are returned.

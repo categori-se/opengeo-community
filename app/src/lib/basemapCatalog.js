@@ -12,7 +12,7 @@ const EARTH_PRESENTATION = Object.freeze({
   spatialBodyId: "earth",
   spatialReference: "Web Mercator (EPSG:3857)",
   measurement: "Earth geodesic distance and area",
-  savedProjectSemantics: "Uses the existing OpenGeo Earth map definition"
+  savedProjectSemantics: "Uses the existing OpenGeo Studio Earth map definition"
 });
 
 const NON_EARTH_REQUIREMENTS = Object.freeze([
@@ -233,7 +233,7 @@ function runtimeGroup(groupId, title, open, basemaps, description = null) {
     open,
     description: description ?? (groupId === "openfreemap"
       ? "Key-free styles indexed from GeoLibre and rendered from attributed OpenFreeMap sources."
-      : "Additional key-free Earth backgrounds already supported by OpenGeo."),
+      : "Additional key-free Earth backgrounds already supported by OpenGeo Studio."),
     choices: basemaps.map((basemap) => {
       const availability = basemapCatalogAvailability(basemap);
       const governanceMessage = basemapGovernanceMessage(basemap, {savedProject: true});
@@ -379,7 +379,7 @@ function regionalGroup(sources, selectedBasemapId) {
       availability: available ? "available" : "coordinate-transform-required",
       reason: available
         ? null
-        : "This source uses an offset coordinate system and OpenGeo has no approved transform for it.",
+        : "This source uses an offset coordinate system and OpenGeo Studio has no approved transform for it.",
       source: `${hostname} · governed XYZ revision ${source.versionNumber}`,
       license: configuration.license ?? "Required before activation",
       requirements: ["named source", "license and attribution", "coverage", "coordinate transform"],

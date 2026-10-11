@@ -147,7 +147,7 @@ export class ServerlessApiStack extends Stack {
         ...(additionalCognitoClientIds
           ? {OPEN_GEO_COGNITO_ADDITIONAL_CLIENT_IDS: additionalCognitoClientIds}
           : {}),
-        OPEN_GEO_COGNITO_REGION: config.sharedAuth.region,
+        OPEN_GEO_COGNITO_REGION: foundation.cognitoRegion,
         OPEN_GEO_COGNITO_USER_POOL_ID: foundation.userPool.userPoolId,
         OPEN_GEO_COGNITO_PROVISIONING_ENABLED:
           foundation.identityProvisioningEnabled ? "true" : "false",

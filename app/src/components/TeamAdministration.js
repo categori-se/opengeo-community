@@ -197,7 +197,7 @@ function organizationMembersPanel(state, feedback, refresh) {
 }
 
 function projectMembersPanel(state, feedback, refresh) {
-  const panel = section("Access workspace members", "Workspace owners and organization admins can manage existing organization members. These grants control data access and are distinct from authored OpenGeo Projects.");
+  const panel = section("Access workspace members", "Workspace owners and organization admins can manage existing organization members. These grants control data access and are distinct from authored OpenGeo Studio Projects.");
   if (!state.projects.length) {
     panel.append(empty("No access workspaces", "Create an access workspace before assigning its roles."));
     return panel;

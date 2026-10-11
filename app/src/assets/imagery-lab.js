@@ -89,7 +89,7 @@ function installImageryLab() {
       if (["stretch", "infrared", "ndvi", "threshold"].includes(this.mode)) this.left = "cir16";
       this.images = {}; this.raw = {}; this.records = {}; this.provenance = {}; this.sequence = 0; this.started = false;
       this.root = this.attachShadow({mode: "open"});
-      const style = node("style", STYLE), header = node("header", this.getAttribute("label") || "OpenGeo · NOAA imagery lab");
+      const style = node("style", STYLE), header = node("header", this.getAttribute("label") || "OpenGeo Studio · NOAA imagery lab");
       style.textContent += `.map{position:relative;overflow:hidden}.map canvas{cursor:grab}.map.panning canvas{cursor:grabbing}.map.inspect canvas{cursor:crosshair}.swipe-handle{position:absolute;top:0;bottom:0;width:32px;transform:translateX(-50%);padding:0;border:0;border-radius:0;background:transparent;cursor:ew-resize;touch-action:none;z-index:1}.swipe-handle:before{content:"";position:absolute;top:0;bottom:0;left:15px;width:2px;background:white;box-shadow:0 0 3px #000}.swipe-handle:after{content:"↔";position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:grid;place-items:center;width:42px;height:42px;border:2px solid white;border-radius:50%;background:#203d50;color:white;font-size:24px;box-shadow:0 1px 5px #000}.swipe-handle:focus-visible:after{outline:3px solid #76c8ff;outline-offset:3px}`;
       this.status = node("p", "Ready. Load this map to request imagery directly from NOAA. No archived imagery is used."); this.status.className = "info status"; this.status.setAttribute("role", "status");
       this.controls = node("div"); this.controls.className = "controls";
@@ -423,7 +423,7 @@ function installImageryLab() {
     exportHtml() {
       const escape = value => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
       const code = `(${installImageryLab.toString()})();`.replaceAll("<" + "/script", "<\\/script");
-      const html = '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>OpenGeo NOAA map</title><body><h1>NOAA imagery · exported from OpenGeo Studio</h1><p>Interactive controls are included. Live data requires NOAA and an internet connection. No archived imagery or credentials are bundled.</p>' +
+      const html = '<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>OpenGeo Studio NOAA map</title><body><h1>NOAA imagery · exported from OpenGeo Studio</h1><p>Interactive controls are included. Live data requires NOAA and an internet connection. No archived imagery or credentials are bundled.</p>' +
         `<opengeo-imagery-lab${this.hasAttribute("autoload") ? " autoload" : ""} mode="${this.mode}" state="${escape(JSON.stringify(this.state()))}"></opengeo-imagery-lab>` +
         '<details><summary>Original observation and provenance (not a promise the live source is unchanged)</summary><pre>' + escape(this.receipt.textContent) + '</pre></details><script>' + code + '<' + '/script></body></html>';
       const url = URL.createObjectURL(new Blob([html], {type: "text/html"})), a = node("a"); a.href = url; a.download = `noaa-${this.mode}-interactive.html`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);

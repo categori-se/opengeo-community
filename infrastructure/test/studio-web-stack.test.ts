@@ -48,7 +48,9 @@ describe("OpenGeo Studio web edge", () => {
       UpdateReplacePolicy: "Retain",
       Properties: Match.objectLike({BucketName: "studio.opengeo.tools"})
     });
-    assert.throws(() => stackFor({bucketName: STUDIO_DOMAIN_NAME}), /non-dotted/);
+    assert.throws(() => stackFor(
+      {bucketName: STUDIO_DOMAIN_NAME}, "us-east-1", "333333333333"
+    ), /non-dotted/);
     assert.throws(() => stackFor(
       {bucketName: "other.studio.opengeo.tools"}, "us-east-1", "111111111111"
     ), /non-dotted/);

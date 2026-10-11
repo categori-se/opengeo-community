@@ -2,7 +2,7 @@
 export function FrameworkGitHubConnection({adapter, projectId, sourceProjectId, canManage = false}) {
   const root = element("section", ""); root.className = "framework-github-connection";
   root.append(element("h4", "Optional GitHub source export"));
-  root.append(element("p", "Private drafts are saved in OpenGeo. Compiling uses the trusted build service without a GitHub source link. Saving or autosaving a draft never exports it."));
+  root.append(element("p", "Private drafts are saved in OpenGeo Studio. Compiling uses the trusted build service without a GitHub source link. Saving or autosaving a draft never exports it."));
   const status = element("p", ""); status.setAttribute("role", "status");
   const details = element("div", "");
   let busy = false;
@@ -37,7 +37,7 @@ export function FrameworkGitHubConnection({adapter, projectId, sourceProjectId, 
             busy = true; reload.disabled = true;
             for (const control of details.querySelectorAll("button")) control.disabled = true;
             try {show(await adapter.syncObservableGitHubRevision(projectId, sourceProjectId, revisionId));}
-            catch {details.replaceChildren(); status.textContent = "Source remains saved in OpenGeo. Refresh to check GitHub sync and retry this same revision. No build was requested.";}
+            catch {details.replaceChildren(); status.textContent = "Source remains saved in OpenGeo Studio. Refresh to check GitHub sync and retry this same revision. No build was requested.";}
             finally {busy = false; reload.disabled = false;}
           });
           details.append(sync);
@@ -45,7 +45,7 @@ export function FrameworkGitHubConnection({adapter, projectId, sourceProjectId, 
       }
       status.textContent = value.syncConfigured
         ? "Sync copies only the selected saved revision to this private repository. Connecting and later draft saves do not export source. Build and Publish remain separate explicit actions."
-        : "Explicit source export is unavailable on this deployment. Your drafts remain saved in OpenGeo; existing GitHub exports are recorded by the commit receipts below.";
+        : "Explicit source export is unavailable on this deployment. Your drafts remain saved in OpenGeo Studio; existing GitHub exports are recorded by the commit receipts below.";
     } else if (canManage && value.canConnect && value.availableConnections.length) {
       const label = element("label", "Choose an authorized private repository ");
       const select = element("select", "");

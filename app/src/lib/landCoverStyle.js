@@ -116,7 +116,7 @@ export const {mapFolioPalette, landCoverPresets, createLandCoverStyle} = createL
 
 /** Serialize self-contained factories; minifiers may rename locals safely inside each factory. */
 export function landCoverModuleSource() {
-  return '// OpenGeo land-cover SVG adapter. Local procedural motifs.\n'
+  return '// OpenGeo.Tools land-cover SVG adapter. Local procedural motifs.\n'
     + `const patterns = (${createCartographicPatternLibrary.toString()})();\n`
     + `const library = (${createLandCoverLibrary.toString()})(patterns);\n`
     + 'export const {mapFolioPalette, landCoverPresets, createLandCoverStyle} = library;\n';

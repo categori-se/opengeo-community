@@ -1,4 +1,18 @@
-# OpenGeo Observable Builder
+# OpenGeo Studio Observable Builder
+
+The publication compiler turns an exact staged source revision into verified
+HTML and assets. It supports the publication formats described below and runs
+without AWS or database credentials. A separate coordinator supplies admitted
+inputs, enforces isolation, checks the output and completes the build job.
+
+Start with the [publication architecture](../../docs/community-architecture.md#publication-builds-and-private-previews)
+and the [coordinator](../observable-coordinator/README.md). Use the
+[community development guide](../../docs/community-development.md) for the full
+application and its current acceptance limits. Dated hosted checks below describe
+the maintainers' deployment; private operator receipts are not distributed with
+this source edition and do not establish fresh-install acceptance.
+
+## Implementation notes and retained acceptance history
 
 `src/framework-standalone.mjs` is a local postprocessor for native
 Framework output. `localizeFrameworkOutput({files, entryPath, maximumOutputBytes})`
@@ -125,7 +139,7 @@ its one Bar Chart527 output matches the earlier isolated/browser-accepted HTML
 byte for byte, including notices. Its364-component SBOM reports zero HIGH/CRITICAL
 findings against the retained October1 database, with no suppressions configured.
 Two preceding offline install-cache failures remain retained; no install/download
-was repeated. The approved October3 rollout promoted this exact image as `sha256:f4ad135eea6cdb714220d4f0b070637e093876340a15d615ea59f9712309a178`, deployed four-pin runtime `f3ea7eaa1314aa0c62a85b4f0fdd43eda467b885` and read back the matching new-source API default. A fresh October3 scan also reports zero HIGH/CRITICAL findings. The same private source saved its eight original files and passed one native build and hosted private preview: 26 bars, retained notice, working disclosure, narrow layout, exact accepted HTML and anonymous HTTP403. Rights remain unreviewed and publication unauthorized. The separately approved Studio release used the existing frozen candidate. [Deployment](../../.local-archives/renderer-switch-20260930/notebook-package/default-selection/deployment.json). [Private acceptance](../../.local-archives/renderer-switch-20260930/notebook-package/default-selection/acceptance/private-notebook-receipt.json). [Image receipt](../../.local-archives/renderer-switch-20260930/notebook-package/image-assembly/receipt.json).
+was repeated. The approved October3 rollout promoted this exact image as `sha256:f4ad135eea6cdb714220d4f0b070637e093876340a15d615ea59f9712309a178`, deployed four-pin runtime `f3ea7eaa1314aa0c62a85b4f0fdd43eda467b885` and read back the matching new-source API default. A fresh October3 scan also reports zero HIGH/CRITICAL findings. The same private source saved its eight original files and passed one native build and hosted private preview: 26 bars, retained notice, working disclosure, narrow layout, exact accepted HTML and anonymous HTTP403. Rights remain unreviewed and publication unauthorized. The separately approved Studio release used the existing frozen candidate. The deployment, private-preview and image receipts for that historical check remain in the maintainers' private operational archive; they are not included in this source edition.
 
 
 October 3 helper/constants delivery now promotes compiler
@@ -139,7 +153,7 @@ The runtime retains all four previous compiler admissions and the GitHub primary
 existing source/job pins and the two historical failed-dispatch rows remain exact,
 with their old compiler still ineligible. Built Files review/Commit/reopen is a
 local fixture; normal-session hosted helper persistence remains open. No job is
-launched by this release. [Delivery checkpoint](../../docs/progress.md#october-3--notebook-helpers-and-compiler-deployed).
+launched by this release. That delivery checkpoint belongs to the maintainers' hosted deployment; the [community roadmap](../../ROADMAP.md) records this edition's acceptance limits.
 
 ## Declarative presentation settings
 
@@ -166,7 +180,7 @@ The compiler writes `.opengeo-page-cache-output.json` and
 coordinator must validate the build before admitting its cache to trusted private
 storage. Source uploads and browser checksums are not cache provenance. The
 optional Podman transport is prepared; production cache storage and activation
-are not wired. See [verification and remaining work](../../docs/publication-incremental-builds-20260913.md).
+are not wired. See [the public caching and build boundary](../../docs/community-architecture.md#publication-builds-and-private-previews).
 
 ```bash
 npm test
@@ -182,7 +196,7 @@ node src/cli.mjs \
 
 Production execution remains disabled until the coordinator can stage and collect files without sharing its AWS/database identity with this process and the runner is launched with a read-only root/input/base image, an unprivileged user, no Docker socket, no task role, no egress, and enforced CPU, memory, time, file and byte limits.
 
-The Dockerfile is pinned to the exact multi-platform Node `24.21.0-trixie-slim` manifest and a matching distroless Node runtime with libc6 `2.41-12+deb13u4`. Dependency lifecycle scripts are disabled. The cache-seed stage is allowed network access only while producing the image; the final image digest, SBOM and vulnerability scan must be reviewed before that digest is configured in OpenGeo. This compiler update does not change the separately pinned coordinator host or deploy the candidate.
+The Dockerfile is pinned to the exact multi-platform Node `24.21.0-trixie-slim` manifest and a matching distroless Node runtime with libc6 `2.41-12+deb13u4`. Dependency lifecycle scripts are disabled. The cache-seed stage is allowed network access only while producing the image; the final image digest, SBOM and vulnerability scan must be reviewed before that digest is configured in OpenGeo Studio. This compiler update does not change the separately pinned coordinator host or deploy the candidate.
 
 An exact AMD64 manifest may be supplied through the build-only `NODE_IMAGE` argument for local image verification; deployment keeps the ARM64 default.
 
@@ -193,5 +207,5 @@ Publication `artifactInputs` snapshot and optional archive inputs through `dataF
 Its request uses `opengeo.observable-build-request.2.0.0`, binding the snapshot checksum.
 Private previews verify exact retained HTML bytes and include them as ordinary compiler
 assets without rebuilding the map. Public release remains unavailable. Existing
-invocations remain supported. See [the Artifact contract](../../docs/project-artifacts.md)
+invocations remain supported. See [the public Artifact overview](../../docs/community-architecture.md#artifacts-and-release-recovery)
 for admission, lease authorization, image pinning and acceptance work still required.

@@ -378,7 +378,7 @@ export function basemapRuntimeMessage({title = "The background", runtime} = {}) 
       }
       return `${title} stopped loading after ${failureCount} recent background-source errors. Project layers and map position remain available, and the saved basemap has not changed.`;
     case "incomplete":
-      return `${title} is partly available. OpenGeo identified the affected background resources without changing project layers, map position, or the saved basemap.`;
+      return `${title} is partly available. OpenGeo Studio identified the affected background resources without changing project layers, map position, or the saved basemap.`;
     case "limited":
       return `${title} is still visible, but the current zoom is beyond its published detail. Project layers, map position, and the saved basemap remain unchanged.`;
     case "retained":

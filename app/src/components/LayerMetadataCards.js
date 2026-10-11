@@ -48,7 +48,7 @@ export function LayerMetadataCards({dataset, source, knowledge}) {
     ["Resource ID", dataset.id], ["Data version", dataset.currentVersionNumber],
     ["Connection revision", source?.versionNumber], ["Metadata revision", knowledge?.version],
     ["Updated", dataset.updatedAt]
-  ], "OpenGeo ownership and access do not establish upstream ownership or reuse rights."));
+  ], "OpenGeo Studio ownership and access do not establish upstream ownership or reuse rights."));
   if (m) {
     const description = el("section", "", "layer-metadata-card layer-metadata-wide");
     description.append(el("h2", "Provider description"), el("p", plainText(m.description || m.serviceDescription || "No description supplied.")));

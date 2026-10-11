@@ -28,7 +28,7 @@ export function publicDemoNavigation(massgisValue, activePageId, onSelectPage) {
     {
       kind: "page",
       id: COMMUNITY_DEMO_PAGE_ID,
-      title: "OpenGeo starter map",
+      title: "OpenGeo.Tools starter map",
       summary: "Community facilities and immediate map tools"
     },
     {
@@ -73,7 +73,7 @@ export function publicDemoNavigation(massgisValue, activePageId, onSelectPage) {
       Object.freeze({
         workspaceId: COMMUNITY_WORKSPACE_ID,
         pageId: COMMUNITY_DEMO_PAGE_ID,
-        title: "OpenGeo starter map"
+        title: "OpenGeo.Tools starter map"
       }),
       Object.freeze({
         workspaceId: massgis.project.id,
@@ -106,7 +106,7 @@ export function communityDemoPresentation({catalog, geojson}) {
 
   const workspace = workspaceRecord({
     workspaceId: COMMUNITY_WORKSPACE_ID,
-    title: "OpenGeo starter map",
+    title: "OpenGeo.Tools starter map",
     description: "Anonymous GIS workbench with reviewed public data and browser-only local changes."
   });
   const dataset = datasetRecord({
@@ -146,7 +146,7 @@ export function communityDemoPresentation({catalog, geojson}) {
     }),
     publication,
     source,
-    noticeTitle: "Public OpenGeo workbench",
+    noticeTitle: "Public OpenGeo Studio workbench",
     noticeSummary: "Explore, style, measure, process, and open local GIS files. Your local changes stay in this browser and reset daily."
   });
 }

@@ -3,6 +3,7 @@ import {resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {parseAuthConfig} from "../src/lib/authConfig.js";
+import {assertStudioAuthConfig, communityDeploymentEnabled, reviewedStudioOrigin} from "./studio-release-config.mjs";
 
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const distRoot = resolve(appRoot, "dist");
@@ -44,6 +45,13 @@ if (version === 2) {
   candidate.federation = federationDirectory(webOrigin, candidate.deployment);
 }
 const config = parseAuthConfig(candidate, {currentOrigin: webOrigin});
+if (communityDeploymentEnabled()) {
+  const studioOrigin = reviewedStudioOrigin();
+  if (webOrigin !== studioOrigin) {
+    throw new Error("Community browser authentication must use the configured Studio origin");
+  }
+  assertStudioAuthConfig(config, studioOrigin);
+}
 
 await mkdir(outputRoot, {recursive: true});
 await writeFile(resolve(outputRoot, "auth-config.json"), `${JSON.stringify(config, null, 2)}\n`, {

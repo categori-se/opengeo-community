@@ -10,7 +10,7 @@ import {
   verifyManifestSeal,
   verifyTree
 } from "./release-utils.mjs";
-import {reviewedStudioOrigin} from "./studio-release-config.mjs";
+import {assertStudioAuthConfig, reviewedStudioOrigin} from "./studio-release-config.mjs";
 import {canonicalStudioRoutes} from "./application-route-inventory.mjs";
 
 const origin = reviewedStudioOrigin();
@@ -80,8 +80,8 @@ if (authBytes.length !== manifest.authConfig.bytes
   throw new Error("Studio release authentication configuration is not sealed");
 }
 const authConfig = parseAuthConfig(JSON.parse(authBytes.toString("utf8")), {currentOrigin: origin});
-if (authConfig.hostedUiBaseUrl !== "https://auth.categori.se"
-  || authConfig.redirectUri !== manifest.authConfig.redirectUri
+assertStudioAuthConfig(authConfig, origin);
+if (authConfig.redirectUri !== manifest.authConfig.redirectUri
   || authConfig.logoutUri !== manifest.authConfig.logoutUri) {
   throw new Error("Studio release authentication configuration is misdirected");
 }

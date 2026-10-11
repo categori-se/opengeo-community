@@ -18,7 +18,7 @@ const ESTIMATE_SHA256 = "a".repeat(64);
 describe("persistent source custody", () => {
   it("offers a live reference first and an explicit protected copy for service sources", () => {
     const prompt = preservationPrompt("wms");
-    assert.equal(prompt.question, "Would you also like OpenGeo to keep a protected copy?");
+    assert.equal(prompt.question, "Would you also like OpenGeo Studio to keep a protected copy?");
     assert.deepEqual(prompt.choices.map(({id}) => id), ["live_reference", "live_and_protected_copy"]);
     assert.equal(prompt.copyMethod, "bounded_map_capture");
     assert.equal(prompt.available, true);

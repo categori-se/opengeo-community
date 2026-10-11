@@ -4,8 +4,8 @@ import config from "../observablehq.config.js";
 // together so every page uses one consistent set of shared runtime modules.
 export default {
   ...config,
-  title: "OpenGeo public demo",
+  title: "OpenGeo Studio public demo",
   root: "dist/managed-demo-source",
   output: "dist/managed-demo-build",
-  footer: "OpenGeo.Tools · managed public demonstration site"
+  footer: "OpenGeo Studio · managed public demonstration site"
 };

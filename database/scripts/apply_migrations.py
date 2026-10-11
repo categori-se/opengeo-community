@@ -295,6 +295,13 @@ def load_migrations(
         if "\x00" in source:
             raise MigrationError(f"migration contains a NUL byte: {path.name}")
         statements = tuple(split_sql(source))
+        # Later migrations also use PostgreSQL's implicit transaction form.
+        # Execute each such file atomically through Data API without rewriting
+        # its source or the checksum retained in existing migration ledgers.
+        # Partially explicit files still fail the normal boundary validation.
+        boundaries = {"BEGIN", "BEGIN TRANSACTION", "COMMIT", "COMMIT WORK", "ROLLBACK"}
+        if statements and not any(statement_command(item) in boundaries for item in statements):
+            statements = ("BEGIN", *statements, "COMMIT")
         transaction_count = validate_transactions(path.name, statements)
         for statement_index, statement in enumerate(statements, start=1):
             if len(statement) > MAX_DATA_API_SQL_CHARS:

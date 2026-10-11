@@ -79,6 +79,10 @@ class InitializationTests(unittest.TestCase):
     def test_built_shell_is_an_explicit_independent_browser_mode(self):
         self.assertFalse(studio.parse_args([]).built_studio)
         self.assertTrue(studio.parse_args(["--built-studio"]).built_studio)
+        pinned = "sha256:" + "b" * 64
+        self.assertEqual(studio.parse_args(["--built-studio", "--api-image", pinned]).api_image, pinned)
+        with self.assertRaises(SystemExit), patch("sys.stderr", new=io.StringIO()):
+            studio.parse_args(["--built-studio", "--worker-image", "localhost/worker:latest"])
         self.assertTrue(
             studio.parse_args(["--built-studio", "--service-clients"]).service_clients
         )
@@ -136,6 +140,9 @@ class InitializationTests(unittest.TestCase):
             notebook_sources = [
                 "services/observable-builder/scripts/notebook-assets.mjs",
                 "services/observable-builder/src/notebook-runtime.mjs",
+                "services/observable-builder/src/portable-map-view.mjs",
+                "services/observable-builder/src/legacy-notebook-runtime.mjs",
+                "services/observable-builder/src/legacy-observable.mjs",
                 "services/observable-builder/src/jupyter-notebook.mjs",
                 "services/observable-builder/src/observable-notebook.mjs",
             ]

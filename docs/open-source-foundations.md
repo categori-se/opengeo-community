@@ -2,7 +2,7 @@
 
 Status: maintained dependency index Updated: 2026-09-19 Checked register: [`../governance/open-source-foundations.json`](../governance/open-source-foundations.json)
 
-OpenGeo depends on substantial open-source work. This page makes those foundations visible to engineers, security and release teams, product owners, and external readers. It distinguishes software that ships with OpenGeo from software used only for development, independent verification, or product research.
+OpenGeo Studio depends on substantial open-source work. This page makes those foundations visible to engineers, security and release teams, product owners, and external readers. It distinguishes software that ships with OpenGeo Studio from software used only for development, independent verification, or product research.
 
 This engineering inventory supports release and legal review. The licenses and notice files shipped by each upstream project remain authoritative.
 
@@ -35,7 +35,7 @@ application code and dependency versions are unchanged.
 
 ## Hosted Services Are Tracked Separately
 
-`UX-007B` can connect a project to the hosted Protomaps API. That optional service integration does not add a software package to an OpenGeo build and is therefore absent from the checked open-source dependency register. PMTiles, the Protomaps-originated library OpenGeo ships, remains inventoried below under its BSD-3-Clause license. A live hosted connection separately requires provider terms, attribution, allowed-site, availability, usage, privacy, and cost review. The current local evidence uses a deterministic intercepted provider response and makes no live-service or licensing acceptance claim.
+`UX-007B` can connect a project to the hosted Protomaps API. That optional service integration does not add a software package to an OpenGeo Studio build and is therefore absent from the checked open-source dependency register. PMTiles, the Protomaps-originated library OpenGeo Studio ships, remains inventoried below under its BSD-3-Clause license. A live hosted connection separately requires provider terms, attribution, allowed-site, availability, usage, privacy, and cost review. The current local evidence uses a deterministic intercepted provider response and makes no live-service or licensing acceptance claim.
 
 ## Browser And JavaScript Foundations
 
@@ -58,7 +58,7 @@ application code and dependency versions are unchanged.
 | [MapLibre geojson-vt](https://github.com/maplibre/geojson-vt) | 6.1.0 | Development/test GeoJSON tiling | ISC |
 | [MapLibre vt-pbf](https://github.com/maplibre/vt-pbf) | 4.3.2 | Development/test vector-tile encoding | MIT |
 | [jsdom](https://github.com/jsdom/jsdom) | 23.2.0 | Component and DOM contract tests | MIT |
-| [OpenLayers](https://github.com/openlayers/openlayers) | 10.10.0 | Independent service-client tests | BSD-2-Clause |
+| [OpenLayers](https://github.com/openlayers/openlayers) | 10.10.0 | Browser geometry/projection/exchange utilities and independent service-client checks | BSD-2-Clause |
 | [pbf](https://github.com/mapbox/pbf) | 4.0.2 | Protocol-buffer test support | BSD-3-Clause |
 | [Playwright](https://github.com/microsoft/playwright) | 1.61.1 | Managed-browser and live acceptance | Apache-2.0 |
 | [PGlite](https://github.com/electric-sql/pglite) | 0.5.8 | Embedded migration/RLS tests | Apache-2.0 |
@@ -132,7 +132,10 @@ The inventory records `NOASSERTION` for Linux distributions because assigning on
 
 ## Open-Source Reference Products
 
-These products inform requirements or execute as isolated test peers. OpenLayers is an explicit development dependency; the other references remain separate from the OpenGeo application runtime.
+These products inform requirements or execute as isolated test peers. OpenLayers
+also supplies browser geometry, projection and exchange utilities and is a
+declared runtime dependency. It is not a selectable Studio renderer. The other
+references remain separate from the OpenGeo Studio application runtime.
 
 | Product | Pinned reference | Relationship | License |
 | --- | ---: | --- | --- |
@@ -142,9 +145,9 @@ These products inform requirements or execute as isolated test peers. OpenLayers
 | [GeoServer](https://github.com/geoserver/geoserver) | 3.0.1 | Service-engine reference and disposable peer | GPL-2.0-or-later |
 | [MapServer](https://github.com/MapServer/MapServer) | 8.6.5 | Render/service reference and disposable peer | MIT |
 | [GeoMoose](https://github.com/geomoose/gm3) | 3.15.2 | Web GIS portal reference | MIT |
-| [OpenLayers](https://github.com/openlayers/openlayers) | 10.10.0 | Web-client reference and development peer | BSD-2-Clause |
+| [OpenLayers](https://github.com/openlayers/openlayers) | 10.10.0 | Browser utility dependency, web-client reference and independent peer | BSD-2-Clause |
 
-The exact source identity and license evidence for each reference are stored in the corresponding `parity/fixtures/*-source-lock.json` file. A reviewed dependency decision governs any reference code introduced into OpenGeo.
+The exact source identity and license evidence for each reference are stored in the corresponding `parity/fixtures/*-source-lock.json` file. A reviewed dependency decision governs any reference code introduced into OpenGeo Studio.
 
 ## License Index
 

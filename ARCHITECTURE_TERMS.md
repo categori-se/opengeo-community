@@ -1,4 +1,8 @@
-# Application resource model
+# OpenGeo Studio resource model
+
+Start with the [architecture guide](docs/community-architecture.md) for how the
+browser, API, spatial database, processing worker and publication compiler work
+together. The definitions below explain the resources that persist between tasks.
 
 | Resource | Meaning |
 | --- | --- |

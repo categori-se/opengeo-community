@@ -1,6 +1,15 @@
-# OpenGeo PostgreSQL/PostGIS Schema
+# OpenGeo Studio PostgreSQL/PostGIS Schema
 
-Migrations define the authoritative production model. The initial migration creates identities, organizations, client accounts, projects, maps, immutable map revisions, memberships, and activity events. Migration `0002` adds tenant-isolated, non-deletable membership invitations plus restricted identity reconciliation and single-use acceptance functions. Migration `0003` adds the managed dataset, project link, tag, exact upload intent/object, logical version, and idempotent processing-job foundation. Migration `0004` adds the worker's function-only execution boundary. Migration `0005` adds dataset grants, explicit logical-version/object associations, and indexed catalog search. Migration `0006` adds tenant-scoped XYZ/WMS source identities and append-only source revisions without granting the processing worker table access. Migration `0007` extends that same boundary to governed PMTiles. Migration `0008` adds recoverable project-import plans, exact candidate bindings, and forward-only completion. Migration `0009` adds first-class governed resources, immutable metadata/content versions, external identifiers, and typed relationships. Migration `0010` adds one-time staged data/map binding, native resource grants, immutable portable style revisions, and append-only editorial workflow decisions. Migration `0011` adds immutable governed render profiles and exact-version render jobs behind a function-only worker boundary. Migration `0012` adds PNG output, explicit `CRS:84`/`EPSG:3857` identity, and format-specific exact finalization. Migration `0013` adds request background/transparency identity, lowers the bounded dimension minimum to one pixel, and exposes presentation fields only through a lease-token-checked worker function. Migration `0014` adds sealed, append-only, bottom-to-top layer compositions with exact profile-version snapshots and a lease-token-checked ordered worker read. Migration `0015` adds stable, exact-case WMS layer publications for published dataset/service resources, with case-folded name reservation, one active publication per resource, irreversible withdrawal, forced RLS, and no worker authority. Migration `0016` adds an explicit opaque public-WMS service identity per project. It can be created only after an active exact-name publication targets a published resource whose visibility is `public`; identity is immutable, disablement is actor-bound and irreversible, runtime has no delete grant, and the worker has no table authority. The service record is a revocable read boundary, not permission to create render work. Migration `0017` adds organization-owned metadata profile identities and immutable, checksummed profile revisions. Governed resource revisions may bind one exact profile revision and its bounded validation snapshot through composite tenant foreign keys. Profile history cannot be updated or deleted, runtime deletion is denied, forced RLS applies, and the worker has no authority. Migration `0018` adds immutable DCAT 3/STAC 1.1 canonical source documents, checksums, and bounded conversion reports bound by composite tenant foreign key to the exact imported governed-resource revision. The exact canonical UTF-8 source is stored as at most 49,152 bytes of text and read separately from its 16-KiB report to stay below the Data API row boundary. Format/namespace/identifier is unique per organization, runtime can only select/insert, forced RLS applies, and the worker has no authority. Migration `0019` adds a 16-KiB bounded `localized_metadata` JSON object to every immutable governed-resource revision and rebuilds the stored full-text vector with all nested string values. The application further limits this object to eight normalized BCP 47 language keys and title/abstract/attribution/keyword fields. No table, service, or worker authority is added. Migration `0020` atomically expands the immutable source-format enum to ISO 19115-3:2023, schema.org Dataset 30.0, DataCite 4.7, and GeoDCAT-AP 3.1.0. Canonical JSON remains bounded at 49,152 bytes; ISO XML uses the same bound but is stored byte-for-byte with a raw UTF-8 checksum. The database accepts raw XML only for the ISO format and still requires a JSON object for every JSON format. No table, index, daemon, or worker authority is added.
+The PostgreSQL/PostGIS model keeps resource identities, spatial data, immutable
+versions, membership, permissions and job history durable across application
+releases. Tenant isolation and operation-specific roles protect these records;
+forward migrations preserve existing data and working references.
+
+Read the [resource and compatibility overview](../docs/community-architecture.md#resources-and-compatibility)
+first. Use the [connected development guide](../docs/community-development.md)
+for local PostGIS or the [AWS guide](../docs/community-aws.md) for initialization,
+backup and upgrades. Detailed migration notes below retain their stated local,
+hosted and production acceptance limits.
 
 ## Tenant Boundary
 
@@ -37,6 +46,10 @@ Organization discovery is a separate trusted authentication query: first map the
 ## Migrations
 
 Migrations are forward-only and run exactly once. Production rollback restores application compatibility or applies a corrective migration; it does not edit an already-applied file.
+
+### Migration history
+
+Migrations define the authoritative production model. The initial migration creates identities, organizations, client accounts, projects, maps, immutable map revisions, memberships, and activity events. Migration `0002` adds tenant-isolated, non-deletable membership invitations plus restricted identity reconciliation and single-use acceptance functions. Migration `0003` adds the managed dataset, project link, tag, exact upload intent/object, logical version, and idempotent processing-job foundation. Migration `0004` adds the worker's function-only execution boundary. Migration `0005` adds dataset grants, explicit logical-version/object associations, and indexed catalog search. Migration `0006` adds tenant-scoped XYZ/WMS source identities and append-only source revisions without granting the processing worker table access. Migration `0007` extends that same boundary to governed PMTiles. Migration `0008` adds recoverable project-import plans, exact candidate bindings, and forward-only completion. Migration `0009` adds first-class governed resources, immutable metadata/content versions, external identifiers, and typed relationships. Migration `0010` adds one-time staged data/map binding, native resource grants, immutable portable style revisions, and append-only editorial workflow decisions. Migration `0011` adds immutable governed render profiles and exact-version render jobs behind a function-only worker boundary. Migration `0012` adds PNG output, explicit `CRS:84`/`EPSG:3857` identity, and format-specific exact finalization. Migration `0013` adds request background/transparency identity, lowers the bounded dimension minimum to one pixel, and exposes presentation fields only through a lease-token-checked worker function. Migration `0014` adds sealed, append-only, bottom-to-top layer compositions with exact profile-version snapshots and a lease-token-checked ordered worker read. Migration `0015` adds stable, exact-case WMS layer publications for published dataset/service resources, with case-folded name reservation, one active publication per resource, irreversible withdrawal, forced RLS, and no worker authority. Migration `0016` adds an explicit opaque public-WMS service identity per project. It can be created only after an active exact-name publication targets a published resource whose visibility is `public`; identity is immutable, disablement is actor-bound and irreversible, runtime has no delete grant, and the worker has no table authority. The service record is a revocable read boundary, not permission to create render work. Migration `0017` adds organization-owned metadata profile identities and immutable, checksummed profile revisions. Governed resource revisions may bind one exact profile revision and its bounded validation snapshot through composite tenant foreign keys. Profile history cannot be updated or deleted, runtime deletion is denied, forced RLS applies, and the worker has no authority. Migration `0018` adds immutable DCAT 3/STAC 1.1 canonical source documents, checksums, and bounded conversion reports bound by composite tenant foreign key to the exact imported governed-resource revision. The exact canonical UTF-8 source is stored as at most 49,152 bytes of text and read separately from its 16-KiB report to stay below the Data API row boundary. Format/namespace/identifier is unique per organization, runtime can only select/insert, forced RLS applies, and the worker has no authority. Migration `0019` adds a 16-KiB bounded `localized_metadata` JSON object to every immutable governed-resource revision and rebuilds the stored full-text vector with all nested string values. The application further limits this object to eight normalized BCP 47 language keys and title/abstract/attribution/keyword fields. No table, service, or worker authority is added. Migration `0020` atomically expands the immutable source-format enum to ISO 19115-3:2023, schema.org Dataset 30.0, DataCite 4.7, and GeoDCAT-AP 3.1.0. Canonical JSON remains bounded at 49,152 bytes; ISO XML uses the same bound but is stored byte-for-byte with a raw UTF-8 checksum. The database accepts raw XML only for the ISO format and still requires a JSON object for every JSON format. No table, index, daemon, or worker authority is added.
 
 ### Fresh databases and upgrades
 
@@ -119,7 +132,7 @@ After migration 0060 is present, an authorized operator may add `--apply`, the e
 
 ### Managed demo starter bootstrap
 
-`bootstrap_demo_starter.py` is the corresponding plan/apply command for the small OpenGeo starter project. Plan mode verifies the exact five-feature CC0 asset, digest, size, immutable Studio asset URL, governed source definition, and current map schema without contacting AWS:
+`bootstrap_demo_starter.py` is the corresponding plan/apply command for the small OpenGeo Studio starter project. Plan mode verifies the exact five-feature CC0 asset, digest, size, immutable Studio asset URL, governed source definition, and current map schema without contacting AWS:
 
 ```bash
 python3 database/scripts/bootstrap_demo_starter.py \
@@ -162,7 +175,7 @@ Migration `0105_dataset_knowledge.sql` adds append-only metadata history keyed b
 organization and reusable dataset UUID. Apply it before releasing the canonical
 metadata API. It does not backfill claims, update data/map versions, or change
 project references. Preserve its records during application rollback. See the
-[resource model contract](../docs/resource-model-implementation.md).
+[metadata and custody overview](../docs/community-architecture.md#metadata-and-source-custody).
 
 Migration `0106_discovery_metadata.sql` adds immutable discovery response documents
 and dataset registration links. The new function wraps existing completion in one
@@ -181,7 +194,7 @@ no copies or jobs. Tenant-qualified foreign keys and forced RLS protect both tab
 a binding trigger requires completed sealed output of the same saved map/resource.
 Runtime may select/insert history and update only head revision/current/actor/time.
 History updates/deletes and worker access are denied. Apply this forward migration
-before enabling the edition API. See [Project Artifacts](../docs/project-artifacts.md).
+before enabling the edition API. See [Project Artifacts](../docs/community-architecture.md#artifacts-and-release-recovery).
 
 Migration `0108_saved_map_render_reuse.sql` adds immutable tenant-scoped retry aliases
 for completed saved-map jobs and an index for completed-input lookup. Triggers share
@@ -193,7 +206,7 @@ update permissions are unchanged.
 Migration `0127_artifact_release_creation_keys.sql` adds optional immutable release
 creation keys, unique per organization and creator. It preserves existing release
 rows, RLS, grants and revocation rules. Exact-input retries recheck permissions in the
-API before returning the original active identity; see [release recovery](../docs/project-artifacts.md#durable-release-creation-and-retry).
+API before returning the original active identity; see [release recovery](../docs/community-architecture.md#artifacts-and-release-recovery).
 
 
 Migration `0129_mapserver_sources.sql` adds a distinct live ArcGIS MapServer display
@@ -201,7 +214,7 @@ identity, preserving prior source/format constraints. Enum values commit before
 use in constraints. The full 129-migration chain and repeat application of 0129
 passed in a temporary local PostGIS container; this is not production migration
 or runtime-role source/map persistence acceptance. See
-[the display contract](../docs/mapserver-live-display.md).
+[the public source-custody overview](../docs/community-architecture.md#metadata-and-source-custody).
 
 Migration `0147_feature_field_comparisons.sql` admits immutable feature and field-form schema 1.3.0 while retaining versions 1.0–1.2. It changes only the two schema-document CHECK constraints; existing rows, history, roles and grants remain unchanged. Typed operators and same-record earlier-field operands are validated by the API.
 

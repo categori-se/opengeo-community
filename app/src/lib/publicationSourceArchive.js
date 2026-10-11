@@ -8,20 +8,20 @@ const MANIFEST_PATH = 'opengeo-source-project.json';
 const SCHEMA = 'opengeo.publication-source-export.1.0.0';
 const BACKUP_SCHEMA = 'opengeo.publication-source-backup.1.0.0';
 const BACKUP_CONTEXT_NAME = 'opengeo-source-backup-context.json';
-const invalid = detail => new TypeError(`Choose an OpenGeo source-project export: ${detail}`);
+const invalid = detail => new TypeError(`Choose an OpenGeo Studio source-project export: ${detail}`);
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const exactKeys = (value, keys) => record(value) && Object.keys(value).length === keys.length
   && keys.every(key => Object.hasOwn(value, key));
 const sha256 = async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
   .map(value => value.toString(16).padStart(2, '0')).join('');
 const CREDENTIAL_PARAMETER = /^(?:x-amz-(?:signature|credential|security-token)|access[_-]?token|token|sig|signature|api[_-]?key|key|client[_-]?secret|password|credential|authorization|session|auth|cap)$/i;
-const README = `OpenGeo Publication source project
+const README = `OpenGeo Studio Publication source project
 
 source/ contains the exact current working-draft files, including unsaved edits.
 opengeo-source-project.json records their sizes and SHA-256 checksums, supplied
 settings, and external references. This is not an immutable saved revision.
 
-In Studio, choose this file with OpenGeo source project ZIP, review its contents,
+In Studio, choose this file with OpenGeo Studio source project ZIP, review its contents,
 then choose Use imported source. This changes the working draft only; publication
 rights need review and external dependencies are not automatically rebound.
 
@@ -37,7 +37,7 @@ do not grant access or publication rights. Unknown pin details remain unknown.
 This is not a complete offline, workspace, or account backup. It does not include
 revision history, credentials, build dependencies, or compiled publications.
 `;
-const BACKUP_README = `OpenGeo Publication source-project input backup
+const BACKUP_README = `OpenGeo Studio Publication source-project input backup
 
 source/ contains exact source files and every declared archived data and retained
 Artifact dependency at its frozen authored path. The manifest records sizes,

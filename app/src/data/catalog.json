@@ -16,7 +16,7 @@
   "tenants": [
     {
       "tenantId": "tenant_demo",
-      "name": "OpenGeo Demonstration Tenant",
+      "name": "OpenGeo.Tools Demonstration Tenant",
       "createdAt": "2026-06-22T13:00:00Z"
     }
   ],
@@ -142,7 +142,7 @@
       "featureCount": 5,
       "crs": "EPSG:4326",
       "license": "CC0-1.0",
-      "attribution": "OpenGeo.tools synthetic demonstration data",
+      "attribution": "OpenGeo.Tools synthetic demonstration data",
       "publicSourcePath": "/data/sample-public-facilities.geojson",
       "tags": ["public", "facilities"],
       "createdBy": "user_lin",

@@ -125,7 +125,7 @@ export const PLUGINS = [
 ];
 
 export const STYLE_PALETTES = [
-  ["opengeo", "OpenGeo", ["#2f74f5", "#14b8a6", "#f59e0b", "#ec4899", "#64748b"]],
+  ["opengeo", "OpenGeo Studio", ["#2f74f5", "#14b8a6", "#f59e0b", "#ec4899", "#64748b"]],
   ["terrain", "Terrain", ["#2f855a", "#84a98c", "#d9a441", "#8b5e34", "#475569"]],
   ["water", "Water", ["#0369a1", "#0891b2", "#38bdf8", "#0f766e", "#334155"]],
   ["risk", "Risk", ["#16a34a", "#f59e0b", "#f97316", "#dc2626", "#7f1d1d"]],

@@ -1,4 +1,18 @@
-# OpenGeo Observable Coordinator
+# OpenGeo Studio Observable Coordinator
+
+The build coordinator connects authorized publication jobs to an isolated
+compiler. It stages exact immutable inputs, maintains the job lease, verifies
+outputs and stores completion facts. It retains AWS/database authority outside
+the compiler and leaves publication as a separate permission-checked action.
+
+Read the [publication architecture](../../docs/community-architecture.md#publication-builds-and-private-previews)
+and [compiler README](../observable-builder/README.md) first. The
+[AWS guide](../../docs/community-aws.md) records the standalone installation path
+and remaining publication work. Technical and dated hosted notes below preserve
+their original scope; hosted acceptance does not establish fresh community
+installation or production readiness.
+
+## Implementation notes and retained acceptance history
 
 The local request-v4/invocation-v5 `single-html` option accepts only the generated
 `dist/index.html`. Report-v2 validates its localized-manifest seal, native consumed
@@ -46,7 +60,7 @@ This package is the trusted half of the Observable build pipeline. It owns no pu
 
 The implementation is adapter-driven so contract tests can prove authority flow without credentials. `PodmanRunner` is the concrete local isolation adapter: it runs only the request's exact `sha256:` image ID with pulls and network disabled, a read-only root/input/contract, no capabilities, no-new- privileges, UID/GID 10001, private IPC, bounded CPU/memory/PIDs/file descriptors, and no Docker socket or inherited credential environment inside the container. It safely collects the complete output tree after the compiler exits and emits the sandbox attestation that the coordinator requires before upload.
 
-Version-2 source revisions support private previews with exact archive bindings. Migration 88's `app.resolve_observable_build_data` resolves only the live job's pins under its original actor's current authority. The coordinator rechecks them after staging, after compilation and before completion; completion repeats the check inside the database. `OPEN_GEO_ARCHIVE_BUCKET` selects the managed geodata bucket separately from `OPEN_GEO_APPLICATION_BUCKET`. Exact-version archive reads are restricted to dataset original/derivative prefixes and verify every byte. No storage coordinates reach the compiler, and release candidates remain denied pending archive publication-rights support. See [archive workflow and limits](../../docs/framework-data-attachments.md).
+Version-2 source revisions support private previews with exact archive bindings. Migration 88's `app.resolve_observable_build_data` resolves only the live job's pins under its original actor's current authority. The coordinator rechecks them after staging, after compilation and before completion; completion repeats the check inside the database. `OPEN_GEO_ARCHIVE_BUCKET` selects the managed geodata bucket separately from `OPEN_GEO_APPLICATION_BUCKET`. Exact-version archive reads are restricted to dataset original/derivative prefixes and verify every byte. No storage coordinates reach the compiler, and release candidates remain denied pending archive publication-rights support. See [input custody and publication limits](../../docs/community-architecture.md#publication-builds-and-private-previews).
 
 The production path now has bounded SigV4 Data API and exact-version S3 adapters, an ID-only SQS host loop, deterministic output reconciliation, and migration `0049`'s function-only `opengeo_observable_coordinator` role. The optional CDK stack scales one trusted, operator-baked ARM64 Podman host from zero to one in isolated subnets. The API receives send-only queue authority only through a separate advertisement gate. This is deployable local synthesis, not live acceptance: the AMI must still prove its systemd/log-forwarding contract, native ARM64 compiler image, SBOM/CVE state, metadata and network isolation, cancellation/drain behavior, load/cost, and private preview origin before an operator advertises execution.
 
@@ -77,9 +91,8 @@ private source default, eight-file revision, native build and hosted private pre
 pass. The output preserves the accepted checksum; authorized access succeeds and
 anonymous access receives HTTP403. Source rights remain unreviewed and publication
 unauthorized. No existing source pin or public content changed.
-The current
-hosted acceptance and release limits are recorded in the
-[active plan](../../docs/resource-model-roadmap.md).
+These historical hosted checks remain separate from the standalone edition's
+[public acceptance limits](../../docs/community-architecture.md#acceptance-and-next-steps).
 
 ## Incremental build evidence
 
@@ -157,7 +170,7 @@ around execution, while cached actor identity is cleared at terminal job transit
 No runtime API origin, additional IAM grant or compiler-image promotion has been enabled.
 Production still requires reviewed image/runtime configuration and exact-version
 Artifact read permissions; existing source-upload permissions do not establish these. The maintained
-[Artifact contract](../../docs/project-artifacts.md) records verification limits.
+[Artifact overview](../../docs/community-architecture.md#artifacts-and-release-recovery) records verification limits.
 
 ### Opt-in GitHub Artifact runtime configuration
 

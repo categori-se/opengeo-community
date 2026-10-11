@@ -68,7 +68,7 @@ export function importGeoMooseMapbook(text, {DOMParser: Parser = globalThis.DOMP
     catalog,
     tools,
     locations: [],
-    theme: {id: "opengeo-default", title: "OpenGeo default", colorMode: "dark"},
+    theme: {id: "opengeo-default", title: "OpenGeo Studio default", colorMode: "dark"},
     upstream: GEOMOOSE_RELEASE
   });
   addField(report, "$.mapbook.catalog", "mapped", `${catalogState.nodes} catalog nodes mapped into the standalone portal configuration.`, "$.definition.portal.catalog");
@@ -76,8 +76,8 @@ export function importGeoMooseMapbook(text, {DOMParser: Parser = globalThis.DOMP
   addField(report, "$.mapbook.toolbar", "mapped", `${toolState.nodes} tools and drawers mapped into the standalone portal configuration.`, "$.definition.portal.tools");
   addField(report, "$.mapbook.toolbar.searches", "mapped", `${portal.searches.length} search tools derived from the configured toolbar.`, "$.definition.portal.searches");
   addField(report, "$.mapbook.toolbar.services", "mapped", `${portal.services.length} service tools derived from the configured toolbar.`, "$.definition.portal.services");
-  addField(report, "$.definition.portal.locations", "defaulted", "The source mapbook declares no saved locations; OpenGeo starts with an empty versioned location list.", "$.definition.portal.locations");
-  addField(report, "$.definition.portal.theme", "defaulted", "The source mapbook declares no portable theme record; OpenGeo uses its accessible default theme.", "$.definition.portal.theme");
+  addField(report, "$.definition.portal.locations", "defaulted", "The source mapbook declares no saved locations; OpenGeo Studio starts with an empty versioned location list.", "$.definition.portal.locations");
+  addField(report, "$.definition.portal.theme", "defaulted", "The source mapbook declares no portable theme record; OpenGeo Studio uses its accessible default theme.", "$.definition.portal.theme");
 
   const handled = new Set([...sourceElements, catalogElement, toolbarElement].filter(Boolean));
   const otherElements = [];
@@ -146,10 +146,10 @@ export function exportGeoMooseMapbook(openGeo) {
   addField(report, "$.definition.portal.searches", "mapped", "Search records are represented by their source service tools and drawers.", "$.mapbook.toolbar");
   addField(report, "$.definition.portal.services", "mapped", "Service records are represented by their source service tools.", "$.mapbook.toolbar");
   if (portal.locations.length) {
-    addField(report, "$.definition.portal.locations", "preserved_extension", "Saved OpenGeo locations have no standard GeoMoose mapbook 3.0 field and remain in the OpenGeo map definition.");
+    addField(report, "$.definition.portal.locations", "preserved_extension", "Saved OpenGeo Studio locations have no standard GeoMoose mapbook 3.0 field and remain in the OpenGeo Studio map definition.");
   }
   if (portal.theme.id !== "opengeo-default" || portal.theme.colorMode !== "dark") {
-    addField(report, "$.definition.portal.theme", "preserved_extension", "The OpenGeo theme remains in the map definition because mapbook 3.0 has no portable theme field.");
+    addField(report, "$.definition.portal.theme", "preserved_extension", "The OpenGeo Studio theme remains in the map definition because mapbook 3.0 has no portable theme field.");
   }
   for (const [index, element] of (definition.extensions?.geomoose?.otherElements ?? []).entries()) {
     lines.push(writeXmlNode(element, 1));
@@ -222,7 +222,7 @@ function parseXmlNode(element, path, report, state, depth) {
   if (!XML_NAME.test(element.localName ?? "")) throw mapbookError("mapbook_xml_name_invalid");
   const attributes = safeAttributes(element, path, report);
   if (element.localName === "param" && SENSITIVE_NAME.test(attributes.name ?? "")) {
-    addField(report, `${path}.@value`, "rejected_sensitive", "Credential-like GeoMoose parameters are removed; reconnect them through governed OpenGeo connection custody.");
+    addField(report, `${path}.@value`, "rejected_sensitive", "Credential-like GeoMoose parameters are removed; reconnect them through governed OpenGeo Studio connection custody.");
     report.losses.push(`${path}: credential-like parameter removed`);
     return null;
   }
@@ -363,7 +363,7 @@ function recordCatalogConversion(report, analysis) {
         report,
         path,
         "mapped",
-        `Catalog reference ${entry.reference} is structurally resolved and can be displayed only after binding an authorized exact OpenGeo source revision.`,
+        `Catalog reference ${entry.reference} is structurally resolved and can be displayed only after binding an authorized exact OpenGeo Studio source revision.`,
         targetPath
       );
       continue;

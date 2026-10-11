@@ -62,14 +62,32 @@ class MigrationPlanTests(unittest.TestCase):
             cls.migrations,
         )
 
-    def test_loads_exact_contiguous_95_migrations(self) -> None:
-        self.assertEqual(len(self.migrations), 95)
+    def test_loads_exact_contiguous_167_migrations(self) -> None:
+        self.assertEqual(len(self.migrations), 167)
         self.assertEqual(self.migrations[0].name, "0001_platform_foundation.sql")
         self.assertEqual(
             self.migrations[-1].name,
-            "0095_github_build_logs.sql",
+            "0167_observable_catalog_reference_workspaces.sql",
         )
-        self.assertEqual([item.number for item in self.migrations], list(range(1, 96)))
+        self.assertEqual([item.number for item in self.migrations], list(range(1, 168)))
+
+    def test_implicit_migration_is_atomic_and_retains_its_source_checksum(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = b"-- legacy file without outer transaction\nSELECT 1; SELECT $$semi;colon$$;\n"
+            path = Path(directory) / "0001_example.sql"
+            path.write_bytes(source)
+            migration = MODULE.load_migrations(path.parent)[0]
+            self.assertEqual(migration.statements, ("BEGIN", "-- legacy file without outer transaction\nSELECT 1", "SELECT $$semi;colon$$", "COMMIT"))
+            self.assertEqual(migration.transaction_count, 1)
+            self.assertEqual(migration.sha256, MODULE.hashlib.sha256(source).hexdigest())
+            self.assertEqual(path.read_bytes(), source)
+
+    def test_partially_explicit_migration_still_fails_before_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "0001_example.sql"
+            path.write_text("SELECT 1; BEGIN; SELECT 2; COMMIT;")
+            with self.assertRaisesRegex(MODULE.MigrationError, "outside an explicit transaction"):
+                MODULE.load_migrations(path.parent)
 
     def test_all_statements_fit_the_data_api_limit(self) -> None:
         largest = max(
@@ -136,6 +154,8 @@ class MigrationPlanTests(unittest.TestCase):
             "0078_deleted_feature_restoration.sql",
             "0079_project_collaboration.sql",
             "0089_imageserver_sources.sql",
+            "0129_mapserver_sources.sql",
+            "0156_referenced_cog_sources.sql",
         }
         actual = {
             migration.name
@@ -143,7 +163,7 @@ class MigrationPlanTests(unittest.TestCase):
             if migration.transaction_count == 2
         }
         self.assertEqual(actual, expected_two_transaction_migrations)
-        self.assertEqual(sum(item.transaction_count for item in self.migrations), 102)
+        self.assertEqual(sum(item.transaction_count for item in self.migrations), 176)
 
     def test_connector_password_configuration_is_explicit_and_optional(self) -> None:
         self.assertIn("opengeo_connector", MODULE.ALLOWED_DATABASE_ROLES)

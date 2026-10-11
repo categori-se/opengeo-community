@@ -53,7 +53,7 @@ const pwa = await writeStudioPwaAssets({
   outputRoot: distRoot,
   applicationId: "opengeo-production-studio",
   name: "OpenGeo Studio",
-  description: "A collaborative geospatial data, map, service, and publication workspace.",
+  description: "An open workspace for geospatial analysis and publishing.",
   startUrl: "/workspaces",
   routes: expectedRoutes.map(([path]) => path)
 });

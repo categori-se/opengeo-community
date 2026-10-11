@@ -184,7 +184,7 @@ function renderPublishedExamples(root, catalog, massgis, selectPage, browserCata
 
   const header = document.createElement("header");
   header.className = "public-demo-directory-header";
-  const heading = text("h1", "Explore OpenGeo");
+  const heading = text("h1", "Explore OpenGeo Studio");
   heading.id = "public-demo-directory-title";
   header.append(
     text("p", "OpenGeo Studio · browser demo", "public-demo-directory-eyebrow"),
@@ -197,7 +197,7 @@ function renderPublishedExamples(root, catalog, massgis, selectPage, browserCata
   projects.className = "public-demo-project-grid";
   projects.append(
     publishedProjectCard({
-      title: "OpenGeo starter project",
+      title: "OpenGeo Studio starter project",
       summary: starter?.summary ?? "A small public dataset for learning the Studio workbench.",
       facts: ["1 map", "1 layer", starter?.sourceFiles?.[0]?.license ?? "CC0-1.0"],
       action: exampleLink("Open starter map", COMMUNITY_DEMO_PAGE_ID, selectPage)
@@ -270,7 +270,7 @@ function demoPublications(massgis) {
 function renderDemoPublication(root, publication, community, massgis, loadMap, selectPage) {
   const main = document.createElement("main"); main.className = "public-demo-directory";
   const article = document.createElement("article"); article.className = "public-demo-publication";
-  article.append(directoryActions(), text("p", "OpenGeo · example Publication", "public-demo-directory-eyebrow"),
+  article.append(directoryActions(), text("p", "OpenGeo.Tools · example Publication", "public-demo-directory-eyebrow"),
     text("h1", publication.title), text("p", publication.summary), text("h2", "Purpose and findings"));
   if (publication.id === "community-access") {
     article.append(text("p", "This synthetic briefing demonstrates how a Publication can reuse a Catalog Layer: an interactive map, a simple summary and an explanation of the evidence belong together. These invented facilities illustrate the workflow; they do not describe real service availability."));
@@ -519,7 +519,7 @@ function renderLoading(root, massgis, pageId, selectPage) {
   state.setAttribute("role", "status");
   state.append(
     text("strong", "Loading the preserved MassGIS release…"),
-    text("p", "OpenGeo is verifying the immutable AWS archive while retaining the authoritative MassGIS source and version record."),
+    text("p", "OpenGeo Studio is verifying the immutable AWS archive while retaining the authoritative MassGIS source and version record."),
     stateAction("Open the starter map", () => void selectPage(COMMUNITY_DEMO_PAGE_ID))
   );
   replaceDemoContent(root, demoStateNotice(page, massgis), state);
@@ -539,7 +539,7 @@ function renderLoadError(root, massgis, pageId, error, selectPage) {
   state.append(
     text("strong", "The current MassGIS release could not be loaded"),
     text("p", boundedErrorMessage(error)),
-    text("small", "The starter map and local OpenGeo tools remain available while the external service is unavailable."),
+    text("small", "The starter map and local OpenGeo Studio tools remain available while the external service is unavailable."),
     actions
   );
   replaceDemoContent(root, demoStateNotice(page, massgis), state);

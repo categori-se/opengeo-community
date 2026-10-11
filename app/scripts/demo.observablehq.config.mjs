@@ -4,7 +4,7 @@ import config, {studioPwaHead} from "../observablehq.config.js";
 // source contains only the reviewed workbench components and public data.
 export default {
   ...config,
-  title: "OpenGeo.Tools GIS Workbench Demo",
+  title: "OpenGeo Studio GIS Workbench Demo",
   root: "dist/demo-source",
   output: "dist/demo-build",
   theme: ["near-midnight", "wide"],
@@ -13,5 +13,5 @@ export default {
   sidebar: false,
   search: false,
   pager: false,
-  footer: "OpenGeo.Tools · anonymous browser-only GIS workbench demo"
+  footer: "OpenGeo Studio · anonymous browser-only GIS workbench demo"
 };

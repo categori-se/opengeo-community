@@ -298,11 +298,11 @@
       "ecosystem": "npm",
       "name": "ol",
       "version": "10.10.0",
-      "dependencyKind": "development",
+      "dependencyKind": "runtime",
       "usedBy": [
         "app/package.json"
       ],
-      "purpose": "Independent OpenLayers client behavior for service interoperability tests.",
+      "purpose": "Browser geometry, projection and exchange utilities; independent OpenLayers service interoperability checks. Not a selectable Studio renderer.",
       "licenseExpression": "BSD-2-Clause",
       "sourceUrl": "https://github.com/openlayers/openlayers",
       "licenseEvidence": {

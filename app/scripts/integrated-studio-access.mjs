@@ -15,7 +15,7 @@ export async function exerciseStudioAccess({page, context, origin, organization,
   await reviewer.addInitScript(initializeSession, {organization, actor: "reviewer"});
   await reviewer.goto(`${origin}/workspaces`);
   await reviewer.getByRole("heading", {name: "No workspace access yet", exact: true}).waitFor();
-  assert.match(await reviewer.locator(".platform-state").textContent(), /reviewer@local.invalid/);
+  assert.match(await reviewer.locator('.platform-state[data-state="forbidden"]').textContent(), /reviewer@local.invalid/);
 
   await page.goto(`${origin}/workspaces`);
   await page.getByRole("link", {name: /New Project/}).click();
@@ -41,7 +41,7 @@ export async function exerciseStudioAccess({page, context, origin, organization,
   await page.getByLabel("Display name", {exact: true}).fill("Local reviewer");
   await page.getByLabel("Organization role", {exact: true}).selectOption("guest");
   await page.getByLabel("Optional access workspace", {exact: true}).selectOption(project.id);
-  await page.getByLabel("Project role", {exact: true}).selectOption("viewer");
+  await page.getByLabel("Access workspace role", {exact: true}).selectOption("viewer");
   await page.getByLabel("Expires", {exact: true}).selectOption("3");
   const invited = page.waitForResponse(response => response.url().endsWith("/organizations/current/invitations") && response.request().method() === "POST");
   await page.getByRole("button", {name: "Send invitation", exact: true}).click();

@@ -147,7 +147,7 @@ describe("public workbench demo source boundary", () => {
       dom.window.document.body.append(root);
 
       assert.equal(root.dataset.surface, "published-examples");
-      assert.equal(root.querySelector("h1")?.textContent, "Explore OpenGeo");
+      assert.equal(root.querySelector("h1")?.textContent, "Explore OpenGeo Studio");
       assert.equal(root.querySelector('a[href="/workspaces"]'), null);
       assert.ok(root.querySelector('a[href="https://studio.opengeo.tools/workspaces"]'));
       assert.equal(root.querySelectorAll("#example-catalog [data-catalog-layer]").length, 31);

@@ -5,5 +5,5 @@ import config from "../observablehq.config.js";
 // footer stable while preserving the application-owned configuration.
 export default {
   ...config,
-  footer: "OpenGeo Studio · GIS workbench for opengeo.tools"
+  footer: "OpenGeo Studio · browser GIS workbench"
 };

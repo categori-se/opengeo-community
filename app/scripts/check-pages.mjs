@@ -682,7 +682,7 @@ function screenshotArtifactName(route) {
 
 async function assertPublicDemoHandoff(page, route) {
   const body = await page.locator("body").innerText();
-  if (!body.includes("OpenGeo Studio demo") || !body.includes("anonymous GIS workbench")) {
+  if (!body.includes("OpenGeo Studio demo") || !body.includes("temporary browser-only workspace")) {
     failures.push(`${route}: demo handoff copy is missing`);
   }
   const links = await page.locator('a[href="https://demo.studio.opengeo.tools/"]').count();
@@ -1914,7 +1914,7 @@ async function assertMapPreview(page, route) {
   if (!workbench) failures.push(`${route}: expected a GIS workbench`);
   if (!mapFrames) failures.push(`${route}: expected a map preview container`);
   if (!layerRows) failures.push(`${route}: expected layer controls`);
-  if (!menus) failures.push(`${route}: expected OpenGeo.Tools toolbar menus`);
+  if (!menus) failures.push(`${route}: expected OpenGeo Studio toolbar menus`);
   if (!appNav) failures.push(`${route}: expected application navigation`);
   if (!homeLinks || !brandLinks) failures.push(`${route}: expected obvious navigation back to the app home`);
   if (!mapControls) failures.push(`${route}: expected map control stack`);

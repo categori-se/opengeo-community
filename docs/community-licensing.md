@@ -1,4 +1,4 @@
-# Community licensing, attribution and contributions
+# OpenGeo Studio licensing, attribution and contributions
 
 Updated: October 11, 2026. Scope: the reviewed `opengeo-community` source and asset release.
 
@@ -10,17 +10,21 @@ needed to build and operate the included workflows. Apply this grant only to
 material the releaser has authority to license. Preserve separately licensed
 upstream material under its original terms; a root license cannot replace them.
 
-The Community edition includes the source needed for the offered workflows and
-does not require a proprietary application module. Apache-2.0 permits use,
+The community edition includes the full suite of tools and the source needed to
+build and operate them, including Studio, collaboration, GIS processing and
+publication infrastructure. It does not require a proprietary application module.
+Apache-2.0 permits use,
 modification and redistribution, including commercial use, under its terms. Keep
 required notices and upstream licenses, and preserve contributors' rights. See
 the [Apache-2.0 license](https://www.apache.org/licenses/LICENSE-2.0).
 
-Paid support may be offered separately in the future. Its scope, terms and
-availability are not yet defined and do not change the community source license.
+Hosting and enterprise support are offered as fee-based services for the same
+software and do not change the community source license. See
+[support and service inquiries](../SUPPORT.md#hosting-and-enterprise-support)
+for contact details; engagement scope, terms and availability are agreed separately.
 
-The public publisher/maintainer is `aaronkyle` (`2301690+aaronkyle@users.noreply.github.com`). This credit
-does not establish sole ownership of every file or replace existing copyright
+Developed by categori.se; maintained by Aaron Kyle Dennis. The public maintainer
+is `aaronkyle` (`2301690+aaronkyle@users.noreply.github.com`). This credit does not establish sole ownership of every file or replace existing copyright
 holders. Publish accurate holder notices where known; do not invent ownership.
 
 ## Initial distribution
@@ -51,7 +55,7 @@ running dependency record. Preserve README acknowledgements, upstream source
 links, pinned reference versions, standards references, modifications and useful
 limitations. Distinguish runtime dependencies, development/test peers and products
 that inform requirements; reference-product acknowledgement does not mean their
-code is included or that they endorse OpenGeo.
+code is included or that they endorse OpenGeo Studio.
 
 For every included upstream source or asset, keep its applicable copyright,
 LICENSE and NOTICE files beside it. Include a readable release-level NOTICE/index

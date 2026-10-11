@@ -1,11 +1,11 @@
 {
   "schemaVersion": "opengeo.public-library.1.0.0",
-  "title": "OpenGeo.tools publication library",
-  "description": "The tutorials, methods, datasets, projects, playbooks, and field labs previously published at OpenGeo.tools.",
+  "title": "OpenGeo.Tools publication library",
+  "description": "The tutorials, methods, datasets, projects, playbooks, and field labs previously published at OpenGeo.Tools.",
   "source": "preserved legacy Observable publication",
   "items": [
-    {"path":"/","legacyPath":"/","title":"OpenGeo.tools home","section":"home","sourceFile":"src/index.md","migrationClass":"authored_content_pending_ownership"},
-    {"path":"/about/","legacyPath":"/about/","title":"About OpenGeo.tools","section":"about","sourceFile":"src/about/index.md","migrationClass":"authored_content_pending_ownership"},
+    {"path":"/","legacyPath":"/","title":"OpenGeo.Tools home","section":"home","sourceFile":"src/index.md","migrationClass":"authored_content_pending_ownership"},
+    {"path":"/about/","legacyPath":"/about/","title":"About OpenGeo.Tools","section":"about","sourceFile":"src/about/index.md","migrationClass":"authored_content_pending_ownership"},
     {"path":"/toolkit/","legacyPath":"/toolkit/","title":"Toolkit","section":"toolkit","sourceFile":"src/toolkit/index.md","migrationClass":"authored_content_pending_ownership"},
     {"path":"/toolkit/data-acquisition/osm-overpass","legacyPath":"/toolkit/data-acquisition/osm-overpass","title":"OSM Overpass","section":"toolkit","sourceFile":"src/toolkit/data-acquisition/osm-overpass.md","migrationClass":"mixed_authored_and_osm_derived"},
     {"path":"/toolkit/visualization/leaflet","legacyPath":"/toolkit/visualization/leaflet","title":"Leaflet","section":"toolkit","sourceFile":"src/toolkit/visualization/leaflet.md","migrationClass":"mixed_authored_and_osm_derived"},

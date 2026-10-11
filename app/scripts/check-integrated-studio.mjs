@@ -275,7 +275,7 @@ try {
     await page.goto(origin);
     await page.locator(".opengeo-start").waitFor();
     assert.equal(await page.locator("#observablehq-sidebar").count(), 0);
-    const start = page.getByRole("dialog", {name:"OpenGeo.Tools Studio start", exact:true});
+    const start = page.getByRole("dialog", {name:"OpenGeo Studio start", exact:true});
     await start.getByRole("link", {name:/^Open a project/}).click();
     await page.waitForURL(`${origin}/workspaces`);
     assert.equal(await page.locator(".observablehq--error").count(), 0);

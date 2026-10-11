@@ -35,7 +35,7 @@ export function AccountWorkDownload({adapter, accountId, ownerUserId, accountNam
   const issues = document.createElement("ul");
   issues.className = "platform-note";
   issues.hidden = true;
-  const cost = paragraph("Check inspects up to 200 records using at most 100 calls to OpenGeo for metadata. Database, storage and encryption charges are not estimated. A download includes up to 32 items and 64 MiB of saved content. Selected Catalog/Collection metadata shares these limits and needs fresh checks before and after packing. Collection detail may check each member's access. Reads may incur transfer and encryption charges. Linked datasets stay as references; no GIS data is read or captured and no publication is built.");
+  const cost = paragraph("Check inspects up to 200 records using at most 100 calls to OpenGeo Studio for metadata. Database, storage and encryption charges are not estimated. A download includes up to 32 items and 64 MiB of saved content. Selected Catalog/Collection metadata shares these limits and needs fresh checks before and after packing. Collection detail may check each member's access. Reads may incur transfer and encryption charges. Linked datasets stay as references; no GIS data is read or captured and no publication is built.");
   cost.className = "platform-note";
   const actions = document.createElement("div");
   actions.className = "platform-actions";
@@ -111,7 +111,7 @@ export function AccountWorkDownload({adapter, accountId, ownerUserId, accountNam
       const publicationCount = plan.items.length - mapCount - catalogCount - collectionCount;
       const versions = plan.estimate.savedMapVersions ?? mapCount;
       const publicationVersions = plan.estimate.savedPublicationVersions ?? publicationCount;
-      estimate.textContent = `${publicationCount} saved publications · ${mapCount} maps · ${catalogCount} Catalog records · ${collectionCount} Collections · ${versions} saved map versions · ${publicationVersions} saved publication versions · ${formatBytes(plan.estimate.sourceBytes)} of saved content · up to ${plan.estimate.fileReads} source file reads and ${plan.estimate.downloadMetadataRequests} other OpenGeo reads to download.`;
+      estimate.textContent = `${publicationCount} saved publications · ${mapCount} maps · ${catalogCount} Catalog records · ${collectionCount} Collections · ${versions} saved map versions · ${publicationVersions} saved publication versions · ${formatBytes(plan.estimate.sourceBytes)} of saved content · up to ${plan.estimate.fileReads} source file reads and ${plan.estimate.downloadMetadataRequests} other OpenGeo Studio reads to download.`;
       for (const item of plan.unresolved) {
         const row = document.createElement("li");
         row.textContent = `${item.title || resourceLabel(item.kind)}: ${reasonLabel(item.reason)}`;

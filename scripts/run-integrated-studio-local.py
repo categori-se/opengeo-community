@@ -283,6 +283,9 @@ def stage_built_studio(work, reuse_tree=None):
     for relative in (
         "services/observable-builder/scripts/notebook-assets.mjs",
         "services/observable-builder/src/notebook-runtime.mjs",
+        "services/observable-builder/src/portable-map-view.mjs",
+        "services/observable-builder/src/legacy-notebook-runtime.mjs",
+        "services/observable-builder/src/legacy-observable.mjs",
         "services/observable-builder/src/jupyter-notebook.mjs",
         "services/observable-builder/src/observable-notebook.mjs",
     ):
@@ -535,20 +538,11 @@ def database_initialization_sources(upgrade_from_0082=False):
         ROOT / "database/baselines/0082_opengeo_schema.sql"
         if upgrade_from_0082 else pilot.BASELINE
     )
-    version = int(baseline.name.split("_", 1)[0])
-    migrations = sorted(
-        path for path in (ROOT / "database/migrations").glob("[0-9][0-9][0-9][0-9]_*.sql")
-        if int(path.name.split("_", 1)[0]) > version
-    )
-    return [baseline, *migrations]
+    return pilot.database_initialization_sources(baseline, ROOT)
 
 
 def stage_database_initialization(init, upgrade_from_0082=False):
-    init.chmod(0o755)
-    for index, source in enumerate(database_initialization_sources(upgrade_from_0082), 1):
-        target = init / f"{index:03}.sql"
-        shutil.copyfile(source, target)
-        target.chmod(0o444)
+    pilot.stage_database_initialization(init, database_initialization_sources(upgrade_from_0082))
 
 
 def prepare_worker_scratch(work):
@@ -692,7 +686,11 @@ def orchestrate(
     reuse_studio_tree=None,
     wcs_only=False,
     analysis_only=False,
+    api_image=None,
+    worker_image=None,
 ):
+    pilot.API_IMAGE = api_image or pilot.API_IMAGE
+    pilot.WORKER_IMAGE = worker_image or pilot.WORKER_IMAGE
     sys.path.insert(0, str(ROOT / "database/scripts"))
     sys.path.insert(0, str(ROOT / "scripts"))
     from build_baseline import IMAGE, TemporaryDatabase
@@ -1036,11 +1034,13 @@ def parse_args(argv=None):
                 args.restore_checkpoint, args.service_clients, args.wcs_only, args.analysis_only, args.restored)):
             parser.error("Development requires --state-directory and excludes acceptance-only modes")
         args.built_studio = True
-    elif args.state_directory or args.api_image or args.worker_image or args.rebuild_studio:
-        parser.error("State and image overrides belong only to --development")
+    elif args.state_directory or args.rebuild_studio:
+        parser.error("State and frontend rebuild options belong only to --development")
+    if args.serve and (args.api_image or args.worker_image):
+        parser.error("Image overrides belong to the host orchestrator")
     for image in (args.api_image, args.worker_image):
         if image and not re.fullmatch(r"(?:sha256:)?[0-9a-f]{64}|[A-Za-z0-9][A-Za-z0-9./:_-]*@sha256:[0-9a-f]{64}", image):
-            parser.error("Development image overrides require immutable local image IDs or digests")
+            parser.error("Image overrides require immutable local image IDs or digests")
     if args.serve and ROOT != Path("/repo"):
         parser.error("The local server must run in the isolated container orchestrator")
     if args.serve and args.upgrade_from_0082:
@@ -1091,4 +1091,6 @@ if __name__ == "__main__":
         args.reuse_studio_tree,
         args.wcs_only,
         args.analysis_only,
+        api_image=args.api_image,
+        worker_image=args.worker_image,
     )

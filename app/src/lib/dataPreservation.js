@@ -19,7 +19,7 @@ export const DATA_CUSTODY_MODES = Object.freeze([
   Object.freeze({
     id: "live_reference",
     title: "Keep the live connection",
-    description: "Save the exact connection and source revision. OpenGeo does not copy source bytes."
+    description: "Save the exact connection and source revision. OpenGeo Studio does not copy source bytes."
   }),
   Object.freeze({
     id: "live_and_protected_copy",
@@ -32,7 +32,7 @@ export function preservationPrompt(sourceType) {
   const source = sourceMethod(sourceType);
   return {
     sourceType,
-    question: "Would you also like OpenGeo to keep a protected copy?",
+    question: "Would you also like OpenGeo Studio to keep a protected copy?",
     choices: DATA_CUSTODY_MODES,
     copyMethod: source.method,
     available: source.available,

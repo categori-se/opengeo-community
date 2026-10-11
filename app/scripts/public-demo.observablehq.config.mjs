@@ -4,7 +4,7 @@ import config from "../observablehq.config.js";
 // separately sealed artifact at demo.studio.opengeo.tools.
 export default {
   ...config,
-  title: "OpenGeo.Tools Demo Handoff",
+  title: "OpenGeo Studio Demo Handoff",
   root: "dist/public-demo-source",
   output: "dist/public-demo-build",
   head: '<meta name="referrer" content="strict-origin-when-cross-origin"><link rel="stylesheet" href="/style.css">',

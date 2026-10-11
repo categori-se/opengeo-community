@@ -70,6 +70,9 @@ export interface StudioWebStackProps extends StackProps {
   /** Intended custom-domain name. Defaults to the production Studio name. */
   readonly domainName?: string;
 
+  /** Allow an independently owned domain and omit managed preview hosts. */
+  readonly communityDeployment?: boolean;
+
   /** Exact private origin bucket. Defaults to the production Studio bucket. */
   readonly bucketName?: string;
 
@@ -120,7 +123,7 @@ export class StudioWebStack extends Stack {
     super(scope, id, props);
 
     this.validateDeploymentRegion();
-    const domainName = this.validateDomainName(props.domainName ?? STUDIO_DOMAIN_NAME);
+    const domainName = this.validateDomainName(props.domainName ?? STUDIO_DOMAIN_NAME, props.communityDeployment === true);
     const bucketName = this.validateBucketName(props.bucketName ?? STUDIO_BUCKET_NAME);
     const resourceNamePrefix = this.validateResourceNamePrefix(
       props.resourceNamePrefix ?? "opengeo-studio"
@@ -198,7 +201,11 @@ export class StudioWebStack extends Stack {
     const securityHeaders = this.securityHeadersPolicy(
       "StudioSecurityHeaders",
       `${resourceNamePrefix}-security`,
-      domainName
+      domainName,
+      [],
+      props.communityDeployment === true
+        ? STUDIO_CONTENT_SECURITY_POLICY.replace("frame-src 'self' https://preview.studio.opengeo.tools https://maps-preview.studio.opengeo.tools", "frame-src 'self'")
+        : STUDIO_CONTENT_SECURITY_POLICY
     );
     const authConfigHeaders = this.securityHeadersPolicy(
       "StudioAuthConfigHeaders",
@@ -517,8 +524,8 @@ function handler(event) {
     return match[1];
   }
 
-  private validateDomainName(value: string): string {
-    if (!STUDIO_DOMAIN.test(value)) {
+  private validateDomainName(value: string, community = false): string {
+    if (!(community ? DNS_ZONE : STUDIO_DOMAIN).test(value)) {
       throw new Error("Studio domain must be studio.opengeo.tools or a bounded subdomain of it");
     }
     return value;

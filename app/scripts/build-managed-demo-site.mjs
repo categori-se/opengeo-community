@@ -51,8 +51,8 @@ await prepareCesiumRuntime(outputRoot);
 const pwa = await writeStudioPwaAssets({
   outputRoot,
   applicationId: "opengeo-managed-demo",
-  name: "OpenGeo public demo",
-  description: "An isolated OpenGeo geospatial workspace with published starter and MassGIS projects.",
+  name: "OpenGeo Studio public demo",
+  description: "An isolated OpenGeo Studio geospatial workspace with published starter and MassGIS projects.",
   startUrl: "/",
   routes: expectedRoutes.map(([path]) => path)
 });
@@ -74,7 +74,7 @@ for (const [label, pattern] of [
   }
 }
 const rootHtml = await readFile(resolve(outputRoot, "index.html"), "utf8");
-if (!rootHtml.includes("Public OpenGeo workbench")
+if (!rootHtml.includes("Public OpenGeo Studio workbench")
   || !rootHtml.includes("PublicDemoWorkbench")) {
   throw new Error("Managed demo root is not the bounded public workbench");
 }

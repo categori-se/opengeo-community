@@ -503,9 +503,9 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   directoryLabel.append(directory);
   const sourceArchive = document.createElement("input");
   sourceArchive.type = "file"; sourceArchive.accept = ".zip,application/zip";
-  sourceArchive.ariaLabel = "OpenGeo source project ZIP";
+  sourceArchive.ariaLabel = "OpenGeo Studio source project ZIP";
   const sourceArchiveLabel = document.createElement("label");
-  sourceArchiveLabel.append(text("span", "OpenGeo source project ZIP"), sourceArchive);
+  sourceArchiveLabel.append(text("span", "OpenGeo Studio source project ZIP"), sourceArchive);
   const archiveReview = document.createElement("section"); archiveReview.hidden = true;
   const archiveFeedback = text("p", "Choose a ZIP made by Download source project to verify its files before importing.", "project-resource-feedback");
   archiveFeedback.setAttribute("role", "status");
@@ -1979,7 +1979,7 @@ function projectCollaboratorInvite(state) {
   panel.append(
     text(
       "p",
-      "This grants one existing OpenGeo account scope and one role in this project. Organization-admin and project-owner grants stay in Team administration.",
+      "This grants one existing OpenGeo Studio account scope and one role in this project. Organization-admin and project-owner grants stay in Team administration.",
       "project-resource-feedback"
     ),
     form,

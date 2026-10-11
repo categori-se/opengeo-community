@@ -9,7 +9,8 @@
     "build:studio": "npm --prefix app run build:studio --",
     "foundations:check": "node scripts/check-open-source-foundations.mjs",
     "community:dev": "python3 scripts/run-integrated-studio-local.py --development --state-directory .opengeo/community",
-    "community:check": "python3 -m unittest discover -s scripts -p test_integrated_local.py"
+    "community:check": "python3 -m unittest discover -s scripts -p test_integrated_local.py",
+    "community:aws:check": "python3 -m unittest discover -s scripts -p test_community_aws.py"
   },
   "repository": {
     "type": "git",
