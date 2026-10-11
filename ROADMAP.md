@@ -17,6 +17,8 @@ independent-account AWS acceptance and the complete standalone native
 Notebook/Framework publication journey remain open. Hosted deployment examples
 do not establish those independent-install outcomes.
 
+The [API contract](docs/api/README.md) provides a reproducible offline interface
+and validated examples; connected authorization and browser acceptance remain separate.
 The [capability matrix](docs/community-capabilities.md) separates executable
 operations, metadata-only imports and retained definitions. The
 [workflow guide](docs/community-workflow.md) labels demonstrated and

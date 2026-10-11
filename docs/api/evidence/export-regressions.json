@@ -1,0 +1,49 @@
+{
+  "assertions": [
+    "CLI clears inherited invalid OPEN_GEO settings and synthetic AWS environment before real Settings initialization; mocked contract rendering avoids duplicate full exports.",
+    "Explicit socket.connect and socket.bind Python audit events are rejected; actual numeric-address DNS and subprocess.Popen APIs are rejected by the guard.",
+    "--check obtains two mocked fresh exports with empty environments and bounded timeout, rejects a stale saved contract, and preserves its exact bytes."
+  ],
+  "cached_interpreter_mapping": "<cached-parent-api-venv>/bin/python is the existing ../services/api/.venv/bin/python, resolved from the repository root.",
+  "command": "../services/api/.venv/bin/python -m pytest -c services/api/pyproject.toml services/api/tests/test_openapi_export.py",
+  "development_failures": [
+    {
+      "cause": "Sandbox denies socket.socket construction before connect/bind audit events. Test changed to explicit synthetic audit events; actual DNS/process checks retained.",
+      "command": "<cached-parent-api-venv>/bin/python -m pytest tests/test_openapi_export.py",
+      "exit_code": 1,
+      "observed_result": "1 failed, 2 passed in 0.63s",
+      "working_directory": "services/api"
+    },
+    {
+      "cause": "Concurrent exporter change added subprocess timeout and removed check=True. Stale-contract test stub was updated to match actual call signature.",
+      "command": "<cached-parent-api-venv>/bin/python -m pytest tests/test_openapi_export.py",
+      "exit_code": 1,
+      "observed_result": "1 failed, 2 passed in 0.68s",
+      "working_directory": "services/api"
+    }
+  ],
+  "dirty_sources_sha256": {
+    "services/api/scripts/export_openapi.py": "5a144bc5c1528f4370373e0d12220bd0165dbd9cd2caf4bc3ddb862f3a32c634",
+    "services/api/tests/test_openapi_export.py": "4d10e53a66e9c77b9875a59a8151858419c7763ec6fa88bc1969523a036ba88e"
+  },
+  "exit_code": 0,
+  "redaction": "Absolute private repository and cached-venv path prefixes are replaced with placeholders. Development failures retain the actual executed command with only the absolute interpreter prefix redacted.",
+  "scope": "Focused exporter regressions; no full contract export or connected acceptance in these tests.",
+  "source_commit": "6651e608a8db0d4ad3b8f3659a617a1ba7b945e3",
+  "stderr": "<frozen site>:101: RuntimeWarning: Unexpected value in sys.prefix, expected <cached-parent-api-venv>, got <repository>/../services/api/.venv\n<frozen site>:101: RuntimeWarning: Unexpected value in sys.exec_prefix, expected <cached-parent-api-venv>, got <repository>/../services/api/.venv\n",
+  "stdout": "...                                                                      [100%]\n3 passed in 0.45s\n",
+  "substitutes": {
+    "authentication": "No authentication flow. Synthetic unusable AWS environment strings test environment removal only.",
+    "cached_dependencies": "Existing parent services/api/.venv; no install or image build.",
+    "mocked_components": [
+      "render_contract in CLI environment test",
+      "fresh subprocess exports in stale-contract test"
+    ],
+    "providers": "No provider calls; no live database, cloud, browser, or publication acceptance.",
+    "synthetic_operations": [
+      "socket.connect audit event",
+      "socket.bind audit event"
+    ]
+  },
+  "working_directory": "repository root"
+}

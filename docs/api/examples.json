@@ -1,0 +1,126 @@
+{
+  "CreateExternalSourceRequest": {
+    "name": "Example tiles",
+    "source": {
+      "type": "xyz",
+      "url": "https://tiles.example.test/{z}/{x}/{y}.png",
+      "attribution": "Synthetic example"
+    }
+  },
+  "ExternalSourceResponse": {
+    "dataset_id": "40000000-0000-4000-8000-000000000001",
+    "project_id": "50000000-0000-4000-8000-000000000001",
+    "name": "Example tiles",
+    "description": null,
+    "classification": "internal",
+    "status": "active",
+    "owner_user_id": "20000000-0000-4000-8000-000000000001",
+    "source_type": "xyz",
+    "access_mode": "direct_browser",
+    "credential_mode": "none",
+    "version_number": 1,
+    "source_url": "https://tiles.example.test/{z}/{x}/{y}.png",
+    "configuration": {
+      "min_zoom": 0,
+      "max_zoom": 22,
+      "tile_size": 256,
+      "scheme": "xyz",
+      "attribution": "Synthetic example"
+    },
+    "verification_state": "syntax_only",
+    "created_at": "2026-10-11T12:00:00Z",
+    "updated_at": "2026-10-11T12:00:00Z",
+    "capabilities": {
+      "read": true,
+      "edit": true,
+      "manage_classification": true
+    }
+  },
+  "CreateMapRequest": {
+    "creation_key": "60000000-0000-4000-8000-000000000002",
+    "name": "Example map",
+    "definition": {
+      "schemaVersion": "opengeo.map-definition.1.3.0",
+      "mapViews": [],
+      "basemaps": [],
+      "bookmarks": [],
+      "activeLayerId": null,
+      "activeProcessingModelId": null,
+      "models": [],
+      "processingHistory": [],
+      "measurements": [],
+      "projection": "mercator",
+      "colorMode": "dark",
+      "layers": []
+    }
+  },
+  "UpdateMapRequest": {
+    "expected_version": 1,
+    "name": "Renamed example map",
+    "change_message": "Rename the map"
+  },
+  "MapResponse": {
+    "id": "60000000-0000-4000-8000-000000000001",
+    "project_id": "50000000-0000-4000-8000-000000000001",
+    "name": "Example map",
+    "description": null,
+    "status": "active",
+    "definition": {
+      "schemaVersion": "opengeo.map-definition.1.3.0",
+      "mapViews": [],
+      "basemaps": [],
+      "bookmarks": [],
+      "activeLayerId": null,
+      "activeProcessingModelId": null,
+      "models": [],
+      "processingHistory": [],
+      "measurements": [],
+      "projection": "mercator",
+      "colorMode": "dark",
+      "layers": []
+    },
+    "version": 1,
+    "created_at": "2026-10-11T12:00:00Z",
+    "updated_at": "2026-10-11T12:00:00Z"
+  },
+  "PreparePublicationArtifactInputs": {
+    "expected_reference_revision": 2
+  },
+  "ReviewFrameworkPublicationRequest": {
+    "review_id": "70000000-0000-4000-8000-000000000001",
+    "build_job_id": "80000000-0000-4000-8000-000000000001",
+    "mount_id": "90000000-0000-4000-8000-000000000001",
+    "result_checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "FrameworkPublicationStatusResponse": {
+    "source_project_id": "a0000000-0000-4000-8000-000000000001",
+    "can_publish": true,
+    "dispatch_configured": false,
+    "mounts": [
+      {
+        "id": "90000000-0000-4000-8000-000000000001",
+        "hostname": "publications.example.test",
+        "mount_path": "/example/",
+        "generation": 1,
+        "enabled": true
+      }
+    ],
+    "reviews": [
+      {
+        "id": "70000000-0000-4000-8000-000000000001",
+        "build_job_id": "80000000-0000-4000-8000-000000000001",
+        "mount_id": "90000000-0000-4000-8000-000000000001",
+        "hostname": "publications.example.test",
+        "mount_path": "/example/",
+        "result_checksum_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "output_tree_checksum_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "expected_generation": 1,
+        "previous_release_prefix": "releases/example-previous/",
+        "reviewed_at": "2026-10-11T12:00:00Z",
+        "expires_at": "2026-10-12T12:00:00Z",
+        "approved_at": null,
+        "deployment": null
+      }
+    ]
+  }
+}

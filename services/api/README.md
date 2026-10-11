@@ -32,6 +32,15 @@ Every HTTP response receives `X-Request-ID`. A caller-supplied value is retained
 
 ## Local Checks
 
+Inspect the [current API contract](../../docs/api/README.md), including source
+registration, map save/reopen and publication preparation/review examples. After
+installing the locked development dependencies below, validate the saved contract
+from the repository root with:
+
+```bash
+services/api/.venv/bin/python services/api/scripts/export_openapi.py --check
+```
+
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install --require-hashes --requirement requirements-dev.lock

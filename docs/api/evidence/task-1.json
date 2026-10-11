@@ -1,0 +1,119 @@
+{
+  "outcome": "Task 1: reproducible current OpenGeo API contract",
+  "source_commit": "6651e608a8db0d4ad3b8f3659a617a1ba7b945e3",
+  "initial_community_worktree": "clean; unrelated parent checkout preserved",
+  "dirty_diff": {
+    "path": ".opengeo/api-contract/task-1.patch",
+    "sha256": "0328177940448b715c2c3073d737ea17a2b4bc1557f4ee1470910c718f932213",
+    "includes": [
+      "RELEASE_NOTES.md",
+      "ROADMAP.md",
+      "services/api/README.md",
+      "services/api/scripts/export_openapi.py",
+      "services/api/tests/test_openapi_export.py",
+      "docs/api/README.md",
+      "docs/api/examples.json",
+      "docs/api/openapi.json",
+      "docs/api/evidence/route-checks.json",
+      "docs/api/evidence/export-regressions.json"
+    ],
+    "excludes": "this summary receipt to avoid self-reference"
+  },
+  "closes": [
+    "Task 1 deterministic credential-free export",
+    "Task 1 current routes/auth/revision/error examples",
+    "Task 1 available-tooling validation and API change policy"
+  ],
+  "reuses": [
+    "FastAPI create_app",
+    "unchanged dependency locks",
+    "11 existing route/preparation checks",
+    "cached sibling API virtual environment"
+  ],
+  "limits": {
+    "remote_or_paid_work": "none authorized or performed",
+    "child_timeout_seconds": 120,
+    "images_used": [],
+    "fresh_dependency_install": false,
+    "runtime_source_changes": false
+  },
+  "stop_condition": "Two fresh guarded exports equal the saved contract; examples and focused checks pass; record specification gaps",
+  "export_check": {
+    "executed_command_redacted": "/usr/bin/time -f elapsed_seconds=%e <cached-api-venv>/bin/python services/api/scripts/export_openapi.py --check",
+    "reproduction_command": "services/api/.venv/bin/python services/api/scripts/export_openapi.py --check",
+    "exit_code": 0,
+    "elapsed_seconds": 21.34,
+    "actual_stdout": {
+      "credentials": "empty environment",
+      "examples": 8,
+      "fresh_processes": 2,
+      "network": "blocked",
+      "openapi": "3.1.0",
+      "paths": 398,
+      "result": "pass",
+      "schemas": 449,
+      "sha256": "b516dc5cb011449328999bd32fcf8ffc51a9942e050e0e4fa22dd9d2a4b93330"
+    }
+  },
+  "assertions": [
+    "Fresh child processes have empty environments before app imports; Python socket/DNS/process audit guard is installed",
+    "Normalized JSON byte equality across two fresh processes and saved document",
+    "FastAPI OpenAPI document-model validation; all local references resolve; 483 unique operation IDs",
+    "449 OpenAPI 3.1 component schema objects validated with OAS31Validator",
+    "Eight documented examples validate with real route models, rejecting extra fields",
+    "11 existing route/preparation checks pass; see route-checks.json",
+    "Three exporter regressions pass; see export-regressions.json",
+    "Changed Python Ruff lint/format and changed-guide file links/whitespace pass"
+  ],
+  "failed_checks_resolved": [
+    "Initial exporter lint: import order and two long lines; fixed with maintained Ruff formatter",
+    "Exporter regression socket test encountered sandbox permission denial; corrected to explicit synthetic connect/bind audit events with actual DNS/process APIs retained",
+    "Exporter regression stub lagged a concurrent timeout signature change; stub updated"
+  ],
+  "environment": {
+    "python": "3.14.7",
+    "dependencies": {
+      "fastapi": "0.141.1",
+      "starlette": "1.6.0",
+      "pydantic": "2.13.4",
+      "pydantic-settings": "2.15.0",
+      "openapi-schema-validator": "0.9.0",
+      "jsonschema": "4.26.0",
+      "pytest": "9.1.1",
+      "ruff": "0.16.3",
+      "httpx": "0.28.1",
+      "httpx2": "2.12.0"
+    },
+    "lock_sha256": {
+      "services/api/requirements.lock": "5489333890d2e4f19ca229e41a55fb4a3ab3448571a00d5d09c79f7712cfe202",
+      "services/api/requirements-dev.lock": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed"
+    },
+    "cached_interpreter": "Existing ../services/api/.venv/bin/python relative to the public repository; actual invocation used its resolved absolute path, redacted here",
+    "authentication": "Export has no authentication; route checks use synthetic verifier/principals",
+    "providers": "No provider requests; mocked repositories/resolution in route checks"
+  },
+  "selected_evidence": [
+    "docs/api/evidence/route-checks.json",
+    "docs/api/evidence/export-regressions.json"
+  ],
+  "file_sha256": {
+    "RELEASE_NOTES.md": "7b59216add47f97a20e6b349be10566fe0ad1135050862e5c9c7d368d70d4c3f",
+    "ROADMAP.md": "d9f932286446f2b21740c3c0381b7924f97a99d75197af8a2675b0186dab0c23",
+    "services/api/README.md": "28e7a43d096cdeebb6806229455cd97cc952c330135f3ba90c6d1dcd6067ef09",
+    "services/api/scripts/export_openapi.py": "5a144bc5c1528f4370373e0d12220bd0165dbd9cd2caf4bc3ddb862f3a32c634",
+    "services/api/tests/test_openapi_export.py": "4d10e53a66e9c77b9875a59a8151858419c7763ec6fa88bc1969523a036ba88e",
+    "docs/api/README.md": "9dd5985138963b932ebc76a386f8d1cf2dfc8a9fea09e6ca1095be3a136c45b6",
+    "docs/api/examples.json": "726a16b1f9008c8f4a9fc6b096899f80a3fe7447323d6d27919b3b118df33094",
+    "docs/api/openapi.json": "b516dc5cb011449328999bd32fcf8ffc51a9942e050e0e4fa22dd9d2a4b93330",
+    "docs/api/evidence/route-checks.json": "253680a7dd5e44f5d0747ab5d32a884ff1b9aae78f322b4dd55e967c4b1360e8",
+    "docs/api/evidence/export-regressions.json": "26bbb376989cf6027d53f838defae0a57a97edccd8724b869072dc6ec55a50aa"
+  },
+  "remaining_limits": [
+    "Default-disabled KML NetworkLink routes omitted",
+    "No independent full-document OpenAPI specification validator; runtime errors and generic objects remain incompletely specified",
+    "Name-only map creation default lacks measurements; documented explicit request passes",
+    "No connected database/auth/browser/provider/compiler/cloud acceptance in Task 1"
+  ],
+  "next_action": "Task 2 connected authorization, as a separate increment; no push/publication",
+  "usage": "No new installs, containers, remote CI or paid services in Task 1. Agent usage is cumulative in the active goal; exact per-task allocation and monetary cost unavailable."
+}

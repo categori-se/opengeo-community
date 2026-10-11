@@ -1,0 +1,93 @@
+{
+  "scope": "Selected existing offline API contract checks; not connected acceptance",
+  "source_commit": "6651e608a8db0d4ad3b8f3659a617a1ba7b945e3",
+  "source_and_existing_tests_modified": false,
+  "dirty_diff_at_checkpoint": {
+    "tracked_changes": [],
+    "untracked_task_additions": [
+      "docs/api/",
+      "services/api/scripts/export_openapi.py",
+      "services/api/tests/test_openapi_export.py"
+    ],
+    "checkpoint": "After the route run; final artifact identities are recorded with the export evidence"
+  },
+  "environment": {
+    "python": "3.14.7",
+    "dependencies": {
+      "fastapi": "0.141.1",
+      "pydantic": "2.13.4",
+      "pytest": "9.1.1",
+      "httpx": "0.28.1",
+      "psycopg": "3.3.4",
+      "openapi-schema-validator": "0.9.0"
+    },
+    "cached": "Reused API virtual environment from a private sibling checkout; no dependency installation or image build",
+    "images": [],
+    "authentication": "Fake token verifier and synthetic principal repositories from existing route tests; no Cognito sign-in",
+    "database": "Fake/in-memory repositories and transaction responses; no PostGIS or Data API",
+    "providers": "No real providers; XYZ registration is syntax-only; Artifact resolution and role checks are mocked in the preparation unit test",
+    "cloud_calls": "Not invoked by these in-memory test paths; no independent service-call counter was installed"
+  },
+  "executed_command_redacted": "PYTHONPATH=services/api/src <cached-checkout>/services/api/.venv/bin/python -m pytest -q services/api/tests/test_external_source_routes.py::test_create_xyz_normalizes_governed_metadata_without_fetching_or_credentials services/api/tests/test_external_source_routes.py::test_list_get_update_and_revision_routes_preserve_tenant_and_cas_context services/api/tests/test_external_source_routes.py::test_classification_route_requires_one_reviewed_operation_and_classification_cas services/api/tests/test_external_source_routes.py::test_forged_tenant_conflicts_and_failures_are_safe_and_machine_readable services/api/tests/test_workspace_routes.py::test_map_patch_passes_only_changed_fields_and_expected_version services/api/tests/test_workspace_routes.py::test_map_version_conflict_returns_machine_readable_current_version services/api/tests/test_workspace_routes.py::test_empty_map_patch_and_unknown_fields_are_rejected_before_repository services/api/tests/test_workspace_routes.py::test_composition_history_routes_bound_pages_and_return_exact_definition services/api/tests/test_publication_artifact_inputs.py::test_input_routes_bind_exact_source_revision_and_disable_caching services/api/tests/test_publication_artifact_inputs.py::test_preparation_reuses_exact_pins_and_read_never_resolves_current_again services/api/tests/test_observable_source_routes.py::test_framework_publication_routes_keep_review_separate_from_unconfigured_dispatch",
+  "reproduction_command": "PYTHONPATH=services/api/src services/api/.venv/bin/python -m pytest -q services/api/tests/test_external_source_routes.py::test_create_xyz_normalizes_governed_metadata_without_fetching_or_credentials services/api/tests/test_external_source_routes.py::test_list_get_update_and_revision_routes_preserve_tenant_and_cas_context services/api/tests/test_external_source_routes.py::test_classification_route_requires_one_reviewed_operation_and_classification_cas services/api/tests/test_external_source_routes.py::test_forged_tenant_conflicts_and_failures_are_safe_and_machine_readable services/api/tests/test_workspace_routes.py::test_map_patch_passes_only_changed_fields_and_expected_version services/api/tests/test_workspace_routes.py::test_map_version_conflict_returns_machine_readable_current_version services/api/tests/test_workspace_routes.py::test_empty_map_patch_and_unknown_fields_are_rejected_before_repository services/api/tests/test_workspace_routes.py::test_composition_history_routes_bound_pages_and_return_exact_definition services/api/tests/test_publication_artifact_inputs.py::test_input_routes_bind_exact_source_revision_and_disable_caching services/api/tests/test_publication_artifact_inputs.py::test_preparation_reuses_exact_pins_and_read_never_resolves_current_again services/api/tests/test_observable_source_routes.py::test_framework_publication_routes_keep_review_separate_from_unconfigured_dispatch",
+  "redactions": [
+    "The executed interpreter's private absolute checkout path is replaced with <cached-checkout>. The reproduction command uses the documented repository-local environment."
+  ],
+  "result": {
+    "exit_code": 0,
+    "selected_tests": 11,
+    "combined_output": "...........                                                              [100%]\n",
+    "capture_note": "Selected combined stdout/stderr transcribed from the actual tool result; no rerun performed to create this record"
+  },
+  "actual_assertions": [
+    {
+      "test": "test_create_xyz_normalizes_governed_metadata_without_fetching_or_credentials",
+      "assertions": "201, syntax_only/direct_browser/none response, normalized source metadata and verified tenant/request context forwarded"
+    },
+    {
+      "test": "test_list_get_update_and_revision_routes_preserve_tenant_and_cas_context",
+      "assertions": "200 list/read/update/history, version 2 response, exact expected_version/source/change summary/pagination forwarded"
+    },
+    {
+      "test": "test_classification_route_requires_one_reviewed_operation_and_classification_cas",
+      "assertions": "422 for ambiguous source/classification mutation, missing previous classification, unreviewed public decision and nonboolean review flag; invalid requests make no repository call. Valid withdrawal returns 200/internal and preserves source version 1"
+    },
+    {
+      "test": "test_forged_tenant_conflicts_and_failures_are_safe_and_machine_readable",
+      "assertions": "403 forged tenant before repository, exact 409 external_source_version_conflict/current_version 7, sanitized 503 without password text"
+    },
+    {
+      "test": "test_map_patch_passes_only_changed_fields_and_expected_version",
+      "assertions": "200/version 5; expected_version 4, normalized changed fields/change summary and request ID forwarded"
+    },
+    {
+      "test": "test_map_version_conflict_returns_machine_readable_current_version",
+      "assertions": "Exact 409 map_version_conflict/current_version 7 body"
+    },
+    {
+      "test": "test_empty_map_patch_and_unknown_fields_are_rejected_before_repository",
+      "assertions": "422 empty map PATCH and unknown client-create field; no repository calls"
+    },
+    {
+      "test": "test_composition_history_routes_bound_pages_and_return_exact_definition",
+      "assertions": "Exact retained definition/version and no-store responses; correct tenant, pagination and version forwarded; invalid bounds return 422"
+    },
+    {
+      "test": "test_input_routes_bind_exact_source_revision_and_disable_caching",
+      "assertions": "200/no-store prepare/read; exact project/source/revision/reference revision forwarded; zero expected_reference_revision returns 422"
+    },
+    {
+      "test": "test_preparation_reuses_exact_pins_and_read_never_resolves_current_again",
+      "assertions": "Second preparation reuses ID/manifest, exact Artifact version 3/output identity retained, UUID parameter type preserved, read resolves pinned version and unavailable pin conflicts"
+    },
+    {
+      "test": "test_framework_publication_routes_keep_review_separate_from_unconfigured_dispatch",
+      "assertions": "401 unsigned status; 200/no-store authorized status with dispatch_configured false; exact review fields forwarded; approval returns 503 before repository approval"
+    }
+  ],
+  "remaining_limits": [
+    "No browser, actual token verification, connected authorization, database persistence, real provider, compiler or publication delivery was exercised",
+    "Model-example validation initially rejected a map definition missing measurements; examples were corrected to explicitly include it",
+    "Existing name-only CreateMapRequest default remains invalid because its generated 1.3.0 definition omits measurements; no production code was changed"
+  ]
+}

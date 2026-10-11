@@ -26,6 +26,11 @@ source under Apache-2.0, with upstream licenses and credits retained.
 
 ## Current status
 
+The [current API contract](docs/api/README.md) can be exported and checked offline
+without credentials. Its source, map and publication examples are model-validated;
+focused route checks use synthetic authentication and mocked repositories. This
+does not establish connected persistence, provider access or cloud acceptance.
+
 Local checks cover Project save, database restart and reopening the saved map.
 A separate local pilot covers uploads, selected GIS derivatives, map composition,
 static publication and access controls.
