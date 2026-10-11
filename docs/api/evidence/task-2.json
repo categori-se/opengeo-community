@@ -1,0 +1,280 @@
+{
+  "schema": "opengeo.selected-local-authorization.1.0.0",
+  "source_commit": "6651e608a8db0d4ad3b8f3659a617a1ba7b945e3",
+  "dirty_diff": {
+    "files": [
+      "scripts/run-integrated-pilot-local.py"
+    ],
+    "command": "git diff -- scripts/run-integrated-pilot-local.py",
+    "sha256": "71c564a130334959b49dcae7452e431782801c0fdb8cccd0218b3b58880ff804"
+  },
+  "runner_sha256": "ab47878d9346d02a80a85917636afe1f81b5754c1849bc24dd03379a56196da8",
+  "command": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/run-integrated-pilot-local.py",
+  "working_directory": "repository root",
+  "raw_receipt_sha256": "23466c4962c03822eceaef43889c89639ed23960df9eb02b5ef82b5b98339a81",
+  "raw_receipt_schema": "opengeo.integrated-pilot-local.1.0.0",
+  "started_at": "2026-10-11T23:24:00.688068+00:00",
+  "finished_at": "2026-10-11T23:25:02.050718+00:00",
+  "elapsed_seconds": 61.363,
+  "result": "pass",
+  "permission_observations": [
+    {
+      "case": "owner_site_read",
+      "actor": "owner",
+      "method": "GET",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 200,
+      "error_detail": null
+    },
+    {
+      "case": "unrelated_site_read",
+      "actor": "reviewer",
+      "method": "GET",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 403,
+      "error_detail": "organization_access_denied"
+    },
+    {
+      "case": "viewer_site_read",
+      "actor": "reviewer",
+      "method": "GET",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 200,
+      "error_detail": null
+    },
+    {
+      "case": "viewer_site_edit",
+      "actor": "reviewer",
+      "method": "PUT",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 403,
+      "error_detail": "action_forbidden"
+    },
+    {
+      "case": "viewer_site_publish",
+      "actor": "reviewer",
+      "method": "POST",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e/publish",
+      "status_code": 403,
+      "error_detail": "action_forbidden"
+    },
+    {
+      "case": "owner_promotes_viewer_to_editor",
+      "actor": "owner",
+      "method": "PATCH",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/memberships/20000000-0000-4000-8000-000000000002",
+      "status_code": 200,
+      "error_detail": null
+    },
+    {
+      "case": "editor_site_edit",
+      "actor": "reviewer",
+      "method": "PUT",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 200,
+      "error_detail": null
+    },
+    {
+      "case": "owner_stale_site_edit",
+      "actor": "owner",
+      "method": "PUT",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 409,
+      "error_detail": {
+        "code": "site_version_conflict",
+        "current_version": 2
+      }
+    },
+    {
+      "case": "editor_site_publish",
+      "actor": "reviewer",
+      "method": "POST",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e/publish",
+      "status_code": 403,
+      "error_detail": "action_forbidden"
+    },
+    {
+      "case": "owner_site_publish",
+      "actor": "owner",
+      "method": "POST",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e/publish",
+      "status_code": 200,
+      "error_detail": null
+    },
+    {
+      "case": "owner_revokes_project_membership",
+      "actor": "owner",
+      "method": "DELETE",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/memberships/20000000-0000-4000-8000-000000000002",
+      "status_code": 204,
+      "error_detail": null
+    },
+    {
+      "case": "revoked_project_member_site_read",
+      "actor": "reviewer",
+      "method": "GET",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 403,
+      "error_detail": "action_forbidden"
+    },
+    {
+      "case": "owner_revokes_organization_membership",
+      "actor": "owner",
+      "method": "DELETE",
+      "path": "/organizations/current/memberships/20000000-0000-4000-8000-000000000002",
+      "status_code": 204,
+      "error_detail": null
+    },
+    {
+      "case": "revoked_organization_member_site_read",
+      "actor": "reviewer",
+      "method": "GET",
+      "path": "/projects/d6e299e0-72d2-4bd0-a8c6-4fcba1d1d86a/sites/9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "status_code": 403,
+      "error_detail": "organization_access_denied"
+    }
+  ],
+  "rejected_write_state_observations": [
+    {
+      "case": "viewer_site_edit",
+      "before_sha256": "2b4853fea881e2729d2c2af43260173effa901bb3994c9248f3baa18e352cfcb",
+      "after_sha256": "2b4853fea881e2729d2c2af43260173effa901bb3994c9248f3baa18e352cfcb",
+      "site_id": "9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "site_version_id": "7c99cf60-f602-4672-b0bc-cf3067aa756d",
+      "site_version_number": 1,
+      "site_state": "draft",
+      "edition_ids": [],
+      "render_job_id": "39aa563d-1fc5-42be-b891-335a65980586",
+      "render_job_state": "completed",
+      "queued_message_count": 0
+    },
+    {
+      "case": "viewer_site_publish",
+      "before_sha256": "2b4853fea881e2729d2c2af43260173effa901bb3994c9248f3baa18e352cfcb",
+      "after_sha256": "2b4853fea881e2729d2c2af43260173effa901bb3994c9248f3baa18e352cfcb",
+      "site_id": "9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "site_version_id": "7c99cf60-f602-4672-b0bc-cf3067aa756d",
+      "site_version_number": 1,
+      "site_state": "draft",
+      "edition_ids": [],
+      "render_job_id": "39aa563d-1fc5-42be-b891-335a65980586",
+      "render_job_state": "completed",
+      "queued_message_count": 0
+    },
+    {
+      "case": "owner_stale_site_edit",
+      "before_sha256": "6b6b24cda291284610a3fb36bd8ecdb9f11fcc00ddf6b64cdfd52d0f8c34c1c8",
+      "after_sha256": "6b6b24cda291284610a3fb36bd8ecdb9f11fcc00ddf6b64cdfd52d0f8c34c1c8",
+      "site_id": "9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "site_version_id": "4e8e1413-1d83-4ac4-a9e4-4cf156fece4e",
+      "site_version_number": 2,
+      "site_state": "draft",
+      "edition_ids": [],
+      "render_job_id": "39aa563d-1fc5-42be-b891-335a65980586",
+      "render_job_state": "completed",
+      "queued_message_count": 0
+    },
+    {
+      "case": "editor_site_publish",
+      "before_sha256": "b70f1efbe0e2c0486434c7443eb6e0edc81618f7b9214362088fcdbf14e765e2",
+      "after_sha256": "b70f1efbe0e2c0486434c7443eb6e0edc81618f7b9214362088fcdbf14e765e2",
+      "site_id": "9d76c3da-959f-4f36-9787-f7a95cd2164e",
+      "site_version_id": "4e8e1413-1d83-4ac4-a9e4-4cf156fece4e",
+      "site_version_number": 2,
+      "site_state": "review",
+      "edition_ids": [],
+      "render_job_id": "39aa563d-1fc5-42be-b891-335a65980586",
+      "render_job_state": "completed",
+      "queued_message_count": 0
+    }
+  ],
+  "state_comparison_fields": [
+    "complete site response",
+    "complete edition list",
+    "complete render job response",
+    "local queue contents"
+  ],
+  "runtime_dependencies": {
+    "python": "3.13.15 (main, Aug 10 2026, 21:05:00) [GCC 15.2.0]",
+    "packages": {
+      "fastapi": "0.141.1",
+      "pydantic": "2.13.4",
+      "psycopg": "3.3.4",
+      "httpx2": "2.12.0"
+    }
+  },
+  "images": {
+    "api_image_id": "e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb",
+    "worker_image_id": "a830dae1cae3b4cbdd88cd44f702fd485e6d70d435557ea68d35df017a7fdb87",
+    "database_image": "docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932"
+  },
+  "database_baseline": "0085_opengeo_schema.sql",
+  "runtime_role_observation": {
+    "query": "SELECT current_user, rolsuper, rolbypassrls, has_any_column_privilege(current_user, 'app.dataset_versions', 'UPDATE') FROM pg_roles WHERE rolname = current_user",
+    "row": [
+      "opengeo_runtime",
+      false,
+      false,
+      false
+    ]
+  },
+  "cleanup": {
+    "all_temporary_containers_removed": true,
+    "removed_database_volumes": [
+      "256f786577c96ea4a16ef05f0f246ba258b2d9baa79f3c98d1ad6bcf23d67d5f"
+    ]
+  },
+  "external_network": false,
+  "aws_calls": false,
+  "cached_components": [
+    "API dependency image",
+    "GIS worker image",
+    "PostGIS image"
+  ],
+  "transport": "In-process ASGI requests to real FastAPI routes with real PostgreSQL authorization and transaction paths.",
+  "container_bounds": {
+    "pull_policy": "never",
+    "memory_per_stage": "3g",
+    "cpus_per_stage": 2,
+    "pids_limit_per_stage": 256,
+    "timeout_seconds_per_stage": 300,
+    "root_filesystem": "read-only",
+    "container_user": "0",
+    "external_network": "none; stage containers share the isolated database network namespace"
+  },
+  "substitutions": [
+    "token verification and identity provisioning",
+    "S3 object transport",
+    "SQS delivery",
+    "direct PostgreSQL instead of Aurora Data API"
+  ],
+  "synthetic_identities": [
+    "owner: organization admin",
+    "reviewer: unrelated, then organization guest/Project viewer, then editor, then revoked"
+  ],
+  "not_proven": [
+    "deployed clients",
+    "Cognito sign-in",
+    "S3/KMS",
+    "two-person acceptance",
+    "native ARM64",
+    "physical accessibility",
+    "scale",
+    "AWS cost"
+  ],
+  "first_attempt": {
+    "result": "failed",
+    "failed_stage": "publish",
+    "stage_exit_code": 1,
+    "runner_sha256": "fe5d2c4469927746250cc1bde9cf7ada9d5e579ada63bf8feca58bcfdc27bedc",
+    "expected_status_code": 404,
+    "actual_status_code": 403,
+    "selected_failure": "AssertionError: GET /projects/{project_id}/sites/{site_id}: 403 {\"detail\":\"action_forbidden\"}",
+    "raw_publish_log_sha256": "eb3dcf8a8167c04e22c54b0451b6667be10031fa77729c94eb759644f79ff464",
+    "diagnosis": "The site route denies SITE_READ with action_forbidden after Project grant revocation; the original project-read check used a different route.",
+    "correction": "Only the new revoked-site-read expected status changed from 404 to 403. No production authorization change.",
+    "retry": "One targeted retry; the complete successful receipt is selected above.",
+    "cleanup": "The orchestrator completed cleanup without a secondary error; the failed run did not emit a successful receipt."
+  },
+  "selection": "Selected fields copied from the successful raw receipt and runtime-role observation; failed-run message selected from its actual publish log. Full logs, giant source inventory and local state remain outside Git. Synthetic UUIDs are retained; private filesystem prefixes and authentication values are omitted."
+}

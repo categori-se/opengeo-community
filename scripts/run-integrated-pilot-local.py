@@ -421,8 +421,11 @@ async def api(stage):
     async with httpx2.AsyncClient(
         transport=httpx2.ASGITransport(app=app), base_url="http://local.invalid"
     ) as client:
+        permission_observations = []
 
-        async def request(method, path, data=None, expected=200, actor="owner"):
+        async def request(
+            method, path, data=None, expected=200, actor="owner", observation=None
+        ):
             response = await client.request(
                 method,
                 path,
@@ -436,6 +439,19 @@ async def api(stage):
                 f"{method} {path}: {response.status_code} {response.text[:2000]}"
             )
             value = response.json() if response.content else None
+            if observation is not None:
+                permission_observations.append(
+                    {
+                        "case": observation,
+                        "actor": actor,
+                        "method": method,
+                        "path": path,
+                        "status_code": response.status_code,
+                        "error_detail": value.get("detail")
+                        if isinstance(value, dict) and response.is_error
+                        else None,
+                    }
+                )
             print(f"api ({actor}): {method} {path} -> {expected}", flush=True)
             return value
 
@@ -801,6 +817,7 @@ async def api(stage):
             )
             save_json("state.json", state)
         elif stage == "publish":
+            from importlib.metadata import version as dependency_version
             from io import BytesIO
             from zipfile import ZipFile
 
@@ -878,7 +895,54 @@ async def api(stage):
                     "is_primary": False,
                 },
             )
-            await request("GET", base, expected=403, actor="reviewer")
+            unchanged_write_observations = []
+
+            async def protected_state():
+                return {
+                    "site": await request("GET", site_base),
+                    "editions": await request("GET", f"{site_base}/editions"),
+                    "render_job": await request(
+                        "GET", f"{base}/resources/{resource_id}/renders/{render['id']}"
+                    ),
+                    "queue": read_json("queue.json", []),
+                }
+
+            async def rejected_write(case, method, path, payload, expected, actor):
+                before = await protected_state()
+                value = await request(method, path, payload, expected, actor, observation=case)
+                after = await protected_state()
+                assert before == after, f"Rejected {case} changed protected state"
+                unchanged_write_observations.append(
+                    {
+                        "case": case,
+                        "before_sha256": digest(
+                            json.dumps(before, sort_keys=True).encode("utf-8")
+                        ),
+                        "after_sha256": digest(
+                            json.dumps(after, sort_keys=True).encode("utf-8")
+                        ),
+                        "site_id": before["site"]["id"],
+                        "site_version_id": before["site"]["version_id"],
+                        "site_version_number": before["site"]["version_number"],
+                        "site_state": before["site"]["state"],
+                        "edition_ids": [edition["id"] for edition in before["editions"]],
+                        "render_job_id": before["render_job"]["id"],
+                        "render_job_state": before["render_job"]["state"],
+                        "queued_message_count": len(before["queue"]),
+                    }
+                )
+                return value
+
+            owner_site = await request("GET", site_base, observation="owner_site_read")
+            assert owner_site["id"] == site["id"]
+            unrelated = await request(
+                "GET",
+                site_base,
+                expected=403,
+                actor="reviewer",
+                observation="unrelated_site_read",
+            )
+            assert set(unrelated) == {"detail"}
             invitation = await request(
                 "POST",
                 "/organizations/current/invitations",
@@ -887,7 +951,7 @@ async def api(stage):
                     "display_name": "Local pilot reviewer",
                     "organization_role": "guest",
                     "project_id": project_id,
-                    "project_role": "editor",
+                    "project_role": "viewer",
                     "expires_in_days": 1,
                 },
                 201,
@@ -898,10 +962,14 @@ async def api(stage):
                 "POST", f"/auth/invitations/{invitation['id']}/accept", actor="reviewer"
             )
             assert (
-                accepted["project_role"] == "editor"
+                accepted["project_role"] == "viewer"
                 and accepted["project_id"] == project_id
             )
-            await request("GET", base, actor="reviewer")
+            viewer_site = await request(
+                "GET", site_base, actor="reviewer", observation="viewer_site_read"
+            )
+            assert viewer_site["id"] == site["id"]
+            assert viewer_site["version_id"] == site["version_id"]
             edit = {
                 key: site[key]
                 for key in (
@@ -933,10 +1001,33 @@ async def api(stage):
                 change_message="Local reviewer edit",
                 description="Persisted collaborator revision",
             )
-            edited = await request("PUT", site_base, edit, actor="reviewer")
+            await rejected_write(
+                "viewer_site_edit", "PUT", site_base, edit, 403, "reviewer"
+            )
+            await rejected_write(
+                "viewer_site_publish",
+                "POST",
+                f"{site_base}/publish",
+                {"expected_version": site["version_number"]},
+                403,
+                "reviewer",
+            )
+            promoted = await request(
+                "PATCH",
+                f"{base}/memberships/{REVIEWER}",
+                {"role": "editor"},
+                observation="owner_promotes_viewer_to_editor",
+            )
+            assert promoted["user_id"] == REVIEWER and promoted["role"] == "editor"
+            edited = await request(
+                "PUT", site_base, edit, actor="reviewer", observation="editor_site_edit"
+            )
             assert edited["version_number"] == site["version_number"] + 1
-            stale = await request("PUT", site_base, edit, expected=409)
+            stale = await rejected_write(
+                "owner_stale_site_edit", "PUT", site_base, edit, 409, "owner"
+            )
             assert stale["detail"]["code"] == "site_version_conflict"
+            assert stale["detail"]["current_version"] == edited["version_number"]
             review = await request(
                 "POST",
                 f"{site_base}/review",
@@ -952,14 +1043,20 @@ async def api(stage):
                     {"resource_id": resource_id, "render_job_id": render["id"]}
                 ],
             }
-            await request(
+            await rejected_write(
+                "editor_site_publish",
                 "POST",
                 f"{site_base}/publish",
                 publication_draft,
-                expected=403,
-                actor="reviewer",
+                403,
+                "reviewer",
             )
-            published = await request("POST", f"{site_base}/publish", publication_draft)
+            published = await request(
+                "POST",
+                f"{site_base}/publish",
+                publication_draft,
+                observation="owner_site_publish",
+            )
             assert (
                 published["state"] == "published"
                 and len(published["active_edition"]["manifest"]["pages"]) == 2
@@ -985,17 +1082,46 @@ async def api(stage):
             )
             assert (await client.get(public_path)).status_code == 404
             assert (await client.get(f"{public_path}/export.zip")).status_code == 404
-            await request("DELETE", f"{base}/memberships/{REVIEWER}", expected=204)
-            await request("GET", base, expected=404, actor="reviewer")
             await request(
-                "DELETE", f"/organizations/current/memberships/{REVIEWER}", expected=204
+                "DELETE",
+                f"{base}/memberships/{REVIEWER}",
+                expected=204,
+                observation="owner_revokes_project_membership",
             )
-            await request("GET", base, expected=403, actor="reviewer")
+            revoked = await request(
+                "GET",
+                site_base,
+                expected=403,
+                actor="reviewer",
+                observation="revoked_project_member_site_read",
+            )
+            assert set(revoked) == {"detail"}
+            await request(
+                "DELETE",
+                f"/organizations/current/memberships/{REVIEWER}",
+                expected=204,
+                observation="owner_revokes_organization_membership",
+            )
+            revoked = await request(
+                "GET",
+                site_base,
+                expected=403,
+                actor="reviewer",
+                observation="revoked_organization_member_site_read",
+            )
+            assert set(revoked) == {"detail"}
             save_json(
                 "result.json",
                 {
                     "status": "pass",
                     "environment": "isolated-local",
+                    "runtime_dependencies": {
+                        "python": sys.version,
+                        "packages": {
+                            name: dependency_version(name)
+                            for name in ("fastapi", "pydantic", "psycopg", "httpx2")
+                        },
+                    },
                     "input_sha256": state["input_sha256"],
                     "feature_count": 2,
                     "pmtiles_job": derivative,
@@ -1004,6 +1130,8 @@ async def api(stage):
                     "edition_id": published["active_edition"]["id"],
                     "revocation_denies_html_and_export": True,
                     "synthetic_reviewer_invitation_edit_conflict_and_revocation": True,
+                    "permission_observations": permission_observations,
+                    "rejected_write_state_observations": unchanged_write_observations,
                     "substitutions": [
                         "token verification and identity provisioning",
                         "S3 object transport",

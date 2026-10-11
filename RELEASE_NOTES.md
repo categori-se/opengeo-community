@@ -31,6 +31,10 @@ without credentials. Its source, map and publication examples are model-validate
 focused route checks use synthetic authentication and mocked repositories. This
 does not establish connected persistence, provider access or cloud acceptance.
 
+The [local authorization pilot](docs/api/authorization-local.md) checks viewer
+edit/publication denials, revoked reads and unchanged state after denied or stale
+writes against PostGIS. Sign-in and object/queue transports remain synthetic.
+
 Local checks cover Project save, database restart and reopening the saved map.
 A separate local pilot covers uploads, selected GIS derivatives, map composition,
 static publication and access controls.
