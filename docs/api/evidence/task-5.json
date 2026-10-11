@@ -1,0 +1,128 @@
+{
+  "result": "readiness_gate_not_met",
+  "workflow_complete": false,
+  "scope": "Read-only readiness inspection; no native saved-source/build/private-preview acceptance run.",
+  "source_commit": "6651e608a8db0d4ad3b8f3659a617a1ba7b945e3",
+  "inherited_dirty_source": {
+    "path": "scripts/run-integrated-pilot-local.py",
+    "diff_command": "git diff -- scripts/run-integrated-pilot-local.py",
+    "diff_sha256": "71c564a130334959b49dcae7452e431782801c0fdb8cccd0218b3b58880ff804",
+    "context": "Task 2 local runner changes remain in the working tree; this task changes documentation and selected evidence only."
+  },
+  "source_sha256": {
+    "scripts/run-integrated-pilot-local.py": "ab47878d9346d02a80a85917636afe1f81b5754c1849bc24dd03379a56196da8",
+    "services/observable-coordinator/src/runtime.mjs": "516b4737d04b95aef962573b9f5fdbc10d654e79107b7929eb5b2d778cf87be9",
+    "services/observable-coordinator/scripts/run-host.mjs": "87ebff068b6cc88400e3855609a08a2f5e0f8a5345e0f27737d8fc6da43085c8",
+    "services/observable-coordinator/scripts/check-local-pipeline.mjs": "26024b61c706ccad932e178a655991e50c5baa32b9646c988f6f54a7d091029a",
+    "services/observable-coordinator/src/podman-runner.mjs": "2a7ba129e7c06925f9002f3423c2ee6ec370cecb6c70357fb385198040385296",
+    "services/api/src/opengeo_api/app.py": "cd8ec8faea972297c67d277bbf3ebb6ff417e8d14854ac9f0e22c7fdfe5ce022",
+    "services/api/src/opengeo_api/observable_source_routes.py": "3e06eec31be179a9a3d291bbe2a679a9b6b495ded5f455115c2a3fb29246a449",
+    "services/observable-preview/README.md": "8a2b1e88f3f259d007c96760af2a7d2baf5fabd5391729f44218d5fb29776204",
+    "services/observable-builder/package.json": "315e962d9f2b14366748ad8217da9d2e043dd9f88f42ee4c23cea545a2a9bff4",
+    "services/observable-coordinator/package.json": "a3cbf8f6ead527349a209fb264214f754b935538af4076652b2a6402257d278e"
+  },
+  "read_only_commands": [
+    {
+      "command": "node --version",
+      "exit_code": 0,
+      "stdout": "v24.18.0\n"
+    },
+    {
+      "command": "podman image inspect e6825d9f73a3bc0ac1514363a4778cd304c61f6a53ed841bd1f4b14a790be0d7 --format '{{json .ID}} {{json .Digest}} {{json .Architecture}} {{json .Config.User}}'",
+      "exit_code": 0,
+      "stdout": "\"e6825d9f73a3bc0ac1514363a4778cd304c61f6a53ed841bd1f4b14a790be0d7\" \"sha256:7b09709f198e9040c59c4e63c192c2d7600254de4e55d559bf54ebbbf43d164e\" \"amd64\" \"10001:10001\"\n",
+      "raw_stdout_sha256": "7f2aadc5bfcf7bad8c0718e5367693e726cb65ed9a49c3b8132c056658bf449a"
+    },
+    {
+      "command": "nl -ba scripts/run-integrated-pilot-local.py | sed -n '352,420p'",
+      "exit_code": 0,
+      "finding": "Dataset/GIS substitutes exist; application/source storage, compiler image pin, Observable build dispatch and private-preview configuration are not supplied."
+    },
+    {
+      "command": "nl -ba services/observable-coordinator/src/runtime.mjs | sed -n '210,244p'",
+      "exit_code": 0,
+      "finding": "Production host selects RdsDataBuildRepository, AwsExactVersionStorage and AwsSqsBuildQueue."
+    },
+    {
+      "command": "nl -ba services/api/src/opengeo_api/observable_source_routes.py | sed -n '1495,1610p'",
+      "exit_code": 0,
+      "finding": "Unconfigured preview origin/signer is guarded with HTTP 503 in source; exchange creates path-scoped secure CloudFront cookies. No request was executed."
+    }
+  ],
+  "compiler_image": {
+    "id": "e6825d9f73a3bc0ac1514363a4778cd304c61f6a53ed841bd1f4b14a790be0d7",
+    "digest": "sha256:7b09709f198e9040c59c4e63c192c2d7600254de4e55d559bf54ebbbf43d164e",
+    "architecture": "amd64",
+    "container_user": "10001:10001",
+    "cached": true,
+    "inspected": true,
+    "executed": false
+  },
+  "declared_dependencies": {
+    "builder_framework": "1.13.4",
+    "builder_node": ">=24.19.0 <25",
+    "coordinator_node": ">=24.19.0 <25",
+    "identity_scope": "Package declarations only; compiler image dependencies were not executed or inventoried."
+  },
+  "gate_findings": [
+    {
+      "source": "scripts/run-integrated-pilot-local.py:392",
+      "missing_seam": "Local source/application object storage, compiler pin and build dispatch configuration."
+    },
+    {
+      "source": "services/observable-coordinator/src/runtime.mjs:210",
+      "missing_seam": "Maintained local PostGIS job-lease/completion and exact-version storage adapters for the coordinator host path."
+    },
+    {
+      "source": "services/api/src/opengeo_api/observable_source_routes.py:1502",
+      "missing_seam": "Configured private-preview delivery that enforces retained output authorization; current exchange targets CloudFront cookies."
+    },
+    {
+      "source": "services/observable-coordinator/scripts/check-local-pipeline.mjs:92",
+      "limit": "Diagnostic repository, source claim and storage are synthetic/in-memory; it does not save source through the API or serve an authorized preview."
+    },
+    {
+      "source": "services/observable-coordinator/src/podman-runner.mjs:66",
+      "limit": "Diagnostic compiler adapter cleans up its temporary output tree after collecting bytes."
+    },
+    {
+      "source": "services/observable-builder/package.json:21",
+      "limit": "Observed host Node 24.18.0 does not meet the declared >=24.19.0 <25 engine requirement."
+    }
+  ],
+  "inspection_failure": {
+    "exit_code": 125,
+    "failed_selector": ".Id",
+    "stderr": "cannot evaluate field Id in type interface {}",
+    "diagnosis": "Podman inspection exposes .ID for the selected template. Subsequent .ID inspection and JSON-field selection succeeded. This was metadata inspection, not compiler execution.",
+    "command": "podman image inspect --format '{\"id\":{{json .Id}},\"digest\":{{json .Digest}},\"repo_digests\":{{json .RepoDigests}},\"architecture\":{{json .Architecture}},\"os\":{{json .Os}},\"user\":{{json .Config.User}},\"entrypoint\":{{json .Config.Entrypoint}}}' e6825d9f73a3bc0ac1514363a4778cd304c61f6a53ed841bd1f4b14a790be0d7"
+  },
+  "runtime_assertions_executed": [],
+  "not_run_assertions": [
+    "Authored Framework Markdown saved through the actual source API/UI with immutable revision/input pins.",
+    "Real coordinator claims and completes that saved job through the native compiler.",
+    "Retained output manifest/checksums tied to the saved source revision.",
+    "Actual authorized private preview renders the expected content and resource references.",
+    "Unauthorized source/attachment/output access is denied by the preview delivery path.",
+    "Second saved source revision compiles while the first retained build remains identifiable.",
+    "Supported preview revocation/expiry takes effect."
+  ],
+  "external_actions": {
+    "compiler_runs": 0,
+    "coordinator_runs": 0,
+    "image_pulls": 0,
+    "cloud_calls": 0,
+    "external_publications": 0
+  },
+  "substitutions": "No task-specific runtime, authentication, provider or build-result substitute was executed. Existing diagnostic mocks are identified as a limit above.",
+  "remaining_acceptance": "Standalone native build/private-preview and complete cloud publication remain open.",
+  "reviewable_increment": {
+    "path": ".opengeo/task-5.patch",
+    "sha256": "104e3b575d3354508518a82633f2e3408e7651740523eec53b6bb0e4b7366cdd",
+    "scope": "Readiness guide and link from publication guide; summary receipt excluded to avoid self-reference."
+  },
+  "documentation_file_sha256": {
+    "docs/api/native-publication-readiness.md": "b2dbfcf3e633eff06cc1f3f4997050eff9a27f08bb08adf32a3f1d5d83ef285c",
+    "docs/community-publication-destinations.md": "b8b7888f4059b68c7a5364fa70ffb79fdb0689b6de83de08b94abc6c9740207f"
+  }
+}
