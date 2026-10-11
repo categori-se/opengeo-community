@@ -9,7 +9,7 @@ your methods and publish the results—with the inputs and revisions attached.
 It is designed for GIS practitioners, researchers, environmental and social
 specialists, planners, consultants, NGOs and small project teams.
 
-**Early community source edition.** The full suite of tools is included under
+**Community source edition.** The full suite of tools is included under
 [Apache-2.0](LICENSE). See the [release status](RELEASE_NOTES.md) for current
 installation and publishing limits.
 
@@ -59,9 +59,14 @@ includes all of these components and the deployment infrastructure.
 - [Capabilities](docs/community-capabilities.md): supported operations and current limits.
 - [Interoperability](docs/community-interoperability.md): metadata, feature and raster access, map services and project exchange.
 - [Data lifecycle](docs/community-data-lifecycle.md): originals, versions, derivatives, rights and provenance.
+- [Metadata exchange](docs/api/stac-ckan.md): prepare CKAN dataset metadata from a STAC Collection, with provenance and an explicit conversion report.
 - [Publishing](docs/community-publication-destinations.md): configured destinations, previews, release review and recovery.
 
 ## Get started
+
+Use the [local development guide](docs/community-development.md) to run Studio,
+the API, PostGIS and worker together. Upload the sample facilities, compose and
+style a map, save it, and reopen the same map after restarting the local stack.
 
 For frontend development, install Node.js 24 and npm, then run:
 
@@ -70,9 +75,9 @@ npm ci --prefix app
 npm run dev -- --host 127.0.0.1
 ```
 
-Use the [local development guide](docs/community-development.md) to add the API,
-PostGIS and worker. The [AWS guide](docs/community-aws.md) covers an installation
-in your own account; [our deployment guide](docs/community-deployments.md)
+The [API contract](docs/api/README.md) supports client development with an offline
+export and validated examples. The [AWS guide](docs/community-aws.md) covers an
+installation in your own account; [our deployment guide](docs/community-deployments.md)
 explains the public site, hosted Studio and demo.
 
 Follow the [roadmap](ROADMAP.md), [make a first contribution](CONTRIBUTING.md#make-a-first-contribution)

@@ -2,7 +2,8 @@
 useDefault = true
 
 # Reviewed false positives: migration source checksums, an immutable container
-# image ID, and one synthetic idempotency UUID. Keep the default rules active.
+# image ID, selected evidence identities, and one synthetic idempotency UUID.
+# Keep the default rules active.
 [[allowlists]]
 description = "Migration SQL source checksums in retained schema receipts"
 condition = "AND"
@@ -16,6 +17,24 @@ condition = "AND"
 paths = ['''(^|/)scripts/run-integrated-pilot-local\.py$''']
 regexTarget = "line"
 regexes = ['''^API_IMAGE = "e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb"$''']
+
+[[allowlists]]
+description = "Exact cached API image identity in connected local evidence"
+condition = "AND"
+paths = ['''(^|/)docs/api/evidence/task-[23]\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"api_image_id": "e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb",$''']
+
+[[allowlists]]
+description = "Exact reviewed exporter, regression and OpenAPI file checksums"
+condition = "AND"
+paths = ['''(^|/)docs/api/evidence/(task-1|export-regressions)\.json$''']
+regexTarget = "line"
+regexes = [
+  '''^\s*"services/api/scripts/export_openapi\.py": "5a144bc5c1528f4370373e0d12220bd0165dbd9cd2caf4bc3ddb862f3a32c634",$''',
+  '''^\s*"services/api/tests/test_openapi_export\.py": "4d10e53a66e9c77b9875a59a8151858419c7763ec6fa88bc1969523a036ba88e",?$''',
+  '''^\s*"docs/api/openapi\.json": "b516dc5cb011449328999bd32fcf8ffc51a9942e050e0e4fa22dd9d2a4b93330",$''',
+]
 
 [[allowlists]]
 description = "Exact synthetic preview idempotency UUID in API client test"

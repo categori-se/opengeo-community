@@ -7,18 +7,25 @@ maps, collaborating and publishing useful results. Low idle infrastructure cost
 is a design goal; workload costs depend on storage, processing, traffic and
 deployment choices.
 
-## Current release boundary
+## Current release
 
-This is an early community source edition containing the full suite of tools.
-A bounded connected check demonstrates Project/map creation, a database restart
-and exact saved-map reopening. A further local pilot exercises selected GIS
-processing, static publication and access controls. Fresh-install/image builds,
-independent-account AWS acceptance and the complete standalone native
-Notebook/Framework publication journey remain open. Hosted deployment examples
-do not establish those independent-install outcomes.
+The community source edition includes the full suite of tools. The
+[built Studio workflow](docs/community-development.md#browser-save-and-reopen-check)
+verifies source upload, map composition, color and opacity changes, UI Save and
+exact reopening after restarting the same database. The
+[authorization check](docs/api/authorization-local.md) verifies resource roles,
+revocation and unchanged protected state after rejected writes against PostGIS.
+A further local pilot exercises selected GIS processing and static publication.
 
 The [API contract](docs/api/README.md) provides a reproducible offline interface
-and validated examples; connected authorization and browser acceptance remain separate.
+and validated examples. The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) produces
+inspectable dry-run dataset metadata with retained provenance and explicit losses.
+Local checks use cached dependencies/images and synthetic authentication and
+transport. Fresh-install/image builds, independent-account AWS acceptance and
+the complete standalone native Notebook/Framework publication journey remain
+open; the [readiness review](docs/api/native-publication-readiness.md) identifies
+the missing local runtime connections. CKAN server acceptance is separate from
+payload generation.
 The [capability matrix](docs/community-capabilities.md) separates executable
 operations, metadata-only imports and retained definitions. The
 [workflow guide](docs/community-workflow.md) labels demonstrated and

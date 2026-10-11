@@ -49,14 +49,16 @@ flowchart LR
   stores a draft on your device, subject to the Demo's daily reset. Export work
   you want to keep.
 - [Connected local development](community-development.md): run Studio with
-  the API, PostGIS and worker. The local persistence check covers saving a map,
-  restarting the database and reopening it through the same account.
+  the API, PostGIS and worker. Upload the sample source, add its Layer, change
+  color and opacity, and save the map. The maintained browser check verifies that
+  the exact map, source identities, data and styling survive a database restart.
+  Local sign-in and object/queue transport are synthetic.
 - [Hosted Studio](https://studio.opengeo.tools/): sign in and work within your
   existing resource permissions.
 
-The Demo's browser drafts are separate from account-backed Projects. A clean
-standalone installation and the complete native publishing workflow still need
-acceptance; see the [release notes](../RELEASE_NOTES.md).
+The Demo's browser drafts are separate from account-backed Projects. The
+[release status](../RELEASE_NOTES.md) records the verified local workflows and
+remaining fresh-install and native publishing acceptance.
 
 The [deployment guide](community-deployments.md) explains how Studio, the Demo
 and the public site relate. The [resource model](../ARCHITECTURE_TERMS.md)

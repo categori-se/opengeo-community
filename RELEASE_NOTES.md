@@ -24,38 +24,49 @@ source under Apache-2.0, with upstream licenses and credits retained.
   [AWS installation](docs/community-aws.md) and
   [deployment/demo resources](docs/community-deployments.md).
 
-## Current status
+## Verified workflows
 
-The [current API contract](docs/api/README.md) can be exported and checked offline
-without credentials. Its source, map and publication examples are model-validated;
-focused route checks use synthetic authentication and mocked repositories. This
-does not establish connected persistence, provider access or cloud acceptance.
+**Upload, compose, style, save and reopen.** The
+[built Studio check](docs/community-development.md#browser-save-and-reopen-check)
+uploads the sample facilities through the UI, adds the layer, changes its color
+and opacity, and saves the map at revision 2. After restarting the same database,
+Studio reopens that map with its source identities, all five features and styling
+intact. A separate local pilot exercises GIS derivatives and static publication.
 
-The [local authorization pilot](docs/api/authorization-local.md) checks viewer
-edit/publication denials, revoked reads and unchanged state after denied or stale
-writes against PostGIS. Sign-in and object/queue transports remain synthetic.
+**Enforce resource access.** The
+[connected authorization check](docs/api/authorization-local.md) verifies allowed
+reads, denied viewer edits and publication, immediate revocation, and stale-write
+conflicts against the real API and PostGIS. Rejected writes leave the protected
+resource, render job and publication state unchanged.
 
-The [built Studio persistence check](docs/community-development.md#browser-save-and-reopen-check)
-uploads the sample facilities through the UI, saves its map at revision 2 and
-reopens that exact map after restarting the same local database. Source identity,
-all five features, point color and opacity are retained. Dependencies and service
-images were cached; sign-in and object/queue transport were synthetic.
-A separate local pilot covers uploads, selected GIS derivatives, map composition,
-static publication and access controls.
+**Inspect the API and exchange metadata.** The
+[API contract](docs/api/README.md) exports deterministically without credentials
+or network access, with model-validated source, map and publication examples.
+The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) produces a reproducible dry-run
+dataset-create payload with retained source checksums and explicit conversion
+losses, checked against a subset derived from CKAN 2.11.6.
 
-The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) generates a dry-run dataset
-create payload with retained source/checksums and explicit conversion losses.
-Validation covers a subset derived from CKAN 2.11.6; no CKAN server round trip,
-harvesting or synchronization was performed.
+These local checks use cached dependencies and service images, synthetic sign-in
+and local object/queue transports. Browser persistence runs the actual built
+Studio with the API, PostGIS and GIS worker. The API route tests and inbound CKAN
+tests also use mocked repositories or providers, as recorded in their evidence.
 
-Still to verify: clean-machine dependency and service-image builds, an independent
-AWS installation, and the complete native Notebook/Framework build, preview and
-publication workflow in Studio. Binary distributions also require license and
-security review of their exact contents.
+## Installation and publication status
 
-The public demo and hosted publications are examples of maintained deployments;
-they do not verify a fresh installation. `COMMUNITY-RELEASE.json` records detailed
-verification results; [ROADMAP.md](ROADMAP.md) lists the remaining work.
+The full suite is available for local development and self-hosting. Remaining
+acceptance work covers clean-machine dependency and service-image builds, an
+independent AWS installation, and the complete native Notebook/Framework build,
+preview and publication journey. The
+[native publication readiness review](docs/api/native-publication-readiness.md)
+identifies the missing local runtime connections. CKAN server creation/readback,
+harvesting and synchronization are unverified. Binary distributions require
+license and security review of their exact contents.
+
+The public demo and hosted publications show deployed examples. Fresh-install
+and cloud acceptance remain separate from those examples and the local checks.
+`COMMUNITY-RELEASE.json` retains earlier release verification;
+[selected workflow evidence](docs/api/evidence/task-3.json) records the browser
+journey above. [ROADMAP.md](ROADMAP.md) lists the next work.
 
 ## Support
 

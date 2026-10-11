@@ -1,10 +1,13 @@
-# Capabilities and release maturity
+# OpenGeo Studio capabilities
 
-The community edition includes the full suite of OpenGeo Studio tools. This
-guide describes the supported operations, their limits and what has been tested.
+Connect sources, compose reusable maps, run spatial analysis and author
+Publications. The community edition includes the full suite of OpenGeo Studio
+tools. This guide describes supported operations, demonstrated workflows and
+their boundaries.
 
-Local checks cover saved Projects, database restart, selected GIS processing and
-static publication. Fresh installation, independent AWS deployment and the
+Local checks cover uploaded data, map styling and save/reopen across database
+restart, access rules, selected GIS processing and static publication. Fresh
+installation, independent AWS deployment and the
 complete native Notebook/Framework publishing workflow still need verification.
 See the [development guide](community-development.md), [AWS guide](community-aws.md)
 and [deployment examples](community-deployments.md).
@@ -27,16 +30,21 @@ They do not establish compatibility with every upstream feature.
 | Workflow and benefit | Implemented scope | Connected community-release evidence and remaining work |
 | --- | --- | --- |
 | Inspect a source before using it | Catalog search, governed registration, source metadata and temporary Layer inspection; persistent Project assignment is a separate action. | Focused Catalog preview/navigation checks pass. The local pilot processes real uploaded features. Provider availability, credentials and each external adapter need their own acceptance; the table below states the current source boundary. |
-| Reuse data and cartography across maps | Independently identified Layers, reusable versioned Styles and saved Project compositions. A Layer can be referenced by more than one Project. | A source-built Studio created a Project/map and reopened the exact saved map after database restart. This is bounded local persistence evidence; broader composition, styling and portable round trips continue. |
+| Reuse data and cartography across maps | Independently identified Layers, reusable versioned Styles and saved Project compositions. A Layer can be referenced by more than one Project. | The [built Studio check](community-development.md#browser-save-and-reopen-check) uploads five fixture features, changes point color and opacity, and saves through the UI. Revision 2, exact layer/source identities, all feature values and presentation survive a restart of the same database. Dependencies/images are cached and sign-in/object/queue transports are synthetic; broader compositions and portable round trips remain to be checked. |
 | Know which input supported a finding | Immutable object versions, checksums, lineage and explicit referenced, hosted, cached, mirrored and derived custody. | The pilot connects uploads, worker outputs and a reopened map. Preserving a URL or source definition alone does not preserve the remote bytes, and a bounded capture does not establish source completeness. |
-| Keep producer facts separate from interpretation | Separate source, normalized, curated and inferred metadata, with rights, license, provenance and selected import/export mappings. | Metadata export is included in the local pilot. Adapter and standards coverage is specific; metadata does not grant access or establish redistribution rights. |
+| Keep producer facts separate from interpretation | Separate source, normalized, curated and inferred metadata, with rights, license, provenance and selected import/export mappings. | The [STAC-to-CKAN exporter](api/stac-ckan.md) produces a deterministic `package_create` dry-run payload with stable identity, retained source and explicit import/export reports. Local structural and regression checks pass; a CKAN server round trip remains unverified. Metadata does not grant access or establish redistribution rights. |
 | Explore a bounded analytical question | Browser vector operations, PostGIS vector-analysis previews, and explicit worker jobs for selected spatial derivatives. Parameters, source identities and limits accompany results. | Real worker PMTiles and PNG outputs pass in the pilot. This does not demonstrate every algorithm, large input or remote runtime. Native publication compilation remains outside that pilot. |
 | Explain results with maps, tables, charts and methods | Publication source editing, Notebook/Framework compiler components, previews, versioned artifacts and publishing interfaces. | The pilot packages a two-page Publication ZIP and checks anonymous delivery/revocation. Complete native Notebook/Framework compilation, built-browser publication and standalone delivery acceptance remain open. |
-| Share work under explicit access rules | Memberships, resource roles, activity records, publication audiences and selected interoperability adapters. | Anonymous access, reviewer permissions, conflicts and revocation pass in the local pilot. Synthetic identities do not establish real sign-in, production tenant administration or independent AWS operation. |
+| Share work under explicit access rules | Memberships, resource roles, activity records, publication audiences and selected interoperability adapters. | The [PostGIS authorization checks](api/authorization-local.md) verify viewer edit/publication denials, editor edits, stale-version conflicts and revoked reads; denied/stale writes leave site, editions, render state and queue unchanged. Anonymous delivery/revocation also passes in the local pilot. Synthetic identities and transports leave real sign-in, production tenant administration and independent AWS operation unverified. |
 
 For a screening study, record the input version, whether it was preserved, the
 processing assumptions and what a reader can inspect. The
 [examples guide](community-examples.md) shows how to explain those choices.
+
+For client development, the [API contract](api/README.md) exports offline and
+checks deterministic output, schemas and eight model-validated examples. Focused
+route tests cover source registration, map revisions and publication preparation
+and review with mocked repositories; connected journeys are recorded separately.
 
 ## Source operations: what is actually available
 
@@ -59,7 +67,7 @@ bounded and remains subject to access, configuration and source terms.
 | WFS 2.0 | Declared endpoint/schema; one current-extent GeoJSON page of at most 1,000 features. Reads are capped at four concurrent requests, 20 seconds and 8 MiB per request. | Explicit bounded capture can preserve the reviewed page as managed GeoJSON. No complete collection, WFS-T, joins, locks or broad filter/CRS support. |
 | ArcGIS REST features | Declared layer/fields/geometry; one current-extent GeoJSON page of at most 2,000 features, with the same request bounds as WFS. | Explicit bounded capture can preserve the reviewed page as managed GeoJSON. No complete service snapshot, private authentication, upstream edits, attachments or relationship/domain conversion. |
 | PMTiles | Public HTTPS archive reference or managed immutable archive, declared raster/vector rendering and browser range reads. | Explicit vector-to-PMTiles jobs create derivatives. No feature editing inside archives. Exact copies require the preservation action; registering a URL alone does not create a copy. |
-| STAC 1.1 Collection | **Metadata import only:** one bounded Collection document, including identity, extents, license, keywords, providers and links. | Exact source representation/checksum and metadata provenance are retained. No Item search, asset reads, streaming, rendering or automatic raster/vector Layer creation. |
+| STAC 1.1 Collection | **Metadata import:** one bounded Collection document, including identity, extents, license, keywords, providers and links. [CKAN export](api/stac-ckan.md) prepares a `package_create` dry-run payload for the supported subset. | Source JSON values, checksums, metadata provenance and conversion reports are retained. No Item search, asset reads, streaming, rendering, automatic raster/vector Layer creation or live CKAN synchronization. |
 | External PostgreSQL/PostGIS | **Connection only:** owner-scoped TLS profile and one fixed read-only capability-verification query. Credentials are write-only and encrypted. | Non-secret target metadata and verification receipts are retained. No table discovery, arbitrary SQL, Layer preview/streaming or upstream editing. The application's own PostGIS analysis is a separate path. |
 
 The remaining source families retain **inert definitions during GeoLibre project
