@@ -18,11 +18,11 @@ Report security vulnerabilities through [SECURITY.md](SECURITY.md).
 Start with the [local guide](docs/community-development.md),
 [AWS deployment guide](docs/community-aws.md),
 [deployment examples and Studio demo](docs/community-deployments.md),
-[illustrated workflow](docs/community-workflow.md),
+[workflow guide](docs/community-workflow.md),
 [capability and maturity matrix](docs/community-capabilities.md),
 [reference comparisons](docs/reference-applications.md) and [roadmap](ROADMAP.md).
-The guides distinguish checks on the source edition from observations on an AWS
-installation, so reports can identify the exact deployment and workflow involved.
+When reporting a problem, say whether you used the demo, a local installation or
+hosted Studio.
 
 ## Hosting and enterprise support
 

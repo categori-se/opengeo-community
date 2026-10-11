@@ -19,12 +19,14 @@ and available fee-based hosting and enterprise support services. These services
 support the same software; do not invent a separate feature tier, prices, service
 commitments or publish internal business research.
 
-Lead public documentation with the practitioner's question, a reproducible
-example and prominent release limits. Separate executable operations, metadata
-imports and retained definitions; source inclusion is not connected acceptance.
-Check public documentation links in the standalone export layout. Use actual
-application illustrations with date, data terms and evidence limits. Describe
-low cost as a design goal until a reproducible measured workload supports it.
+Write public documentation in a professional, concise voice. Lead with what
+readers can accomplish; keep audit narration, capture notes and editorial dates
+out of product introductions. State release limits plainly in the appropriate
+status guide. Separate executable operations, metadata imports and retained
+definitions; source inclusion is not connected acceptance. Check links in the
+standalone export layout. Include images only when they are clear, polished and
+useful; otherwise omit them. Retain data terms and substantive source dates.
+Describe low cost as a design goal until a measured workload supports it.
 
 Use existing runners, lockfiles and focused checks. Keep `.opengeo/`, credentials,
 private datasets, dependency directories and build outputs outside Git. The local

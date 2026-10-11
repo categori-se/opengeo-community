@@ -1,18 +1,10 @@
 # Reference applications and feature comparison
 
-OpenGeo Studio is being developed for researchers, planners, and environmental and
-social practitioners who need to retain sources, explain methods and share work
-that others can inspect and reuse. Reusable spatial resources, explicit source
-custody, separate producer facts and interpretations, and analytical publications
-are its focus. Established GIS applications overlap substantially with that work;
-reproducibility, catalogs, browser access and sharing are shared foundations.
-
-The community edition includes the full suite of tools. It is a prerelease source
-edition: local Project/map save–restart–reopen and a bounded processing/publication
-pilot have passed, while clean-machine installation, independent-account AWS
-acceptance and the complete native publication journey remain open. The
-[capability and maturity guide](community-capabilities.md) distinguishes source
-implementation, connected checks and planned or unaccepted workflows.
+OpenGeo Studio builds on established GIS software and open standards. The
+comparisons below cover selected capabilities at the listed versions; they help
+contributors identify useful patterns and remaining work. For current community
+installation and workflow limits, see the
+[capability guide](community-capabilities.md).
 
 We build on open-source libraries and compare selected behavior with these
 applications. The
@@ -33,11 +25,10 @@ source fixtures preserve source references, audited versions and license evidenc
 
 ## Relative parity by capability
 
-The table below preserves the status of the maintained, version-pinned comparison
-rows when the Community edition was prepared on October 11, 2026. **Pass** means
-the row's finite comparison passed its retained checks. **Partial** means some of
-that row's acceptance scope remains open. These statuses describe selected
-behavior; release acceptance and protocol conformance have their own checks.
+These are recorded results for the version-pinned comparisons. **Pass** means
+the named comparison passed its checks; **Partial** means work remains within
+that scope. Production readiness and standards conformance require separate
+verification.
 
 | Reference | Capability | Recorded status |
 | --- | --- | --- |
@@ -86,10 +77,9 @@ QGIS is tracked as an independent workflow and interoperability reference rather
 than an aggregate application-parity score. Selected GeoServer extensions are
 tracked individually as optional integration work.
 
-The retained checks span August–October 2026. GeoLibre's comparison is pinned to
-2.6.0; reviewing the subsequently identified 3.0.0 source and documentation is a
-roadmap item. Additional engines, data formats and provider integrations progress
-from named user workflows and version-specific acceptance.
+GeoLibre's portable-project comparison is pinned to 2.6.0; broader review of
+3.0.0 remains on the roadmap. New engines, formats and integrations follow
+specific user workflows and version-specific checks.
 
 Source/version evidence: [QGIS](../parity/fixtures/qgis/qgis-3.44.12-source-lock.json),
 [GeoLibre](../parity/fixtures/geolibre/geolibre-2.6.0-source-lock.json),

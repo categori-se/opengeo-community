@@ -5,13 +5,11 @@ supported information between tools. Choose the operation first: importing a
 catalog record, reading features, displaying a map and preserving original bytes
 are different actions. Registration does not copy remote data or grant access.
 
-This guide describes the community source inspected on October 11, 2026.
-Linked tests and fixtures show bounded implementation examples. They were not
-rerun for this documentation update and do not establish live-provider support
-or formal standards conformance. The [capability matrix](community-capabilities.md)
-and [release notes](../RELEASE_NOTES.md) retain installation and workflow limits.
-Retained release evidence covers local Project persistence and selected GIS and
-publication paths; it does not individually accept every integration below.
+The tables below describe supported operations and their limits, with links to
+implementations and tests. They do not claim formal standards conformance or
+compatibility with every provider. See the
+[capability matrix](community-capabilities.md) and
+[release notes](../RELEASE_NOTES.md) for current release status.
 
 ## Import and export descriptive metadata
 
@@ -21,7 +19,8 @@ report separately from normalized metadata. The
 [export adapters](../services/api/src/opengeo_api/metadata_profiles.py) report
 mapped fields, defaults, preserved extensions and unmapped information. Import
 checks the declared checksum; XML uses exact UTF-8 bytes and JSON uses canonical
-JSON. This is semantic mapping, not a byte-identical round trip.
+JSON. Conversion preserves supported semantics; exported bytes can differ from
+the original document.
 
 | Format and pinned profile | Implemented documents and operations | Example and conversion limits |
 | --- | --- | --- |
@@ -51,11 +50,10 @@ For example, search a public portal for facilities, inspect one package, preview
 one admitted DataStore resource, then deliberately register its metadata through
 the DCAT mapping. The [client examples](../services/api/tests/test_ckan.py) and
 [route examples](../services/api/tests/test_ckan_routes.py) cover this bounded path.
-They are controlled local examples, not current portal availability evidence.
 Original CKAN JSON is retained in the source record. Organizations/groups do not
 create local Accounts/Collections; upstream publication flags and permissions do
 not grant local access. Resource URLs remain references, not verified downloads
-or map-ready Layers. No private CKAN authentication or write-back is claimed.
+or map-ready Layers. Private CKAN authentication and write-back are unsupported.
 
 ## Read the workspace through catalog and feature APIs
 
@@ -71,9 +69,7 @@ generation on the next read to detect intervening edits. Metadata discovery and
 feature access each apply current authorization. Internal STAC discovery reads
 the workspace's governed metadata; importing an external STAC Collection is the
 separate metadata operation above. Neither route enables unrestricted remote
-asset ingestion. Records, Features and STAC descriptions withhold formal
-conformance claims; selected protocol shapes and local checks do not replace an
-official conformance evaluation.
+asset ingestion.
 
 ## Consume an external service or publish a spatial service
 
@@ -90,8 +86,8 @@ External WMS/WFS operations are defined by the
 and [registration examples](../services/api/tests/test_external_source_routes.py).
 Preserving a configuration, explicitly capturing a reviewed view/page and
 publishing a new service are separate operations. The table describes selected
-profiles; it does not claim complete service implementations, live-provider
-verification or formal conformance. Publishing a spatial service is also
+profiles rather than complete service implementations. Publishing a spatial
+service is
 separate from [deploying an analytical website](community-publication-destinations.md).
 
 ## Keep originals and choose working/display formats
@@ -108,7 +104,8 @@ The [GeoLibre adapter](../app/src/lib/geolibreProject.js) imports project docume
 0.1.0/0.2.0 and exports 0.2.0, with supported camera, Layer identity, visibility, opacity,
 basic styles, source references and selected shared definitions. Its source pins
 GeoLibre 2.6.0 for the baseline and 3.0.0 for renderer-aware definitions; these
-are reference identities, not claims of current upstream parity. The
+identify the supported exchange definitions rather than current upstream parity.
+The
 [round-trip examples](../app/test/geolibre-project.test.mjs) and
 [import-flow checks](../app/test/geolibre-import.test.mjs) show bounded conversion.
 

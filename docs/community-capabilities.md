@@ -1,20 +1,13 @@
 # Capabilities and release maturity
 
-OpenGeo Studio helps researchers, planners, and environmental and social
-practitioners connect spatial evidence to maps and explanations that colleagues
-can inspect and reuse. The community edition includes the full suite of tools.
-Hosting and enterprise support are fee-based services for the same software;
-they do not define a separate feature tier.
+The community edition includes the full suite of OpenGeo Studio tools. This
+guide describes the supported operations, their limits and what has been tested.
 
-**This is a prerelease source edition.** A connected local check demonstrates
-Project/map creation, database restart and exact saved-map reopening. A separate
-local API/PostGIS/worker pilot demonstrates selected processing, publication
-packaging and permission checks. **Clean-machine installation, independent-account
-AWS acceptance, and the complete native Notebook/Framework build, preview and
-publication journey remain open.** The hosted deployment and browser demo do not
-establish those installation outcomes. See the
-[development guide](community-development.md), [AWS guide](community-aws.md) and
-[deployment examples](community-deployments.md).
+Local checks cover saved Projects, database restart, selected GIS processing and
+static publication. Fresh installation, independent AWS deployment and the
+complete native Notebook/Framework publishing workflow still need verification.
+See the [development guide](community-development.md), [AWS guide](community-aws.md)
+and [deployment examples](community-deployments.md).
 
 ## How to read the status
 
@@ -26,9 +19,8 @@ establish those installation outcomes. See the
 - **Planned or awaiting acceptance** identifies unfinished behavior or an
   implemented path whose complete community-release journey has not passed.
 
-These statuses are separate from version-pinned comparisons with other GIS
-applications. A passed comparison row covers its finite scope and does not certify
-a production installation or the complete upstream feature set.
+Comparisons with other GIS applications cover the named versions and operations.
+They do not establish compatibility with every upstream feature.
 
 ## Workflows and practical value
 
@@ -42,12 +34,9 @@ a production installation or the complete upstream feature set.
 | Explain results with maps, tables, charts and methods | Publication source editing, Notebook/Framework compiler components, previews, versioned artifacts and publishing interfaces. | The pilot packages a two-page Publication ZIP and checks anonymous delivery/revocation. Complete native Notebook/Framework compilation, built-browser publication and standalone delivery acceptance remain open. |
 | Share work under explicit access rules | Memberships, resource roles, activity records, publication audiences and selected interoperability adapters. | Anonymous access, reviewer permissions, conflicts and revocation pass in the local pilot. Synthetic identities do not establish real sign-in, production tenant administration or independent AWS operation. |
 
-For a screening study, these distinctions help answer: which version supported
-the map, whether its inputs were preserved, what processing assumptions were
-introduced, and what a recipient can inspect. Examples should demonstrate those
-answers with redistributable inputs and stated uncertainty. They are the focus
-of OpenGeo Studio, without implying that other GIS tools cannot serve the same
-needs.
+For a screening study, record the input version, whether it was preserved, the
+processing assumptions and what a reader can inspect. The
+[examples guide](community-examples.md) shows how to explain those choices.
 
 ## Source operations: what is actually available
 

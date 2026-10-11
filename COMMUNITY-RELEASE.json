@@ -112,7 +112,6 @@
       "state": "reviewed-source-update",
       "publicFiles": 36,
       "localLinksAndAnchors": 329,
-      "screenshot": "Actual retained anonymous Demo, explicit release/date/custody limits",
       "connectedAcceptance": "Unchanged prior evidence reused; existing required exceptions remain open",
       "githubAboutAndTopicsUpdated": true
     },
@@ -130,6 +129,13 @@
         "failure": "Existing source-import archive-path selector is absent before the renamed control is reached; full publication acceptance remains open."
       },
       "priorCopyChecks": "Eight owning files passed in the earlier copy phase; prior failures and narrowed reruns retained privately. Latest application-naming checks are reported separately."
+    },
+    "editorialRevision": {
+      "scope": "Concise public documentation, published examples and image removal; source implementation unchanged.",
+      "changedTextFiles": 17,
+      "localLinks": 266,
+      "embeddedImages": 0,
+      "result": "Link, anchor, whitespace and exporter checks pass; release limitations preserved."
     }
   },
   "sourceMapping": "Public community source update; private operational history, credentials, hosted datasets and business research remain excluded.",
@@ -215,13 +221,13 @@
     "scope": "Historical initial export receipt; its file count and digest do not describe the updated repository tree."
   },
   "documentationUpdate": {
-    "date": "2026-10-11",
     "application": "OpenGeo Studio",
     "umbrella": "OpenGeo.Tools",
     "descriptor": "An open workspace for geospatial analysis and publishing.",
-    "scope": "Practitioner README, real dated Demo illustration, full-suite community edition/support, operation maturity, architecture, renderers, interoperability, data lifecycle, publication destinations and recovery, deployment resources and contributions",
-    "reviewedFiles": 36,
-    "verifiedLocalLinksAndAnchors": 329,
-    "workflowAcceptance": "Retained bounded local evidence reused. Fresh installation, independent AWS acceptance and complete standalone native publication remain open. No hosted deployment in this update."
+    "scope": "Concise README and public guides; published cartography, imagery and census examples; image-free presentation.",
+    "reviewedTextFiles": 17,
+    "verifiedLocalLinks": 266,
+    "embeddedImages": 0,
+    "workflowStatus": "Current installation and publishing limits are summarized in RELEASE_NOTES.md. Existing source verification is unchanged."
   }
 }

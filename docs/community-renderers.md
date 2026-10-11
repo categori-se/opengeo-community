@@ -1,16 +1,14 @@
 # Choose a map renderer
 
 OpenGeo Studio keeps a Project's Layers, Styles and camera separate from the
-engine that displays them. This lets a practitioner try a compatible map in
-another renderer without creating another Project or replacing its source data.
-The community edition offers MapLibre, optional Mapbox and a bounded Cesium
-scene. Their capabilities differ; selecting a globe projection alone does not
-switch engines.
+engine that displays them. You can switch a compatible map to another renderer
+and keep the same Project and source data. MapLibre is the default; Mapbox and
+Cesium are optional, with the limits described below. Selecting a globe
+projection alone does not switch engines.
 
-This guide describes the community source inspected on October 11, 2026.
-The linked checks are reproducible source examples, not a new browser or
-live-provider acceptance run. See the [release limits](../RELEASE_NOTES.md) and
-[capability matrix](community-capabilities.md).
+See the [capability matrix](community-capabilities.md) for supported operations
+and the [release notes](../RELEASE_NOTES.md) for installation and acceptance
+limits.
 
 ## What each engine does
 
@@ -25,10 +23,9 @@ The [renderer controls](../app/src/components/RendererPanel.js) explain the
 active engine and show compatibility issues before a switch. The default
 [MapLibre renderer](../app/src/lib/mapRenderer.js) and
 [MapLibre adapter](../app/src/lib/maplibreAdapter.js) supply the browser map.
-Optional SDKs are
-loaded on deliberate use, through [Mapbox](../app/src/lib/mapboxLoader.js) and
-[Cesium](../app/src/lib/cesiumLoader.js) loaders, rather than entering startup
-precaching. Release assets must match the [Mapbox](../app/src/lib/mapboxRuntime.js)
+Optional SDKs load when selected, through the
+[Mapbox](../app/src/lib/mapboxLoader.js) and
+[Cesium](../app/src/lib/cesiumLoader.js) loaders. Release assets must match the [Mapbox](../app/src/lib/mapboxRuntime.js)
 and [Cesium](../app/src/lib/cesiumRuntime.js) pins.
 
 ## What a switch preserves
@@ -52,18 +49,17 @@ Mapbox before forgetting its token, because the active SDK still owns its map
 options. MapLibre sky presentation is retained separately and restored on return;
 the engines can render the same admitted data differently.
 
-Cesium has its own [scene adapter](../app/src/lib/cesiumAdapter.js) and
-[Workbench bridge](../app/src/lib/cesiumWorkbench.js), rather than pretending to
-implement the GL style API. The bridge retains the GL style for switching back
+Cesium uses a [scene adapter](../app/src/lib/cesiumAdapter.js) and
+[Workbench bridge](../app/src/lib/cesiumWorkbench.js). The bridge retains the GL style for switching back
 and maps supported camera, visibility, order and save operations explicitly.
 
 ## A small compatible switch
 
-Use the five synthetic facilities in the [practitioner exercise](community-workflow.md).
+Use the small point Layer in the [community facilities exercise](community-examples.md#try-it-community-facilities).
 For a minimal candidate, use a loaded WGS84 point Layer with a simple circle
 style, disable labels and temporary overlays, and finish drawing or measurement.
-The [existing illustration](assets/community/starter-map.png) shows the
-MapLibre demo only; it does not show a completed engine switch.
+The [workflow guide](community-workflow.md) explains how Layers and Projects fit
+into the wider analysis and publishing process.
 
 ```mermaid
 flowchart LR
@@ -82,13 +78,13 @@ flowchart LR
 4. After preparation succeeds, inspect a point and toggle its Layer visibility.
 5. Choose **Use MapLibre** to return to the retained map presentation.
 
-These are instructions for evaluating an installation, not a claim that this
-exact UI journey has been newly executed. The representative
+The representative
 [Cesium renderer check](../app/test/cesium-renderer.test.mjs) admits a simple
 styled polygon while retaining its identity and original picking index. The
 [Workbench check](../app/test/cesium-workbench.test.mjs) covers hidden vectors and
-refusal of incomplete live sources. A Mapbox evaluation follows the same
-readiness principle and additionally requires your public token.
+refusal of incomplete live sources. These source checks do not replace browser
+acceptance on your installation. A Mapbox evaluation also requires your public
+token.
 
 ## Understand a refusal
 

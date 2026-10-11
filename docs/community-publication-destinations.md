@@ -1,18 +1,14 @@
 # Publish analytical work to a chosen destination
 
-OpenGeo Studio connects an analytical Publication's source, exact data inputs,
-saved build, public address and release history. An analyst can explain a map
-with narrative, charts and methods; a reviewer can inspect the same saved output
-before approving its delivery. A Publication has its own identity and versions,
-and can consume Layers or embed retained Project Artifacts.
+Use OpenGeo Studio to prepare an analytical Publication, review a saved build and
+release it to an approved web address. Publications combine narrative, charts,
+methods and maps, retaining links to their source revisions and data inputs.
+Each has its own identity and versions, and can use Layers or retained Project
+Artifacts.
 
-**This is an early community source edition.** The source includes the coordinated
-publishing system described below. The retained community pilot demonstrates a
-sealed two-page ZIP and local anonymous delivery, revocation and reviewer checks.
-A fresh independent AWS installation and the complete standalone native
-Notebook/Framework build, private-preview and public-release journey remain open.
-See the [release record](../COMMUNITY-RELEASE.json),
-[capability guide](community-capabilities.md) and [roadmap](../ROADMAP.md).
+The community source includes the publishing components described here. The
+complete native build, preview and public-release workflow still needs independent
+installation testing; see the [release notes](../RELEASE_NOTES.md).
 
 ## From saved source to one public address
 
@@ -55,7 +51,7 @@ checks reservation and review requests; the
 [delegated-address migration](../database/migrations/0103_delegated_publication_addresses.sql)
 defines tenant, path, permission and retry constraints.
 
-For example, a synthetic operator could configure the following JSON value for
+An operator with two hosting destinations could configure
 `OPEN_GEO_FRAMEWORK_PUBLICATION_DESTINATIONS`:
 
 ```json
@@ -75,7 +71,7 @@ For example, a synthetic operator could configure the following JSON value for
 ]
 ```
 
-These names are illustrative, not live hosting. The operator must separately
+These example names are placeholders. The operator must separately
 configure corresponding database origin records, approved prefixes, IAM authority
 and working S3/CloudFront resources. The allowlist must retain the configured
 legacy bucket/distribution pair for existing queued jobs. The
@@ -103,16 +99,15 @@ A different survey-methods Publication could use origin B's ID
 `survey-methods`. With B's delegated `/studies/` prefix, its address would be
 `https://projects.example.org/studies/survey-methods/`. Each Publication then
 selects its own saved build and returned mount ID for review. The controller
-resolves A to the research resources and B to the project resources. This example
-describes implemented request and routing shapes, not a completed live release.
+resolves A to the research resources and B to the project resources.
 The [destination checks](../services/api/tests/test_publication_destinations.py)
 and [Studio checks](../app/test/framework-publications.test.mjs) exercise these
 selection, scope and uncertain-response boundaries locally.
 
-## Concrete delivery and recovery
+## Delivery, updates and rollback
 
-The implemented cloud adapter delivers through **S3 and CloudFront**. It is not a
-universal connector for arbitrary web hosts. The
+The cloud adapter delivers through **S3 and CloudFront**. Other web hosts need a
+separate adapter. The
 [planner](../services/api/src/opengeo_api/framework_publisher.py) builds a fresh
 `releases/framework-{review_id}` tree from the exact approved output. It preserves
 verified root and sibling files outside the selected publication path, rejects
@@ -163,16 +158,13 @@ supports canonical OpenGeo Studio source mode without requiring a user
 source-export connection. An operator-configured GitHub build provider still
 requires its own trusted workflow and scoped GitHub App configuration. The
 controller retains dispatch/run identities and logs and reconciles an uncertain
-dispatch rather than blindly creating another run. GitHub integration does not
-establish a GitHub Pages deployment adapter.
+dispatch before retrying. GitHub Pages delivery is unsupported.
 
 The [compiler](../services/observable-builder/README.md) receives pre-staged,
 checksummed inputs without application credentials. Its deployment must enforce
-isolation and no runtime network access; a host invocation alone does not prove
-either. Compilation reports do not authorize publication. A separately trusted
-coordinator collects verified outputs, and private previews use scoped,
-time-limited access. A private preview or download ticket is not a permanent
-public address.
+isolation and no runtime network access. A trusted coordinator verifies the
+outputs; publication requires separate approval. Private previews and download
+tickets use scoped, time-limited access.
 
 ## Versioned formats and portable outputs
 
@@ -181,9 +173,8 @@ The checksummed `opengeo.publication.json` record uses schema
 [format selector](../services/observable-builder/src/publication-format.mjs)
 rejects mismatched entries and unknown fields; the
 [Studio starters](../app/src/lib/publicationDrafts.js) retain this selection with
-the source. The compiler's [focused local checks](../services/observable-builder/test/builder.test.mjs)
-exercise the following profiles; their presence does not demonstrate deployment
-to every destination:
+the source. The compiler supports the following profiles, covered by its
+[format checks](../services/observable-builder/test/builder.test.mjs):
 
 - **Framework:** Markdown pages compile with the pinned Framework 1.13.4 cache
   into HTML and assets. The dependency graph must be present in the sealed image;
@@ -205,8 +196,7 @@ to every destination:
   a localization manifest. The
   [localization checks](../services/observable-builder/test/framework-standalone.test.mjs)
   reject missing authored modules, changed bytes and unsupported external assets.
-  A real-graph case requires its retained acceptance artifact and can be skipped
-  when that artifact is absent.
+  The full dependency-graph test requires its saved acceptance artifact.
 
 Ordinary compiler output is bounded to 32 MiB. The explicit `archive-96m` profile
 admits selected exact archive or localized outputs with pinned inputs and a size
@@ -214,16 +204,15 @@ acknowledgment; it does not raise every compiler limit or authorize arbitrary
 large files. Downloading retained source or output preserves an artifact; making
 it publicly reachable still requires the appropriate delivery and rights review.
 
-## Read the current state accurately
+## Publication status
 
-| Observable state | What establishes it | Evidence boundary |
+| State | What it means | Next step |
 | --- | --- | --- |
-| Address reserved | Approved origin record and publication mount returned by the API | No content delivered; destination routing and Studio checks use local fixtures. |
-| Build dispatched | Durable job plus accepted dispatch/run identity | No successful output yet; source export is an independent operation. |
-| Build succeeded / private preview | Sealed output manifest and authorized exact-build preview | Compiler/profile checks are local; preview access is temporary and does not grant public delivery. |
-| Reviewed / queued | Exact build, mount, checksums, input approval and explicit publish acknowledgment | Queue acceptance is not a live release. |
-| Delivery completed | Saved release receipt, CloudFront deployed status, completed invalidation and pointer recheck | Adapter fixtures cover recovery. This guide performs no live-origin acceptance. |
-| Community pilot demonstrated | Retained local API/PostGIS/worker receipt in the release record | Two-page ZIP, anonymous access/revocation and reviewer behavior; distinct from native compiler delivery. |
+| Address reserved | The API has assigned an approved origin and publication path. | Select the build to deliver. Reservation alone serves no content. |
+| Build dispatched | A durable job has an accepted dispatch/run identity. | Wait for the build result. Source export is a separate operation. |
+| Build succeeded / private preview | Verified output is available through an authorized, temporary preview. | Review that exact output and its input rights. |
+| Reviewed / queued | The selected build, destination, checksums and input approvals are recorded. | Wait for delivery; queue acceptance does not make the release public. |
+| Delivery completed | The release receipt confirms CloudFront deployment, cache invalidation and the public pointer. | Check the published address; retain the build for updates or rollback. |
 
 ## Spatial services and contributor boundaries
 
@@ -238,10 +227,9 @@ CRS and SVG/PNG delivery; it is not an unrestricted service implementation.
 those boundaries. The [capability guide](community-capabilities.md) distinguishes
 other service operations and consuming upstream services from publishing our own.
 
-A contributor adding a hosting adapter should start at the planner's
+A contributor adding a hosting adapter should start with the planner's
 `PublicationStorage` and `PublicationEdge` protocols and the destination router.
 Preserve tenant and publication authority, exact input/output identity, verified
 copy semantics, reserved-path ownership, conditional activation and durable
-recovery. Extend focused fixture checks around these contracts before proposing
-a live journey. These are internal implementation boundaries and an architectural
-extension opportunity, not a maintained universal deployment-plugin API.
+recovery. Extend focused fixture checks around these contracts before a live
+release. These internal interfaces are not a maintained deployment-plugin API.

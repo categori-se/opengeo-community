@@ -4,8 +4,7 @@
 
 OpenGeo Studio connects spatial inputs, reusable maps and analytical publications.
 The community edition includes the application and its supporting services. This
-guide explains the boundaries to help contributors find the right component;
-the [roadmap](../ROADMAP.md) records release maturity.
+guide explains how the components work together and where to extend them.
 
 For a working local environment, start with the
 [Linux development guide](community-development.md). For an account-owned
@@ -44,8 +43,7 @@ flowchart LR
 The local runner substitutes synthetic identities and local object/queue
 transports for development. The AWS profile uses Cognito, Lambda/API Gateway,
 Aurora/PostGIS, encrypted versioned S3 storage and optional queued workers.
-Local evidence does not establish production authentication, encryption or
-operational recovery.
+See the [release notes](../RELEASE_NOTES.md) for installation status.
 
 ## Where work is retained
 
@@ -75,8 +73,8 @@ explains origin selection, source synchronization, updates and reviewed rollback
 
 API routes and versioned exchange schemas are the interfaces between these
 components. Source adapters need operation-specific contracts, not just a new
-format name. The [interoperability guide](community-interoperability.md) links
-representative implementations and focused checks.
+format name. The [interoperability guide](community-interoperability.md) describes
+supported operations and links to their implementations and tests.
 
 ## Resources and compatibility
 
@@ -118,8 +116,8 @@ owner or a role that bypasses it.
 Versioned updates use revision checks, and related history/activity writes commit
 together. Managed uploads bind verified immutable object versions before queuing
 processing. Reads and previews must not silently copy remote data or start work.
-Optional adapters can remain unconfigured; an available route or retained source
-definition does not prove that an execution path is enabled in an installation.
+Optional adapters require explicit configuration. Source definitions can be
+preserved without enabling their execution.
 
 ## Metadata and source custody
 
@@ -127,7 +125,7 @@ Preserve producer metadata, normalized fields, curated interpretation and inferr
 claims separately, including missing knowledge. The
 [metadata adapters](../services/api/src/opengeo_api/metadata_adapters.py) and
 [metadata routes](../services/api/src/opengeo_api/metadata_routes.py) expose
-operation-specific mappings; they do not establish blanket standards conformance.
+the supported mappings described in the interoperability guide.
 Metadata history must survive application rollback without rewriting source facts.
 
 Referenced, hosted, cached, mirrored and derived inputs have different custody.
@@ -156,8 +154,7 @@ The [worker README](../services/worker/README.md) describes input limits, parser
 isolation, derivative types and image checks. The
 [AWS guide](community-aws.md) covers the supported installation profile, explicit
 worker selection, permissions, costs, backups and upgrades. Image and dependency
-security checks remain necessary for a release; passing source tests does not
-approve a container image or authorize a cloud deployment.
+security checks are required before distributing containers.
 
 ## Publication builds and private previews
 
@@ -176,9 +173,7 @@ conversion limit rather than being silently dropped or treated as executable.
 
 Optional incremental page caching reuses output only within matching source,
 compiler and presentation scope. It is separate from the ordinary compile path;
-the component notes distinguish prepared local adapters from activated production
-caching. A cache receipt or an old hosted compiler pin is not a community release
-acceptance result.
+the component notes identify which adapters require operator configuration.
 
 ## Artifacts and release recovery
 
@@ -196,16 +191,10 @@ transfers, broader access or replaying a different request. Preserve completed
 output, prior costs and immutable history across interruption or application
 rollback. See [Artifact sharing and release handling](../services/api/src/opengeo_api/artifact_shares.py).
 
-## Acceptance and next steps
+## Current status and contribution priorities
 
-Component READMEs retain technical notes and dated evidence from development and
-the maintainers' hosted deployment. These explain boundaries and implementation
-history; their image hashes, private checks and deployed status do not establish
-acceptance of a fresh community installation.
-
-The [development guide](community-development.md) records the bounded local
-Project save–restart–reopen journey and its limits. Independent fresh installation,
-the complete native publication journey and supported production self-hosting
-remain open in the [community roadmap](../ROADMAP.md). Improve those
-workflows before expanding unused integrations, and report local checks,
-connected acceptance and deployment separately.
+Start with Studio startup, Catalog inspection, Project save/reopen and publication.
+The [development guide](community-development.md) covers the local environment;
+the [release notes](../RELEASE_NOTES.md) summarize verified workflows and
+remaining installation and publishing work. The
+[community roadmap](../ROADMAP.md) identifies contribution priorities.

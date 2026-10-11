@@ -2,143 +2,91 @@
 
 **An open workspace for geospatial analysis and publishing.**
 
-OpenGeo Studio, the geospatial workspace from OpenGeo.Tools, connects source
-discovery, reusable Layers and Styles, map composition, analytical authoring and
-publication delivery. It is being developed for researchers, GIS practitioners,
-environmental and social specialists, infrastructure planners, consultants,
-NGOs and small public project teams who need to retain their sources, explain
-their methods and share work that others can inspect and reuse. An analyst can
-prepare a map, a reviewer can examine its evidence, and a developer can extend
-the workflow through explicit interfaces.
+OpenGeo Studio, the geospatial workspace from OpenGeo.Tools, brings data, maps
+and analytical writing together. Discover sources, build reusable maps, explain
+your methods and publish the results—with the inputs and revisions attached.
 
-**Early community source edition.** The repository includes the full suite of
-tools under Apache-2.0; maturity varies by workflow. A connected local check
-demonstrates Project/map creation, save, database restart and exact reopening.
-Fresh-install/image builds, independent AWS installation and the complete
-standalone native publication journey remain unfinished. See the
-[capability and maturity matrix](docs/community-capabilities.md) and
-[release notes](RELEASE_NOTES.md).
+It is designed for GIS practitioners, researchers, environmental and social
+specialists, planners, consultants, NGOs and small project teams.
 
-For example, a planner could map community facilities, inspect the source and
-date behind each record, reuse the map in a second study and publish an
-explanation of the assumptions. The
-[illustrated walkthrough](docs/community-workflow.md) starts with five synthetic
-facilities and marks the steps that require a connected installation or remain
-unaccepted. It is a practice exercise, not an assessment of real communities.
+**Early community source edition.** The full suite of tools is included under
+[Apache-2.0](LICENSE). See the [release status](RELEASE_NOTES.md) for current
+installation and publishing limits.
 
-[![Demo map of five synthetic community facilities with layer controls and map tools](docs/assets/community/starter-map.png)](docs/community-workflow.md)
+[Try the demo](https://demo.studio.opengeo.tools/) ·
+[Explore published work](https://opengeo.tools/projects/) ·
+[Run locally](docs/community-development.md)
 
-Actual browser Demo from the October 5 release, with basemap requests disabled
-for the local capture. Its display labels predate the current branding. Browser
-drafts are separate from account-backed Projects; the screenshot does not
-establish connected persistence or publication acceptance.
+## Work from source to publication
 
-[Try the Studio demo](https://demo.studio.opengeo.tools/) ·
-[Explore the OpenGeo.Tools library](https://opengeo.tools/) ·
-[Run locally](docs/community-development.md) ·
-[See our deployment](docs/community-deployments.md)
-
-## From a source to an explanation
-
-| Activity | What the workspace helps you retain |
+| Activity | What you can do |
 | --- | --- |
-| Discover and connect | Datasets, catalogs, services, source metadata and reuse rights; temporary inspection does not create a Project |
-| Compose and analyze | Reusable Layers and Styles, deliberate Project saves, supported mapping and processing operations, selected versions and assumptions |
-| Explain and author | Independently versioned Publications combining narrative, maps, methods, code and charts |
-| Publish and maintain | Exact saved builds, reviewed delivery to configured web origins, source relationships, release history, updates and rollback |
+| Discover and connect | Inspect datasets, catalogs and services, including their metadata and reuse rights. |
+| Compose and analyze | Reuse Layers and Styles across Projects, choose a renderer and run supported spatial operations. |
+| Explain and author | Combine maps, charts, methods, code and narrative in analytical Publications. |
+| Publish and maintain | Review saved builds, publish to configured web destinations, and manage updates or rollback. |
 
-Account context and explicit resource permissions keep restricted inputs under
-their existing authority throughout those activities.
+Layers, Projects and Publications have their own identities and versions. A map
+can support several studies, and a published explanation stays connected to its
+sources. Account and resource permissions control access throughout the workflow.
 
-The [workflow guide](docs/community-workflow.md) explains what can be tried in
-the demo and what needs a connected installation. The
-[example gallery](docs/community-examples.md) connects hosted work to practical
-questions and identifies proposed exercises that still need reproducible inputs.
+The [workflow guide](docs/community-workflow.md) explains how the steps fit
+together. The demo saves drafts in your browser; connected Studio saves work to
+your account.
 
-**Connect once. Curate once. Reuse continuously.**
+## Explore published work
 
-## What the community edition contains
+- [Map Folio](https://opengeo.tools/map-folio/): explore map composition, projections and reusable cartography.
+- [Reading beyond the visible](https://opengeo.tools/noaa-coastal-imagery/reading-beyond-visible/): examine how imagery bands and display choices affect interpretation.
+- [Accessible and Standardized Cartographic Design](https://opengeo.tools/accessible-cartographic-design/): work through color, pattern and layout choices for readable maps.
+- [Measuring change in Nepal with census tables](https://opengeo.tools/nepal-census-tables/): compare census observations and examine the limits of the comparison.
 
-Studio, Catalog, reusable Layers and Styles, Projects, collaboration, GIS
-processing, Publications, APIs and infrastructure source are all included.
-Support depends on the operation: registration, reading, previewing, editing and
-preservation have different boundaries. STAC metadata import and retained source
-definitions are described separately from executable data adapters in the
-[capability matrix](docs/community-capabilities.md).
+These are published on OpenGeo.Tools. The [examples guide](docs/community-examples.md)
+includes a small downloadable exercise and instructions for contributing a study.
 
-Our focus is the connection between reusable spatial resources, explicit source
-custody, facts and interpretations, and computational explanations. Use
-OpenGeo Studio alongside QGIS and other specialist tools. The
-[reference comparison](docs/reference-applications.md) documents overlap,
-version-pinned comparisons and compatibility limits.
+## Inside Studio
 
-## Map, analyze and publish
+[MapLibre is the default renderer](docs/community-renderers.md), with optional
+Mapbox and Cesium adapters for compatible content. Mapbox requires a public
+session token and its provider terms apply. OpenLayers supplies geometry and
+exchange utilities.
 
-[MapLibre is the default renderer](docs/community-renderers.md). Optional Mapbox
-and Cesium adapters admit compatible content through explicit checks while
-retaining canonical Projects and Layers. Mapbox requires a workspace-session
-public token and provider terms; Cesium supports a bounded vector scene profile.
-OpenLayers supplies format/projection utilities and interoperability references,
-rather than a selectable Studio renderer. Incompatible content is disclosed.
+The browser application works with a FastAPI service, PostgreSQL/PostGIS,
+spatial workers and an isolated publication compiler. The community edition
+includes all of these components and the deployment infrastructure.
 
-The [standards and interoperability guide](docs/community-interoperability.md)
-separates catalog discovery and metadata exchange from feature/raster access,
-map services and project conversion. The [data lifecycle](docs/community-data-lifecycle.md)
-shows how source custody, exact versions, derivatives, rights and interpretation
-stay distinct. Browser calculations, PostGIS previews, worker jobs and publication
-compilation have different inputs, persistence and execution limits.
+- [Architecture](docs/community-architecture.md): components, storage and security boundaries.
+- [Capabilities](docs/community-capabilities.md): supported operations and current limits.
+- [Interoperability](docs/community-interoperability.md): metadata, feature and raster access, map services and project exchange.
+- [Data lifecycle](docs/community-data-lifecycle.md): originals, versions, derivatives, rights and provenance.
+- [Publishing](docs/community-publication-destinations.md): configured destinations, previews, release review and recovery.
 
-[Publishing has its own release workflow](docs/community-publication-destinations.md):
-save a source revision, compile its admitted inputs, inspect a private preview,
-review the exact build and select an approved origin. The concrete cloud adapter
-uses configured S3/CloudFront resources. Optional GitHub source export is a
-separate branch of the workflow. Retained builds and release receipts support
-updates and reviewed rollback; an origin reservation or queued job is not a live
-release. The guide includes a synthetic two-origin example and current acceptance
-status, including the unfinished independent native-publication journey.
+## Get started
 
-## Develop and deploy
-
-- [Run the connected development environment](docs/community-development.md).
-- [Understand the browser, API, database, worker and compiler](docs/community-architecture.md).
-- [Deploy to your own AWS account](docs/community-aws.md).
-- [Explore our public site, hosted Studio and isolated demo](docs/community-deployments.md).
-- [Follow the roadmap](ROADMAP.md) and [make a first contribution](CONTRIBUTING.md#make-a-first-contribution).
-
-For frontend exploration with Node.js 24 and npm:
+For frontend development, install Node.js 24 and npm, then run:
 
 ```bash
 npm ci --prefix app
 npm run dev -- --host 127.0.0.1
 ```
 
-The connected guide adds the API, PostGIS and processing worker. The AWS guide
-describes account-owned authentication, storage, infrastructure and release
-operations, with the standalone profile's remaining acceptance limits.
+Use the [local development guide](docs/community-development.md) to add the API,
+PostGIS and worker. The [AWS guide](docs/community-aws.md) covers an installation
+in your own account; [our deployment guide](docs/community-deployments.md)
+explains the public site, hosted Studio and demo.
 
-Low idle infrastructure cost is a design goal. Static delivery, request-driven
-APIs, database pause/resume, reusable artifacts and deliberate processing support
-that goal. Actual costs depend on the workload, retained data, traffic and AWS
-configuration; this release does not provide a measured cost guarantee.
+Follow the [roadmap](ROADMAP.md), [make a first contribution](CONTRIBUTING.md#make-a-first-contribution)
+or ask a question through [community support](SUPPORT.md#community-help).
 
-## License, foundations and support
+## License and support
 
-The community edition's first-party software is [Apache-2.0](LICENSE).
-Commercial use, modification and self-hosting are welcome under those terms.
-Upstream code, assets and example data retain their applicable licenses and
-notices. Contributors retain their copyright.
+Commercial use, modification and self-hosting are welcome under Apache-2.0.
+Third-party software and data retain their own terms; see the
+[acknowledgements](ACKNOWLEDGEMENTS.md),
+[NOTICE](NOTICE) and [foundation inventory](docs/open-source-foundations.md).
 
-MapLibre, GDAL/OGR, PostGIS, PROJ, Observable, D3 and the wider open-source GIS
-community make this work possible. Preserve the
-[acknowledgements](ACKNOWLEDGEMENTS.md), [NOTICE](NOTICE),
-[foundation inventory](docs/open-source-foundations.md),
-[license register](governance/open-source-foundations.json) and
-[contributor credits](CONTRIBUTORS.md).
-
-[Community help](SUPPORT.md#community-help) is available through GitHub Issues.
 We offer [hosting and enterprise support](SUPPORT.md#hosting-and-enterprise-support)
-as fee-based services for the same full-suite software.
-[Contact us](mailto:2301690+aaronkyle@users.noreply.github.com) with inquiries.
+as fee-based services. [Contact us](mailto:2301690+aaronkyle@users.noreply.github.com) with inquiries.
 
 Developed by [categori.se](https://github.com/categori-se); maintained by
 [Aaron Kyle Dennis](https://github.com/aaronkyle).

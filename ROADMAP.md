@@ -19,7 +19,7 @@ do not establish those independent-install outcomes.
 
 The [capability matrix](docs/community-capabilities.md) separates executable
 operations, metadata-only imports and retained definitions. The
-[illustrated workflow](docs/community-workflow.md) labels demonstrated and
+[workflow guide](docs/community-workflow.md) labels demonstrated and
 unfinished steps. See [release notes](RELEASE_NOTES.md) for a concise account
 of this source edition.
 

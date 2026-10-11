@@ -51,11 +51,9 @@ without an account API or sign-in configuration.
   [Studio demo description](../app/src/public-demo.md) to see how the example is
   assembled from maintained application components.
 
-These examples describe our deployment, rather than certify every independent
-installation. The AWS guide records the standalone installer's supported scope
-and remaining native publication setup; the development guide records local
-persistence evidence and its limits. The [roadmap](../ROADMAP.md) tracks
-unfinished workflows and acceptance.
+For installation requirements and known limitations, see the
+[AWS guide](community-aws.md), [development guide](community-development.md) and
+[roadmap](../ROADMAP.md).
 
 For fee-based hosting or enterprise support for your installation, contact
 [Aaron Kyle Dennis](mailto:2301690+aaronkyle@users.noreply.github.com) through the

@@ -1,32 +1,17 @@
 # Develop OpenGeo Studio on Linux
 
-The community source uses the maintained Studio, API, PostgreSQL/PostGIS schema,
-GIS worker and publication components. It is a prerelease. The existing integrated
-runner now has a durable **local development** mode; its default automated
-acceptance mode remains disposable. This mode is not an internet-facing or
-multiuser production installation.
+Run Studio, the API, PostgreSQL/PostGIS and the GIS worker locally. Development
+mode keeps your work between runs; the default automated check mode is disposable.
+This setup is for one local developer and does not require AWS credentials.
 
-For the relationship between our public site, hosted Studio and anonymous demo,
-see [OpenGeo Studio deployment examples](community-deployments.md).
+Local checks cover Project save and reopen after a database restart, selected
+GIS processing and static publication. They used installed dependencies, cached
+images and synthetic sign-in. Fresh dependency and image builds, large uploads
+and the complete native publishing workflow still need verification. See the
+[release record](../COMMUNITY-RELEASE.json) for detailed results.
 
-On October 11, 2026, Studio was built from the public source into a sealed
-819-file frontend tree using existing installed dependencies and a newly populated
-Observable build cache. A bounded Chromium journey created a Project and map,
-stopped and restarted the database, and reopened the exact saved map through
-Studio and the authorized API in 39.811 seconds. It reused cached API/worker
-images. Temporary smoke containers and the named database volume were removed.
-Runner checks and focused Catalog preview, Project save and navigation checks pass.
-
-A separate API/PostGIS/worker pilot completed in 57.952 seconds. It processed
-real features into PMTiles and PNG, composed and reopened a map, exported metadata,
-packaged a two-page Publication ZIP, and checked anonymous access, reviewer
-permissions and revocation. It used cached images and synthetic identities;
-native Notebook/Framework compilation and the full browser publication journey
-remain acceptance items in the rollout.
-
-The recorded scope covers source-built frontend behavior and local persistence.
-Clean-machine dependency/container builds, graphical Chromium sandbox startup,
-large uploads and native publication delivery remain separate acceptance items.
+The [deployment guide](community-deployments.md) explains how local development,
+the public site, hosted Studio and the anonymous demo relate.
 
 Development mode opens a managed Chromium window with synthetic owner sign-in.
 Only `127.0.0.1` is served. API and database containers have no external network or

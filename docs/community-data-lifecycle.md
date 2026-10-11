@@ -24,10 +24,9 @@ flowchart LR
   A --> P["Publication<br/>Method, findings and release"]
 ```
 
-The diagram explains the resource relationships. It is not a claim that the
-anonymous demo performs every step. The demo exercise uses local browser state;
-the bounded connected checks and unfinished standalone publication journey are
-listed in the [capability matrix](community-capabilities.md).
+The browser exercise covers inspection and styling. Managed uploads,
+derivatives and saved Publications require connected Studio; see the
+[capability matrix](community-capabilities.md) for current support.
 
 | Decision | What to do with the facilities example | What the record means |
 | --- | --- | --- |
@@ -52,9 +51,8 @@ git rev-parse HEAD
 sha256sum app/src/data/sample-public-facilities.geojson
 ```
 
-The [exercise](community-examples.md) gives the independent count command. It
-does not create an archive, conversion job or publication. Processing a managed
-copy requires deliberate supported actions in a configured installation.
+The [exercise](community-examples.md) shows how to inspect and count the features.
+Use a configured Studio installation to preserve a managed copy or create a derivative.
 
 ## Facts, interpretation and permission
 

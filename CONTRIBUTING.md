@@ -8,7 +8,7 @@ checks. Discuss large changes in an issue before building another subsystem.
 
 GIS practitioners can help with cartographic review, sample projects, workflow
 feedback and checks on analytical methods. You do not need to write application
-code. Start with the [illustrated workflow](docs/community-workflow.md) and
+code. Start with the [workflow guide](docs/community-workflow.md) and
 [example gallery](docs/community-examples.md), then report what helped, what was
 unclear and what result you expected. Share only inputs you have permission to
 redistribute; synthetic examples are welcome.
