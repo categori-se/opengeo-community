@@ -1,0 +1,111 @@
+{
+  "outcome": "STAC Collection 1.1.0 to CKAN package_create dry-run payload",
+  "result": "pass_payload_generation_only",
+  "source_commit": "6651e608a8db0d4ad3b8f3659a617a1ba7b945e3",
+  "dirty_diff": {
+    "path": ".opengeo/task-4.patch",
+    "sha256": "e4bb3106ba66aa868b456f80a63fc9c2f34cc58d082137cefee371ce619551b9",
+    "base": "Source commit plus Tasks 1\u20133; separate increment",
+    "excludes": "This summary to avoid self-reference"
+  },
+  "source_file_sha256": {
+    "services/api/src/opengeo_api/ckan_export.py": "15c0d33bed0d097b7e798778041787259b8b20134bdb715071941da4f5780059",
+    "services/api/scripts/export_stac_ckan.py": "26a801a1fe6371f935dced7831b3e50ad9b16a87b3d7c9f708e8d206f58cfb54",
+    "services/api/tests/test_ckan_export.py": "4a61a2b8949e27231b613e9d57a77e06e32d4f082274156826f1029ebfa92783",
+    "docs/api/stac-ckan.md": "5f2c708448a086d110bf20558dd4fd52fc4c864b63958ec3c0d552299e671253",
+    "docs/api/fixtures/stac-ckan-collection.json": "0e971d6d447c7d683e797bd41cc9d1d680a5410ff7338ab934914e6386fec21e",
+    "docs/api/evidence/stac-ckan-export.json": "7c417ff901b334b9d2c5dd5d2faa52360cebd0adeddaf9f55661a33dc7faade6",
+    "docs/api/evidence/ckan-2.11.6-reference.json": "558d4879e77421de05972b9f0899d449b2b7fbe2cf495323434c170be8708c85",
+    "services/api/src/opengeo_api/metadata_adapters.py": "27b085c7335d308dac195a71fa1a3c769c701d9f37e9d04059aa1f8ff6cec59e",
+    "services/api/src/opengeo_api/json_canonical.py": "effb9a369be59f0ab476d045c835b37d19be33f6f64ed40bcecfc6820b7532cf",
+    "services/api/requirements.lock": "5489333890d2e4f19ca229e41a55fb4a3ab3448571a00d5d09c79f7712cfe202",
+    "services/api/requirements-dev.lock": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed"
+  },
+  "working_directory": "repository root; pytest from services/api",
+  "reproduction_commands": [
+    "services/api/.venv/bin/python services/api/scripts/export_stac_ckan.py --input docs/api/fixtures/stac-ckan-collection.json --namespace example.synthetic --output /tmp/opengeo-stac-ckan-repro.json",
+    "cmp docs/api/evidence/stac-ckan-export.json /tmp/opengeo-stac-ckan-repro.json",
+    ".venv/bin/python -m pytest tests/test_ckan_export.py tests/test_ckan.py tests/test_ckan_routes.py"
+  ],
+  "execution_interpreter": "Cached ../services/api/.venv/bin/python; actual resolved absolute prefix redacted. Reproduction assumes the documented locked development environment.",
+  "checks": {
+    "pytest": {
+      "exit_code": 0,
+      "actual_stdout": "45 passed in 8.72s",
+      "raw_log_sha256": "81c1c5da7d9127da762b2711368734b7c1179a2fb7c1f1e0112bb56e4a38e6f2"
+    },
+    "cli_and_repeat_comparison": "passed; repeated generated JSON matched selected envelope byte-for-byte",
+    "ruff_lint_and_format": {
+      "result": "passed_final_source",
+      "cwd": "services/api",
+      "commands": [
+        "<cached-api-venv>/bin/ruff check src/opengeo_api/ckan_export.py scripts/export_stac_ckan.py tests/test_ckan_export.py",
+        "<cached-api-venv>/bin/ruff format --check src/opengeo_api/ckan_export.py scripts/export_stac_ckan.py tests/test_ckan_export.py"
+      ]
+    },
+    "selected_mypy": {
+      "result": "No issues in 2 source files; pre-final supplementary check only",
+      "command": "<cached-api-venv>/bin/python -m mypy --follow-imports=silent src/opengeo_api/ckan_export.py scripts/export_stac_ckan.py",
+      "cwd": "services/api",
+      "limit": "Ran before final report-text and RecursionError edits; does not establish type checking of final source."
+    }
+  },
+  "assertions_passed": [
+    "Maintained STAC importer supplies normalized core fields, retained original JSON values, canonical checksum and import report.",
+    "Real CLI emits dry_run/package_create envelope and raw input-file checksum; repeated output is identical.",
+    "Stable namespace+source identifier preserves name across title/checksum changes; a different namespace changes identity.",
+    "Normalized title, description, tags, bounds, publisher and self/enclosure references match synthetic input.",
+    "Open temporal bounds and missing optional fields remain unasserted; importer defaults and text/date transformations are disclosed.",
+    "Source metadata cannot set CKAN id, license_id, owner_org, private, state or groups.",
+    "Sensitive credentials/labels/URLs, unsupported inputs/tags and deeply nested input reject; CLI output contains no input values, private paths or traceback.",
+    "Derived subset refuses destination ownership fields and duplicate extras.",
+    "Existing inbound CKAN client and route tests pass with mocked providers."
+  ],
+  "failed_checks_resolved": [
+    "Initial Ruff lint/format issues corrected.",
+    "A formatting check on the added nested-input subprocess assertion failed and was corrected before the final 45-test run."
+  ],
+  "environment": {
+    "cached": true,
+    "python": "3.14.7",
+    "pytest": "9.1.1",
+    "ruff": "0.16.3",
+    "fastapi": "0.141.1",
+    "psycopg": "3.3.4",
+    "pydantic-settings": "2.15.0",
+    "images_used": []
+  },
+  "ckan_reference": {
+    "version": "2.11.6",
+    "commit": "a22d24505d1a5f75820d43cc3b0656c2c6b925a2",
+    "manifest": "ckan-2.11.6-reference.json",
+    "validation": "Independently derived bounded structural checks, not CKAN NAVL/server acceptance.",
+    "local_cache_check": {
+      "command": "podman images --format '{{.Repository}}:{{.Tag}} {{.ID}}' --filter reference='*ckan*'",
+      "exit_code": 0,
+      "stdout": "",
+      "result": "No cached CKAN image available; no installation/pull/round trip attempted."
+    }
+  },
+  "selected_evidence": {
+    "input": "../fixtures/stac-ckan-collection.json",
+    "output_and_reports": "stac-ckan-export.json",
+    "output_sha256": "7c417ff901b334b9d2c5dd5d2faa52360cebd0adeddaf9f55661a33dc7faade6"
+  },
+  "external_usage": {
+    "remote_writes": 0,
+    "provider_requests_during_conversion": 0,
+    "cloud_or_paid_operations": 0,
+    "reference_research": "Reused bounded primary-source research: 8 successful public HTTP reads, 1 sandbox DNS failure and 7 web-tool calls; underlying web cache/network count unavailable. No further reference requests."
+  },
+  "substitutions": "Conversion uses no authentication or providers. Unchanged inbound CKAN checks use HTTP provider mocks.",
+  "not_proven": [
+    "CKAN create/read round trip",
+    "CKAN authorization or plugin compatibility",
+    "remote access to declared URLs",
+    "package_update merge behavior",
+    "harvesting or synchronization",
+    "live portal integration or cloud acceptance"
+  ],
+  "rights": "Synthetic metadata fixture is first-party repository source. Its license=other describes the fictional Collection; no open license is assigned to the referenced dataset."
+}

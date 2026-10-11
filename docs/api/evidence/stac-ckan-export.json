@@ -1,0 +1,207 @@
+{
+  "action": "package_create",
+  "importReport": {
+    "defaulted": [
+      "language=en"
+    ],
+    "derived": [],
+    "mapped": [
+      "type=Collection->kind=dataset",
+      "stac_version->source_version",
+      "id->source_identifier",
+      "title->title",
+      "description->abstract",
+      "license->license",
+      "keywords->keywords",
+      "extent.spatial->spatial_extent",
+      "extent.temporal->temporal_extent"
+    ],
+    "preservedSource": {
+      "checksumBasis": "canonical_json",
+      "status": "canonical_json_preserved",
+      "syntacticIdentity": false
+    },
+    "schemaVersion": "1.0.0",
+    "sourceFormat": "stac_1_1",
+    "status": "mapped_with_explicit_losses",
+    "unmapped": [
+      "links",
+      "providers",
+      "stac_extensions",
+      "summaries"
+    ]
+  },
+  "mode": "dry_run",
+  "payload": {
+    "extras": [
+      {
+        "key": "opengeo:declared_license",
+        "value": "other"
+      },
+      {
+        "key": "opengeo:publishers",
+        "value": "[{\"name\":\"Example Research Group\",\"roles\":[\"publisher\"]}]"
+      },
+      {
+        "key": "opengeo:source",
+        "value": "{\"checksumBasis\":\"canonical_json\",\"sourceFormat\":\"stac_1_1\",\"sourceIdentifier\":\"synthetic-facilities-2026\",\"sourceNamespace\":\"example.synthetic\",\"sourceSha256\":\"33c4e3e74bc33966a09c7c2398f483cf7b4e370da328b18c79b03d7a9b991375\",\"sourceVersion\":\"1.1.0\"}"
+      },
+      {
+        "key": "opengeo:spatial_extent",
+        "value": "[84,27,86,29]"
+      },
+      {
+        "key": "opengeo:stac_links",
+        "value": "[{\"href\":\"https://catalog.example.test/collections/synthetic-facilities-2026\",\"rel\":\"self\",\"type\":\"application/json\"},{\"href\":\"https://data.example.test/synthetic-facilities.geojson\",\"rel\":\"enclosure\",\"title\":\"Synthetic facilities reference\",\"type\":\"application/geo+json\"},{\"href\":\"https://terms.example.test/synthetic-metadata\",\"rel\":\"license\"}]"
+      },
+      {
+        "key": "opengeo:temporal_start",
+        "value": "2026-01-01T00:00:00+00:00"
+      }
+    ],
+    "name": "stac-662a2e1e66c7a62376ad1c6ec2557933d7257f8de046cbc16f495a7685b55484",
+    "notes": "Redistributable synthetic metadata for an offline exporter example; no observations or remote access are asserted.",
+    "resources": [
+      {
+        "description": "Declared STAC enclosure reference",
+        "mimetype": "application/geo+json",
+        "name": "Synthetic facilities reference",
+        "url": "https://data.example.test/synthetic-facilities.geojson"
+      }
+    ],
+    "tags": [
+      {
+        "name": "facilities"
+      },
+      {
+        "name": "synthetic"
+      }
+    ],
+    "title": "Synthetic public facilities",
+    "url": "https://catalog.example.test/collections/synthetic-facilities-2026"
+  },
+  "report": {
+    "limits": [
+      "Create only: package_update can delete omitted fields; review separately.",
+      "No download, upload, remote write, harvesting or synchronization is performed.",
+      "Destination ownership, visibility, authorization and name uniqueness need review.",
+      "Sensitive-key/label and URL checks are bounded; prose is not classified."
+    ],
+    "losses": [
+      "Namespaced extras preserve metadata; CKAN core does not interpret their semantics.",
+      "The importer strips surrounding core text whitespace and parses date strings; export reformats dates as ISO 8601. Original values remain in source.",
+      "Other link relations remain custom metadata without native CKAN fields.",
+      "Unmapped fields and non-publisher providers remain only in retained source."
+    ],
+    "mapped": [
+      "source namespace+identifier->name",
+      "normalized title->title",
+      "normalized abstract->notes",
+      "normalized keywords->tags",
+      "normalized known extents->namespaced extras",
+      "source provenance and declared license->namespaced extras",
+      "retained STAC publisher providers->opengeo:publishers extra",
+      "retained STAC self/enclosure links->url/reference resources",
+      "all declared links->opengeo:stac_links extra"
+    ],
+    "referenceCommit": "a22d24505d1a5f75820d43cc3b0656c2c6b925a2",
+    "remoteWritePerformed": false,
+    "target": "CKAN 2.11.6 Action API v3 package_create",
+    "unasserted": [
+      "license_id",
+      "owner_org",
+      "private",
+      "state",
+      "permissions",
+      "groups",
+      "remote access",
+      "CKAN plugin compatibility",
+      "server acceptance"
+    ],
+    "unmapped": [
+      "providers[1]",
+      "stac_extensions",
+      "summaries"
+    ],
+    "unmappedScope": "Top-level fields and non-publisher provider records; unused nested extent properties remain only in retained source.",
+    "validation": "derived_subset_structure_only"
+  },
+  "source": {
+    "checksumBasis": "canonical_json",
+    "document": {
+      "description": "Redistributable synthetic metadata for an offline exporter example; no observations or remote access are asserted.",
+      "extent": {
+        "spatial": {
+          "bbox": [
+            [
+              84,
+              27,
+              86,
+              29
+            ]
+          ]
+        },
+        "temporal": {
+          "interval": [
+            [
+              "2026-01-01T00:00:00Z",
+              null
+            ]
+          ]
+        }
+      },
+      "id": "synthetic-facilities-2026",
+      "keywords": [
+        "facilities",
+        "synthetic"
+      ],
+      "license": "other",
+      "links": [
+        {
+          "href": "https://catalog.example.test/collections/synthetic-facilities-2026",
+          "rel": "self",
+          "type": "application/json"
+        },
+        {
+          "href": "https://data.example.test/synthetic-facilities.geojson",
+          "rel": "enclosure",
+          "title": "Synthetic facilities reference",
+          "type": "application/geo+json"
+        },
+        {
+          "href": "https://terms.example.test/synthetic-metadata",
+          "rel": "license"
+        }
+      ],
+      "providers": [
+        {
+          "name": "Example Research Group",
+          "roles": [
+            "publisher"
+          ]
+        },
+        {
+          "name": "Example Processor",
+          "roles": [
+            "processor"
+          ]
+        }
+      ],
+      "stac_extensions": [],
+      "stac_version": "1.1.0",
+      "summaries": {
+        "example_only": [
+          true
+        ]
+      },
+      "title": "Synthetic public facilities",
+      "type": "Collection"
+    },
+    "rawFileSha256": "0e971d6d447c7d683e797bd41cc9d1d680a5410ff7338ab934914e6386fec21e",
+    "sourceFormat": "stac_1_1",
+    "sourceIdentifier": "synthetic-facilities-2026",
+    "sourceNamespace": "example.synthetic",
+    "sourceSha256": "33c4e3e74bc33966a09c7c2398f483cf7b4e370da328b18c79b03d7a9b991375",
+    "sourceVersion": "1.1.0"
+  }
+}

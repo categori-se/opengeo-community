@@ -43,6 +43,11 @@ images were cached; sign-in and object/queue transport were synthetic.
 A separate local pilot covers uploads, selected GIS derivatives, map composition,
 static publication and access controls.
 
+The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) generates a dry-run dataset
+create payload with retained source/checksums and explicit conversion losses.
+Validation covers a subset derived from CKAN 2.11.6; no CKAN server round trip,
+harvesting or synchronization was performed.
+
 Still to verify: clean-machine dependency and service-image builds, an independent
 AWS installation, and the complete native Notebook/Framework build, preview and
 publication workflow in Studio. Binary distributions also require license and

@@ -1,0 +1,36 @@
+{
+  "kind": "primary_source_reference",
+  "version": "CKAN 2.11.6",
+  "tag": "ckan-2.11.6",
+  "commit": "a22d24505d1a5f75820d43cc3b0656c2c6b925a2",
+  "tagResolutionUrl": "https://api.github.com/repos/ckan/ckan/git/ref/tags/ckan-2.11.6",
+  "sources": [
+    {
+      "url": "https://github.com/ckan/ckan/blob/a22d24505d1a5f75820d43cc3b0656c2c6b925a2/ckan/logic/schema.py",
+      "sha256": "798a9fc3d162754acac2a5d00c1e8bce207bb54f30dcc376abab719bfa9b1f4b",
+      "bytes": 34695,
+      "sections": ["default_create_package_schema", "default_resource_schema", "default_tags_schema", "default_extras_schema"]
+    },
+    {
+      "url": "https://github.com/ckan/ckan/blob/a22d24505d1a5f75820d43cc3b0656c2c6b925a2/ckan/logic/validators.py",
+      "sha256": "00149b134d438ae47d2cb4e599cff9375331b3b5c99bfac2630f3221548a9da6",
+      "bytes": 39749,
+      "sections": ["name_validator", "tag_name_validator", "tag_length_validator", "owner_org_validator", "extra_key_not_in_root_schema"]
+    },
+    {
+      "url": "https://github.com/ckan/ckan/blob/a22d24505d1a5f75820d43cc3b0656c2c6b925a2/ckan/logic/action/create.py",
+      "sha256": "24ff8601885d25c6d270424cea5094e17d4ce95a136109fdbd963707b62dd4b1",
+      "bytes": 54475,
+      "sections": ["package_create", "resource_create"]
+    },
+    {
+      "url": "https://github.com/ckan/ckan/blob/a22d24505d1a5f75820d43cc3b0656c2c6b925a2/ckan/logic/action/update.py",
+      "sha256": "d4c7813609f9f4038b1574a31a8210e13dbca8ba2fa7196381fac3b07257dffb",
+      "bytes": 44274,
+      "sections": ["package_update"]
+    }
+  ],
+  "localValidation": "Independently derived restricted payload checks, not the CKAN NAVL validator or an official JSON Schema.",
+  "excludedChecks": ["database uniqueness", "destination organization", "authorization", "plugin schemas", "server create/read acceptance"],
+  "sourceVendored": false
+}

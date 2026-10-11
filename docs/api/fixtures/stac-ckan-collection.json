@@ -1,0 +1,24 @@
+{
+  "type": "Collection",
+  "stac_version": "1.1.0",
+  "stac_extensions": [],
+  "id": "synthetic-facilities-2026",
+  "title": "Synthetic public facilities",
+  "description": "Redistributable synthetic metadata for an offline exporter example; no observations or remote access are asserted.",
+  "license": "other",
+  "keywords": ["facilities", "synthetic"],
+  "providers": [
+    {"name": "Example Research Group", "roles": ["publisher"]},
+    {"name": "Example Processor", "roles": ["processor"]}
+  ],
+  "extent": {
+    "spatial": {"bbox": [[84, 27, 86, 29]]},
+    "temporal": {"interval": [["2026-01-01T00:00:00Z", null]]}
+  },
+  "links": [
+    {"rel": "self", "href": "https://catalog.example.test/collections/synthetic-facilities-2026", "type": "application/json"},
+    {"rel": "enclosure", "href": "https://data.example.test/synthetic-facilities.geojson", "type": "application/geo+json", "title": "Synthetic facilities reference"},
+    {"rel": "license", "href": "https://terms.example.test/synthetic-metadata"}
+  ],
+  "summaries": {"example_only": [true]}
+}
