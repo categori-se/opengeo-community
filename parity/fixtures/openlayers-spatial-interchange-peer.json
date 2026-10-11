@@ -1,0 +1,133 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "openlayers.spatial-interchange-peer",
+  "title": "Bounded OpenLayers format, projection, and WFS filter interoperability",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "upstream",
+    "description": "Version-pinned OpenLayers 10.10.0 independently reads deterministic OpenGeo GeoJSON, WKT, and WKB/EWKB output, exercises authoritative projection and axis-order fixtures, and sends bounded WFS 2.0 XML filters through the authenticated OpenGeo service path.",
+    "url": "https://github.com/openlayers/openlayers/releases/tag/v10.10.0",
+    "version": "10.10.0"
+  },
+  "license": {
+    "spdxId": "BSD-2-Clause",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "spatialInterchange.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/spatialInterchange.js",
+      "sha256": "82a9e241b0e4d1180ab83e78f6f02dff493f1d9a071d4bcb71dcff8be183055e"
+    },
+    {
+      "name": "spatial-interchange.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/spatial-interchange.test.mjs",
+      "sha256": "9977b0ddf662d73b0e21e12d003869eeac74715725ef0d0c6582c4311d2767cc"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "ProjectWorkspacePage.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectWorkspacePage.js",
+      "sha256": "d23573a04c4b664b46f8cbeb6567c8e9b31027249a639404921ff90fb62ab183"
+    },
+    {
+      "name": "app-package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package.json",
+      "sha256": "399cd2c91d74b0a9b53428d4dbb8d037f2bfbe30dbb660907e64196dffc12d8b"
+    },
+    {
+      "name": "app-package-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package-lock.json",
+      "sha256": "cad9781aa572087cda8a9ff96ccd93d551028795a05abbedcb54c449cc134e9d"
+    },
+    {
+      "name": "features.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/features.py",
+      "sha256": "f5642292c13073fb372d619c50b54fb5fe1f9b250571d327ced9bb0342b7b3fd"
+    },
+    {
+      "name": "wfs.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs.py",
+      "sha256": "9732286d4015f6d08da6f2f91ff896d68d08af10299ba1fb0ead2dfe1405bb48"
+    },
+    {
+      "name": "wfs_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs_routes.py",
+      "sha256": "bbeb8a0e5dd5bf1b345f6ec3502c600f94759ff0bdfe3937d5795bacda15f964"
+    },
+    {
+      "name": "test_wfs_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_wfs_routes.py",
+      "sha256": "64d613b4dcf429ea1235729b6a1c2a1931686cda2756bec5d2c9e6f8b72e232a"
+    },
+    {
+      "name": "serve-records-parity.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/serve-records-parity.py",
+      "sha256": "c7b5809adb2acefa5238661fc8b51af2f2f37af51478c355be60ef4af8de9ace"
+    },
+    {
+      "name": "check-openlayers-spatial-interchange-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-openlayers-spatial-interchange-peer.mjs",
+      "sha256": "f503c179d914dba55fdb9151f9e3c08f515d74f5350fa6a9779e6df88413caa5"
+    },
+    {
+      "name": "openlayers-spatial-interchange-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/openlayers-spatial-interchange-peer.json",
+      "sha256": "6feabf9c9c5e9530ff1e6e9466770bb5626bd2089a164cfb7808f10b0f636432"
+    },
+    {
+      "name": "openlayers-spatial-interchange-peer.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/openlayers-spatial-interchange-peer.test.mjs",
+      "sha256": "55f9f31bf3e60e954c7011c6d6a9a84702438fe0fc809efcd4377be736b2aba7"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "openlayers.formats-projections-filters",
+      "assertion": "OpenGeo and independent OpenLayers 10.10.0 parse and write the declared GeoJSON, WKT, and WKB/EWKB browser profile, agree on bounded authoritative CRS and axis-order fixtures, and exchange the declared bounded WFS BBOX, ResourceId, equality, governed During, and conjunction filters while unsupported filters fail closed."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "OpenLayers 10.10.0 natively reads authenticated GML 3.2 and performs one bounded WFS 2 insert, version-aware update, and delete through the governed service; a stale update returns 409, locks fail closed, and the upstream insert-receipt parser loss is explicit."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

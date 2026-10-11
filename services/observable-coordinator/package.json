@@ -1,0 +1,18 @@
+{
+  "name": "@opengeo/observable-coordinator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ami:bundle": "node scripts/build-ami-coordinator-archive.mjs build/observable-coordinator.tar",
+    "ami:prepare": "node scripts/prepare-ami-build.mjs",
+    "ami:record-evidence": "node scripts/record-ami-evidence.mjs",
+    "test": "node --test test/**/*.test.mjs",
+    "test:pipeline": "node scripts/check-local-pipeline.mjs",
+    "start": "node scripts/run-host.mjs"
+  },
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "license": "Apache-2.0"
+}

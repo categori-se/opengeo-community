@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-23",
+  "region": "us-east-1",
+  "currency": "USD",
+  "scenario": "optional zero-command Observable coordinator",
+  "expectedMonthlyUsd": 22.5,
+  "combinedCurrentMonthlyUsd": 25.303,
+  "combinedAfterTwoKmsRotationsMonthlyUsd": 27.303,
+  "budgetMonthlyUsd": 125,
+  "assumptions": [
+    "The coordinator stack exists, its API advertisement gate may remain false, and no build command is sent.",
+    "The Auto Scaling group has minimum and desired capacity zero, so it has no EC2, EBS, or public IPv4 charge while idle.",
+    "Three directly called interface endpoints (SQS, RDS Data API, and CloudWatch Logs) remain provisioned in one dev availability zone; the S3 gateway endpoint has no hourly charge.",
+    "Secrets Manager and KMS authorization remain exact IAM conditions but do not need client endpoints because Data API and S3 perform those calls service-side.",
+    "The queue and dead-letter queue contain no messages and use SQS-managed encryption.",
+    "One coordinator database secret and two standard CloudWatch alarms remain allocated.",
+    "Requests, endpoint data, host runtime, EBS while running, S3, Data API, KMS API calls, logs, and database wake time are usage-dependent and excluded at zero commands."
+  ],
+  "sources": {
+    "vpc": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/privatelink/pricing/"
+    },
+    "secrets": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/secrets-manager/pricing/"
+    },
+    "cloudwatch": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/cloudwatch/pricing/"
+    },
+    "ec2": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/ec2/pricing/on-demand/"
+    }
+  },
+  "items": [
+    {
+      "id": "coordinator-interface-endpoints",
+      "scope": "observable-coordinator",
+      "description": "Three continuously provisioned single-AZ interface endpoint ENIs",
+      "quantity": 2190,
+      "unit": "endpoint-hour",
+      "rateUsd": 0.01,
+      "source": "vpc"
+    },
+    {
+      "id": "coordinator-database-secret",
+      "scope": "observable-coordinator",
+      "description": "Dedicated function-only coordinator database credential",
+      "quantity": 1,
+      "unit": "secret-month",
+      "rateUsd": 0.4,
+      "source": "secrets"
+    },
+    {
+      "id": "coordinator-standard-alarms",
+      "scope": "observable-coordinator",
+      "description": "Oldest-message and dead-letter-queue standard alarms",
+      "quantity": 2,
+      "unit": "alarm-month",
+      "rateUsd": 0.1,
+      "source": "cloudwatch"
+    },
+    {
+      "id": "coordinator-ec2-zero-hours",
+      "scope": "observable-coordinator",
+      "description": "t4g.large trusted hosts at desired capacity zero",
+      "quantity": 0,
+      "unit": "instance-hour",
+      "rateUsd": 0.0672,
+      "source": "ec2"
+    }
+  ]
+}

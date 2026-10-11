@@ -1,0 +1,116 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-001.administered-openlayers-peer",
+  "title": "Administered direct feature, exact map, and WebMercatorQuad service with OpenLayers peer",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Checksum-pinned local evidence for project-administered immutable collection bindings, direct exact-generation feature reads, exact native map redirects, and an authenticated OpenLayers 10.10.0 HTTP consumer."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0023_spatial_service_catalog.sql",
+      "mediaType": "text/x-sql",
+      "encoding": "path",
+      "value": "database/migrations/0023_spatial_service_catalog.sql",
+      "sha256": "ed8932cd53bf5445fc1f663734d25c5d31ccac4ea17c2dd9186722e80540748f"
+    },
+    {
+      "name": "spatial_services.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_services.py",
+      "sha256": "5bd1446c060ba73a02dfa16f119108c3f34a527e57a173ec649cb868e2895161"
+    },
+    {
+      "name": "spatial_service_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_service_routes.py",
+      "sha256": "975559cd790c5ac3beb2a0a6e182b47d2c6e81108544beacae10423bbbc217cc"
+    },
+    {
+      "name": "features.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/features.py",
+      "sha256": "f5642292c13073fb372d619c50b54fb5fe1f9b250571d327ced9bb0342b7b3fd"
+    },
+    {
+      "name": "test_spatial_service_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_service_routes.py",
+      "sha256": "90ab062b2d50553fd091cf03c71ee0fd0e9c44a18590c2b745879dbc56e31e0b"
+    },
+    {
+      "name": "spatial-service-catalog.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-service-catalog.test.mjs",
+      "sha256": "5baf63c167e12f74e2312b1f98c365486eb19797943d299bd4f3409d4851191d"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "check-openlayers-service-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-openlayers-service-peer.mjs",
+      "sha256": "3763e18feabf993034b8716beb645efd20f45cc1a9af3a0bbcafbaa004ecd3f3"
+    },
+    {
+      "name": "service-001-administered-openlayers-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-001-administered-openlayers-peer.json",
+      "sha256": "c3a053787f3c556f88fd3380ede8619f565021265a08d60e50bbec81be38427f"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.catalog-administration",
+      "assertion": "A project owner/editor can create and irreversibly disable a bounded service catalog and bind or withdraw published exact collection identities without operating GeoServer."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "One administered collection exposes authenticated direct exact-generation feature, SVG/PNG map, and WebMercatorQuad PNG tile compatibility reads while broader protocols and formal conformance remain open."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Shared auth, selected-organization scope, native reauthorization, immutable generation/profile seals, and stale-read rejection pass; durable tile caching and public policy remain open."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The renderer-neutral service reuses the governed exact map path for map and tile output without making MapServer a runtime dependency."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "OpenLayers 10.10.0 consumes authenticated GeoJSON and creates a WebMercatorQuad XYZ source from discovered service metadata over local HTTP."
+    },
+    {
+      "rowId": "openlayers.formats-projections-filters",
+      "assertion": "OpenLayers parses the exact-generation GeoJSON through ol/format/GeoJSON and projects it from EPSG:4326 into an EPSG:3857 vector source."
+    },
+    {
+      "rowId": "openlayers.map-view-layer-model",
+      "assertion": "An independent OpenLayers vector and XYZ source can address the same governed collection, while complete view/layer/UI parity remains open."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

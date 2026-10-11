@@ -1,0 +1,1369 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "wms-cite-successful-getmap-trace",
+  "status": "diagnostic_trace_not_official_ets_evidence",
+  "source": {
+    "repository": "https://github.com/opengeospatial/ets-wms13",
+    "commit": "9a45b91e8e1dc600f574002ac89342b20bac3106"
+  },
+  "upstreamPath": "/projects/713fd15d-d81c-5bef-a3b4-a805f6ff929a/wms",
+  "captureBoundary": {
+    "successfulStatus": 200,
+    "mediaTypes": [
+      "image/png",
+      "image/svg+xml"
+    ],
+    "knownRenderParametersOnly": true,
+    "unknownParametersDiscarded": true,
+    "authorizationHeadersRecorded": false,
+    "rawQueryRecorded": false,
+    "maximumUniqueIdentities": 2048
+  },
+  "uniqueRequests": 42,
+  "observations": 100,
+  "requests": [
+    {
+      "id": "getmap-0167a78cc4871fdda4a729be",
+      "identitySha256": "0167a78cc4871fdda4a729bed74e69c53d1ddbf5e2607a7e84dc55b89cf688e9",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1545,
+        "sha256": "cc224d1d10c993ffe763ca2a9bfb1ef40c9714b908103323df291ab6a8c82b9e"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-09fbdd93e8416beaae117939",
+      "identitySha256": "09fbdd93e8416beaae1179398663305e93bacdacf002e5e4372556a4feef565c",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          0,
+          -0.002,
+          0.004,
+          0
+        ],
+        "width": 200,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": true
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 2597,
+        "sha256": "6753a498d822cda140ddb52d7c556be88e0745facbe71c64b1cded1bf1dd76fc"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-0df716df521e83085340b855",
+      "identitySha256": "0df716df521e83085340b85593254f3e851c3a5209dd63d056836b8c94c66e3f",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -2,
+          -1,
+          2,
+          6
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1768,
+        "sha256": "9808b1c1198ed3f2956d098142eb7995209deb8a1faff5ca1539407c3fa82e81"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-0df7d5ce20c1235f6d1222e4",
+      "identitySha256": "0df7d5ce20c1235f6d1222e49175a88ea7aa00d993a92f083638517ac8dada1e",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 200,
+        "height": 200,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 2726,
+        "sha256": "89be6002432f58cff5433b708e58bb6cfa445525d3a068e408c3e1c31dcec97e"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-115711bca290326bd6e8e090",
+      "identitySha256": "115711bca290326bd6e8e0909ad86e8dfae934722b007551c3cf5bff6216ac52",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:NamedPlaces"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1608,
+        "sha256": "1917eada7af56f47b755511ce95d7ced9e519d800c518cdcb2e1016ea54e53f6"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-14a9677912b697a552c3d3c7",
+      "identitySha256": "14a9677912b697a552c3d3c7165ba65a87d93ba97ae7b046fba72e14d41eb553",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Streams"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0004,
+          -0.0024,
+          0.0036,
+          0.0024
+        ],
+        "width": 200,
+        "height": 200,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 3497,
+        "sha256": "ac889f443e5707e391d6241cb4df3f232c90673a4e0aa4bfd6e9c327cb8e6d24"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-14c7fdb8e56b59c2ab163fe0",
+      "identitySha256": "14c7fdb8e56b59c2ab163fe0e27c63a23fdd0307bec228754e5189901e0d9b06",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes",
+          "cite:Streams"
+        ],
+        "styles": [
+          "",
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 3008,
+        "sha256": "f3384d34aa33d891219aa734f717224018535b2c46f72e33702d15a2848878d4"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-1b56887fc7f3be5f0fb2f973",
+      "identitySha256": "1b56887fc7f3be5f0fb2f9739323bf47043804f0d3fe8b40d6f4f735a81b387f",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "EPSG:3857",
+        "bbox": [
+          -222638.981586547,
+          -111325.142866385,
+          222638.981586547,
+          669141.057044246
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1820,
+        "sha256": "58b92f68bc7ee48f224e884aaa15cc04acb42ac07b249ac1bfd17d69755e6074"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-1fe438b286d7a746daf3e6ba",
+      "identitySha256": "1fe438b286d7a746daf3e6ba8fe2bf9018b89d64b87fe5938149c253232b2444",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:MapNeatline"
+        ],
+        "styles": [
+          "6a8763f2-b772-59e3-8a08-e0a937dc9b1a"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1546,
+        "sha256": "332cefde073f9153e0d750289599193acc8755ad48c7ee6216f1b12e6cbb88b2"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-26dcc9b5465b6742b14f6380",
+      "identitySha256": "26dcc9b5465b6742b14f6380d80698e5f3ab451b7fab44e03c298fea6002cf30",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 2048,
+        "height": 2048,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 91780,
+        "sha256": "18a13c01167c1eeb6af19db712abdc675ba2e71c1cac01a922f76a873c457d23"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-3eab791fdad2d6c8d578e31a",
+      "identitySha256": "3eab791fdad2d6c8d578e31a5650130b12bb510f9dde3ced5cf07f8c81f00f6c",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1644,
+        "sha256": "c1c6a66a4ead61c748cc51fc8d13a7a75959ca922d3c3c3a30ed4246758b2a0f"
+      },
+      "observations": 10
+    },
+    {
+      "id": "getmap-48a74e4801eb0419a22211f0",
+      "identitySha256": "48a74e4801eb0419a22211f06a45e6204a211a33ec75600ada1f5e22c5c1d8d5",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -2,
+          -1,
+          2,
+          6
+        ],
+        "width": 200,
+        "height": 200,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 3041,
+        "sha256": "79dedcfe9e3dd39a125686e3a9c17ec4e272a417ba810da79c9960cc1e1c8be8"
+      },
+      "observations": 4
+    },
+    {
+      "id": "getmap-4c859d13c41776ca9a6be8ee",
+      "identitySha256": "4c859d13c41776ca9a6be8eea04985ebf82d844e080dc82488f46f2bddbcde79",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Buildings"
+        ],
+        "styles": [
+          "b9676eb1-91fe-5859-b945-f39b8773c1e8"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1580,
+        "sha256": "89914b163774a718c004e48e1582d8a4c78f79909a70acc6ab65dd6084e2e3ee"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-5e29e6c41a2afc406a2558d1",
+      "identitySha256": "5e29e6c41a2afc406a2558d18da7a3a47e9261e29d0668befe0ded0709a5776f",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:DividedRoutes"
+        ],
+        "styles": [
+          "82747e17-f804-5d36-86eb-be7355a33f1d"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1541,
+        "sha256": "51cb1d70c45202ac3de9d4ffdf68c8fb735956bc4e36dbe08bb69aae024ac870"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-619b8afb0d0b9e17b3f5a168",
+      "identitySha256": "619b8afb0d0b9e17b3f5a168c74792a90c2bb0be6cb1080d1eb4cdeed78fcc8c",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          0,
+          -0.002,
+          0.004,
+          0
+        ],
+        "width": 200,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#0000ff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 2397,
+        "sha256": "31b22bf70b5c1a5faa2e4e27f7a2c9422f8721ac058fb87f0180b7b453c85093"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-645601f55bed989bcb067352",
+      "identitySha256": "645601f55bed989bcb06735231887c862c0913457fd0edb7cd6a40e04aa3b1f1",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Ponds"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1625,
+        "sha256": "9aaf5c30cb506e97be121b4bad72d5039a459f609bc39596f7f59a57772ce2cc"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-6918a0f2b05553f1682db39f",
+      "identitySha256": "6918a0f2b05553f1682db39fa999c67bb01f86dc5f011a1440f35d64d254712b",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:RoadSegments"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1763,
+        "sha256": "41c00e95cd1e3f373113e6166b7abf130f69df351987151250e89a3d47a6f14c"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-6fabbfa9a7466c1387e7326a",
+      "identitySha256": "6fabbfa9a7466c1387e7326a5350eb7b3904a0840d2f64ecda66d1561d592541",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Ponds"
+        ],
+        "styles": [
+          "c4dedc21-52e8-5868-81c6-1314ffd7da31"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1625,
+        "sha256": "9aaf5c30cb506e97be121b4bad72d5039a459f609bc39596f7f59a57772ce2cc"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-7dc3543e314287c82d92d4df",
+      "identitySha256": "7dc3543e314287c82d92d4df43c8d9d21fdcc79edd913608b36c2c2fa848e915",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Buildings"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1580,
+        "sha256": "89914b163774a718c004e48e1582d8a4c78f79909a70acc6ab65dd6084e2e3ee"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-83fd102e0905482c86ff3884",
+      "identitySha256": "83fd102e0905482c86ff3884d9116f680767c7d22d424f0212465c75b581a96e",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 8,
+        "height": 5,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1119,
+        "sha256": "08b9b761d1d57c59f97ce81d592f41d0f3545aff60cd71ff1408aaea27aefa33"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-841f0f3f10e8f85a52994a58",
+      "identitySha256": "841f0f3f10e8f85a52994a588a7c081b562dcd9be7c0c151861e7b385d573ae5",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/svg+xml",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/svg+xml",
+        "bytes": 1631,
+        "sha256": "b8f9b869ea515e9cc1da3b7814247bcadf462c467e6c5e9f4f3d9eb498706ac7"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-849b6b0d80caa183f261c71c",
+      "identitySha256": "849b6b0d80caa183f261c71c6d5dfabf34a3ea9c28cc3ec0d5e5f21e8a1cfe35",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:RoadSegments"
+        ],
+        "styles": [
+          "020144c1-3ffd-55b6-baf4-69c89042fc40"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1763,
+        "sha256": "41c00e95cd1e3f373113e6166b7abf130f69df351987151250e89a3d47a6f14c"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-8a6226711c787655a36f2a6e",
+      "identitySha256": "8a6226711c787655a36f2a6e4f8e4737ee2b63e71886a104e956f79fed8c364c",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons",
+          "cite:Bridges",
+          "cite:BasicPolygons",
+          "cite:RoadSegments",
+          "cite:DividedRoutes"
+        ],
+        "styles": [
+          "49858749-c69e-5589-9764-4e72c552bdfb",
+          "",
+          "49858749-c69e-5589-9764-4e72c552bdfb",
+          "",
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 5006,
+        "sha256": "6ad0c0253385506770c18eb585b23b082dc4d0619c9545bcd55be49d4c5d4150"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-8e21a84bfdd420c4cb92c401",
+      "identitySha256": "8e21a84bfdd420c4cb92c401b92a53959d432452e308ad2fedb742d2273efe30",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          "49858749-c69e-5589-9764-4e72c552bdfb"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1545,
+        "sha256": "cc224d1d10c993ffe763ca2a9bfb1ef40c9714b908103323df291ab6a8c82b9e"
+      },
+      "observations": 4
+    },
+    {
+      "id": "getmap-8f313700a8df9f90218ab034",
+      "identitySha256": "8f313700a8df9f90218ab034fb06342ee71162ca76dc6b996a7936850c7a00d3",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          "f3f1b073-3ea8-57db-a160-94c6fc73e804"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1644,
+        "sha256": "c1c6a66a4ead61c748cc51fc8d13a7a75959ca922d3c3c3a30ed4246758b2a0f"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-977c3c80d049631f3e8234ba",
+      "identitySha256": "977c3c80d049631f3e8234bacc78dac871295fc014e4b438786ea072216a5aaf",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Streams"
+        ],
+        "styles": [
+          "be20fe89-e9ad-53ee-a35e-51867d2f7f89"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1921,
+        "sha256": "32ac9aeb628c2cce68f2f60b598cd60f725024a453e2ba9254dfa6c16a6c8508"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-9ac6f44140f21018c2954a17",
+      "identitySha256": "9ac6f44140f21018c2954a1778006aa26f18616eb84b0b5a02a791006e48b29a",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:NamedPlaces"
+        ],
+        "styles": [
+          "01481fbe-03c7-5502-aaac-5042d3f870f8"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1608,
+        "sha256": "1917eada7af56f47b755511ce95d7ced9e519d800c518cdcb2e1016ea54e53f6"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-9d7c2c09a814e3c0f09ddd98",
+      "identitySha256": "9d7c2c09a814e3c0f09ddd9860dd17e7942a20e54621b944e649c1f8d52dcdce",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Streams",
+          "cite:Lakes",
+          "cite:Ponds",
+          "cite:Bridges",
+          "cite:RoadSegments",
+          "cite:DividedRoutes",
+          "cite:Buildings",
+          "cite:MapNeatline"
+        ],
+        "styles": [
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          "",
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.005,
+          -0.0025,
+          0.005,
+          0.0025
+        ],
+        "width": 400,
+        "height": 200,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 14681,
+        "sha256": "de8ba9528a492153d266bd526e21fb69d9c83874227976d39c04aff5668e5e4d"
+      },
+      "observations": 4
+    },
+    {
+      "id": "getmap-a2628bcec2b09ec3fb344755",
+      "identitySha256": "a2628bcec2b09ec3fb3447550c7131492c1ec23dbf871b3d74717431004c15e8",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Forests"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1647,
+        "sha256": "99340817406eeb95453eae269d02f677c6d6b49cf010e9a822bb34500d1cf5f0"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-a5cc3b2b266bc8d0d407ef5b",
+      "identitySha256": "a5cc3b2b266bc8d0d407ef5bbeea864f448cfbbb77c961d619c2202f3de1d8c9",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          0.0016,
+          -0.0012,
+          0.0026,
+          -0.0005
+        ],
+        "width": 10,
+        "height": 7,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1118,
+        "sha256": "2149a658683ad76e4174163eb74d409eec68d02caf9bd424405c9f34b27b6c8a"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-a7c1514a4326bba6fc39def4",
+      "identitySha256": "a7c1514a4326bba6fc39def41e498c1c6af72027632ed88b6867c9c8986f2ba3",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          0,
+          -0.002,
+          0.004,
+          0
+        ],
+        "width": 200,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 2244,
+        "sha256": "31e85e20b7bf6775247e8e14157872cd8ab6001c1c1d95e1f7962462ca2acd6e"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-a9a9173cd02621bb637a4e49",
+      "identitySha256": "a9a9173cd02621bb637a4e4950e218a57596805169b6d7e6ff3e0a0be4dc2f21",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Streams"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1921,
+        "sha256": "32ac9aeb628c2cce68f2f60b598cd60f725024a453e2ba9254dfa6c16a6c8508"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-af1d514d8af643fa9e56501b",
+      "identitySha256": "af1d514d8af643fa9e56501ba5a74bacee3780b3919eba7d103a5d5f6971bb4f",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Lakes",
+          "cite:Streams",
+          "cite:Bridges"
+        ],
+        "styles": [
+          "",
+          "",
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 3745,
+        "sha256": "36cf494975c74a4dc932010780a9914548d4655983001dd5a696549922aa7c14"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-b2c2a60a73741e6647cb3680",
+      "identitySha256": "b2c2a60a73741e6647cb3680357effa81792d98608e4ccf304f40e1aa39cf028",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -10,
+          90,
+          10,
+          110
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1537,
+        "sha256": "03be02c9d180c4974b22923643c712efd75868ba4c5ed04fedc5e37c6790c795"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-c7e1c0f5e8f69aed3154cd32",
+      "identitySha256": "c7e1c0f5e8f69aed3154cd32debad74bc06624f998dcd3652be91dca5012194f",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:DividedRoutes"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1541,
+        "sha256": "51cb1d70c45202ac3de9d4ffdf68c8fb735956bc4e36dbe08bb69aae024ac870"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-c90d100e7a737da8e1fa75da",
+      "identitySha256": "c90d100e7a737da8e1fa75da2cd39c18cc590f9c81da88340bca37f6f96bd8a9",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Bridges",
+          "cite:RoadSegments",
+          "cite:DividedRoutes",
+          "cite:Buildings"
+        ],
+        "styles": [
+          "",
+          "",
+          "",
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 4321,
+        "sha256": "b0d81f900574c19595fb355e5b8034afca2ff80b774a2d067b1f53d92c0e657a"
+      },
+      "observations": 4
+    },
+    {
+      "id": "getmap-ca73c863db28ad76cde30df3",
+      "identitySha256": "ca73c863db28ad76cde30df3bccaa345ceedc187d3936cc131fbf870d39e6f96",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Bridges"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1593,
+        "sha256": "0ca28f56c0b48f0e2771262cf31396ba0d601c26b404851e1692b6a962c20573"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-d17acd79fe1ecb8805cc5923",
+      "identitySha256": "d17acd79fe1ecb8805cc5923a3d6d69ed885c8e0bfe42982eeac15e838131dec",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons",
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          "49858749-c69e-5589-9764-4e72c552bdfb",
+          "49858749-c69e-5589-9764-4e72c552bdfb"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 2532,
+        "sha256": "3cc8d566714367ffb7cb52be817a3d0dc7ef4cbc136c07b925ac69baf637baa5"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-d606cd271a649221b37c4804",
+      "identitySha256": "d606cd271a649221b37c48042046668abc0b6dc374ef29347e704d8deb736366",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:BasicPolygons",
+          "cite:BasicPolygons",
+          "cite:BasicPolygons"
+        ],
+        "styles": [
+          "49858749-c69e-5589-9764-4e72c552bdfb",
+          "49858749-c69e-5589-9764-4e72c552bdfb",
+          "49858749-c69e-5589-9764-4e72c552bdfb"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 3266,
+        "sha256": "f3c2dc581a5b341896fb2ad81a44bb3b9bf4ed117275d6f4d8e02ca37a6da95f"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-df58951921720d2c4e771ef1",
+      "identitySha256": "df58951921720d2c4e771ef1ddb149c3fe8638b8d90048e05fe70e90c09afe70",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Bridges"
+        ],
+        "styles": [
+          "0818821d-52fe-5270-9e12-667a3e47b5f6"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1593,
+        "sha256": "0ca28f56c0b48f0e2771262cf31396ba0d601c26b404851e1692b6a962c20573"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-ec262fa84935c76c429c77a1",
+      "identitySha256": "ec262fa84935c76c429c77a15bc93f4c3e50a7035b62664013a4e8edb4f0ea97",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:Forests"
+        ],
+        "styles": [
+          "5bb601e5-34bf-5b6f-9944-fb61af9e88dd"
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1647,
+        "sha256": "99340817406eeb95453eae269d02f677c6d6b49cf010e9a822bb34500d1cf5f0"
+      },
+      "observations": 2
+    },
+    {
+      "id": "getmap-fde963766f8e098b5b92d6a5",
+      "identitySha256": "fde963766f8e098b5b92d6a508361b5c47a0e9472762d63bd6f4b20b12173eb5",
+      "identity": {
+        "version": "1.3.0",
+        "layers": [
+          "cite:MapNeatline"
+        ],
+        "styles": [
+          ""
+        ],
+        "crs": "CRS:84",
+        "bbox": [
+          -0.0025,
+          -0.0025,
+          0.0025,
+          0.0025
+        ],
+        "width": 100,
+        "height": 100,
+        "format": "image/png",
+        "backgroundColor": "#ffffff",
+        "transparent": false
+      },
+      "response": {
+        "mediaType": "image/png",
+        "bytes": 1546,
+        "sha256": "332cefde073f9153e0d750289599193acc8755ad48c7ee6216f1b12e6cbb88b2"
+      },
+      "observations": 2
+    }
+  ],
+  "fixedInactiveCostDeltaUsd": 0
+}

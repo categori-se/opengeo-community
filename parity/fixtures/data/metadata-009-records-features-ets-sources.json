@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0.0",
+  "capturedAt": "2026-08-20",
+  "standard": {
+    "name": "OGC API - Records - Part 1: Core",
+    "version": "1.0",
+    "document": "https://docs.ogc.org/is/20-004r1/20-004r1.html",
+    "recordsApiRequirement": "http://www.opengis.net/spec/ogcapi-records-1/1.0/req/records-api",
+    "featuresPrerequisite": "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
+    "nameMappingAbstractTest": "core/standard/abstract_tests/building-blocks/records-api/ATS_resource-name-mapping.adoc"
+  },
+  "featuresEts": {
+    "repository": "https://github.com/opengeospatial/ets-ogcapi-features10",
+    "tag": "1.6",
+    "commit": "ef1e6f1bed442e860bd9c0e2affb27e6452466e5",
+    "validatorStatusSource": "https://cite.ogc.org/teamengine/",
+    "validatorStatus": "Final",
+    "runner": {
+      "url": "https://repo1.maven.org/maven2/org/opengis/cite/ets-ogcapi-features10/1.6/ets-ogcapi-features10-1.6-aio.jar",
+      "bytes": 26500336,
+      "sha256": "1e0ab6c17c805e7c5bea79a28da6d9d7465a0f3251f54810e416098311dc696f"
+    },
+    "supportedRunArguments": ["iut", "noofcollections"],
+    "requestHeaderArguments": [],
+    "recordsVocabularyAwareness": false
+  },
+  "diagnosticMapping": {
+    "authentication": [
+      "Authorization: Bearer [test token, never logged]",
+      "X-OpenGeo-Organization: 10000000-0000-4000-8000-0000000000e2"
+    ],
+    "candidateConformsTo": [
+      "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
+      "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
+      "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/oas30"
+    ],
+    "expectedSkippedConformanceClass": {
+      "uri": "http://www.opengis.net/spec/ogcapi-features-2/1.0/conf/crs",
+      "declared": false,
+      "reason": "Optional Features Part 2 CRS extension is outside the Records Part 1 Features Core prerequisite."
+    },
+    "recordsNameMapping": {
+      "itemType": {"production": "record", "featuresEtsView": "feature"}
+    }
+  }
+}

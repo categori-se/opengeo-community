@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ProcessingJob",
+  "type": "object",
+  "required": ["jobId", "tenantId", "workspaceId", "jobType", "status", "engine", "createdBy", "createdAt", "updatedAt"],
+  "properties": {
+    "jobId": {"type": "string"},
+    "tenantId": {"type": "string"},
+    "workspaceId": {"type": "string"},
+    "datasetId": {"type": "string"},
+    "jobType": {"type": "string"},
+    "status": {"enum": ["queued", "running", "completed", "failed", "cancelled"]},
+    "engine": {"enum": ["browser", "duckdb-wasm", "lambda", "ecs", "batch", "sidecar"]},
+    "parameters": {"type": "object"},
+    "outputObjectId": {"type": "string"},
+    "createdBy": {"type": "string"},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "updatedAt": {"type": "string", "format": "date-time"}
+  }
+}

@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "official_simple_capabilities_selected_run_passed",
+  "observedAt": "2026-09-04",
+  "source": {
+    "repository": "https://github.com/opengeospatial/ets-wfs20",
+    "tag": "1.43",
+    "commit": "843c9f358d32cd5ef92c0dd5bbb6ff6c08f6092a",
+    "officialSuiteSourceOrTestChanges": 0
+  },
+  "runner": {
+    "sha256": "72f91845d06eea81b040b6dd24e52f6353ef0d44319609b4314eda080e7e8b1a",
+    "sizeBytes": 47682623,
+    "zipEntries": 29341,
+    "mainClass": "org.opengis.cite.iso19142.TestNGController",
+    "expandedBecauseJarResourceIsNotAFile": true,
+    "trivy": {
+      "version": "0.73.0",
+      "scanSha256": "2645d0617df671bc47ef8ffed6a143801a14448b48be557478e5408d71bcac77",
+      "scanSizeBytes": 85241,
+      "resultCount": 52,
+      "vulnerabilities": 0,
+      "waivers": [],
+      "vulnerabilityDatabaseUpdatedAt": "2026-09-04T08:16:30.553157885Z",
+      "javaDatabaseUpdatedAt": "2026-09-04T01:11:37.497889969Z"
+    }
+  },
+  "profile": {
+    "id": "opengeo.wfs.simple.reference.1",
+    "sha256": "358f3adfad33f4544d33800a45047221c7977ae42b6f259f168b851c73f2a727",
+    "selectedClass": "Simple WFS",
+    "synthetic": true,
+    "containsPersonalData": false,
+    "containsCredentials": false
+  },
+  "implementation": {
+    "productionCodePaths": [
+      "services/api/src/opengeo_api/wfs.py",
+      "services/api/src/opengeo_api/wfs_routes.py"
+    ],
+    "diagnosticServer": "scripts/serve-wfs-simple-diagnostic.py",
+    "changesRequiredByIndependentNegotiation": [
+      "Accept the standard NAMESPACES KVP and resolve a client-selected prefix only when it binds the fixed OpenGeo feature namespace.",
+      "Emit WFS 2.0.0 exception reports from the WFS 2.0 endpoint.",
+      "Advertise minimum resource-id, spatial, temporal, and general filter conformance as false while those global bindings remain incomplete."
+    ]
+  },
+  "execution": {
+    "rawTestNgSha256": "7d32ffb7654c4a28c7d0972710eee58c47de46ba2b62e490370cf5f974967dc5",
+    "rawTestNgSizeBytes": 212423,
+    "totalTests": 82,
+    "passedTests": 25,
+    "failedTests": 0,
+    "skippedTests": 57,
+    "failedConfigurationMethods": 2,
+    "failedConfigurationMeaning": "The suite uses failed configuration predicates to suppress the unadvertised Basic WFS and Transactional WFS groups; TestNG excludes them from its failed-test count.",
+    "selectedSimpleProfile": "passed",
+    "traceArtifact": "parity/fixtures/ogc/wfs-2.0-simple-cite-local-operation-trace.json"
+  },
+  "boundary": {
+    "officialSuiteExecuted": true,
+    "selectedAdvertisedProfilePassed": true,
+    "basicWfsTested": false,
+    "transactionalWfsTested": false,
+    "formalConformanceClaim": false,
+    "productionConformanceDeclarationChanged": false,
+    "governedPublicationExecuted": false,
+    "deployedEndpointContacted": false,
+    "databaseChanged": false,
+    "deploymentChanged": false,
+    "awsStateChanged": false,
+    "fixedInactiveCostDeltaUsd": 0
+  }
+}

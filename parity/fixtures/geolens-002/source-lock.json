@@ -1,0 +1,29 @@
+{
+  "commit": "f5fee67d8cf053d741590a00a55fe1870eed2b92",
+  "license": "Apache-2.0",
+  "scope": "Unmodified pure origin classifier and format vocabulary; not a running GeoLens API or export engine",
+  "files": [
+    {
+      "path": "parity/fixtures/geolens-002/upstream/app/platform/dataset_origin.py",
+      "upstreamPath": "backend/app/platform/dataset_origin.py",
+      "gitBlob": "92a5d4e95450113c560a8fb8ced1d314589bf009",
+      "sha256": "fea9e703bccbf415538a77541550bb81bcf6ba7d9777c30c5473060941e66e8d"
+    },
+    {
+      "path": "parity/fixtures/geolens-002/upstream/app/core/record_types.py",
+      "upstreamPath": "backend/app/core/record_types.py",
+      "gitBlob": "39a9831cf997807d9eaeebf6a5232fb04cc5d8e2",
+      "sha256": "67848cc623b1f19ad18464bae92c9921910d63e795b0ccb443e271710067dc2c"
+    },
+    {
+      "path": "parity/fixtures/geolens-002/upstream/app/processing/export/schemas.py",
+      "upstreamPath": "backend/app/processing/export/schemas.py",
+      "gitBlob": "89b379210c90e4f44203e16697f508f392cf2814",
+      "sha256": "fbfd1c91aef8edc8d40fb2a92bf781eaed777e9ac33cf2f1be3ed14bcd3fa182"
+    },
+    {
+      "path": "parity/fixtures/geolens-002/upstream/LICENSE",
+      "sha256": "d63ab42292ab0bc25c6ac83923020530a9ba4fa03fb7e78308586575bc79cf66"
+    }
+  ]
+}

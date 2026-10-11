@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.0.0",
+  "checkedAt": "2026-08-19",
+  "sources": [
+    {
+      "name": "capabilities_1_3_0.xsd",
+      "url": "https://schemas.opengis.net/wms/1.3.0/capabilities_1_3_0.xsd",
+      "bytes": 21591,
+      "sha256": "bb2db70912176e3c50aa6476d9c13e45d1cb56e6e83c8b285dca793e3c74bdf7"
+    },
+    {
+      "name": "exceptions_1_3_0.xsd",
+      "url": "https://schemas.opengis.net/wms/1.3.0/exceptions_1_3_0.xsd",
+      "bytes": 1197,
+      "sha256": "8fbbfdde57533b6d194482ae3fb751a27c5270f952f135527208e7303c1b13db"
+    },
+    {
+      "name": "xlink.xsd",
+      "url": "https://www.w3.org/1999/xlink.xsd",
+      "bytes": 8322,
+      "sha256": "c3dbbaa28b884377ecd4a6c49d1f12566d8227cb0dce8ced10c0f66f8fa266e3"
+    },
+    {
+      "name": "xml.xsd",
+      "url": "https://www.w3.org/2001/xml.xsd",
+      "bytes": 8836,
+      "sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c"
+    }
+  ]
+}

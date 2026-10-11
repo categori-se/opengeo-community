@@ -1,0 +1,162 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-008.gdal-coverage-range-peer",
+  "title": "GDAL 3.13.0 bounded coverage range, resolution, and lifecycle compatibility",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "The digest-pinned worker GDAL runs OpenGeo's fixed source-band selection, resolution scaling, and COG path twice; independent GDAL utilities inspect the resulting bytes with networking disabled.",
+    "url": "https://gdal.org/en/stable/programs/gdalwarp.html",
+    "version": "3.13.0"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0038_coverage_range_scaling_lifecycle.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0038_coverage_range_scaling_lifecycle.sql",
+      "sha256": "a4f872b8610b8470957186d3f70d2c00a2fdab7b16d2f3f31d99a3ee12b8e82b"
+    },
+    {
+      "name": "spatial-coverage-services.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-coverage-services.test.mjs",
+      "sha256": "da11252e171ae54d9692bb0f767568d2367a481e2522bd3fb96c8484e30ad4d8"
+    },
+    {
+      "name": "coverages.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverages.py",
+      "sha256": "f86208378d68652a1666345536804989f63e39554b27b9e216ab6871204b8c2c"
+    },
+    {
+      "name": "coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverage_routes.py",
+      "sha256": "8e4bbf15630eb288e4e760c3fa258a37ff202b49902c68fb24111a1ab13a249e"
+    },
+    {
+      "name": "test_coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_coverage_routes.py",
+      "sha256": "174d9467da7f5815d34b94d9002c564efc2262f79e4c68f8534212416d55daf5"
+    },
+    {
+      "name": "worker-models.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/models.py",
+      "sha256": "9e1d01241be4d3191e5c509f80ffc87ab00ad7cd8d80e22a291bbb7120dd5708"
+    },
+    {
+      "name": "worker-repository.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/repository.py",
+      "sha256": "7b1527096acd00753f28b862bb0a9813fe7258516a9d7f1d95558ad941a689ae"
+    },
+    {
+      "name": "coverage_derivatives.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/coverage_derivatives.py",
+      "sha256": "8c42e794e9888d9e384801073fba1804f1c59764e782c3829f6720f1677c0e45"
+    },
+    {
+      "name": "test_coverage_derivatives.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_coverage_derivatives.py",
+      "sha256": "589ab5c899820c2e87471a8fea8c6c0d5a98e792369446e3f30d47e2646a8bd2"
+    },
+    {
+      "name": "test_worker_repository.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_repository.py",
+      "sha256": "51042b2f57beb5437dd09627bf9151bd7be37227e160909b74d69644b0051f47"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "fixturePlatform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/fixturePlatform.js",
+      "sha256": "f050e732ed64f157238fc6da3c06f3b8c16a6933c0cced1525e99374db911f8f"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "api-client.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/api-client.test.mjs",
+      "sha256": "c7f0fe7b80593a5b03b7a66af8f2dca3ea80dcd6f074df3fa8f54c63a1395094"
+    },
+    {
+      "name": "check-gdal-coverage-range-peer.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-gdal-coverage-range-peer.py",
+      "sha256": "a21bc8d2191b62ee2024fc644daa0e25e18ab5761fa3bc678d3e4e82030ecae2"
+    },
+    {
+      "name": "service-008-gdal-coverage-range-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-008-gdal-coverage-range-peer.json",
+      "sha256": "4d596a8854f15d50c56e719e31c7ce5cb2955506f800a83d02e278e6e6b0fa07"
+    },
+    {
+      "name": "service-gdal-coverage-range-peer.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-gdal-coverage-range-peer.test.mjs",
+      "sha256": "6424fdf098e24c2cfcb3ebe40bc4a4da10c95742e031c4f976b2556cb068c901"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.source-layer-breadth",
+      "assertion": "A governed COG can independently produce a deterministic selected-band, resolution-scaled immutable COG without GeoLibre running."
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "assertion": "Shared-auth administration publishes limits, queues bounded range/scaling work, and audits queued-only cancellation without exposing storage coordinates."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo independently supplies bounded numeric range selection and source-CRS resolution scaling while ordinary coverage reads remain processing-free."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "An independent GDAL 3.13.0 run verifies deterministic source-band mapping and COG output without an always-on MapServer process."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "schemaVersion": 1,
+  "repository": "categori-se/opengeo-community",
+  "author": {
+    "name": "Aaron Kyle Dennis",
+    "email": "2301690+aaronkyle@users.noreply.github.com",
+    "github": "aaronkyle"
+  },
+  "license": "Apache-2.0",
+  "closes": [
+    "Reviewed community application source",
+    "Public development roadmap",
+    "Preserved foundation licenses and contributions"
+  ],
+  "reuses": [
+    "Existing Studio/API/database/worker/compiler source",
+    "Existing local integration runner",
+    "Existing foundation register and upstream notices"
+  ],
+  "limits": {
+    "awsRequests": 0,
+    "deployments": 0,
+    "remoteBuilds": 0,
+    "githubPublication": "one reviewed initial source snapshot"
+  },
+  "stop_condition": "Publish only the reviewed source snapshot after credential/notice checks; do not expose private history, operational receipts or hosted datasets.",
+  "result": {
+    "state": "initial-source-edition-reviewed",
+    "closedOutcomes": 3,
+    "requiredExceptions": [
+      "Fresh-install acceptance from published sources",
+      "Full native publication and hosted-delivery acceptance",
+      "Supported production self-hosting profile",
+      "Exact future binary-distribution license review"
+    ]
+  },
+  "verification": {
+    "credentials": {
+      "tool": "Gitleaks 8.30.1",
+      "result": "no remaining findings with default rules and narrow reviewed false-positive allowlists",
+      "reviewedFalsePositives": 68
+    },
+    "foundations": {
+      "directPackages": 55,
+      "platformFoundations": 17,
+      "referenceProducts": 7,
+      "registryReviewPending": 1
+    },
+    "localPersistence": {
+      "result": "Studio create Project/map, stop/restart retained database, exact map reopen through Studio and authorized API",
+      "seconds": 43.873,
+      "secondsIncludingCleanup": 44.48,
+      "reuses": "Existing sealed Studio tree and cached container images; fresh install and graphical sandbox not established"
+    },
+    "focusedChecks": {
+      "runnerTests": {
+        "passed": 23,
+        "skipped": 1
+      },
+      "frontendFilesPassed": 2,
+      "apiConnectionCasesPassed": 20,
+      "publicGuideLinks": "pass"
+    },
+    "retainedFailures": [
+      "Initial candidate runner checks lacked installed dependencies; reused existing local dependencies, then passed",
+      "Two smoke-helper response-body eviction failures; changed readback method to API proxy bytes before successful restart check"
+    ]
+  },
+  "sourceMapping": "Fresh reviewed workspace snapshot; original private Git history retained separately.",
+  "exportOnlyChanges": [
+    "First-party package license declarations",
+    "Public root documentation and scripts",
+    "Excluded private operational targets and receipts",
+    "Synthetic external-account fixtures",
+    "Normalize trailing blank lines in three first-party files"
+  ],
+  "syntheticFixturePaths": [
+    "infrastructure/README.md",
+    "app/scripts/check-pages.mjs",
+    "app/scripts/studio-release-config.mjs",
+    "app/scripts/check-bhutan-hosted-upload.mjs",
+    "app/scripts/static-release-aws.mjs",
+    "app/test/archived-geojson.test.mjs",
+    "app/test/project-dataset-map-handoff.test.mjs",
+    "app/test/massgis-demo.test.mjs",
+    "app/test/project-datasets-repository-source.test.mjs",
+    "app/test/api-client.test.mjs",
+    "app/test/platform.test.mjs",
+    "app/test/catalog-save-navigation.test.mjs",
+    "app/test/project-directory-ux.test.mjs",
+    "app/src/lib/fixturePlatform.js",
+    "app/src/lib/massgisDemo.js",
+    "app/src/data/massgis-enviroscreen.json",
+    "app/src/components/PlatformDirectory.js",
+    "services/observable-coordinator/src/compiler-policy.mjs",
+    "services/observable-coordinator/src/podman-runner.mjs",
+    "services/api/tests/test_dataset_repository_browser_runtime.py",
+    "services/api/tests/test_user_connection_routes.py",
+    "services/api/tests/test_ingestion.py",
+    "services/api/tests/test_archive_upload_transfers.py",
+    "services/api/tests/test_user_connections.py",
+    "services/api/tests/test_external_source_routes.py",
+    "services/api/tests/test_user_dataset_verification_runtime.py",
+    "services/api/tests/test_ingestion_routes.py",
+    "services/api/tests/test_archive_upload_storage.py",
+    "services/api/tests/test_user_basemap_connections.py",
+    "database/scripts/bootstrap_managed_login_browser.py",
+    "database/scripts/verify_m1_collaboration.py",
+    "database/scripts/bootstrap_massgis_project.py",
+    "database/test/test_bootstrap_massgis_project.py",
+    "database/test/test_apply_migrations.py",
+    "database/test/user-dataset-connection-verification.test.mjs",
+    "database/test/exact-repository-object-sources.test.mjs",
+    "database/test/test_verify_m1_collaboration.py",
+    "database/test/test_bootstrap_managed_login_browser.py",
+    "database/test/user-basemap-connections.test.mjs",
+    "database/test/repository-object-protected-copies.test.mjs",
+    "database/test/user-dataset-repository-browser.test.mjs",
+    "database/test/user-dataset-connections.test.mjs",
+    "infrastructure/lib/config.ts",
+    "infrastructure/lib/demo-web-stack.ts",
+    "infrastructure/lib/studio-web-stack.ts",
+    "infrastructure/bootstrap/run-opengeo-container-build-controller.sh",
+    "infrastructure/bootstrap/opengeo-dev-cdk-bootstrap.yaml",
+    "infrastructure/bootstrap/create-bootstrap-profile.mjs",
+    "infrastructure/bootstrap/README.md",
+    "infrastructure/bootstrap/opengeo-dev-ami-build-path.yaml",
+    "infrastructure/bootstrap/run-observable-ami-build-controller.sh",
+    "infrastructure/test/demo-pilot-release-guard.test.ts",
+    "infrastructure/test/demo-queue-inspection.test.ts",
+    "infrastructure/test/container-build-controller.test.ts",
+    "infrastructure/test/demo-api-invocation-guard.test.ts",
+    "infrastructure/test/dataset-connection-bootstrap.test.ts",
+    "infrastructure/test/reviewer-recovery-inspection.test.ts",
+    "infrastructure/test/serverless-api-stack.test.ts",
+    "infrastructure/test/platform-foundation-stack.test.ts",
+    "infrastructure/test/dev-cdk-bootstrap.test.ts",
+    "infrastructure/test/production-static-operator.test.ts",
+    "infrastructure/test/web-auth-stack.test.ts",
+    "infrastructure/test/config.test.ts",
+    "infrastructure/test/studio-web-stack.test.ts",
+    "infrastructure/test/demo-pilot-operator.test.ts"
+  ],
+  "fileCount": 2116,
+  "sourceTreeSha256": "ec3c8aa03dca4d85ec897b17598c623e493b3a9585ae3022798e448f48fb8229",
+  "sourceTreeHashScope": "All release files except COMMUNITY-RELEASE.json and subsequent Git metadata."
+}

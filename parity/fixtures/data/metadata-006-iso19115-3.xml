@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mdb:MD_Metadata xmlns:mdb="http://standards.iso.org/iso/19115/-3/mdb/2.0" xmlns:mcc="http://standards.iso.org/iso/19115/-3/mcc/1.0" xmlns:mri="http://standards.iso.org/iso/19115/-3/mri/1.0" xmlns:cit="http://standards.iso.org/iso/19115/-3/cit/2.0" xmlns:lan="http://standards.iso.org/iso/19115/-3/lan/1.0" xmlns:gex="http://standards.iso.org/iso/19115/-3/gex/1.0" xmlns:mco="http://standards.iso.org/iso/19115/-3/mco/1.0" xmlns:gco="http://standards.iso.org/iso/19115/-3/gco/1.0" xmlns:gml="http://www.opengis.net/gml/3.2">
+  <mdb:metadataIdentifier><mcc:MD_Identifier><mcc:code><gco:CharacterString>road-access-2026</gco:CharacterString></mcc:code></mcc:MD_Identifier></mdb:metadataIdentifier>
+  <mdb:defaultLocale><lan:PT_Locale><lan:language><lan:LanguageCode codeList="https://schemas.isotc211.org/19115/resources/Codelist/lan/LanguageCode.xml" codeListValue="en">en</lan:LanguageCode></lan:language><lan:characterEncoding><lan:MD_CharacterSetCode codeList="https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_CharacterSetCode" codeListValue="utf8">utf8</lan:MD_CharacterSetCode></lan:characterEncoding></lan:PT_Locale></mdb:defaultLocale>
+  <mdb:contact><cit:CI_Responsibility><cit:role><cit:CI_RoleCode codeList="https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_RoleCode" codeListValue="pointOfContact">pointOfContact</cit:CI_RoleCode></cit:role><cit:party><cit:CI_Organisation><cit:name><gco:CharacterString>Research team</gco:CharacterString></cit:name></cit:CI_Organisation></cit:party></cit:CI_Responsibility></mdb:contact>
+  <mdb:dateInfo><cit:CI_Date><cit:date><gco:DateTime>2026-08-20T00:00:00+00:00</gco:DateTime></cit:date><cit:dateType><cit:CI_DateTypeCode codeList="https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_DateTypeCode" codeListValue="revision">revision</cit:CI_DateTypeCode></cit:dateType></cit:CI_Date></mdb:dateInfo>
+  <mdb:identificationInfo><mri:MD_DataIdentification>
+    <mri:citation><cit:CI_Citation><cit:title><gco:CharacterString>Road access survey</gco:CharacterString></cit:title></cit:CI_Citation></mri:citation>
+    <mri:abstract><gco:CharacterString>Verified roads metadata.</gco:CharacterString></mri:abstract>
+    <mri:credit><gco:CharacterString>Research team</gco:CharacterString></mri:credit>
+    <mri:extent><gex:EX_Extent>
+      <gex:geographicElement><gex:EX_GeographicBoundingBox><gex:westBoundLongitude><gco:Decimal>84.0</gco:Decimal></gex:westBoundLongitude><gex:eastBoundLongitude><gco:Decimal>86.0</gco:Decimal></gex:eastBoundLongitude><gex:southBoundLatitude><gco:Decimal>27.0</gco:Decimal></gex:southBoundLatitude><gex:northBoundLatitude><gco:Decimal>29.0</gco:Decimal></gex:northBoundLatitude></gex:EX_GeographicBoundingBox></gex:geographicElement>
+      <gex:temporalElement><gex:EX_TemporalExtent><gex:extent><gml:TimePeriod gml:id="road-access-period"><gml:beginPosition>2026-01-01T00:00:00+00:00</gml:beginPosition><gml:endPosition>2026-08-20T00:00:00+00:00</gml:endPosition></gml:TimePeriod></gex:extent></gex:EX_TemporalExtent></gex:temporalElement>
+    </gex:EX_Extent></mri:extent>
+    <mri:descriptiveKeywords><mri:MD_Keywords><mri:keyword><gco:CharacterString>roads</gco:CharacterString></mri:keyword><mri:keyword><gco:CharacterString>transport</gco:CharacterString></mri:keyword></mri:MD_Keywords></mri:descriptiveKeywords>
+    <mri:resourceConstraints><mco:MD_LegalConstraints><mco:useLimitation><gco:CharacterString>CC-BY-4.0</gco:CharacterString></mco:useLimitation></mco:MD_LegalConstraints></mri:resourceConstraints>
+  </mri:MD_DataIdentification></mdb:identificationInfo>
+</mdb:MD_Metadata>

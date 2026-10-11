@@ -1,0 +1,95 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-022.wms-always-run-capabilities-resolution",
+  "title": "WMS CITE always-run local Capabilities resolution",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "The exact pinned WMS 1.3 ETS request sources are classified against a deterministic document from OpenGeo's production Capabilities serializer and the exact SERVICE-021 canonical layer extents; no endpoint or official suite is executed.",
+    "url": "https://github.com/opengeospatial/ets-wms13",
+    "version": "1.35-SNAPSHOT at 9a45b91e8e1dc600f574002ac89342b20bac3106"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "wms.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wms.py",
+      "sha256": "19f5816286ffbd6df70ea81ca176b8cf2cad01a25893e3f4d9bfb38e75cd5c49"
+    },
+    {
+      "name": "test_wms.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_wms.py",
+      "sha256": "c2a7f25cef0eec94ce7bbc13e002e3e55f2c464cd1c29340e314a1c3c231431c"
+    },
+    {
+      "name": "render-wms-cite-capabilities.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/render-wms-cite-capabilities.py",
+      "sha256": "e178e4929b5be199b1d1699738bf919956a2f303e3f9476252491980668453d6"
+    },
+    {
+      "name": "check-wms-cite-capabilities-resolution.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-wms-cite-capabilities-resolution.mjs",
+      "sha256": "f8a5bffb7757cc5e4a97efac3e12d5c8eb6b5106436397c9e8393548ac79dc6c"
+    },
+    {
+      "name": "wms-1.3-cite-request-surface.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wms-1.3-cite-request-surface.json",
+      "sha256": "da7675391a0cbca4bb84b56d6a7492c1f2cf691d565ca28d50be39125628dead"
+    },
+    {
+      "name": "wms-1.3-cite-local-capabilities-resolution.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wms-1.3-cite-local-capabilities-resolution.json",
+      "sha256": "077d85bb273935d6dc417ecae4fe044c2ad95f8d406aedfac54a9543befd396d"
+    },
+    {
+      "name": "service-022-wms-always-run-capabilities-resolution.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-022-wms-always-run-capabilities-resolution.json",
+      "sha256": "f2cb0aea42db63dd248376c664edeebcf7e70e77fa03df10c3fb5d4a578c40f5"
+    },
+    {
+      "name": "wms-cite-capabilities-resolution.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/wms-cite-capabilities-resolution.test.mjs",
+      "sha256": "54c8469b9fc10a71a13d81a649571eb022d06bf645a2a8338379d5beb6575cf6"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo's production WMS serializer now advertises PNG before SVG and deterministically resolves all 49 pinned always-run GetMap templates into 44 successful and 15 exception invocations plus 12 source-defined template skips; deployment, exact cache identities, official execution, and the aggregate row remain partial."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "The exact successful request cardinality is bounded before any authenticated prewarm, while deployed profile snapshots, deduplicated render identities, anonymous reads, official execution, and the aggregate row remain partial."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "Raster-first WMS advertisement improves ordinary image-client compatibility and the exact always-run request surface is locally resolved without claiming a deployed client, official suite result, or aggregate row completion."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

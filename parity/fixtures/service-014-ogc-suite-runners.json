@@ -1,0 +1,123 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-014.official-ogc-suite-runners",
+  "title": "Official WMTS/WFS runner artifact lock, security rejection, and strict result ingestion",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact signed Apache-2.0 OGC WMTS 1.11 and WFS 1.43 all-in-one artifacts from Maven Central are locked, scanned, rejected under a zero Critical/High policy, and paired with synthetic fail-closed EARL/TestNG parser controls without executing either suite.",
+    "url": "https://repo1.maven.org/maven2/org/opengis/cite/",
+    "version": "ets-wmts10 1.11; ets-wfs20 1.43"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "ogc-code-signing-key.asc",
+      "mediaType": "application/pgp-keys",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/ogc-code-signing-key.asc",
+      "sha256": "28dd3932a98a3ce4087113ea405326a5ef1136059e431573fb469e9b80f28ee8"
+    },
+    {
+      "name": "wmts-1.0-ets-source-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wmts-1.0-ets-source-lock.json",
+      "sha256": "f53a4c85ed9f4d4d515cc650fc52dc0fc2b3ebdcd2d4df65aba8dfdc6dbd742f"
+    },
+    {
+      "name": "wfs-2.0-ets-source-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wfs-2.0-ets-source-lock.json",
+      "sha256": "59adc0350d3635b943bd5364170fee11ecd1a5409893f7d36f1b95f5f800a49b"
+    },
+    {
+      "name": "wmts-1.0-ets-runner-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wmts-1.0-ets-runner-lock.json",
+      "sha256": "a3eee72f23f0809669f411a9c6a1d584a6d8610f146dc2c5fb96b914e2724514"
+    },
+    {
+      "name": "wfs-2.0-ets-runner-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wfs-2.0-ets-runner-lock.json",
+      "sha256": "35a1c50d3ae276f129f4a3c5999244720a3f74ab7fa9cb4f72ccdfbb8fd1f38e"
+    },
+    {
+      "name": "service-014-ogc-runner-security-scan.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-014-ogc-runner-security-scan.json",
+      "sha256": "a60a58d9695e6201182e42658bceab0b8d4fa72a12da13c963e9239b824e1a8c"
+    },
+    {
+      "name": "service-014-ogc-suite-runners.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-014-ogc-suite-runners.json",
+      "sha256": "8c351eea3277002195f2594372f62b5b42ae03b602c5fd49cbb7f2f4c044da6c"
+    },
+    {
+      "name": "check-ogc-service-suite-runners.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-ogc-service-suite-runners.mjs",
+      "sha256": "e09b22795a23d097660e30785b9493b491fbe35c4bc66092c8d6d5f015888ca6"
+    },
+    {
+      "name": "service-ogc-suite-runners.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-ogc-suite-runners.test.mjs",
+      "sha256": "94a93b0c037cbdf671c4dab4c13848be2b5ba3f177fa64fb2a7aa7028ce60f88"
+    },
+    {
+      "name": "service-014-wmts-earl-synthetic.xml",
+      "mediaType": "application/xml",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/service-014-wmts-earl-synthetic.xml",
+      "sha256": "89eee2cbe539e523ac3b4bde1eeeac4394372aad51404d8169dbe8131d8400a7"
+    },
+    {
+      "name": "service-014-wfs-testng-synthetic.xml",
+      "mediaType": "application/xml",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/service-014-wfs-testng-synthetic.xml",
+      "sha256": "970f530e83d28476ce0c227895d2383b157e4ebcafafc47eaae689b467c85b6c"
+    },
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "Exact official WMTS/WFS runners, formats, receipts, and result counts are reproducibly bound, while vulnerable artifacts and structurally inconsistent or unsupported results fail closed without producing a conformance claim."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Detached signatures verify but do not override the zero Critical/High execution policy; current WMTS and WFS artifacts remain prohibited and no cache/service read or runner process creates work."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "Native QGIS/OpenLayers compatibility remains distinct from official diagnostics, and the strict ingestion boundary accepts no result from the currently rejected runner locks."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "@opengeo/observable-builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node src/cli.mjs",
+    "test": "node --test test/**/*.test.mjs",
+    "test:container": "node scripts/check-container.mjs"
+  },
+  "dependencies": {
+    "@observablehq/framework": "1.13.4",
+    "@observablehq/notebook-kit": "2.5.6",
+    "@observablehq/inputs": "0.12.0",
+    "@observablehq/plot": "0.6.17",
+    "d3": "7.9.0",
+    "esbuild": "0.28.2",
+    "htl": "0.3.1",
+    "jszip": "3.10.1"
+  },
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "overrides": {
+    "brace-expansion": "2.1.6",
+    "js-yaml": "3.15.2",
+    "source-map-js": "1.2.2"
+  },
+  "license": "Apache-2.0"
+}

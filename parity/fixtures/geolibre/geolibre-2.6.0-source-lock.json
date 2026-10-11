@@ -1,0 +1,468 @@
+{
+  "schemaVersion": "1.0.0",
+  "referenceId": "geolibre.desktop-workflows",
+  "status": "source_verified",
+  "observedAt": "2026-08-24",
+  "upstream": {
+    "repository": "https://github.com/opengeos/GeoLibre",
+    "release": "2.6.0",
+    "tag": "v2.6.0",
+    "commit": "ef1604f66bb19157ea24202d78bdc60aad6e53a3",
+    "tree": "7b75920ba1a5e95a1b42d2e3383c5da67e0eee6e",
+    "commitDate": "2026-08-13T23:19:55-04:00",
+    "license": "MIT",
+    "tagIdentity": {
+      "kind": "lightweight",
+      "resolvesToCommit": "ef1604f66bb19157ea24202d78bdc60aad6e53a3",
+      "signaturePresent": false,
+      "trustVerified": false,
+      "reason": "The official v2.6.0 ref is a lightweight Git tag resolving directly to the release commit, so it has no annotated tag object or tag signature to verify."
+    }
+  },
+  "scope": {
+    "evidenceType": "upstream-source-inventory",
+    "purpose": "Bind the five formal GeoLibre parity rows to exact upstream source for ordinary project, source, layer, processing, and publishing workflows.",
+    "geolibreIsParityBaseline": true,
+    "geolibreRuntimeExecuted": false,
+    "openGeoWorkflowExecuted": false,
+    "executablePeerEvidenceIsSeparate": true,
+    "sourceAuditChangesRowStatus": false
+  },
+  "identityAssertions": [
+    {
+      "path": "package.json",
+      "requiredStrings": [
+        "\"name\": \"geolibre\"",
+        "\"version\": \"2.6.0\""
+      ]
+    },
+    {
+      "path": "LICENSE",
+      "requiredStrings": [
+        "MIT License",
+        "Copyright (c) 2026 Qiusheng Wu"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "rowId": "geolibre.portable-projects-views",
+      "userOutcome": "Create, open, reopen, save, and preserve an ordered portable project with its views, layers, legend, story, processing history, and dashboard state.",
+      "sourceAssertions": [
+        {
+          "path": "docs/project-format.md",
+          "requiredStrings": [
+            "Projects are saved as **`.geolibre.json`** files.",
+            "| `layers`",
+            "| `legend`",
+            "| `storymap`"
+          ]
+        },
+        {
+          "path": "packages/core/src/project.ts",
+          "requiredStrings": [
+            "export const DEFAULT_PROJECT_NAME = \"Untitled Project\";",
+            "export function createEmptyProject(",
+            "export function serializeProject(project: GeoLibreProject): string {",
+            "export function parseProject(json: string): GeoLibreProject {",
+            "processingHistory: normalizeProcessingHistory(data.processingHistory) ?? undefined,",
+            "widgets: normalizeWidgets(data.widgets) ?? undefined,"
+          ]
+        },
+        {
+          "path": "packages/core/src/types.ts",
+          "requiredStrings": [
+            "export interface GeoLibreProject {",
+            "layers: GeoLibreLayer[];",
+            "layerGroups?: LayerGroup[];",
+            "storymap?: StoryMap;",
+            "widgets?: DashboardWidget[];"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/layout/toolbar/ProjectMenu.tsx",
+          "requiredStrings": [
+            "/** The Project menu: new/open/save/share, recent projects, print, and storymap. */",
+            "onNewProject: () => void;",
+            "onOpenFromFile: () => void;",
+            "onOpenRecent: (path: string) => void;",
+            "onSaveAs: () => void;",
+            "onPrintLayout: () => void;"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/hooks/useProjectFileActions.ts",
+          "requiredStrings": [
+            "const handleOpenFromFile = async () => {",
+            "const handleOpenRecent = async (path: string): Promise<string | null> => {",
+            "return serializeProject(project);",
+            "let saveName = `${defaultProjectName}.geolibre.json`;",
+            "const saveProject = async (options?: { saveAs?: boolean }): Promise<boolean> => {",
+            "const handleSaveAs = () => saveProject({ saveAs: true });"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geolibre.source-layer-breadth",
+      "userOutcome": "Discover and add a broad, explicitly typed set of file, service, cloud-native, database, multidimensional, point-cloud, and 3D sources.",
+      "sourceAssertions": [
+        {
+          "path": "apps/geolibre-desktop/src/lib/ui-profile.ts",
+          "requiredStrings": [
+            "export type DataSourceSection = \"files\" | \"webServices\" | \"cloud\" | \"threeD\" | \"databases\";",
+            "export const DATA_SOURCE_CATALOG: readonly DataSourceCatalogEntry[] = [",
+            "id: \"vector\"",
+            "id: \"raster\"",
+            "id: \"delimited-text\"",
+            "id: \"cad\"",
+            "id: \"gdb\"",
+            "id: \"photos\"",
+            "id: \"gpx\"",
+            "id: \"mbtiles\"",
+            "id: \"osm-pbf\"",
+            "id: \"xyz\"",
+            "id: \"wms\"",
+            "id: \"wfs\"",
+            "id: \"wmts\"",
+            "id: \"ogc-features\"",
+            "id: \"ogc-vector-tiles\"",
+            "id: \"arcgis\"",
+            "id: \"georss\"",
+            "id: \"stac\"",
+            "id: \"video\"",
+            "id: \"deckgl-viz\"",
+            "id: \"geoparquet\"",
+            "id: \"flatgeobuf\"",
+            "id: \"pmtiles\"",
+            "id: \"zarr\"",
+            "id: \"netcdf\"",
+            "id: \"lidar\"",
+            "id: \"splatting\"",
+            "id: \"3d-tiles\"",
+            "id: \"gltf-model\"",
+            "id: \"duckdb\"",
+            "id: \"postgres\""
+          ]
+        },
+        {
+          "path": "packages/core/src/types.ts",
+          "requiredStrings": [
+            "export const LAYER_TYPES = [",
+            "\"geojson\",",
+            "\"raster\",",
+            "\"wms\",",
+            "\"zarr\",",
+            "\"lidar\",",
+            "\"3d-tiles\",",
+            "\"geoparquet\",",
+            "source: Record<string, unknown>;"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/layout/toolbar/AddDataMenu.tsx",
+          "requiredStrings": [
+            "/** The Add Data menu: files, web services, cloud formats, 3D layers, databases. */",
+            "vector: { onSelect: addLayer.vector },",
+            "raster: { onSelect: addLayer.raster },",
+            "wms: { onSelect: () => onSetAddDataKind(\"wms\") },",
+            "wfs: { onSelect: () => onSetAddDataKind(\"wfs\") },",
+            "wmts: { onSelect: () => onSetAddDataKind(\"wmts\") },",
+            "stac: { onSelect: addLayer.stac },",
+            "geoparquet: { onSelect: addLayer.vector },",
+            "pmtiles: { onSelect: addLayer.pmtiles },",
+            "zarr: { onSelect: addLayer.zarr },",
+            "lidar: { onSelect: addLayer.lidar },",
+            "postgres: { onSelect: () => onSetAddDataKind(\"postgres\") },"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/layout/AddDataDialog.tsx",
+          "requiredStrings": [
+            "function renderSource(",
+            "case \"xyz\":",
+            "case \"wms\":",
+            "case \"wfs\":",
+            "case \"wmts\":",
+            "case \"ogc-features\":",
+            "case \"postgres\":"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geolibre.gis-authoring-inspection",
+      "userOutcome": "Inspect map context and directly organize, reorder, show, hide, restyle, fit, and remove layers with immediate coordinate and zoom feedback.",
+      "sourceAssertions": [
+        {
+          "path": "apps/geolibre-desktop/src/components/panels/LayerPanel.tsx",
+          "requiredStrings": [
+            "const setLayerVisibility = useAppStore((s) => s.setLayerVisibility);",
+            "const setLayerOpacity = useAppStore((s) => s.setLayerOpacity);",
+            "const reorderLayer = useAppStore((s) => s.reorderLayer);",
+            "const moveLayer = useAppStore((s) => s.moveLayer);",
+            "const removeLayer = useAppStore((s) => s.removeLayer);",
+            "const reorderLayerGroup = useAppStore((s) => s.reorderLayerGroup);",
+            "title={t(\"layers.dragToReorder\")}",
+            "setLayerVisibility(layer.id, !layer.visible);",
+            "onChange={(v) => setLayerOpacity(layer.id, v)}",
+            "reorderLayer(layer.id, \"up\");"
+          ]
+        },
+        {
+          "path": "packages/map/src/layer-sync.ts",
+          "requiredStrings": [
+            "moveLayer(map, nativeLayerId, beforeId);",
+            "setNativeLayerVisibility(map, nativeLayerId, layer.visible ? \"visible\" : \"none\");",
+            "map.setLayoutProperty(nativeLayerId, \"visibility\", visibility);",
+            "function moveLayer(map: maplibregl.Map, id: string, beforeId?: string): void {",
+            "map.moveLayer(id, beforeId);"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/layout/StatusBar.tsx",
+          "requiredStrings": [
+            "const pointerCoords = useAppStore((s) => s.pointerCoords);",
+            "formatCoordinate(pointerCoords[0], pointerCoords[1], coordinateFormat)",
+            "{compact ? \"XY\" : \"Coords\"}: {coordText}",
+            "<span className=\"shrink-0\">Zoom: {mapView.zoom.toFixed(2)}</span>"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geolibre.analysis-automation",
+      "userOutcome": "Discover deterministic processing tools, run one tool, and execute an ordered model whose output feeds the next step with abort and failure handling.",
+      "sourceAssertions": [
+        {
+          "path": "packages/processing/src/registry.ts",
+          "requiredStrings": [
+            "id: \"calculate-bounds\"",
+            "id: \"count-features\"",
+            "export const ALGORITHMS: ProcessingAlgorithm[] =",
+            "export function getAlgorithm(id: string): ProcessingAlgorithm | undefined {"
+          ]
+        },
+        {
+          "path": "packages/processing/src/runner.ts",
+          "requiredStrings": [
+            "export async function runAlgorithmCapture(",
+            "await tool.run(ctx);",
+            "export async function runModel(",
+            "if (host.signal?.aborted) break;",
+            "output = await runAlgorithmCapture(tool, parameters, { ...host, layers });"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/layout/toolbar/ProcessingMenu.tsx",
+          "requiredStrings": [
+            "show(\"processing.vector\")",
+            "show(\"processing.network\")",
+            "show(\"processing.statistics\")",
+            "show(\"processing.raster\")",
+            "setVectorToolOpen(\"buffer\")",
+            "setModelBuilderOpen(true)",
+            "setProcessingHistoryOpen(true)"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geolibre.layout-story-dashboard-print",
+      "userOutcome": "Compose print layouts, export PNG/PDF, author and export a story, and retain an editable multi-widget dashboard inside the project.",
+      "sourceAssertions": [
+        {
+          "path": "apps/geolibre-desktop/src/lib/print-layout.ts",
+          "requiredStrings": [
+            "export interface LayoutOptions {",
+            "export function computeScaleRatio(opts: LayoutOptions): number {",
+            "export function drawLayout(canvas: HTMLCanvasElement, opts: LayoutOptions): void {",
+            "preview and the export look identical."
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/layout/PrintLayoutDialog.tsx",
+          "requiredStrings": [
+            "drawLayout(canvas, displayOptions);",
+            "const handleExport = async (kind: \"png\" | \"pdf\") => {",
+            "await exportLayoutPng(displayOptions, `${base}.png`);",
+            "await exportLayoutPdf(displayOptions, `${base}.pdf`);",
+            "await exportAtlasPdf(source, `${base}-atlas.pdf`);"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/storymap/StoryMapPanel.tsx",
+          "requiredStrings": [
+            "export a standalone HTML document.",
+            "const addChapter = useAppStore((s) => s.addStoryChapter);",
+            "const updateChapter = useAppStore((s) => s.updateStoryChapter);",
+            "const removeChapter = useAppStore((s) => s.removeStoryChapter);",
+            "const moveChapter = useAppStore((s) => s.moveStoryChapter);",
+            "const html = buildStoryMapHtml({",
+            "await saveTextFileWithFallback(html, {"
+          ]
+        },
+        {
+          "path": "apps/geolibre-desktop/src/components/panels/DashboardPanel.tsx",
+          "requiredStrings": [
+            "Widgets are stored in the project, so a dashboard",
+            "const setDashboardColumns = useAppStore((s) => s.setDashboardColumns);",
+            "const addWidget = useAppStore((s) => s.addWidget);",
+            "const replaceWidget = useAppStore((s) => s.replaceWidget);",
+            "const removeWidget = useAppStore((s) => s.removeWidget);",
+            "const moveWidget = useAppStore((s) => s.moveWidget);",
+            "onChange={(event) => setDashboardColumns(Number(event.target.value))}"
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceEvidence": [
+    {
+      "path": "package.json",
+      "gitBlob": "1ebd04be46b40e8075ce20950a757b9514f5563f",
+      "sha256": "1636b034bbdac16fe0ed6275b85d8e29ef85ae198a3e21c44103a84cbbd51299",
+      "bytes": 3358
+    },
+    {
+      "path": "LICENSE",
+      "gitBlob": "8e069993c30ac2e4acc800f5a2612077e4500060",
+      "sha256": "8c1ec2eadbee4b5a632b49679a177e02ed980079435a73449045aca3f2e7651e",
+      "bytes": 1068
+    },
+    {
+      "path": "docs/project-format.md",
+      "gitBlob": "eea6b21a4fe2deee17332c90ea4fe45da36e1669",
+      "sha256": "b8b37f844e7a443fad2411e35a8348552319f58250d2877fead4dda638d8a60f",
+      "bytes": 14263
+    },
+    {
+      "path": "packages/core/src/project.ts",
+      "gitBlob": "a99c03aad730bb81a4bd72a0d89246119c162b57",
+      "sha256": "704e78a4d04d8b4ee79efa0c86735732f2b026bb571945de818ecc309caaffdf",
+      "bytes": 69499
+    },
+    {
+      "path": "packages/core/src/types.ts",
+      "gitBlob": "5ffced2446bfce12bde3a2ee40f2cf28a5e4b0ed",
+      "sha256": "63ffc6c70b1834b6defcfa62ec67cae865ae5fa3c11900aba25ddae52abf4e2c",
+      "bytes": 74296
+    },
+    {
+      "path": "packages/map/src/layer-sync.ts",
+      "gitBlob": "9374b43c20b182e34291ffa29dfaaba7e5580841",
+      "sha256": "a17a3270a53f868f3b165749013896cf04554f4739d974d63367a617046a9831",
+      "bytes": 135914
+    },
+    {
+      "path": "packages/processing/src/registry.ts",
+      "gitBlob": "cd6fb083501a5794b8253336a1c8d801cfefc8fc",
+      "sha256": "3b992e3663f628c689847c3d7e93e82092736eaf43cd3dd57b984e3e34572914",
+      "bytes": 1687
+    },
+    {
+      "path": "packages/processing/src/runner.ts",
+      "gitBlob": "d9f226ee28aafccbd2b9dfa8fd0bc236c7e9f5df",
+      "sha256": "3d318ef107485c8e7aa11773afd2161a88355da4e8bd07f930402f4393f85ad2",
+      "bytes": 6497
+    },
+    {
+      "path": "apps/geolibre-desktop/src/hooks/useProjectFileActions.ts",
+      "gitBlob": "be3b0fe8814c263079e5ea07e5d1d266e19eee4c",
+      "sha256": "2cdb0c3599fe7a80e1de54b746186505936ed62421a1e497da2732830ab3a9b9",
+      "bytes": 47070
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/layout/toolbar/ProjectMenu.tsx",
+      "gitBlob": "0a93ad024f890d020142bedc1a6f87f4a96d5505",
+      "sha256": "b3821af3dc37980c9395c6c8e1208c9064fddffb49f260ed50866812738a3e4f",
+      "bytes": 13477
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/layout/AddDataDialog.tsx",
+      "gitBlob": "2abd2ec9dce0c52d6f4d0d7a168aa907b0efbeeb",
+      "sha256": "b082b08b480b783c205f2a58ea8f3ba6e05fba7d941598de700245395ead57d1",
+      "bytes": 5984
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/layout/toolbar/AddDataMenu.tsx",
+      "gitBlob": "990185541eda6e18ba2aad57e1b1229a859bbad9",
+      "sha256": "1c512f0093ab03ac20c331c7f421287d470cfd2e6a1b2116ca369c4299f30ee9",
+      "bytes": 5736
+    },
+    {
+      "path": "apps/geolibre-desktop/src/lib/ui-profile.ts",
+      "gitBlob": "93e539f03e12d24500eeb5a5892a3bc89489966b",
+      "sha256": "e96c83f1107d7f886aa045f4d4375e233027ad36b56bfab361ba4f06cf58e504",
+      "bytes": 28839
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/panels/LayerPanel.tsx",
+      "gitBlob": "facd73221b08c6fa80104e8fc9936701d0cade72",
+      "sha256": "332ba403b0a1ae7638e66c0523edfa7b1898b0dee2ad66b0d143fb45b398791c",
+      "bytes": 197754
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/layout/toolbar/ProcessingMenu.tsx",
+      "gitBlob": "7da89c330e5515a60de4f90dcf5a210a6da44a10",
+      "sha256": "e49f70078c72e5aac68e9d652995f8cce34af4e11abd2278b3f0ce2efbc57a6f",
+      "bytes": 29856
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/layout/PrintLayoutDialog.tsx",
+      "gitBlob": "51ad477bfeb45d5e4fd17074ee0fd3aa7e28ab79",
+      "sha256": "1e7eab08451af17fc032e19b0a059fa6b8fc7360e23142dbf876a9684c86e7bf",
+      "bytes": 145997
+    },
+    {
+      "path": "apps/geolibre-desktop/src/lib/print-layout.ts",
+      "gitBlob": "b4b2408ae2bedc195053041c8f6111cf909ff60e",
+      "sha256": "a541f3eba838c9cdc3119804c9bc85e9cd5e2748f836403d1a7bd06cb714d862",
+      "bytes": 81257
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/storymap/StoryMapPanel.tsx",
+      "gitBlob": "2e6dd245a53d0ebb09d3322ab60d62b14068e914",
+      "sha256": "84008be19f7e4702f7dd3fcb9920f76335f59f08172d3e6c1edf210969e8c0ce",
+      "bytes": 42319
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/panels/DashboardPanel.tsx",
+      "gitBlob": "3d0b8bc74319efa30187e746aded972c67f3275a",
+      "sha256": "fc6145871279006375e45ba9017e5a5cd2e7866f01f183b2d1ee0adc994a0807",
+      "bytes": 30634
+    },
+    {
+      "path": "apps/geolibre-desktop/src/components/layout/StatusBar.tsx",
+      "gitBlob": "8ee4692ef552523cd2d19dcf4b0d521a499fbe24",
+      "sha256": "f1b215001e386f037ae8f6e41a88c926a737245423814e0ca41bc5bde39ead07",
+      "bytes": 6568
+    }
+  ],
+  "separateEvidence": {
+    "executableGeoLibrePeer": [
+      "scripts/check-geolibre-peer.mts",
+      "scripts/check-geolibre-source-matrix-peer.mjs",
+      "parity/fixtures/data/geolibre-2.6-project.geolibre.json",
+      "parity/fixtures/geolibre/geolibre-003-source-operation-matrix.json",
+      "parity/reports/geolibre-001-peer.json",
+      "parity/reports/geolibre-003-source-operation-matrix.json",
+      "parity/reports/geolibre-002-analysis-automation.json",
+      "app/src/lib/processingRegistry.js",
+      "app/src/lib/sourceCapabilityCatalog.js"
+    ],
+    "openGeoWorkflowEvidence": [
+      "app/src/lib/geolibreProject.js",
+      "app/src/lib/geolibreImport.js",
+      "parity/evidence/local-milestones.json",
+      "docs/workbench-command-surface-local-evidence.json",
+      "docs/workbench-map-authoring-local-evidence.json"
+    ]
+  },
+  "limitations": [
+    "This audit inventories selected exact GeoLibre source; it does not execute the GeoLibre desktop/browser UI or its test suite.",
+    "The v2.6.0 tag is lightweight and has no annotated tag signature to authenticate independently of the Git ref and commit identity.",
+    "The selected source maps ordinary workflows and the complete 31-entry Add Data catalog but is not a complete inventory of every GeoLibre implementation path or capability.",
+    "Source mapping does not execute OpenGeo workflows, change any formal row status, or establish a GeoLibre parity claim."
+  ]
+}

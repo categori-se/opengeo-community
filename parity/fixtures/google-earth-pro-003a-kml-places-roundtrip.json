@@ -1,0 +1,99 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-003a.kml-places-roundtrip",
+  "title": "Bounded KML/KMZ Places import-export and durable browser workflow",
+  "fixtureType": "project",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic public KML 2.2 and hostile KMZ documents covering supported hierarchy/geometry/view/style/time/data semantics, declared losses, archive controls, browser rendering, and durable mocked map persistence. No proprietary byte is included."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package.json",
+      "sha256": "399cd2c91d74b0a9b53428d4dbb8d037f2bfbe30dbb660907e64196dffc12d8b"
+    },
+    {
+      "name": "package-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package-lock.json",
+      "sha256": "cad9781aa572087cda8a9ff96ccd93d551028795a05abbedcb54c449cc134e9d"
+    },
+    {
+      "name": "kmlPlaces.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/kmlPlaces.js",
+      "sha256": "8e3f606f55c0cdcb722f154b6dbee833c38236b1fc4d24fd155ee7f3fd554e91"
+    },
+    {
+      "name": "kml-places.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/kml-places.test.mjs",
+      "sha256": "7ce84d8f069bda7ee8132d2b0029c96331c4b122a4b005eba97350181b5a6c24"
+    },
+    {
+      "name": "workspaceUiState.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/workspaceUiState.js",
+      "sha256": "fd1c1bbefc9da0ed2c46c3cb9c15d964537e66dc5e9b26291a43e0a79b318c4f"
+    },
+    {
+      "name": "workspace-ui-state.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/workspace-ui-state.test.mjs",
+      "sha256": "f86b1926755e8e609443697957f65220023ec61572f60c276c966eccddbc0114"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "style.css",
+      "mediaType": "text/css",
+      "encoding": "path",
+      "value": "app/src/style.css",
+      "sha256": "b267b92ee033a73c7fca50da768b53d007685fc086f30479dd1322069541d6ee"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "google-earth-pro-003a-kml-places-roundtrip.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-003a-kml-places-roundtrip.json",
+      "sha256": "0dcaf0652dcdc901662b31aaab78661671e48aa090553002e65064757b0b655c"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.places-kml-kmz-authoring",
+      "assertion": "OpenGeo imports and deterministically re-exports a byte-bounded KML 2.2/KMZ subset with durable hierarchy, supported geometry/view/altitude/style/time/data, mixed rendering, declared-loss download, and exact Save As/reload/re-save persistence. Complete KML/gx/resources, formal conformance, Google Earth execution, full authoring, and full-row parity are not claimed."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

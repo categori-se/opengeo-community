@@ -1,0 +1,27 @@
+Open Sans 1.10 — OpenGeo generated glyph assets
+
+Digitized data copyright © 2010-2011, Google Corporation.
+
+The source OpenSans-Regular.ttf identifies its license as Apache License,
+Version 2.0. The complete license is included in LICENSE.txt.
+
+OpenGeo transformed the exact source font into signed-distance-field glyph
+PBF files using TinySDF 2.2.0 and Chromium. These generated files are not the
+original font distribution. Their source, coverage, generator identity and
+individual checksums are recorded in manifest.json. The OpenGeo asset name
+does not assert endorsement by the font's copyright holder or authors.
+
+Source distribution: open-sans-fonts-1.10-24.fc43.noarch
+Source RPM: open-sans-fonts-1.10-24.fc43.src.rpm
+Source file: OpenSans-Regular.ttf
+Source SHA-256:
+8ab4aa561e7db0eb3e1af8b0bed2a315e0a33fe2ed3070e645d1b89f8efc1d5c
+
+This attribution companion is separate from the frozen version-1 glyph
+manifest and is not included in that manifest's checksum records. Distribute
+this notice and LICENSE.txt with the generated glyph assets.
+
+The exact original OpenSans-Regular.ttf is also included for native Cesium labels.
+Its SHA-256 matches the source hash above and the frozen glyph manifest. The native
+runtime ships the original font, manifest, this notice and LICENSE.txt together;
+this addition does not revise the generated glyph identity or manifest.

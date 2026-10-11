@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {isExpectedClippingCorner,pointInPolygon} from './tile-geometry-review.mjs';
+const outer=[[-100,-100],[100,-100],[100,100],[-100,100],[-100,-100]];
+const args={position:[0,0],rings:[outer],point:{x:-160,y:8352},previous:{x:-160,y:8300},next:{x:40,y:8352},extent:8192,buffer:160};
+assert.equal(isExpectedClippingCorner(args),true);
+assert.equal(isExpectedClippingCorner({...args,position:[110,0]}),false,'A rectangle corner outside the original is invalid');
+assert.equal(isExpectedClippingCorner({...args,point:{x:-160,y:8300}}),false,'A tile edge alone cannot excuse a displaced vertex');
+assert.equal(isExpectedClippingCorner({...args,point:{x:100,y:100}}),false,'An arbitrary interior vertex is not a clipping corner');
+assert.equal(isExpectedClippingCorner({...args,next:{x:10,y:8320}}),false,'Adjacent edges must follow the clipping rectangle');
+assert.equal(isExpectedClippingCorner({...args,previous:args.point}),false,'A duplicate corner is not a supporting edge');
+const hole=[[-10,-10],[10,-10],[10,10],[-10,10],[-10,-10]];
+assert.equal(pointInPolygon([0,0],[outer,hole]),false);
+assert.equal(isExpectedClippingCorner({...args,rings:[outer,hole]}),false,'A clipped corner cannot fill a source hole');
+assert.equal(isExpectedClippingCorner({...args,buffer:80}),false,'Buffer units must match the conversion');
+console.log('Clipping-corner review: valid interior corner accepted; outside, hole, non-corner, wrong-edge and wrong-buffer cases rejected.');

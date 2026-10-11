@@ -1,0 +1,64 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-029.geojson-rfc7946-profile",
+  "title": "Bounded RFC 7946 geometry and edge-case acceptance",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Synthetic non-personal GeoJSON exercises the bounded production preview parser and an independent GDAL reader across every geometry type, antimeridian and polar boxes, optional altitude, feature identifiers, null values, UTF-8, structured properties, and fail-closed inputs."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "spatial_previews.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_previews.py",
+      "sha256": "593084691c7adb6d4f50580ea6c9a85c54c5933f9fc4ebe4ba976149b7d0237e"
+    },
+    {
+      "name": "test_spatial_previews.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_previews.py",
+      "sha256": "93640cd038c5c37006fd68faf8d7ab1e460ec9be69cad7cf32368481cde336a7"
+    },
+    {
+      "name": "check-geojson-rfc7946-profile.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-geojson-rfc7946-profile.py",
+      "sha256": "43a180c292c830e1e06c5bbe0d88a26d86a180fb3bb0cd86bf6e8d4b7b4889b7"
+    },
+    {
+      "name": "service-029-geojson-rfc7946-profile.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-029-geojson-rfc7946-profile.json",
+      "sha256": "cab094a10c661c70e3d5c7188fbaac9040645bc63a124139af0bf68d5f08f0f8"
+    },
+    {
+      "name": "geojson-rfc7946-profile.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/geojson-rfc7946-profile.test.mjs",
+      "sha256": "4bc3ce0c133eb85fa65f23fd4bb1d7b6810c5375275d4e041cf063e112e2e829"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The selected bounded RFC 7946 application profile has an explicit geometry, feature, property, axis, bounding-box, independent-reader, rejection, and resource-limit matrix while public and deployed publication remain open."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "opengeo.pmtiles-derivative-request-checksum-vectors.1.0.0",
+  "contract": {
+    "requestSchema": "opengeo.pmtiles-derivative-request.1.0.0",
+    "recipe": "gdal-pmtiles-v1",
+    "canonicalJson": "UTF-8 JSON with Unicode code-point key order, no insignificant whitespace, finite numbers rendered as plain decimal, trailing fractional zeroes removed, and every zero rendered as 0",
+    "checksum": "lowercase hexadecimal SHA-256 of canonicalJson",
+    "excludedFields": [
+      "idempotency_key",
+      "job_id",
+      "organization_id"
+    ]
+  },
+  "cases": [
+    {
+      "name": "ordinary-wgs84-request",
+      "projectId": "50000000-0000-4000-8000-000000000258",
+      "datasetId": "80000000-0000-4000-8000-000000000258",
+      "datasetVersionId": "82000000-0000-4000-8000-000000000258",
+      "sourceObjectId": "81000000-0000-4000-8000-000000000258",
+      "bounds": [-73.6, 41.1, -69.8, 42.9],
+      "minimumZoom": 4,
+      "maximumZoom": 14,
+      "sourceLayer": "environmental_screening",
+      "expectedCanonicalJson": "{\"bounds\":[-73.6,41.1,-69.8,42.9],\"dataset_id\":\"80000000-0000-4000-8000-000000000258\",\"dataset_version_id\":\"82000000-0000-4000-8000-000000000258\",\"maximum_zoom\":14,\"minimum_zoom\":4,\"project_id\":\"50000000-0000-4000-8000-000000000258\",\"recipe\":\"gdal-pmtiles-v1\",\"schema\":\"opengeo.pmtiles-derivative-request.1.0.0\",\"source_layer\":\"environmental_screening\",\"source_object_id\":\"81000000-0000-4000-8000-000000000258\"}",
+      "expectedSha256": "25708c9f29a9e28de39cc2367d53255f2d7528b9f09c235b8dd5b239e108c240"
+    },
+    {
+      "name": "plain-decimal-and-zero-normalization",
+      "projectId": "20000000-0000-4000-8000-000000000002",
+      "datasetId": "30000000-0000-4000-8000-000000000003",
+      "datasetVersionId": "60000000-0000-4000-8000-000000000006",
+      "sourceObjectId": "70000000-0000-4000-8000-000000000007",
+      "bounds": [-0.0, -0.0000001, 0.0000001, 0.0],
+      "minimumZoom": 0,
+      "maximumZoom": 22,
+      "sourceLayer": "numeric_edge",
+      "expectedCanonicalJson": "{\"bounds\":[0,-0.0000001,0.0000001,0],\"dataset_id\":\"30000000-0000-4000-8000-000000000003\",\"dataset_version_id\":\"60000000-0000-4000-8000-000000000006\",\"maximum_zoom\":22,\"minimum_zoom\":0,\"project_id\":\"20000000-0000-4000-8000-000000000002\",\"recipe\":\"gdal-pmtiles-v1\",\"schema\":\"opengeo.pmtiles-derivative-request.1.0.0\",\"source_layer\":\"numeric_edge\",\"source_object_id\":\"70000000-0000-4000-8000-000000000007\"}",
+      "expectedSha256": "719f53c630a60244f34b7aef4a46686cab5869144ac42175b9a2b906fb9b685c"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-001.wms-cite-blue-lake",
+  "title": "Official WMS 1.3.0 CITE Blue Lake Basic source lock",
+  "fixtureType": "dataset",
+  "source": {
+    "kind": "upstream",
+    "description": "The official eleven-layer Basic WMS vector fixture at one exact ets-wms13 commit; the archive remains upstream and is not silently treated as an already-ingested dataset.",
+    "url": "https://github.com/opengeospatial/ets-wms13/tree/9a45b91e8e1dc600f574002ac89342b20bac3106",
+    "version": "9a45b91e8e1dc600f574002ac89342b20bac3106"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "wms-1.3-cite-source-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wms-1.3-cite-source-lock.json",
+      "sha256": "2f6e70431aeba6e4ec4531d5483b841594ffc4b2ac62ba82292d2a05ae3e8801"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "The exact official source archive and license evidence are pinned, and deterministic preparation yields one ordinary governed Shapefile upload for each of the eleven Basic cite:* layers without implying an ETS result."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The prepared layers can be published as one ordered project-scoped WMS catalog after ordinary ingestion and exact render-profile creation; deployment and official ETS verification remain separate gates."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

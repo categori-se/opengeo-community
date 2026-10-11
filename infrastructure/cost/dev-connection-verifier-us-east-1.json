@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-25",
+  "region": "us-east-1",
+  "currency": "USD",
+  "scenario": "deployed zero-request user dataset connection verifier",
+  "expectedMonthlyUsd": 0.6,
+  "combinedCurrentMonthlyUsd": 3.403,
+  "combinedAfterTwoKmsRotationsMonthlyUsd": 5.403,
+  "budgetMonthlyUsd": 125,
+  "assumptions": [
+    "The user dataset verifier stack and API dispatch gate are deployed, and no verification message is queued or running.",
+    "Lambda has reserved but not provisioned concurrency, so zero requests and zero duration cost zero compute.",
+    "The queue and dead-letter queue contain no messages and use SQS-managed encryption.",
+    "The verifier reuses the existing API image repository and existing data KMS key.",
+    "One verifier database secret and two standard CloudWatch alarms remain allocated.",
+    "User-owned connection secrets remain the separate $0.40 per secret-month linear add-on modeled by the base idle plan.",
+    "Requests, Data API calls, KMS API calls, logs, database wake time, DNS, transfer, and retained verification history are usage-dependent and excluded at zero requests."
+  ],
+  "sources": {
+    "cloudwatch": {
+      "publicationDate": "2026-08-06T20:18:40Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/us-east-1/index.json"
+    },
+    "lambda": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/lambda/pricing/"
+    },
+    "secrets": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/secrets-manager/pricing/"
+    },
+    "sqs": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/sqs/pricing/"
+    }
+  },
+  "items": [
+    {
+      "id": "user-dataset-verifier-database-secret",
+      "scope": "connector",
+      "description": "Dedicated function-only user dataset verifier database credential",
+      "quantity": 1,
+      "unit": "secret-month",
+      "rateUsd": 0.4,
+      "source": "secrets"
+    },
+    {
+      "id": "user-dataset-verifier-standard-alarms",
+      "scope": "connector",
+      "description": "Oldest-message and dead-letter-queue standard alarms",
+      "quantity": 2,
+      "unit": "alarm-month",
+      "rateUsd": 0.1,
+      "source": "cloudwatch"
+    },
+    {
+      "id": "user-dataset-verifier-lambda-zero-requests",
+      "scope": "connector",
+      "description": "Request-driven verifier with no provisioned concurrency",
+      "quantity": 0,
+      "unit": "request",
+      "rateUsd": 0.0000002,
+      "source": "lambda"
+    },
+    {
+      "id": "user-dataset-verifier-sqs-zero-requests",
+      "scope": "connector",
+      "description": "Empty verification and dead-letter queues",
+      "quantity": 0,
+      "unit": "request",
+      "rateUsd": 0.0000004,
+      "source": "sqs"
+    }
+  ]
+}

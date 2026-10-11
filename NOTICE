@@ -1,0 +1,26 @@
+OpenGeo Community
+Published by categori.se; maintained by Aaron Kyle Dennis (aaronkyle).
+
+First-party source is offered under Apache License 2.0, except where a file or
+component carries its own upstream license. Existing copyright holders and
+notices remain authoritative. This notice does not assert sole authorship.
+
+Preserve the running dependency/license record:
+  docs/open-source-foundations.md
+  governance/open-source-foundations.json
+  ACKNOWLEDGEMENTS.md
+
+Included separately licensed material includes:
+  app/vendor/workspace-contracts/LICENSE and NOTICE (Apache-2.0; categori.se)
+  app/src/assets/render-fonts/opengeo-open-sans-v1/1/LICENSE.txt and NOTICE.txt
+  app/src/assets/licenses/geotiff-3.1.0-beta.0.LICENSE.txt
+  services/api/assets/GNU-Unifont-LICENSE.txt (license text; not a font grant)
+  upstream notices retained beside included development/reference fixtures
+
+The inventory distinguishes runtime foundations, development peers and reference
+products. Reference does not imply incorporation or endorsement. Provider terms,
+dataset rights and application authorization are independent of software licensing.
+
+This source snapshot includes reviewed existing assets but no installed dependency
+trees, dependency wheels, container images or newly compiled application bundles.
+Later binary releases need exact component, notice and corresponding-source review.

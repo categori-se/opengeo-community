@@ -1,0 +1,200 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "mapserver-002.tile-cache-peer",
+  "title": "Exact MapServer tile and durable OpenGeo cache lifecycle comparison",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact MapServer 8.6.5 MODE=tile execution is compared with OpenGeo's bounded, tenant-safe, seeded-cache-only lifecycle and independent QGIS and OpenLayers reads.",
+    "url": "https://github.com/MapServer/MapServer/releases/tag/rel-8-6-5",
+    "version": "8.6.5"
+  },
+  "license": {
+    "spdxId": "MIT",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "MapServer peer Containerfile",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "parity/peer/mapserver/Containerfile",
+      "sha256": "72f6d16147c59385649420ba059dd744647258b9f102928d16c8613ec86c0ef9"
+    },
+    {
+      "name": "MapServer tile alias configuration",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-tile-peer.conf",
+      "sha256": "45278a7da91228e9e43a393221990f62e2f21db9b616f102340f39cd8b439696"
+    },
+    {
+      "name": "MapServer tile mapfile",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads-3857-mapserver.map",
+      "sha256": "785811e40c49d4c30ee9d7a885e60ad661985cb7543ba6edb4e0b041f6f5db08"
+    },
+    {
+      "name": "MapServer tile source data",
+      "mediaType": "application/geo+json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads.geojson",
+      "sha256": "5f7090caa90745f5862b4f392c63a8cb40ec58342e20be09429a2335fe7564a8"
+    },
+    {
+      "name": "MapServer exact source lock",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-8.6.5-source-lock.json",
+      "sha256": "391b5debc874351db7439069fa3d5bb8c82b40f78a5b375dc6c051a24e1a991a"
+    },
+    {
+      "name": "MapServer cache comparator",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-mapserver-tile-cache-peer.mjs",
+      "sha256": "c773a30ae2d6e7c3610af9462d75cb7d8722eac28b66c1ead9f04bb1d82da65c"
+    },
+    {
+      "name": "MapServer cache comparator report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/mapserver-002-tile-cache-peer.json",
+      "sha256": "af7d5a712bf499af614a4b509bc5544d2d2ee85183da7a8e5a98c93e4d43c737"
+    },
+    {
+      "name": "OpenGeo cache route controls report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/mapserver-002-cache-controls.json",
+      "sha256": "602927c4b2550ec456b26590a31d8a74af09c4479633e72c2ac914560f7e0a68"
+    },
+    {
+      "name": "Durable cache migration",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0024_durable_tile_cache.sql",
+      "sha256": "c7b981757c5f44c747ae06e1f87df8501bab849220fda51705e2a64fcd51b9c0"
+    },
+    {
+      "name": "Retired cache reclamation migration",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0040_render_cache_reclamation.sql",
+      "sha256": "8c8065edec233c0534b64f7f4db4e756785109300348e29765bbbadd78cdb716"
+    },
+    {
+      "name": "Bounded seed plan migration",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0041_durable_tile_seed_plans.sql",
+      "sha256": "1ba8f9638f7225235abc76f6d09af9cb553032742d39292cb6cd16063006dcbb"
+    },
+    {
+      "name": "Tile cache routes",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/tile_cache_routes.py",
+      "sha256": "a2887d8ef30c708488df1487a39f986b91d809d8cfe9bc4fd1ce1e03d34347b5"
+    },
+    {
+      "name": "WMTS compatibility routes",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wmts.py",
+      "sha256": "682e3a2a890c02301234f6fe99277c673bd45631c4220d50f609bbc8e7b3b648"
+    },
+    {
+      "name": "WMTS cache route tests",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_service_routes.py",
+      "sha256": "90ab062b2d50553fd091cf03c71ee0fd0e9c44a18590c2b745879dbc56e31e0b"
+    },
+    {
+      "name": "OpenLayers WMTS peer report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-012-openlayers-wmts-peer.json",
+      "sha256": "07c23e1896e642eb9264ad9386ce93183bc9d3ad21487229c28665a99876cdcc"
+    },
+    {
+      "name": "QGIS WMTS peer report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-005-qgis-wmts-cache-peer.json",
+      "sha256": "ecd816b1f5b4fda7acbd9abae840bc3b53c6624b3437dcca49ad83195de3270b"
+    },
+    {
+      "name": "Tile seed plan report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-011-tile-seed-plans.json",
+      "sha256": "4b6763764967d95c2ec5ee3e9296a26ad5c5145d87c5de60ba169942e5a23ce3"
+    },
+    {
+      "name": "Retired cache reclamation report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-010-render-cache-reclamation.json",
+      "sha256": "24e6b4d195290972e901eeeaa1667f49d839cd87e9f7441252248cfbbf31fe79"
+    },
+    {
+      "name": "Durable WMTS and QGIS evidence fixture",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/service-005-qgis-wmts-cache-peer.json",
+      "sha256": "e7f276835763317b1308f415694d3db123b48c7d6026ebdc74f7a6c94812eb68"
+    },
+    {
+      "name": "Retired cache reclamation evidence fixture",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/service-010-render-cache-reclamation.json",
+      "sha256": "f0280244f4148e6a0448651bf38c0fe8bdeeb64db387aa27bf7b133604946202"
+    },
+    {
+      "name": "Bounded seed plan evidence fixture",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/service-011-tile-seed-plans.json",
+      "sha256": "1e42c111eac49fadae6f001d114c07e4acba2a5d954e96338d0f87240e2c4e6c"
+    },
+    {
+      "name": "OpenLayers WMTS evidence fixture",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/service-012-openlayers-wmts-peer.json",
+      "sha256": "7852fafb529838f1f8f449c7bf11d9736e75dca13d159b2e0e42f1e00f0d44b6"
+    },
+    {
+      "name": "MapServer cache comparator tests",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/mapserver-tile-cache-peer.test.mjs",
+      "sha256": "3096efed1edeaec425f04236345d99a6479f6c39ae80af5ab3b19ee3cb557829"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.tile-caching",
+      "assertion": "Exact MapServer 8.6.5 returns a deterministic 256-pixel PNG for a valid MODE=tile request and no image for a malformed coordinate request."
+    },
+    {
+      "rowId": "mapserver.tile-caching",
+      "assertion": "OpenGeo binds seeded entries to tenant, service binding, dataset generation, render profile, cache generation, matrix, row, and column; it returns no image for invalid coordinates and rechecks current permission so missing, stale, anonymous, and membership-revoked reads are denied without creating work."
+    },
+    {
+      "rowId": "mapserver.tile-caching",
+      "assertion": "Bounded explicit seed plans, immutable invalidation, no automatic expiry, reference-aware manual reclamation, and QGIS and OpenLayers reads complete the cache lifecycle while adding $0 incremental fixed inactive compute for the cache capability."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

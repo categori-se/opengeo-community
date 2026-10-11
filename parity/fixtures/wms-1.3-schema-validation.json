@@ -1,0 +1,42 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-001.wms-schema",
+  "title": "Official OGC WMS 1.3.0 capabilities and exception schema validation",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact checksum-pinned WMS 1.3.0 schemas from the official OGC repository plus their W3C XLink/XML imports.",
+    "url": "https://schemas.opengis.net/wms/1.3.0/",
+    "version": "1.3.0"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "wms-1.3-schema-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/wms-1.3-schema-lock.json",
+      "sha256": "ece2e0d80d6524878a334abb52b04812b60960421cd9778a73fefb58c8e7afe2"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "Generated WMS_Capabilities and ServiceExceptionReport documents validate against exact official OGC 1.3.0 schemas with all imports resolved locally after checksum verification."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The verifier rejects deliberately invalid version documents, proving the schema gate is active rather than a well-formedness-only check."
+    }
+  ],
+  "constraints": {
+    "offline": false,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

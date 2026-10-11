@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.example/schemas/opengeo-catalog-metadata-1.0.0.schema.json",
+  "title": "OpenGeo native catalog metadata",
+  "description": "The value of metadata_extensions.opengeo for schema version 1.0.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion"],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "contacts": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "anyOf": [{"required": ["name"]}, {"required": ["organization"]}],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 300},
+          "organization": {"type": "string", "minLength": 1, "maxLength": 300},
+          "email": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "pattern": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$"
+          },
+          "role": {"type": "string", "minLength": 1, "maxLength": 300},
+          "identifier": {"type": "string", "minLength": 1, "maxLength": 300}
+        }
+      }
+    },
+    "distributions": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "anyOf": [{"required": ["accessUrl"]}, {"required": ["downloadUrl"]}],
+        "properties": {
+          "identifier": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "title": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "accessUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^https://[^\\s]+$"
+          },
+          "downloadUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^https://[^\\s]+$"
+          },
+          "mediaType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "pattern": "^[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+(?:\\s*;\\s*[^\\s=;]+=[^;]+)*$"
+          },
+          "format": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "byteSize": {"type": "integer", "minimum": 0, "maximum": 1000000000000000000},
+          "checksumSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "license": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    },
+    "referenceSystems": {
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["identifier"],
+        "properties": {
+          "identifier": {"type": "string", "minLength": 1, "maxLength": 300},
+          "uri": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(?:https?://|urn:)[^\\s]+$"
+          }
+        }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statement"],
+      "properties": {
+        "statement": {"type": "string", "minLength": 1, "maxLength": 4000},
+        "sources": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {"type": "string", "minLength": 1, "maxLength": 2048}
+        }
+      }
+    },
+    "quality": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["measure", "result"],
+        "properties": {
+          "measure": {"type": "string", "minLength": 1, "maxLength": 300},
+          "result": {
+            "oneOf": [
+              {"type": "string", "minLength": 1, "maxLength": 1000},
+              {"type": "number"},
+              {"type": "boolean"}
+            ]
+          },
+          "unit": {"type": "string", "minLength": 1, "maxLength": 1000},
+          "description": {"type": "string", "minLength": 1, "maxLength": 1000}
+        }
+      }
+    },
+    "updateFrequency": {"type": "string", "minLength": 1, "maxLength": 300},
+    "sensitivity": {
+      "enum": ["public", "internal", "confidential", "restricted"]
+    }
+  }
+}

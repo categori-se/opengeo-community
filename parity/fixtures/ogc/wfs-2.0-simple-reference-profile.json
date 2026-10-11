@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0.0",
+  "profileId": "opengeo.wfs.simple.reference.1",
+  "purpose": "Synthetic, non-personal, exact governed feature profile for a future isolated WFS 2.0 Simple diagnostic.",
+  "identity": {
+    "organizationId": "10000000-0000-4000-8000-000000000121",
+    "userId": "20000000-0000-4000-8000-000000000121",
+    "projectId": "50000000-0000-4000-8000-000000000121",
+    "datasetId": "80000000-0000-4000-8000-000000000121",
+    "featureId": "90000000-0000-4000-8000-000000000121"
+  },
+  "service": {
+    "endpoint": "https://api.opengeo.example.test/projects/50000000-0000-4000-8000-000000000121/datasets/80000000-0000-4000-8000-000000000121/wfs",
+    "path": "/projects/50000000-0000-4000-8000-000000000121/datasets/80000000-0000-4000-8000-000000000121/wfs",
+    "version": "2.0.0",
+    "featureType": "opengeo:features",
+    "targetNamespace": "https://opengeo.tools/ns/wfs",
+    "defaultCrs": "urn:ogc:def:crs:OGC::CRS84",
+    "globalBindings": [
+      "GET"
+    ]
+  },
+  "bootstrap": {
+    "request": {
+      "geometry_type": "Point",
+      "fields": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "count",
+          "type": "integer",
+          "required": false
+        }
+      ],
+      "features": [
+        {
+          "type": "Feature",
+          "id": "90000000-0000-4000-8000-000000000121",
+          "geometry": {
+            "type": "Point",
+            "coordinates": [
+              -77.03,
+              38.9
+            ]
+          },
+          "properties": {
+            "name": "Station",
+            "count": 2
+          }
+        }
+      ]
+    },
+    "collectionGeneration": 1,
+    "featureVersion": 1,
+    "createdAt": "2026-08-20T15:00:00Z",
+    "updatedAt": "2026-08-20T15:00:00Z"
+  },
+  "mandatorySimpleSurface": {
+    "operations": [
+      "GetCapabilities",
+      "DescribeFeatureType",
+      "ListStoredQueries",
+      "DescribeStoredQueries",
+      "GetFeature"
+    ],
+    "storedQueryId": "urn:ogc:def:query:OGC-WFS::GetFeatureById",
+    "knownGmlId": "features.90000000-0000-4000-8000-000000000121",
+    "minimumAdvertisedFeatureTypes": 1,
+    "minimumFeatures": 1,
+    "implementsQuery": true
+  },
+  "claims": {
+    "implementsSimpleWfsAdvertised": false,
+    "openGeoConformanceClaimed": false,
+    "officialSuiteExecuted": false,
+    "deployedReferenceDatasetExists": false
+  },
+  "governance": {
+    "synthetic": true,
+    "containsPersonalData": false,
+    "containsCredentials": false,
+    "authorizationRequired": true,
+    "selectedOrganizationRequired": true,
+    "idempotentBootstrapRequiredBeforeRun": true,
+    "deleteOrRetainDecisionRequiredAfterRun": true
+  }
+}

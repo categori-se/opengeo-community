@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "1.0.0",
+  "suiteId": "ogc.ets-wcs20",
+  "status": "official_core_executed_not_passed",
+  "observedAt": "2026-09-04",
+  "upstream": {
+    "repository": "https://github.com/opengeospatial/ets-wcs20",
+    "tag": "1.22",
+    "tagObject": "2a280f1d153c3f2ed97d28d3b970b6ea9bb49155",
+    "commit": "afcee1b0fd72358c301b4e6007344d97b2857382",
+    "commitTree": "978ebe76c012da655112a01ca102318ad268996b",
+    "commitDate": "2025-03-05T05:54:39-05:00",
+    "projectVersion": "1.22",
+    "trackedFiles": 255,
+    "license": "Apache-2.0"
+  },
+  "specification": {
+    "service": "WCS",
+    "version": "2.0.1",
+    "documents": ["OGC 09-110r4", "OGC 09-146r8"],
+    "suiteStyle": "TEAM Engine CTL"
+  },
+  "runner": {
+    "mainClass": "org.opengis.cite.wcs20.CtlController",
+    "inputKeys": ["url", "core"],
+    "resultFiles": ["earl-results.rdf", "log.xml"],
+    "executionIsCapabilitiesDriven": true,
+    "customRequestHeaders": false
+  },
+  "sourceEvidence": [
+    {"path": "LICENSE.md", "bytes": 562, "sha256": "4ce53a8014a935d021ba1eb965bdf7c2596aca133d2caee678af891d268d1df1"},
+    {"path": "pom.xml", "bytes": 7106, "sha256": "b67d75f7b8308f3e0d852864895dd7044ce87bde5427b2d7cd62ce5fcddbedf3"},
+    {"path": "src/main/java/org/opengis/cite/wcs20/CtlController.java", "bytes": 4516, "sha256": "f33326eb857425448953f62fd09ee130108b5018b37cb6433b65c4caceb809ac"},
+    {"path": "src/main/scripts/ctl/wcs2suite-auto.xml", "bytes": 7279, "sha256": "624d767f6d649c7ea0b1b3e2004eddc4f56e7075e911379b9dfe0adebcf2265b"},
+    {"path": "src/main/scripts/ctl/wcs2main.xml", "bytes": 5797, "sha256": "411d6a0edfd9b56854fcf2dad8562e34a72b93b10fb7332988ba1c298b099803"},
+    {"path": "src/main/scripts/ctl/core2main.xml", "bytes": 9777, "sha256": "244c9903f5c871febd32e4208b25f862f19c15c0bd675b4a61a03675283a4f32"}
+  ],
+  "boundary": {
+    "suiteSourceOrTestChanges": 0,
+    "productionConformanceClaim": false,
+    "governedDeployment": false,
+    "deployedEndpointContacted": false
+  }
+}

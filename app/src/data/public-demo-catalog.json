@@ -1,0 +1,37 @@
+{
+  "schemaVersion": "opengeo.public-demo-catalog.1.1.0",
+  "entries": [
+    {
+      "id": "public-community-facilities",
+      "title": "Public community facilities",
+      "summary": "A synthetic, permissively licensed layer for exploring the anonymous OpenGeo GIS workbench without exposing a private workspace.",
+      "kind": "map",
+      "path": "/",
+      "sourceFiles": [
+        {
+          "path": "/data/sample-public-facilities.geojson",
+          "public": true,
+          "license": "CC0-1.0",
+          "attribution": "OpenGeo.tools synthetic demonstration data"
+        }
+      ]
+    },
+    {
+      "id": "massgis-massenviroscreen",
+      "title": "MassGIS · MassEnviroScreen",
+      "summary": "The official Massachusetts census-block-group screening index, organized as thirty indicator map views and one combined analysis with shared source identity.",
+      "kind": "map",
+      "path": "/",
+      "sourceFiles": [
+        {
+          "path": "/data/massgis-enviroscreen.json",
+          "public": true,
+          "license": "LicenseRef-Public-Domain",
+          "attribution": "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts EOTSS",
+          "sourceUrl": "https://services1.arcgis.com/7iJyYTjCtKsZS1LR/arcgis/rest/services/MassEnviroScreen20260227_gdb/FeatureServer/0",
+          "rightsUrl": "https://www.mass.gov/info-details/massgis-frequently-asked-questions"
+        }
+      ]
+    }
+  ]
+}

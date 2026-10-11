@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "mapserver-ogc-publication-version-matrix",
+  "baselineRowId": "mapserver.ogc-publication",
+  "status": "partial",
+  "profiles": [
+    {
+      "id": "wms-1.3.0",
+      "standard": "Web Map Service",
+      "selectedVersions": ["1.3.0"],
+      "status": "partial",
+      "evidenceIds": ["service-001.wms-schema-gdal", "service-023.wms-cite-local-execution"],
+      "implementedBoundary": "Strict capabilities, GetMap, XML exceptions, CRS:84/EPSG:3857, PNG/SVG, exact publication names, and ordered compositions are implemented. The official Basic class and canonical data preconditions pass twice.",
+      "remaining": "The unchanged suite's double-encoded LayerLimit request keeps the aggregate official run failed. Governed CITE publication, deployed clients, broader CRS/formats, and a formal conformance claim remain open."
+    },
+    {
+      "id": "wfs-2.0.0-1.1.0-1.0.0",
+      "standard": "Web Feature Service",
+      "selectedVersions": ["2.0.0", "1.1.0", "1.0.0"],
+      "status": "partial",
+      "evidenceIds": ["wfs-transaction-qgis.local-peer", "geomoose-006.wfs-gml2-client-local-peer", "service-019.wfs-reference-acceptance", "service-024.wfs-simple-cite-local-execution"],
+      "implementedBoundary": "Dataset-scoped WFS 2.0 reads and stored-query discovery, bounded WFS 2.0 mutations, QGIS-required WFS 1.0 transactions, and GeoMoose WFS 1.1 GetFeature compatibility pass locally. The exact official WFS 2.0 suite selects and passes the advertised Simple WFS class through production serializers on the synthetic reference profile.",
+      "remaining": "Governed publication, deployed clients, official Basic and Transactional classes, general filters, alternate CRS, locking, grouped transactions, and a formal conformance claim remain open."
+    },
+    {
+      "id": "wcs-2.0.1",
+      "standard": "Web Coverage Service",
+      "selectedVersions": ["2.0.1"],
+      "status": "partial",
+      "evidenceIds": ["exact-cog-wcs-gdal.local-peer", "coverage-derivative-gdal.local-peer", "coverage-range-scaling-gdal.local-peer", "service-025.wcs-core-cite-local-execution", "service-028.wcs-core-subset-peer"],
+      "implementedBoundary": "Current immutable COG discovery, description, whole-coverage reads, and bounded subset, band, size, resolution, and reprojection derivatives pass locally through GDAL peers. Versioned service metadata now controls WCS exposure. A parameter-order-independent Core subset recipe produces repeatable exact COG bytes and matching GML multipart metadata accepted by independent GDAL. The exact official WCS 2.0.1 Core suite has executed against production discovery documents.",
+      "remaining": "The official Core result remains failed because production advertises no protocol-binding Profile. The independent subset packet does not supersede that result, and ordinary reads intentionally require an explicitly prepared derivative. Define and publish the governed Core profile, reconcile the official multipart harness boundary, then complete official and deployed-client acceptance before any conformance claim; range names and expressions, alternate encodings, multidimensional semantics, and broader bindings also remain open."
+    },
+    {
+      "id": "ogc-api-maps",
+      "standard": "OGC API - Maps",
+      "selectedVersions": ["1.0"],
+      "status": "partial",
+      "evidenceIds": ["mapserver-001.maps-negotiation", "administered-service-openlayers.local-peer"],
+      "implementedBoundary": "Authenticated discovery and exact-version map retrieval provide a bounded OGC API Maps-shaped local contract.",
+      "remaining": "Validate the current contract against published OGC API - Maps Part 1: Core 1.0. Asynchronous misses, incomplete temporal behavior, and an empty conformance declaration keep this profile nonconformant."
+    },
+    {
+      "id": "ogc-api-coverages",
+      "standard": "OGC API - Coverages",
+      "selectedVersions": ["not-yet-declared"],
+      "status": "partial",
+      "evidenceIds": ["coverage-derivative-gdal.local-peer", "coverage-range-scaling-gdal.local-peer"],
+      "implementedBoundary": "Candidate-shaped coverage, domain, range, and schema discovery describe bounded exact-version COG derivatives locally.",
+      "remaining": "A normative release must be selected and validated; the current discovery vocabulary and GET behavior make no conformance claim."
+    },
+    {
+      "id": "sld-1.0.0-1.1.0",
+      "standard": "Styled Layer Descriptor",
+      "selectedVersions": ["1.0.0", "1.1.0"],
+      "status": "partial",
+      "evidenceIds": ["geonode-001.resource-migration", "geoserver-catalog-administration.repository-peer", "service-030.sld-interoperability"],
+      "implementedBoundary": "Immutable governed style revisions recognize exact SLD 1.0 and 1.1 identities. Two bounded inert line styles pass checksum-locked official SLD 1.0/1.1 and SE 1.1 schemas, active invalid controls, and production hostile-input limits. A linked exact GeoServer 3.0.1 receipt previously synchronized and rendered two SLD 1.0 styles.",
+      "remaining": "OpenGeo service-side style publication and retrieval, broader SLD/SE semantics, SLD 1.1 portrayal equivalence, governed and deployed independent-client acceptance, scale, rollback, and cost observation remain open."
+    },
+    {
+      "id": "filter-encoding-1.1.0-2.0.0",
+      "standard": "Filter Encoding",
+      "selectedVersions": ["1.1.0", "2.0.0"],
+      "status": "partial",
+      "evidenceIds": ["wfs-transaction-qgis.local-peer", "geomoose-006.wfs-gml2-client-local-peer"],
+      "implementedBoundary": "Bounded BBOX and resource-identity filters are accepted in the implemented WFS compatibility lanes.",
+      "remaining": "Normative expression, logical, comparison, spatial, temporal, function, sorting, and hostile-input matrices plus official and independent-client evidence remain open."
+    },
+    {
+      "id": "gml-2.1.2-3.2.1",
+      "standard": "Geography Markup Language",
+      "selectedVersions": ["2.1.2", "3.2.1"],
+      "status": "partial",
+      "evidenceIds": ["wfs-transaction-qgis.local-peer", "geomoose-006.wfs-gml2-client-local-peer"],
+      "implementedBoundary": "Bounded WFS 1.0/1.1 GML2 compatibility and WFS 2.0 GML 3.2 feature exchange pass local QGIS and GeoMoose peers.",
+      "remaining": "Broader geometry and property vocabularies, alternate CRS and axis cases, normative validation breadth, public delivery, and deployed clients remain open."
+    },
+    {
+      "id": "kml-2.2",
+      "standard": "Keyhole Markup Language",
+      "selectedVersions": ["2.2"],
+      "status": "partial",
+      "evidenceIds": ["google-earth-pro-003a.kml-places-roundtrip", "geomoose-008.kml-exchange-client-local-peer"],
+      "implementedBoundary": "Bounded KML/KMZ import, authoring, deterministic export, official XSD validation, and GeoMoose exchange preserve selected geometry, names, data, and style semantics.",
+      "remaining": "Complete KML/gx/KMZ resources, style fidelity, executable conformance, governed service publication, deployed Google Earth/GeoMoose clients, and broader scale remain open."
+    },
+    {
+      "id": "geojson-rfc7946",
+      "standard": "GeoJSON",
+      "selectedVersions": ["RFC 7946"],
+      "status": "partial",
+      "evidenceIds": ["administered-service-openlayers.local-peer", "mapserver-004.format-matrix-local-peer", "service-029.geojson-rfc7946-profile"],
+      "implementedBoundary": "Governed CRS:84 feature responses and immutable archives pass the bounded parser, worker, OpenLayers, QGIS, GDAL, and format matrix. A dedicated application-profile receipt covers every RFC 7946 geometry type, numeric and string identifiers, null geometry and properties, UTF-8 and structured properties, two- and three-dimensional positions, antimeridian and polar boxes, tolerant polygon winding, member-order independence, and bounded rejection cases.",
+      "remaining": "Governed public publication policy, deployed HTTP and independent-client acceptance, large-response behavior through that deployed path, authentication, caching, rollback, and cost observation remain open."
+    },
+    {
+      "id": "sos-2.0.0",
+      "standard": "Sensor Observation Service",
+      "selectedVersions": ["2.0.0"],
+      "status": "partial",
+      "evidenceIds": ["service-027.sos-2.0-interoperability"],
+      "implementedBoundary": "One fresh immutable service collection can opt into a read-only SOS 2.0 profile through required scalar phenomenon-time and result fields. The authenticated route maps that collection to one deterministic offering, procedure, and observed property; implements strict GetCapabilities, DescribeSensor, and GetObservation KVP reads; returns at most 100 O&M measurements; and passes the exact locked official SOS, SWES, SensorML, and O&M response schemas with three active invalid controls.",
+      "remaining": "Temporal, spatial, feature-of-interest, and broader selection filters; multiple procedures or observed properties per offering; insertion, result-template, SOAP, and transactional profiles; an official executable SOS suite; immutable governed deployment; independent deployed-client acceptance; and a formal conformance claim remain open."
+    },
+    {
+      "id": "wmc-1.1.0",
+      "standard": "Web Map Context",
+      "selectedVersions": ["1.1.0"],
+      "status": "partial",
+      "evidenceIds": ["service-026.wmc-1.1-interoperability"],
+      "implementedBoundary": "Studio imports and exports a bounded WMS-only Web Map Context 1.1 composition without dereferencing external resources. Shared extent, visibility, queryability, service identity, CRS, image format, current named style, metadata references, and bottom-to-top draw order have explicit mappings; credentials are removed, unsupported semantics are reported, and generated XML passes the exact checksum-locked official schema with an active invalid control.",
+      "remaining": "Publish the same governed context through an immutable deployed endpoint, complete independent deployed-client import/export acceptance, and identify or execute an authoritative WMC conformance suite if one becomes available. Non-WMS project resources, rich renderer styles, dimensions, and inline SLD execution remain outside this bounded profile."
+    }
+  ],
+  "summary": {
+    "profiles": 12,
+    "passed": 0,
+    "partial": 12,
+    "notStarted": 0,
+    "formalConformanceClaims": 0
+  },
+  "boundary": {
+    "inventoryComplete": true,
+    "rowComplete": false,
+    "productParityClaim": false,
+    "deploymentChanged": false,
+    "awsStateChanged": false,
+    "fixedInactiveCostDeltaUsd": 0
+  }
+}

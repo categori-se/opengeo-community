@@ -1,0 +1,1263 @@
+{
+  "schemaVersion": "1.0.0",
+  "reviewedAt": "2026-09-19",
+  "scope": "Direct npm and Python dependencies, explicitly selected runtime/toolchain foundations, and source-audited reference products. Release SBOMs remain authoritative for transitive and operating-system packages.",
+  "manifests": [
+    "package.json",
+    "app/package.json",
+    "database/package.json",
+    "infrastructure/package.json",
+    "services/observable-builder/package.json",
+    "services/observable-coordinator/package.json",
+    "services/observable-preview/package.json",
+    "services/api/pyproject.toml",
+    "services/worker/pyproject.toml"
+  ],
+  "packages": [
+    {
+      "ecosystem": "npm",
+      "name": "geotiff",
+      "version": "3.1.0-beta.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Lazy browser COG metadata/overview/window decoding; reuses the exact installed OpenLayers transitive version.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/geotiffjs/geotiff.js",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "proj4",
+      "version": "2.22.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Bounded COG pixel reprojection for the default MapLibre renderer.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/proj4js/proj4js",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "hyparquet",
+      "version": "1.31.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Lazy browser reading of bounded public STAC-GeoParquet columns and rows.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/hyparam/hyparquet",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "hyparquet-compressors",
+      "version": "1.1.2",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Pinned browser codecs for bounded public Parquet reads; includes Zstandard.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/hyparam/hyparquet-compressors",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@categori/workspace-contracts",
+      "version": "0.1.0-alpha.9",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Private shared Collection identities and provider-neutral interoperability contracts.",
+      "licenseExpression": "Apache-2.0",
+      "distributionStatus": "private-pending-release-review",
+      "sourcePath": "app/vendor/workspace-contracts",
+      "licenseEvidence": {
+        "kind": "private-local-package",
+        "paths": [
+          "app/vendor/workspace-contracts/package.json",
+          "app/vendor/workspace-contracts/README.md",
+          "app/vendor/workspace-contracts/LICENSE",
+          "app/vendor/workspace-contracts/NOTICE"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@observablehq/framework",
+      "version": "1.13.4",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json",
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Static data-application framework and isolated publication compiler.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/framework",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json",
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@observablehq/plot",
+      "version": "0.6.17",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json",
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Accessible chart and statistical visualization primitives.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/plot",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json",
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "d3",
+      "version": "7.9.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json",
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Data transformation and visualization utilities.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/d3/d3",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json",
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "fflate",
+      "version": "0.8.3",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Bounded browser ZIP compression and extraction for portable project formats.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/101arrowz/fflate",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "maplibre-gl",
+      "version": "6.4.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Primary browser map, globe, terrain, and interaction renderer.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/maplibre/maplibre-gl-js",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "pmtiles",
+      "version": "4.4.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Range-addressed single-file tile archive support.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/protomaps/PMTiles",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@mapbox/vector-tile",
+      "version": "2.0.5",
+      "dependencyKind": "development",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Vector-tile parsing in interoperability and rendering tests.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/mapbox/vector-tile-js",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@maplibre/geojson-vt",
+      "version": "6.1.0",
+      "dependencyKind": "development",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "GeoJSON-to-vector-tile behavior used by renderer tests.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/maplibre/geojson-vt",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@maplibre/vt-pbf",
+      "version": "4.3.2",
+      "dependencyKind": "development",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Vector-tile PBF encoding for deterministic client tests.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/maplibre/vt-pbf",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "jsdom",
+      "version": "23.2.0",
+      "dependencyKind": "development",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "DOM-level component and accessibility contract tests.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/jsdom/jsdom",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "ol",
+      "version": "10.10.0",
+      "dependencyKind": "development",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Independent OpenLayers client behavior for service interoperability tests.",
+      "licenseExpression": "BSD-2-Clause",
+      "sourceUrl": "https://github.com/openlayers/openlayers",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "pbf",
+      "version": "4.0.2",
+      "dependencyKind": "development",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Protocol-buffer support for vector-tile test fixtures.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/mapbox/pbf",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "playwright",
+      "version": "1.61.1",
+      "dependencyKind": "development",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Managed-browser workflow, layout, and live-release acceptance.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/microsoft/playwright",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@electric-sql/pglite",
+      "version": "0.5.8",
+      "dependencyKind": "development",
+      "usedBy": [
+        "database/package.json"
+      ],
+      "purpose": "Local embedded PostgreSQL-compatible migration and RLS behavior tests.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/electric-sql/pglite",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "database/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "aws-cdk-lib",
+      "version": "2.265.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "infrastructure/package.json"
+      ],
+      "purpose": "AWS infrastructure definitions and synthesis.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/aws/aws-cdk",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "infrastructure/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "constructs",
+      "version": "10.8.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "infrastructure/package.json"
+      ],
+      "purpose": "Composable infrastructure construct model used by AWS CDK.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/aws/constructs",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "infrastructure/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@types/node",
+      "version": "24.13.3",
+      "dependencyKind": "development",
+      "usedBy": [
+        "infrastructure/package.json"
+      ],
+      "purpose": "Node.js type declarations for infrastructure compilation.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "infrastructure/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "aws-cdk",
+      "version": "2.1137.0",
+      "dependencyKind": "development",
+      "usedBy": [
+        "infrastructure/package.json"
+      ],
+      "purpose": "AWS CDK command-line synthesis and deployment tooling.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/aws/aws-cdk-cli",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "infrastructure/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "tsx",
+      "version": "4.23.12",
+      "dependencyKind": "development",
+      "usedBy": [
+        "infrastructure/package.json"
+      ],
+      "purpose": "Direct execution of TypeScript infrastructure tests and entry points.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/privatenumber/tsx",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "infrastructure/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "typescript",
+      "version": "5.9.3",
+      "dependencyKind": "development",
+      "usedBy": [
+        "infrastructure/package.json"
+      ],
+      "purpose": "Static typing and compilation checks for infrastructure code.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/microsoft/TypeScript",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "infrastructure/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "arabic-reshaper",
+      "version": "3.0.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "Arabic-family glyph shaping for bounded print output.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/mpcabd/python-arabic-reshaper",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/arabic-reshaper/3.0.1/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "cryptography",
+      "version": "50.0.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "Cryptographic primitives used by authentication and secure contracts.",
+      "licenseExpression": "Apache-2.0 OR BSD-3-Clause",
+      "sourceUrl": "https://github.com/pyca/cryptography",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/cryptography/50.0.0/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "fastapi",
+      "version": "0.141.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "HTTP API routing, validation, and OpenAPI surface.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/fastapi/fastapi",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/fastapi/0.141.1/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "httpx2",
+      "version": "2.12.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "Bounded outbound HTTP client used behind explicit network policy.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/pydantic/httpx2",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/httpx2/2.12.0/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "psycopg",
+      "version": "3.3.4",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml",
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "PostgreSQL protocol adapter; the binary extra is hash-locked for runtime images.",
+      "licenseExpression": "NOASSERTION",
+      "sourceUrl": "https://github.com/psycopg/psycopg",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/psycopg/3.3.4/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "pydantic-settings",
+      "version": "2.15.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "Typed runtime configuration with explicit environment contracts.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/pydantic/pydantic-settings",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/pydantic-settings/2.15.0/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "PyJWT",
+      "version": "2.14.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "JWT validation for the managed identity boundary.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/jpadilla/pyjwt",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/PyJWT/2.14.0/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "python-bidi",
+      "version": "0.6.11",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "Unicode bidirectional layout for bounded print text.",
+      "licenseExpression": "LGPL-3.0-only",
+      "sourceUrl": "https://github.com/MeirKriheli/python-bidi",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/python-bidi/0.6.11/"
+      },
+      "notes": "Upstream package metadata classifies the project as LGPL and the wheel carries GPLv3/LGPLv3 texts, but version 0.6.11 publishes no exact SPDX expression or only/or-later assertion. Resolve before public distribution. The wheel also carries a third-party Rust dependency license inventory that release notices must preserve."
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "uvicorn",
+      "version": "0.52.3",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "ASGI HTTP server for the container-hosted API path.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/Kludex/uvicorn",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/uvicorn/0.52.3/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "duckdb",
+      "version": "1.5.5",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "In-process analytical execution for bounded GIS workflows.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/duckdb/duckdb",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/duckdb/1.5.5/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "geopandas",
+      "version": "1.1.4",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "Tabular/vector geospatial transformation in isolated workers.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/geopandas/geopandas",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/geopandas/1.1.4/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "pyarrow",
+      "version": "25.0.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "Arrow/Parquet interchange for columnar geospatial data.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/apache/arrow",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/pyarrow/25.0.0/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "rasterio",
+      "version": "1.5.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "Raster dataset access and GDAL-backed raster transforms.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/rasterio/rasterio",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/rasterio/1.5.0/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "rio-cogeo",
+      "version": "7.0.2",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "Cloud Optimized GeoTIFF creation and validation.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/cogeotiff/rio-cogeo",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/rio-cogeo/7.0.2/"
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "shapely",
+      "version": "2.1.2",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "Planar geometry construction, validation, and operations.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/shapely/shapely",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/shapely/2.1.2/"
+      },
+      "notes": "Shapely uses GEOS, which is tracked separately as a runtime foundation."
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@observablehq/notebook-kit",
+      "version": "2.5.6",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json",
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Notebook authoring and execution support in Studio and the isolated publication compiler.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/notebook-kit",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json",
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "markdown-it",
+      "version": "14.2.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Markdown parsing for authored publication content in Studio.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/markdown-it/markdown-it",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "monaco-editor",
+      "version": "0.56.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Code editing for authored sources in the Studio workbench.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/microsoft/monaco-editor",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "path-browserify",
+      "version": "1.0.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Browser path operations used by notebook and authored-source tooling.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/browserify/path-browserify",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@observablehq/inputs",
+      "version": "0.12.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Observable notebook input widgets bundled by the publication compiler.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/inputs",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "esbuild",
+      "version": "0.28.2",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Bundle notebook runtime assets inside the isolated publication compiler.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/evanw/esbuild",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "htl",
+      "version": "0.3.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Hypertext Literal templates for compiled Observable notebook output.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/htl",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "jszip",
+      "version": "3.10.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/observable-builder/package.json"
+      ],
+      "purpose": "Read and package notebook assets in the isolated publication compiler.",
+      "licenseExpression": "(MIT OR GPL-3.0-or-later)",
+      "sourceUrl": "https://github.com/Stuk/jszip",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "services/observable-builder/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@noble/hashes",
+      "version": "2.0.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Incremental SHA-256 for bounded-memory browser archive uploads in a dedicated worker.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/paulmillr/noble-hashes",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "pypi",
+      "name": "pygeofilter",
+      "version": "0.4.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/api/pyproject.toml"
+      ],
+      "purpose": "Parse bounded OGC CQL2 filters for catalog and feature services; OpenGeo validates and compiles the permitted operations.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/geopython/pygeofilter",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/pygeofilter/0.4.0/"
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "mapbox-gl",
+      "version": "3.30.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Optional, lazy-loaded proprietary Mapbox renderer using the user's public token; MapLibre remains the no-token default.",
+      "licenseExpression": "SEE LICENSE IN LICENSE.txt",
+      "sourceUrl": "https://github.com/mapbox/mapbox-gl-js/tree/v3.30.0",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "cesium",
+      "version": "1.145.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Optional self-hosted globe/scene renderer; native adapter with no default ion or hosted basemap requests. Workbench switching remains integration work.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/CesiumGS/cesium/tree/1.145",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@maplibre/maplibre-gl-style-spec",
+      "version": "26.4.4",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Shared MapLibre expression evaluation for native renderer Style fidelity.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/maplibre/maplibre-style-spec",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "rbush",
+      "version": "4.0.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Screen-space collision indexing for native renderer label placement.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/mourner/rbush",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@lezer/html",
+      "version": "1.3.13",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Source-position-aware native Notebook cell editing without rewriting untouched HTML. Reuses the parser already installed with Notebook Kit.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/lezer-parser/html",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    }
+  ],
+  "platformFoundations": [
+    {
+      "name": "Python",
+      "version": "3.13.15",
+      "usedBy": [
+        "services/api/Dockerfile",
+        "services/api/Dockerfile.lambda"
+      ],
+      "purpose": "API and verifier runtime.",
+      "licenseExpression": "PSF-2.0",
+      "sourceUrl": "https://github.com/python/cpython",
+      "licenseEvidenceUrl": "https://docs.python.org/3/license.html"
+    },
+    {
+      "name": "Node.js",
+      "version": "24.19.0",
+      "usedBy": [
+        "services/observable-builder/Dockerfile",
+        "services/observable-coordinator/package.json"
+      ],
+      "purpose": "Browser build, publication compiler, and coordinator runtime.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/nodejs/node",
+      "licenseEvidenceUrl": "https://github.com/nodejs/node/blob/v24.19.0/LICENSE"
+    },
+    {
+      "name": "Alpine Linux",
+      "version": "3.23",
+      "usedBy": [
+        "services/api/Dockerfile",
+        "services/api/Dockerfile.lambda"
+      ],
+      "purpose": "Minimal API container operating-system base.",
+      "licenseExpression": "NOASSERTION",
+      "sourceUrl": "https://gitlab.alpinelinux.org/alpine",
+      "licenseEvidenceUrl": "https://www.alpinelinux.org/about/",
+      "notes": "Distribution packages carry multiple licenses; the release SBOM and image license files are authoritative."
+    },
+    {
+      "name": "Debian",
+      "version": "13",
+      "usedBy": [
+        "services/observable-builder/Dockerfile"
+      ],
+      "purpose": "Builder and distroless publication runtime base.",
+      "licenseExpression": "NOASSERTION",
+      "sourceUrl": "https://salsa.debian.org/",
+      "licenseEvidenceUrl": "https://www.debian.org/legal/licenses/",
+      "notes": "Distribution packages carry multiple licenses; the release SBOM is authoritative."
+    },
+    {
+      "name": "Ubuntu",
+      "version": "24.04 ARM64 and GDAL image base",
+      "usedBy": [
+        "services/worker/Dockerfile",
+        "infrastructure/bootstrap/run-opengeo-container-build-controller.sh"
+      ],
+      "purpose": "Minimal ARM64 build host and OSGeo worker-image base.",
+      "licenseExpression": "NOASSERTION",
+      "sourceUrl": "https://code.launchpad.net/ubuntu",
+      "licenseEvidenceUrl": "https://ubuntu.com/legal/open-source",
+      "notes": "Ubuntu is a collection of packages under multiple licenses; inspect the exact AMI/image SBOM."
+    },
+    {
+      "name": "Distroless Node.js",
+      "version": "nodejs24-debian13 digest-pinned",
+      "usedBy": [
+        "services/observable-builder/Dockerfile"
+      ],
+      "purpose": "Reduced publication-builder runtime filesystem.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/GoogleContainerTools/distroless",
+      "licenseEvidenceUrl": "https://github.com/GoogleContainerTools/distroless/blob/main/LICENSE"
+    },
+    {
+      "name": "PostgreSQL",
+      "version": "Aurora PostgreSQL-compatible; exact engine selected by infrastructure config",
+      "usedBy": [
+        "database/migrations",
+        "infrastructure/lib/platform-foundation-stack.ts"
+      ],
+      "purpose": "Authoritative relational, transaction, and row-security store.",
+      "licenseExpression": "PostgreSQL",
+      "sourceUrl": "https://git.postgresql.org/gitweb/?p=postgresql.git",
+      "licenseEvidenceUrl": "https://www.postgresql.org/about/licence/"
+    },
+    {
+      "name": "PostGIS",
+      "version": "engine extension selected by migration/runtime environment",
+      "usedBy": [
+        "database/migrations",
+        "services/worker/Dockerfile"
+      ],
+      "purpose": "Spatial types, indexes, predicates, and transformations.",
+      "licenseExpression": "GPL-2.0-or-later",
+      "sourceUrl": "https://github.com/postgis/postgis",
+      "licenseEvidenceUrl": "https://postgis.net/source/"
+    },
+    {
+      "name": "GDAL/OGR",
+      "version": "3.13.0 worker image",
+      "usedBy": [
+        "services/worker/Dockerfile",
+        "services/worker/src/opengeo_worker"
+      ],
+      "purpose": "Core raster/vector format, CRS, and transformation toolchain.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/OSGeo/gdal",
+      "licenseEvidenceUrl": "https://github.com/OSGeo/gdal/blob/master/LICENSE.TXT",
+      "notes": "GDAL core is MIT-style; enabled drivers and bundled libraries can carry additional licenses and must be captured by the image SBOM."
+    },
+    {
+      "name": "PROJ",
+      "version": "provided by the pinned OSGeo/GDAL image",
+      "usedBy": [
+        "services/worker/Dockerfile"
+      ],
+      "purpose": "Coordinate reference system and transformation engine.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/OSGeo/PROJ",
+      "licenseEvidenceUrl": "https://github.com/OSGeo/PROJ/blob/master/COPYING"
+    },
+    {
+      "name": "GEOS",
+      "version": "provided by the pinned OSGeo/GDAL image and Shapely wheels",
+      "usedBy": [
+        "services/worker/Dockerfile",
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "Computational geometry engine used by PostGIS/Shapely workflows.",
+      "licenseExpression": "LGPL-2.1-or-later",
+      "sourceUrl": "https://github.com/libgeos/geos",
+      "licenseEvidenceUrl": "https://github.com/libgeos/geos/blob/main/COPYING"
+    },
+    {
+      "name": "Tippecanoe",
+      "version": "2.79.0",
+      "usedBy": [
+        "services/worker/Dockerfile"
+      ],
+      "purpose": "Vector-tile generation and joining.",
+      "licenseExpression": "BSD-2-Clause",
+      "sourceUrl": "https://github.com/felt/tippecanoe",
+      "licenseEvidenceUrl": "https://github.com/felt/tippecanoe/blob/2.79.0/LICENSE.md"
+    },
+    {
+      "name": "ClamAV",
+      "version": "Ubuntu package in pinned worker image",
+      "usedBy": [
+        "services/worker/Dockerfile"
+      ],
+      "purpose": "Malware scanning for governed uploads.",
+      "licenseExpression": "GPL-2.0-only",
+      "sourceUrl": "https://github.com/Cisco-Talos/clamav",
+      "licenseEvidenceUrl": "https://github.com/Cisco-Talos/clamav/blob/main/COPYING.txt"
+    },
+    {
+      "name": "Poppler",
+      "version": "Ubuntu package in pinned worker image",
+      "usedBy": [
+        "services/worker/Dockerfile"
+      ],
+      "purpose": "Bounded PDF inspection, text extraction, and raster preview.",
+      "licenseExpression": "GPL-2.0-or-later",
+      "sourceUrl": "https://gitlab.freedesktop.org/poppler/poppler",
+      "licenseEvidenceUrl": "https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/COPYING"
+    },
+    {
+      "name": "Tesseract OCR",
+      "version": "Ubuntu package and selected script data in pinned worker image",
+      "usedBy": [
+        "services/worker/Dockerfile"
+      ],
+      "purpose": "Bounded OCR for text-empty document pages.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/tesseract-ocr/tesseract",
+      "licenseEvidenceUrl": "https://github.com/tesseract-ocr/tesseract/blob/main/LICENSE"
+    },
+    {
+      "name": "GNU Unifont",
+      "version": "17.0.04",
+      "usedBy": [
+        "services/api/Dockerfile",
+        "services/api/Dockerfile.lambda",
+        "services/api/assets/GNU-Unifont-LICENSE.txt",
+        "services/api/scripts/fetch_pinned_https_asset.py"
+      ],
+      "purpose": "Checksum-pinned glyph source for deterministic multilingual print output.",
+      "licenseExpression": "GPL-2.0-or-later WITH Font-exception-2.0",
+      "sourceUrl": "https://savannah.gnu.org/projects/unifont",
+      "licenseEvidenceUrl": "https://unifoundry.com/LICENSE.txt",
+      "notes": "The complete upstream dual-license text is vendored and checksum-verified in each runtime image; the font archive is size-limited and checksum-pinned across redundant GNU mirrors."
+    },
+    {
+      "name": "Open Sans generated map glyphs",
+      "version": "1.10 (Fedora 1.10-24.fc43; opengeo-open-sans-v1 asset version 1)",
+      "usedBy": [
+        "app/scripts/generate-map-font.mjs",
+        "app/src/assets/render-fonts/opengeo-open-sans-v1/1/manifest.json",
+        "app/src/assets/render-fonts/opengeo-open-sans-v1/1/LICENSE.txt",
+        "app/src/assets/render-fonts/opengeo-open-sans-v1/1/NOTICE.txt",
+        "app/src/lib/mapFonts.js",
+        "services/api/src/opengeo_api/render_fonts.py",
+        "services/worker/src/opengeo_worker/maplibre_runtime.py",
+        "app/src/assets/render-fonts/opengeo-open-sans-v1/1/OpenSans-Regular.ttf",
+        "app/src/lib/cesiumLabels.js"
+      ],
+      "purpose": "Exact-version generated glyph assets for pinned browser/saved-map labels and the same original font for native Cesium labels.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://src.fedoraproject.org/rpms/open-sans-fonts",
+      "licenseEvidenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "notes": "The installed open-sans-fonts-1.10-24.fc43.noarch RPM and source font name table identify Open Sans 1.10 under Apache-2.0; source RPM is open-sans-fonts-1.10-24.fc43.src.rpm. No upstream commit or newer font release is asserted. Frozen glyph manifest SHA-256 19aa88722c18ee3005c64d95cded9eda8337d5772939a92e44c53defc930508a records exact source font, license, coverage, generator and PBF checksums. The complete license is vendored; the separate NOTICE.txt retains the embedded source copyright and generated-glyph notice and is deliberately outside the frozen glyph manifest. Ship both companions with the assets. TinySDF 2.2.0 (BSD-2-Clause) is an existing app lockfile transitive generation dependency, not a new runtime package; retain its attribution in build-tool SBOMs. The native font bytes match the frozen manifest source SHA-256; Cesium fetches and verifies them only for labeled content."
+    }
+  ],
+  "referenceProducts": [
+    {
+      "name": "QGIS",
+      "version": "3.44.12",
+      "relationship": "Source-audited workflow and independent-client reference; not shipped as an OpenGeo dependency.",
+      "licenseExpression": "GPL-2.0-or-later",
+      "sourceUrl": "https://github.com/qgis/QGIS",
+      "licenseEvidencePath": "parity/fixtures/qgis/qgis-3.44.12-source-lock.json"
+    },
+    {
+      "name": "GeoLibre",
+      "version": "2.6.0",
+      "relationship": "Source-audited browser GIS and portable-project reference; not shipped.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/opengeos/GeoLibre",
+      "licenseEvidencePath": "parity/fixtures/geolibre/geolibre-2.6.0-source-lock.json"
+    },
+    {
+      "name": "GeoNode",
+      "version": "5.1.0",
+      "relationship": "Source-audited governance/catalog reference; not shipped.",
+      "licenseExpression": "GPL-2.0-or-later",
+      "sourceUrl": "https://github.com/GeoNode/geonode",
+      "licenseEvidencePath": "parity/fixtures/geonode/geonode-5.1.0-source-lock.json"
+    },
+    {
+      "name": "GeoServer",
+      "version": "3.0.1",
+      "relationship": "Source-audited service-engine reference and disposable test peer; not part of the OpenGeo runtime.",
+      "licenseExpression": "GPL-2.0-or-later",
+      "sourceUrl": "https://github.com/geoserver/geoserver",
+      "licenseEvidencePath": "parity/fixtures/geoserver/geoserver-3.0.1-source-lock.json"
+    },
+    {
+      "name": "MapServer",
+      "version": "8.6.5",
+      "relationship": "Source-audited render/service reference and disposable test peer; not part of the OpenGeo runtime.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/MapServer/MapServer",
+      "licenseEvidencePath": "parity/fixtures/mapserver/mapserver-8.6.5-source-lock.json"
+    },
+    {
+      "name": "GeoMoose",
+      "version": "3.15.2",
+      "relationship": "Source-audited web GIS portal reference; not shipped.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/geomoose/gm3",
+      "licenseEvidencePath": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+    },
+    {
+      "name": "OpenLayers",
+      "version": "10.10.0",
+      "relationship": "Source-audited web-client reference and direct development-only independent client.",
+      "licenseExpression": "BSD-2-Clause",
+      "sourceUrl": "https://github.com/openlayers/openlayers",
+      "licenseEvidencePath": "parity/fixtures/openlayers/openlayers-10.10.0-source-lock.json"
+    }
+  ]
+}

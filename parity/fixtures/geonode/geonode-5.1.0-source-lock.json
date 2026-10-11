@@ -1,0 +1,500 @@
+{
+  "schemaVersion": "1.0.0",
+  "referenceId": "geonode.cms-workflows",
+  "status": "source_verified",
+  "observedAt": "2026-08-24",
+  "upstream": {
+    "repository": "https://github.com/GeoNode/geonode",
+    "release": "5.1.0",
+    "tag": "5.1.0",
+    "commit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+    "tree": "b42b136e1fc5e80f064315b4a352e8126c2e4ba7",
+    "commitDate": "2026-08-18T14:41:04+02:00",
+    "license": "GPL-2.0-or-later",
+    "tagIdentity": {
+      "kind": "lightweight",
+      "resolvesToCommit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+      "signaturePresent": false,
+      "trustVerified": false,
+      "reason": "The official 5.1.0 ref is a lightweight Git tag resolving directly to the release commit, so it has no annotated tag object or tag signature to verify."
+    }
+  },
+  "scope": {
+    "evidenceType": "upstream-source-inventory",
+    "purpose": "Bind the seven formal GeoNode parity rows to exact upstream source for ordinary resource, catalog, metadata, sharing, ingest, federation, publishing, and administration workflows.",
+    "geonodeIsParityBaseline": true,
+    "geonodeRuntimeExecuted": false,
+    "openGeoWorkflowExecuted": false,
+    "existingMigrationPeerEvidenceIsSeparate": true,
+    "sourceAuditChangesRowStatus": false
+  },
+  "identityAssertions": [
+    {
+      "path": "pyproject.toml",
+      "requiredStrings": [
+        "name = \"GeoNode\"",
+        "description = \"Open Source, Content Management System (CMS) for geospatial data.\""
+      ]
+    },
+    {
+      "path": "geonode/__init__.py",
+      "requiredStrings": [
+        "__version__ = (5, 1, 0, 'post', 1)",
+        "__version_str__ = get_version()"
+      ]
+    },
+    {
+      "path": "LICENSE",
+      "requiredStrings": [
+        "GeoNode, open geospatial information server",
+        "Free Software Foundation; either version 2 of the License, or"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "rowId": "geonode.governed-resource-types",
+      "userOutcome": "Create, relate, identify, serialize, govern, and migrate datasets, maps, documents, services, stories, and dashboards through one resource model.",
+      "sourceAssertions": [
+        {
+          "path": "docs/src/development/api.md",
+          "requiredStrings": [
+            "resource_type ``(dataset, map, document, service, geostory, dashboard)``",
+            "/api/v2/resources?filter{resource_type}=map"
+          ]
+        },
+        {
+          "path": "geonode/base/models.py",
+          "requiredStrings": [
+            "class ResourceBase(PolymorphicModel, PermissionLevelMixin, ItemBase):",
+            "uuid = models.CharField(max_length=36, unique=True, default=uuid.uuid4)",
+            "is_published = models.BooleanField(",
+            "is_approved = models.BooleanField(",
+            "advertised = models.BooleanField(",
+            "resource_type = models.CharField(_(\"Resource Type\"), max_length=1024, blank=True, null=True)",
+            "def get_linked_resources(self, as_target: bool = False):"
+          ]
+        },
+        {
+          "path": "geonode/base/api/serializers.py",
+          "requiredStrings": [
+            "class ResourceBaseSerializer(MultiLangOutputMixin, DynamicModelSerializer):",
+            "data = DataBlobField(DataBlobSerializer, source=\"id\", deferred=True, required=False)",
+            "linked_resources = DynamicRelationField("
+          ]
+        },
+        {
+          "path": "geonode/layers/models.py",
+          "requiredStrings": [
+            "class Dataset(ResourceBase):",
+            "styles = models.ManyToManyField(Style, related_name=\"dataset_styles\")"
+          ]
+        },
+        {
+          "path": "geonode/maps/models.py",
+          "requiredStrings": [
+            "class Map(ResourceBase):",
+            "A Map aggregates several layers together and annotates them with a viewport"
+          ]
+        },
+        {
+          "path": "geonode/documents/models.py",
+          "requiredStrings": [
+            "class Document(ResourceBase):"
+          ]
+        },
+        {
+          "path": "geonode/geoapps/models.py",
+          "requiredStrings": [
+            "class GeoApp(ResourceBase):",
+            "A GeoApp it is a generic container for every client applications"
+          ]
+        },
+        {
+          "path": "geonode/services/models.py",
+          "requiredStrings": [
+            "class Service(ResourceBase):",
+            "Service Class to represent remote Geo Web Services"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geonode.catalog-discovery",
+      "userOutcome": "Discover only visible resources through authorized full-text, resource-type, publication-state, keyword, facet, spatial-extent, and related catalog filters.",
+      "sourceAssertions": [
+        {
+          "path": "docs/src/development/api.md",
+          "requiredStrings": [
+            "## Resource Searching and Filtering",
+            "title and abstract ``(paginated free text search)``",
+            "extent ``(Four comer separated coordinates)``"
+          ]
+        },
+        {
+          "path": "geonode/base/api/views.py",
+          "requiredStrings": [
+            "class ResourceBaseViewSet(ApiPresetsInitializer, MultiLangViewMixin, DeprecatedExtraMetadataMixin, DynamicModelViewSet):",
+            "permission_classes = [IsAuthenticatedOrReadOnly, UserHasPerms]",
+            "ResourceIndexFilter,",
+            "AdvertisedFilter,",
+            "DynamicSearchFilter,",
+            "ExtentFilter,",
+            "ResourceBasePermissionsFilter,"
+          ]
+        },
+        {
+          "path": "geonode/base/api/filters.py",
+          "requiredStrings": [
+            "class DynamicSearchFilter(SearchFilter):",
+            "class ExtentFilter(BaseFilterBackend):",
+            "return filter_bbox(queryset, request.query_params.get(\"extent\"))",
+            "class TKeywordsFilter(BaseFilterBackend):",
+            "class AdvertisedFilter(BaseFilterBackend):"
+          ]
+        },
+        {
+          "path": "geonode/indexing/api/filters.py",
+          "requiredStrings": [
+            "class ResourceIndexFilter(BaseFilterBackend):",
+            "if search_index not in settings.METADATA_INDEXES:",
+            "AsteriskSearchQuery(search, config=pg_lang, search_type=\"raw\")"
+          ]
+        },
+        {
+          "path": "geonode/facets/views.py",
+          "requiredStrings": [
+            "class BaseFacetingView(APIView):",
+            "return get_visible_resources(queryset=viewset.filter_queryset(viewset.get_queryset()), user=request.user)",
+            "for provider in facet_registry.get_providers():"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "userOutcome": "Build and localize a schema-driven metadata form, retain typed and sparse values, validate required fields, serialize revisions, and update the search index.",
+      "sourceAssertions": [
+        {
+          "path": "geonode/metadata/models.py",
+          "requiredStrings": [
+            "class SparseField(models.Model):",
+            "resource = models.ForeignKey(ResourceBase, on_delete=models.CASCADE, null=False)",
+            "unique_together = ((\"resource\", \"name\"),)"
+          ]
+        },
+        {
+          "path": "geonode/metadata/manager.py",
+          "requiredStrings": [
+            "class MetadataManager:",
+            "def build_schema(self, lang=None):",
+            "if field.get(\"geonode:required\", False):",
+            "def build_schema_instance(self, resource, lang=None):",
+            "def update_schema_instance(self, resource, request_obj, lang=None, partial=None) -> dict:",
+            "index_manager.update_index(resource.id, json_instance)"
+          ]
+        },
+        {
+          "path": "geonode/metadata/handlers/sparse.py",
+          "requiredStrings": [
+            "class SparseFieldRegistry:",
+            "def register(self, field_name: str, schema: dict, after: str = None, init_func=None):",
+            "class SparseHandler(MetadataHandler):",
+            "subschema.update({\"geonode:handler\": \"sparse\"})",
+            "def get_jsonschema_instance(self, resource, field_name, context, errors, lang=None):"
+          ]
+        },
+        {
+          "path": "geonode/metadata/schemas/base.json",
+          "requiredStrings": [
+            "\"geonode:required\": true",
+            "\"data_quality_statement\": {",
+            "\"temporal_extent_start\": {",
+            "\"restriction_code_type\": {",
+            "\"supplemental_information\": {"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geonode.sharing-community",
+      "userOutcome": "Organize public, invite-only, and private groups; assign member/manager roles; and enforce explicit moderated resource publication and visibility permissions.",
+      "sourceAssertions": [
+        {
+          "path": "geonode/groups/models.py",
+          "requiredStrings": [
+            "class GroupProfile(models.Model):",
+            "(\"public-invite\", _(\"Public (invite-only)\"))",
+            "(\"private\", _(\"Private\"))",
+            "class GroupMember(models.Model):",
+            "MANAGER = \"manager\"",
+            "MEMBER = \"member\"",
+            "def promote(self, *args, **kwargs):",
+            "def demote(self, *args, **kwargs):"
+          ]
+        },
+        {
+          "path": "geonode/security/utils.py",
+          "requiredStrings": [
+            "class AdvancedSecurityWorkflowManager:",
+            "def is_auto_publishing_workflow():",
+            "def is_simple_publishing_workflow():",
+            "def is_advanced_workflow():",
+            "def get_workflow_permissions(",
+            "def set_group_member_permissions(user, group, role):"
+          ]
+        },
+        {
+          "path": "geonode/base/models.py",
+          "requiredStrings": [
+            "notice_type_label = f\"{self.class_name.lower()}_approved\"",
+            "notice_type_label = f\"{self.class_name.lower()}_published\"",
+            "notice_type_label = f\"{self.class_name.lower()}_updated\""
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "userOutcome": "Upload or reference common raster, vector, tabular, document, style, and 3D resources; validate archives/features; copy, overwrite, upsert, style, and compose datasets in maps.",
+      "sourceAssertions": [
+        {
+          "path": "geonode/upload/settings.py",
+          "requiredStrings": [
+            "SYSTEM_HANDLERS = [",
+            "geonode.upload.handlers.gpkg.handler.GPKGFileHandler",
+            "geonode.upload.handlers.geojson.handler.GeoJsonFileHandler",
+            "geonode.upload.handlers.shapefile.handler.ShapeFileHandler",
+            "geonode.upload.handlers.kml.handler.KMLFileHandler",
+            "geonode.upload.handlers.csv.handler.CSVFileHandler",
+            "geonode.upload.handlers.geotiff.handler.GeoTiffFileHandler",
+            "geonode.upload.handlers.sld.handler.SLDFileHandler",
+            "geonode.upload.handlers.tiles3d.handler.Tiles3DFileHandler",
+            "geonode.upload.handlers.remote.cog.RemoteCOGResourceHandler",
+            "geonode.upload.handlers.xlsx.handler.XLSXFileHandler"
+          ]
+        },
+        {
+          "path": "geonode/upload/api/serializer.py",
+          "requiredStrings": [
+            "class BaseImporterSerializer(DynamicModelSerializer):",
+            "validate_safe_zip(source)",
+            "class ImporterSerializer(BaseImporterSerializer):",
+            "class OverwriteImporterSerializer(ImporterSerializer):",
+            "class UpsertImporterSerializer(ImporterSerializer):",
+            "upsert_key = serializers.CharField(required=False, default=\"fid\")"
+          ]
+        },
+        {
+          "path": "geonode/upload/api/views.py",
+          "requiredStrings": [
+            "class ImporterViewSet(DynamicModelViewSet):",
+            "handler = orchestrator.get_handler(_data)",
+            "if handler and handler.can_do(action):",
+            "def validate_upload(self, request, storage_manager):",
+            "class ResourceImporter(DynamicModelViewSet):",
+            "handler = orchestrator.load_handler(handler_module_path)"
+          ]
+        },
+        {
+          "path": "geonode/upload/registry.py",
+          "requiredStrings": [
+            "class FeatureValidatorsRegistry:",
+            "for handler in self.HANDLERS:",
+            "handler.validate(feature)"
+          ]
+        },
+        {
+          "path": "geonode/layers/models.py",
+          "requiredStrings": [
+            "class Style(models.Model, PermissionLevelMixin):",
+            "sld_body = models.TextField(_(\"sld text\"), null=True, blank=True)",
+            "class Dataset(ResourceBase):",
+            "default_style = models.ForeignKey(",
+            "def is_vector(self):",
+            "def is_raster(self):",
+            "def is_tabular(self):"
+          ]
+        },
+        {
+          "path": "geonode/maps/models.py",
+          "requiredStrings": [
+            "class MapLayer(models.Model):",
+            "visibility = models.BooleanField(default=True)",
+            "order = models.IntegerField(default=0)",
+            "style = Style.objects.filter(name=style_name).first()"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geonode.federation-harvesting",
+      "userOutcome": "Register a remote service, schedule discovery and harvest sessions, retain stable remote identities and freshness, observe progress/failure, and abort safely.",
+      "sourceAssertions": [
+        {
+          "path": "geonode/harvesting/models.py",
+          "requiredStrings": [
+            "class Harvester(models.Model):",
+            "remote_url = models.URLField(help_text=_(\"Base URL of the remote service that is to be harvested\"))",
+            "scheduling_enabled = models.BooleanField(",
+            "def initiate_update_harvestable_resources(self):",
+            "def initiate_perform_harvesting(self, harvestable_resource_ids: typing.Optional[typing.List[int]] = None):",
+            "class AsynchronousHarvestingSession(models.Model):",
+            "STATUS_ABORTED = \"aborted\"",
+            "class HarvestableResource(models.Model):",
+            "unique_identifier = models.CharField(",
+            "last_refreshed = models.DateTimeField()",
+            "models.UniqueConstraint(fields=(\"harvester\", \"unique_identifier\"), name=\"unique_id_for_harvester\")"
+          ]
+        },
+        {
+          "path": "geonode/harvesting/tasks.py",
+          "requiredStrings": [
+            "def harvesting_scheduler(self):",
+            "def harvesting_dispatcher(self, harvesting_session_id: int):",
+            "def harvest_resources(",
+            "def _harvest_resource(self, harvestable_resource_id: int, harvesting_session_id: int, execution_id: str):",
+            "def _finish_harvesting(self, harvesting_session_id: int, execution_id: str, force_failure=False):",
+            "transaction.on_commit(lambda: harvesting_workflow.apply_async())"
+          ]
+        },
+        {
+          "path": "geonode/harvesting/harvesters/geonodeharvester.py",
+          "requiredStrings": [
+            "return f\"{self.remote_url}/api/v2\"",
+            "def get_num_available_resources(self) -> int:",
+            "def list_resources(self, offset: typing.Optional[int] = 0) -> typing.List[base.BriefRemoteResource]:",
+            "def get_resource("
+          ]
+        },
+        {
+          "path": "geonode/services/models.py",
+          "requiredStrings": [
+            "harvester = models.ForeignKey(",
+            "return self.harvester.remote_available",
+            "class ServiceProfileRole(models.Model):"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geonode.publishing-administration",
+      "userOutcome": "Compose maps, dashboards, and stories; publish and share them; apply an administrative theme; and create or restore a portable operational backup.",
+      "sourceAssertions": [
+        {
+          "path": "docs/src/user-guide/dashboard/dashboard.md",
+          "requiredStrings": [
+            "Dashboard is a MapStore tool integrated in GeoNode",
+            "choose *Create dashboard*",
+            "charts, maps, tables, texts and counters"
+          ]
+        },
+        {
+          "path": "docs/src/user-guide/geostory/geostory.md",
+          "requiredStrings": [
+            "GeoStory is a MapStore tool integrated in GeoNode",
+            "publish and share them with different groups of GeoNode users",
+            "To save your GeoStory, choose `Save` and then `Save as...`"
+          ]
+        },
+        {
+          "path": "geonode/maps/models.py",
+          "requiredStrings": [
+            "class Map(ResourceBase):",
+            "return reverse(\"map_embed\", kwargs={\"mapid\": self.pk})"
+          ]
+        },
+        {
+          "path": "geonode/geoapps/models.py",
+          "requiredStrings": [
+            "def is_public(self):",
+            "return user.has_perm(\"base.view_resourcebase\", obj=self.resourcebase_ptr)",
+            "return reverse(\"geoapp_embed\", kwargs={\"geoappid\": self.pk})"
+          ]
+        },
+        {
+          "path": "geonode/themes/models.py",
+          "requiredStrings": [
+            "class GeoNodeThemeCustomization(models.Model):",
+            "Set this theme as the current global theme for GeoNode",
+            "def disable_other(sender, instance, **kwargs):",
+            "cache.delete(THEME_CACHE_KEY)"
+          ]
+        },
+        {
+          "path": "geonode/br/management/commands/backup.py",
+          "requiredStrings": [
+            "class Command(BaseCommand):",
+            "def execute_backup(self, **options):",
+            "backup_archive = os.path.join(backup_dir, f\"{dir_time_suffix}.zip\")",
+            "zip_archive_md5 = utils.md5_file_hash(backup_archive)"
+          ]
+        },
+        {
+          "path": "geonode/br/management/commands/restore.py",
+          "requiredStrings": [
+            "class Command(BaseCommand):",
+            "def validate_backup_file_options(self, **options) -> None:",
+            "def validate_backup_file_hash(self, backup_file: str) -> str:",
+            "restored_backup = RestoredBackup("
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceEvidence": [
+    {"path":"LICENSE","gitBlob":"6c1d884a15799e997ab66b822b70c0f92cc2ce54","sha256":"90ef058cd188d1fbf4a2337f4e2bf4671236aa5eaf435432d7c40b498f032edf","bytes":36001},
+    {"path":"pyproject.toml","gitBlob":"d87df1a9f333006c2625fb2025224ed4b73f7719","sha256":"f8287c1511fde29cd9fc4a808f0f1fa8aec833009b65c8a6db43338e15dfba06","bytes":5248},
+    {"path":"geonode/__init__.py","gitBlob":"32dbda28558fb545e8efa9681f57590359a7de4c","sha256":"0d08e6e1ce7ab35ebd77c539ac7b8d8d714b39cc97b1baeae55eba9d3516d513","bytes":1548},
+    {"path":"geonode/base/models.py","gitBlob":"90850fe7f16fe84a549901927dda6cbc96828883","sha256":"8dccabae8caaad246ebd5963820378df8eb3ac4d072f0e378374b94bf2d8f381","bytes":83978},
+    {"path":"geonode/base/api/serializers.py","gitBlob":"6d8094518d098f11750086c073ca30f6a0e3037c","sha256":"d75e1680706692570ae2c73a6a029e59b0a6106b4fb63f0d426610fd02253b5c","bytes":34244},
+    {"path":"geonode/base/api/views.py","gitBlob":"cf6c6b839da0b6c86d8ab2581dc0da36baff5512","sha256":"6eaf2bdcf9d49fd38610dfb47f394859c2a4cc270fbde5ac2f1982fab0a1a790","bytes":63106},
+    {"path":"geonode/base/api/filters.py","gitBlob":"15b4607bf23b26badb63c2e7694504e6a95e05c9","sha256":"0ecc47276f8d0cc1d790d10a3c75c148fa00488beddda60749476dc3d0c48f85","bytes":6158},
+    {"path":"geonode/facets/views.py","gitBlob":"60b3bf00c71b95590c11e081a97525ddd4d15980","sha256":"82df7d98bdcd6ab7e1f3908f0ada50bf4dc58bfd4681eff71a183840df3317b0","bytes":7935},
+    {"path":"geonode/indexing/api/filters.py","gitBlob":"f57524a6ce728730939f008f7bd6e6998f1ce69b","sha256":"39b2b4fda30ef4325a5fee7b5b3f1b8218b669eef201cee9436b7828ffb01ef5","bytes":3358},
+    {"path":"geonode/metadata/models.py","gitBlob":"111f76ffcb89f1c1aef8f75113e1b9848a7ac28c","sha256":"24a3f13aca477202731a731b2e547e983a1df4308d3b385312be912a982774f3","bytes":1519},
+    {"path":"geonode/metadata/manager.py","gitBlob":"c973f082dfc5854c3e15ba68ae3abe9603fd2f79","sha256":"83a3336a5b5f9bcd5c849b3cef97aaa23681afdbfc4634c13c782c3700c3bbf4","bytes":9884},
+    {"path":"geonode/metadata/handlers/sparse.py","gitBlob":"48db6c5c1a2bac2f3e747073a6d22361954a629a","sha256":"4e97d6f73ac3b5db46a5450a2398a5287788ae8d1dd89206997ab1b13b95e9cf","bytes":11320},
+    {"path":"geonode/metadata/schemas/base.json","gitBlob":"f022662ecfbc65083ba05cf86b3c2f0d29362b98","sha256":"a68e1116e28dcd92359b2dbcb90aba8a1f1bce69eca2ff78a0b8935c76704461","bytes":4389},
+    {"path":"geonode/groups/models.py","gitBlob":"a4cddca47db3ab1b413d199544ac2faac594ca1e","sha256":"1429c2a89ea56a368c2dee35ec6f06ba41594e45b0d785064baf5dc1b00556ba","bytes":11400},
+    {"path":"geonode/security/utils.py","gitBlob":"bbff7e8540ec87594c6d305feba14f5452a99283","sha256":"f62d1d8bc3cdca3eea193dbb531cef1f4909f0b310c03ba7d8d3078a04b1dde3","bytes":29359},
+    {"path":"geonode/layers/models.py","gitBlob":"ada0787e9dc396f0fbf861eaf2221c6c5dd81f72","sha256":"584c25228abc2cf626adbe0fb6ed2883b6d2c8e5f59cd35f0eab1557ee5021f8","bytes":23150},
+    {"path":"geonode/upload/registry.py","gitBlob":"2fed565f0ea2ea3bc06aa33a789346bd761f9d10","sha256":"793db92d024e17891d3b18398a035f5e378f0729da97c03dc7d8ffb4c10073de","bytes":2697},
+    {"path":"geonode/upload/api/views.py","gitBlob":"6bc62b0f11c745b7b9f3a41996f108cd4685ff43","sha256":"68a0bfc2a2d34fc99dee2ede95542ef0e77bd476187f758f5f7a711a69545779","bytes":13081},
+    {"path":"geonode/upload/api/serializer.py","gitBlob":"ddf838761d6a72e14e50317d552b8f18c74de759","sha256":"2676f4dbf114eaf662c47581af74adb862e3b08d219a3268fa0075bf469310c0","bytes":5026},
+    {"path":"geonode/upload/settings.py","gitBlob":"98826536777aefc219f61ec9d519730f06255d43","sha256":"d5b9fbebeb8d94ca1a57ac68d593cd3b7d82d3201b6f5230b84c20148e0aa3c8","bytes":2208},
+    {"path":"geonode/harvesting/models.py","gitBlob":"8afd24534ea14e8e2e26e9b3da79d343ff996044","sha256":"5acb72490c6a89c854acfa6839ed432ef67ac3c3d5332c092104427d68dcb41c","bytes":20587},
+    {"path":"geonode/harvesting/tasks.py","gitBlob":"6b55f3e47ff3167be4eb76dcd00673f3b411d2ca","sha256":"4bc7581c5b8bd429de336ad43773733ebbd446de69feb4c4929698e68c0c6a03","bytes":39226},
+    {"path":"geonode/harvesting/harvesters/geonodeharvester.py","gitBlob":"92a8160b711bc4dc809bfdadcf1f528525a6d2cc","sha256":"29a66fb9b09ee17ecaf69ae490af9513fa4de7cc39e018722dcba6d76bb74ba7","bytes":54867},
+    {"path":"geonode/maps/models.py","gitBlob":"d7bc7d01f0641b938047f80a38701a8610ebc404","sha256":"237086c2ae231b88722588566abc4f9bd3c72b25a9f0af2a56c871447b40d636","bytes":10691},
+    {"path":"geonode/documents/models.py","gitBlob":"565eb32122f5cedb822d024cf78f36015bfc5a41","sha256":"c7d885e61fa80dd098d512b6f03885bb5cec6829b63097bd01a97aa82ec2cfc2","bytes":4986},
+    {"path":"geonode/geoapps/models.py","gitBlob":"30e6ef7eb24727a54661977fad2981902289d34e","sha256":"b1a957864a8b68c919d31e4744fc2bb8f49dcbe686898d0c340e85efd36a6450","bytes":2930},
+    {"path":"geonode/services/models.py","gitBlob":"f50ff51593f853ed18eb6e239ca10e885b2c32ec","sha256":"21a617729dadac64152d983965f33db564ded5b97cdcfcbd8b42bd372590084c","bytes":4618},
+    {"path":"geonode/themes/models.py","gitBlob":"e6d0b0c7a82cfcd98b1607459ab693e55508a709","sha256":"78f552c6364074b01b62f80db280ad0a46439448e78399032c04a88a0f947586","bytes":5014},
+    {"path":"geonode/br/management/commands/backup.py","gitBlob":"c54c040cbc06c5466da3f9baa90fea5027c44c00","sha256":"6c540b03cd8945a4a78d2c1367f6085867d31ae6c320f84103b7886daf07874e","bytes":20261},
+    {"path":"geonode/br/management/commands/restore.py","gitBlob":"6a2bb6fb04b2a9c3c7a9d1b82efb81e069e37c04","sha256":"8b73f282ee7d7d2e038479c003e351d70c49aae990ed76bf8ac6306bacbc9afc","bytes":33519},
+    {"path":"docs/src/development/api.md","gitBlob":"9dd02c4113277c759d01f8947165ccfeaeaac460","sha256":"728e42d89709b80c94ccf85ccde31e6023bca80d1be5bc37a3f7a4152e681b53","bytes":33465},
+    {"path":"docs/src/user-guide/dashboard/dashboard.md","gitBlob":"752e87d356436c82be98f204d3e5e0ecac1ce4e1","sha256":"ccbd4bfaacad5d0282754aa65051490768bdbe7f4e56e74134065b19f645dda9","bytes":979},
+    {"path":"docs/src/user-guide/geostory/geostory.md","gitBlob":"3611a0fc4b641c50112e01b532f2beb14cfa5f20","sha256":"223836932165c6ad9d0d00c309a4a9b2717294a133e5bb690b6147d0fdbcb663","bytes":3114}
+  ],
+  "separateEvidence": {
+    "existingMigrationPeer": [
+      "parity/fixtures/data/geonode-5.1-resources.json",
+      "scripts/check-geonode-peer.mjs",
+      "parity/reports/geonode-001-peer.json"
+    ],
+    "openGeoWorkflowEvidence": [
+      "database/migrations/0009_governed_resources.sql",
+      "database/migrations/0010_resource_governance.sql",
+      "services/api/src/opengeo_api/geonode_adapter.py",
+      "services/api/tests/test_geonode_adapter.py",
+      "app/src/components/ProjectResources.js"
+    ]
+  },
+  "limitations": [
+    "This source inventory does not execute the GeoNode Django application, GeoServer, MapStore, its UI, or a deployed GeoNode instance.",
+    "This source inventory does not evaluate the existing exact-version migration peer and does not execute OpenGeo workflows; those remain separate evidence.",
+    "The 5.1.0 tag is lightweight and therefore has no annotated tag signature, while geonode/__init__.py identifies the package tuple as 5.1.0.post1.",
+    "All seven formal GeoNode rows remain partial and retain their existing missing-evidence declarations."
+  ]
+}

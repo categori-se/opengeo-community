@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/opengeo-map-definition-1.0.0.schema.json",
+  "title": "OpenGeo map definition 1.0.0",
+  "description": "A project-specific, versioned map composition. Dataset and source-revision authorization is enforced by the OpenGeo API in addition to this structural schema.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mapViews",
+    "basemaps",
+    "bookmarks",
+    "activeLayerId",
+    "projection",
+    "colorMode",
+    "layers"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "opengeo.map-definition.1.0.0"},
+    "mapViews": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {"$ref": "#/$defs/mapView"}
+    },
+    "basemaps": {"type": "array", "maxItems": 16, "items": {"$ref": "#/$defs/basemap"}},
+    "bookmarks": {"type": "array", "maxItems": 100, "items": {"type": "object"}},
+    "activeLayerId": {"type": ["string", "null"], "maxLength": 160},
+    "spatialBody": {"$ref": "#/$defs/spatialBody"},
+    "projection": {"enum": ["mercator", "globe"]},
+    "colorMode": {"enum": ["light", "dark"]},
+    "layers": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/layer"}
+    },
+    "portal": {"$ref": "opengeo-portal-configuration-1.0.0.schema.json"},
+    "extensions": {"type": "object"}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "basemap": {
+      "type": "object",
+      "allOf": [
+        {
+          "if": {"properties": {"kind": {"const": "planetary-blank"}}, "required": ["kind"]},
+          "then": {
+            "required": ["basemapId", "title", "kind", "spatialBodyId", "attribution", "visible", "opacity"],
+            "properties": {
+              "basemapId": {"enum": ["planetary-blank-moon", "planetary-blank-mars"]},
+              "title": {"type": "string", "minLength": 1, "maxLength": 240},
+              "kind": {"const": "planetary-blank"},
+              "spatialBodyId": {"enum": ["moon", "mars"]},
+              "attribution": {"type": "string", "minLength": 1, "maxLength": 500},
+              "visible": {"type": "boolean"},
+              "opacity": {"type": "number", "minimum": 0, "maximum": 1}
+            },
+            "allOf": [
+              {
+                "if": {"properties": {"spatialBodyId": {"const": "moon"}}},
+                "then": {"properties": {"basemapId": {"const": "planetary-blank-moon"}}}
+              },
+              {
+                "if": {"properties": {"spatialBodyId": {"const": "mars"}}},
+                "then": {"properties": {"basemapId": {"const": "planetary-blank-mars"}}}
+              }
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "provider-style"}}, "required": ["kind"]},
+          "then": {
+            "required": ["basemapId", "title", "provider", "connectionBindingId", "flavor", "attribution", "visible", "opacity"],
+            "properties": {
+              "basemapId": {"type": "string", "pattern": "^provider-protomaps-[0-9a-f-]{36}-(light|dark|white|grayscale|black)$"},
+              "title": {"type": "string", "minLength": 1, "maxLength": 240},
+              "kind": {"const": "provider-style"},
+              "provider": {"const": "protomaps"},
+              "connectionBindingId": {"type": "string", "format": "uuid"},
+              "flavor": {"enum": ["light", "dark", "white", "grayscale", "black"]},
+              "attribution": {"type": "string", "minLength": 1, "maxLength": 500},
+              "visible": {"type": "boolean"},
+              "opacity": {"type": "number", "minimum": 0, "maximum": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "provider-raster"}}, "required": ["kind"]},
+          "then": {
+            "required": ["basemapId", "title", "provider", "connectionBindingId", "flavor", "attribution", "visible", "opacity"],
+            "properties": {
+              "basemapId": {"type": "string", "pattern": "^provider-carto-[0-9a-f-]{36}-(voyager|positron|dark-matter)$"},
+              "title": {"type": "string", "minLength": 1, "maxLength": 240},
+              "kind": {"const": "provider-raster"},
+              "provider": {"const": "carto"},
+              "connectionBindingId": {"type": "string", "format": "uuid"},
+              "flavor": {"enum": ["voyager", "positron", "dark-matter"]},
+              "attribution": {"type": "string", "minLength": 1, "maxLength": 500},
+              "visible": {"type": "boolean"},
+              "opacity": {"type": "number", "minimum": 0, "maximum": 1}
+            },
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {"properties": {"kind": {"const": "governed-raster"}}, "required": ["kind"]},
+          "then": {
+            "required": ["basemapId", "title", "datasetId", "sourceType", "sourceVersion", "sourceUrl", "sourceConfiguration", "attribution", "visible", "opacity"],
+            "properties": {
+              "basemapId": {"type": "string", "pattern": "^governed-xyz-[0-9a-f-]{36}-v[1-9][0-9]*$"},
+              "title": {"type": "string", "minLength": 1, "maxLength": 240},
+              "kind": {"const": "governed-raster"},
+              "datasetId": {"type": "string", "format": "uuid"},
+              "sourceType": {"const": "xyz-raster"},
+              "sourceVersion": {"type": "integer", "minimum": 1},
+              "sourceUrl": {"type": "string", "format": "uri", "pattern": "^https://", "maxLength": 2048},
+              "sourceConfiguration": {
+                "type": "object",
+                "required": ["minZoom", "maxZoom", "tileSize", "scheme", "attribution", "presentationRole", "license", "coverageBounds", "coordinateBehavior"],
+                "properties": {
+                  "minZoom": {"type": "integer", "minimum": 0, "maximum": 24},
+                  "maxZoom": {"type": "integer", "minimum": 0, "maximum": 24},
+                  "tileSize": {"enum": [256, 512]},
+                  "scheme": {"enum": ["xyz", "tms"]},
+                  "attribution": {"type": "string", "minLength": 1, "maxLength": 1000},
+                  "presentationRole": {"const": "regional_basemap"},
+                  "license": {"type": "string", "minLength": 1, "maxLength": 500},
+                  "coverageBounds": {
+                    "type": "array",
+                    "prefixItems": [
+                      {"type": "number", "minimum": -180, "maximum": 180},
+                      {"type": "number", "minimum": -90, "maximum": 90},
+                      {"type": "number", "minimum": -180, "maximum": 180},
+                      {"type": "number", "minimum": -90, "maximum": 90}
+                    ],
+                    "minItems": 4,
+                    "maxItems": 4
+                  },
+                  "coordinateBehavior": {"const": "wgs84_web_mercator"}
+                },
+                "additionalProperties": false
+              },
+              "attribution": {"type": "string", "minLength": 1, "maxLength": 1000},
+              "visible": {"type": "boolean"},
+              "opacity": {"type": "number", "minimum": 0, "maximum": 1}
+            },
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    "spatialBody": {
+      "oneOf": [
+        {
+          "const": {
+            "schemaVersion": "opengeo.spatial-body.1.0.0",
+            "id": "earth",
+            "title": "Earth",
+            "coordinateSystem": "wgs84-longitude-latitude-degrees",
+            "rendererProjection": "web-mercator-angular",
+            "rendererBounds": [-180, -85.05112878, 180, 85.05112878],
+            "ellipsoid": {"semiMajorAxisMeters": 6378137, "inverseFlattening": 298.257223563},
+            "measurement": {"model": "spherical-mean-radius", "distanceUnit": "meter", "areaUnit": "square-meter"},
+            "camera": {"model": "maplibre-angular-zoom", "physicalAltitude": false}
+          }
+        },
+        {
+          "const": {
+            "schemaVersion": "opengeo.spatial-body.1.0.0",
+            "id": "moon",
+            "title": "Moon",
+            "coordinateSystem": "east-positive-longitude-planetocentric-latitude-degrees",
+            "rendererProjection": "web-mercator-angular",
+            "rendererBounds": [-180, -85.05112878, 180, 85.05112878],
+            "ellipsoid": {"semiMajorAxisMeters": 1737400, "inverseFlattening": 0},
+            "measurement": {"model": "spherical-mean-radius", "distanceUnit": "meter", "areaUnit": "square-meter"},
+            "camera": {"model": "maplibre-angular-zoom", "physicalAltitude": false}
+          }
+        },
+        {
+          "const": {
+            "schemaVersion": "opengeo.spatial-body.1.0.0",
+            "id": "mars",
+            "title": "Mars",
+            "coordinateSystem": "east-positive-longitude-planetocentric-latitude-degrees",
+            "rendererProjection": "web-mercator-angular",
+            "rendererBounds": [-180, -85.05112878, 180, 85.05112878],
+            "ellipsoid": {"semiMajorAxisMeters": 3396190, "inverseFlattening": 169.894447},
+            "measurement": {"model": "spherical-mean-radius", "distanceUnit": "meter", "areaUnit": "square-meter"},
+            "camera": {"model": "maplibre-angular-zoom", "physicalAltitude": false}
+          }
+        }
+      ]
+    },
+    "mapView": {
+      "type": "object",
+      "required": ["center", "zoom"],
+      "properties": {
+        "id": {"type": "string", "maxLength": 160},
+        "title": {"type": "string", "maxLength": 240},
+        "center": {
+          "type": "array",
+          "prefixItems": [
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "number", "minimum": -90, "maximum": 90}
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "zoom": {"type": "number", "minimum": -2, "maximum": 24},
+        "pitch": {"type": "number", "minimum": 0, "maximum": 85},
+        "bearing": {"type": "number", "minimum": -360, "maximum": 360}
+      },
+      "additionalProperties": true
+    },
+    "layer": {
+      "type": "object",
+      "required": [
+        "layerId",
+        "datasetId",
+        "title",
+        "sourceType",
+        "visible",
+        "opacity",
+        "order",
+        "style",
+        "labels"
+      ],
+      "properties": {
+        "layerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+        },
+        "datasetId": {
+          "oneOf": [
+            {"type": "string", "format": "uuid"},
+            {"const": "kml-places"}
+          ]
+        },
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "sourceType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "sourceVersion": {"type": "integer", "minimum": 1},
+        "datasetVersionId": {"type": "string", "format": "uuid"},
+        "sourceUrl": {"type": "string", "minLength": 9, "maxLength": 2048},
+        "sourceConfiguration": {"type": "object"},
+        "portalCatalogSource": {"type": "string", "minLength": 1, "maxLength": 320},
+        "objectId": {"type": "string", "format": "uuid"},
+        "geometryType": {"type": ["string", "null"], "maxLength": 80},
+        "bbox": {
+          "type": ["array", "null"],
+          "items": {"type": "number"},
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "visible": {"type": "boolean"},
+        "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+        "order": {"type": "integer", "minimum": -1000000, "maximum": 1000000},
+        "style": {"type": "object"},
+        "labels": {"type": "object"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "sourceType": {
+                "enum": ["xyz-raster", "wms-raster", "pmtiles-vector", "pmtiles-raster"]
+              }
+            },
+            "required": ["sourceType"]
+          },
+          "then": {"required": ["sourceVersion", "sourceUrl", "sourceConfiguration"]}
+        }
+      ],
+      "additionalProperties": true
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Permission",
+  "type": "object",
+  "required": ["principalType", "principalId", "scopeType", "scopeId", "role"],
+  "properties": {
+    "principalType": {"enum": ["user", "team", "public"]},
+    "principalId": {"type": "string"},
+    "scopeType": {"enum": ["tenant", "workspace", "dataset", "object"]},
+    "scopeId": {"type": "string"},
+    "role": {"enum": ["owner", "admin", "manager", "editor", "viewer", "auditor"]}
+  }
+}

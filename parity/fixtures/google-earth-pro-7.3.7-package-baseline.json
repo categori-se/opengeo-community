@@ -1,0 +1,74 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-001.package-baseline",
+  "title": "Google Earth Pro 7.3.7.1327 package-derived capability baseline",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "upstream",
+    "description": "Static, non-executing inspection of the user's exact Google Earth Pro 7.3.7.1327 RPM and DEB, cross-checked against official Google Earth help and release notes. Proprietary package bytes are not vendored.",
+    "url": "https://support.google.com/earth/answer/40901?hl=en",
+    "version": "7.3.7.1327"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "google-earth-pro-001-package-audit.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-001-package-audit.json",
+      "sha256": "82bd1390f74bb2b8e589d92ad370824665001b7b9785b725e15030962d72aec5"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+      "assertion": "Parity requires a navigable global 3D scene with attributed imagery, terrain, atmosphere, buildings, trees, and declared interaction/performance limits."
+    },
+    {
+      "rowId": "google-earth-pro.places-kml-kmz-authoring",
+      "assertion": "Parity requires a durable Places tree plus KML/KMZ/gx authoring and field-level round-trip evidence for all advertised feature semantics."
+    },
+    {
+      "rowId": "google-earth-pro.historical-sunlight-streetview",
+      "assertion": "Parity requires truthful acquisition-aware historical imagery, time-of-day sunlight, and a governed immersive panorama experience."
+    },
+    {
+      "rowId": "google-earth-pro.gis-gps-import-export",
+      "assertion": "Parity requires operation-specific spreadsheet, GIS vector/raster, GeoJSON, GPS, styling, regionation, and export evidence without silent loss."
+    },
+    {
+      "rowId": "google-earth-pro.measurement-elevation-viewshed",
+      "assertion": "Parity requires saved 2D/3D measurements, elevation profiles, and reproducible viewshed/line-of-sight results with numerical tolerances."
+    },
+    {
+      "rowId": "google-earth-pro.tours-movie-narration",
+      "assertion": "Parity requires deterministic tour recording/playback, gx:Tour interchange, narration, and bounded cancellable movie encoding."
+    },
+    {
+      "rowId": "google-earth-pro.print-save-image",
+      "assertion": "Parity requires annotated high-resolution image and print export with reproducible scene, layout, attribution, legend, scale, and selected-place content."
+    },
+    {
+      "rowId": "google-earth-pro.search-navigation-layers",
+      "assertion": "Parity requires place/address/coordinate/plus-code search, fly-to navigation, hierarchical Places/Layers, saved views, and accessible input behavior."
+    },
+    {
+      "rowId": "google-earth-pro.network-links-overlays-regionation",
+      "assertion": "Parity requires bounded secure NetworkLink/region/LOD refresh, overlay semantics, WMS, and large regionated content interoperability."
+    },
+    {
+      "rowId": "google-earth-pro.flight-simulator",
+      "assertion": "A full product parity claim includes the terrain-aware aircraft, HUD, keyboard/joystick, reset, safety, and performance contract shipped in 7.3.7.1327."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

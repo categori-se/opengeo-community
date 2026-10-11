@@ -1,0 +1,469 @@
+{
+  "schemaVersion": "1.0.0",
+  "referenceId": "geoserver.service-engine-workflows",
+  "status": "source_verified",
+  "observedAt": "2026-08-24",
+  "upstream": {
+    "repository": "https://github.com/geoserver/geoserver",
+    "release": "3.0.1",
+    "tag": "3.0.1",
+    "tagRef": "804fe178e4ff3fb4d0a2d0a0751930b31bf43a2a",
+    "commit": "804fe178e4ff3fb4d0a2d0a0751930b31bf43a2a",
+    "tree": "2f1a99bb5292a6418b250fd0c89216938bad6013",
+    "commitDate": "2026-08-14T16:48:10Z",
+    "license": "GPL-2.0-or-later",
+    "tagIdentity": {
+      "kind": "lightweight",
+      "resolvesToCommit": "804fe178e4ff3fb4d0a2d0a0751930b31bf43a2a",
+      "signaturePresent": false,
+      "trustVerified": false,
+      "reason": "The official 3.0.1 ref is a lightweight Git tag that resolves directly to the release commit, so there is no annotated tag object carrying a cryptographic signature to verify."
+    }
+  },
+  "scope": {
+    "evidenceType": "upstream-source-inventory",
+    "purpose": "Bind the four formal GeoServer parity rows to exact upstream catalog, service, security/cache, and selected extension implementation surfaces. Source inspection remains separate from the exact GeoServer/GeoWebCache runtime comparison and OpenGeo acceptance evidence that close the bounded security/cache row.",
+    "geoServerIsParityBaseline": true,
+    "geoServerRuntimeExecuted": false,
+    "openGeoWorkflowExecuted": false,
+    "existingGeoServerPeerEvidenceIsSeparate": true,
+    "sourceAuditChangesRowStatus": false
+  },
+  "identityAssertions": [
+    {
+      "path": "src/pom.xml",
+      "requiredStrings": [
+        "<artifactId>geoserver</artifactId>",
+        "<version>3.0.1</version>"
+      ]
+    },
+    {
+      "path": "README.md",
+      "requiredStrings": [
+        "is an open source software server written in Java",
+        "full support of geospatial standards"
+      ]
+    },
+    {
+      "path": "LICENSE.md",
+      "requiredStrings": [
+        "GeoServer is distributed under the GNU General Public License Version 2.0 license:",
+        "WITHOUT ANY WARRANTY; without even the implied warranty of"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "rowId": "geoserver.catalog-administration",
+      "expectedStatus": "partial",
+      "userOutcome": "Administer validated workspaces, vector and coverage stores, resources, layers, layer groups, and styles through the catalog and REST configuration surfaces while coordinating mutating configuration requests.",
+      "sourceAssertions": [
+        {
+          "path": "src/main/src/main/java/org/geoserver/catalog/Catalog.java",
+          "requiredStrings": [
+            "public interface Catalog extends CatalogInfo {",
+            "void add(WorkspaceInfo workspace);"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/catalog/CatalogBuilder.java",
+          "requiredStrings": [
+            "public class CatalogBuilder {",
+            "public void updateDataStore(DataStoreInfo original, DataStoreInfo update) {"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/catalog/CatalogValidator.java",
+          "requiredStrings": [
+            "public interface CatalogValidator {",
+            "void validate(StyleInfo style, boolean isNew);"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/catalog/impl/CatalogImpl.java",
+          "requiredStrings": [
+            "public class CatalogImpl implements Catalog {",
+            "public void add(LayerInfo layer) {"
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/WorkspaceController.java",
+          "requiredStrings": [
+            "public class WorkspaceController extends AbstractCatalogController {",
+            "public ResponseEntity<String> workspacePost("
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/DataStoreController.java",
+          "requiredStrings": [
+            "public class DataStoreController extends AbstractCatalogController {",
+            "public ResponseEntity<String> dataStorePost("
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/CoverageStoreController.java",
+          "requiredStrings": [
+            "public class CoverageStoreController extends AbstractCatalogController {",
+            "public ResponseEntity<String> coverageStorePost("
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/FeatureTypeController.java",
+          "requiredStrings": [
+            "public class FeatureTypeController extends AbstractCatalogController {",
+            "public ResponseEntity featureTypePost("
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/LayerController.java",
+          "requiredStrings": [
+            "public class LayerController extends AbstractCatalogController {",
+            "public void layerPut("
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/LayerGroupController.java",
+          "requiredStrings": [
+            "public class LayerGroupController extends AbstractCatalogController {",
+            "public ResponseEntity<String> layerGroupPost("
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/StyleController.java",
+          "requiredStrings": [
+            "public class StyleController extends AbstractCatalogController {",
+            "@GetMapping(value = {\"/styles\", \"/layers/{layerName}/styles\", \"/workspaces/{workspaceName}/styles\"})"
+          ]
+        },
+        {
+          "path": "src/restconfig/src/main/java/org/geoserver/rest/catalog/RestConfigurationLockCallback.java",
+          "requiredStrings": [
+            "public class RestConfigurationLockCallback implements DispatcherCallback {",
+            "isWriteMethod(request.getMethod())"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "expectedStatus": "partial",
+      "userOutcome": "Publish and query WMS, WFS, WCS, and WMTS operations, including feature transactions and locks, coverage retrieval, map rendering, feature identification, and GeoWebCache-backed tile delivery.",
+      "sourceAssertions": [
+        {
+          "path": "src/wms-core/src/main/java/org/geoserver/wms/DefaultWebMapService.java",
+          "requiredStrings": [
+            "public class DefaultWebMapService implements WebMapService, ApplicationContextAware, DisposableBean {",
+            "public void setGetMap(GetMap getMap) {"
+          ]
+        },
+        {
+          "path": "src/wms-core/src/main/java/org/geoserver/wms/GetMap.java",
+          "requiredStrings": [
+            "public class GetMap {",
+            "public WebMap run(GetMapRequest request) throws ServiceException {"
+          ]
+        },
+        {
+          "path": "src/wms-core/src/main/java/org/geoserver/wms/GetFeatureInfo.java",
+          "requiredStrings": [
+            "public class GetFeatureInfo {",
+            "public FeatureCollectionType run(final GetFeatureInfoRequest request) throws ServiceException {"
+          ]
+        },
+        {
+          "path": "src/wfs-core/src/main/java/org/geoserver/wfs/DefaultWebFeatureService20.java",
+          "requiredStrings": [
+            "public class DefaultWebFeatureService20 implements WebFeatureService20, ApplicationContextAware {",
+            "public FeatureCollectionResponse getFeature(GetFeatureType request) throws WFSException {"
+          ]
+        },
+        {
+          "path": "src/wfs-core/src/main/java/org/geoserver/wfs/GetFeature.java",
+          "requiredStrings": [
+            "public class GetFeature {",
+            "public FeatureCollectionResponse run(GetFeatureRequest request) throws WFSException {"
+          ]
+        },
+        {
+          "path": "src/wfs-core/src/main/java/org/geoserver/wfs/Transaction.java",
+          "requiredStrings": [
+            "public class Transaction {",
+            "public TransactionResponse transaction(TransactionRequest request) throws WFSException {"
+          ]
+        },
+        {
+          "path": "src/wfs-core/src/main/java/org/geoserver/wfs/LockFeature.java",
+          "requiredStrings": [
+            "public class LockFeature {",
+            "public LockFeatureResponse lockFeature(LockFeatureRequest request) throws WFSException {"
+          ]
+        },
+        {
+          "path": "src/wcs2_0/src/main/java/org/geoserver/wcs2_0/WebCoverageService20.java",
+          "requiredStrings": [
+            "public interface WebCoverageService20 {",
+            "GridCoverage getCoverage(GetCoverageType request);"
+          ]
+        },
+        {
+          "path": "src/wcs2_0/src/main/java/org/geoserver/wcs2_0/GetCoverage.java",
+          "requiredStrings": [
+            "public class GetCoverage {",
+            "public GridCoverage run(GetCoverageType request) {"
+          ]
+        },
+        {
+          "path": "src/gwc/src/main/java/org/geoserver/gwc/GWC.java",
+          "requiredStrings": [
+            "public class GWC implements DisposableBean, InitializingBean, ApplicationContextAware {",
+            "public void truncate(final String layerName) {"
+          ]
+        },
+        {
+          "path": "src/gwc/src/main/java/org/geoserver/gwc/dispatch/GeoServerGWCDispatcherController.java",
+          "requiredStrings": [
+            "public class GeoServerGWCDispatcherController extends GeoWebCacheDispatcherController {",
+            "public void handleRestApiRequest(HttpServletRequest request, HttpServletResponse response) throws Exception {"
+          ]
+        },
+        {
+          "path": "src/gwc/src/main/java/org/geoserver/gwc/wmts/WMTSCapabilitiesProvider.java",
+          "requiredStrings": [
+            "public class WMTSCapabilitiesProvider extends WMTSExtensionImpl {",
+            "public ServiceInformation getServiceInformation() {"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "expectedStatus": "pass",
+      "userOutcome": "Compare exact GeoServer/GeoWebCache cache hits, administrator-protected seed and truncate controls, and rejected requests with OpenGeo's separately verified current-member authorization, tenant-safe explicit policy, bounded seeding, immutable invalidation, audit, and reclamation outcomes.",
+      "sourceAssertions": [
+        {
+          "path": "src/main/src/main/java/org/geoserver/security/GeoServerSecurityManager.java",
+          "requiredStrings": [
+            "public class GeoServerSecurityManager implements ApplicationContextAware, ApplicationListener {",
+            "public synchronized void saveSecurityConfig(SecurityManagerConfig config) throws Exception {"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/security/SecureCatalogImpl.java",
+          "requiredStrings": [
+            "public class SecureCatalogImpl extends AbstractDecorator<Catalog> implements Catalog {",
+            "accessManager.getAccessLimits(user, (ResourceInfo) info)"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/security/CachingResourceAccessManager.java",
+          "requiredStrings": [
+            "public class CachingResourceAccessManager extends ResourceAccessManagerWrapper {",
+            "return cached(Kind.LAYER, user, layer.getId(), null, () -> delegate.getAccessLimits(user, layer));"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/security/CatalogFilterAccessManager.java",
+          "requiredStrings": [
+            "public class CatalogFilterAccessManager extends ResourceAccessManagerWrapper {",
+            "public DataAccessLimits getAccessLimits(Authentication user, LayerInfo layer) {"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/security/GeoServerSecurityFilterChain.java",
+          "requiredStrings": [
+            "public class GeoServerSecurityFilterChain implements Serializable {",
+            "public static GeoServerSecurityFilterChain createInitialChain() {"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/security/auth/AuthenticationCacheImpl.java",
+          "requiredStrings": [
+            "public class AuthenticationCacheImpl implements AuthenticationCache {",
+            "public void removeAll(String filterName) {}"
+          ]
+        },
+        {
+          "path": "src/main/src/main/java/org/geoserver/security/auth/GuavaAuthenticationCacheImpl.java",
+          "requiredStrings": [
+            "public class GuavaAuthenticationCacheImpl implements AuthenticationCache, GeoServerLifecycleHandler, DisposableBean {",
+            "cache.invalidateAll(toBeRemoved);"
+          ]
+        },
+        {
+          "path": "src/gwc/src/main/java/org/geoserver/gwc/security/SecurityCacheInvalidationListener.java",
+          "requiredStrings": [
+            "public interface SecurityCacheInvalidationListener {",
+            "void onSecurityConfigChange(SecurityConfigurationChangeEvent event);"
+          ]
+        },
+        {
+          "path": "src/gwc/src/main/java/org/geoserver/gwc/security/SecurityCacheInvalidator.java",
+          "requiredStrings": [
+            "public class SecurityCacheInvalidator implements SecurityCacheInvalidationListener, InitializingBean {",
+            "public void onSecurityConfigChange(SecurityConfigurationChangeEvent event) {"
+          ]
+        },
+        {
+          "path": "src/gwc/src/main/java/org/geoserver/gwc/GWCTransactionListener.java",
+          "requiredStrings": [
+            "public class GWCTransactionListener implements TransactionCallback {",
+            "gwc.truncate(tileLayerName, dirtyRegion);"
+          ]
+        },
+        {
+          "path": "src/gwc/src/main/java/org/geoserver/gwc/layer/GeoServerTileLayer.java",
+          "requiredStrings": [
+            "public class GeoServerTileLayer extends TileLayer implements ProxyLayer, TileJSONProvider {",
+            "public void seedTile(ConveyorTile tile, boolean tryCache) throws GeoWebCacheException, IOException {"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geoserver.extensions",
+      "expectedStatus": "not_applicable",
+      "userOutcome": "Inventory the upstream extension surfaces for processing, printing, importing, monitoring, vector tiles, catalog search, and request flow control while keeping every unimplemented OpenGeo extension outcome explicitly unclaimed.",
+      "sourceAssertions": [
+        {
+          "path": "src/extension/pom.xml",
+          "requiredStrings": [
+            "<module>wps</module>",
+            "<module>vectortiles</module>"
+          ]
+        },
+        {
+          "path": "src/extension/wps/wps-core/src/main/java/org/geoserver/wps/DefaultWebProcessingService.java",
+          "requiredStrings": [
+            "public class DefaultWebProcessingService implements WebProcessingService, ApplicationContextAware {",
+            "public ExecuteResponseType execute(ExecuteType request) throws WPSException {"
+          ]
+        },
+        {
+          "path": "src/extension/printing/src/main/java/org/geoserver/printing/PrintingServletWrappingController.java",
+          "requiredStrings": [
+            "public class PrintingServletWrappingController extends ServletWrappingController {",
+            "private static final String DEFAULT_PRINT_DIR = \"printing\";"
+          ]
+        },
+        {
+          "path": "src/extension/importer/core/src/main/java/org/geoserver/importer/Importer.java",
+          "requiredStrings": [
+            "public class Importer implements DisposableBean, ApplicationListener {",
+            "public void run(ImportContext context) throws IOException {"
+          ]
+        },
+        {
+          "path": "src/extension/monitor/core/src/main/java/org/geoserver/monitor/Monitor.java",
+          "requiredStrings": [
+            "public class Monitor implements ApplicationListener<ApplicationEvent> {",
+            "public RequestData start() {"
+          ]
+        },
+        {
+          "path": "src/extension/vectortiles/src/main/java/org/geoserver/wms/vector/VectorTileMapOutputFormat.java",
+          "requiredStrings": [
+            "public class VectorTileMapOutputFormat extends AbstractMapOutputFormat implements MetaTilingOutputFormat {",
+            "public WebMap produceMap(final WMSMapContent mapContent) throws ServiceException, IOException {"
+          ]
+        },
+        {
+          "path": "src/extension/csw/core/src/main/java/org/geoserver/csw/DefaultWebCatalogService.java",
+          "requiredStrings": [
+            "public class DefaultWebCatalogService implements WebCatalogService, ApplicationContextAware {",
+            "public CSWRecordsResult getRecords(GetRecordsType request) throws ServiceException {"
+          ]
+        },
+        {
+          "path": "src/extension/csw/core/src/main/java/org/geoserver/csw/GetRecords.java",
+          "requiredStrings": [
+            "public class GetRecords {",
+            "public CSWRecordsResult run(GetRecordsType request) {"
+          ]
+        },
+        {
+          "path": "src/extension/control-flow/src/main/java/org/geoserver/flow/FlowController.java",
+          "requiredStrings": [
+            "public interface FlowController {",
+            "void requestComplete(Request request);"
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceEvidence": [
+    {"path":"LICENSE.md","gitBlob":"d24ab175a0543da078ef56ca7a4283ec61743225","sha256":"6681935183785ff6e95f184ff4f490fa5167c22ab0b4a64f8352a959842b24b8","bytes":28659},
+    {"path":"README.md","gitBlob":"82d6238255e69f9a0ea479a08feba5e84ac577fa","sha256":"4def5391e3c1f76cf86fafbce81bc056ebabcea2e4118602c8e46b11d84f8c67","bytes":3432},
+    {"path":"src/extension/control-flow/src/main/java/org/geoserver/flow/FlowController.java","gitBlob":"265c734e11c2de5df5f031baa7ced3c47380aa3c","sha256":"5569ee12bf4be5a3fb90d6e621ede79b671a70f0f5c6c7f925420ab78301e44a","bytes":1600},
+    {"path":"src/extension/csw/core/src/main/java/org/geoserver/csw/DefaultWebCatalogService.java","gitBlob":"67a547f192f2f9ae48770755505316c1e5e96d79","sha256":"a57c33f9d50149ecbc0dba1fb340cb6a414327b47910c1a815b2a5337464d87f","bytes":5500},
+    {"path":"src/extension/csw/core/src/main/java/org/geoserver/csw/GetRecords.java","gitBlob":"70988bd1c6aa978f4d66640a874f5ea558662bc3","sha256":"8fdc103fceecee98fb0f13fcf7c1fd9fa496dd494078f1d07b2da989de36f25a","bytes":12355},
+    {"path":"src/extension/importer/core/src/main/java/org/geoserver/importer/Importer.java","gitBlob":"95595f749d6f35d28b2f9a12078247b6988ded88","sha256":"96b2da9619934b6e9f23dbe25be77dd063cfb1f5ee81691bea2b6dceb6e20ec0","bytes":92918},
+    {"path":"src/extension/monitor/core/src/main/java/org/geoserver/monitor/Monitor.java","gitBlob":"fffec9929ce799035d6f8ed0b0af876a36ef7a8b","sha256":"41a06f0f19f556c35cc194e781b9c0942d5d1f4dd533c83f1d990535902d8f59","bytes":4513},
+    {"path":"src/extension/pom.xml","gitBlob":"eec1181f49e5298b1599a8a818d52995a6ca4ff2","sha256":"99529c9586efe01a719ef574cb930ff5addbd7f5d2e45af18016ba85269a2832","bytes":22567},
+    {"path":"src/extension/printing/src/main/java/org/geoserver/printing/PrintingServletWrappingController.java","gitBlob":"e3b4e0abc3163e28079110e6dddb1b50afff8b5f","sha256":"ae34a1e0d153e416f999eae593d83ebc5a83c2bad5b6d8a3a3308507f137b0db","bytes":6883},
+    {"path":"src/extension/vectortiles/src/main/java/org/geoserver/wms/vector/VectorTileMapOutputFormat.java","gitBlob":"ad5231f7484c66d72f61782ef9b8de82ad468f4b","sha256":"6324a9ced2c1dc76ee88ffd5c22e805102c1a4ef837e41364276afca40e9dca6","bytes":18303},
+    {"path":"src/extension/wps/wps-core/src/main/java/org/geoserver/wps/DefaultWebProcessingService.java","gitBlob":"fae9ccdfe2bc94365b2943991b77d214b60280ad","sha256":"1ef69f31966702d09cf0d0093725cbf71ee74ffea08adc8b1701f09207d0d68b","bytes":3918},
+    {"path":"src/gwc/src/main/java/org/geoserver/gwc/GWC.java","gitBlob":"a106a4628658070b59e0cff3ec77a0c7afb5d791","sha256":"99d1b38b8854719fdc7d3d9fdd48f2a8137ec11c92e984dd7e82a32547238960","bytes":105388},
+    {"path":"src/gwc/src/main/java/org/geoserver/gwc/GWCTransactionListener.java","gitBlob":"899880f96a67cc0281b27e0e7cbaf957d01f6c2b","sha256":"b472dc78f33a77dd6594ece738eec86916265b2de80785aa6c98df731d5731fb","bytes":9224},
+    {"path":"src/gwc/src/main/java/org/geoserver/gwc/dispatch/GeoServerGWCDispatcherController.java","gitBlob":"73cd7af6918dedd7e76df859b7a235418a7de3b3","sha256":"c873e640daf3eedb210f48c82d8b40f3f4efcd36f993efc8467fa8f941f65409","bytes":1258},
+    {"path":"src/gwc/src/main/java/org/geoserver/gwc/layer/GeoServerTileLayer.java","gitBlob":"ed3c5c5aa1c11e10db63e39d59195332b54f027c","sha256":"9e3835f263e8bab0d9e08e6e32f7289a32b41dceaeff305286e1d12443e1b95a","bytes":84121},
+    {"path":"src/gwc/src/main/java/org/geoserver/gwc/security/SecurityCacheInvalidationListener.java","gitBlob":"a3c6137c06c6dad2aed0e3fb303b63222a7cc745","sha256":"a615c40bc8284c0ea3102d3006af8d5ac8a837351f23b7d67ccc41d232e9bd0f","bytes":650},
+    {"path":"src/gwc/src/main/java/org/geoserver/gwc/security/SecurityCacheInvalidator.java","gitBlob":"ec807a09e9d51eb5306bc4b5fb5781a493d69649","sha256":"1e31c995077f6b97cfdb1a0c97cd37100fd115f14ac1319326a4aecb1c8aec09","bytes":6547},
+    {"path":"src/gwc/src/main/java/org/geoserver/gwc/wmts/WMTSCapabilitiesProvider.java","gitBlob":"d28680ebeeeacc672a7b25012bcb637b199c85f1","sha256":"70c5ac014038bf62e0a189fb969d9a8b19cd9e17c33d489d3ef293cab403a26b","bytes":3420},
+    {"path":"src/main/src/main/java/org/geoserver/catalog/Catalog.java","gitBlob":"611bbf1a5d45c9231134b0846e4af2efedde254d","sha256":"d922127edcff6e6a3ded4bbfb482d70e92899f726de02eda6b9d177b05a027a3","bytes":57535},
+    {"path":"src/main/src/main/java/org/geoserver/catalog/CatalogBuilder.java","gitBlob":"bfc89b83346eb2bbc821e17073ba270a5031acf9","sha256":"59ed6f62b17447127131428a3311c0e2dd488190be8c8395ffe68338216a5a88","bytes":69535},
+    {"path":"src/main/src/main/java/org/geoserver/catalog/CatalogValidator.java","gitBlob":"b0d67851e7c635797bb0862ecc76ecd19c38d3ef","sha256":"dc12f9c8c6f22dd3f443039656065a8baae66e937a94f990c3048594e7c108de","bytes":2574},
+    {"path":"src/main/src/main/java/org/geoserver/catalog/impl/CatalogImpl.java","gitBlob":"84a9a223eaf35710f086f15e0abf6e90e0c2906e","sha256":"1653a68ed0c58f22fe3d17841949be79747631514e64e53f3cdb2664ef702ada","bytes":73917},
+    {"path":"src/main/src/main/java/org/geoserver/security/CachingResourceAccessManager.java","gitBlob":"d08806f669941ca6f046f59dfeeb582fea1b740c","sha256":"33429a4703eb23c4ba26deefa7dcf45d205b079ba88f5b3a1f610b784031f14c","bytes":5941},
+    {"path":"src/main/src/main/java/org/geoserver/security/CatalogFilterAccessManager.java","gitBlob":"e674b67382de7ce5b60e3effb5c000750203dad6","sha256":"3de4f1025c6f28679c04e7d2b9a556a0e1a814dc45700c828993947627ea43fe","bytes":6480},
+    {"path":"src/main/src/main/java/org/geoserver/security/GeoServerSecurityFilterChain.java","gitBlob":"b7c3ce0f7344f85ed94fbdf332bed4b010eecc95","sha256":"27106eee5fa3f91ed77883b8d914da280609d227791bdaf28e35115c611c7218","bytes":12876},
+    {"path":"src/main/src/main/java/org/geoserver/security/GeoServerSecurityManager.java","gitBlob":"b7a4bdab9d5554c1d173b309911f09836af34d43","sha256":"7929d03ee64be04c44a6bc3634d16234d336e40955b22622c56317df231915e0","bytes":163617},
+    {"path":"src/main/src/main/java/org/geoserver/security/SecureCatalogImpl.java","gitBlob":"4907a93525906bc79dee9efbc8cbc66cd6c9defb","sha256":"2e1a12e7c1290497edef54099aa45db10a10a7d15ec5b97d8d5e23b0d4d86b9b","bytes":63192},
+    {"path":"src/main/src/main/java/org/geoserver/security/auth/AuthenticationCacheImpl.java","gitBlob":"db78bbf0bf7f5222f7c7ec6a43364ea7e5943b3e","sha256":"930fac660663418be47157e9a10a597518d2603cb1352d2cbde1382e00f3d5a2","bytes":1082},
+    {"path":"src/main/src/main/java/org/geoserver/security/auth/GuavaAuthenticationCacheImpl.java","gitBlob":"cd94f019997aefcb0d605c56a6bc171bdb017712","sha256":"dfd402bfe7dff0da026700922e35aa7208e5bcdb2e6e8ff7c949faaaec4946f6","bytes":9302},
+    {"path":"src/pom.xml","gitBlob":"970a98b1fb119d4e447659e68f70c469715aa2da","sha256":"55fb75c25cd2ccbba5ffb144f6a0343edfd2f2a2de668912f7f70578c22b2534","bytes":89359},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/CoverageStoreController.java","gitBlob":"48e1d5cff58883a213523545fcf13c9b1ddd5794","sha256":"6ee34ca48f2f31ed8216ae5fe612f9940350b98506219586f04c19331f23a14b","bytes":11911},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/DataStoreController.java","gitBlob":"94edaeff544f151fd493fb5113ed3d318a3e3598","sha256":"e858682aa0754875e33b42772001ef1afc2b5652cd1c67db110dedd37cc0a536","bytes":12713},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/FeatureTypeController.java","gitBlob":"6fcead9920d396c776065d0f9d58f46f10bcf2f9","sha256":"1c4a7d48f8e40bb04e41a9dce5ee8f59ee34104a8acfec5ce31dac871696fcf4","bytes":24140},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/LayerController.java","gitBlob":"7d0255a016c2a347e434f9821cd26df09055b43e","sha256":"46f12f563710fac8c2c7ac3700b7afc289dc7ddabf05e8306e756c2c84d40347","bytes":9428},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/LayerGroupController.java","gitBlob":"6de7b73980054f2cbd61856cff89de29ae6c5ef3","sha256":"3f25757573fde078157953f13fe420c0b4795bf767f1809d5c546d3a8739d439","bytes":13802},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/RestConfigurationLockCallback.java","gitBlob":"7c99b0f59825d827186a5ae6b0da6dc4605c1f3c","sha256":"3d6e7192e103c495849bb593c9590f108de1c15f8f5203449fd7d302489a69d1","bytes":2793},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/StyleController.java","gitBlob":"af5096adcfd7c7c43075368af37e87b10763979e","sha256":"1c5d7af621d190b369541a87f9e1816150f5779a4e149fff06587c132dc97207","bytes":33548},
+    {"path":"src/restconfig/src/main/java/org/geoserver/rest/catalog/WorkspaceController.java","gitBlob":"65e01f19e78594f76c6fe5b3aa0584c5700f3657","sha256":"0e974ab33cc763a0ff3d0156e4ab01493362cd8b62c4f948bc69339354f95050","bytes":13144},
+    {"path":"src/wcs2_0/src/main/java/org/geoserver/wcs2_0/GetCoverage.java","gitBlob":"3c5a952d71a97274515a4c3ed78bea8d50481051","sha256":"d5b23bedbf861477acff760c549fe33ee05e962f0c39bfb1362ba908bcc151c7","bytes":90689},
+    {"path":"src/wcs2_0/src/main/java/org/geoserver/wcs2_0/WebCoverageService20.java","gitBlob":"f03d100941c8976dc6328dc97d1101cd6464e0ad","sha256":"7fe647424f4f9486f19b4c0e6a3b80d12a8cafa7ec8bd538334d4a181acf278c","bytes":1830},
+    {"path":"src/wfs-core/src/main/java/org/geoserver/wfs/DefaultWebFeatureService20.java","gitBlob":"e0bffa6ea924458ec486e8ae2835010628461be0","sha256":"db7908a6af766403aec20953e4d5e2fef694f0a0bb8895db459bbf74065fda7e","bytes":8672},
+    {"path":"src/wfs-core/src/main/java/org/geoserver/wfs/GetFeature.java","gitBlob":"7858dfb48f2f22c41cf959c44be96b3778bb2ebb","sha256":"9f7c3d97344fb0127802ae352abc844779300be34e3d319bfbc52776fa23397c","bytes":76535},
+    {"path":"src/wfs-core/src/main/java/org/geoserver/wfs/LockFeature.java","gitBlob":"16fcbfda2a34faafeb7928f2101d5cf0696d0164","sha256":"4d20a9e2f892ecb88d41b76abbfcfdbfd60d8ed96f93ed30641b4182d84e13e4","bytes":18552},
+    {"path":"src/wfs-core/src/main/java/org/geoserver/wfs/Transaction.java","gitBlob":"dd8b1316893e127afc58a1273dafd345431addcb","sha256":"b77fa13370af8684de1ebd64dbcb57c54d083587609afbb060766da18a416d12","bytes":30139},
+    {"path":"src/wms-core/src/main/java/org/geoserver/wms/DefaultWebMapService.java","gitBlob":"8531c88e801563af545030f84495880e9f23ca3c","sha256":"b1170633a873714d619997095bf0b9076a8c1ed733c5a084ef6227b2131ef79d","bytes":14234},
+    {"path":"src/wms-core/src/main/java/org/geoserver/wms/GetFeatureInfo.java","gitBlob":"3c0c596f41c01681ea3b6049b42000a6f5185776","sha256":"c65dac4197918cf457c0b906e9dbf1c88e37503623f423b14c867c72b031bac2","bytes":8032},
+    {"path":"src/wms-core/src/main/java/org/geoserver/wms/GetMap.java","gitBlob":"d287ed74f4f7629f9f960a0e197f67a86fb25754","sha256":"fb0f06825ab2f8844bee2f2f6640cbae4fcb270042f55b84424a09e79939fc24","bytes":34752}
+  ],
+  "separateEvidence": {
+    "existingGeoServerPeer": [
+      "parity/fixtures/service-003-geoserver-3.0.1-peer.json",
+      "parity/reports/service-003-geoserver-3.0.1-peer.json",
+      "scripts/check-geoserver-service-peer.mjs",
+      "parity/fixtures/geoserver-004-gwc-security-peer.json",
+      "parity/reports/geoserver-004-gwc-security-peer.json",
+      "scripts/check-geoserver-gwc-security-peer.mjs",
+      "test/geoserver-gwc-security-peer.test.mjs"
+    ],
+    "openGeoWorkflowEvidence": [
+      "parity/fixtures/service-001-administered-openlayers-peer.json",
+      "parity/fixtures/service-005-qgis-wmts-cache-peer.json",
+      "parity/fixtures/service-006-gdal-wcs-peer.json",
+      "parity/fixtures/service-010-render-cache-reclamation.json",
+      "parity/fixtures/service-011-tile-seed-plans.json",
+      "parity/fixtures/service-012-openlayers-wmts-peer.json",
+      "parity/fixtures/service-015-wfs-simple-stored-queries.json",
+      "services/api/tests/test_spatial_service_routes.py"
+    ]
+  },
+  "limitations": [
+    "This source inventory does not execute the GeoServer runtime, its REST API, OGC services, GeoWebCache, or extension modules.",
+    "This source inventory does not execute OpenGeo workflows and is separate from the existing disposable GeoServer peer and OpenGeo acceptance evidence.",
+    "The lightweight release tag has no annotated tag object or cryptographic tag signature to verify; identity is bound to the exact ref, commit, tree, Git blobs, and SHA-256 digests.",
+    "Catalog administration and data services remain partial. The security/cache row passes only through separate exact runtime and OpenGeo acceptance evidence; source mapping does not promote it. The conditional extension row is explicitly outside the v0.1 claim; the upstream extension inventory remains pinned for any later selection."
+  ]
+}

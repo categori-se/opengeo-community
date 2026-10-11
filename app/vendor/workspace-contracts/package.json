@@ -1,0 +1,48 @@
+{
+  "name": "@categori/workspace-contracts",
+  "version": "0.1.0-alpha.9",
+  "description": "Provider-neutral contracts for self-owned data workspaces, collaboration, and source provenance.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.js",
+    "./collaboration": "./src/collaboration.js",
+    "./demo": "./src/demo.js",
+    "./publication": "./src/publication.js",
+    "./source-manifest": "./src/source-manifest.js",
+    "./repository": "./src/repository.js",
+    "./interoperability": "./src/interoperability.js",
+    "./preservation": "./src/preservation.js",
+    "./identity": "./src/identity.js",
+    "./working-state": "./src/working-state.js",
+    "./retained": "./src/retained.js",
+    "./releases": "./src/releases.js",
+    "./schemas/releases.schema.json": "./schemas/releases.schema.json",
+    "./schemas/interoperability.schema.json": "./schemas/interoperability.schema.json",
+    "./schemas/workspace-contracts.schema.json": "./schemas/workspace-contracts.schema.json",
+    "./business-context": "./src/business-context.js",
+    "./schemas/business-context.schema.json": "./schemas/business-context.schema.json",
+    "./collections": "./src/collections.js",
+    "./schemas/collections.schema.json": "./schemas/collections.schema.json",
+    "./documents": "./src/documents.js",
+    "./schemas/documents.schema.json": "./schemas/documents.schema.json",
+    "./schemas/identity.schema.json": "./schemas/identity.schema.json",
+    "./conformance/identity.json": "./conformance/identity.json"
+  },
+  "files": [
+    "src",
+    "schemas",
+    "conformance",
+    "python",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "Apache-2.0"
+}

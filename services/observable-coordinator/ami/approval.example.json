@@ -1,0 +1,7 @@
+{
+  "schemaVersion": "opengeo.observable-runner-ami-approval.1.0.0",
+  "decision": "replace-with-approved",
+  "reviewer": "replace-with-reviewer",
+  "reviewedAt": "2026-08-23T00:00:00Z",
+  "notes": "Replace this example with the operator review record for the exact Packer manifest and all four downloaded reports."
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Dataset",
+  "type": "object",
+  "required": ["datasetId", "tenantId", "workspaceId", "title", "datasetType", "status", "classification"],
+  "properties": {
+    "datasetId": {"type": "string"},
+    "tenantId": {"type": "string"},
+    "workspaceId": {"type": "string"},
+    "title": {"type": "string"},
+    "description": {"type": "string"},
+    "datasetType": {"enum": ["spatial", "table", "document", "image"]},
+    "geometryType": {"type": ["string", "null"]},
+    "status": {"enum": ["pending", "uploaded", "processing", "published", "archived"]},
+    "classification": {"enum": ["public", "internal", "restricted"]},
+    "currentVersion": {"type": "string"},
+    "bbox": {
+      "type": ["array", "null"],
+      "items": {"type": "number"},
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "featureCount": {"type": ["integer", "null"]},
+    "crs": {"type": ["string", "null"]},
+    "tags": {"type": "array", "items": {"type": "string"}}
+  }
+}

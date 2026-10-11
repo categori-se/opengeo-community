@@ -1,0 +1,39 @@
+{
+  "type": "Collection",
+  "stac_version": "1.1.0",
+  "stac_extensions": [],
+  "id": "road-access-2026",
+  "title": "Road access survey",
+  "description": "A checksum-pinned research dataset used to verify metadata exchange.",
+  "license": "CC-BY-4.0",
+  "keywords": [
+    "roads",
+    "access"
+  ],
+  "extent": {
+    "spatial": {
+      "bbox": [
+        [
+          84.0,
+          27.0,
+          86.0,
+          29.0
+        ]
+      ]
+    },
+    "temporal": {
+      "interval": [
+        [
+          "2026-01-01T00:00:00Z",
+          "2026-08-20T00:00:00Z"
+        ]
+      ]
+    }
+  },
+  "links": [],
+  "summaries": {
+    "review_status": [
+      "verified"
+    ]
+  }
+}

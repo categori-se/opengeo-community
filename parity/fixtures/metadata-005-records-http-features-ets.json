@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "metadata-005.records.http.features-ets",
+  "title": "Authenticated OGC Records HTTP client and Features ETS prerequisite diagnostic",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Redistributable source lock and deterministic report for the real local Records/auth routes, an independent hypermedia client, and a separately obtained official Features ETS runner."
+  },
+  "license": {"spdxId": "CC0-1.0", "redistributable": true},
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "metadata-009-records-features-ets-sources.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-009-records-features-ets-sources.json",
+      "sha256": "63bf9fb932f212a59fb546fe10e0020bfe94e9bc22320f5319a4630acc8cc3d7"
+    },
+    {
+      "name": "metadata-005-records-http-features-ets-report.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/metadata-005-records-http-features-ets.json",
+      "sha256": "0977714002a952abf2ba2148f219c3a625d4b0530e2c1287a144ea1c90a80990"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "An independent same-origin hypermedia client traverses the real authenticated Records routes, validates mandatory discovery/media/profile/filter behavior, and observes the shared bearer and organization denial controls without logging the token."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "The pinned final Features ETS candidate run has zero failures only after explicit test-only auth, candidate declaration, and Records-to-Features vocabulary mapping; the production conformance declaration remains empty."
+    }
+  ],
+  "constraints": {"offline": false, "containsPersonalData": false, "requiresCredentials": false}
+}

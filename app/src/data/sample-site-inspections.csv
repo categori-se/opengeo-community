@@ -1,0 +1,9 @@
+site_id,name,district,status,inspection_score,has_grid_access,last_visit,longitude,latitude
+S-001,Chautara North,Sindhupalchok,verified,86,true,2026-06-21,85.584,27.776
+S-002,Melamchi Ridge,Sindhupalchok,needs review,72,false,2026-06-22,85.556,27.829
+S-003,Dhulikhel East,Kavrepalanchok,verified,91,true,2026-06-22,85.556,27.617
+S-004,Panauti South,Kavrepalanchok,draft,64,false,2026-06-23,85.512,27.559
+S-005,Bhaktapur Perimeter,Bhaktapur,verified,88,true,2026-06-23,85.431,27.672
+S-006,Nagarkot Spur,Bhaktapur,needs review,70,false,2026-06-24,85.521,27.717
+S-007,Kirtipur West,Kathmandu,draft,67,true,2026-06-24,85.273,27.678
+S-008,Sankhu Valley,Kathmandu,verified,82,false,2026-06-24,85.459,27.739

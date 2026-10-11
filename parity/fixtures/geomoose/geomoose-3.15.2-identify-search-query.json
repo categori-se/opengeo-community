@@ -1,0 +1,298 @@
+{
+  "schemaVersion": "1.1.0",
+  "fixtureId": "geomoose-003.identify-search-query-behavior",
+  "observedAt": "2026-08-29",
+  "reference": {
+    "product": "GeoMoose",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "sourceLock": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+  },
+  "sourceFiles": [
+    {
+      "path": "src/services/identify.js",
+      "gitBlob": "8e38d6fe0727e80ccf2bb1f651d46ec52ec379a4",
+      "sha256": "ad4f52655dfd938e3121b0fe316173c4c45bb75289e27044bb354bce1836057a",
+      "bytes": 5069,
+      "requiredStrings": [
+        "this.tools = { Point: true, default: \"Point\" };",
+        "var visibleLayers = Application.getQueryableLayers({",
+        "Application.dispatchQuery(this.name, selection, fields, visibleLayers, templates);"
+      ]
+    },
+    {
+      "path": "src/services/search.js",
+      "gitBlob": "651fc6da23e994da51c3bf3b929259b2c1e0d92b",
+      "sha256": "a8835fa528fb85975ee48ca1d6ffca6f2890e5eac4b702f90c254567ded77691",
+      "bytes": 6689,
+      "requiredStrings": [
+        "comparitor: \"ilike\"",
+        "value: \"%\" + fields[i].value + \"%\"",
+        "null, // Search does not use a geometry filter"
+      ]
+    },
+    {
+      "path": "src/services/select.js",
+      "gitBlob": "fe920c942ccb5846de38110925a110820a224a71",
+      "sha256": "53b9752612d10c8b7fbcfed6deb7468e8fd69e4b1ff71b81aeede656cbef95cd",
+      "bytes": 6394,
+      "requiredStrings": [
+        "MultiPoint: true,",
+        "Polygon: true,",
+        "LineString: true,",
+        "Modify: true,",
+        "this.bufferAvailable = true;"
+      ]
+    },
+    {
+      "path": "src/gm3/actions/query.js",
+      "gitBlob": "5d5310fbddfc26f49d89ec7319b31784bde9b58e",
+      "sha256": "93c8fed61198797d672b6f137a1dafe664a956a51d69945c393bab24690c37df",
+      "bytes": 5819,
+      "requiredStrings": [
+        "export const createQuery = createAction(",
+        "return Promise.all(layerQueries).then((allResults) => {",
+        "export const bufferResults = createAsyncThunk(",
+        "features.forEach((f) => {"
+      ]
+    },
+    {
+      "path": "src/gm3/reducers/query.js",
+      "gitBlob": "65a002b8f0b44f5c39739631ea855e3980a5f28d",
+      "sha256": "edc1f38a7001e2c4cf418de2724400b391ff1aefe72d95808a566c7977c51587",
+      "bytes": 3554,
+      "requiredStrings": [
+        "state.results = payload;",
+        "state.step = SERVICE_STEPS.RESULTS;",
+        "state.filter.push(payload);"
+      ]
+    },
+    {
+      "path": "src/gm3/selectors/query.js",
+      "gitBlob": "061f6d54c4b61e4ea48dabc6014d04ee65fbcd13",
+      "sha256": "f114a20fe1569b9c43851c4b18092943f7204a0b978a9f8f44e71449b26ffb83",
+      "bytes": 2490,
+      "requiredStrings": [
+        "export const getQueryResults = createSelector(getAllResults, getFilter",
+        "features[path] = matchFeatures(results[path], filter);",
+        "export const getHighlightResults = createSelector("
+      ]
+    },
+    {
+      "path": "src/gm3/components/serviceManager/results.js",
+      "gitBlob": "f9a1f96def820c747dad9de2fed0b8e62ea67c74",
+      "sha256": "4ca407871eeee37284f49c9231e0652ead21d9f40b85672edd5c0dc379a08218",
+      "bytes": 5963,
+      "requiredStrings": [
+        "const bufferEnabled = featureCount <= config.bufferMaxFeatures;",
+        "const extent = getExtentForQuery(allResults);",
+        "bufferMaxFeatures: 100"
+      ]
+    },
+    {
+      "path": "src/gm3/components/grid/index.js",
+      "gitBlob": "14fe31cda484ecf2dcf14ede6077a760c8830f85",
+      "sha256": "164d5c82ba10e151b506f05e9ba26c0ef25b09bd2439ec269ad0b86b1a9e89b1",
+      "bytes": 12160,
+      "requiredStrings": [
+        "downloaded as a CSV file.",
+        "resultsAsCSV(gridCols, features) {",
+        "const csvBlob = new Blob([writeCsv(featureData)]",
+        "FileSaver.saveAs(csvBlob, csvName);"
+      ]
+    },
+    {
+      "path": "src/gm3/components/map/layers/wfs.js",
+      "gitBlob": "782f4b7cf510b2e3486903c541bdf7d3b8781041",
+      "sha256": "46efe0698fcce42c352e778fd222610c0d3ba714c0c9b7e104d967e975cbc66c",
+      "bytes": 7383,
+      "requiredStrings": [
+        "const FILTER_OPERATORS = {",
+        "and: olFilters.and,",
+        "if (query.selection && query.selection.length > 0)",
+        "mapFilters(query.fields).forEach((f) => filters.push(f));"
+      ]
+    }
+  ],
+  "openGeoContract": {
+    "schemaVersion": "opengeo.feature-query.1.1.0",
+    "maximumSteps": 4,
+    "maximumResults": 100,
+    "maximumOffset": 10000,
+    "maximumBufferMeters": 100000,
+    "maximumGeometryCoordinates": 2048,
+    "maximumGeometryBytes": 65536,
+    "maximumCsvBytes": 262144,
+    "maximumCsvFields": 64,
+    "timeoutSeconds": 10
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "id": "91000000-0000-4000-8000-000000000001",
+      "bbox": [-71.0589, 42.3601, -71.0589, 42.3601],
+      "geometry": {"type": "Point", "coordinates": [-71.0589, 42.3601]},
+      "properties": {"capacity": 12, "name": "Central Station", "status": "open"},
+      "version": 3
+    },
+    {
+      "type": "Feature",
+      "id": "91000000-0000-4000-8000-000000000002",
+      "bbox": [-71.0575, 42.361, -71.0575, 42.361],
+      "geometry": {"type": "Point", "coordinates": [-71.0575, 42.361]},
+      "properties": {"capacity": 24, "name": "Station Annex", "status": "planned"},
+      "version": 2
+    },
+    {
+      "type": "Feature",
+      "id": "91000000-0000-4000-8000-000000000003",
+      "bbox": [-71.12, 42.4, -71.12, 42.4],
+      "geometry": {"type": "Point", "coordinates": [-71.12, 42.4]},
+      "properties": {"capacity": 8, "name": "=CMD() Clinic", "status": "open"},
+      "version": 1
+    }
+  ],
+  "cases": [
+    {
+      "id": "attribute-search",
+      "purpose": "Compare GeoMoose default case-insensitive contains search with an OpenGeo governed attribute condition.",
+      "geoMooseRequest": {
+        "service": "search",
+        "selection": null,
+        "fields": [{"comparitor": "ilike", "name": "name", "value": "%station%"}],
+        "layers": ["facilities/stations"],
+        "bufferMeters": 0
+      },
+      "openGeoRequest": {
+        "steps": [{"kind": "attribute", "field": "name", "operator": "contains", "value": "station", "case_sensitive": false}],
+        "limit": 100,
+        "offset": 0,
+        "expected_generation": 11
+      },
+      "expectedFeatureIds": [
+        "91000000-0000-4000-8000-000000000001",
+        "91000000-0000-4000-8000-000000000002"
+      ]
+    },
+    {
+      "id": "point-identify",
+      "purpose": "Compare a point selection with the governed single-dataset result while retaining the visible-layer scope difference.",
+      "geoMooseRequest": {
+        "service": "identify",
+        "selection": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [-71.0589, 42.3601]}, "properties": {}}],
+        "fields": [],
+        "layers": ["facilities/stations", "facilities/clinics"],
+        "bufferMeters": 0
+      },
+      "openGeoRequest": {
+        "steps": [{"kind": "spatial", "relation": "intersects", "geometry": {"type": "Point", "coordinates": [-71.0589, 42.3601]}, "buffer_meters": 0}],
+        "limit": 100,
+        "offset": 0,
+        "expected_generation": 11
+      },
+      "expectedFeatureIds": ["91000000-0000-4000-8000-000000000001"]
+    },
+    {
+      "id": "attribute-spatial-buffer-chain",
+      "purpose": "Compare GeoMoose AND-composed attribute and selection filters with an explicit, reproducible OpenGeo buffered chain.",
+      "geoMooseRequest": {
+        "service": "wfs-query",
+        "selection": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [-71.059, 42.359]}, "properties": {}}],
+        "fields": [{"comparitor": "eq", "name": "status", "value": "open"}],
+        "layers": ["facilities/stations"],
+        "bufferMeters": 150
+      },
+      "openGeoRequest": {
+        "steps": [
+          {"kind": "attribute", "field": "status", "operator": "equals", "value": "open", "case_sensitive": false},
+          {"kind": "spatial", "relation": "intersects", "geometry": {"type": "Point", "coordinates": [-71.059, 42.359]}, "buffer_meters": 150}
+        ],
+        "limit": 100,
+        "offset": 0,
+        "expected_generation": 11
+      },
+      "expectedFeatureIds": ["91000000-0000-4000-8000-000000000001"]
+    },
+    {
+      "id": "box-selection",
+      "purpose": "Compare GeoMoose Box selection with OpenGeo's explicit two-corner box represented as a closed polygon.",
+      "geoMooseRequest": {
+        "service": "select",
+        "selection": [{"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [[[-71.07, 42.35], [-71.05, 42.35], [-71.05, 42.37], [-71.07, 42.37], [-71.07, 42.35]]]}, "properties": {}}],
+        "fields": [],
+        "layers": ["facilities/stations"],
+        "bufferMeters": 0
+      },
+      "openGeoRequest": {
+        "steps": [{"kind": "spatial", "relation": "intersects", "geometry": {"type": "Polygon", "coordinates": [[[-71.07, 42.35], [-71.05, 42.35], [-71.05, 42.37], [-71.07, 42.37], [-71.07, 42.35]]]}, "buffer_meters": 0}],
+        "limit": 100,
+        "offset": 0,
+        "expected_generation": 11
+      },
+      "expectedFeatureIds": [
+        "91000000-0000-4000-8000-000000000001",
+        "91000000-0000-4000-8000-000000000002"
+      ]
+    },
+    {
+      "id": "multipoint-selection",
+      "purpose": "Compare GeoMoose MultiPoint selection with the same bounded OpenGeo selection geometry.",
+      "geoMooseRequest": {
+        "service": "select",
+        "selection": [{"type": "Feature", "geometry": {"type": "MultiPoint", "coordinates": [[-71.0589, 42.3601], [-71.0575, 42.361]]}, "properties": {}}],
+        "fields": [],
+        "layers": ["facilities/stations"],
+        "bufferMeters": 0
+      },
+      "openGeoRequest": {
+        "steps": [{"kind": "spatial", "relation": "intersects", "geometry": {"type": "MultiPoint", "coordinates": [[-71.0589, 42.3601], [-71.0575, 42.361]]}, "buffer_meters": 0}],
+        "limit": 100,
+        "offset": 0,
+        "expected_generation": 11
+      },
+      "expectedFeatureIds": [
+        "91000000-0000-4000-8000-000000000001",
+        "91000000-0000-4000-8000-000000000002"
+      ]
+    },
+    {
+      "id": "result-selection-buffer",
+      "purpose": "Compare GeoMoose promotion of multiple result features into a later buffer selection with OpenGeo's bounded GeometryCollection handoff.",
+      "geoMooseRequest": {
+        "service": "buffer-results",
+        "selection": [
+          {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-71.0589, 42.3601]}, "properties": {"sourceFeatureId": "91000000-0000-4000-8000-000000000001"}},
+          {"type": "Feature", "geometry": {"type": "Point", "coordinates": [-71.0575, 42.361]}, "properties": {"sourceFeatureId": "91000000-0000-4000-8000-000000000002"}}
+        ],
+        "fields": [],
+        "layers": ["facilities/stations"],
+        "bufferMeters": 25
+      },
+      "openGeoRequest": {
+        "steps": [{"kind": "spatial", "relation": "intersects", "geometry": {"type": "GeometryCollection", "geometries": [{"type": "Point", "coordinates": [-71.0589, 42.3601]}, {"type": "Point", "coordinates": [-71.0575, 42.361]}]}, "buffer_meters": 25}],
+        "limit": 100,
+        "offset": 0,
+        "expected_generation": 11
+      },
+      "expectedFeatureIds": [
+        "91000000-0000-4000-8000-000000000001",
+        "91000000-0000-4000-8000-000000000002"
+      ]
+    }
+  ],
+  "resultLink": {
+    "identityField": "feature_id",
+    "expectedMapFeatureIds": ["91000000-0000-4000-8000-000000000001"],
+    "expectedTableFeatureIds": ["91000000-0000-4000-8000-000000000001"],
+    "expectedCsvFeatureIds": ["91000000-0000-4000-8000-000000000001"]
+  },
+  "knownDifferences": [
+    "GeoMoose dispatches one identify action across visible template-capable layers; OpenGeo fans out separately authorized, generation-aware requests across each unique visible governed dataset and reports per-layer failures.",
+    "GeoMoose applies a map-resolution-dependent point tolerance; OpenGeo exposes Point, MultiPoint, LineString, Polygon, two-corner Box, and Modify selection tools with an explicit meter buffer.",
+    "GeoMoose promotes current result features directly into its buffer-select service; OpenGeo copies no more than 100 exact result geometries with source dataset, generation, query digest, and stable feature identifiers before the user adds them to a target dataset query.",
+    "GeoMoose CSV uses configured grid columns without an intrinsic row, field, or byte cap; OpenGeo exports deterministic identifiers and safe fields with 100-row, 64-field, and 262144-byte limits plus spreadsheet-formula neutralization."
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "standard": "OGC KML 2.2",
+  "specification": "OGC 07-147r2",
+  "retrievedAt": "2026-08-24",
+  "artifacts": [
+    {
+      "name": "ogckml22.xsd",
+      "url": "https://schemas.opengis.net/kml/2.2.0/ogckml22.xsd",
+      "bytes": 66132,
+      "sha256": "67bb8fd82e7098245360f2aeb2afb561a8eb868ec3660dc06542475f67a4b665"
+    },
+    {
+      "name": "atom-author-link.xsd",
+      "url": "https://schemas.opengis.net/kml/2.2.0/atom-author-link.xsd",
+      "bytes": 1973,
+      "sha256": "62bb577edde174cfcc68c7edfdab04f49c455d194d83e2dfa9649605126fa884"
+    },
+    {
+      "name": "xAL.xsd",
+      "url": "https://docs.oasis-open.org/election/external/xAL.xsd",
+      "bytes": 74544,
+      "sha256": "cc8353e803f2ccb594cea247b00935477d672f2c5b5affc95a04cb3721a50f0e"
+    }
+  ],
+  "usage": {
+    "vendored": false,
+    "runtimeDependency": false,
+    "validation": "Exact external bytes are supplied to the one-shot validator; the validator rewrites only the xAL schemaLocation in a temporary copy and runs xmllint with --nonet."
+  }
+}

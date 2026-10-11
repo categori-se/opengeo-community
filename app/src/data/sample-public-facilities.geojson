@@ -1,0 +1,55 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Community Health Center",
+        "category": "health",
+        "public_access": true,
+        "last_verified": "2026-06-22"
+      },
+      "geometry": {"type": "Point", "coordinates": [-77.043, 38.912]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "District Cooling Shelter",
+        "category": "resilience",
+        "public_access": true,
+        "last_verified": "2026-06-23"
+      },
+      "geometry": {"type": "Point", "coordinates": [-77.032, 38.905]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Public Library Branch",
+        "category": "education",
+        "public_access": true,
+        "last_verified": "2026-06-21"
+      },
+      "geometry": {"type": "Point", "coordinates": [-77.018, 38.923]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Emergency Supply Hub",
+        "category": "logistics",
+        "public_access": false,
+        "last_verified": "2026-06-24"
+      },
+      "geometry": {"type": "Point", "coordinates": [-77.061, 38.898]}
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Neighborhood Service Center",
+        "category": "services",
+        "public_access": true,
+        "last_verified": "2026-06-20"
+      },
+      "geometry": {"type": "Point", "coordinates": [-77.027, 38.914]}
+    }
+  ]
+}

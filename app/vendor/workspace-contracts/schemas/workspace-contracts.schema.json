@@ -1,0 +1,428 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:categori:workspace-contracts:v1",
+  "title": "Categori workspace contracts v1",
+  "oneOf": [
+    {"$ref": "#/$defs/collaborationResource"},
+    {"$ref": "#/$defs/resourceGrant"},
+    {"$ref": "#/$defs/dataRepository"},
+    {"$ref": "#/$defs/sourceReference"},
+    {"$ref": "#/$defs/artifactReference"},
+    {"$ref": "#/$defs/demoPolicy"},
+    {"$ref": "#/$defs/massgisSourceManifest"},
+    {"$ref": "#/$defs/publicReleaseCandidate"}
+  ],
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,191}$"
+    },
+    "nullableId": {
+      "anyOf": [
+        {"$ref": "#/$defs/id"},
+        {"type": "null"}
+      ]
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "nullableTimestamp": {
+      "anyOf": [
+        {"$ref": "#/$defs/timestamp"},
+        {"type": "null"}
+      ]
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "action": {
+      "enum": ["view", "comment", "review", "edit", "execute", "use_connection", "manage_access", "delete"]
+    },
+    "resourceType": {
+      "enum": ["workspace", "client", "team", "project", "notebook", "document", "artifact", "repository", "source", "connection"]
+    },
+    "principalType": {
+      "enum": ["user", "team", "workspace", "link", "application", "service_account", "notebook"]
+    },
+    "accessPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inheritance", "allow_public_links"],
+      "properties": {
+        "inheritance": {"enum": ["inherit", "restricted"]},
+        "allow_public_links": {"type": "boolean"}
+      }
+    },
+    "collaborationResource": {
+      "type": "object",
+      "required": ["schema_version", "resource_type", "resource_id", "workspace_id", "access_policy"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "resource_type": {"$ref": "#/$defs/resourceType"},
+        "resource_id": {"$ref": "#/$defs/id"},
+        "notebook_id": {"$ref": "#/$defs/id"},
+        "workspace_id": {"$ref": "#/$defs/id"},
+        "project_id": {"$ref": "#/$defs/nullableId"},
+        "client_id": {"$ref": "#/$defs/nullableId"},
+        "team_id": {"$ref": "#/$defs/nullableId"},
+        "creator_id": {"$ref": "#/$defs/nullableId"},
+        "owner_id": {"$ref": "#/$defs/nullableId"},
+        "title": {"type": "string", "maxLength": 500},
+        "access_policy": {"$ref": "#/$defs/accessPolicy"},
+        "revision": {"type": "integer", "minimum": 1},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "updated_at": {"$ref": "#/$defs/timestamp"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"resource_type": {"const": "notebook"}}, "required": ["resource_type"]},
+          "then": {
+            "required": ["notebook_id", "project_id", "creator_id", "owner_id"],
+            "properties": {"owner_id": {"$ref": "#/$defs/id"}}
+          }
+        }
+      ]
+    },
+    "grantConditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "require_mfa": {"type": "boolean"},
+        "approval_id": {"$ref": "#/$defs/nullableId"},
+        "require_reference_write": {"type": "boolean"}
+      }
+    },
+    "resourceGrant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "grant_id", "resource_type", "resource_id", "workspace_id", "subject_type", "subject_id", "effect", "status", "actions", "conditions", "revision", "created_by", "created_at", "updated_at"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "grant_id": {"$ref": "#/$defs/id"},
+        "resource_type": {"$ref": "#/$defs/resourceType"},
+        "resource_id": {"$ref": "#/$defs/id"},
+        "workspace_id": {"$ref": "#/$defs/id"},
+        "subject_type": {"$ref": "#/$defs/principalType"},
+        "subject_id": {"$ref": "#/$defs/id"},
+        "role": {"anyOf": [{"enum": ["owner", "manager", "editor", "reviewer", "commenter", "viewer"]}, {"type": "null"}]},
+        "actions": {"type": "array", "items": {"$ref": "#/$defs/action"}, "uniqueItems": true},
+        "effect": {"enum": ["allow", "deny"]},
+        "status": {"enum": ["pending", "active", "revoked"]},
+        "not_before": {"$ref": "#/$defs/nullableTimestamp"},
+        "expires_at": {"$ref": "#/$defs/nullableTimestamp"},
+        "conditions": {"$ref": "#/$defs/grantConditions"},
+        "created_by": {"$ref": "#/$defs/id"},
+        "note": {"type": "string", "maxLength": 2000},
+        "revision": {"type": "integer", "minimum": 1},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "updated_at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "dataRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "repository_id", "workspace_id", "owner_id", "name", "ownership_mode", "storage_provider", "binding_ref", "revision", "created_at", "updated_at"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "repository_id": {"$ref": "#/$defs/id"},
+        "workspace_id": {"$ref": "#/$defs/id"},
+        "owner_id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "ownership_mode": {"const": "self_managed"},
+        "storage_provider": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{0,95}$"},
+        "binding_ref": {"$ref": "#/$defs/nullableId"},
+        "revision": {"type": "integer", "minimum": 1},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "updated_at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "sourceVersion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["provider_version", "etag", "last_modified", "sha256"],
+      "properties": {
+        "provider_version": {"anyOf": [{"type": "string", "maxLength": 500}, {"type": "null"}]},
+        "etag": {"anyOf": [{"type": "string", "maxLength": 500}, {"type": "null"}]},
+        "last_modified": {"$ref": "#/$defs/nullableTimestamp"},
+        "sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]}
+      }
+    },
+    "sourceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "source_ref_id", "workspace_id", "repository_id", "provider_id", "connection_ref", "external_id", "source_uri", "kind", "capture_mode", "version", "metadata", "observed_at", "created_by", "created_at"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "source_ref_id": {"$ref": "#/$defs/id"},
+        "workspace_id": {"$ref": "#/$defs/id"},
+        "repository_id": {"$ref": "#/$defs/id"},
+        "provider_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.:-]{0,95}$"},
+        "connection_ref": {"$ref": "#/$defs/nullableId"},
+        "external_id": {"anyOf": [{"type": "string", "minLength": 1, "maxLength": 2048}, {"type": "null"}]},
+        "source_uri": {"anyOf": [{"type": "string", "minLength": 1, "maxLength": 4096}, {"type": "null"}]},
+        "kind": {"enum": ["file", "folder", "dataset", "service", "page", "stream", "repository", "other"]},
+        "capture_mode": {"enum": ["reference", "snapshot", "mirror"]},
+        "version": {"$ref": "#/$defs/sourceVersion"},
+        "metadata": {"type": "object"},
+        "observed_at": {"$ref": "#/$defs/timestamp"},
+        "created_by": {"$ref": "#/$defs/id"},
+        "created_at": {"$ref": "#/$defs/timestamp"}
+      },
+      "$comment": "The JavaScript validator also rejects secret-like metadata keys and credential-bearing or signed source URIs."
+    },
+    "artifactReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "artifact_ref_id", "workspace_id", "repository_id", "project_id", "notebook_id", "source_ref_id", "object_ref", "sha256", "media_type", "byte_size", "created_by", "created_at"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "artifact_ref_id": {"$ref": "#/$defs/id"},
+        "workspace_id": {"$ref": "#/$defs/id"},
+        "repository_id": {"$ref": "#/$defs/id"},
+        "project_id": {"$ref": "#/$defs/nullableId"},
+        "notebook_id": {"$ref": "#/$defs/nullableId"},
+        "source_ref_id": {"$ref": "#/$defs/nullableId"},
+        "object_ref": {"$ref": "#/$defs/id"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "media_type": {"type": "string", "minLength": 1, "maxLength": 200},
+        "byte_size": {"anyOf": [{"type": "integer", "minimum": 0}, {"type": "null"}]},
+        "created_by": {"$ref": "#/$defs/id"},
+        "created_at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "massgisSourceManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "manifest_id", "status", "authority", "attribution", "policy_urls", "runtime_egress_hosts", "sources"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "manifest_id": {"$ref": "#/$defs/id"},
+        "status": {"enum": ["pending", "approved", "rejected"]},
+        "authority": {"const": "massgis"},
+        "attribution": {"const": "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts EOTSS"},
+        "policy_urls": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "format": "uri"}},
+        "runtime_egress_hosts": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9.-]+$"}},
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source_ref", "title", "layer_name", "description_url", "catalog_url", "service_url", "source_version", "snapshot_sha256", "rights_status", "technical_status", "publication_approved", "verified_at", "attribution", "limitations", "runtime_hosts"],
+            "properties": {
+              "source_ref": {"$ref": "#/$defs/id"},
+              "title": {"type": "string", "minLength": 1, "maxLength": 160},
+              "layer_name": {"type": "string", "minLength": 1, "maxLength": 160},
+              "description_url": {"type": "string", "format": "uri"},
+              "catalog_url": {"type": "string", "format": "uri"},
+              "service_url": {"anyOf": [{"type": "string", "format": "uri"}, {"type": "null"}]},
+              "source_version": {"type": "string", "minLength": 1, "maxLength": 200},
+              "snapshot_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+              "rights_status": {"enum": ["pending", "approved", "rejected"]},
+              "technical_status": {"enum": ["pending", "verified", "rejected"]},
+              "publication_approved": {"type": "boolean"},
+              "verified_at": {"$ref": "#/$defs/timestamp"},
+              "attribution": {"const": "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts EOTSS"},
+              "limitations": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+              "runtime_hosts": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z0-9.-]+$"}}
+            }
+          }
+        }
+      }
+    },
+    "publicReleaseCandidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "release_id", "version", "status", "release_channel", "publisher_profile", "public_name", "source_revision_sha256", "public_manifest_sha256", "source_manifest_sha256", "artifact_sha256", "public_scope", "disabled_capabilities", "evidence", "approvals", "created_by", "created_at", "updated_at"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "release_id": {"$ref": "#/$defs/id"},
+        "version": {"type": "string", "pattern": "^0\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)-alpha(?:\\.[0-9A-Za-z-]+)*$"},
+        "status": {"enum": ["draft", "review", "sanitized_preview", "approved", "published", "withdrawn", "superseded"]},
+        "release_channel": {"const": "alpha"},
+        "publisher_profile": {"const": "observable_sanitized_publisher_v1"},
+        "public_name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "source_revision_sha256": {"$ref": "#/$defs/sha256"},
+        "public_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "artifact_sha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "public_scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["data_authority", "source_refs", "route_paths", "private_brand_included"],
+          "properties": {
+            "data_authority": {"const": "massgis"},
+            "source_refs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+            "route_paths": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^/(?!/)", "maxLength": 256}},
+            "private_brand_included": {"const": false}
+          }
+        },
+        "disabled_capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uploads", "notebook_execution", "credentialed_connectors", "source_write_back", "administration", "public_sharing"],
+          "properties": {
+            "uploads": {"const": true},
+            "notebook_execution": {"const": true},
+            "credentialed_connectors": {"const": true},
+            "source_write_back": {"const": true},
+            "administration": {"const": true},
+            "public_sharing": {"const": true}
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["content_privacy", "security", "accessibility", "data_rights", "sbom", "clean_build"],
+          "properties": {
+            "content_privacy": {"$ref": "#/$defs/nullableReleaseEvidence"},
+            "security": {"$ref": "#/$defs/nullableReleaseEvidence"},
+            "accessibility": {"$ref": "#/$defs/nullableReleaseEvidence"},
+            "data_rights": {"$ref": "#/$defs/nullableReleaseEvidence"},
+            "sbom": {"$ref": "#/$defs/nullableReleaseEvidence"},
+            "clean_build": {"$ref": "#/$defs/nullableReleaseEvidence"}
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "decision", "evidence_ref", "reviewer_id", "decided_at", "artifact_sha256", "public_manifest_sha256", "source_manifest_sha256"],
+            "properties": {
+              "role": {"enum": ["content_privacy", "security", "accessibility", "data_rights", "release"]},
+              "decision": {"const": "approved"},
+              "evidence_ref": {"$ref": "#/$defs/id"},
+              "reviewer_id": {"$ref": "#/$defs/id"},
+              "decided_at": {"$ref": "#/$defs/timestamp"},
+              "artifact_sha256": {"$ref": "#/$defs/sha256"},
+              "public_manifest_sha256": {"$ref": "#/$defs/sha256"},
+              "source_manifest_sha256": {"$ref": "#/$defs/sha256"}
+            }
+          }
+        },
+        "created_by": {"$ref": "#/$defs/id"},
+        "created_at": {"$ref": "#/$defs/timestamp"},
+        "updated_at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "releaseEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidence_id", "result", "report_sha256", "artifact_sha256", "public_manifest_sha256", "source_manifest_sha256", "tool", "tool_version", "completed_at"],
+      "properties": {
+        "evidence_id": {"$ref": "#/$defs/id"},
+        "result": {"const": "pass"},
+        "report_sha256": {"$ref": "#/$defs/sha256"},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"},
+        "public_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+        "tool": {"type": "string", "minLength": 1, "maxLength": 120},
+        "tool_version": {"type": "string", "minLength": 1, "maxLength": 80},
+        "completed_at": {"$ref": "#/$defs/timestamp"}
+      }
+    },
+    "nullableReleaseEvidence": {
+      "anyOf": [
+        {"$ref": "#/$defs/releaseEvidence"},
+        {"type": "null"}
+      ]
+    },
+    "positiveQuota": {"type": "integer", "minimum": 1},
+    "demoPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "demo_id", "seed", "reset", "isolation", "allowed_mutations", "quotas", "showcases"],
+      "properties": {
+        "schema_version": {"const": 1},
+        "demo_id": {"$ref": "#/$defs/id"},
+        "seed": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["seed_id", "version", "sha256"],
+          "properties": {
+            "seed_id": {"$ref": "#/$defs/id"},
+            "version": {"$ref": "#/$defs/id"},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        "reset": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cadence", "partition_ttl_seconds"],
+          "properties": {
+            "cadence": {"const": "daily_utc"},
+            "partition_ttl_seconds": {"type": "integer", "minimum": 86400, "maximum": 604800}
+          }
+        },
+        "isolation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "seed_is_immutable", "production_writes", "external_write_back", "public_sharing", "connection_use", "uploads", "notebook_execution"],
+          "properties": {
+            "mode": {"const": "server_issued_visitor_partition"},
+            "seed_is_immutable": {"const": true},
+            "production_writes": {"const": false},
+            "external_write_back": {"const": false},
+            "public_sharing": {"const": false},
+            "connection_use": {"const": false},
+            "uploads": {"const": false},
+            "notebook_execution": {"const": false}
+          }
+        },
+        "allowed_mutations": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"enum": ["project.create", "notebook.create", "notebook.edit", "notebook.comment", "metadata.edit"]}
+        },
+        "quotas": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["per_visitor", "global"],
+          "properties": {
+            "per_visitor": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mutations_per_minute", "mutations_per_day", "projects_per_day", "notebooks_per_day"],
+              "properties": {
+                "mutations_per_minute": {"$ref": "#/$defs/positiveQuota"},
+                "mutations_per_day": {"$ref": "#/$defs/positiveQuota"},
+                "projects_per_day": {"$ref": "#/$defs/positiveQuota"},
+                "notebooks_per_day": {"$ref": "#/$defs/positiveQuota"}
+              }
+            },
+            "global": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["mutations_per_minute", "mutations_per_day"],
+              "properties": {
+                "mutations_per_minute": {"$ref": "#/$defs/positiveQuota"},
+                "mutations_per_day": {"$ref": "#/$defs/positiveQuota"}
+              }
+            }
+          }
+        },
+        "showcases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["data_authority", "source_manifest_sha256", "source_refs", "source_access", "allowed_egress_hosts"],
+          "properties": {
+            "data_authority": {"const": "massgis"},
+            "source_manifest_sha256": {"$ref": "#/$defs/sha256"},
+            "source_refs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/id"}, "uniqueItems": true},
+            "source_access": {"const": "read_only"},
+            "allowed_egress_hosts": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"type": "string", "pattern": "^[A-Za-z0-9.-]+$"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

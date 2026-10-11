@@ -1,0 +1,113 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-006.path-measurement-profile",
+  "title": "Saved line, path, polygon, circle, and terrain elevation measurement",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local deterministic body-distance, elevation, no-data, browser interaction, serialization, and API recomputation fixtures. No Google service, proprietary byte, live terrain provider, AWS deployment, or credential is used."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "pathMeasurement.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/pathMeasurement.js",
+      "sha256": "bade5b506ecd7316b9edd36ed864832174fd12481cf05dbd04e0d59fb71af1bc"
+    },
+    {
+      "name": "areaMeasurement.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/areaMeasurement.js",
+      "sha256": "8945e2adaa61bf8a7d567c329c7a939c1a4847f2679e4ede790b289d5f60061b"
+    },
+    {
+      "name": "savedMeasurement.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/savedMeasurement.js",
+      "sha256": "a6460d84447430b667bcd6c1d312fce6dddfec4dc3a98c4644a2090218f6e5d2"
+    },
+    {
+      "name": "path-measurement.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/path-measurement.test.mjs",
+      "sha256": "33fe1621247ff32e9fee663ad3ad77a12ad9ce4f9945d7b439aafcded283b98d"
+    },
+    {
+      "name": "area-measurement.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/area-measurement.test.mjs",
+      "sha256": "a425ee2fb8f30019824874b0a1271feda5e32972e6fcdbc37c1a38e6d0ff5511"
+    },
+    {
+      "name": "opengeo-map-definition-1.3.0.schema.json",
+      "mediaType": "application/schema+json",
+      "encoding": "path",
+      "value": "schemas/opengeo-map-definition-1.3.0.schema.json",
+      "sha256": "66b3c915349677769ad4ea51afb44617c3e9e78e43419d5adf92aa3587e054a3"
+    },
+    {
+      "name": "map_definitions.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/map_definitions.py",
+      "sha256": "cb7bf75d578d1bed66b79a0a35353e7301664117b0576a8c05be6ca288758f3c"
+    },
+    {
+      "name": "test_map_measurements.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_map_measurements.py",
+      "sha256": "da94780e2731a75d251ddf6a702be20c4a6b3d49af18614ba7de51a22f57f875"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "build-demo-site.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/build-demo-site.mjs",
+      "sha256": "41d6c01518be12cf57f3aac9497f1b5451c8702dfe6c2c6a7a9a001a361556f9"
+    },
+    {
+      "name": "google-earth-pro-006-path-measurement-profile.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-006-path-measurement-profile.json",
+      "sha256": "4d2a96796c16e8ebff02fe43959682d4c8118fc731f1aa8af50edcf17705cb4c"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.measurement-elevation-viewshed",
+      "assertion": "OpenGeo locally provides editable durable line distance, multi-vertex path distance, simple polygon area, circle area, and bounded elevation profiles with exact renderer-source provenance, derived sampled slope, independent browser/API recomputation, truthful no-data behavior, and path export. Three-dimensional polygon measurement, elevation uncertainty, line-of-sight, viewshed, deployment, and exact Google Earth comparison remain open, so the aggregate row remains partial."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

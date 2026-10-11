@@ -1,0 +1,1189 @@
+import asyncio
+from collections import deque
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from typing import Any
+from uuid import UUID
+
+import pytest
+
+from opengeo_api.features import (
+    AttributeQueryStep,
+    FeatureAccessDenied,
+    FeatureCollection,
+    FeatureConflict,
+    FeatureInvalid,
+    FeatureRecord,
+    FeatureTombstonePage,
+    PostgresFeatureRepository,
+    SpatialQueryStep,
+    feature_draft,
+    feature_field_document,
+    merge_multipolygon_draft,
+    normalize_fields,
+    normalize_geometry,
+    normalize_properties,
+    normalize_query_geometry,
+    separate_multipolygon_drafts,
+)
+from opengeo_api.ogc_features import collection_document
+from opengeo_api.tenant_database import TenantContext
+
+FEATURE_ID = UUID("90000000-0000-4000-8000-000000000131")
+PROJECT_ID = UUID("50000000-0000-4000-8000-000000000131")
+DATASET_ID = UUID("80000000-0000-4000-8000-000000000131")
+USER_ID = UUID("20000000-0000-4000-8000-000000000131")
+ORG_ID = UUID("10000000-0000-4000-8000-000000000131")
+LOCK_TOKEN = UUID("a0000000-0000-4000-8000-000000000131")
+OTHER_USER_ID = UUID("20000000-0000-4000-8000-000000000132")
+NOW = datetime(2026, 8, 26, 12, tzinfo=UTC)
+
+
+class QueryTransaction:
+    def __init__(
+        self,
+        one: list[tuple[Any, ...] | None],
+        all_rows: list[list[tuple[Any, ...]]] | None = None,
+    ) -> None:
+        self.one = deque(one)
+        self.all_rows = deque(all_rows or [])
+        self.calls: list[tuple[str, str, tuple[Any, ...]]] = []
+
+    async def fetch_one(self, statement: str, parameters=()):
+        self.calls.append(("one", statement, tuple(parameters)))
+        assert self.one, f"unexpected fetch_one: {statement}"
+        return self.one.popleft()
+
+    async def fetch_all(self, statement: str, parameters=()):
+        self.calls.append(("all", statement, tuple(parameters)))
+        assert self.all_rows, f"unexpected fetch_all: {statement}"
+        return self.all_rows.popleft()
+
+    async def execute(self, statement: str, parameters=()):
+        self.calls.append(("execute", statement, tuple(parameters)))
+        return 1
+
+
+class QueryExecutor:
+    def __init__(self, transaction: QueryTransaction) -> None:
+        self.transaction = transaction
+
+    async def run(self, context, operation):
+        return await operation(self.transaction)
+
+    async def fetch_one(self, context, statement, parameters=()):
+        return await self.transaction.fetch_one(statement, parameters)
+
+
+def test_schema_and_properties_are_scalar_bounded_and_exact() -> None:
+    fields = normalize_fields(
+        [
+            {"name": "name", "type": "string", "required": True},
+            {"name": "count", "type": "integer", "required": False},
+            {"name": "verified", "type": "boolean", "required": False},
+        ]
+    )
+
+    assert normalize_properties({"name": "Station", "count": 3, "verified": True}, fields) == {
+        "name": "Station",
+        "count": 3,
+        "verified": True,
+    }
+    with pytest.raises(FeatureInvalid, match="unknown field"):
+        normalize_properties({"name": "Station", "secret": "extra"}, fields)
+    with pytest.raises(FeatureInvalid, match="safe integer"):
+        normalize_properties({"name": "Station", "count": True}, fields)
+    with pytest.raises(FeatureInvalid, match="required"):
+        normalize_properties({}, fields)
+    with pytest.raises(FeatureInvalid, match="unique"):
+        normalize_fields(
+            [
+                {"name": "Station", "type": "string"},
+                {"name": "station", "type": "string"},
+            ]
+        )
+
+
+def test_multipolygon_structure_drafts_preserve_identity_attributes_and_bounds() -> None:
+    fields = normalize_fields([{"name": "name", "type": "string", "required": True}])
+    feature = FeatureRecord(
+        FEATURE_ID,
+        4,
+        "MultiPolygon",
+        {
+            "type": "MultiPolygon",
+            "coordinates": [
+                [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+                [[[3, 0], [4, 0], [4, 1], [3, 1], [3, 0]]],
+            ],
+        },
+        (0, 0, 4, 1),
+        {"name": "Survey areas"},
+        USER_ID,
+        NOW,
+        USER_ID,
+        NOW,
+    )
+
+    separated = separate_multipolygon_drafts(feature, fields, 1)
+
+    assert len(separated) == 2
+    assert separated[0].feature_id == FEATURE_ID
+    assert separated[0].geometry["coordinates"] == [feature.geometry["coordinates"][1]]
+    assert separated[0].bbox == (3.0, 0.0, 4.0, 1.0)
+    assert separated[1].feature_id != FEATURE_ID
+    assert separated[1].properties == {"name": "Survey areas"}
+    assert feature.geometry["coordinates"][0][0][0] == [0, 0]
+
+    merged = merge_multipolygon_draft(
+        [
+            FeatureRecord(
+                draft.feature_id,
+                1,
+                draft.geometry_type,
+                draft.geometry,
+                draft.bbox,
+                draft.properties,
+                USER_ID,
+                NOW,
+                USER_ID,
+                NOW,
+            )
+            for draft in separated
+        ],
+        fields,
+        FEATURE_ID,
+    )
+
+    assert merged.feature_id == FEATURE_ID
+    assert len(merged.geometry["coordinates"]) == 2
+    assert merged.properties == {"name": "Survey areas"}
+    with pytest.raises(FeatureInvalid, match="at least two parts"):
+        separate_multipolygon_drafts(
+            replace(
+                feature,
+                geometry={
+                    "type": "MultiPolygon",
+                    "coordinates": separated[0].geometry["coordinates"],
+                },
+            ),
+            fields,
+            0,
+        )
+    with pytest.raises(FeatureInvalid, match="must be first"):
+        merge_multipolygon_draft(
+            [
+                replace(feature, feature_id=UUID("90000000-0000-4000-8000-000000000132")),
+                feature,
+            ],
+            fields,
+            FEATURE_ID,
+        )
+
+
+def test_schema_fields_carry_bounded_capture_rules_into_value_validation() -> None:
+    fields = normalize_fields(
+        [
+            {
+                "name": "status",
+                "type": "string",
+                "required": True,
+                "label": " Review status ",
+                "description": " Choose the current state. ",
+                "choices": ["Open", "Closed"],
+                "min_length": 4,
+                "max_length": 6,
+            },
+            {
+                "name": "score",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100,
+            },
+        ]
+    )
+
+    assert feature_field_document(fields[0]) == {
+        "name": "status",
+        "type": "string",
+        "required": True,
+        "label": "Review status",
+        "description": "Choose the current state.",
+        "choices": ["Open", "Closed"],
+        "min_length": 4,
+        "max_length": 6,
+    }
+    assert normalize_properties({"status": "Open", "score": 82.5}, fields) == {
+        "status": "Open",
+        "score": 82.5,
+    }
+    with pytest.raises(FeatureInvalid, match="choices"):
+        normalize_properties({"status": "Draft"}, fields)
+    with pytest.raises(FeatureInvalid, match="above its maximum"):
+        normalize_properties({"status": "Closed", "score": 101}, fields)
+    with pytest.raises(FeatureInvalid, match="inverted"):
+        normalize_fields([{"name": "score", "type": "integer", "minimum": 5, "maximum": 4}])
+    with pytest.raises(FeatureInvalid, match="cannot declare string rules"):
+        normalize_fields([{"name": "score", "type": "number", "choices": ["high"]}])
+
+
+def test_conditional_fields_are_typed_ordered_and_required_only_when_visible() -> None:
+    fields = normalize_fields(
+        [
+            {
+                "name": "inspection_type",
+                "type": "string",
+                "required": True,
+                "choices": ["Routine", "Incident"],
+            },
+            {
+                "name": "incident_reference",
+                "type": "string",
+                "required": True,
+                "visible_when": {"field": "inspection_type", "equals": "Incident"},
+            },
+        ]
+    )
+
+    assert feature_field_document(fields[1])["visible_when"] == {
+        "field": "inspection_type",
+        "equals": "Incident",
+    }
+    assert normalize_properties({"inspection_type": "Routine"}, fields) == {
+        "inspection_type": "Routine"
+    }
+    assert normalize_properties(
+        {"inspection_type": "Incident", "incident_reference": "INC-7"}, fields
+    ) == {"inspection_type": "Incident", "incident_reference": "INC-7"}
+    with pytest.raises(FeatureInvalid, match="required"):
+        normalize_properties({"inspection_type": "Incident"}, fields)
+    with pytest.raises(FeatureInvalid, match="hidden"):
+        normalize_properties({"inspection_type": "Routine", "incident_reference": "INC-7"}, fields)
+
+    collection = FeatureCollection(
+        DATASET_ID,
+        "Point",
+        fields,
+        1,
+        0,
+        USER_ID,
+        NOW,
+        USER_ID,
+        NOW,
+    )
+    ogc = collection_document(collection, "https://example.test/ogc")
+    assert ogc["opengeo:properties"]["incident_reference"]["x-opengeo-visible-when"] == {
+        "field": "inspection_type",
+        "equals": "Incident",
+    }
+    with pytest.raises(FeatureInvalid, match="earlier field"):
+        normalize_fields(
+            [
+                {
+                    "name": "reference",
+                    "type": "string",
+                    "visible_when": {"field": "later", "equals": True},
+                },
+                {"name": "later", "type": "boolean"},
+            ]
+        )
+    with pytest.raises(FeatureInvalid, match="one of its choices"):
+        normalize_fields(
+            [
+                {
+                    "name": "kind",
+                    "type": "string",
+                    "choices": ["A", "B"],
+                },
+                {
+                    "name": "detail",
+                    "type": "string",
+                    "visible_when": {"field": "kind", "equals": "C"},
+                },
+            ]
+        )
+
+
+def test_nested_and_repeating_groups_are_bounded_recursive_and_ordered() -> None:
+    fields = normalize_fields(
+        [
+            {"name": "survey_kind", "type": "string", "required": True},
+            {
+                "name": "contact",
+                "type": "group",
+                "required": True,
+                "fields": [
+                    {"name": "name", "type": "string", "required": True},
+                    {"name": "email", "type": "string"},
+                ],
+            },
+            {
+                "name": "samples",
+                "type": "group",
+                "repeat": True,
+                "min_items": 1,
+                "max_items": 2,
+                "fields": [
+                    {"name": "value", "type": "number", "required": True, "minimum": 0},
+                    {
+                        "name": "detail",
+                        "type": "string",
+                        "visible_when": {"field": "value", "equals": 0},
+                    },
+                ],
+            },
+        ]
+    )
+    properties = {
+        "survey_kind": "water",
+        "contact": {"name": "Ada", "email": "ada@example.test"},
+        "samples": [
+            {"value": 0, "detail": "below detection"},
+            {"value": 4.5},
+        ],
+    }
+
+    assert normalize_properties(properties, fields) == properties
+    group = feature_field_document(fields[2])
+    assert group == {
+        "name": "samples",
+        "type": "group",
+        "required": False,
+        "fields": [
+            {"name": "value", "type": "number", "required": True, "minimum": 0},
+            {
+                "name": "detail",
+                "type": "string",
+                "required": False,
+                "visible_when": {"field": "value", "equals": 0},
+            },
+        ],
+        "repeat": True,
+        "min_items": 1,
+        "max_items": 2,
+    }
+    collection = FeatureCollection(DATASET_ID, "Point", fields, 1, 0, USER_ID, NOW, USER_ID, NOW)
+    schema = collection_document(collection, "https://example.test/ogc")["opengeo:properties"]
+    assert schema["contact"]["type"] == "object"
+    assert schema["contact"]["required"] == ["name"]
+    assert schema["samples"]["type"] == "array"
+    assert schema["samples"]["minItems"] == 1
+    assert schema["samples"]["maxItems"] == 2
+
+    with pytest.raises(FeatureInvalid, match="must contain 1 to 2 items"):
+        normalize_properties({**properties, "samples": []}, fields)
+    with pytest.raises(FeatureInvalid, match=r"samples\[0\].detail is hidden"):
+        normalize_properties(
+            {**properties, "samples": [{"value": 2, "detail": "not applicable"}]},
+            fields,
+        )
+    with pytest.raises(FeatureInvalid, match="visible_when controller must be scalar"):
+        normalize_fields(
+            [
+                {"name": "group", "type": "group", "fields": [{"name": "x", "type": "string"}]},
+                {
+                    "name": "dependent",
+                    "type": "string",
+                    "visible_when": {"field": "group", "equals": "x"},
+                },
+            ]
+        )
+    too_deep: dict[str, Any] = {"name": "leaf", "type": "string"}
+    for index in range(4):
+        too_deep = {"name": f"group_{index}", "type": "group", "fields": [too_deep]}
+    with pytest.raises(FeatureInvalid, match="three nested levels"):
+        normalize_fields([too_deep])
+
+
+def test_geometry_is_strict_two_dimensional_wgs84_geojson() -> None:
+    geometry_type, geometry, bbox = normalize_geometry(
+        {
+            "type": "Polygon",
+            "coordinates": [[[-77.1, 38.8], [-76.9, 38.8], [-76.9, 39.0], [-77.1, 38.8]]],
+        }
+    )
+
+    assert geometry_type == "Polygon"
+    assert geometry["coordinates"][0][0] == [-77.1, 38.8]
+    assert bbox == (-77.1, 38.8, -76.9, 39.0)
+    with pytest.raises(FeatureInvalid, match="closed"):
+        normalize_geometry(
+            {
+                "type": "Polygon",
+                "coordinates": [[[-77.1, 38.8], [-76.9, 38.8], [-76.9, 39.0], [-77.1, 39.0]]],
+            }
+        )
+    with pytest.raises(FeatureInvalid, match="two-dimensional"):
+        normalize_geometry({"type": "Point", "coordinates": [-77.1, 38.8, 10]})
+    with pytest.raises(FeatureInvalid, match="WGS84"):
+        normalize_geometry({"type": "Point", "coordinates": [181, 38.8]})
+
+
+def test_query_geometry_accepts_bounded_multipoint_and_mixed_result_collection() -> None:
+    multipoint = normalize_query_geometry(
+        {"type": "MultiPoint", "coordinates": [[-71.06, 42.36], [-71.05, 42.37]]}
+    )
+    collection = normalize_query_geometry(
+        {
+            "type": "GeometryCollection",
+            "geometries": [
+                {"type": "Point", "coordinates": [-71.06, 42.36]},
+                {
+                    "type": "Polygon",
+                    "coordinates": [
+                        [
+                            [-71.051, 42.369],
+                            [-71.049, 42.369],
+                            [-71.049, 42.371],
+                            [-71.051, 42.369],
+                        ]
+                    ],
+                },
+            ],
+        }
+    )
+
+    assert multipoint["type"] == "MultiPoint"
+    assert collection["type"] == "GeometryCollection"
+    assert [member["type"] for member in collection["geometries"]] == [
+        "Point",
+        "Polygon",
+    ]
+    with pytest.raises(FeatureInvalid, match="1 to 100"):
+        normalize_query_geometry({"type": "GeometryCollection", "geometries": []})
+    with pytest.raises(FeatureInvalid, match="1 to 100"):
+        normalize_query_geometry(
+            {
+                "type": "GeometryCollection",
+                "geometries": [{"type": "GeometryCollection", "geometries": []}],
+            }
+        )
+
+
+def test_feature_draft_preserves_caller_id_and_normalizes_coordinates() -> None:
+    fields = normalize_fields([{"name": "name", "type": "string", "required": True}])
+
+    draft = feature_draft(
+        {"type": "Point", "coordinates": [-77, 38]},
+        {"name": "Station"},
+        fields,
+        FEATURE_ID,
+    )
+
+    assert draft.feature_id == FEATURE_ID
+    assert draft.geometry == {"type": "Point", "coordinates": [-77.0, 38.0]}
+    assert draft.bbox == (-77.0, 38.0, -77.0, 38.0)
+
+
+def test_governed_repository_query_applies_scope_generation_and_bounded_postgis_sql() -> None:
+    schema = {
+        "schemaVersion": "1.0.0",
+        "fields": [
+            {"name": "name", "type": "string", "required": True},
+            {"name": "priority", "type": "integer", "required": True},
+        ],
+    }
+    transaction = QueryTransaction(
+        one=[
+            ("member", "viewer", None, False, "active", "geojson"),
+            (DATASET_ID, "Point", schema, 7, 1, USER_ID, NOW, USER_ID, NOW),
+            (1,),
+        ],
+        all_rows=[
+            [
+                (
+                    FEATURE_ID,
+                    1,
+                    "Point",
+                    {"name": "Station", "priority": 3},
+                    {"type": "Point", "coordinates": [-77.03, 38.9]},
+                    [-77.03, 38.9, -77.03, 38.9],
+                    USER_ID,
+                    NOW,
+                    USER_ID,
+                    NOW,
+                )
+            ]
+        ],
+    )
+    repository = PostgresFeatureRepository(QueryExecutor(transaction))
+
+    page = asyncio.run(
+        repository.query_features(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            steps=(
+                AttributeQueryStep("name", "contains", "sta"),
+                AttributeQueryStep("priority", "greater_than_or_equal", 2),
+                SpatialQueryStep(
+                    "intersects",
+                    {"type": "Point", "coordinates": [-77.03, 38.9]},
+                    25,
+                ),
+            ),
+            limit=100,
+            offset=0,
+            expected_generation=7,
+        )
+    )
+
+    assert page.collection.generation == 7
+    assert page.features[0].feature_id == FEATURE_ID
+    assert page.number_matched == 1
+    count_call = transaction.calls[2]
+    rows_call = transaction.calls[3]
+    assert "lower(feature.properties ->> %s) LIKE lower(%s) ESCAPE '\\\\'" in count_call[1]
+    assert "(feature.properties ->> %s)::numeric >= %s" in count_call[1]
+    assert "ST_Intersects(feature.geometry, ST_Buffer(" in count_call[1]
+    assert "ORDER BY feature.id" in rows_call[1]
+    assert count_call[2][-1] == 25.0
+    assert rows_call[2][-2:] == (100, 0)
+
+
+def test_governed_repository_query_denies_unpermitted_dataset_scope_before_reading() -> None:
+    transaction = QueryTransaction(one=[("guest", None, None, False, "active", "geojson")])
+    repository = PostgresFeatureRepository(QueryExecutor(transaction))
+
+    with pytest.raises(FeatureAccessDenied):
+        asyncio.run(
+            repository.query_features(
+                TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+                PROJECT_ID,
+                DATASET_ID,
+                steps=(AttributeQueryStep("name", "equals", "Station"),),
+                limit=100,
+                offset=0,
+            )
+        )
+
+    assert len(transaction.calls) == 1
+
+
+def test_repository_feature_lock_acquire_list_release_and_conflict_are_explicit() -> None:
+    schema = {"schemaVersion": "1.0.0", "fields": []}
+    geometry = {"type": "Point", "coordinates": [0, 0]}
+    acquired_transaction = QueryTransaction(
+        one=[
+            ("member", "editor", None, False, "active", "geojson"),
+            (DATASET_ID, "Point", schema, 1, 1, USER_ID, NOW, USER_ID, NOW),
+            feature_row(FEATURE_ID, 1, geometry, (0, 0, 0, 0)),
+            (USER_ID,),
+            None,
+            (0,),
+            (FEATURE_ID, 1, LOCK_TOKEN, True, NOW, NOW + timedelta(minutes=2)),
+        ]
+    )
+    repository = PostgresFeatureRepository(QueryExecutor(acquired_transaction))
+    acquired = asyncio.run(
+        repository.acquire_feature_lock(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            FEATURE_ID,
+            1,
+            LOCK_TOKEN,
+            120,
+            "feature-lock-acquire",
+        )
+    )
+
+    assert acquired.lock_token == LOCK_TOKEN
+    assert acquired.held_by_current_user is True
+    assert acquired.feature_version == 1
+    assert any(
+        "ON CONFLICT (organization_id, dataset_id, feature_id)" in statement
+        and "expires_at <= clock_timestamp()" in statement
+        for _kind, statement, _parameters in acquired_transaction.calls
+    )
+    assert any(
+        "dataset.feature.lock.acquired" in parameters
+        for _kind, _statement, parameters in acquired_transaction.calls
+    )
+
+    list_transaction = QueryTransaction(
+        one=[
+            ("member", "editor", None, False, "active", "geojson"),
+            (DATASET_ID, "Point", schema, 1, 1, USER_ID, NOW, USER_ID, NOW),
+        ],
+        all_rows=[
+            [
+                (FEATURE_ID, 1, LOCK_TOKEN, True, NOW, NOW + timedelta(minutes=2)),
+                (
+                    UUID("90000000-0000-4000-8000-000000000132"),
+                    2,
+                    None,
+                    False,
+                    NOW,
+                    NOW + timedelta(minutes=3),
+                ),
+            ]
+        ],
+    )
+    listed = asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(list_transaction)).list_feature_locks(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+        )
+    )
+    assert [item.lock_token for item in listed] == [LOCK_TOKEN, None]
+    assert [item.held_by_current_user for item in listed] == [True, False]
+
+    conflict_transaction = QueryTransaction(one=[(LOCK_TOKEN, OTHER_USER_ID, 1)])
+    with pytest.raises(FeatureConflict) as conflict:
+        asyncio.run(
+            PostgresFeatureRepository._require_feature_lock_access(
+                conflict_transaction,
+                TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+                DATASET_ID,
+                FEATURE_ID,
+                LOCK_TOKEN,
+            )
+        )
+    assert conflict.value.code == "feature_locked"
+    assert conflict.value.current_version == 1
+
+    release_transaction = QueryTransaction(
+        one=[
+            ("member", "editor", None, False, "active", "geojson"),
+            (DATASET_ID, "Point", schema, 1, 1, USER_ID, NOW, USER_ID, NOW),
+            feature_row(FEATURE_ID, 1, geometry, (0, 0, 0, 0)),
+            (LOCK_TOKEN, USER_ID, 1),
+        ]
+    )
+    released = asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(release_transaction)).release_feature_lock(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            FEATURE_ID,
+            LOCK_TOKEN,
+            "feature-lock-release",
+        )
+    )
+    assert released.released is True
+    assert any(
+        "dataset.feature.lock.released" in parameters
+        for _kind, _statement, parameters in release_transaction.calls
+    )
+
+
+def test_repository_separates_multipolygon_parts_with_one_locked_generation_advance() -> None:
+    schema = {
+        "schemaVersion": "1.0.0",
+        "fields": [{"name": "name", "type": "string", "required": True}],
+    }
+    source_geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]],
+            [[[3, 0], [4, 0], [4, 1], [3, 1], [3, 0]]],
+        ],
+    }
+    retained_geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [source_geometry["coordinates"][1]],
+    }
+    created_geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [source_geometry["coordinates"][0]],
+    }
+    transaction = QueryTransaction(
+        one=[
+            ("member", "editor", None, False, "active", "geojson"),
+            (DATASET_ID, "MultiPolygon", schema, 1, 1, USER_ID, NOW, USER_ID, NOW),
+            feature_row(FEATURE_ID, 1, source_geometry, (0, 0, 4, 1)),
+            None,
+            feature_row(FEATURE_ID, 2, retained_geometry, (3, 0, 4, 1)),
+            feature_row(
+                UUID("90000000-0000-4000-8000-000000000132"),
+                1,
+                created_geometry,
+                (0, 0, 1, 1),
+            ),
+            (2, 2, NOW),
+        ]
+    )
+    repository = PostgresFeatureRepository(QueryExecutor(transaction))
+
+    result = asyncio.run(
+        repository.separate_multipolygon_parts(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            FEATURE_ID,
+            1,
+            1,
+            "Separate survey areas",
+            "polygon-separate-request",
+        )
+    )
+
+    assert result.collection.generation == 2
+    assert result.collection.feature_count == 2
+    assert result.retained_feature.version_number == 2
+    assert len(result.created_features) == 1
+    assert result.created_features[0].geometry == created_geometry
+    assert result.deleted_features == ()
+    assert (
+        sum(
+            "UPDATE app.feature_collections" in statement
+            for _kind, statement, _parameters in transaction.calls
+        )
+        == 1
+    )
+    assert (
+        sum("FOR UPDATE" in statement for _kind, statement, _parameters in transaction.calls) >= 2
+    )
+    assert any(
+        "dataset.feature.parts.separated" in parameters
+        for _kind, _statement, parameters in transaction.calls
+    )
+
+
+def test_repository_merges_multipolygon_features_and_tombstones_donor_atomically() -> None:
+    donor_id = UUID("90000000-0000-4000-8000-000000000132")
+    schema = {
+        "schemaVersion": "1.0.0",
+        "fields": [{"name": "name", "type": "string", "required": True}],
+    }
+    retained_geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [[[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]]],
+    }
+    donor_geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [[[[3, 0], [4, 0], [4, 1], [3, 1], [3, 0]]]],
+    }
+    merged_geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            retained_geometry["coordinates"][0],
+            donor_geometry["coordinates"][0],
+        ],
+    }
+    transaction = QueryTransaction(
+        one=[
+            ("member", "editor", None, False, "active", "geojson"),
+            (DATASET_ID, "MultiPolygon", schema, 7, 2, USER_ID, NOW, USER_ID, NOW),
+            feature_row(FEATURE_ID, 2, retained_geometry, (0, 0, 1, 1)),
+            feature_row(donor_id, 3, donor_geometry, (3, 0, 4, 1)),
+            None,
+            None,
+            (True,),
+            feature_row(FEATURE_ID, 3, merged_geometry, (0, 0, 4, 1)),
+            (8, 1, NOW),
+        ]
+    )
+    repository = PostgresFeatureRepository(QueryExecutor(transaction))
+
+    result = asyncio.run(
+        repository.merge_multipolygon_features(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            FEATURE_ID,
+            ((donor_id, 3, None), (FEATURE_ID, 2, None)),
+            "Merge survey areas",
+            "polygon-merge-request",
+        )
+    )
+
+    assert result.collection.generation == 8
+    assert result.collection.feature_count == 1
+    assert result.retained_feature.geometry == merged_geometry
+    assert result.created_features == ()
+    assert [(item.feature_id, item.deleted_version) for item in result.deleted_features] == [
+        (donor_id, 4)
+    ]
+    assert result.deleted_features[0].collection_generation == 8
+    assert (
+        sum(
+            "UPDATE app.feature_collections" in statement
+            for _kind, statement, _parameters in transaction.calls
+        )
+        == 1
+    )
+    assert any(
+        "deleted_at = clock_timestamp()" in statement
+        for _kind, statement, _parameters in transaction.calls
+    )
+    assert any(
+        "dataset.feature.parts.merged" in parameters
+        for _kind, _statement, parameters in transaction.calls
+    )
+
+
+def test_repository_lists_deleted_feature_tombstones_with_bounded_paging() -> None:
+    schema = {"schemaVersion": "1.0.0", "fields": []}
+    deleted_at = NOW + timedelta(minutes=2)
+    transaction = QueryTransaction(
+        one=[
+            ("member", "viewer", None, False, "active", "geojson"),
+            (DATASET_ID, "Point", schema, 7, 0, USER_ID, NOW, USER_ID, NOW),
+            (1,),
+        ],
+        all_rows=[[(FEATURE_ID, 3, USER_ID, deleted_at, deleted_at)]],
+    )
+
+    page = asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(transaction)).list_deleted_features(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            limit=20,
+            offset=0,
+        )
+    )
+
+    assert isinstance(page, FeatureTombstonePage)
+    assert page.number_matched == 1
+    assert page.tombstones[0].feature_id == FEATURE_ID
+    assert page.tombstones[0].deleted_version == 3
+    assert page.tombstones[0].deleted_at == deleted_at
+    rows_call = transaction.calls[3]
+    assert rows_call[0] == "all"
+    assert "deleted_at IS NOT NULL" in rows_call[1]
+    assert "ORDER BY deleted_at DESC, id" in rows_call[1]
+    assert rows_call[2][-2:] == (20, 0)
+
+
+def test_repository_restores_deleted_feature_from_immutable_revision_atomically() -> None:
+    schema = {
+        "schemaVersion": "1.0.0",
+        "fields": [{"name": "name", "type": "string", "required": True}],
+    }
+    geometry = {"type": "Point", "coordinates": [-71.1, 42.3]}
+    restored_row = (
+        FEATURE_ID,
+        4,
+        "Point",
+        {"name": "Recovered station"},
+        geometry,
+        (-71.1, 42.3, -71.1, 42.3),
+        USER_ID,
+        NOW,
+        USER_ID,
+        NOW,
+    )
+    transaction = QueryTransaction(
+        one=[
+            ("member", "editor", None, False, "active", "geojson"),
+            (DATASET_ID, "Point", schema, 9, 0, USER_ID, NOW, USER_ID, NOW),
+            (3, NOW),
+            ("Point", {"name": "Recovered station"}, geometry),
+            restored_row,
+            (10, 1, NOW),
+        ]
+    )
+
+    result = asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(transaction)).restore_feature(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            FEATURE_ID,
+            3,
+            1,
+            "Recover field capture",
+            "feature-restore-request",
+        )
+    )
+
+    assert result.feature.feature_id == FEATURE_ID
+    assert result.feature.version_number == 4
+    assert result.feature.geometry == geometry
+    assert result.collection.generation == 10
+    assert result.collection.feature_count == 1
+    restore_head = next(
+        call for call in transaction.calls if call[0] == "one" and "deleted_by = NULL" in call[1]
+    )
+    assert "deleted_at IS NOT NULL AND version_number = %s" in restore_head[1]
+    restore_revision = next(
+        call
+        for call in transaction.calls
+        if call[0] == "execute" and "INSERT INTO app.dataset_feature_revisions" in call[1]
+    )
+    assert restore_revision[2][4] == "restore"
+    assert restore_revision[2][3] == 4
+    assert any(
+        "dataset.feature.restored" in parameters
+        for _kind, _statement, parameters in transaction.calls
+    )
+    assert (
+        sum(
+            "UPDATE app.feature_collections" in statement
+            for _kind, statement, _parameters in transaction.calls
+        )
+        == 1
+    )
+
+
+def test_repository_restore_rejects_live_or_stale_feature_without_writes() -> None:
+    schema = {"schemaVersion": "1.0.0", "fields": []}
+    scope = ("member", "editor", None, False, "active", "geojson")
+    collection = (DATASET_ID, "Point", schema, 9, 0, USER_ID, NOW, USER_ID, NOW)
+
+    live_transaction = QueryTransaction(one=[scope, collection, (3, None)])
+    with pytest.raises(FeatureConflict) as live_error:
+        asyncio.run(
+            PostgresFeatureRepository(QueryExecutor(live_transaction)).restore_feature(
+                TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+                PROJECT_ID,
+                DATASET_ID,
+                FEATURE_ID,
+                3,
+                1,
+                None,
+                "feature-restore-live",
+            )
+        )
+    assert live_error.value.code == "feature_not_deleted"
+    assert not any(call[0] == "execute" for call in live_transaction.calls)
+
+    stale_transaction = QueryTransaction(one=[scope, collection, (4, NOW)])
+    with pytest.raises(FeatureConflict) as stale_error:
+        asyncio.run(
+            PostgresFeatureRepository(QueryExecutor(stale_transaction)).restore_feature(
+                TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+                PROJECT_ID,
+                DATASET_ID,
+                FEATURE_ID,
+                3,
+                1,
+                None,
+                "feature-restore-stale",
+            )
+        )
+    assert stale_error.value.code == "feature_version_conflict"
+    assert stale_error.value.current_version == 4
+    assert not any(call[0] == "execute" for call in stale_transaction.calls)
+
+
+def feature_row(
+    feature_id: UUID,
+    version: int,
+    geometry: dict[str, Any],
+    bbox: tuple[float, float, float, float],
+) -> tuple[Any, ...]:
+    return (
+        feature_id,
+        version,
+        "MultiPolygon",
+        {"name": "Survey areas"},
+        geometry,
+        bbox,
+        USER_ID,
+        NOW,
+        USER_ID,
+        NOW,
+    )
+
+
+def test_cql2_list_count_and_page_share_parameters_and_scope():
+    scope = ("member", "viewer", None, False, "active", "geojson")
+    schema = {"schemaVersion": "1.0.0", "fields": [{"name": "value", "type": "number"}]}
+    collection = (DATASET_ID, "Point", schema, 9, 3, USER_ID, NOW, USER_ID, NOW)
+    transaction = QueryTransaction(one=[scope, collection, (2,)], all_rows=[[]])
+    bbox = (-78, 38, -76, 40)
+    page = asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(transaction)).list_features(
+            TenantContext(USER_ID, ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            bbox=bbox,
+            limit=1,
+            offset=1,
+            expected_generation=9,
+            cql2_filter=("value > 2", "cql2-text"),
+        )
+    )
+    assert page.number_matched == 2
+    count, rows = transaction.calls[-2:]
+    assert count[2] == (ORG_ID, DATASET_ID, *bbox, *bbox, "value", 2)
+    assert rows[2] == (*count[2], 1, 1)
+    for _, query, _ in (count, rows):
+        assert "deleted_at IS NULL" in query and "ST_Intersects" in query
+        assert "::numeric > %s" in query and "organization_id = %s" in query
+
+
+@pytest.mark.parametrize(
+    ("operator", "shown", "hidden"),
+    [
+        ("ne", 9, 10),
+        ("gt", 11, 10),
+        ("gte", 10, 9),
+        ("lt", 9, 10),
+        ("lte", 10, 11),
+    ],
+)
+def test_relational_field_visibility(operator, shown, hidden):
+    rule = {"field": "score", "equals": 10, "operator": operator}
+    fields = normalize_fields(
+        [
+            {"name": "score", "type": "number", "required": False},
+            {"name": "reason", "type": "string", "required": True, "visible_when": rule},
+        ]
+    )
+    assert feature_field_document(fields[1])["visible_when"] == rule
+    assert normalize_properties({"score": shown, "reason": "review"}, fields)["reason"] == "review"
+    assert normalize_properties({"score": hidden}, fields) == {"score": hidden}
+    assert normalize_properties({}, fields) == {}
+    with pytest.raises(FeatureInvalid, match="hidden"):
+        normalize_properties({"score": hidden, "reason": "review"}, fields)
+    with pytest.raises(FeatureInvalid):
+        normalize_properties({"score": shown}, fields)
+
+
+def test_ordered_visibility_rejects_text_controller():
+    with pytest.raises(FeatureInvalid, match="numeric"):
+        normalize_fields(
+            [
+                {"name": "kind", "type": "string", "required": False},
+                {
+                    "name": "note",
+                    "type": "string",
+                    "required": False,
+                    "visible_when": {"field": "kind", "equals": "x", "operator": "gt"},
+                },
+            ]
+        )
+
+
+def test_cross_field_visibility_uses_each_repeat_record_and_preserves_rule():
+    rule = {"field": "measured", "value_field": "limit", "operator": "gt"}
+    fields = normalize_fields(
+        [
+            {
+                "name": "readings",
+                "type": "group",
+                "repeat": True,
+                "min_items": 0,
+                "max_items": 5,
+                "fields": [
+                    {"name": "measured", "type": "number"},
+                    {"name": "limit", "type": "integer"},
+                    {"name": "reason", "type": "string", "required": True, "visible_when": rule},
+                ],
+            }
+        ]
+    )
+    assert feature_field_document(fields[0])["fields"][2]["visible_when"] == rule
+    data = {
+        "readings": [
+            {"measured": 11, "limit": 10, "reason": "review"},
+            {"measured": 9, "limit": 10},
+            {"measured": 11},
+        ]
+    }
+    assert normalize_properties(data, fields) == data
+    with pytest.raises(FeatureInvalid, match="hidden"):
+        normalize_properties({"readings": [{"measured": 9, "limit": 10, "reason": "bad"}]}, fields)
+    with pytest.raises(FeatureInvalid):
+        normalize_properties({"readings": [{"measured": 11, "limit": 10}]}, fields)
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"field": "score", "value_field": "later"},
+        {"field": "score", "value_field": "name"},
+        {"field": "score", "value_field": "score", "equals": 10},
+    ],
+)
+def test_cross_field_visibility_rejects_invalid_operands(rule):
+    with pytest.raises(FeatureInvalid):
+        normalize_fields(
+            [
+                {"name": "score", "type": "number"},
+                {"name": "name", "type": "string"},
+                {"name": "note", "type": "string", "visible_when": rule},
+            ]
+        )
+
+
+def test_calculated_fields_recompute_and_reject_forged_values():
+    formula = {"*": [{"var": "quantity"}, {"var": "price"}]}
+    fields = normalize_fields(
+        [
+            {"name": "quantity", "type": "integer"},
+            {"name": "price", "type": "number"},
+            {"name": "total", "type": "number", "calculation": formula},
+            {
+                "name": "review",
+                "type": "string",
+                "visible_when": {"field": "total", "equals": 10, "operator": "gt"},
+            },
+        ]
+    )
+    assert feature_field_document(fields[2])["calculation"] == formula
+    assert normalize_properties({"quantity": 3, "price": 4, "review": "large"}, fields) == {
+        "quantity": 3,
+        "price": 4,
+        "total": 12,
+        "review": "large",
+    }
+    assert normalize_properties({"quantity": 3}, fields) == {"quantity": 3}
+    with pytest.raises(FeatureInvalid, match="differs"):
+        normalize_properties({"quantity": 3, "price": 4, "total": 1}, fields)
+
+
+def test_calculation_errors_and_schema_limits():
+    fields = normalize_fields(
+        [
+            {"name": "n", "type": "number"},
+            {"name": "result", "type": "number", "calculation": {"/": [1, {"var": "n"}]}},
+        ]
+    )
+    with pytest.raises(FeatureInvalid, match="zero"):
+        normalize_properties({"n": 0}, fields)
+    for formula in [{"var": "later"}, {"eval": ["bad"]}, {"+": [True, 1]}, {"+": [1] * 17}]:
+        with pytest.raises(FeatureInvalid):
+            normalize_fields([{"name": "result", "type": "number", "calculation": formula}])
+
+
+def test_attachment_fields_preserve_immutable_version_ids_and_reject_urls():
+    from opengeo_api.features import _schema_definition
+
+    fields = normalize_fields([{"name": "photo", "type": "string", "attachment": True}])
+    version = "81000000-0000-4000-8000-000000000001"
+    assert normalize_properties({"photo": version}, fields) == {"photo": version}
+    assert feature_field_document(fields[0])["attachment"] is True
+    assert _schema_definition(fields)["schemaVersion"] == "1.5.0"
+    with pytest.raises(FeatureInvalid, match="UUID"):
+        normalize_properties({"photo": "https://provider.invalid/private.jpg"}, fields)
+    with pytest.raises(FeatureInvalid, match="strings"):
+        normalize_fields([{"name": "photo", "type": "number", "attachment": True}])
+
+
+def test_attachment_authority_is_batched_and_missing_or_revoked_versions_reject():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from opengeo_api.features import authorize_feature_attachments
+
+    version = UUID("81000000-0000-4000-8000-000000000001")
+    context = TenantContext(
+        UUID("81000000-0000-4000-8000-000000000002"), UUID("81000000-0000-4000-8000-000000000003")
+    )
+    fields = normalize_fields([{"name": "photo", "type": "string", "attachment": True}])
+    fetch = AsyncMock(return_value=[(version, "member", False, None, "viewer")])
+    transaction = SimpleNamespace(fetch_all=fetch)
+    asyncio.run(
+        authorize_feature_attachments(
+            transaction, context, [{"photo": str(version)}, {"photo": str(version)}], fields
+        )
+    )
+    assert fetch.await_count == 1
+    assert fetch.call_args.args[1][-1] == [version]
+    fetch.return_value = []
+    with pytest.raises(FeatureInvalid, match="unavailable"):
+        asyncio.run(
+            authorize_feature_attachments(transaction, context, [{"photo": str(version)}], fields)
+        )
+    fetch.return_value = [(version, "member", False, None, None)]
+    with pytest.raises(FeatureAccessDenied):
+        asyncio.run(
+            authorize_feature_attachments(transaction, context, [{"photo": str(version)}], fields)
+        )

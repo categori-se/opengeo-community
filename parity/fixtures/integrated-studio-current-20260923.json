@@ -1,0 +1,36 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "publish-001.integrated-current-20260923",
+  "title": "Current local Studio ingestion, composition and publication workflow",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Synthetic local data and identities through actual UI, API, current SQL migrations and GIS worker; local cloud transport substitutes."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "integrated-studio-current-20260923.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/integrated-studio-current-20260923.json",
+      "sha256": "99c72d49d863cd859ae35f5712586a55159cb8342794b6a52f64fa4d00066a2f"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.publishing-administration",
+      "assertion": "The bounded local editorial workflow saves and reopens a two-layer map, produces exact images, permits invited editor revisions, exports a portable edition, and denies revoked publication and collaborator access."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

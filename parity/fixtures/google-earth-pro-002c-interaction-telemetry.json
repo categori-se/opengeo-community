@@ -1,0 +1,71 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-002c.interaction-telemetry",
+  "title": "Bounded globe interaction and local automation telemetry",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic unit evidence and one managed headless Chromium run over the local OpenGeo globe. No proprietary package byte or Google-hosted service is used."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "globeTelemetry.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/globeTelemetry.js",
+      "sha256": "3e982af27b5f8dab40b7a2a02f003ecf61e440d4d0afed73b783f2fc75e2f4e1"
+    },
+    {
+      "name": "globe-telemetry.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/globe-telemetry.test.mjs",
+      "sha256": "bef3e08d70aa7ab97019aef85a73b36107b64a3e68fae664f15ddd8e774a2397"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "style.css",
+      "mediaType": "text/css",
+      "encoding": "path",
+      "value": "app/src/style.css",
+      "sha256": "b267b92ee033a73c7fca50da768b53d007685fc086f30479dd1322069541d6ee"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "google-earth-pro-002c-interaction-telemetry.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-002c-interaction-telemetry.json",
+      "sha256": "b21f8f1b5a599906cd11b2824aae4dda8dcb225afaf2164c4fafa6ced0398733"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+      "assertion": "OpenGeo passes bounded keyboard and pointer interaction plus a coarse local headless-automation telemetry gate. This is not representative smooth-rendering, hardware, touch, assistive-technology, or deployed parity evidence."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

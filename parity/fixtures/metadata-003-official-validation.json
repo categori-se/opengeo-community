@@ -1,0 +1,100 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "metadata-003.official.validation",
+  "title": "Official ISO, DataCite, and GeoDCAT-AP metadata validation",
+  "fixtureType": "dataset",
+  "source": {
+    "kind": "synthetic",
+    "description": "Redistributable OpenGeo source lock and result report for an offline replay against separately obtained official artifacts."
+  },
+  "license": {"spdxId": "CC0-1.0", "redistributable": true},
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "metadata-007-official-validation-sources.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-007-official-validation-sources.json",
+      "sha256": "0c3caa352f7156b747fc3e58e4d4cf5b9b24bc42758a408d13db4075ddca513a"
+    },
+    {
+      "name": "metadata-010-opengeo-catalog-fields.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-010-opengeo-catalog-fields.json",
+      "sha256": "54730451c39f5c11ef0d2182bae40e5e94a9a32b77b6daff4a3109c5c125da1d"
+    },
+    {
+      "name": "opengeo-catalog-metadata-1.0.0.schema.json",
+      "mediaType": "application/schema+json",
+      "encoding": "path",
+      "value": "schemas/opengeo-catalog-metadata-1.0.0.schema.json",
+      "sha256": "d0960bbb25f1893626770a95d7b45fefb0e7641f395bd09db7d6884e18c5a631"
+    },
+    {
+      "name": "metadata-011-opengeo-acquisition-funding.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-011-opengeo-acquisition-funding.json",
+      "sha256": "6214fc7a5db2318096aea499624e6570ab1aafd4f574a0752433a0c1cff146c0"
+    },
+    {
+      "name": "opengeo-catalog-metadata-1.1.0.schema.json",
+      "mediaType": "application/schema+json",
+      "encoding": "path",
+      "value": "schemas/opengeo-catalog-metadata-1.1.0.schema.json",
+      "sha256": "71445e401729b08e973dd966c0a171b832e25d051ec1e9c50d1dfc9fd9419eec"
+    },
+    {
+      "name": "metadata-012-opengeo-acquisition-planning.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-012-opengeo-acquisition-planning.json",
+      "sha256": "82639d9d3e7ecfdc9c7431707d864b3ed645aa035f0cdd8a111a559a876e480f"
+    },
+    {
+      "name": "opengeo-catalog-metadata-1.2.0.schema.json",
+      "mediaType": "application/schema+json",
+      "encoding": "path",
+      "value": "schemas/opengeo-catalog-metadata-1.2.0.schema.json",
+      "sha256": "732f0668f8bae42698e9fa4dbe5975a11d4d018a286bc73601336fc159b3afd9"
+    },
+    {
+      "name": "metadata-013-opengeo-acquisition-events.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-013-opengeo-acquisition-events.json",
+      "sha256": "174fb8b93bdf2cc1d7398d2c479aaca24609d5923f3d35b7d588d2a404833b9b"
+    },
+    {
+      "name": "opengeo-catalog-metadata-1.3.0.schema.json",
+      "mediaType": "application/schema+json",
+      "encoding": "path",
+      "value": "schemas/opengeo-catalog-metadata-1.3.0.schema.json",
+      "sha256": "ca3fe531ba478bb47f9d62c30623a51767e4112acc44599bab4bcb02b502f6f8"
+    },
+    {
+      "name": "metadata-003-official-validation-report.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/metadata-003-official-validation.json",
+      "sha256": "34e090b6746d65427878ce58182dd937da34de8ada371285942ffedad216f0f8"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "Pinned official ISO and DataCite XSDs and the GeoDCAT-AP full SHACL shape accept generated dataset exports, including native contacts, distributions, reference systems, lineage, quality, frequency, sensitivity, ISO acquisition operations/planning/events/platform passes, and DataCite funding mappings where supported, while active invalid controls are rejected."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "The backward-compatible portable OpenGeo catalog 1.0, 1.1, 1.2, and 1.3 JSON Schemas accept their pinned native fixtures, reject unknown-field controls, and the authoritative API rejects invalid planning/event references, date order, and event time zones."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "The report keeps ISO Schematron, OGC Records ETS, per-request conformance, and remaining format-specific mappings explicitly open."
+    }
+  ],
+  "constraints": {"offline": true, "containsPersonalData": false, "requiresCredentials": false}
+}

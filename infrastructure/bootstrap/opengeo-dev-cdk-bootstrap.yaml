@@ -1,0 +1,273 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Scoped CDK publishing and deployment roles for OpenGeo development. The
+  retained hnb659fds asset bucket and version parameter remain externally
+  managed; this stack never creates administrator authority.
+
+Rules:
+  ExactDevelopmentAccount:
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - Ref: AWS::AccountId
+            - "222222222222"
+        AssertDescription: This template is restricted to OpenGeo development account 222222222222.
+  ExactDevelopmentRegion:
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - Ref: AWS::Region
+            - us-east-1
+        AssertDescription: This template is restricted to us-east-1.
+
+Resources:
+  FilePublishingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cdk-hnb659fds-file-publishing-role-222222222222-us-east-1
+      Description: Publishes reviewed OpenGeo CDK file assets to one retained development bucket.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OpenGeoOperatorOnly
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::222222222222:role/opengeo/dev/OpenGeoDevOperatorRole
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      Policies:
+        - PolicyName: ExactOpenGeoDevelopmentAssets
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadExactAssetBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetBucketPublicAccessBlock
+                  - s3:GetBucketVersioning
+                  - s3:ListBucket
+                  - s3:ListBucketVersions
+                Resource: arn:aws:s3:::cdk-hnb659fds-assets-222222222222-us-east-1
+              - Sid: ManageExactAssetObjects
+                Effect: Allow
+                Action:
+                  - s3:AbortMultipartUpload
+                  - s3:DeleteObject
+                  - s3:DeleteObjectVersion
+                  - s3:GetObject
+                  - s3:GetObjectAttributes
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:PutObjectTagging
+                Resource: arn:aws:s3:::cdk-hnb659fds-assets-222222222222-us-east-1/*
+      Tags:
+        - Key: Application
+          Value: OpenGeo
+        - Key: Environment
+          Value: dev
+        - Key: Component
+          Value: cdk-file-publishing
+
+  DeploymentActionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cdk-hnb659fds-deploy-role-222222222222-us-east-1
+      Description: Creates reviewed OpenGeo development change sets through fixed service roles.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OpenGeoOperatorOnly
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::222222222222:role/opengeo/dev/OpenGeoDevOperatorRole
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      Policies:
+        - PolicyName: ExactOpenGeoDevelopmentDeployments
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ManageOpenGeoDevelopmentChangeSets
+                Effect: Allow
+                Action:
+                  - cloudformation:CancelUpdateStack
+                  - cloudformation:ContinueUpdateRollback
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:CreateStack
+                  - cloudformation:DeleteChangeSet
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeChangeSet
+                  - cloudformation:DescribeStackEvents
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:DescribeStacks
+                  - cloudformation:ExecuteChangeSet
+                  - cloudformation:GetTemplate
+                  - cloudformation:GetTemplateSummary
+                  - cloudformation:ListChangeSets
+                  - cloudformation:ListStackResources
+                  - cloudformation:RollbackStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:UpdateTerminationProtection
+                Resource: arn:aws:cloudformation:us-east-1:222222222222:stack/OpenGeo-dev-*/*
+              - Sid: ValidateTemplates
+                Effect: Allow
+                Action: cloudformation:ValidateTemplate
+                Resource: "*"
+              - Sid: ReadExactBootstrapVersion
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: arn:aws:ssm:us-east-1:222222222222:parameter/cdk-bootstrap/hnb659fds/version
+              - Sid: ReadExactAssetBucket
+                Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:ListBucket
+                Resource:
+                  - arn:aws:s3:::cdk-hnb659fds-assets-222222222222-us-east-1
+                  - arn:aws:s3:::cdk-hnb659fds-assets-222222222222-us-east-1/*
+              - Sid: PassFixedOpenGeoServiceRoles
+                Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - arn:aws:iam::222222222222:role/opengeo/dev/OpenGeoDevApiCloudFormationRole
+                  - arn:aws:iam::222222222222:role/opengeo/dev/OpenGeoDevBuildCloudFormationRole
+                  - arn:aws:iam::222222222222:role/opengeo/dev/OpenGeoDevPlatformCloudFormationRole
+                  - arn:aws:iam::222222222222:role/opengeo/dev/OpenGeoDevWebCloudFormationRole
+                Condition:
+                  StringEquals:
+                    iam:PassedToService: cloudformation.amazonaws.com
+              - Sid: IdentifySession
+                Effect: Allow
+                Action: sts:GetCallerIdentity
+                Resource: "*"
+      Tags:
+        - Key: Application
+          Value: OpenGeo
+        - Key: Environment
+          Value: dev
+        - Key: Component
+          Value: cdk-deployment
+
+  LookupRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cdk-hnb659fds-lookup-role-222222222222-us-east-1
+      Description: Supplies non-secret regional context required by OpenGeo CDK synthesis.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: OpenGeoOperatorOnly
+            Effect: Allow
+            Principal:
+              AWS: arn:aws:iam::222222222222:role/opengeo/dev/OpenGeoDevOperatorRole
+            Action:
+              - sts:AssumeRole
+              - sts:TagSession
+      Policies:
+        - PolicyName: NonSecretOpenGeoDevelopmentLookup
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ReadRegionalNetworkContext
+                Effect: Allow
+                Action:
+                  - ec2:DescribeAvailabilityZones
+                  - ec2:DescribeInternetGateways
+                  - ec2:DescribeNetworkAcls
+                  - ec2:DescribeRouteTables
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    aws:RequestedRegion: us-east-1
+              - Sid: ReadExactBootstrapVersion
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: arn:aws:ssm:us-east-1:222222222222:parameter/cdk-bootstrap/hnb659fds/version
+              - Sid: ReadOpenGeoDevelopmentStacks
+                Effect: Allow
+                Action:
+                  - cloudformation:DescribeStackResource
+                  - cloudformation:DescribeStackResources
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ListStackResources
+                Resource: arn:aws:cloudformation:us-east-1:222222222222:stack/OpenGeo-dev-*/*
+              - Sid: IdentifySession
+                Effect: Allow
+                Action: sts:GetCallerIdentity
+                Resource: "*"
+              - Sid: DenySecretMaterial
+                Effect: Deny
+                Action:
+                  - kms:Decrypt
+                  - secretsmanager:GetSecretValue
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                  - ssm:GetParametersByPath
+                NotResource: arn:aws:ssm:us-east-1:222222222222:parameter/cdk-bootstrap/hnb659fds/version
+      Tags:
+        - Key: Application
+          Value: OpenGeo
+        - Key: Environment
+          Value: dev
+        - Key: Component
+          Value: cdk-lookup
+
+  CloudFormationExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: cdk-hnb659fds-cfn-exec-role-222222222222-us-east-1
+      Description: >-
+        Fail-closed default CDK execution role. OpenGeo deployment commands must
+        supply one reviewed stack-specific CloudFormation service role.
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: CloudFormationOnly
+            Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Tags:
+        - Key: Application
+          Value: OpenGeo
+        - Key: Environment
+          Value: dev
+        - Key: Component
+          Value: cdk-fail-closed-execution
+
+Outputs:
+  BootstrapVariant:
+    Description: The maintained OpenGeo bootstrap deliberately omits administrator policy.
+    Value: OpenGeo scoped existing-assets bootstrap
+  BootstrapVersion:
+    Description: Existing retained CDK bootstrap version checked by the installer.
+    Value: "21"
+  BucketName:
+    Description: Existing retained asset bucket; this stack does not own it.
+    Value: cdk-hnb659fds-assets-222222222222-us-east-1
+  FilePublishingRoleArn:
+    Value:
+      Fn::GetAtt: [FilePublishingRole, Arn]
+  DeploymentActionRoleArn:
+    Value:
+      Fn::GetAtt: [DeploymentActionRole, Arn]
+  LookupRoleArn:
+    Value:
+      Fn::GetAtt: [LookupRole, Arn]
+  CloudFormationExecutionRoleArn:
+    Value:
+      Fn::GetAtt: [CloudFormationExecutionRole, Arn]

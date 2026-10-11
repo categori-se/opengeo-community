@@ -1,0 +1,381 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/resource-knowledge-1.0.0.schema.json",
+  "title": "Resource knowledge",
+  "description": "Dataset-bound immutable metadata revision document. API additionally enforces 49152 UTF-8 bytes, nesting and node bounds, unique IDs, valid absolute credential-free identifiers, assertion subject references and retained-response discovery identity binding. Ordinary knowledge saves cannot introduce or change retained-response sources. Rights are distribution-scoped and never inherited implicitly.",
+  "$defs": {
+    "canonicalUuid": {
+      "type": "string",
+      "minLength": 36,
+      "maxLength": 36,
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "retainedResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "datasetId",
+        "projectId",
+        "discoveryJobId",
+        "sourceRevision",
+        "byteLength",
+        "sha256"
+      ],
+      "properties": {
+        "datasetId": {
+          "$ref": "#/$defs/canonicalUuid"
+        },
+        "projectId": {
+          "$ref": "#/$defs/canonicalUuid"
+        },
+        "discoveryJobId": {
+          "$ref": "#/$defs/canonicalUuid"
+        },
+        "sourceRevision": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 32769,
+          "maximum": 2097152
+        },
+        "sha256": {
+          "type": "string",
+          "minLength": 64,
+          "maxLength": 64,
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      }
+    },
+    "assertion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "subject",
+        "property",
+        "value",
+        "provenance"
+      ],
+      "properties": {
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "property": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048,
+          "pattern": "^(https?://|urn:)\\S+$"
+        },
+        "value": {},
+        "provenance": {
+          "enum": [
+            "source_asserted",
+            "curator_asserted",
+            "extracted_from_documentation",
+            "inherited",
+            "machine_inferred",
+            "derived",
+            "unknown"
+          ]
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(https?://|urn:)\\S+$"
+          }
+        },
+        "method": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "provenance": {
+                "const": "unknown"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "distributions",
+    "metadata",
+    "context"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "distributions": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "custody"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(https?://|urn:)\\S+$"
+          },
+          "custody": {
+            "enum": [
+              "referenced",
+              "hosted",
+              "cached",
+              "mirrored",
+              "derived",
+              "locally_created",
+              null
+            ]
+          },
+          "accessUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(https?://|urn:)\\S+$"
+          },
+          "downloadUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(https?://|urn:)\\S+$"
+          },
+          "service": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(https?://|urn:)\\S+$"
+          },
+          "mediaType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "format": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "normalized",
+        "curated",
+        "inferred"
+      ],
+      "properties": {
+        "source": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "mediaType",
+              "sourceUrl",
+              "retrievedAt"
+            ],
+            "oneOf": [
+              {
+                "required": ["content"]
+              },
+              {
+                "required": ["retainedResponse"],
+                "properties": {
+                  "id": {
+                    "pattern": "^urn:opengeo:discovery:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:sha256:[a-f0-9]{64}$"
+                  }
+                }
+              }
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": "^(https?://|urn:)\\S+$"
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 49152
+              },
+              "retainedResponse": {
+                "$ref": "#/$defs/retainedResponse"
+              },
+              "mediaType": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "sourceUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 2048,
+                "pattern": "^(https?://|urn:)\\S+$"
+              },
+              "retrievedAt": {
+                "type": "string",
+                "format": "date-time"
+              }
+            }
+          }
+        },
+        "normalized": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/assertion"
+              },
+              {
+                "properties": {
+                  "provenance": {
+                    "not": {
+                      "const": "machine_inferred"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "curated": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/assertion"
+              },
+              {
+                "properties": {
+                  "provenance": {
+                    "not": {
+                      "const": "machine_inferred"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        "inferred": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/assertion"
+              },
+              {
+                "properties": {
+                  "provenance": {
+                    "enum": [
+                      "machine_inferred",
+                      "derived",
+                      "unknown"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "context": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "resourceId",
+          "relationship",
+          "evidence"
+        ],
+        "properties": {
+          "resourceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(https?://|urn:)\\S+$"
+          },
+          "relationship": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2048,
+            "pattern": "^(https?://|urn:)\\S+$"
+          },
+          "evidence": {
+            "type": "array",
+            "maxItems": 16,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2048,
+              "pattern": "^(https?://|urn:)\\S+$"
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    }
+  }
+}

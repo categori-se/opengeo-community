@@ -1,0 +1,29 @@
+{
+  "source": "https://observablehq.com/@d3/bar-chart",
+  "version": "527.0.0",
+  "archiveSha256": "ac96d07191fa03d0a90509d4110d22076a704dd5f5eba145d36ab24cfe237d4a",
+  "main": "09403b146bada149@527.js",
+  "files": [
+    {
+      "path": "09403b146bada149@527.js",
+      "sizeBytes": 5317,
+      "sha256": "1c7ec8704acff612d6b484d6a8096f7d96cc1d47ced81122dbc721768be962f5"
+    },
+    {
+      "path": "files/09f63bb9ff086fef80717e2ea8c974f918a996d2bfa3d8773d3ae12753942c002d0dfab833d7bee1e0c9cd358cd3578c1cd0f9435595e76901508adc3964bbdc.csv",
+      "sizeBytes": 275,
+      "sha256": "383ec39e9fc4f2aa1d269deceb9f55e350e1d9f7efd354c909e16ceb0748270e"
+    },
+    {
+      "path": "7a9e12f9fb3d8e06@517.js",
+      "sizeBytes": 8818,
+      "sha256": "6cbcb4af489fb3f1f91c793cefa0542baba80aca28d68b34a9c884202a999067"
+    },
+    {
+      "path": "LICENSE.txt",
+      "sizeBytes": 737,
+      "sha256": "93c016300a2808660296e323bb21b33b2c1e81a5e6c9456fff17e612b72255f4"
+    }
+  ],
+  "scope": "Exact selected files from retained public export; included ISC copyright/permission notice retained. No runtime.js or installer executes; fixture used for local parse and Files persistence only."
+}

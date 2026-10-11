@@ -1,0 +1,4 @@
+# Preserve immutable generated glyphs and their checksum-bound source notices.
+app/src/assets/render-fonts/opengeo-open-sans-v1/1/* -text
+# The upstream license uses CRLF; retain its exact bytes without hiding real whitespace errors.
+app/src/assets/render-fonts/opengeo-open-sans-v1/1/LICENSE.txt whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

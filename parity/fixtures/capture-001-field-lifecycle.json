@@ -1,0 +1,143 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "capture-001.field-lifecycle",
+  "title": "Offline field submission, correction, review, and promotion lifecycle",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Checksum-pinned local evidence for versioned schema-derived forms, user/organization-partitioned IndexedDB replay, a credential-safe installable shell, authenticated-client sync assistance, quarantined review states, linked corrections, and atomic stable-ID feature promotion."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0022_field_capture.sql",
+      "mediaType": "text/x-sql",
+      "encoding": "path",
+      "value": "database/migrations/0022_field_capture.sql",
+      "sha256": "1bfd8162b19445b744df202b4474de1ebb1b70bdf2a6d2c7b75e444b4ff4c4aa"
+    },
+    {
+      "name": "field_capture.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/field_capture.py",
+      "sha256": "6d24052074d007d11a74a8965f829012ab0eff475e0ed6d273b8e49a0ca0267f"
+    },
+    {
+      "name": "field_capture_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/field_capture_routes.py",
+      "sha256": "acc945ee5fc3cd774d6b5fb5f9fc7bc153eae9eeb971d6a447eea4c1c84bf56b"
+    },
+    {
+      "name": "test_field_capture_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_field_capture_routes.py",
+      "sha256": "d0b541e8abaf8da47ea5325962f5cd3d933ac6a31981ebbd6d2fd317a7937222"
+    },
+    {
+      "name": "field-capture.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/field-capture.test.mjs",
+      "sha256": "71aa50ab7e7cc02845e0992e4f2100d0a7bf973a7edffcf2ca29d3d041b516c6"
+    },
+    {
+      "name": "offlineCapture.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/offlineCapture.js",
+      "sha256": "404b2b99af407147f2cc3307aeee700c06d4498ae8f40da51659ba90656323dc"
+    },
+    {
+      "name": "offline-capture.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/offline-capture.test.mjs",
+      "sha256": "00ae41bfc20b75fac81748f3540aa4cf02a3012afa01e72e8364d55cff55c3df"
+    },
+    {
+      "name": "ProjectDatasets.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectDatasets.js",
+      "sha256": "12ed98b3951694aedbe7a7331ebd2eddbcd652087db51bf5c7b619ee82ae9ddc"
+    },
+    {
+      "name": "studioPwa.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/studioPwa.js",
+      "sha256": "346c284b3390fb9d656150c9fbc542ce598e4550c79eb9c4921f2b1c2897e434"
+    },
+    {
+      "name": "studio-pwa-assets.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/studio-pwa-assets.mjs",
+      "sha256": "3b172776ef86a73e542cb2789c822a847bf243c530e875d1b76e03ff721ddf81"
+    },
+    {
+      "name": "check-studio-pwa.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-studio-pwa.mjs",
+      "sha256": "7e94fc53134d683aadba028749c91082f2b4c4fbe5fdc3011a218034f83f7d93"
+    },
+    {
+      "name": "studio-pwa.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/studio-pwa.test.mjs",
+      "sha256": "a20ead7cf7c1e0565780562dbef7552be1cd9cc099d6b44757caa5bd62fce90d"
+    },
+    {
+      "name": "studio-pwa-offline-shell.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/studio-pwa-offline-shell.json",
+      "sha256": "729997918bddac215d38ddf89d4c0535d2ef1b5f7b23631fa47afd907f7b77c8"
+    },
+    {
+      "name": "capture-001-field-lifecycle.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/capture-001-field-lifecycle.json",
+      "sha256": "a95029f73f8861940589faf6b66d37e08c3cbd843859bb5595ecdb6169fad071"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.gis-authoring-inspection",
+      "assertion": "The standalone browser captures schema-valid spatial observations offline, replays stable identities, and promotes only reviewed records into the native feature store without requiring GeoLibre."
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "assertion": "A managed vector collection supports versioned forms, quarantine, correction, review, and stable-ID promotion while richer form rules, attachments, and upstream migration remain explicit gaps."
+    },
+    {
+      "rowId": "geonode.sharing-community",
+      "assertion": "Project reviewers receive an explicit optimistic review lifecycle with immutable events and shared-auth attribution, without claiming comments, notifications, ratings, or complete workflow parity."
+    },
+    {
+      "rowId": "openlayers.controls-interactions",
+      "assertion": "The browser exposes geometry input and bounded GPS Point capture while independent OpenLayers, broader geolocation controls, touch/accessibility, and device coverage remain open."
+    },
+    {
+      "rowId": "openlayers.browser-platform-features",
+      "assertion": "IndexedDB queueing, sealed credential-free app-shell caching, offline route recovery, and client-assisted ordered replay are executable locally without bearer persistence; OS-installed windows, closed-window credentialed replay, physical devices, and deployment remain unclaimed."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

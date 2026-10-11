@@ -1,0 +1,38 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geomoose-001.mapbook.roundtrip",
+  "title": "GeoMoose 3.15.2 desktop mapbook conversion",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact public desktop mapbook from the pinned GeoMoose 3.15.2 Git commit, including sources, grouped catalog, toolbar drawers, searches, services, and the upstream placeholder API-key parameter used to verify explicit credential removal.",
+    "url": "https://github.com/geomoose/gm3/blob/6eb12a80c9d379b5634126da6ad047071fa85b92/examples/desktop/mapbook.xml",
+    "version": "3.15.2 commit 6eb12a80c9d379b5634126da6ad047071fa85b92"
+  },
+  "license": {
+    "spdxId": "MIT",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "geomoose-3.15.2-mapbook.xml",
+      "mediaType": "application/xml",
+      "encoding": "path",
+      "value": "parity/fixtures/data/geomoose-3.15.2-mapbook.xml",
+      "sha256": "1dc5a2e1ae199a2a5229f39fd6b04e30ecc88ff535b8d23298a29132e799c201"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geomoose.configurable-portal-mapbook",
+      "assertion": "The exact pinned mapbook imports offline into bounded versioned portal configuration, reports every credential removal, exports deterministically, and reopens with every supported semantic field intact."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

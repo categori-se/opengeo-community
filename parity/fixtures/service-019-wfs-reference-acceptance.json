@@ -1,0 +1,165 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-019.wfs-reference-acceptance",
+  "title": "Guarded WFS reference database and offline official validation",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact OGC ets-wfs20 1.43 validation resources and the security-accepted hardened artifact validate current OpenGeo reference documents after a disposable exact-profile database cycle, without running the official TestNG suite.",
+    "url": "https://github.com/opengeospatial/ets-wfs20",
+    "version": "1.43 at 843c9f358d32cd5ef92c0dd5bbb6ff6c08f6092a"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "build-wfs-hardened-runner.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/build-wfs-hardened-runner.py",
+      "sha256": "0c45c983976f2ead0b9d6fd96a06172879bd8f69a689e0056dfb23d4b6bd40d8"
+    },
+    {
+      "name": "service-016-wfs-hardened-runner.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-016-wfs-hardened-runner.json",
+      "sha256": "f3fb056bd583d2cdef38154c5aef631dd71a13ef6bec96a4ef267c4d7f1b8b31"
+    },
+    {
+      "name": "bootstrap_wfs_simple_reference.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "database/scripts/bootstrap_wfs_simple_reference.py",
+      "sha256": "e48e689b91fc2c934767da760ae9c7d5209ea4e2140613e367615803837250da"
+    },
+    {
+      "name": "test_bootstrap_wfs_simple_reference.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "database/test/test_bootstrap_wfs_simple_reference.py",
+      "sha256": "fdca9c8d1f1c29815e04e001650c4b389d06dd2dde1754957b701dca95e45f9f"
+    },
+    {
+      "name": "check-wfs-simple-reference-profile.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-wfs-simple-reference-profile.py",
+      "sha256": "d1335e9252ee7f95b7bac5270852765e897fab72197fc49396c409b60e3ff456"
+    },
+    {
+      "name": "check-wfs-simple-official-validation.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-wfs-simple-official-validation.py",
+      "sha256": "8833eab41afe8fd6c871205a03e4a20f5394f61245678c90b10a131f10c9f5b4"
+    },
+    {
+      "name": "WfsSimpleOfflineValidator.java",
+      "mediaType": "text/x-java",
+      "encoding": "path",
+      "value": "scripts/WfsSimpleOfflineValidator.java",
+      "sha256": "b81d295ab83d91cf35281edf6b1eb2ba143fb78bd01ad7970294ecc88543e493"
+    },
+    {
+      "name": "wfs-reference-acceptance.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/wfs-reference-acceptance.test.mjs",
+      "sha256": "f413a85c4cf474d840be056f47effda053d6a49eb94cbd060231cff7aa8508b9"
+    },
+    {
+      "name": "service-019-wfs-reference-acceptance.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-019-wfs-reference-acceptance.json",
+      "sha256": "b1568d6ae3efd373e8fcbbaf5186a8459ad830090011bc22d869ef72036db6b6"
+    },
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    },
+    {
+      "name": "local-milestones.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/evidence/local-milestones.json",
+      "sha256": "930b4b28fbc6f81b81798ef94ca44b527342fd8ed61ed883c14cb4a4312fff76"
+    },
+    {
+      "name": "baselines.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/baselines.json",
+      "sha256": "8ee2a9fd0d3fe5d022a2826e4606eff838addf4ebedba6bd39201050c6edb479"
+    },
+    {
+      "name": "implementation-roadmap.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/implementation-roadmap.md",
+      "sha256": "497bdbb0952cb5be92b12ee973b90326163fa28301fb7bd1e5a3420fa46e61c5"
+    },
+    {
+      "name": "progress.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "parity/references/progress-6d09b317.md",
+      "sha256": "a990c7141e7b9146d1ae6164aaaed02b8043da13fec64c9ae9dcc21692e54db3"
+    },
+    {
+      "name": "architecture.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/architecture.md",
+      "sha256": "a4ab4cc50111364b69711ea848c341067ae3746693e296da221ad1c7786c7560"
+    },
+    {
+      "name": "deployment.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/deployment.md",
+      "sha256": "a3b2c97049ede120c1b837962e85fb122890d0a9892b601a0267012a52e74803"
+    },
+    {
+      "name": "product-capability-contract.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/product-capability-contract.md",
+      "sha256": "b59eab47bf75578ab0a0498cf697e8991efbf90fe88f2344dd7e80b203b556a7"
+    },
+    {
+      "name": "ecosystem-parity-baselines.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/ecosystem-parity-baselines.md",
+      "sha256": "258b826e004b10f7ab66b37ff21930fd78a707c40101f6cf36f6c35c78c1c2a4"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "The exact synthetic profile now has a guarded release-0069 create/idempotence/readback/rollback path and generated mandatory GET documents pass pinned official WFS XSD and SimpleWFSPhase validation, while the official suite, deployment, and aggregate service row remain incomplete."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Dedicated loopback database targeting, exact-ledger and unrelated-row rejection, rollback/whole-database cleanup, pinned resources, disabled external XML resolution, and active negative controls pass without weakening shared authorization or production declarations."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The GET-only WFS source candidate passes its database and official document prerequisites while native OpenLayers compatibility, official TestNG execution, broader protocol behavior, and deployment remain independently scoped."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

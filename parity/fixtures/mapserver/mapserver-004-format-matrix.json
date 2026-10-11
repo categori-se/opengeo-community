@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0.0",
+  "contractKind": "executable-format-matrix",
+  "fixtureId": "mapserver-004.format-matrix",
+  "observedAt": "2026-09-01",
+  "reference": {
+    "product": "MapServer",
+    "release": "8.6.5",
+    "commit": "d25c31936f3f67911a56560e95ed2c8a7cb8ab4f"
+  },
+  "images": {
+    "worker": "ghcr.io/osgeo/gdal:ubuntu-full-3.13.0@sha256:83d114a6891ae18aa175d81a14c92a96d23944667b36fde9c15c4a10215d8939",
+    "mapserver": "localhost/opengeo-mapserver-peer:8.6.5-d25c319"
+  },
+  "openGeoMatrix": {
+    "vectorFormats": [
+      "geojson",
+      "csv",
+      "shapefile",
+      "geopackage",
+      "geoparquet",
+      "pmtiles"
+    ],
+    "rasterFormats": [
+      "cog",
+      "png",
+      "jpeg"
+    ],
+    "processingIntermediates": [
+      "gtiff"
+    ],
+    "derivativeOutputs": [
+      "geoparquet",
+      "geojson",
+      "pmtiles",
+      "cog",
+      "png",
+      "svg"
+    ],
+    "projectedCrs": [
+      "EPSG:26986",
+      "EPSG:3857",
+      "EPSG:32619"
+    ],
+    "axisContract": "Managed spatial previews are RFC 7946 EPSG:4326 with longitude then latitude; MapServer's equivalent input projection uses EPSG:4326 under its traditional GIS axis mapping.",
+    "exactRoundTripToleranceDegrees": 1e-7,
+    "pmtilesRoundTripToleranceDegrees": 0.0013,
+    "maximumSourceBytes": 536870912,
+    "maximumLayers": 8,
+    "maximumFeaturesInPreview": 5000
+  },
+  "mapserverMatrix": {
+    "expectedSuccess": [
+      "geojson",
+      "shapefile",
+      "geopackage",
+      "flatgeobuf",
+      "cog",
+      "png",
+      "jpeg"
+    ],
+    "expectedRejected": [
+      "geoparquet",
+      "pmtiles"
+    ],
+    "notApplicable": [
+      "csv"
+    ],
+    "targetCrs": "EPSG:3857",
+    "dimensions": [
+      320,
+      240
+    ],
+    "vectorNormalizedRmseMaximum": 0.015,
+    "rasterNormalizedRmseMaximum": 0.005
+  },
+  "artifacts": [
+    {
+      "path": "services/worker/src/opengeo_worker/inspector.py",
+      "bytes": 45110,
+      "sha256": "548791c7f9f7798fd0a1b705b1ecd8569d73b80c645e7c91fed91ef97e78a55c"
+    },
+    {
+      "path": "services/worker/src/opengeo_worker/command_runner.py",
+      "bytes": 5580,
+      "sha256": "2dc74a53822414965e0dd3fbc12423a126c97106eda6e5e69d63801780fbeab1"
+    },
+    {
+      "path": "services/worker/scripts/verify-format-matrix.py",
+      "bytes": 15721,
+      "sha256": "33f8ea389a0019804387103556915094df522cec7e5180f4bb541883c3cb6afa"
+    },
+    {
+      "path": "services/worker/Dockerfile",
+      "bytes": 7597,
+      "sha256": "b4c7037dc6f8dead848f5da08dde745868aa1a72bbb965105664774f9e151599"
+    },
+    {
+      "path": "parity/peer/mapserver/Containerfile",
+      "bytes": 2289,
+      "sha256": "72f6d16147c59385649420ba059dd744647258b9f102928d16c8613ec86c0ef9"
+    },
+    {
+      "path": "parity/fixtures/mapserver/deterministic-roads.geojson",
+      "bytes": 401,
+      "sha256": "5f7090caa90745f5862b4f392c63a8cb40ec58342e20be09429a2335fe7564a8"
+    },
+    {
+      "path": "parity/fixtures/mapserver/mapserver-8.6.5-3857.png",
+      "bytes": 3768,
+      "sha256": "8aa578ec75e3a2427bcc268fc69db55aaa279572fec4b7ef10c0b7faf68686fb"
+    },
+    {
+      "path": "parity/fixtures/mapserver/mapserver-8.6.5-source-lock.json",
+      "bytes": 18862,
+      "sha256": "391b5debc874351db7439069fa3d5bb8c82b40f78a5b375dc6c051a24e1a991a"
+    }
+  ],
+  "knownDifferences": [
+    "CSV is accepted as a bounded nonspatial table unless a separately governed geometry and CRS mapping is supplied; this fixture does not infer spatial meaning from WKT-like text.",
+    "PMTiles round-trip geometry is tile-quantized, is reported as MultiLineString, and is accepted only within 0.0013 geographic degrees rather than the exact vector tolerance.",
+    "The exact MapServer 8.6.5 peer's GDAL 3.6 build rejects GeoParquet and PMTiles while the OpenGeo GDAL 3.13 worker executes both; support is not inferred from MapServer's general OGR flag.",
+    "MapServer's exact peer executes FlatGeobuf, but FlatGeobuf is not yet an OpenGeo managed-upload input and is recorded as a compatibility-only case.",
+    "COG retains its CRS and geographic extent; PNG and JPEG are intentionally handled as metadata-stripped project media rather than georeferenced raster datasets."
+  ]
+}

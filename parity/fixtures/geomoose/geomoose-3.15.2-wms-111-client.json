@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geomoose-005.wms-111-client",
+  "observedAt": "2026-09-01",
+  "reference": {
+    "product": "GeoMoose",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "sourceLock": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+  },
+  "sourceFiles": [
+    {
+      "path": "src/gm3/components/map/layers/wms.js",
+      "gitBlob": "804a79898160cd2b43508acd1bb57468e40dad4c",
+      "sha256": "886e54af59ce72ed48949fcd24916a00dea0daa3bd9eef34f14eac70dedf9de5",
+      "bytes": 4141,
+      "requiredStrings": [
+        "VERSION: \"1.1.1\"",
+        "LAYERS: layers.join(\",\")",
+        "sourceOpts.crossOrigin = mapSource.params[\"cross-origin\"]",
+        "source: new ImageWMS(defineSource(mapSource))"
+      ]
+    }
+  ],
+  "clientRequest": {
+    "endpoint": "https://api.opengeo.test/public/organizations/o/projects/p/wms/s",
+    "parameters": {
+      "SERVICE": "WMS",
+      "VERSION": "1.1.1",
+      "REQUEST": "GetMap",
+      "FORMAT": "image/png",
+      "TRANSPARENT": "true",
+      "LAYERS": "cite:RoadSegments",
+      "cross-origin": "anonymous",
+      "SRS": "EPSG:3857",
+      "STYLES": "",
+      "WIDTH": "800",
+      "HEIGHT": "800",
+      "BBOX": "9000000,3000000,10000000,4000000"
+    },
+    "browserCredentials": "omit",
+    "crossOrigin": "anonymous",
+    "requestsDispatched": 1
+  },
+  "openGeoContract": {
+    "acceptedVersions": ["1.3.0", "1.1.1"],
+    "canonicalVersion": "1.3.0",
+    "legacyCoordinateParameter": "SRS",
+    "legacyGeographicSrs": "EPSG:4326",
+    "legacyProjectedSrs": "EPSG:3857",
+    "maximumLayers": 16,
+    "maximumWidth": 2048,
+    "maximumHeight": 2048,
+    "maximumPixels": 4194304,
+    "maximumParameters": 20,
+    "maximumParameterCharacters": 500,
+    "acceptedFormats": ["image/png", "image/svg+xml"],
+    "legacyCrossOriginHint": "anonymous",
+    "anonymousMutationOrRenderDispatch": false
+  },
+  "expectedOutcome": {
+    "version": "1.1.1",
+    "internalCrs": "EPSG:3857",
+    "bbox": [9000000, 3000000, 10000000, 4000000],
+    "width": 800,
+    "height": 800,
+    "format": "png",
+    "transparent": true,
+    "backgroundColor": "#ffffff",
+    "layer": "cite:RoadSegments",
+    "style": null,
+    "capabilitiesRoot": "WMT_MS_Capabilities",
+    "capabilitiesVersion": "1.1.1",
+    "cacheBehavior": "exact-prewarmed-read-only"
+  },
+  "knownDifferences": [
+    "GeoMoose 3.15.2 fixes ImageWMS at WMS 1.1.1 and sends SRS. OpenGeo keeps WMS 1.3.0 canonical but now negotiates and serializes a bounded WMS 1.1.1 compatibility representation.",
+    "GeoMoose copies its browser-only cross-origin=anonymous option into the KVP request. OpenGeo accepts only that exact non-credentialed legacy hint and ignores it; every other hyphenated parameter remains invalid.",
+    "The anonymous public OpenGeo route can read only an exact immutable prewarmed result. It cannot create, resubmit, or dispatch rendering work, even when requested by GeoMoose.",
+    "This fixture covers WMS only. GeoMoose GeoJSON, WFS/GML, XYZ, ArcGIS REST, KML exchange, configured-origin CORS, deployment, and wider distributed behavior remain separate evidence."
+  ]
+}

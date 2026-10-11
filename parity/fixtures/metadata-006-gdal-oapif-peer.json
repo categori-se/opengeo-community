@@ -1,0 +1,49 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "metadata-006.gdal-oapif-peer",
+  "title": "GDAL 3.11.5 authenticated OAPIF compatibility with project records",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Version-pinned GDAL OAPIF driver consumes the real shared-auth and project-scoped Records route over loopback HTTP.",
+    "url": "https://gdal.org/en/stable/drivers/vector/oapif.html",
+    "version": "3.11.5"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "check-gdal-records-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-gdal-records-peer.mjs",
+      "sha256": "9004f70cc95013ebb8580773bf9ad5be95b6c3ec71c56e2f295f522faa84fff2"
+    },
+    {
+      "name": "metadata-006-gdal-oapif-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/metadata-006-gdal-oapif-peer.json",
+      "sha256": "70e9c3876ba4cd13529466b51adddc9e7ee59c5f15c0aae5222c9af1b8ac9923"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "GDAL is denied without shared authority, then discovers the resources collection and reads the governed record schema and feature through the real application route."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The external GIS driver reconstructs the polygon record and forwards a spatial filter as an OAPIF bbox query without creating a conformance claim."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

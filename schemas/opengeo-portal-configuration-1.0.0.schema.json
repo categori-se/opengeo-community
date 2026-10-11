@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/opengeo-portal-configuration-1.0.0.schema.json",
+  "title": "OpenGeo portal configuration 1.0.0",
+  "description": "Versioned project portal composition for sources, grouped catalogs, tools, searches, services, saved locations, and theme selection.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "revision",
+    "sources",
+    "catalog",
+    "tools",
+    "searches",
+    "services",
+    "locations",
+    "theme"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "opengeo.portal-configuration.1.0.0"},
+    "revision": {"type": "integer", "minimum": 1, "maximum": 1000000},
+    "sources": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/source"}},
+    "catalog": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/catalogNode"}},
+    "tools": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/toolNode"}},
+    "searches": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/search"}},
+    "services": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/service"}},
+    "locations": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/location"}},
+    "theme": {"$ref": "#/$defs/theme"},
+    "upstream": {"$ref": "#/$defs/upstream"}
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "attributes": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[A-Za-z_][A-Za-z0-9_.:-]{0,159}$"},
+      "additionalProperties": {"type": "string", "maxLength": 2048}
+    },
+    "xmlNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "attributes", "text", "children"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]{0,159}$"},
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "text": {"type": "string", "maxLength": 16384},
+        "children": {"type": "array", "maxItems": 4000, "items": {"$ref": "#/$defs/xmlNode"}}
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "title", "element"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "type": {"$ref": "#/$defs/identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "element": {"$ref": "#/$defs/xmlNode"}
+      }
+    },
+    "catalogNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "title", "source", "attributes", "metadata", "children"],
+      "properties": {
+        "kind": {"enum": ["group", "layer"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "source": {"type": ["string", "null"], "maxLength": 320},
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "metadata": {"type": "array", "maxItems": 16, "items": {"type": "string", "maxLength": 2048}},
+        "children": {"type": "array", "maxItems": 512, "items": {"$ref": "#/$defs/catalogNode"}}
+      }
+    },
+    "toolNode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "title", "type", "tip", "href", "cssClass", "attributes", "children"],
+      "properties": {
+        "kind": {"enum": ["tool", "drawer"]},
+        "name": {"$ref": "#/$defs/identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "type": {"type": "string", "minLength": 1, "maxLength": 80},
+        "tip": {"type": ["string", "null"], "maxLength": 500},
+        "href": {"type": ["string", "null"], "maxLength": 2048},
+        "cssClass": {"type": ["string", "null"], "maxLength": 160},
+        "attributes": {"$ref": "#/$defs/attributes"},
+        "children": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/toolNode"}}
+      }
+    },
+    "search": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "title", "service"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "service": {"$ref": "#/$defs/identifier"}
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "title"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240}
+      }
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "center", "zoom"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "center": {
+          "type": "array",
+          "prefixItems": [
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "number", "minimum": -90, "maximum": 90}
+          ],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "zoom": {"type": "number", "minimum": -2, "maximum": 24}
+      }
+    },
+    "theme": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "colorMode"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 240},
+        "colorMode": {"enum": ["light", "dark"]}
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "version", "commit"],
+      "properties": {
+        "product": {"const": "geomoose"},
+        "version": {"const": "3.15.2"},
+        "commit": {"const": "6eb12a80c9d379b5634126da6ad047071fa85b92"}
+      }
+    }
+  }
+}

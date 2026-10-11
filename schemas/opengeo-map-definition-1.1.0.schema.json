@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/opengeo-map-definition-1.1.0.schema.json",
+  "title": "OpenGeo map definition 1.1.0",
+  "description": "The OpenGeo 1.0.0 project-specific map composition plus bounded processing models, active-model identity, and portable processing history. Dataset, source-revision, and processing authorization are enforced by the OpenGeo API in addition to this readable structural schema.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mapViews",
+    "basemaps",
+    "bookmarks",
+    "activeLayerId",
+    "activeProcessingModelId",
+    "models",
+    "processingHistory",
+    "projection",
+    "colorMode",
+    "layers"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "opengeo.map-definition.1.1.0"},
+    "mapViews": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/mapViews"},
+    "basemaps": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/basemaps"},
+    "bookmarks": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/bookmarks"},
+    "activeLayerId": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/activeLayerId"},
+    "activeProcessingModelId": {"type": ["string", "null"], "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"},
+    "models": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/processingModel"}
+    },
+    "processingHistory": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {"$ref": "#/$defs/processingHistoryEntry"}
+    },
+    "spatialBody": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/spatialBody"},
+    "projection": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/projection"},
+    "colorMode": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/colorMode"},
+    "layers": {"$ref": "opengeo-map-definition-1.0.0.schema.json#/properties/layers"},
+    "portal": {"$ref": "opengeo-portal-configuration-1.0.0.schema.json"},
+    "extensions": {"type": "object"}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "processingModel": {
+      "type": "object",
+      "required": ["id", "name", "steps"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "steps": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/processingStep"}
+        }
+      },
+      "additionalProperties": false
+    },
+    "processingStep": {
+      "type": "object",
+      "required": ["id", "toolId", "parameters"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "toolId": {"$ref": "#/$defs/identifier"},
+        "parameters": {"type": "object"},
+        "inputParam": {"$ref": "#/$defs/identifier"}
+      },
+      "additionalProperties": false
+    },
+    "processingHistoryEntry": {
+      "type": "object",
+      "required": ["id", "kind", "toolId", "toolName", "engine", "parameters", "status"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identifier"},
+        "kind": {"type": "string", "minLength": 1, "maxLength": 40},
+        "toolId": {"$ref": "#/$defs/identifier"},
+        "toolName": {"type": "string", "minLength": 1, "maxLength": 200},
+        "engine": {"type": "string", "minLength": 1, "maxLength": 80},
+        "parameters": {"type": "object"},
+        "inputLayerNames": {
+          "type": "object",
+          "maxProperties": 16,
+          "propertyNames": {"$ref": "#/$defs/identifier"},
+          "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "outputLayerNames": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"type": "string", "minLength": 1, "maxLength": 200}
+        },
+        "startedAt": {"type": "string", "minLength": 1, "maxLength": 40},
+        "durationMs": {"type": "number", "minimum": 0, "maximum": 86400000},
+        "status": {"enum": ["success", "error"]},
+        "error": {"type": "string", "minLength": 1, "maxLength": 500},
+        "opengeo": {"$ref": "#/$defs/processingReceiptExtension"}
+      },
+      "additionalProperties": false
+    },
+    "processingReceiptExtension": {
+      "type": "object",
+      "required": ["schemaVersion", "toolVersion", "deterministic", "input", "output", "limits", "logs"],
+      "properties": {
+        "schemaVersion": {"const": "opengeo.processing-run.1.0.0"},
+        "toolVersion": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "maxLength": 40},
+        "deterministic": {"type": "boolean"},
+        "input": {"type": "object"},
+        "output": {"type": "object"},
+        "limits": {"type": "object"},
+        "logs": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 20,
+          "items": {"type": "string", "minLength": 1, "maxLength": 240}
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

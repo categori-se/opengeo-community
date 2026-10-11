@@ -1,0 +1,193 @@
+MAP
+  NAME "opengeo-representative-cartography-peer"
+  STATUS ON
+  EXTENT -71.15 42.30 -71.00 42.45
+  SIZE 640 480
+  UNITS DD
+  IMAGETYPE "png"
+  IMAGECOLOR 255 255 255
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+  OUTPUTFORMAT
+    NAME "png"
+    DRIVER "AGG/PNG"
+    MIMETYPE "image/png"
+    IMAGEMODE RGB
+    EXTENSION "png"
+  END
+
+  OUTPUTFORMAT
+    NAME "svg"
+    DRIVER "CAIRO/SVG"
+    MIMETYPE "image/svg+xml"
+    IMAGEMODE RGB
+    EXTENSION "svg"
+  END
+
+  SYMBOL
+    NAME "circle"
+    TYPE ELLIPSE
+    FILLED TRUE
+    POINTS
+      1 1
+    END
+  END
+
+  LEGEND
+    STATUS EMBED
+    POSITION LR
+    KEYSIZE 18 10
+    KEYSPACING 6 4
+    LABEL
+      TYPE BITMAP
+      SIZE SMALL
+      COLOR 23 40 36
+    END
+  END
+
+  LAYER
+    NAME "areas"
+    TYPE POLYGON
+    STATUS DEFAULT
+    CONNECTIONTYPE OGR
+    CONNECTION "/fixture/representative-areas.geojson"
+    DATA "representative-areas"
+    CLASSITEM "category"
+    MAXSCALEDENOM 2000000
+    PROJECTION
+      "init=epsg:4326"
+    END
+
+    CLASS
+      NAME "Priority"
+      EXPRESSION "priority"
+      STYLE
+        COLOR 250 204 21
+        OPACITY 55
+        OUTLINECOLOR 133 96 0
+        WIDTH 1
+      END
+    END
+    CLASS
+      NAME "Standard"
+      EXPRESSION "standard"
+      STYLE
+        COLOR 145 214 189
+        OPACITY 55
+        OUTLINECOLOR 23 96 74
+        WIDTH 1
+      END
+    END
+  END
+
+  LAYER
+    NAME "roads"
+    TYPE LINE
+    STATUS DEFAULT
+    CONNECTIONTYPE OGR
+    CONNECTION "/fixture/deterministic-roads.geojson"
+    DATA "deterministic-roads"
+    CLASSITEM "status"
+    LABELITEM "name"
+    MAXSCALEDENOM 2000000
+    PROJECTION
+      "init=epsg:4326"
+    END
+
+    CLASS
+      NAME "Open"
+      EXPRESSION "open"
+      STYLE
+        COLOR 22 129 95
+        OPACITY 85
+        WIDTH 3
+      END
+      LABEL
+        TYPE BITMAP
+        SIZE MEDIUM
+        COLOR 23 40 36
+        OUTLINECOLOR 255 255 255
+        OUTLINEWIDTH 1
+        POSITION AUTO
+        PARTIALS FALSE
+      END
+    END
+    CLASS
+      NAME "Closed"
+      EXPRESSION "closed"
+      STYLE
+        COLOR 180 35 24
+        OPACITY 85
+        WIDTH 3
+      END
+      LABEL
+        TYPE BITMAP
+        SIZE MEDIUM
+        COLOR 23 40 36
+        OUTLINECOLOR 255 255 255
+        OUTLINEWIDTH 1
+        POSITION AUTO
+        PARTIALS FALSE
+      END
+    END
+  END
+
+  LAYER
+    NAME "sites"
+    TYPE POINT
+    STATUS DEFAULT
+    CONNECTIONTYPE OGR
+    CONNECTION "/fixture/representative-sites.geojson"
+    DATA "representative-sites"
+    CLASSITEM "kind"
+    LABELITEM "name"
+    MAXSCALEDENOM 2000000
+    PROJECTION
+      "init=epsg:4326"
+    END
+
+    CLASS
+      NAME "Clinic"
+      EXPRESSION "clinic"
+      STYLE
+        SYMBOL "circle"
+        SIZE 10
+        COLOR 0 68 255
+        OUTLINECOLOR 23 40 36
+        WIDTH 1
+      END
+      LABEL
+        TYPE BITMAP
+        SIZE MEDIUM
+        COLOR 0 52 179
+        OUTLINECOLOR 255 255 255
+        OUTLINEWIDTH 1
+        POSITION AUTO
+        PARTIALS FALSE
+      END
+    END
+    CLASS
+      NAME "School"
+      EXPRESSION "school"
+      STYLE
+        SYMBOL "circle"
+        SIZE 10
+        COLOR 255 128 0
+        OUTLINECOLOR 23 40 36
+        WIDTH 1
+      END
+      LABEL
+        TYPE BITMAP
+        SIZE MEDIUM
+        COLOR 153 77 0
+        OUTLINECOLOR 255 255 255
+        OUTLINEWIDTH 1
+        POSITION AUTO
+        PARTIALS FALSE
+      END
+    END
+  END
+END

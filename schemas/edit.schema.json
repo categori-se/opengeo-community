@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Edit",
+  "type": "object",
+  "required": ["editId", "datasetId", "operation", "status", "createdBy", "createdAt"],
+  "properties": {
+    "editId": {"type": "string"},
+    "datasetId": {"type": "string"},
+    "operation": {"enum": ["update_metadata", "update_attribute", "update_geometry"]},
+    "featureId": {"type": ["string", "null"]},
+    "field": {"type": ["string", "null"]},
+    "oldValue": {},
+    "newValue": {},
+    "status": {"enum": ["pending", "accepted", "rejected"]},
+    "createdBy": {"type": "string"},
+    "createdAt": {"type": "string", "format": "date-time"}
+  }
+}

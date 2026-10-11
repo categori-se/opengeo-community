@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geonode-001.resource-migration",
+  "title": "GeoNode 5.1 governed resource migration",
+  "fixtureType": "publication",
+  "source": {
+    "kind": "synthetic",
+    "description": "Public deterministic normalized GeoNode 5.1 package with dataset, document, GeoStory, core metadata, extension metadata, publication flags, application data, and resource relationships."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "geonode-5.1-resources.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/geonode-5.1-resources.json",
+      "sha256": "150f7f4aae39919d3b96a887d193350c753e74fdb75929a435591bc480a0f05b"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.governed-resource-types",
+      "assertion": "Dataset, document, and GeoStory identities become standalone governed resources while relationships, provenance, application data, and safe unknown metadata remain reversible."
+    },
+    {
+      "rowId": "geonode.catalog-discovery",
+      "assertion": "Migrated resources retain collision-safe GeoNode identifiers and become available through permission-scoped text, spatial, temporal, and faceted discovery."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

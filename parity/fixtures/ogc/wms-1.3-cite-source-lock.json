@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "ogc.wms-1.3.0.cite-blue-lake.basic",
+  "title": "Canonical CITE Blue Lake Basic WMS source lock",
+  "status": "source_locked",
+  "upstream": {
+    "repository": "https://github.com/opengeospatial/ets-wms13",
+    "commit": "9a45b91e8e1dc600f574002ac89342b20bac3106",
+    "archivePath": "src/site/resources/data-wms-1.3.0.zip",
+    "archiveGitBlobSha1": "242317c0798e5fbb27e69faf31e3d9723fe99305",
+    "archiveSha256": "487bd1d02932c75470cb314bbbed7216add8fa003aff2aeb8f07d86e33a1829d",
+    "archiveBytes": 495005,
+    "archiveEntries": 120,
+    "descriptionPath": "src/site/markdown/index.md",
+    "descriptionSha256": "1b68b5445ea828eb9dc9ba3cbb27a1032b894d2cac3b42966de74140d3e76a34"
+  },
+  "licenseEvidence": {
+    "spdxId": "Apache-2.0",
+    "repositoryPath": "LICENSE",
+    "sha256": "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a",
+    "scope": "The license file at the pinned repository root is recorded as the distribution evidence for the pinned archive.",
+    "review": "Provenance and license evidence recorded; this is not legal advice."
+  },
+  "requiredCrs": "CRS:84",
+  "sourceProjection": "GCS_WGS_1984",
+  "basicLayers": [
+    {"name": "BasicPolygons", "title": "cite:BasicPolygons", "geometryType": "polygon"},
+    {"name": "Bridges", "title": "cite:Bridges", "geometryType": "point"},
+    {"name": "Buildings", "title": "cite:Buildings", "geometryType": "polygon"},
+    {"name": "DividedRoutes", "title": "cite:DividedRoutes", "geometryType": "line"},
+    {"name": "Forests", "title": "cite:Forests", "geometryType": "polygon"},
+    {"name": "Lakes", "title": "cite:Lakes", "geometryType": "polygon"},
+    {"name": "MapNeatline", "title": "cite:MapNeatline", "geometryType": "line"},
+    {"name": "NamedPlaces", "title": "cite:NamedPlaces", "geometryType": "polygon"},
+    {"name": "Ponds", "title": "cite:Ponds", "geometryType": "polygon"},
+    {"name": "RoadSegments", "title": "cite:RoadSegments", "geometryType": "line"},
+    {"name": "Streams", "title": "cite:Streams", "geometryType": "line"}
+  ],
+  "preparation": {
+    "script": "scripts/prepare-wms-cite-fixtures.py",
+    "workerVerificationScript": "scripts/verify-wms-cite-ingestion.py",
+    "publicationScript": "scripts/publish-wms-cite-fixtures.mjs",
+    "runtimeMaterializationScript": "scripts/materialize-wms-cite-prewarm.py",
+    "runtimeMaterializationVerifierScript": "scripts/check-wms-cite-runtime-materialization.mjs",
+    "runtimeMaterializationEvidencePath": "parity/reports/service-021-wms-cite-runtime-materialization.json",
+    "prewarmInventoryPath": "parity/fixtures/ogc/wms-1.3-cite-prewarm-inventory.json",
+    "prewarmVerifierScript": "scripts/check-wms-cite-prewarm.mjs",
+    "requestSurfacePath": "parity/fixtures/ogc/wms-1.3-cite-request-surface.json",
+    "requestSurfaceVerifierScript": "scripts/check-wms-cite-request-surface.mjs",
+    "publicationMode": "Dry-run by default; explicit --execute uses shared-auth authority and the ordinary authenticated upload, resource, style, render-profile, workflow, WMS-publication, and public-service management APIs. Anonymous GetMap remains exact-prewarmed-cache-only.",
+    "publicationVisibility": "public",
+    "reason": "The governed Shapefile ingestion boundary accepts exactly one shapefile dataset per ZIP; the official archive contains several datasets and supporting formats.",
+    "output": "One deterministic, flat, four-component Shapefile ZIP per Basic layer plus upload-manifest.json",
+    "zipTimestamp": "1980-01-01T00:00:00Z",
+    "datasetFormat": "shapefile",
+    "mediaType": "application/zip",
+    "uploadRequestPath": "/projects/{project_id}/uploads/request",
+    "uploadCompletionPath": "/projects/{project_id}/uploads/{upload_id}/complete",
+    "publicationPath": "/projects/{project_id}/resources/{resource_id}/wms-publications",
+    "publicServicePath": "/projects/{project_id}/public-wms-services",
+    "authenticatedPrewarmPath": "/projects/{project_id}/wms",
+    "anonymousServicePath": "/public/organizations/{organization_id}/projects/{project_id}/wms/{service_id}",
+    "fixedInactiveCostDeltaUsd": 0
+  },
+  "defaultStyleContract": {
+    "allLayers": "Every prepared layer needs a checksum-pinned render profile before publication.",
+    "cite:Lakes": "The default polygon fill must contain non-white pixels, as required by the Basic WMS ETS preconditions."
+  },
+  "limitations": [
+    "This source lock and deterministic preparation path now have two byte-identical local reviewed-worker receipts and two byte-identical ten-request production-render-code materializations. They do not mean that the fixture has been uploaded to governed storage, registered in PostgreSQL, publicly served, deployed, interactively judged, or tested by the official ETS.",
+    "The ten-request prewarm inventory covers only fixed dataset-specific basic.xml identities; SERVICE-022 resolves the separate always-run request surface against local production Capabilities, while exact deployed profile-version successful-image materialization remains open.",
+    "Prepared archives intentionally exclude the upstream GML, MapInfo, raster, metadata, time, and elevation-option assets; those remain future option-specific fixtures.",
+    "An operator must use the ordinary authenticated upload and completion endpoints so authorization, object verification, processing, lineage, and audit controls remain in force.",
+    "The publication client intentionally requires public resource visibility for the canonical Apache-2.0 fixture, resumes only exact immutable originals, and fails closed on ambiguous identities, byte drift, or an unfinished upload; it has not been executed against AWS or a deployed OpenGeo endpoint."
+  ],
+  "fixedInactiveCostDeltaUsd": 0
+}

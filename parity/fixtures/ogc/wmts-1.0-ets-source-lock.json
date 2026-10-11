@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "1.0.0",
+  "suiteId": "ogc.ets-wmts10",
+  "status": "source_locked_not_run",
+  "observedAt": "2026-08-23",
+  "upstream": {
+    "repository": "https://github.com/opengeospatial/ets-wmts10",
+    "tag": "1.11",
+    "tagObject": "a55218a6df710d0b8cd6b5726f1611936418ff5f",
+    "commit": "81c4d65743ad5e6128527b2340a39c456d83b785",
+    "commitDate": "2025-03-05T11:26:48-05:00",
+    "projectVersion": "1.11",
+    "license": "Apache-2.0"
+  },
+  "specification": {
+    "service": "WMTS",
+    "version": "1.0.0",
+    "document": "OGC 07-057r7",
+    "suiteStyle": "TEAM Engine CTL"
+  },
+  "runner": {
+    "mainClass": "org.opengis.cite.wmts10.CtlController",
+    "inputKey": "capabilities-url",
+    "documentedInputSchemes": ["http", "file"],
+    "customRequestHeaders": false,
+    "requiredSelections": [
+      "Common Operations",
+      "GetCapabilities",
+      "GetTile",
+      "KVP GET"
+    ],
+    "optionalSelections": ["GetFeatureInfo", "RESTful encoding"],
+    "sourceCtlTestDefinitions": 348,
+    "executionIsCapabilitiesDriven": true
+  },
+  "referenceProfile": {
+    "sourceImage": "src/main/resources/nodataSquare.png",
+    "sourceImageSha256": "01fc2988a6b28a6b7387c9cbf6789850dd793eaaca28aa075124ff5ce7fbf03c",
+    "layer": "TransparentNodata",
+    "style": "Default_style",
+    "format": "image/png",
+    "tileMatrixSet": "TransparentNodata",
+    "tileMatrix": "0",
+    "tileRow": 0,
+    "tileCol": 0
+  },
+  "sourceEvidence": [
+    {"path": "README.md", "sha256": "f085ad60e66a331b7d5a0751a840068c69970d0f061db1b0e4e2333fd4884260"},
+    {"path": "pom.xml", "sha256": "19eefaa5699ecadea3c3b1e56387388160046a8996a35d14d5ea7ee59261f5f6"},
+    {"path": "LICENSE.md", "sha256": "4ce53a8014a935d021ba1eb965bdf7c2596aca133d2caee678af891d268d1df1"},
+    {"path": "src/site/markdown/index.md", "sha256": "a8486aec12644ad72059897da4fa666feb79e519a1079c4a47065e86125028bd"},
+    {"path": "src/site/markdown/relnotes.md", "sha256": "90ff5cd11ef93087af2299ce8f26803e68b525a8cd80a56549b053898bda2920"},
+    {"path": "src/main/resources/org/opengis/cite/wmts10/test-run-props.xml", "sha256": "34dffb37588d48a66b5f4908d54fb7cff850374277a912678f685eee6e6c960f"},
+    {"path": "src/main/resources/nodataSquare.png", "sha256": "01fc2988a6b28a6b7387c9cbf6789850dd793eaaca28aa075124ff5ce7fbf03c"},
+    {"path": "src/main/scripts/ctl/WMTS_ETS.xml", "sha256": "24f90364c91bf9bd9c24791d215c4bdacb10065b522e088e73c110eb55f3af70"},
+    {"path": "src/main/scripts/ctl/bootstrap.xml", "sha256": "b7589e282fcaa41786b8aeb1a1ea9103c7d7c95aebed83cba4400741c27bf241"},
+    {"path": "src/main/scripts/ctl/wmtsMain.xml", "sha256": "48618464f494ed56b9e1d953296b1261de72952a5003ab1fa859113436eb1fab"},
+    {"path": "src/main/scripts/ctl/wmtsServerCommonOperationsTests.xml", "sha256": "5f462a4da2e39bacdb1bfe6814cf5035c37e83300e47e6490d245f9d53afa912"},
+    {"path": "src/main/scripts/ctl/wmtsServerGetCapabilitiesTests.xml", "sha256": "0ce70df35dce4033af2f7f3273ebedd26d3bba61e7ceb030880150a1ef0dfddb"},
+    {"path": "src/main/scripts/ctl/wmtsServerGetTileTests.xml", "sha256": "684251363b5146db0c90d0fad7060d07b532ddb0478120746ca9a5e58425c4b1"}
+  ],
+  "limitations": [
+    "The source, release, license, runner input, mandatory selections, reference profile, and selected CTL files are pinned; the suite has not run against OpenGeo.",
+    "The number of executed assertions is capabilities- and prerequisite-dependent and must come from retained official result artifacts, not the source definition count.",
+    "A runner properties document does not solve shared-auth request headers, provide the canonical reference layer, or establish conformance."
+  ]
+}

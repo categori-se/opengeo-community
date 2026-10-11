@@ -1,0 +1,137 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-012.openlayers-wmts-peer",
+  "title": "Map-drawn bounded seed authoring and direct OpenLayers WMTS cache peer",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Version-pinned OpenLayers uses its native WMTS capabilities parser, source, tile layer, and view against OpenGeo's shared-auth seeded-cache-only WebMercatorQuad endpoint; a network-free MapLibre picker authors the existing strict bbox/zoom preview contract.",
+    "url": "https://github.com/openlayers/openlayers/releases/tag/v10.10.0",
+    "version": "10.10.0"
+  },
+  "license": {
+    "spdxId": "BSD-2-Clause",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "TileSeedExtentPicker.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/TileSeedExtentPicker.js",
+      "sha256": "760a28f861f0e99a08158a32bef9cf5c81c04b792ced635d400814d1765cf19b"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "style.css",
+      "mediaType": "text/css",
+      "encoding": "path",
+      "value": "app/src/style.css",
+      "sha256": "b267b92ee033a73c7fca50da768b53d007685fc086f30479dd1322069541d6ee"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "tile-seed-extent.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/tile-seed-extent.test.mjs",
+      "sha256": "48b52530186c8b3c47ca9aa51ede63a244c5ff2454f2ba68e5ae6d5e45261709"
+    },
+    {
+      "name": "app-package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package.json",
+      "sha256": "399cd2c91d74b0a9b53428d4dbb8d037f2bfbe30dbb660907e64196dffc12d8b"
+    },
+    {
+      "name": "app-package-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package-lock.json",
+      "sha256": "cad9781aa572087cda8a9ff96ccd93d551028795a05abbedcb54c449cc134e9d"
+    },
+    {
+      "name": "wmts.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wmts.py",
+      "sha256": "682e3a2a890c02301234f6fe99277c673bd45631c4220d50f609bbc8e7b3b648"
+    },
+    {
+      "name": "tile_cache_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/tile_cache_routes.py",
+      "sha256": "a2887d8ef30c708488df1487a39f986b91d809d8cfe9bc4fd1ce1e03d34347b5"
+    },
+    {
+      "name": "check-openlayers-wmts-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-openlayers-wmts-peer.mjs",
+      "sha256": "f36120a9cab218adbe433fd342bd995d3d8fbbddd07f11797332b5824572ba19"
+    },
+    {
+      "name": "root-package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    },
+    {
+      "name": "serve-records-parity.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/serve-records-parity.py",
+      "sha256": "c7b5809adb2acefa5238661fc8b51af2f2f37af51478c355be60ef4af8de9ace"
+    },
+    {
+      "name": "service-012-openlayers-wmts-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-012-openlayers-wmts-peer.json",
+      "sha256": "07c23e1896e642eb9264ad9386ce93183bc9d3ad21487229c28665a99876cdcc"
+    },
+    {
+      "name": "service-openlayers-wmts-peer.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-openlayers-wmts-peer.test.mjs",
+      "sha256": "e56f1c3a5110918ecb45e2feb92678bf670ce4b7924d5d51a8191c40e58b091a"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenLayers 10.10.0 natively discovers and reads one already-seeded image/png WebMercatorQuad tile through OpenGeo's standalone WMTS compatibility endpoint."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Capabilities, GetTile, an uncached tile, view changes, source refresh, and elapsed time create no mutation, render, schedule, or fixed inactive cost."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The direct peer uses ol/format/WMTSCapabilities, ol/source/WMTS, ol/layer/Tile, and ol/View rather than the existing XYZ compatibility alias."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

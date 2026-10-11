@@ -1,0 +1,59 @@
+{
+  "fixture": "METADATA-001-RECORDS-SOURCES",
+  "standard": {
+    "name": "OGC API - Records - Part 1: Core",
+    "version": "1.0",
+    "document": "https://docs.ogc.org/is/20-004r1/20-004r1.html",
+    "conformanceClass": "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/searchable-catalog"
+  },
+  "recordsSchemas": {
+    "baseUrl": "https://schemas.opengis.net/ogcapi/records/part1/1.0/openapi/schemas/",
+    "filePattern": "*.yaml",
+    "fileCount": 21,
+    "totalBytes": 19297,
+    "manifestSha256": "49a56fa4b95c1e4727c1c99e19b91ebae228c041c20a4f8823b52e21e23ae2ce"
+  },
+  "featuresSchemas": {
+    "baseUrl": "https://schemas.opengis.net/ogcapi/features/part1/1.0/openapi/schemas/",
+    "filePattern": "*.yaml",
+    "fileCount": 20,
+    "totalBytes": 11830,
+    "manifestSha256": "ae4ec7f314abe5635541bd591756cbcc658f20574e842ba9042679ae11a2f4bf"
+  },
+  "abstractTests": {
+    "repository": "https://github.com/opengeospatial/ogcapi-records.git",
+    "tag": "1.0.0",
+    "commit": "df95f9cfebe732cbcb5178a934bb0e040c957c74",
+    "adocFileCount": 109,
+    "selectedManifestSha256": "dfd6983e6d7aad28dfeb8ece4eb743972ff1d7200fa55e3d6a70c02cb0183d77",
+    "selectedFiles": [
+      "core/standard/abstract_tests/building-blocks/json/ATS_catalog-content.adoc",
+      "core/standard/abstract_tests/building-blocks/json/ATS_record-content.adoc",
+      "core/standard/abstract_tests/building-blocks/json/ATS_record-response.adoc",
+      "core/standard/abstract_tests/building-blocks/record-core/ATS_mandatory-properties-record.adoc",
+      "core/standard/abstract_tests/building-blocks/record-core/ATS_record-links.adoc",
+      "core/standard/abstract_tests/searchable-catalog/ATS_mandatory-catalog-properties.adoc",
+      "core/standard/abstract_tests/searchable-catalog/ATS_mandatory-record-properties.adoc"
+    ],
+    "executableSuiteMarkers": [
+      "pom.xml",
+      "build.gradle",
+      "settings.gradle",
+      "testng.xml"
+    ]
+  },
+  "publishedSchemaOverlap": {
+    "schema": "recordGeoJSON.yaml",
+    "paths": [
+      "properties.time.oneOf[0]",
+      "properties.geometry.oneOf[0]",
+      "properties.properties.oneOf[0]"
+    ],
+    "problem": "Each branch accepts any object as well as null, so a correctly typed object also matches the more specific sibling branch and fails oneOf validation.",
+    "localValidationPolicy": "Verify the published bytes first, record the exact direct-validation failure, then narrow only these three nullable branches to null for a non-normative strict compatibility check. Do not claim schema or OGC conformance."
+  },
+  "licensePolicy": {
+    "schemaBytesVendored": false,
+    "reason": "OGC publishes downloadable schema packages but retains copyright; exact external bytes are source-locked and read from disposable directories instead of copied into this repository."
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "editing-002.canvas-features",
+  "title": "Map-canvas governed editing and read-only OGC Features compatibility",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Checksum-pinned local evidence for bounded single-or-multipart map-canvas capture, exact-junction line-part split/merge, polygon-ring removal, schema fields, expected-version persistence, official OGC Features response schemas, and a native GDAL OAPIF read."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "ogc_features.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/ogc_features.py",
+      "sha256": "5a5d52f7de395a664109f02041242e13d56641059d19ae6c149bb6218f5c71a9"
+    },
+    {
+      "name": "ogc_feature_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/ogc_feature_routes.py",
+      "sha256": "4e40e962f9d924b9a9a15cd70886147eb80cb03862d1a392d391ab298e1cdb97"
+    },
+    {
+      "name": "test_feature_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_feature_routes.py",
+      "sha256": "82b45744360134ea88fdb5900c4e4588ec430cd6763f5079fb495c9d1bd01db3"
+    },
+    {
+      "name": "FeatureCanvas.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/FeatureCanvas.js",
+      "sha256": "9e9e2e0dad66fb8708a6d887f50f2aae2c6e5b5e5d6d582c06c2aef51d61f0f4"
+    },
+    {
+      "name": "ProjectDatasets.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectDatasets.js",
+      "sha256": "12ed98b3951694aedbe7a7331ebd2eddbcd652087db51bf5c7b619ee82ae9ddc"
+    },
+    {
+      "name": "feature-canvas.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/feature-canvas.test.mjs",
+      "sha256": "a6662592db9ab4562d89f85f8406ba9432ea975d2e23a590ca44e555a1f05a47"
+    },
+    {
+      "name": "check-feature-publication-official.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-feature-publication-official.py",
+      "sha256": "979e6a712cbffd7d76ce69de5c12c7f440294915c7846edca22ab7c87679c6f7"
+    },
+    {
+      "name": "check-gdal-features-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-gdal-features-peer.mjs",
+      "sha256": "17a534ffefbd88244abdb59e89606627f3cf00cfcc16a2f164960eaae99a4384"
+    },
+    {
+      "name": "editing-002-canvas-features.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/editing-002-canvas-features.json",
+      "sha256": "9c0e3260b0c5357f595804d565ea1c2bd151602ff93fa45adee187d9e24bf899"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.gis-authoring-inspection",
+      "assertion": "The standalone browser draws all six point/line/polygon single-or-multipart families on a request-free spatial canvas, selects stable features and multipart components, performs bounded vertex, ring, and exact-junction line-part edits, edits typed fields, and persists through the existing expected-version audit boundary."
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "assertion": "An authorized managed vector dataset can be captured and structurally edited through typed browser controls without GeoNode, while leaving broader/shared-edge topology, offline updates, attachments, and upstream migration explicit."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "The same authoritative feature heads project through an authenticated read-only, schema-compatible OGC API Features-shaped endpoint consumed by GDAL, without claiming conformance or WFS/WFS-T parity."
+    },
+    {
+      "rowId": "openlayers.controls-interactions",
+      "assertion": "Browser draw, part selection, bounded structure changes including line-part split/merge and hole removal, snapping, and vertex-modify outcomes are executable locally, while rendered structural-editing acceptance, full accessibility/device coverage, and a matching independent OpenLayers implementation remain open."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "A source-locked Features 1.0 GeoJSON projection passes official response schemas and a native GDAL OAPIF read, while the wider protocol/client matrix remains open."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

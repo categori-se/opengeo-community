@@ -1,0 +1,632 @@
+{
+  "environment": "dev",
+  "session": {
+    "userId": "user_ada",
+    "displayName": "Ada Rivera",
+    "email": "ada@example.test",
+    "tenantId": "tenant_demo"
+  },
+  "storage": {
+    "provider": "aws-s3",
+    "bucket": "dev.storage.opengeo.tools",
+    "prefix": "dev/",
+    "projectPrefix": "dev/workspaces/",
+    "uploadPrefix": "dev/uploads/"
+  },
+  "tenants": [
+    {
+      "tenantId": "tenant_demo",
+      "name": "OpenGeo Demonstration Tenant",
+      "createdAt": "2026-06-22T13:00:00Z"
+    }
+  ],
+  "teams": [
+    {
+      "teamId": "team-environmental-specialists",
+      "tenantId": "tenant_demo",
+      "name": "Environmental Specialists",
+      "memberCount": 5
+    },
+    {
+      "teamId": "team-field-review",
+      "tenantId": "tenant_demo",
+      "name": "Field Review",
+      "memberCount": 3
+    }
+  ],
+  "workspaces": [
+    {
+      "workspaceId": "workspace-nepal-energy",
+      "tenantId": "tenant_demo",
+      "title": "Nepal Energy Access",
+      "description": "Planning layers and inspection records for decentralized energy projects.",
+      "status": "active",
+      "classification": "internal",
+      "createdBy": "user_ada",
+      "createdAt": "2026-06-22T14:00:00Z",
+      "updatedAt": "2026-06-24T18:30:00Z"
+    },
+    {
+      "workspaceId": "workspace-midwest-resilience",
+      "tenantId": "tenant_demo",
+      "title": "Midwest Resilience",
+      "description": "Regional flood exposure, facility locations, and public infrastructure references.",
+      "status": "active",
+      "classification": "restricted",
+      "createdBy": "user_ada",
+      "createdAt": "2026-06-20T15:45:00Z",
+      "updatedAt": "2026-06-23T19:20:00Z"
+    },
+    {
+      "workspaceId": "workspace-public-demo",
+      "tenantId": "tenant_demo",
+      "title": "Public Data Demonstration",
+      "description": "Example published data used for onboarding and external review.",
+      "status": "active",
+      "classification": "public",
+      "createdBy": "user_lin",
+      "createdAt": "2026-06-18T12:00:00Z",
+      "updatedAt": "2026-06-24T11:15:00Z"
+    }
+  ],
+  "datasets": [
+    {
+      "datasetId": "dataset_roads_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "title": "Access Road Network",
+      "description": "Imported road segments near candidate generation sites.",
+      "datasetType": "spatial",
+      "geometryType": "LineString",
+      "status": "uploaded",
+      "classification": "internal",
+      "currentVersion": "v1",
+      "bbox": [85.21, 27.58, 85.43, 27.76],
+      "featureCount": 6,
+      "crs": "EPSG:4326",
+      "tags": ["transport", "access", "planning"],
+      "createdBy": "user_ada",
+      "createdAt": "2026-06-22T16:05:00Z",
+      "updatedAt": "2026-06-24T18:30:00Z"
+    },
+    {
+      "datasetId": "dataset_sites_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "title": "Candidate Site Inspections",
+      "description": "Tabular field review records for candidate generation sites.",
+      "datasetType": "table",
+      "geometryType": "Point",
+      "status": "uploaded",
+      "classification": "internal",
+      "currentVersion": "v1",
+      "bbox": [85.273, 27.559, 85.584, 27.829],
+      "featureCount": 8,
+      "crs": null,
+      "tags": ["fieldwork", "inspection"],
+      "createdBy": "user_ada",
+      "createdAt": "2026-06-23T10:20:00Z",
+      "updatedAt": "2026-06-23T16:45:00Z"
+    },
+    {
+      "datasetId": "dataset_flood_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-midwest-resilience",
+      "title": "Flood Exposure Areas",
+      "description": "Planning polygons for facilities that require resilience review.",
+      "datasetType": "spatial",
+      "geometryType": "Polygon",
+      "status": "processing",
+      "classification": "restricted",
+      "currentVersion": "v1",
+      "bbox": [-93.76, 41.52, -93.47, 41.72],
+      "featureCount": 14,
+      "crs": "EPSG:4326",
+      "tags": ["flood", "facilities", "risk"],
+      "createdBy": "user_lin",
+      "createdAt": "2026-06-21T09:15:00Z",
+      "updatedAt": "2026-06-24T12:05:00Z"
+    },
+    {
+      "datasetId": "dataset_public_basemap_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-public-demo",
+      "title": "Published Community Facilities",
+      "description": "Small public sample used to demonstrate published object references.",
+      "datasetType": "spatial",
+      "geometryType": "Point",
+      "status": "published",
+      "classification": "public",
+      "currentVersion": "v1",
+      "bbox": [-77.07, 38.89, -77.01, 38.93],
+      "featureCount": 5,
+      "crs": "EPSG:4326",
+      "license": "CC0-1.0",
+      "attribution": "OpenGeo.tools synthetic demonstration data",
+      "publicSourcePath": "/data/sample-public-facilities.geojson",
+      "tags": ["public", "facilities"],
+      "createdBy": "user_lin",
+      "createdAt": "2026-06-18T13:30:00Z",
+      "updatedAt": "2026-06-24T11:15:00Z"
+    }
+  ],
+  "objects": [
+    {
+      "objectId": "object_roads_original",
+      "datasetId": "dataset_roads_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "objectRole": "original",
+      "bucket": "dev.storage.opengeo.tools",
+      "key": "dev/tenants/tenant_demo/workspaces/workspace-nepal-energy/originals/access-roads.geojson",
+      "contentType": "application/geo+json",
+      "sizeBytes": 4412,
+      "checksum": "sha256:sample-roads",
+      "version": "v1",
+      "createdAt": "2026-06-22T16:05:00Z"
+    },
+    {
+      "objectId": "object_sites_original",
+      "datasetId": "dataset_sites_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "objectRole": "original",
+      "bucket": "dev.storage.opengeo.tools",
+      "key": "dev/tenants/tenant_demo/workspaces/workspace-nepal-energy/originals/site-inspections.csv",
+      "contentType": "text/csv",
+      "sizeBytes": 1134,
+      "checksum": "sha256:sample-sites",
+      "version": "v1",
+      "createdAt": "2026-06-23T10:20:00Z"
+    },
+    {
+      "objectId": "object_flood_original",
+      "datasetId": "dataset_flood_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-midwest-resilience",
+      "objectRole": "original",
+      "bucket": "dev.storage.opengeo.tools",
+      "key": "dev/tenants/tenant_demo/workspaces/workspace-midwest-resilience/originals/flood-exposure.geojson",
+      "contentType": "application/geo+json",
+      "sizeBytes": 7820,
+      "checksum": "sha256:sample-flood",
+      "version": "v1",
+      "createdAt": "2026-06-21T09:15:00Z"
+    },
+    {
+      "objectId": "object_public_facilities_published",
+      "datasetId": "dataset_public_basemap_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-public-demo",
+      "objectRole": "published",
+      "bucket": "opengeo.tools",
+      "key": "dev/tenants/tenant_demo/workspaces/workspace-public-demo/published/datasets/dataset_public_basemap_001/v1/facilities.geojson",
+      "contentType": "application/geo+json",
+      "sizeBytes": 3622,
+      "checksum": "sha256:sample-public-facilities",
+      "version": "v1",
+      "createdAt": "2026-06-24T11:15:00Z"
+    }
+  ],
+  "layers": [
+    {
+      "layerId": "layer_roads",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "datasetId": "dataset_roads_001",
+      "sourceType": "geojson-object",
+      "objectId": "object_roads_original",
+      "title": "Access roads",
+      "geometryType": "LineString",
+      "bbox": [85.21, 27.58, 85.43, 27.76],
+      "visible": true,
+      "opacity": 0.9,
+      "order": 10,
+      "style": {
+        "stroke": "#2f80ed",
+        "strokeWidth": 3
+      },
+      "labels": {
+        "enabled": false,
+        "field": "name"
+      }
+    },
+    {
+      "layerId": "layer_candidate_sites",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "datasetId": "dataset_sites_001",
+      "sourceType": "csv-object",
+      "objectId": "object_sites_original",
+      "title": "Candidate site inspections",
+      "geometryType": "Point",
+      "bbox": [85.273, 27.559, 85.584, 27.829],
+      "visible": true,
+      "opacity": 1,
+      "order": 20,
+      "style": {
+        "circleColor": "#f59e0b",
+        "circleRadius": 7
+      },
+      "labels": {
+        "enabled": true,
+        "field": "site_id"
+      }
+    },
+    {
+      "layerId": "layer_flood_exposure",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-midwest-resilience",
+      "datasetId": "dataset_flood_001",
+      "sourceType": "geojson-object",
+      "objectId": "object_flood_original",
+      "title": "Flood exposure areas",
+      "geometryType": "Polygon",
+      "bbox": [-93.76, 41.52, -93.47, 41.72],
+      "visible": true,
+      "opacity": 0.45,
+      "order": 10,
+      "style": {
+        "fill": "#3ca951",
+        "stroke": "#287d52",
+        "strokeWidth": 2
+      },
+      "labels": {
+        "enabled": false,
+        "field": "name"
+      }
+    },
+    {
+      "layerId": "layer_public_facilities",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-public-demo",
+      "datasetId": "dataset_public_basemap_001",
+      "sourceType": "geojson-object",
+      "objectId": "object_public_facilities_published",
+      "title": "Published community facilities",
+      "geometryType": "Point",
+      "bbox": [-77.07, 38.89, -77.01, 38.93],
+      "visible": true,
+      "opacity": 0.85,
+      "order": 10,
+      "style": {
+        "circleColor": "#ff725c",
+        "circleRadius": 6
+      },
+      "labels": {
+        "enabled": true,
+        "field": "name"
+      }
+    }
+  ],
+  "workspaceProjects": [
+    {
+      "workspaceId": "workspace-nepal-energy",
+      "tenantId": "tenant_demo",
+      "mapViews": [
+        {
+          "viewId": "map_primary",
+          "center": [85.32, 27.65],
+          "zoom": 10,
+          "pitch": 0,
+          "bearing": 0
+        }
+      ],
+      "layers": ["layer_roads", "layer_candidate_sites"],
+      "basemaps": [
+        {
+          "basemapId": "openfreemap-positron",
+          "title": "Positron",
+          "kind": "maplibre-style",
+          "styleUrl": "https://tiles.openfreemap.org/styles/positron",
+          "attribution": "OpenFreeMap © OpenMapTiles · Data from OpenStreetMap",
+          "visible": true,
+          "opacity": 1
+        }
+      ],
+      "bookmarks": [
+        {
+          "bookmarkId": "bookmark_workspace_extent",
+          "title": "Workspace extent",
+          "center": [85.32, 27.65],
+          "zoom": 10
+        }
+      ],
+      "activeLayerId": "layer_roads",
+      "updatedBy": "user_ada",
+      "updatedAt": "2026-06-24T18:30:00Z"
+    },
+    {
+      "workspaceId": "workspace-midwest-resilience",
+      "tenantId": "tenant_demo",
+      "mapViews": [
+        {
+          "viewId": "map_primary",
+          "center": [-93.61, 41.62],
+          "zoom": 10,
+          "pitch": 0,
+          "bearing": 0
+        }
+      ],
+      "layers": ["layer_flood_exposure"],
+      "basemaps": [
+        {
+          "basemapId": "openfreemap-positron",
+          "title": "Positron",
+          "kind": "maplibre-style",
+          "styleUrl": "https://tiles.openfreemap.org/styles/positron",
+          "attribution": "OpenFreeMap © OpenMapTiles · Data from OpenStreetMap",
+          "visible": true,
+          "opacity": 1
+        }
+      ],
+      "bookmarks": [],
+      "activeLayerId": "layer_flood_exposure",
+      "updatedBy": "user_lin",
+      "updatedAt": "2026-06-24T12:05:00Z"
+    },
+    {
+      "workspaceId": "workspace-public-demo",
+      "tenantId": "tenant_demo",
+      "mapViews": [
+        {
+          "viewId": "map_primary",
+          "center": [-77.04, 38.91],
+          "zoom": 12,
+          "pitch": 0,
+          "bearing": 0
+        }
+      ],
+      "layers": ["layer_public_facilities"],
+      "basemaps": [
+        {
+          "basemapId": "openfreemap-positron",
+          "title": "Positron",
+          "kind": "maplibre-style",
+          "styleUrl": "https://tiles.openfreemap.org/styles/positron",
+          "attribution": "OpenFreeMap © OpenMapTiles · Data from OpenStreetMap",
+          "visible": true,
+          "opacity": 1
+        }
+      ],
+      "bookmarks": [],
+      "activeLayerId": "layer_public_facilities",
+      "updatedBy": "user_lin",
+      "updatedAt": "2026-06-24T11:15:00Z"
+    }
+  ],
+  "layouts": [
+    {
+      "layoutId": "layout_nepal_location_map",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "title": "Nepal Energy Access Location Map",
+      "pageSize": "A4",
+      "orientation": "landscape",
+      "classification": "internal",
+      "page": {
+        "size": "A4",
+        "orientation": "landscape",
+        "widthMm": 297,
+        "heightMm": 210,
+        "marginMm": 10
+      },
+      "elements": [
+        {
+          "id": "title",
+          "type": "text",
+          "xMm": 10,
+          "yMm": 7,
+          "widthMm": 210,
+          "heightMm": 12,
+          "text": "Nepal Energy Access - Project Location Map",
+          "style": "title"
+        },
+        {
+          "id": "main_map",
+          "type": "map_frame",
+          "xMm": 10,
+          "yMm": 23,
+          "widthMm": 205,
+          "heightMm": 150,
+          "extent": [85.21, 27.58, 85.43, 27.76],
+          "projection": "mercator",
+          "scale": 50000,
+          "basemapId": "openfreemap-positron",
+          "layers": ["layer_roads"]
+        },
+        {
+          "id": "legend",
+          "type": "legend",
+          "xMm": 224,
+          "yMm": 23,
+          "widthMm": 58,
+          "heightMm": 62,
+          "mode": "auto",
+          "layers": ["layer_roads"],
+          "placement": "right",
+          "style": "compact"
+        },
+        {
+          "id": "scale_bar",
+          "type": "scale_bar",
+          "xMm": 22,
+          "yMm": 160,
+          "widthMm": 52,
+          "heightMm": 9,
+          "units": "km",
+          "segments": 4,
+          "placement": "bottom-left"
+        },
+        {
+          "id": "north_arrow",
+          "type": "north_arrow",
+          "xMm": 188,
+          "yMm": 32,
+          "widthMm": 16,
+          "heightMm": 24,
+          "style": "simple",
+          "rotation": 0
+        },
+        {
+          "id": "distance_note",
+          "type": "measurement_annotation",
+          "xMm": 74,
+          "yMm": 133,
+          "widthMm": 64,
+          "heightMm": 22,
+          "annotationType": "distance_line",
+          "points": [[85.25, 27.61], [85.38, 27.70]],
+          "label": "Measured access corridor: 17.4 km"
+        },
+        {
+          "id": "notes",
+          "type": "text",
+          "xMm": 224,
+          "yMm": 93,
+          "widthMm": 58,
+          "heightMm": 55,
+          "text": "Draft layout for review. Road geometry is a prototype sample and should be replaced by signed workspace data before publication.",
+          "style": "note"
+        },
+        {
+          "id": "attribution",
+          "type": "text",
+          "xMm": 10,
+          "yMm": 181,
+          "widthMm": 272,
+          "heightMm": 12,
+          "text": "Basemap: OpenStreetMap contributors. Data classification: internal. Export preserves source classification metadata.",
+          "style": "attribution"
+        }
+      ],
+      "createdBy": "user_ada",
+      "updatedAt": "2026-06-25T12:00:00Z"
+    }
+  ],
+  "exports": [
+    {
+      "exportId": "export_nepal_location_pdf_draft",
+      "layoutId": "layout_nepal_location_map",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "format": "pdf",
+      "status": "draft",
+      "objectId": null,
+      "classification": "internal",
+      "createdBy": "user_ada",
+      "createdAt": "2026-06-25T12:05:00Z"
+    }
+  ],
+  "permissions": [
+    {
+      "principalType": "user",
+      "principalId": "user_ada",
+      "scopeType": "tenant",
+      "scopeId": "tenant_demo",
+      "role": "owner"
+    },
+    {
+      "principalType": "team",
+      "principalId": "team-environmental-specialists",
+      "scopeType": "workspace",
+      "scopeId": "workspace-nepal-energy",
+      "role": "editor"
+    },
+    {
+      "principalType": "team",
+      "principalId": "team-field-review",
+      "scopeType": "workspace",
+      "scopeId": "workspace-nepal-energy",
+      "role": "viewer"
+    },
+    {
+      "principalType": "team",
+      "principalId": "team-field-review",
+      "scopeType": "workspace",
+      "scopeId": "workspace-midwest-resilience",
+      "role": "auditor"
+    },
+    {
+      "principalType": "public",
+      "principalId": "public",
+      "scopeType": "workspace",
+      "scopeId": "workspace-public-demo",
+      "role": "viewer"
+    }
+  ],
+  "auditEvents": [
+    {
+      "eventId": "event_001",
+      "tenantId": "tenant_demo",
+      "actorUserId": "user_ada",
+      "eventType": "workspace_created",
+      "resourceType": "workspace",
+      "resourceId": "workspace-nepal-energy",
+      "timestamp": "2026-06-22T14:00:00Z"
+    },
+    {
+      "eventId": "event_002",
+      "tenantId": "tenant_demo",
+      "actorUserId": "user_ada",
+      "eventType": "upload_completed",
+      "resourceType": "dataset",
+      "resourceId": "dataset_roads_001",
+      "timestamp": "2026-06-22T16:06:00Z"
+    },
+    {
+      "eventId": "event_003",
+      "tenantId": "tenant_demo",
+      "actorUserId": "user_ada",
+      "eventType": "permission_granted",
+      "resourceType": "workspace",
+      "resourceId": "workspace-nepal-energy",
+      "timestamp": "2026-06-22T18:15:00Z"
+    },
+    {
+      "eventId": "event_004",
+      "tenantId": "tenant_demo",
+      "actorUserId": "user_lin",
+      "eventType": "connector_snapshot_archived",
+      "resourceType": "dataset",
+      "resourceId": "dataset_public_basemap_001",
+      "timestamp": "2026-06-24T11:15:00Z"
+    },
+    {
+      "eventId": "event_005",
+      "tenantId": "tenant_demo",
+      "actorUserId": "user_ada",
+      "eventType": "metadata_updated",
+      "resourceType": "dataset",
+      "resourceId": "dataset_roads_001",
+      "timestamp": "2026-06-24T18:30:00Z"
+    }
+  ],
+  "connectors": [
+    {
+      "connectorId": "connector_public_facilities",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-public-demo",
+      "connectorType": "geojson-url",
+      "sourceUrl": "https://example.gov/open-data/facilities.geojson",
+      "authType": "none",
+      "refreshPolicy": "manual",
+      "status": "active",
+      "createdBy": "user_lin"
+    }
+  ],
+  "processingJobs": [
+    {
+      "jobId": "job_vector_preview_001",
+      "tenantId": "tenant_demo",
+      "workspaceId": "workspace-nepal-energy",
+      "datasetId": "dataset_roads_001",
+      "jobType": "vector-preview",
+      "status": "completed",
+      "engine": "browser",
+      "createdBy": "user_ada",
+      "createdAt": "2026-06-24T18:20:00Z",
+      "updatedAt": "2026-06-24T18:21:00Z"
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-011.tile-seed-plans",
+  "title": "Durable bounded WebMercatorQuad tile seed-plan contract",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local database, shared-auth API, existing authoritative render jobs, activation-only worker dispatch, strict browser client, and managed journey evidence for deterministic bounded tile-list and bbox/zoom seed plans."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0041_durable_tile_seed_plans.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0041_durable_tile_seed_plans.sql",
+      "sha256": "1ba8f9638f7225235abc76f6d09af9cb553032742d39292cb6cd16063006dcbb"
+    },
+    {
+      "name": "spatial-service-catalog.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-service-catalog.test.mjs",
+      "sha256": "5baf63c167e12f74e2312b1f98c365486eb19797943d299bd4f3409d4851191d"
+    },
+    {
+      "name": "spatial_services.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_services.py",
+      "sha256": "5bd1446c060ba73a02dfa16f119108c3f34a527e57a173ec649cb868e2895161"
+    },
+    {
+      "name": "tile_cache_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/tile_cache_routes.py",
+      "sha256": "a2887d8ef30c708488df1487a39f986b91d809d8cfe9bc4fd1ce1e03d34347b5"
+    },
+    {
+      "name": "test_spatial_service_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_service_routes.py",
+      "sha256": "90ab062b2d50553fd091cf03c71ee0fd0e9c44a18590c2b745879dbc56e31e0b"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "fixturePlatform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/fixturePlatform.js",
+      "sha256": "f050e732ed64f157238fc6da3c06f3b8c16a6933c0cced1525e99374db911f8f"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "TileSeedExtentPicker.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/TileSeedExtentPicker.js",
+      "sha256": "760a28f861f0e99a08158a32bef9cf5c81c04b792ced635d400814d1765cf19b"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "api-client.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/api-client.test.mjs",
+      "sha256": "c7f0fe7b80593a5b03b7a66af8f2dca3ea80dcd6f074df3fa8f54c63a1395094"
+    },
+    {
+      "name": "tile-seed-extent.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/tile-seed-extent.test.mjs",
+      "sha256": "48b52530186c8b3c47ca9aa51ede63a244c5ff2454f2ba68e5ae6d5e45261709"
+    },
+    {
+      "name": "service-011-tile-seed-plans.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-011-tile-seed-plans.json",
+      "sha256": "4b6763764967d95c2ec5ee3e9296a26ad5c5145d87c5de60ba169942e5a23ce3"
+    },
+    {
+      "name": "service-tile-seed-plans.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-tile-seed-plans.test.mjs",
+      "sha256": "45a5b1c40196f6f1a2f9328489f31b8219f5f8b91f95598bb837c3a66a1035b0"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "Explicit tile lists and bounded CRS84 bbox/zoom requests deterministically prepare exact WebMercatorQuad cache coordinates using existing authoritative render jobs."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Shared-auth managers preview separately, then confirm a checksum-bound at-most-64-tile plan under serialized per-generation entry and active-plan quotas."
+    },
+    {
+      "rowId": "geonode.publishing-administration",
+      "assertion": "The project service UI exposes consequences, explicit activation, durable state, and cancellation only before the atomic cache-publication boundary."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "WMTS cache population remains interoperable with ordinary WebMercatorQuad clients while GetTile, misses, views, and timers never create work."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

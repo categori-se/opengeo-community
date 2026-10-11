@@ -1,0 +1,31 @@
+:root {
+  color-scheme: dark;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: #070b14;
+  color: #e7eefc;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+}
+
+main {
+  width: min(32rem, calc(100% - 3rem));
+  border: 1px solid #243047;
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  background: #0d1422;
+}
+
+h1 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+}
+
+p {
+  margin: 0;
+  color: #afbdd7;
+}

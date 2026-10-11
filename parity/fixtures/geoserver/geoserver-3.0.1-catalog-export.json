@@ -1,0 +1,160 @@
+{
+  "source": {
+    "product": "GeoServer",
+    "version": "3.0.1",
+    "format": "reviewed REST catalog export"
+  },
+  "catalog": {
+    "workspace": {
+      "name": "research",
+      "isolated": true
+    },
+    "namespace": {
+      "prefix": "research",
+      "uri": "https://example.test/geoserver/research"
+    },
+    "dataStore": {
+      "name": "research-postgis",
+      "enabled": true,
+      "connectionParameters": {
+        "dbtype": "postgis",
+        "host": "postgres.internal.example.test",
+        "port": 5432,
+        "database": "research",
+        "schema": "public",
+        "user": "geoserver_reader",
+        "passwd": "fixture-secret-must-not-import",
+        "validate connections": true,
+        "max connections": 10,
+        "min connections": 1
+      }
+    },
+    "featureType": {
+      "name": "roads",
+      "nativeName": "roads",
+      "title": "Research roads",
+      "abstract": "Reviewed road centerlines",
+      "srs": "EPSG:4326",
+      "projectionPolicy": "FORCE_DECLARED",
+      "enabled": true,
+      "nativeBoundingBox": [-73.6, 41.2, -69.8, 42.9],
+      "latLonBoundingBox": [-73.6, 41.2, -69.8, 42.9]
+    },
+    "layer": {
+      "name": "roads",
+      "type": "VECTOR",
+      "defaultStyle": "research:roads-line",
+      "styles": ["research:roads-highlight"],
+      "queryable": true,
+      "opaque": false,
+      "advertised": true
+    },
+    "styles": [
+      {
+        "name": "roads-line",
+        "format": "sld",
+        "languageVersion": "1.0.0",
+        "filename": "roads-line.sld"
+      },
+      {
+        "name": "roads-highlight",
+        "format": "sld",
+        "languageVersion": "1.0.0",
+        "filename": "roads-highlight.sld"
+      }
+    ],
+    "layerGroup": {
+      "name": "transport",
+      "title": "Transport",
+      "abstract": "Transport layers in display order",
+      "mode": "NAMED",
+      "publishables": ["research:roads"],
+      "styles": ["research:roads-line"]
+    },
+    "serviceMetadata": {
+      "title": "Research spatial services",
+      "abstract": "Reviewed project service metadata",
+      "maintainer": "Research GIS Team",
+      "onlineResource": "https://example.test/geoserver/research",
+      "fees": "NONE",
+      "accessConstraints": ["NONE"],
+      "keywords": ["research", "roads"],
+      "enabledProtocols": ["WMS 1.3.0", "WFS 2.0.0", "WMTS 1.0.0"],
+      "strictCiteCompliance": false,
+      "maxRenderingMemoryKb": 65536
+    },
+    "security": {
+      "catalogMode": "HIDE",
+      "layerRules": ["research.*.r=ROLE_RESEARCH"]
+    }
+  },
+  "fieldDecisions": {
+    "workspace.name": {"status": "import", "target": "service.slug"},
+    "workspace.isolated": {"status": "extension", "target": "project tenant boundary", "reason": "OpenGeo always enforces organization/project isolation instead of a mutable workspace flag."},
+    "namespace.prefix": {"status": "import", "target": "service.slug"},
+    "namespace.uri": {"status": "import", "target": "metadata.namespace_uri"},
+    "dataStore.name": {"status": "import", "target": "store.slug and title"},
+    "dataStore.enabled": {"status": "import", "target": "store disabled state"},
+    "dataStore.connectionParameters.dbtype": {"status": "requires_resolution", "target": "verified PostgreSQL connection kind"},
+    "dataStore.connectionParameters.host": {"status": "secret_rejected", "target": null, "reason": "Raw connection coordinates are not copied into catalog configuration."},
+    "dataStore.connectionParameters.port": {"status": "secret_rejected", "target": null, "reason": "Raw connection coordinates are not copied into catalog configuration."},
+    "dataStore.connectionParameters.database": {"status": "secret_rejected", "target": null, "reason": "Raw connection coordinates are not copied into catalog configuration."},
+    "dataStore.connectionParameters.schema": {"status": "import", "target": "store.configuration.schema"},
+    "dataStore.connectionParameters.user": {"status": "secret_rejected", "target": null, "reason": "Raw credentials are never imported."},
+    "dataStore.connectionParameters.passwd": {"status": "secret_rejected", "target": null, "reason": "Raw credentials are never imported or emitted."},
+    "dataStore.connectionParameters.validate connections": {"status": "extension", "target": "external connection verification", "reason": "OpenGeo requires a successful current verification receipt."},
+    "dataStore.connectionParameters.max connections": {"status": "loss", "target": null, "reason": "Per-store connection-pool sizing is not administered by the catalog API."},
+    "dataStore.connectionParameters.min connections": {"status": "loss", "target": null, "reason": "Per-store connection-pool sizing is not administered by the catalog API."},
+    "featureType.name": {"status": "requires_resolution", "target": "collection.collection_name"},
+    "featureType.nativeName": {"status": "requires_resolution", "target": "governed dataset/source mapping"},
+    "featureType.title": {"status": "import", "target": "collection.title"},
+    "featureType.abstract": {"status": "import", "target": "collection.description"},
+    "featureType.srs": {"status": "requires_resolution", "target": "validated dataset CRS"},
+    "featureType.projectionPolicy": {"status": "loss", "target": null, "reason": "GeoServer FORCE_DECLARED projection policy has no catalog-level OpenGeo equivalent."},
+    "featureType.enabled": {"status": "import", "target": "collection withdrawn state"},
+    "featureType.nativeBoundingBox[0]": {"status": "validate", "target": "dataset native extent"},
+    "featureType.nativeBoundingBox[1]": {"status": "validate", "target": "dataset native extent"},
+    "featureType.nativeBoundingBox[2]": {"status": "validate", "target": "dataset native extent"},
+    "featureType.nativeBoundingBox[3]": {"status": "validate", "target": "dataset native extent"},
+    "featureType.latLonBoundingBox[0]": {"status": "validate", "target": "dataset CRS84 extent"},
+    "featureType.latLonBoundingBox[1]": {"status": "validate", "target": "dataset CRS84 extent"},
+    "featureType.latLonBoundingBox[2]": {"status": "validate", "target": "dataset CRS84 extent"},
+    "featureType.latLonBoundingBox[3]": {"status": "validate", "target": "dataset CRS84 extent"},
+    "layer.name": {"status": "requires_resolution", "target": "collection identity"},
+    "layer.type": {"status": "validate", "target": "dataset spatial type"},
+    "layer.defaultStyle": {"status": "requires_resolution", "target": "default collection style binding"},
+    "layer.styles[0]": {"status": "requires_resolution", "target": "alternate collection style binding"},
+    "layer.queryable": {"status": "extension", "target": "project authorization and feature service policy", "reason": "Queryable access is governed by current membership, not a layer boolean."},
+    "layer.opaque": {"status": "loss", "target": null, "reason": "Layer-level WMS opaque advertisement is not administered."},
+    "layer.advertised": {"status": "import", "target": "collection withdrawn state"},
+    "styles[0].name": {"status": "import", "target": "governed style slug"},
+    "styles[0].format": {"status": "import", "target": "governed style format sld_1_0"},
+    "styles[0].languageVersion": {"status": "validate", "target": "governed style SLD version"},
+    "styles[0].filename": {"status": "import", "target": "reviewed style asset"},
+    "styles[1].name": {"status": "import", "target": "governed style slug"},
+    "styles[1].format": {"status": "import", "target": "governed style format sld_1_0"},
+    "styles[1].languageVersion": {"status": "validate", "target": "governed style SLD version"},
+    "styles[1].filename": {"status": "import", "target": "reviewed style asset"},
+    "layerGroup.name": {"status": "import", "target": "layer group slug"},
+    "layerGroup.title": {"status": "import", "target": "layer group title"},
+    "layerGroup.abstract": {"status": "import", "target": "layer group description"},
+    "layerGroup.mode": {"status": "import", "target": "layer group mode named"},
+    "layerGroup.publishables[0]": {"status": "requires_resolution", "target": "ordered member_collection_ids[0]"},
+    "layerGroup.styles[0]": {"status": "requires_resolution", "target": "collection style binding"},
+    "serviceMetadata.title": {"status": "import", "target": "metadata.title"},
+    "serviceMetadata.abstract": {"status": "import", "target": "metadata.abstract"},
+    "serviceMetadata.maintainer": {"status": "import", "target": "metadata.contact.organization"},
+    "serviceMetadata.onlineResource": {"status": "loss", "target": null, "reason": "Canonical service URLs are deployment-derived and cannot be overridden by imported configuration."},
+    "serviceMetadata.fees": {"status": "import", "target": "metadata.fees"},
+    "serviceMetadata.accessConstraints[0]": {"status": "import", "target": "metadata.access_constraints[0]"},
+    "serviceMetadata.keywords[0]": {"status": "import", "target": "metadata.keywords[0]"},
+    "serviceMetadata.keywords[1]": {"status": "import", "target": "metadata.keywords[1]"},
+    "serviceMetadata.enabledProtocols[0]": {"status": "import", "target": "metadata.enabled_protocols"},
+    "serviceMetadata.enabledProtocols[1]": {"status": "import", "target": "metadata.enabled_protocols"},
+    "serviceMetadata.enabledProtocols[2]": {"status": "import", "target": "metadata.enabled_protocols"},
+    "serviceMetadata.strictCiteCompliance": {"status": "loss", "target": null, "reason": "No catalog switch claims strict CITE compliance."},
+    "serviceMetadata.maxRenderingMemoryKb": {"status": "loss", "target": null, "reason": "Per-service JVM rendering-memory limits do not apply to activation-only OpenGeo rendering."},
+    "security.catalogMode": {"status": "extension", "target": "fail-closed tenant/project authorization", "reason": "OpenGeo does not reproduce GeoServer HIDE/MIXED/CHALLENGE modes."},
+    "security.layerRules[0]": {"status": "requires_resolution", "target": "organization/project/resource permissions"}
+  }
+}

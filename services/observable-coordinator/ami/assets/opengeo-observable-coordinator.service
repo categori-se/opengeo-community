@@ -1,0 +1,50 @@
+[Unit]
+Description=OpenGeo trusted Observable build coordinator
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=1800
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=opengeo-coordinator
+Group=opengeo-coordinator
+EnvironmentFile=/etc/opengeo/observable-coordinator.env
+Environment=HOME=/var/lib/opengeo-observable
+Environment=XDG_RUNTIME_DIR=/run/opengeo-observable
+Environment=TMPDIR=/var/lib/opengeo-observable/tmp
+WorkingDirectory=/opt/opengeo/observable-coordinator
+StateDirectory=opengeo-observable
+StateDirectoryMode=0700
+RuntimeDirectory=opengeo-observable
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/local/bin/node /opt/opengeo/observable-coordinator/scripts/verify-host.mjs
+ExecStart=/usr/local/bin/node /opt/opengeo/observable-coordinator/scripts/run-host.mjs
+Restart=on-failure
+RestartSec=15s
+TimeoutStopSec=60s
+KillMode=mixed
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectProc=invisible
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictRealtime=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/opengeo-observable /run/opengeo-observable
+StandardOutput=append:/var/log/opengeo/observable-coordinator.log
+StandardError=append:/var/log/opengeo/observable-coordinator.log
+
+[Install]
+WantedBy=multi-user.target

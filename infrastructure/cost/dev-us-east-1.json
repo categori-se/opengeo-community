@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-23",
+  "region": "us-east-1",
+  "currency": "USD",
+  "hoursPerMonth": 730,
+  "budgetMonthlyUsd": 125,
+  "expectedMonthlyUsd": 89.41,
+  "provisionalIdleTargetUsd": 5,
+  "satisfiesIdleTarget": false,
+  "assumptions": [
+    "One dedicated dev AWS account in US East (N. Virginia), excluding tax, support, credits, and free-trial credits.",
+    "One continuously running ARM64 API task with 0.5 vCPU, 1 GiB memory, and one public IPv4 address.",
+    "The optional GIS worker scales from zero; the model includes ten task-hours per month at 2 vCPU, 4 GiB memory, and 50 GiB ephemeral storage.",
+    "Five single-AZ interface endpoints isolate dev worker access to ECR API/Docker, CloudWatch Logs, Secrets Manager, and SQS; one free S3 gateway endpoint carries object traffic. Production deploys interface endpoint ENIs in two availability zones.",
+    "One internal Application Load Balancer with one LCU-hour of low-volume monthly usage.",
+    "One continuously running Single-AZ db.t4g.micro PostgreSQL instance with 20 GB of gp3 storage.",
+    "Ten GB of S3 Standard data, two GB of ECR images, one GB of logs ingested and retained, and low request volume.",
+    "Twenty-five direct MAUs through OpenGeo's dedicated client in the shared auth.categori.se Cognito pool, 100,000 SQS requests, 10,000 KMS requests, five GB of eligible internet egress, and deployment-only Lambda invocations remain within current service allowances.",
+    "Dev Container Insights is disabled; standard ECS, ALB, and RDS metrics plus application and database logs remain available."
+  ],
+  "sources": {
+    "ecs": {
+      "publicationDate": "2026-07-07T16:06:51Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECS/current/us-east-1/index.json"
+    },
+    "elb": {
+      "publicationDate": "2026-08-18T18:17:26Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AWSELB/current/us-east-1/index.json"
+    },
+    "rds": {
+      "publicationDate": "2026-08-18T00:11:58Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/us-east-1/index.json"
+    },
+    "vpc": {
+      "publicationDate": "2026-07-24T15:42:25Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonVPC/current/us-east-1/index.json"
+    },
+    "s3": {
+      "publicationDate": "2026-08-18T18:11:13Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/us-east-1/index.json"
+    },
+    "ecr": {
+      "publicationDate": "2025-11-21T15:36:39Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonECR/current/us-east-1/index.json"
+    },
+    "cloudwatch": {
+      "publicationDate": "2026-08-06T20:18:40Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/us-east-1/index.json"
+    },
+    "kms": {
+      "publicationDate": "checked 2026-08-18",
+      "url": "https://aws.amazon.com/kms/pricing/"
+    },
+    "secrets": {
+      "publicationDate": "checked 2026-08-18",
+      "url": "https://aws.amazon.com/secrets-manager/pricing/"
+    }
+  },
+  "items": [
+    {
+      "id": "fargate-arm-vcpu",
+      "scope": "api",
+      "description": "Fargate ARM64 vCPU",
+      "quantity": 365,
+      "unit": "vCPU-hour",
+      "rateUsd": 0.03238,
+      "source": "ecs"
+    },
+    {
+      "id": "fargate-arm-memory",
+      "scope": "api",
+      "description": "Fargate ARM64 memory",
+      "quantity": 730,
+      "unit": "GB-hour",
+      "rateUsd": 0.00356,
+      "source": "ecs"
+    },
+    {
+      "id": "worker-fargate-arm-vcpu",
+      "scope": "worker",
+      "description": "Ten monthly GIS worker task-hours at 2 ARM64 vCPU",
+      "quantity": 20,
+      "unit": "vCPU-hour",
+      "rateUsd": 0.03238,
+      "source": "ecs"
+    },
+    {
+      "id": "worker-fargate-arm-memory",
+      "scope": "worker",
+      "description": "Ten monthly GIS worker task-hours at 4 GiB memory",
+      "quantity": 40,
+      "unit": "GB-hour",
+      "rateUsd": 0.00356,
+      "source": "ecs"
+    },
+    {
+      "id": "worker-fargate-ephemeral-storage",
+      "scope": "worker",
+      "description": "Thirty billed GiB above the included twenty GiB for ten task-hours",
+      "quantity": 300,
+      "unit": "GB-hour",
+      "rateUsd": 0.000111,
+      "source": "ecs"
+    },
+    {
+      "id": "worker-interface-endpoints",
+      "scope": "worker",
+      "description": "Five continuously provisioned single-AZ interface endpoint ENIs",
+      "quantity": 3650,
+      "unit": "endpoint-hour",
+      "rateUsd": 0.01,
+      "source": "vpc"
+    },
+    {
+      "id": "worker-interface-endpoint-data",
+      "scope": "worker",
+      "description": "Five GB processed through interface endpoints",
+      "quantity": 5,
+      "unit": "GB",
+      "rateUsd": 0.01,
+      "source": "vpc"
+    },
+    {
+      "id": "task-public-ipv4",
+      "scope": "api",
+      "description": "One in-use task public IPv4 address",
+      "quantity": 730,
+      "unit": "address-hour",
+      "rateUsd": 0.005,
+      "source": "vpc"
+    },
+    {
+      "id": "alb-hours",
+      "scope": "api",
+      "description": "Internal Application Load Balancer",
+      "quantity": 730,
+      "unit": "load-balancer-hour",
+      "rateUsd": 0.0225,
+      "source": "elb"
+    },
+    {
+      "id": "alb-lcu",
+      "scope": "api",
+      "description": "Low-volume ALB capacity",
+      "quantity": 1,
+      "unit": "LCU-hour",
+      "rateUsd": 0.008,
+      "source": "elb"
+    },
+    {
+      "id": "rds-instance",
+      "scope": "foundation",
+      "description": "RDS PostgreSQL db.t4g.micro Single-AZ",
+      "quantity": 730,
+      "unit": "instance-hour",
+      "rateUsd": 0.016,
+      "source": "rds"
+    },
+    {
+      "id": "rds-gp3-storage",
+      "scope": "foundation",
+      "description": "RDS gp3 storage",
+      "quantity": 20,
+      "unit": "GB-month",
+      "rateUsd": 0.115,
+      "source": "rds"
+    },
+    {
+      "id": "kms-key",
+      "scope": "foundation",
+      "description": "One customer-managed KMS key before paid rotations",
+      "quantity": 1,
+      "unit": "key-month",
+      "rateUsd": 1,
+      "source": "kms"
+    },
+    {
+      "id": "secrets-storage",
+      "scope": "foundation",
+      "description": "Administrator, API runtime, and GIS worker database secrets",
+      "quantity": 3,
+      "unit": "secret-month",
+      "rateUsd": 0.4,
+      "source": "secrets"
+    },
+    {
+      "id": "secrets-api",
+      "scope": "foundation",
+      "description": "One thousand Secrets Manager API calls",
+      "quantity": 1000,
+      "unit": "request",
+      "rateUsd": 0.000005,
+      "source": "secrets"
+    },
+    {
+      "id": "s3-storage",
+      "scope": "foundation",
+      "description": "S3 Standard storage",
+      "quantity": 10,
+      "unit": "GB-month",
+      "rateUsd": 0.023,
+      "source": "s3"
+    },
+    {
+      "id": "s3-write-requests",
+      "scope": "foundation",
+      "description": "Ten thousand S3 PUT/COPY/POST/LIST requests",
+      "quantity": 10000,
+      "unit": "request",
+      "rateUsd": 0.000005,
+      "source": "s3"
+    },
+    {
+      "id": "s3-read-requests",
+      "scope": "foundation",
+      "description": "One hundred thousand S3 GET/other requests",
+      "quantity": 100000,
+      "unit": "request",
+      "rateUsd": 0.0000004,
+      "source": "s3"
+    },
+    {
+      "id": "ecr-storage",
+      "scope": "foundation",
+      "description": "ECR image storage",
+      "quantity": 5,
+      "unit": "GB-month",
+      "rateUsd": 0.1,
+      "source": "ecr"
+    },
+    {
+      "id": "cloudwatch-log-ingest",
+      "scope": "foundation",
+      "description": "Application and database log ingestion",
+      "quantity": 1,
+      "unit": "GB",
+      "rateUsd": 0.5,
+      "source": "cloudwatch"
+    },
+    {
+      "id": "cloudwatch-log-storage",
+      "scope": "foundation",
+      "description": "Thirty-day log storage",
+      "quantity": 1,
+      "unit": "GB-month",
+      "rateUsd": 0.03,
+      "source": "cloudwatch"
+    }
+  ],
+  "allowanceItems": [
+    "ECS cluster and standard ECS/ALB/RDS metrics",
+    "Cognito direct sign-in below 10,000 MAUs",
+    "SQS below one million requests",
+    "KMS below 20,000 eligible requests",
+    "RDS backup storage not exceeding provisioned database storage",
+    "Deployment-only custom-resource Lambda usage",
+    "Eligible data transfer within the account-level allowance"
+  ],
+  "excludedOptimization": {
+    "description": "Container Insights disabled in dev",
+    "avoidedMonthlyUsd": 11.48,
+    "calculation": "38 metrics x $0.30 plus approximately 0.15489 GB of performance logs x ($0.50 ingestion + $0.03 storage)"
+  }
+}

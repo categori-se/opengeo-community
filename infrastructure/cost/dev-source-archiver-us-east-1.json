@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-28",
+  "region": "us-east-1",
+  "currency": "USD",
+  "scenario": "deployed zero-request external source archiver",
+  "expectedMonthlyUsd": 0.6,
+  "combinedCurrentMonthlyUsd": 3.403,
+  "combinedAfterTwoKmsRotationsMonthlyUsd": 5.403,
+  "budgetMonthlyUsd": 125,
+  "assumptions": [
+    "The isolated source archiver and API dispatch path are deployed, with no copy message queued or running.",
+    "Lambda has reserved but not provisioned concurrency, so zero requests and zero duration cost zero compute.",
+    "The queue and dead-letter queue contain no messages and use SQS-managed encryption.",
+    "The archiver reuses the API image repository, versioned geodata bucket, and existing data KMS key.",
+    "One function-only database credential and two standard CloudWatch alarms remain allocated.",
+    "Retained copies are billed at the base plan's linear S3 rate; source requests, transfer, Lambda duration, Data API calls, KMS calls, logs, and database wake time are usage-dependent.",
+    "The no-egress GIS worker and its private endpoints remain separate activation-only stacks for PMTiles conversion and are absent while inactive."
+  ],
+  "sources": {
+    "cloudwatch": {
+      "publicationDate": "2026-08-06T20:18:40Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/us-east-1/index.json"
+    },
+    "lambda": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/lambda/pricing/"
+    },
+    "secrets": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/secrets-manager/pricing/"
+    },
+    "sqs": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/sqs/pricing/"
+    }
+  },
+  "items": [
+    {
+      "id": "source-archiver-database-secret",
+      "scope": "source-archiver",
+      "description": "Dedicated function-only source archiver database credential",
+      "quantity": 1,
+      "unit": "secret-month",
+      "rateUsd": 0.4,
+      "source": "secrets"
+    },
+    {
+      "id": "source-archiver-standard-alarms",
+      "scope": "source-archiver",
+      "description": "Oldest-message and dead-letter-queue standard alarms",
+      "quantity": 2,
+      "unit": "alarm-month",
+      "rateUsd": 0.1,
+      "source": "cloudwatch"
+    },
+    {
+      "id": "source-archiver-lambda-zero-requests",
+      "scope": "source-archiver",
+      "description": "Request-driven archiver with no provisioned concurrency",
+      "quantity": 0,
+      "unit": "request",
+      "rateUsd": 0.0000002,
+      "source": "lambda"
+    },
+    {
+      "id": "source-archiver-sqs-zero-requests",
+      "scope": "source-archiver",
+      "description": "Empty source-copy and dead-letter queues",
+      "quantity": 0,
+      "unit": "request",
+      "rateUsd": 0.0000004,
+      "source": "sqs"
+    }
+  ]
+}

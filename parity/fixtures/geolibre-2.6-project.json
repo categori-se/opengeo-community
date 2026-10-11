@@ -1,0 +1,48 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geolibre-001.project.roundtrip",
+  "title": "GeoLibre 2.6 portable project conversion",
+  "fixtureType": "project",
+  "source": {
+    "kind": "synthetic",
+    "description": "Public deterministic GeoLibre 0.2 project containing camera, basemap, embedded GeoJSON, XYZ, WMS, PMTiles, reusable processing models and history, preserved unsupported analysis, style, group, legend, multi-map, comment, and metadata records."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "geolibre-2.6-project.geolibre.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/geolibre-2.6-project.geolibre.json",
+      "sha256": "066aa2a5ad212e692e9e401a78ebfa41a0be2c1ce1fa13d42c4f10600017aec4"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.portable-projects-views",
+      "assertion": "The pinned GeoLibre project imports offline, exports as format 0.2.0, and retains a field-level preservation report."
+    },
+    {
+      "rowId": "geolibre.source-layer-breadth",
+      "assertion": "Embedded GeoJSON and governed XYZ, WMS, and PMTiles candidates map without dereferencing external URLs."
+    },
+    {
+      "rowId": "geolibre.gis-authoring-inspection",
+      "assertion": "Layer presentation and the supported style and label subset survive an OpenGeo-to-GeoLibre round trip."
+    },
+    {
+      "rowId": "geolibre.analysis-automation",
+      "assertion": "Known processing tools and reusable models map explicitly, while every unsupported operation remains preserved with an operation-level loss result and never executes during import."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

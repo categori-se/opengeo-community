@@ -1,0 +1,91 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-025.wcs-core-cite-local-execution",
+  "title": "WCS 2.0.1 Core official local execution",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "The exact official WCS 2.0.1 Core suite executes through a reproducible zero-finding hardened runner and stops honestly at the missing mandatory protocol-binding profile.",
+    "url": "https://github.com/opengeospatial/ets-wcs20",
+    "version": "1.22 at afcee1b0fd72358c301b4e6007344d97b2857382"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "wcs-2.0.1-ets-source-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wcs-2.0.1-ets-source-lock.json",
+      "sha256": "cc72d775fc6f1c09d0233025568b0c3c8a293ee2b7cb06ec8457aba427733890"
+    },
+    {
+      "name": "wcs-2.0.1-ets-hardened-overlay.xml",
+      "mediaType": "application/xml",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wcs-2.0.1-ets-hardened-overlay.xml",
+      "sha256": "b21ab0c46d23368f335cec1c689aaf20498b601afe2bc0a8cdabf8920233a373"
+    },
+    {
+      "name": "wcs-2.0.1-cite-local-execution-result.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wcs-2.0.1-cite-local-execution-result.json",
+      "sha256": "92687a4aecfabdf9073141ae7d883a7737d33be166bd9de44e4168fe3e73fdae"
+    },
+    {
+      "name": "wcs-2.0.1-cite-local-operation-trace.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wcs-2.0.1-cite-local-operation-trace.json",
+      "sha256": "7beab383036b27f1c36f9fb09125e6b739fb0ff5dc02869a5ecdf956d4e56448"
+    },
+    {
+      "name": "service-025-wcs-core-cite-local-execution.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-025-wcs-core-cite-local-execution.json",
+      "sha256": "49441ccc0404bb78c9cb7dd614a14b7bad10af351d7bf881d2d85fa45f2baa18"
+    },
+    {
+      "name": "check-ogc-cite-closure.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-ogc-cite-closure.mjs",
+      "sha256": "9cc0a8cb7549c1c7f76d397355511811abc10a62f420f3ddec854d889235cf87"
+    },
+    {
+      "name": "ogc-cite-closure.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/ogc-cite-closure.test.mjs",
+      "sha256": "ad380710951071f06c161d27040aacf41800134b29ccfb73ad3448f68b800bc5"
+    },
+    {
+      "name": "mapserver-ogc-publication-version-matrix.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-ogc-publication-version-matrix.json",
+      "sha256": "2f8a67f5778baadb274908cd8d7f68aa6b833420d151ab647db5f6c9ea5e31b0"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The official WCS Core execution identifies the exact protocol-binding and Core-subsetting implementation gap while keeping conformance declarations empty and the publication row partial."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "Existing exact and derived coverage lanes remain bounded local functionality; the failed official Core result prevents them from being represented as WCS conformance."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

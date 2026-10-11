@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "opengeo.managed-login-fixture.1.0.0",
+  "environment": "development",
+  "projects": [
+    {
+      "name": "Managed login acceptance — red routes",
+      "code": "AUTH-BROWSER-RED",
+      "mapName": "Red routes",
+      "strokes": ["#b42318", "#d92d20"]
+    },
+    {
+      "name": "Managed login acceptance — blue routes",
+      "code": "AUTH-BROWSER-BLUE",
+      "mapName": "Blue routes",
+      "strokes": ["#175cd3", "#2563eb"]
+    }
+  ],
+  "dataset": {
+    "name": "Managed login shared routes",
+    "description": "Six development-only route segments used to verify reusable governed data and independent project presentation.",
+    "geometryType": "LineString",
+    "fields": [
+      {"name": "name", "type": "string", "required": true},
+      {"name": "segment", "type": "integer", "required": true}
+    ],
+    "features": [
+      {
+        "name": "Acceptance route 1",
+        "segment": 1,
+        "coordinates": [[-77.0500, 38.8890], [-77.0400, 38.8950]]
+      },
+      {
+        "name": "Acceptance route 2",
+        "segment": 2,
+        "coordinates": [[-77.0400, 38.8950], [-77.0300, 38.9000]]
+      },
+      {
+        "name": "Acceptance route 3",
+        "segment": 3,
+        "coordinates": [[-77.0300, 38.9000], [-77.0200, 38.9050]]
+      },
+      {
+        "name": "Acceptance route 4",
+        "segment": 4,
+        "coordinates": [[-77.0200, 38.9050], [-77.0100, 38.9000]]
+      },
+      {
+        "name": "Acceptance route 5",
+        "segment": 5,
+        "coordinates": [[-77.0100, 38.9000], [-77.0000, 38.8950]]
+      },
+      {
+        "name": "Acceptance route 6",
+        "segment": 6,
+        "coordinates": [[-77.0000, 38.8950], [-76.9900, 38.8890]]
+      }
+    ]
+  },
+  "acceptance": {
+    "sharedDatasetProjectCount": 2,
+    "governedFeatureCount": 6,
+    "narrowViewportWidth": 390,
+    "narrowViewportHeight": 844,
+    "minimumStatusContrastRatio": 7
+  }
+}

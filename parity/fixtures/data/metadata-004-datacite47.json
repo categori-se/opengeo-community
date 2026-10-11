@@ -1,0 +1,44 @@
+{
+  "data": {
+    "id": "10.1234/road-access.2026",
+    "type": "dois",
+    "attributes": {
+      "doi": "10.1234/road-access.2026",
+      "schemaVersion": "http://datacite.org/schema/kernel-4",
+      "titles": [
+        {"title": "Road access survey", "lang": "en"},
+        {"title": "Enquête sur l'accès routier", "lang": "fr"}
+      ],
+      "descriptions": [
+        {"description": "Verified roads metadata.", "descriptionType": "Abstract", "lang": "en"},
+        {"description": "Métadonnées routières vérifiées.", "descriptionType": "Abstract", "lang": "fr"}
+      ],
+      "creators": [{"name": "Research team", "nameType": "Organizational"}],
+      "publisher": {"name": "Open Research Press"},
+      "publicationYear": 2026,
+      "types": {"resourceType": "Spatial dataset", "resourceTypeGeneral": "Dataset"},
+      "subjects": [{"subject": "roads"}, {"subject": "transport"}],
+      "language": "en",
+      "version": "1",
+      "rightsList": [{"rights": "CC-BY-4.0", "rightsIdentifier": "CC-BY-4.0"}],
+      "geoLocations": [{
+        "geoLocationBox": {
+          "westBoundLongitude": 84.0,
+          "southBoundLatitude": 27.0,
+          "eastBoundLongitude": 86.0,
+          "northBoundLatitude": 29.0
+        }
+      }],
+      "dates": [{
+        "date": "2026-01-01T00:00:00+00:00/2026-08-20T00:00:00+00:00",
+        "dateType": "Coverage"
+      }],
+      "relatedIdentifiers": [{
+        "relatedIdentifier": "a0000000-0000-4000-8000-0000000000a2",
+        "relatedIdentifierType": "UUID",
+        "relationType": "IsDerivedFrom"
+      }],
+      "formats": ["application/geo+json"]
+    }
+  }
+}

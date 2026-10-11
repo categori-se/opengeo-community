@@ -1,0 +1,91 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-024.wfs-simple-cite-local-execution",
+  "title": "WFS 2.0 Simple official local execution",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "The exact official WFS 2.0 suite selects and passes OpenGeo's advertised Simple WFS class through production serializers on the fixed synthetic reference profile.",
+    "url": "https://github.com/opengeospatial/ets-wfs20",
+    "version": "1.43 at 843c9f358d32cd5ef92c0dd5bbb6ff6c08f6092a"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "wfs.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs.py",
+      "sha256": "9732286d4015f6d08da6f2f91ff896d68d08af10299ba1fb0ead2dfe1405bb48"
+    },
+    {
+      "name": "wfs_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs_routes.py",
+      "sha256": "bbeb8a0e5dd5bf1b345f6ec3502c600f94759ff0bdfe3937d5795bacda15f964"
+    },
+    {
+      "name": "serve-wfs-simple-diagnostic.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/serve-wfs-simple-diagnostic.py",
+      "sha256": "79c2e20b78fce5d46276d0a55ac1308eb3564d62cda92d8a11bec1500e32d4c6"
+    },
+    {
+      "name": "wfs-2.0-simple-cite-local-execution-result.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wfs-2.0-simple-cite-local-execution-result.json",
+      "sha256": "9d8c103ce7411f14bb89b1735ff1bf73b30a839beb6a41cbc7f3b0d783ab855a"
+    },
+    {
+      "name": "wfs-2.0-simple-cite-local-operation-trace.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wfs-2.0-simple-cite-local-operation-trace.json",
+      "sha256": "275e6e0a09ae3a580e3eff9f851dc657a2b36bedc263aad27c3554173217513d"
+    },
+    {
+      "name": "service-024-wfs-simple-cite-local-execution.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-024-wfs-simple-cite-local-execution.json",
+      "sha256": "569126b7fe87a1854d35e52194edec57dd48632ff438940fc2edb8cebf5b1bb6"
+    },
+    {
+      "name": "check-ogc-cite-closure.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-ogc-cite-closure.mjs",
+      "sha256": "9cc0a8cb7549c1c7f76d397355511811abc10a62f420f3ddec854d889235cf87"
+    },
+    {
+      "name": "ogc-cite-closure.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/ogc-cite-closure.test.mjs",
+      "sha256": "ad380710951071f06c161d27040aacf41800134b29ccfb73ad3448f68b800bc5"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "The exact official suite selects and passes the advertised WFS 2.0 Simple class through production serializers while unadvertised Basic and Transactional groups remain suppressed and no broader conformance is claimed."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "Official local WFS execution closes the Simple-profile prerequisite while governed publication, deployed-client acceptance, broader WFS classes, and the aggregate publication row remain partial."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

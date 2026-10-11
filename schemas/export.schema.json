@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Export",
+  "type": "object",
+  "required": ["exportId", "layoutId", "tenantId", "workspaceId", "format", "status", "classification", "createdBy", "createdAt"],
+  "properties": {
+    "exportId": {"type": "string"},
+    "layoutId": {"type": "string"},
+    "tenantId": {"type": "string"},
+    "workspaceId": {"type": "string"},
+    "format": {"enum": ["pdf", "png", "svg"]},
+    "status": {"enum": ["draft", "queued", "rendering", "complete", "failed"]},
+    "objectId": {"type": ["string", "null"]},
+    "classification": {"enum": ["public", "internal", "restricted"]},
+    "createdBy": {"type": "string"},
+    "createdAt": {"type": "string", "format": "date-time"}
+  }
+}

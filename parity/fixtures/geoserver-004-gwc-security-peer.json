@@ -1,0 +1,102 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geoserver-004.gwc-security-peer",
+  "title": "Exact GeoServer 3.0.1 GeoWebCache security and cache lifecycle comparison",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "The digest-pinned official GeoServer 3.0.1 image runs as a disposable loopback peer so its embedded GeoWebCache tile, rejection, administration, and exact truncate behavior can be compared with OpenGeo's current-member authorization and durable cache controls.",
+    "url": "https://github.com/geoserver/docker/blob/master/README.md",
+    "version": "3.0.1"
+  },
+  "license": {
+    "spdxId": "GPL-2.0-or-later",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "GeoServer GeoWebCache security comparator",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-geoserver-gwc-security-peer.mjs",
+      "sha256": "32410e688c8116475c045631af9c6f9c212555ccf2fb1ff592ce89467f88c6c9"
+    },
+    {
+      "name": "GeoServer GeoWebCache security comparator report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/geoserver-004-gwc-security-peer.json",
+      "sha256": "751b66f48673fa6da414dcf5128ba79e551d2444c4fdb7cd07e32f94dd5ca6a6"
+    },
+    {
+      "name": "GeoServer GeoWebCache comparator tests",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/geoserver-gwc-security-peer.test.mjs",
+      "sha256": "ddc0856993ee9bbf12437ea38ba54851609199d003863eb1bfaa4cb73340c505"
+    },
+    {
+      "name": "Exact GeoServer source-surface lock",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/geoserver/geoserver-3.0.1-source-lock.json",
+      "sha256": "0eb4a833c58bd71ba519cfe883dcf628a8034ab3e27f4a0d560587a504bd1ff8"
+    },
+    {
+      "name": "Existing exact GeoServer service peer",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-geoserver-service-peer.mjs",
+      "sha256": "9db16e9ed8e660a4bf535748aa5ab58ae0923727da7149a0ca0666da8cdd18fc"
+    },
+    {
+      "name": "Existing exact GeoServer service peer report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-003-geoserver-3.0.1-peer.json",
+      "sha256": "69d2f0f206e258857a3be589bc2d797b2cc657856c9617e82ee2c431bca3c204"
+    },
+    {
+      "name": "Synthetic CC0 road source",
+      "mediaType": "application/geo+json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads.geojson",
+      "sha256": "5f7090caa90745f5862b4f392c63a8cb40ec58342e20be09429a2335fe7564a8"
+    },
+    {
+      "name": "OpenGeo durable cache controls report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/mapserver-002-cache-controls.json",
+      "sha256": "602927c4b2550ec456b26590a31d8a74af09c4479633e72c2ac914560f7e0a68"
+    },
+    {
+      "name": "OpenGeo current-member service alias tests",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_service_routes.py",
+      "sha256": "90ab062b2d50553fd091cf03c71ee0fd0e9c44a18590c2b745879dbc56e31e0b"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "The exact GeoServer 3.0.1 image with embedded GeoWebCache 2.0.1 advertises the layer, default style, and matrix set, returns a cold image/png cache miss followed by exact-byte sequential and concurrent hits, and returns no image for malformed and out-of-range requests."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Anonymous GeoWebCache layer inspection and truncation are denied without changing the cached tile; authenticated administration can inspect, exactly truncate, and explicitly seed the one-layer z0 cache, with subsequent reads distinguishing on-demand regeneration from a seeded hit. Source-surface and runtime-image identities remain explicit and separate."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "OpenGeo separately reauthorizes current organization membership for every private route and method in the maintained service inventory and denies a revoked member before repository, cache-object, feature, coverage, render, or dispatch work; this is deliberately distinct from the upstream peer's public tile delivery and administrator-only cache controls."
+    }
+  ],
+  "constraints": {
+    "offline": false,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

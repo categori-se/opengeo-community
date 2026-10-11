@@ -1,0 +1,304 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Disposable private OpenGeo ARM64 AMI build path; no inbound public access.
+
+Parameters:
+  SourceAmiId:
+    Type: AWS::EC2::Image::Id
+    Description: Exact official Canonical Ubuntu 24.04 Minimal ARM64 controller source AMI.
+  ControllerInstanceProfileName:
+    Type: String
+    Default: OpenGeoDevAmiBuildControllerProfile
+    AllowedPattern: ^OpenGeoDevAmiBuildControllerProfile$
+  KmsKeyArn:
+    Type: String
+    Default: arn:aws:kms:us-east-1:222222222222:key/85127539-71a1-4002-a1b5-e523a945ae91
+    AllowedPattern: ^arn:aws:kms:us-east-1:222222222222:key/85127539-71a1-4002-a1b5-e523a945ae91$
+  AvailabilityZone:
+    Type: String
+    Default: us-east-1a
+    AllowedValues:
+      - us-east-1a
+  ControllerInstanceType:
+    Type: String
+    Default: t4g.large
+    AllowedValues:
+      - t4g.large
+
+Resources:
+  BuildVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.77.0.0/24
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  BuildInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  BuildInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref BuildInternetGateway
+      VpcId: !Ref BuildVpc
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      CidrBlock: 10.77.0.0/26
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref BuildVpc
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build-public-egress
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      CidrBlock: 10.77.0.64/26
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref BuildVpc
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build-private
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BuildVpc
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build-public
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: BuildInternetGatewayAttachment
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref BuildInternetGateway
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  BuildNatAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  BuildNatGateway:
+    Type: AWS::EC2::NatGateway
+    DependsOn: BuildInternetGatewayAttachment
+    Properties:
+      AllocationId: !GetAtt BuildNatAddress.AllocationId
+      ConnectivityType: public
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref BuildVpc
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build-private
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-path
+        - Key: Environment
+          Value: dev
+
+  PrivateDefaultRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref BuildNatGateway
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet
+
+  ControllerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Egress-only SSM-managed OpenGeo AMI build controller.
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Build artifact, package, registry, and AWS API egress through NAT.
+      VpcId: !Ref BuildVpc
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build-controller
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-controller
+        - Key: Environment
+          Value: dev
+
+  BuilderSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Private Packer builder reachable only from the build controller.
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: OS package egress through NAT during the disposable bake.
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !Ref ControllerSecurityGroup
+          Description: Packer SSH from the private controller only.
+      VpcId: !Ref BuildVpc
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-packer-builder
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-packer-builder
+        - Key: Environment
+          Value: dev
+
+  BuildController:
+    Type: AWS::EC2::Instance
+    DependsOn: PrivateDefaultRoute
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            DeleteOnTermination: true
+            Encrypted: true
+            KmsKeyId: !Ref KmsKeyArn
+            VolumeSize: 50
+            VolumeType: gp3
+      IamInstanceProfile: !Ref ControllerInstanceProfileName
+      ImageId: !Ref SourceAmiId
+      InstanceType: !Ref ControllerInstanceType
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpPutResponseHopLimit: 1
+        HttpTokens: required
+        InstanceMetadataTags: enabled
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeleteOnTermination: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref ControllerSecurityGroup
+          SubnetId: !Ref PrivateSubnet
+      Tags:
+        - Key: Name
+          Value: opengeo-dev-ami-build-controller
+        - Key: Application
+          Value: OpenGeo
+        - Key: Component
+          Value: ami-build-controller
+        - Key: Environment
+          Value: dev
+      UserData:
+        Fn::Base64: !Sub |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          install --directory --owner=root --group=root --mode=0700 /opt/opengeo-build
+          printf '%s\n' '${AWS::StackName}' > /opt/opengeo-build/stack-name
+          if [[ ! -x /snap/bin/aws ]]; then
+            for attempt in 1 2 3; do
+              if snap install aws-cli --classic; then
+                break
+              fi
+              if [[ "$attempt" == "3" ]]; then
+                exit 1
+              fi
+              sleep $((attempt * 5))
+            done
+          fi
+          ln --symbolic --force /snap/bin/aws /usr/local/bin/aws
+          aws --version > /opt/opengeo-build/aws-cli-version.txt 2>&1
+          if systemctl list-unit-files amazon-ssm-agent.service | grep -q amazon-ssm-agent; then
+            systemctl enable --now amazon-ssm-agent
+          elif command -v snap >/dev/null 2>&1; then
+            snap start amazon-ssm-agent
+          else
+            exit 1
+          fi
+
+Outputs:
+  BuildControllerInstanceId:
+    Description: Private SSM-managed ARM64 controller.
+    Value: !Ref BuildController
+  BuilderSecurityGroupId:
+    Description: Security group supplied to Packer for its private build instance.
+    Value: !Ref BuilderSecurityGroup
+  PrivateSubnetId:
+    Description: Private subnet supplied to Packer.
+    Value: !Ref PrivateSubnet
+  VpcId:
+    Description: Disposable build VPC.
+    Value: !Ref BuildVpc

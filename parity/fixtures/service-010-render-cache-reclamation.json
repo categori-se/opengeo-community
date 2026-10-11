@@ -1,0 +1,209 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-010.render-cache-reclamation",
+  "title": "Bounded retired render-cache exact-version physical reclamation contract",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local database, shared-auth API, identity-only queue, activation-worker, exact-version storage transport, IAM, strict browser, and managed journey evidence for reference-aware retired render-cache batch reclamation."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0040_render_cache_reclamation.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0040_render_cache_reclamation.sql",
+      "sha256": "8c8065edec233c0534b64f7f4db4e756785109300348e29765bbbadd78cdb716"
+    },
+    {
+      "name": "spatial-service-catalog.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-service-catalog.test.mjs",
+      "sha256": "5baf63c167e12f74e2312b1f98c365486eb19797943d299bd4f3409d4851191d"
+    },
+    {
+      "name": "spatial_services.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_services.py",
+      "sha256": "5bd1446c060ba73a02dfa16f119108c3f34a527e57a173ec649cb868e2895161"
+    },
+    {
+      "name": "tile_cache_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/tile_cache_routes.py",
+      "sha256": "a2887d8ef30c708488df1487a39f986b91d809d8cfe9bc4fd1ce1e03d34347b5"
+    },
+    {
+      "name": "processing_dispatch.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/processing_dispatch.py",
+      "sha256": "51039476878f980a2b547852a0c7770126545c06cc3d5fb229498c9db22f7854"
+    },
+    {
+      "name": "test_spatial_service_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_service_routes.py",
+      "sha256": "90ab062b2d50553fd091cf03c71ee0fd0e9c44a18590c2b745879dbc56e31e0b"
+    },
+    {
+      "name": "test_tile_cache_reclamation.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_tile_cache_reclamation.py",
+      "sha256": "805574d58555433178905aa4db32a5d565885438579ce078210c566538da0dea"
+    },
+    {
+      "name": "worker-models.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/models.py",
+      "sha256": "9e1d01241be4d3191e5c509f80ffc87ab00ad7cd8d80e22a291bbb7120dd5708"
+    },
+    {
+      "name": "worker-events.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/events.py",
+      "sha256": "df8bee9520f6009e6e511bdd29c408fe5b63966d48e762c36a00ac12fefd7e7b"
+    },
+    {
+      "name": "worker-repository.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/repository.py",
+      "sha256": "7b1527096acd00753f28b862bb0a9813fe7258516a9d7f1d95558ad941a689ae"
+    },
+    {
+      "name": "worker-aws-clients.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/aws_clients.py",
+      "sha256": "79aef18163b375f7c8ab3bd2f86c3cfb7681d24f4e4d4e75b752b976953023f4"
+    },
+    {
+      "name": "worker-processor.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/processor.py",
+      "sha256": "3ce3bd19ab4cac3ce3ec193a2ead86db2e864643631790aa648ff5558e077b92"
+    },
+    {
+      "name": "test_worker_events.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_events.py",
+      "sha256": "1b9d6857966dd266fc3fbfc84d0de784a5a4b885064708b1430ebb19e27284ec"
+    },
+    {
+      "name": "test_worker_aws_clients.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_aws_clients.py",
+      "sha256": "0db6723021db514e31fd0f55a3512b7f236e14512b03cf6c3fd15a7917b43225"
+    },
+    {
+      "name": "test_worker_processor.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_processor.py",
+      "sha256": "3151aed905f25d871024a68705bf30f8fda0062cf8aba50dbb8a77a48a227b1d"
+    },
+    {
+      "name": "worker-service-stack.ts",
+      "mediaType": "text/typescript",
+      "encoding": "path",
+      "value": "infrastructure/lib/worker-service-stack.ts",
+      "sha256": "1c7094fcdb705b902daf689f0fd1f4ebc3e0a9f1b102432bb23a2d2addca2bba"
+    },
+    {
+      "name": "worker-service-stack.test.ts",
+      "mediaType": "text/typescript",
+      "encoding": "path",
+      "value": "infrastructure/test/worker-service-stack.test.ts",
+      "sha256": "c1461419c7aea8c169219cb86e5a93242d1d742f5cfe7b69d4ecf248e33d0ebc"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "fixturePlatform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/fixturePlatform.js",
+      "sha256": "f050e732ed64f157238fc6da3c06f3b8c16a6933c0cced1525e99374db911f8f"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "api-client.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/api-client.test.mjs",
+      "sha256": "c7f0fe7b80593a5b03b7a66af8f2dca3ea80dcd6f074df3fa8f54c63a1395094"
+    },
+    {
+      "name": "service-010-render-cache-reclamation.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-010-render-cache-reclamation.json",
+      "sha256": "24e6b4d195290972e901eeeaa1667f49d839cd87e9f7441252248cfbbf31fe79"
+    },
+    {
+      "name": "service-render-cache-reclamation.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-render-cache-reclamation.test.mjs",
+      "sha256": "bea060b0be9470421482eb79ff0ed19ccbaacbd6cc89cb6a2c012e47564bebe9"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.publishing-administration",
+      "assertion": "Referenced map renders remain protected by every retained project-site edition manifest while unreferenced retired-generation outputs can release storage."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo independently retains WMTS/cache history while physically reclaiming exact obsolete single-layer render versions through an explicit manager action."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Retired cache generations have a tenant-safe, reference-aware, bounded, auditable, exact-version physical reclamation lifecycle."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "Obsolete PNG/SVG render storage can be reclaimed without an always-on MapServer, cache collector, scheduler, or warm worker."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

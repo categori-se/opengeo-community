@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "LayoutElement",
+  "type": "object",
+  "required": ["id", "type", "xMm", "yMm", "widthMm", "heightMm"],
+  "properties": {
+    "id": {"type": "string"},
+    "type": {
+      "enum": ["map_frame", "legend", "scale_bar", "north_arrow", "text", "measurement_annotation"]
+    },
+    "xMm": {"type": "number"},
+    "yMm": {"type": "number"},
+    "widthMm": {"type": "number"},
+    "heightMm": {"type": "number"},
+    "extent": {
+      "type": "array",
+      "items": {"type": "number"},
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "projection": {"type": "string"},
+    "scale": {"type": "number"},
+    "basemapId": {"type": "string"},
+    "layers": {"type": "array", "items": {"type": "string"}},
+    "mode": {"type": "string"},
+    "placement": {"type": "string"},
+    "style": {"type": "string"},
+    "units": {"type": "string"},
+    "segments": {"type": "integer"},
+    "rotation": {"type": "number"},
+    "text": {"type": "string"},
+    "annotationType": {"type": "string"},
+    "points": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {"type": "number"},
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "label": {"type": "string"}
+  }
+}

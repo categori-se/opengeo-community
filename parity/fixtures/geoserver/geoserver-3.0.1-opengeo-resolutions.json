@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "opengeo.geoserver-catalog-resolution.1.0.0",
+  "organizationId": "10000000-0000-4000-8000-000000000168",
+  "projectId": "50000000-0000-4000-8000-000000000168",
+  "serviceId": "60000000-0000-4000-8000-000000000168",
+  "actorProjectRole": "owner",
+  "currentMetadataVersion": 1,
+  "verifiedConnection": {
+    "id": "c1000000-0000-4000-8000-000000000168",
+    "revisionNumber": 1,
+    "provider": "postgresql",
+    "readOnly": true,
+    "status": "credentials_verified",
+    "networkReachable": true,
+    "tlsVerified": true,
+    "credentialsVerified": true,
+    "postgisVerified": true
+  },
+  "collection": {
+    "id": "70000000-0000-4000-8000-000000000168",
+    "datasetId": "80000000-0000-4000-8000-000000000168",
+    "resourceId": "81000000-0000-4000-8000-000000000168",
+    "active": true,
+    "withdrawn": false
+  },
+  "styles": {
+    "roads-line": {
+      "styleId": "a2000000-0000-4000-8000-000000000168",
+      "styleVersion": 1,
+      "renderProfileId": "a4000000-0000-4000-8000-000000000168",
+      "renderProfileVersion": 1
+    },
+    "roads-highlight": {
+      "styleId": "a2100000-0000-4000-8000-000000000168",
+      "styleVersion": 1,
+      "renderProfileId": "a4100000-0000-4000-8000-000000000168",
+      "renderProfileVersion": 1
+    }
+  }
+}

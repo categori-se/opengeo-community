@@ -1,0 +1,1074 @@
+[
+  {
+    "name": "pinned-cross-workspace-release",
+    "kind": "release",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "handoff-without-authored-project",
+    "kind": "release",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "handoff_collection",
+        "resource_id": "collection_original"
+      },
+      "project_reference": null,
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "explicit-approved-review",
+    "kind": "projectionReview",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "release_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "release_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "projection_id": "projection_one",
+      "public_id": "public_report",
+      "public_version": "public edition 1",
+      "title": "Reviewed title",
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "decision": "include",
+          "text": "Reviewed attribution",
+          "url": "https://example.invalid/public",
+          "license": "License edition 2",
+          "reason": null
+        }
+      ],
+      "decision": "approved",
+      "reviewed_by": "reviewer_one",
+      "reviewed_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "allowlisted-public-projection",
+    "kind": "publicProjection",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "projection_id": "projection_one",
+      "public_id": "public_report",
+      "public_version": "public edition 1",
+      "title": "Reviewed title",
+      "output_manifest": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "attributions": [
+        {
+          "text": "Reviewed attribution",
+          "url": "https://example.invalid/public",
+          "license": "License edition 2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "initial-availability",
+    "kind": "availabilityEvent",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_availability_event",
+        "resource_id": "event_one",
+        "version_id": "opaque event 1"
+      },
+      "release_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "sequence": 1,
+      "previous_event_reference": null,
+      "event": "available",
+      "reason": null,
+      "created_by": "release_operator",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "withdrawal-pins-prior-event",
+    "kind": "availabilityEvent",
+    "valid": true,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_availability_event",
+        "resource_id": "event_two",
+        "version_id": "opaque event 2"
+      },
+      "release_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "sequence": 2,
+      "previous_event_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_availability_event",
+        "resource_id": "event_one",
+        "version_id": "opaque event 1"
+      },
+      "event": "withdrawn",
+      "reason": "Serving removed",
+      "created_by": "release_operator",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "unversioned-source-is-not-a-release-input",
+    "kind": "release",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:documents",
+            "workspace_id": "workspace_private",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original"
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "release-has-no-mutable-job-status",
+    "kind": "release",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z",
+      "status": "published"
+    }
+  },
+  {
+    "name": "output-digest-is-not-an-etag",
+    "kind": "release",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "\"etag\"",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "unknown-input-role",
+    "kind": "release",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "future_authorizing_role",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "empty-release-inputs",
+    "kind": "release",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "string-schema-is-not-negotiated",
+    "kind": "release",
+    "valid": false,
+    "value": {
+      "schema_version": "1",
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/credit",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "private-lineage-cannot-spread-to-public",
+    "kind": "publicProjection",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "projection_id": "projection_one",
+      "public_id": "public_report",
+      "public_version": "public edition 1",
+      "title": "Reviewed title",
+      "output_manifest": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "attributions": [
+        {
+          "text": "Reviewed attribution",
+          "url": "https://example.invalid/public",
+          "license": "License edition 2"
+        }
+      ],
+      "lineage": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ]
+    }
+  },
+  {
+    "name": "public-output-has-no-private-reference",
+    "kind": "publicProjection",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "projection_id": "projection_one",
+      "public_id": "public_report",
+      "public_version": "public edition 1",
+      "title": "Reviewed title",
+      "output_manifest": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000,
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        }
+      },
+      "attributions": [
+        {
+          "text": "Reviewed attribution",
+          "url": "https://example.invalid/public",
+          "license": "License edition 2"
+        }
+      ]
+    }
+  },
+  {
+    "name": "pending-disclosure-does-not-approve",
+    "kind": "projectionReview",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "release_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "release_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "projection_id": "projection_one",
+      "public_id": "public_report",
+      "public_version": "public edition 1",
+      "title": "Reviewed title",
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "decision": "include",
+          "text": "Reviewed attribution",
+          "url": "https://example.invalid/public",
+          "license": "License edition 2",
+          "reason": null
+        }
+      ],
+      "decision": "pending",
+      "reviewed_by": "reviewer_one",
+      "reviewed_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "omission-needs-reason",
+    "kind": "projectionReview",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "release_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "release_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "projection_id": "projection_one",
+      "public_id": "public_report",
+      "public_version": "public edition 1",
+      "title": "Reviewed title",
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "decision": "omit",
+          "text": null,
+          "url": null,
+          "license": null,
+          "reason": null
+        }
+      ],
+      "decision": "approved",
+      "reviewed_by": "reviewer_one",
+      "reviewed_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "signed-credit-url-is-not-portable",
+    "kind": "release",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "publication_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication",
+        "resource_id": "publication_original"
+      },
+      "project_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "project",
+        "resource_id": "project_private"
+      },
+      "inputs": [
+        {
+          "input_id": "source_original",
+          "reference": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "workspace_id": "workspace_other",
+            "resource_type": "source_snapshot",
+            "resource_id": "source_original",
+            "version_id": "\"opaque+/ v2\""
+          },
+          "role": "source",
+          "sha256": null
+        }
+      ],
+      "output_manifest": {
+        "reference": {
+          "schema_version": 1,
+          "authority": "urn:example:documents",
+          "workspace_id": "workspace_private",
+          "resource_type": "publication_output_manifest",
+          "resource_id": "manifest_original",
+          "version_id": "manifest opaque / 1"
+        },
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "target_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "asset_location",
+        "resource_id": "target_original"
+      },
+      "attributions": [
+        {
+          "attribution_id": "credit_required",
+          "input_ids": [
+            "source_original"
+          ],
+          "text": "Private source original attribution",
+          "url": "https://example.invalid/file?X-Amz-Signature=synthetic",
+          "license": "License edition 2",
+          "required": true
+        }
+      ],
+      "created_by": "private_analyst",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "withdrawal-needs-reason",
+    "kind": "availabilityEvent",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_availability_event",
+        "resource_id": "event_two",
+        "version_id": "opaque event 2"
+      },
+      "release_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "sequence": 2,
+      "previous_event_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_availability_event",
+        "resource_id": "event_one",
+        "version_id": "opaque event 1"
+      },
+      "event": "withdrawn",
+      "reason": null,
+      "created_by": "release_operator",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "later-event-must-retain-prior-reference",
+    "kind": "availabilityEvent",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_availability_event",
+        "resource_id": "event_one",
+        "version_id": "opaque event 1"
+      },
+      "release_reference": {
+        "schema_version": 1,
+        "authority": "urn:example:documents",
+        "workspace_id": "workspace_private",
+        "resource_type": "publication_release",
+        "resource_id": "release_original",
+        "version_id": "immutable opaque release / 1"
+      },
+      "sequence": 2,
+      "previous_event_reference": null,
+      "event": "available",
+      "reason": null,
+      "created_by": "release_operator",
+      "created_at": "2026-10-03T10:00:00.000Z"
+    }
+  },
+  {
+    "name": "public-version-cannot-have-controls",
+    "kind": "publicProjection",
+    "valid": false,
+    "value": {
+      "schema_version": 1,
+      "projection_id": "projection_one",
+      "public_id": "public_report",
+      "public_version": "line\nbreak",
+      "title": "Reviewed title",
+      "output_manifest": {
+        "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "size_bytes": 307,
+        "media_type": "application/json",
+        "file_count": 40000,
+        "total_bytes": 90000000
+      },
+      "attributions": [
+        {
+          "text": "Reviewed attribution",
+          "url": "https://example.invalid/public",
+          "license": "License edition 2"
+        }
+      ]
+    }
+  }
+]

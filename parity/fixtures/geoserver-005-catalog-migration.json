@@ -1,0 +1,67 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geoserver-005.catalog-migration",
+  "title": "GeoServer 3.0.1 complete catalog-field migration and loss comparator",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "A reviewed GeoServer 3.0.1 REST-shaped catalog export covers workspace/namespace, PostGIS store, feature type/layer, SLD styles, ordered layer group, service metadata, and security differences.",
+    "url": "https://docs.geoserver.org/3.0.x/en/user/rest/",
+    "version": "3.0.1"
+  },
+  "license": {
+    "spdxId": "CC-BY-4.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "check-geoserver-catalog-migration.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-geoserver-catalog-migration.mjs",
+      "sha256": "a6241acb842244d6afe8b01db09fd0dd0ac337da35733fa00b61bb254745ddae"
+    },
+    {
+      "name": "geoserver-005-catalog-migration.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/geoserver-005-catalog-migration.json",
+      "sha256": "6f2d1e63c2c210da0eaff9bb358a8808afc39c6f57693b3502fe0136fa77c479"
+    },
+    {
+      "name": "geoserver-3.0.1-opengeo-resolutions.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/geoserver/geoserver-3.0.1-opengeo-resolutions.json",
+      "sha256": "5e7fcca1ed5f801f152c994f1626b4272eea6f33ec6d0bfbfdd9f08f7953ce69"
+    },
+    {
+      "name": "0069_spatial_catalog_render_profiles.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0069_spatial_catalog_render_profiles.sql",
+      "sha256": "44a8610235947d5845e7e57816f0ba68b44f3f243974064fdd353e7c5a2abe5b"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.catalog-administration",
+      "assertion": "All 67 reviewed GeoServer 3.0.1 source fields receive one exact import, validation, extension, identity-resolution, rejected-secret, or explicit-loss decision."
+    },
+    {
+      "rowId": "geoserver.catalog-administration",
+      "assertion": "The resolved migration template uses the tenant-safe bounded catalog bulk API and preserves service metadata, verified-store identity, top-to-bottom layer order, and exact default/alternate SLD revisions atomically."
+    },
+    {
+      "rowId": "geoserver.catalog-administration",
+      "assertion": "Raw connection coordinates and credentials never enter catalog configuration or the evidence report; unsupported settings, live synchronization, deployment, concurrency, and scale remain explicit."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

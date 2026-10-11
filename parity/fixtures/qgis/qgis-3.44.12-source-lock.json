@@ -1,0 +1,361 @@
+{
+  "schemaVersion": "1.0.0",
+  "referenceId": "qgis.desktop-workflows",
+  "status": "source_verified",
+  "observedAt": "2026-08-24",
+  "upstream": {
+    "repository": "https://github.com/qgis/QGIS",
+    "release": "3.44.12",
+    "codename": "Solothurn",
+    "tag": "final-3_44_12",
+    "tagObject": "450e7997434c5733031841d3e2a7b7d105cca676",
+    "commit": "916a9ec9ae76a51015061f4973de0447cf033035",
+    "tree": "4144490e070f4fb075be73b39835db4ca2b0bb81",
+    "commitDate": "2026-07-03T14:08:39+02:00",
+    "tagDate": "2026-07-03T14:08:39+02:00",
+    "license": "GPL-2.0-or-later",
+    "tagSignature": {
+      "present": true,
+      "issuerFingerprint": "EB074A442E10A0FBA7438E43106C27D4906EC554",
+      "trustVerified": false,
+      "reason": "The annotated tag contains an OpenPGP signature, but a trusted QGIS release-key source was not installed in the isolated audit environment."
+    }
+  },
+  "scope": {
+    "evidenceType": "upstream-source-inventory",
+    "purpose": "Bind familiar QGIS desktop workflow references to exact upstream source before using them as OpenGeo UX inputs.",
+    "qgisIsParityBaseline": false,
+    "qgisBinaryExecuted": false,
+    "openGeoWorkflowExecuted": false,
+    "nativeClientEvidenceIsSeparate": true
+  },
+  "identityAssertions": [
+    {
+      "path": "CMakeLists.txt",
+      "requiredStrings": [
+        "set(CPACK_PACKAGE_VERSION_MAJOR \"3\")",
+        "set(CPACK_PACKAGE_VERSION_MINOR \"44\")",
+        "set(CPACK_PACKAGE_VERSION_PATCH \"12\")",
+        "set(RELEASE_NAME \"Solothurn\")"
+      ]
+    },
+    {
+      "path": "COPYING",
+      "requiredStrings": [
+        "GNU GENERAL PUBLIC LICENSE",
+        "either version 2 of the License, or"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "id": "qgis.project.start-open-recent",
+      "userOutcome": "Create or open a project and reopen a recent project from a prominent starting surface.",
+      "sourceAssertions": [
+        {
+          "path": "src/ui/qgisapp.ui",
+          "requiredStrings": [
+            "mRecentProjectsMenu",
+            "mActionNewProject",
+            "mActionOpenProject"
+          ]
+        },
+        {
+          "path": "src/app/qgisapp.cpp",
+          "requiredStrings": [
+            "connect( mActionNewProject",
+            "connect( mActionOpenProject",
+            "bool QgisApp::fileNew()",
+            "void QgisApp::fileOpen()",
+            "void QgisApp::openProject( const QString &fileName )"
+          ]
+        },
+        {
+          "path": "src/app/qgisapp.h",
+          "requiredStrings": [
+            "void openProject( const QString &fileName );",
+            "void fileOpen();",
+            "bool fileNew();"
+          ]
+        },
+        {
+          "path": "src/app/qgswelcomepage.cpp",
+          "requiredStrings": [
+            "tr( \"Recent Projects\" )",
+            "QgsWelcomePage::recentProjectItemActivated",
+            "QgisApp::instance()->openProject("
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qgis.data.connect-add",
+      "userOutcome": "Reach one familiar data-source manager and add vector, raster, or other supported layer types with visible feedback.",
+      "sourceAssertions": [
+        {
+          "path": "src/ui/qgisapp.ui",
+          "requiredStrings": [
+            "mActionDataSourceManager",
+            "mActionAddRasterLayer",
+            "mActionNewMemoryLayer"
+          ]
+        },
+        {
+          "path": "src/gui/qgsdatasourcemanagerdialog.cpp",
+          "requiredStrings": [
+            "QgsAbstractDataSourceWidget::addVectorLayers",
+            "QgsAbstractDataSourceWidget::addRasterLayers",
+            "QgsAbstractDataSourceWidget::connectionsChanged",
+            "mMessageBar->pushMessage("
+          ]
+        },
+        {
+          "path": "src/app/qgisapp.cpp",
+          "requiredStrings": [
+            "connect( mActionDataSourceManager",
+            "connect( mActionAddRasterLayer",
+            "QgsDataSourceManagerDialog::addVectorLayers",
+            "QgsDataSourceManagerDialog::addRasterLayers"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qgis.layers.stack-sequence",
+      "userOutcome": "See layers in a tree and reorder or group them through direct drag-and-drop sequencing.",
+      "sourceAssertions": [
+        {
+          "path": "src/core/layertree/qgslayertreemodel.cpp",
+          "requiredStrings": [
+            "QgsLayerTreeModel::supportedDropActions() const",
+            "Qt::CopyAction | Qt::MoveAction",
+            "QgsLayerTreeModel::dropMimeData(",
+            "insertChildNodes( row, nodes )"
+          ]
+        },
+        {
+          "path": "src/gui/layertree/qgslayertreeview.cpp",
+          "requiredStrings": [
+            "QgsLayerTreeView::dragEnterEvent(",
+            "QgsLayerTreeView::dropEvent(",
+            "application/qgis.layertreemodeldata"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qgis.authoring.point-line-polygon",
+      "userOutcome": "Activate a familiar add-feature tool whose immediate label and icon match point, line, or polygon geometry.",
+      "sourceAssertions": [
+        {
+          "path": "src/ui/qgisapp.ui",
+          "requiredStrings": [
+            "<action name=\"mActionAddFeature\">",
+            "<string>Add Feature</string>",
+            "<string>Ctrl+.</string>"
+          ]
+        },
+        {
+          "path": "src/app/qgisapp.cpp",
+          "requiredStrings": [
+            "tr( \"Add Point Feature\" )",
+            "tr( \"Add Line Feature\" )",
+            "tr( \"Add Polygon Feature\" )",
+            "void QgisApp::addFeature()"
+          ]
+        },
+        {
+          "path": "src/app/maptools/qgsappmaptools.cpp",
+          "requiredStrings": [
+            "new QgsMapToolAddFeature(",
+            "QgsMapToolCapture::CaptureNone"
+          ]
+        },
+        {
+          "path": "src/app/qgsmaptooladdfeature.cpp",
+          "requiredStrings": [
+            "QgsMapToolAddFeature::featureDigitized(",
+            "mode() == CaptureLine || mode() == CapturePolygon",
+            "QgsFeatureAction::AddFeatureResult::Success"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qgis.image.raster-georeference",
+      "userOutcome": "Add a raster image and reach georeferencing controls that can load the result into the current project.",
+      "sourceAssertions": [
+        {
+          "path": "src/ui/qgisapp.ui",
+          "requiredStrings": [
+            "mActionAddRasterLayer",
+            "mActionShowGeoreferencer",
+            "<string>Georeferencer…</string>"
+          ]
+        },
+        {
+          "path": "src/app/qgisapp.cpp",
+          "requiredStrings": [
+            "connect( mActionAddRasterLayer",
+            "connect( mActionShowGeoreferencer"
+          ]
+        },
+        {
+          "path": "src/app/georeferencer/qgsgeorefmainwindow.cpp",
+          "requiredStrings": [
+            "load-result-in-project",
+            "openLayer( Qgis::LayerType::Raster",
+            "tr( \"Source loaded: %1\" )"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qgis.processing.discover-run",
+      "userOutcome": "Search a processing toolbox and run the selected algorithm directly or as a batch process.",
+      "sourceAssertions": [
+        {
+          "path": "python/plugins/processing/gui/ProcessingToolbox.py",
+          "requiredStrings": [
+            "self.algorithmTree.doubleClicked.connect(self.executeAlgorithm)",
+            "def executeAlgorithmAsBatchProcess(self):",
+            "def executeAlgorithm(self):",
+            "self.executeWithGui.emit("
+          ]
+        }
+      ]
+    },
+    {
+      "id": "qgis.status.immediate-feedback",
+      "userOutcome": "Keep coordinate context and operation state visible while projects and data are loading or ready.",
+      "sourceAssertions": [
+        {
+          "path": "src/app/qgsstatusbarcoordinateswidget.cpp",
+          "requiredStrings": [
+            "tr( \"Current map coordinate\" )",
+            "QgsStatusBarCoordinatesWidget::coordinateDisplaySettingsChanged()"
+          ]
+        },
+        {
+          "path": "src/app/qgisapp.cpp",
+          "requiredStrings": [
+            "mStatusBar->showMessage( tr( \"Ready\" )",
+            "mStatusBar->showMessage( tr( \"Loading project: %1\" )",
+            "mStatusBar->showMessage( tr( \"Project loaded\" )"
+          ]
+        },
+        {
+          "path": "src/gui/qgsdatasourcemanagerdialog.cpp",
+          "requiredStrings": [
+            "QgsAbstractDataSourceWidget::pushMessage",
+            "mMessageBar->pushMessage("
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceEvidence": [
+    {
+      "path": "COPYING",
+      "gitBlob": "8e2daf6bc046673223b197d859fa9609255ef13c",
+      "sha256": "dba313854f65a8d41b1777cf9d6cb5ddf692792be04d808b82c86c63909fbdf0",
+      "bytes": 18801
+    },
+    {
+      "path": "CMakeLists.txt",
+      "gitBlob": "4675f999772d2da2a8bdcf5133c22823a83fe752",
+      "sha256": "43ad74747b717baca7b07ede0a424905ea22f6662334d7e1c9687b677e4024e7",
+      "bytes": 56259
+    },
+    {
+      "path": "src/ui/qgisapp.ui",
+      "gitBlob": "4e6af6bd3050649e3500f982b4a65e2aff4664a6",
+      "sha256": "60e433f59f657f837d2d81dc43c2bf4d6c35dfb34cf13eab8654b5d73f7c876d",
+      "bytes": 121479
+    },
+    {
+      "path": "src/app/qgisapp.cpp",
+      "gitBlob": "6e6cda21222c0240de64b04d5a420cf1d4de1140",
+      "sha256": "d0444f84d4411bfcaee37280c88475c725b26ef9b37dc786f94d0e86a283f3d7",
+      "bytes": 670182
+    },
+    {
+      "path": "src/app/qgisapp.h",
+      "gitBlob": "77a0a529dc7c223399f0d0a15843467295cad031",
+      "sha256": "ba2a3ebc6cc47f990ccedac0884c296380fb006520073a30272fc40d5cd337f1",
+      "bytes": 104409
+    },
+    {
+      "path": "src/app/qgswelcomepage.cpp",
+      "gitBlob": "7203af6583499b52e6c78268c46c5d4962c10ff4",
+      "sha256": "5081e2d88e5f82bfc3849387077a75cb78b109eda07fda92dae64413cd388a1b",
+      "bytes": 20336
+    },
+    {
+      "path": "src/gui/qgsdatasourcemanagerdialog.cpp",
+      "gitBlob": "8d7fc5d01f2cfe3975e75ce9229d2323efd53ae8",
+      "sha256": "bb92ae2083f27333a254dd4c507ce889bb1a798c0409af23c1a3edb85239aa02",
+      "bytes": 14160
+    },
+    {
+      "path": "src/gui/layertree/qgslayertreeview.cpp",
+      "gitBlob": "90984b1fe4ebb7c29376ecc303c22b5bccfb263d",
+      "sha256": "7a49386e9bff94b6d1a7e1ee1483df68b48807c7c51c0eb9d94e908179d4f4ea",
+      "bytes": 31544
+    },
+    {
+      "path": "src/core/layertree/qgslayertreemodel.cpp",
+      "gitBlob": "83d1bfdd878bae3cc1bb24307ce4b1a99f9a18f0",
+      "sha256": "3af6ca56470275beecfd93927e45cc6931b62a37a95d4da5af872ebcf8e36ff1",
+      "bytes": 58186
+    },
+    {
+      "path": "src/app/maptools/qgsappmaptools.cpp",
+      "gitBlob": "7922ec7c3026a20c585110a69bc5677d430049a7",
+      "sha256": "76cd7c7e5e0835b71cd7ea2d9b4aa40e6b0ac051db72fad84194b4a93911955d",
+      "bytes": 6486
+    },
+    {
+      "path": "src/app/qgsmaptooladdfeature.cpp",
+      "gitBlob": "0db6f926ef881db0b24455740febea50faa0162a",
+      "sha256": "2ec5474f3c3b20465747412d78f57dc3bc61dd2cf89c3f975740c50d315329af",
+      "bytes": 5970
+    },
+    {
+      "path": "src/app/georeferencer/qgsgeorefmainwindow.cpp",
+      "gitBlob": "aad476769563e53871dc1c84abc6e28824754e50",
+      "sha256": "b4bff411928c95252cc1918feb1831510546b92d8c11e8702b1268ce05d48955",
+      "bytes": 96232
+    },
+    {
+      "path": "python/plugins/processing/gui/ProcessingToolbox.py",
+      "gitBlob": "1560ca2d33d95352f413f8bd5295b689b834a5d8",
+      "sha256": "d501059d1212c704ccb00e8bf5eedd50a1a04e4b1938c4a6ea3691ee9b7e24a6",
+      "bytes": 11537
+    },
+    {
+      "path": "src/app/qgsstatusbarcoordinateswidget.cpp",
+      "gitBlob": "ce74f9b887a99d7ddb8182a05f4f57960ac3e3a0",
+      "sha256": "745ceaa6d0ebd42b45402964def88d3f05f3efca58d9363dee77c4d1219a5d02",
+      "bytes": 16907
+    }
+  ],
+  "separateEvidence": {
+    "nativeClientFixtures": [
+      "parity/fixtures/metadata-007-qgis-oapif-peer.json",
+      "parity/fixtures/service-002-qgis-administered-peer.json",
+      "parity/fixtures/service-004-qgis-wfs-transaction-peer.json",
+      "parity/fixtures/service-005-qgis-wmts-cache-peer.json"
+    ],
+    "openGeoWorkflowEvidence": [
+      "docs/workbench-command-surface-local-evidence.json",
+      "docs/workbench-map-authoring-local-evidence.json"
+    ]
+  },
+  "limitations": [
+    "This audit proves that exact QGIS source files contain the mapped workflow structures; it does not execute the QGIS GUI or establish behavioral parity.",
+    "The QGIS native OAPIF, WFS/WFS-T, and WMTS peer executions are separate evidence and do not validate these desktop UX workflows.",
+    "The annotated tag signature payload is present, but its trust chain was not verified in the isolated audit environment.",
+    "QGIS remains a compatibility and UX-organization reference, not an eighth OpenGeo full-product parity baseline."
+  ]
+}

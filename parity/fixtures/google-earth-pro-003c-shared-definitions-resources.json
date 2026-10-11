@@ -1,0 +1,99 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-003c.shared-definitions-resources",
+  "title": "Shared KML definitions, typed SchemaData, and referenced opaque KMZ resources",
+  "fixtureType": "project",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic public shared-style, typed-scalar, nested-KMZ-resource, official-schema, invalid-control, GDAL-peer, browser-persistence, and declared-loss evidence. External schema bytes are checksum-locked but not vendored; no proprietary byte is included."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    },
+    {
+      "name": "kmlPlaces.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/kmlPlaces.js",
+      "sha256": "8e3f606f55c0cdcb722f154b6dbee833c38236b1fc4d24fd155ee7f3fd554e91"
+    },
+    {
+      "name": "kml-places.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/kml-places.test.mjs",
+      "sha256": "7ce84d8f069bda7ee8132d2b0029c96331c4b122a4b005eba97350181b5a6c24"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "check-kml-interoperability.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-kml-interoperability.mjs",
+      "sha256": "7e69c825e616a142eb4d691f74db323de4ee6bcd3f1564b8fe0bbf4bc8c978f8"
+    },
+    {
+      "name": "google-earth-pro-kml-interoperability.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/google-earth-pro-kml-interoperability.test.mjs",
+      "sha256": "d61e381e73ebd2827c074c340973ed27027ffef59bd99402e386efebb03bc653"
+    },
+    {
+      "name": "kml-2.2-schema-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/kml-2.2-schema-lock.json",
+      "sha256": "830e593ed7480ad8183859a89d68447da5397f2b7cced79f2821c13150b98ecb"
+    },
+    {
+      "name": "google-earth-pro-003c-kml-definitions-resources.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-003c-kml-definitions-resources.json",
+      "sha256": "67b5891d0a059b6fb7af7fe444ad1ff909ef0305cfa0c4e0dc2797986e9f239e"
+    },
+    {
+      "name": "google-earth-pro-003c-shared-definitions-resources.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-003c-shared-definitions-resources.json",
+      "sha256": "904a8e189a9a5f7f04a6558935ad3af586276ac455ed5378502049227d2f10ad"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.places-kml-kmz-authoring",
+      "assertion": "Same-document Style/StyleMap and eight bounded SchemaData scalar types resolve deterministically; only referenced allowlisted KMZ images survive as bounded opaque bytes with canonical safe paths and no fetch/decode. Expanded output passes exact official KML 2.2 schema validation and GDAL core interchange, while unsupported fields/resources are explicit losses. Google Earth execution, complete KML/gx/KMZ, deployment, conformance, and full-row parity are not claimed."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,174 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-009.coverage-reclamation",
+  "title": "Exact-version coverage-derivative physical reclamation contract",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local database, API, exact-version URL transport, activation-worker, IAM, strict browser, and managed journey evidence for a two-step irreversible reclamation lifecycle."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0039_coverage_derivative_reclamation.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0039_coverage_derivative_reclamation.sql",
+      "sha256": "38aed75d0afde5ed3a6ea7be65623e210da7e289e7fca49f3b641ef2e8ff0f20"
+    },
+    {
+      "name": "spatial-coverage-services.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-coverage-services.test.mjs",
+      "sha256": "da11252e171ae54d9692bb0f767568d2367a481e2522bd3fb96c8484e30ad4d8"
+    },
+    {
+      "name": "coverages.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverages.py",
+      "sha256": "f86208378d68652a1666345536804989f63e39554b27b9e216ab6871204b8c2c"
+    },
+    {
+      "name": "coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverage_routes.py",
+      "sha256": "8e4bbf15630eb288e4e760c3fa258a37ff202b49902c68fb24111a1ab13a249e"
+    },
+    {
+      "name": "processing_dispatch.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/processing_dispatch.py",
+      "sha256": "51039476878f980a2b547852a0c7770126545c06cc3d5fb229498c9db22f7854"
+    },
+    {
+      "name": "test_coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_coverage_routes.py",
+      "sha256": "174d9467da7f5815d34b94d9002c564efc2262f79e4c68f8534212416d55daf5"
+    },
+    {
+      "name": "worker-events.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/events.py",
+      "sha256": "df8bee9520f6009e6e511bdd29c408fe5b63966d48e762c36a00ac12fefd7e7b"
+    },
+    {
+      "name": "worker-repository.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/repository.py",
+      "sha256": "7b1527096acd00753f28b862bb0a9813fe7258516a9d7f1d95558ad941a689ae"
+    },
+    {
+      "name": "worker-aws-clients.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/aws_clients.py",
+      "sha256": "79aef18163b375f7c8ab3bd2f86c3cfb7681d24f4e4d4e75b752b976953023f4"
+    },
+    {
+      "name": "worker-processor.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/processor.py",
+      "sha256": "3ce3bd19ab4cac3ce3ec193a2ead86db2e864643631790aa648ff5558e077b92"
+    },
+    {
+      "name": "test_worker_processor.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_processor.py",
+      "sha256": "3151aed905f25d871024a68705bf30f8fda0062cf8aba50dbb8a77a48a227b1d"
+    },
+    {
+      "name": "worker-service-stack.ts",
+      "mediaType": "text/typescript",
+      "encoding": "path",
+      "value": "infrastructure/lib/worker-service-stack.ts",
+      "sha256": "1c7094fcdb705b902daf689f0fd1f4ebc3e0a9f1b102432bb23a2d2addca2bba"
+    },
+    {
+      "name": "worker-service-stack.test.ts",
+      "mediaType": "text/typescript",
+      "encoding": "path",
+      "value": "infrastructure/test/worker-service-stack.test.ts",
+      "sha256": "c1461419c7aea8c169219cb86e5a93242d1d742f5cfe7b69d4ecf248e33d0ebc"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "api-client.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/api-client.test.mjs",
+      "sha256": "c7f0fe7b80593a5b03b7a66af8f2dca3ea80dcd6f074df3fa8f54c63a1395094"
+    },
+    {
+      "name": "service-009-coverage-reclamation.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-009-coverage-reclamation.json",
+      "sha256": "e55c1aeee7f7ed551bd914c94d0bee83619154415edddc1b59f136fd55626a6f"
+    },
+    {
+      "name": "service-coverage-reclamation.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-coverage-reclamation.test.mjs",
+      "sha256": "be2a8d3661365bd08b239ea7e81a65f1087667d98ecff1aae5666a8473f69d98"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.source-layer-breadth",
+      "assertion": "A governed generated COG can be explicitly reclaimed without GeoLibre running, while its immutable request/result lineage remains."
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "assertion": "Shared-auth managers receive a separate consequence preview and confirmation path for an exact unreferenced output without browser storage authority."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo independently reclaims a terminal coverage derivative through an exact-version activation-only operation that ordinary service reads cannot trigger."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "Coverage-derivative retention can release exact bytes and quota without an always-on MapServer, collector, scheduler, or warm worker."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

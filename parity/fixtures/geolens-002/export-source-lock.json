@@ -1,0 +1,8 @@
+{
+  "commit": "f5fee67d8cf053d741590a00a55fe1870eed2b92",
+  "license": "Apache-2.0; see upstream/LICENSE",
+  "path": "parity/fixtures/geolens-002/upstream/app/processing/export/ogr.py",
+  "gitBlob": "3b4e4cd2bb212144e51c9ea886ab8f52a298cedd",
+  "sha256": "030e19272cd7d6cf621787a5bd35e31ea5f5d2e5214512da52900b0b73dc0872",
+  "scope": "Unmodified export wrapper; acceptance substitutes configuration/tenant/helper dependencies explicitly"
+}

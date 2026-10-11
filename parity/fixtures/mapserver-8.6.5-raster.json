@@ -1,0 +1,58 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "mapserver-001.raster-reprojection",
+  "title": "MapServer 8.6.5 EPSG:3857 classified-line PNG comparison",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "synthetic",
+    "description": "Public two-feature GeoJSON rendered through bounded OpenGeo reprojection and a checksum-pinned, network-isolated MapServer 8.6.5 Mapfile."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "deterministic-roads.geojson",
+      "mediaType": "application/geo+json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads.geojson",
+      "sha256": "5f7090caa90745f5862b4f392c63a8cb40ec58342e20be09429a2335fe7564a8"
+    },
+    {
+      "name": "deterministic-roads-3857-mapserver.map",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads-3857-mapserver.map",
+      "sha256": "785811e40c49d4c30ee9d7a885e60ad661985cb7543ba6edb4e0b041f6f5db08"
+    },
+    {
+      "name": "mapserver-8.6.5-3857.png",
+      "mediaType": "image/png",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-8.6.5-3857.png",
+      "sha256": "8aa578ec75e3a2427bcc268fc69db55aaa279572fec4b7ef10c0b7faf68686fb"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.rendering-cartography",
+      "assertion": "Both engines emit opaque 320 by 240 PNG maps with the same two exact classes inside declared RMSE and perceptual-hash tolerances."
+    },
+    {
+      "rowId": "mapserver.formats-reprojection",
+      "assertion": "OpenGeo transforms EPSG:4326 GeoJSON coordinates into an explicit EPSG:3857 bbox and independently matches the pinned MapServer PROJ/OGR path within declared visual tolerances."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The governed map identity and WMS facade distinguish PNG/SVG and CRS:84/EPSG:3857, and exact completed PNG output retains media, bbox, CRS, checksum, and authorization metadata."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

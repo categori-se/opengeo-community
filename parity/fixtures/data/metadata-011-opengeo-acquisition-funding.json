@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "1.1.0",
+  "contacts": [
+    {
+      "name": "Ada Researcher",
+      "organization": "Open Research Lab",
+      "email": "ada@example.test",
+      "role": "creator",
+      "identifier": "https://orcid.org/0000-0001-2345-6789"
+    },
+    {
+      "organization": "Open Research Lab",
+      "role": "publisher"
+    }
+  ],
+  "distributions": [
+    {
+      "identifier": "roads-geojson",
+      "title": "Roads GeoJSON",
+      "downloadUrl": "https://data.example.test/roads.geojson",
+      "mediaType": "application/geo+json",
+      "format": "GeoJSON",
+      "byteSize": 4096,
+      "checksumSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "referenceSystems": [
+    {
+      "identifier": "EPSG:4326",
+      "uri": "http://www.opengis.net/def/crs/EPSG/0/4326"
+    }
+  ],
+  "lineage": {
+    "statement": "Field observations were checked before publication.",
+    "sources": [
+      "urn:uuid:10000000-0000-4000-8000-000000000001"
+    ]
+  },
+  "quality": [
+    {
+      "measure": "completeness",
+      "result": 0.98,
+      "unit": "ratio",
+      "description": "Sampled against imagery."
+    }
+  ],
+  "updateFrequency": "annual",
+  "sensitivity": "public",
+  "funding": [
+    {
+      "funderName": "Open Research Foundation",
+      "funderIdentifier": "https://ror.org/03yrm5c26",
+      "funderIdentifierType": "ROR",
+      "schemeUri": "https://ror.org",
+      "awardNumber": "ORF-2026-0042",
+      "awardUri": "https://awards.example.test/ORF-2026-0042",
+      "awardTitle": "Open spatial evidence infrastructure"
+    }
+  ],
+  "acquisition": {
+    "instruments": [
+      {
+        "identifier": "CAM-01",
+        "type": "multispectral camera",
+        "description": "Field camera used for the 2026 survey."
+      }
+    ],
+    "platforms": [
+      {
+        "identifier": "UAV-01",
+        "description": "Uncrewed aerial survey platform.",
+        "instrumentIdentifiers": ["CAM-01"]
+      }
+    ],
+    "operations": [
+      {
+        "identifier": "MISSION-2026-07",
+        "description": "July 2026 field collection mission.",
+        "status": "completed",
+        "type": "real"
+      }
+    ]
+  }
+}

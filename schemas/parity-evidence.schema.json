@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.example/schemas/parity-evidence.schema.json",
+  "title": "OpenGeo parity evidence ledger",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "evidence"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": "1.0.0"},
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/evidenceRecord"}
+    }
+  },
+  "$defs": {
+    "repoPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+    },
+    "evidenceRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "result",
+        "observedAt",
+        "environment",
+        "commands",
+        "artifacts",
+        "assertions",
+        "rowIds",
+        "fixtureIds"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"},
+        "kind": {
+          "enum": [
+            "unit",
+            "contract",
+            "conformance",
+            "independent_client",
+            "visual",
+            "performance",
+            "security",
+            "manual"
+          ]
+        },
+        "result": {"enum": ["pass", "fail"]},
+        "observedAt": {"type": "string", "format": "date"},
+        "environment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "description", "limitations"],
+          "properties": {
+            "kind": {"enum": ["local", "ci", "deployed_dev", "staging", "production"]},
+            "description": {"type": "string", "minLength": 10, "maxLength": 500},
+            "limitations": {
+              "type": "array",
+              "items": {"type": "string", "minLength": 5, "maxLength": 500},
+              "uniqueItems": true
+            }
+          }
+        },
+        "commands": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 2, "maxLength": 500},
+          "uniqueItems": true
+        },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "description"],
+            "properties": {
+              "path": {"$ref": "#/$defs/repoPath"},
+              "description": {"type": "string", "minLength": 5, "maxLength": 500}
+            }
+          }
+        },
+        "assertions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 5, "maxLength": 500},
+          "uniqueItems": true
+        },
+        "rowIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"},
+          "uniqueItems": true
+        },
+        "fixtureIds": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"},
+          "uniqueItems": true
+        }
+      }
+    }
+  }
+}

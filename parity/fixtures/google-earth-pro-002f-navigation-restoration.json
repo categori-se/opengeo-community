@@ -1,0 +1,64 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-002f.navigation-restoration",
+  "title": "Globe navigation breadth and deterministic camera restoration",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic keyboard, trusted pointer/wheel, browser-emulated trusted two-finger touch, and Save As/reload/re-save camera checks over intercepted open terrain and vector tiles. No upstream or proprietary byte is vendored."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "globeInteraction.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/globeInteraction.js",
+      "sha256": "93905c0c3867e42646bea6051e47fd953e01efbcbd1414dea6adf4be9924e5c7"
+    },
+    {
+      "name": "globe-interaction.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/globe-interaction.test.mjs",
+      "sha256": "1a6c4dedc517290157df093de3ebc93e4527be197a4dc4b4f19d86fd26e9a90d"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "google-earth-pro-002f-navigation-restoration.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-002f-navigation-restoration.json",
+      "sha256": "e3b9ac0bdc3b4e429390b957fe693522e34dec721c9559fc2b087c11297a1634"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+      "assertion": "The real globe explicitly enables keyboard, pointer pan/orbit, wheel, pinch/rotate, and touch-pitch handlers; managed Chromium proves camera changes from every input family and restores longitude, latitude, zoom, pitch, and circular bearing within 0.001 after Save As, reload, and authoritative re-save. Physical-device smoothness, assistive-technology breadth, deployment, and full-row parity are not claimed."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

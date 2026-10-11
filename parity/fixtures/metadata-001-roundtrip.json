@@ -1,0 +1,62 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "metadata-001.standards.roundtrip",
+  "title": "DCAT 3 and STAC 1.1 semantic metadata round trip",
+  "fixtureType": "dataset",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic public metadata documents exercising canonical source preservation, explicit conversion reporting, and semantic export without network access."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "metadata-001-dcat3.json",
+      "mediaType": "application/ld+json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-001-dcat3.json",
+      "sha256": "a7a06d045b4febc2d58a11adca8e2bf5598a37342ec9da6f11cf9b7941323cf7"
+    },
+    {
+      "name": "metadata-001-stac11.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-001-stac11.json",
+      "sha256": "4b49c663d5e3daef41d3e017f798738a0ceee46e6277f539175c235cf06c2f30"
+    },
+    {
+      "name": "metadata-002-dcat3-multilingual.json",
+      "mediaType": "application/ld+json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-002-dcat3-multilingual.json",
+      "sha256": "8ad77a6f9ac7dd27e93b4c73da3866be85205ef8f524abdab5f47ddcb0658498"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "Both standards imports preserve their exact canonical JSON as immutable revision evidence and enumerate every unmapped top-level field."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "DCAT 3 and STAC 1.1 exports retain the fixture's title, description, rights, keywords, spatial bbox, and temporal interval semantics."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "Language-tagged English/French DCAT values survive two-way mapping, and the OGC Records 1.0 projection negotiates one language while advertising its alternate without claiming unverified conformance."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "DCAT publisher metadata maps into the bounded native OpenGeo contact model and re-exports as a standards-shaped agent."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

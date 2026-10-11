@@ -1,0 +1,102 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-016.wfs-hardened-runner",
+  "title": "Source-bound WFS 1.43 hardened-runner security candidate",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact Apache-2.0 OGC ets-wfs20 1.43 source plus a dependency-only Derby overlay and truthful flat-assembly metadata reconciliation produce a reproducible, canonical, non-vendored zero-finding candidate without contacting OpenGeo or executing the official suite.",
+    "url": "https://github.com/opengeospatial/ets-wfs20",
+    "version": "1.43 at 843c9f358d32cd5ef92c0dd5bbb6ff6c08f6092a"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "build-wfs-hardened-runner.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/build-wfs-hardened-runner.py",
+      "sha256": "0c45c983976f2ead0b9d6fd96a06172879bd8f69a689e0056dfb23d4b6bd40d8"
+    },
+    {
+      "name": "wfs-2.0-ets-hardened-overlay.patch",
+      "mediaType": "text/x-diff",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wfs-2.0-ets-hardened-overlay.patch",
+      "sha256": "c2886f99de0d03d0c70206af0c004a5dfcded34bd09a3464b050c0c8449a0b16"
+    },
+    {
+      "name": "service-016-wfs-hardened-runner.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-016-wfs-hardened-runner.json",
+      "sha256": "f3fb056bd583d2cdef38154c5aef631dd71a13ef6bec96a4ef267c4d7f1b8b31"
+    },
+    {
+      "name": "check-ogc-wfs-hardened-runner.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-ogc-wfs-hardened-runner.mjs",
+      "sha256": "a8e3a94c6f14403be724a5f8be345511ca769f5b5356f308a3296ffc5547a69c"
+    },
+    {
+      "name": "service-ogc-wfs-hardened-runner.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-ogc-wfs-hardened-runner.test.mjs",
+      "sha256": "c4bb33aa59a355dec05cb285fa422c765e313860dbb848db556cab596758ffe0"
+    },
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    },
+    {
+      "name": "local-milestones.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/evidence/local-milestones.json",
+      "sha256": "930b4b28fbc6f81b81798ef94ca44b527342fd8ed61ed883c14cb4a4312fff76"
+    },
+    {
+      "name": "implementation-roadmap.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/implementation-roadmap.md",
+      "sha256": "497bdbb0952cb5be92b12ee973b90326163fa28301fb7bd1e5a3420fa46e61c5"
+    },
+    {
+      "name": "progress.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "parity/references/progress-6d09b317.md",
+      "sha256": "a990c7141e7b9146d1ae6164aaaed02b8043da13fec64c9ae9dcc21692e54db3"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "A source-bound WFS 1.43 candidate is byte-reproducible through the reviewed canonical packager and passes a fresh zero Critical/High security gate without altering official suite behavior, while official WFS execution and conformance remain unclaimed and the aggregate row remains partial."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "The exact candidate has zero scanner findings and no waivers, but security acceptance does not bypass shared-auth, reference-profile, deployment, result, or cache-policy gates."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The future WFS diagnostic is independently security-eligible while native browser protocol compatibility and official deployed behavior remain separately gated."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

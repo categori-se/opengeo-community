@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geomoose-006.wfs-gml2-client",
+  "observedAt": "2026-09-01",
+  "reference": {
+    "product": "GeoMoose",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "sourceLock": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+  },
+  "sourceFiles": [
+    {
+      "path": "src/gm3/components/map/layers/wfs.js",
+      "gitBlob": "782f4b7cf510b2e3486903c541bdf7d3b8781041",
+      "sha256": "46efe0698fcce42c352e778fd222610c0d3ba714c0c9b7e104d967e975cbc66c",
+      "bytes": 7383,
+      "requiredStrings": [
+        "const DEFAULT_OUTPUT_FORMAT = \"text/xml; subtype=gml/2.1.2\";",
+        "export function buildWfsQuery(",
+        "const featureRequest = new WFSFormat().writeGetFeature(formatOptions);",
+        "export function wfsGetFeatures(",
+        "const gmlFormat = new GML2Format();"
+      ]
+    },
+    {
+      "path": "src/gm3/components/map/layers/vector.js",
+      "gitBlob": "7fad94af8c0a739935e891541e1214eb13e618ba",
+      "sha256": "848506be736e047ad631c91b4c3bea768000968e3a28a7724b11e04a54968d45",
+      "bytes": 12495,
+      "requiredStrings": [
+        "if (mapSource.type === \"wfs\") {",
+        "srsname: \"EPSG:3857\"",
+        "version: \"1.1.0\"",
+        "bbox: extent.concat(\"EPSG:3857\").join(\",\")",
+        "format: new format({})"
+      ]
+    }
+  ],
+  "clientRequests": {
+    "query": {
+      "endpoint": "https://api.opengeo.test/projects/p/datasets/d/wfs",
+      "method": "POST",
+      "version": "1.1.0",
+      "typeName": "opengeo:features",
+      "srsName": "EPSG:4326",
+      "outputFormat": "text/xml; subtype=gml/2.1.2",
+      "filter": "PropertyIsEqualTo(name, Station)",
+      "credentialsAddedByGeoMoose": false
+    },
+    "display": {
+      "endpoint": "https://api.opengeo.test/projects/p/datasets/d/wfs",
+      "method": "GET",
+      "version": "1.1.0",
+      "typeName": "opengeo:features",
+      "srsName": "EPSG:3857",
+      "outputFormat": "text/xml; subtype=gml/2.1.2",
+      "bbox": [-8682920.28187534, 4579425.8128701, -8460281.30028879, 4865942.27950318],
+      "credentialsInUrl": false
+    }
+  },
+  "openGeoContract": {
+    "canonicalReadVersion": "2.0.0",
+    "compatibleReadVersion": "1.1.0",
+    "compatibleOperation": "GetFeature",
+    "authentication": "bearer plus selected organization supplied by the OpenGeo host",
+    "directPrivateGeoMooseCredentialInjection": false,
+    "acceptedSrsNames": ["EPSG:4326", "EPSG:3857"],
+    "internalCrs": "CRS84 longitude/latitude",
+    "maximumFeatures": 100,
+    "wfs20MaximumStartIndex": 10000,
+    "maximumXmlBytes": 65536,
+    "maximumXmlElements": 512,
+    "maximumXmlDepth": 20,
+    "acceptedFilters": ["PropertyIsEqualTo", "Intersects", "And(2..4)"],
+    "acceptedOutputFormats": ["text/xml; subtype=gml/2.1.2", "application/geo+json"],
+    "gml2Epsg4326ResponseAxis": "latitude,longitude",
+    "anonymousAccess": false,
+    "conformanceClaimed": false
+  },
+  "expectedOutcome": {
+    "actualOpenGeoSerializerUsed": true,
+    "featuresRead": 1,
+    "featureId": "features.91000000-0000-4000-8000-000000000001",
+    "geometry": {"type": "Point", "coordinates": [-77.03, 38.9, 0]},
+    "propertyName": "Station",
+    "webMercatorBboxNormalizedToCrs84": [-78, 38, -76, 40],
+    "unauthenticatedStatus": 401,
+    "authenticatedStatus": 200
+  },
+  "knownDifferences": [
+    "GeoMoose 3.15.2 does not add OpenGeo bearer or organization headers. The exact client module can exchange the WFS body and GML2 representation, but direct access to a private OpenGeo endpoint still requires the authenticated OpenGeo host or a separately governed public publication.",
+    "The exact OpenLayers writer emits EPSG:4326 spatial-filter coordinates as longitude/latitude while its GML2 reader honors the WFS 1.1 authority axis and reads latitude/longitude output. OpenGeo bounds this asymmetric client behavior explicitly; the reader also materializes a zero Z coordinate.",
+    "OpenGeo retains WFS 2.0/GML 3.2 as canonical. WFS 1.1 compatibility is limited to GetFeature with the declared KVP/XML, CRS, filter, size, and output bounds; WFS 1.1 capabilities, schema discovery, stored queries, and transactions are not claimed by this fixture.",
+    "The exact client run is network-free and local. Configured-origin CORS, TLS, live authentication, public-service policy, deployment, concurrency, rollback, and billing remain separate evidence."
+  ]
+}

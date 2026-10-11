@@ -1,0 +1,86 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geoserver-006.catalog-repository-peer",
+  "title": "Release-69 repository import and exact GeoServer 3.0.1 synchronization",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "synthetic",
+    "description": "A public secret-free target template instantiates the reviewed GeoServer 3.0.1 migration plan in a disposable release-69 PostGIS database, then synchronizes the committed catalog to a digest-pinned disposable GeoServer peer."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "Catalog repository and peer comparator",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-geoserver-catalog-repository-peer.mjs",
+      "sha256": "418fdb7e16592e537ae21a878ec168b76ad1d0d8b3bc0a5a8f69b3016f8751e9"
+    },
+    {
+      "name": "Production repository execution helper",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/run-geoserver-catalog-repository-import.py",
+      "sha256": "54e0bbe8b600da0b720a31a4667bcbb5a7e12eda934e87a91f9bf0336675f8aa"
+    },
+    {
+      "name": "Secret-free release-69 target template",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "parity/fixtures/geoserver/opengeo-catalog-target-release-69.sql",
+      "sha256": "5339bdabc95225a6d3c3e1ab58415464b2fb64be7ef0a292f57dac774d3a757b"
+    },
+    {
+      "name": "Measured repository and exact-peer receipt",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/geoserver-006-catalog-repository-peer.json",
+      "sha256": "b7ae43417f79b69e4682b6b8dfc73251d3e8569c6a25a6c3197c4ed94469e65c"
+    },
+    {
+      "name": "Routine receipt and artifact assertions",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/geoserver-catalog-repository-peer.test.mjs",
+      "sha256": "44ece8595055791833b336784b70e0b6053e5de4ab54cadea3520663377441bd"
+    },
+    {
+      "name": "Reviewed GeoServer migration plan",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/geoserver-005-catalog-migration.json",
+      "sha256": "6f2d1e63c2c210da0eaff9bb358a8808afc39c6f57693b3502fe0136fa77c479"
+    },
+    {
+      "name": "Exact release-69 baseline manifest",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "database/baselines/0069_opengeo_schema.manifest.json",
+      "sha256": "76c6296550e18dcbeb6e57b00153f351ef737dd47b826c535f73efddaaa8b26a"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.catalog-administration",
+      "assertion": "The reviewed five-operation plan revalidates one active service, exact verified read-only PostGIS revision, active collection, and two current style/profile pairs before committing through PostgresSpatialCatalogRepository as the non-superuser, non-inheriting, non-BYPASSRLS runtime role."
+    },
+    {
+      "rowId": "geoserver.catalog-administration",
+      "assertion": "A late stale-profile failure rolls back the preceding metadata revision and writes no audit event, while a successful import writes exactly one attributed bulk event and a cross-tenant read fails before catalog disclosure."
+    },
+    {
+      "rowId": "geoserver.catalog-administration",
+      "assertion": "The committed namespace, PostGIS store, collection, default and alternate SLD styles, ordered layer group, and service title synchronize to exact GeoServer 3.0.1; the peer returns three WFS features and one grouped WMS PNG without becoming an OpenGeo production dependency."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

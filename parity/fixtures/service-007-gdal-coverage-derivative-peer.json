@@ -1,0 +1,134 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-007.gdal-coverage-derivative-peer",
+  "title": "GDAL 3.13.0 bounded coverage derivative compatibility",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "The digest-pinned worker GDAL runs OpenGeo's fixed subset, scale, reprojection, and COG path twice; independent GDAL utilities inspect the resulting bytes with networking disabled.",
+    "url": "https://gdal.org/en/stable/programs/gdalwarp.html",
+    "version": "3.13.0"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0037_coverage_derivatives.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0037_coverage_derivatives.sql",
+      "sha256": "a38436a749ab6ab213312bb1cfcb2a2f8805bfc633b51d77cbfd5cca73f1af68"
+    },
+    {
+      "name": "spatial-coverage-services.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-coverage-services.test.mjs",
+      "sha256": "da11252e171ae54d9692bb0f767568d2367a481e2522bd3fb96c8484e30ad4d8"
+    },
+    {
+      "name": "coverages.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverages.py",
+      "sha256": "f86208378d68652a1666345536804989f63e39554b27b9e216ab6871204b8c2c"
+    },
+    {
+      "name": "coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverage_routes.py",
+      "sha256": "8e4bbf15630eb288e4e760c3fa258a37ff202b49902c68fb24111a1ab13a249e"
+    },
+    {
+      "name": "processing_dispatch.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/processing_dispatch.py",
+      "sha256": "51039476878f980a2b547852a0c7770126545c06cc3d5fb229498c9db22f7854"
+    },
+    {
+      "name": "coverage_derivatives.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/coverage_derivatives.py",
+      "sha256": "8c42e794e9888d9e384801073fba1804f1c59764e782c3829f6720f1677c0e45"
+    },
+    {
+      "name": "worker-processor.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/processor.py",
+      "sha256": "3ce3bd19ab4cac3ce3ec193a2ead86db2e864643631790aa648ff5558e077b92"
+    },
+    {
+      "name": "test_coverage_derivatives.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_coverage_derivatives.py",
+      "sha256": "589ab5c899820c2e87471a8fea8c6c0d5a98e792369446e3f30d47e2646a8bd2"
+    },
+    {
+      "name": "test_coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_coverage_routes.py",
+      "sha256": "174d9467da7f5815d34b94d9002c564efc2262f79e4c68f8534212416d55daf5"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "check-gdal-coverage-derivative-peer.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-gdal-coverage-derivative-peer.py",
+      "sha256": "bf01562e59d7380c9f2da6a5805d13953bb7458667eb150c4bc3674e98319d48"
+    },
+    {
+      "name": "service-007-gdal-coverage-derivative-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-007-gdal-coverage-derivative-peer.json",
+      "sha256": "31811a6b838bcc2a65500ff576ce3f44d3a7d4d19a446640f7d48764b06a33a2"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.source-layer-breadth",
+      "assertion": "A current governed COG can produce an immutable bounded subset, scaled grid, and EPSG reprojection without GeoLibre running."
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "assertion": "Shared-auth administration explicitly creates, tracks, and exactly downloads a versioned raster derivative without exposing storage coordinates in job responses."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo supplies bounded raster subset, scale, reprojection, draft OGC API coverage discovery, and exact retrieval without an always-on GeoServer runtime."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "An independent GDAL 3.13.0 run verifies a deterministic UInt16 EPSG:3857 COG while ordinary OGC reads remain processing-free."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

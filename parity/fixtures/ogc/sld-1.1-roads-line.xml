@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<StyledLayerDescriptor version="1.1.0"
+  xmlns="http://www.opengis.net/sld"
+  xmlns:ogc="http://www.opengis.net/ogc"
+  xmlns:se="http://www.opengis.net/se">
+  <NamedLayer>
+    <se:Name>research:roads</se:Name>
+    <UserStyle>
+      <se:Name>roads-line</se:Name>
+      <se:Description>
+        <se:Title>Road centerlines</se:Title>
+      </se:Description>
+      <se:FeatureTypeStyle>
+        <se:Rule>
+          <se:LineSymbolizer>
+            <se:Stroke>
+              <se:SvgParameter name="stroke">#275d52</se:SvgParameter>
+              <se:SvgParameter name="stroke-width">2</se:SvgParameter>
+            </se:Stroke>
+          </se:LineSymbolizer>
+        </se:Rule>
+      </se:FeatureTypeStyle>
+    </UserStyle>
+  </NamedLayer>
+</StyledLayerDescriptor>

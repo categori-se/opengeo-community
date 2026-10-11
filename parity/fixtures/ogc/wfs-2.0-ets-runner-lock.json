@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1.0.0",
+  "suiteId": "ogc.ets-wfs20",
+  "observedAt": "2026-08-23",
+  "sourceRelease": "1.43",
+  "sourceCommit": "843c9f358d32cd5ef92c0dd5bbb6ff6c08f6092a",
+  "artifact": {
+    "repository": "Maven Central",
+    "url": "https://repo1.maven.org/maven2/org/opengis/cite/ets-wfs20/1.43/ets-wfs20-1.43-aio.jar",
+    "signatureUrl": "https://repo1.maven.org/maven2/org/opengis/cite/ets-wfs20/1.43/ets-wfs20-1.43-aio.jar.asc",
+    "pomUrl": "https://repo1.maven.org/maven2/org/opengis/cite/ets-wfs20/1.43/ets-wfs20-1.43.pom",
+    "fileName": "ets-wfs20-1.43-aio.jar",
+    "sha256": "92a83309dac008f7b65fa1464fe724c95deec1f1cca2feba4b1639baf8cec49b",
+    "sizeBytes": 47893223,
+    "signatureSha256": "2508f0c3bdb63cf306ba3cca82af55516366b3a105d11883d36afa5b7e9349f3",
+    "pomSha256": "5416f202487c5ed89dbc6be55c18247f459e3fc087c6305f623aed96493e2fa2",
+    "manifest": {
+      "mainClass": "org.opengis.cite.iso19142.TestNGController",
+      "buildJdkSpec": "17",
+      "createdBy": "Maven Archiver 3.6.1"
+    },
+    "zipEntries": 29593,
+    "uncompressedBytes": 118315435,
+    "embeddedMavenComponents": 65
+  },
+  "signature": {
+    "status": "good_signature",
+    "createdAt": "2024-11-08T22:25:18Z",
+    "fingerprint": "386E21996E814C2436F1DADD1CC7EFFEB71DBB75",
+    "claimedIdentity": "Open Geospatial Consortium (OGC CODE SIGNING KEY) <oss@opengeospatial.org>",
+    "publicKey": "parity/fixtures/ogc/ogc-code-signing-key.asc",
+    "publicKeySha256": "28dd3932a98a3ce4087113ea405326a5ef1136059e431573fb469e9b80f28ee8",
+    "trustBoundary": "The detached signature is cryptographically valid for the pinned fingerprint; the local keyring does not independently certify the signer's identity."
+  },
+  "resultContract": {
+    "format": "testng-results-xml",
+    "mediaType": "application/xml",
+    "fileName": "testng-results.xml",
+    "maxBytes": 8388608,
+    "teamEngineVersion": "6.0.0-RC2",
+    "teamEngineSpiSourceJarSha256": "1a6e39b6208680d6a9fc33a87568e4cf572a3ce9b56ec1ecd096b23ced10d75e",
+    "testNgExecutorSourceSha256": "547da1cc78c4eb4b63a9838649d0b349099816d2c662a6b814cb6e7f2ebf0602"
+  },
+  "executionPolicy": {
+    "status": "rejected_pending_dependency_remediation",
+    "allowsOfficialExecution": false,
+    "securityReport": "parity/reports/service-014-ogc-runner-security-scan.json",
+    "reasons": [
+      "The expanded all-in-one JAR scan reports one Critical Apache Derby finding and two High Xerces findings; the affected dependency code is embedded in the artifact.",
+      "An official diagnostic must not execute this artifact until an exact replacement or reviewed hardened rebuild has no unaccepted Critical/High findings and receives a new artifact lock."
+    ]
+  }
+}

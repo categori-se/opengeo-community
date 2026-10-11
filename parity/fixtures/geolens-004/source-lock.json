@@ -1,0 +1,13 @@
+{
+  "commit": "f5fee67d8cf053d741590a00a55fe1870eed2b92",
+  "files": [
+    {
+      "path": "parity/fixtures/geolens-004/maplibre-filter-utils.ts",
+      "upstreamPath": "frontend/src/lib/maplibre-filter-utils.ts",
+      "gitBlob": "58df31aa5120a529d17ee9b0f96fbfcd24ebbb58",
+      "sha256": "1de9fcd1d2f5a16f26a70ed704899e08e17620722c6633e9f524ee826c9bcb08"
+    }
+  ],
+  "license": "Apache-2.0",
+  "scope": "Unmodified independent filter helper only; not full GeoLens frontend, visibility/order or Style rendering."
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "metadata-004.records.official.validation",
+  "title": "OGC API Records official schema and abstract-test compatibility audit",
+  "fixtureType": "dataset",
+  "source": {
+    "kind": "synthetic",
+    "description": "Redistributable OpenGeo source lock and deterministic report for an offline replay against separately obtained official OGC schemas and abstract-test sources."
+  },
+  "license": {"spdxId": "CC0-1.0", "redistributable": true},
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "metadata-008-records-validation-sources.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-008-records-validation-sources.json",
+      "sha256": "fef61954960ff8260c945dd210a3e6662bddfaac5bd5b711cf37558cbfb74087"
+    },
+    {
+      "name": "metadata-004-records-official-validation-report.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/metadata-004-records-official-validation.json",
+      "sha256": "dfd22b8a74e298da3b4733ef7510cc3fe1f9198a59925baf551255a538e65adc"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "Structured OGC language and external identifier values, mandatory record links, collections, and catalogs pass an offline strict compatibility replay against checksum-locked official schemas."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "The report records the published record schema's three overlapping nullable branches and the absence of an executable ETS in the pinned standards source, so no schema or OGC conformance is claimed."
+    }
+  ],
+  "constraints": {"offline": true, "containsPersonalData": false, "requiresCredentials": false}
+}

@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:categori:workspace-contracts:documents:v1",
+  "title": "Immutable document version link",
+  "description": "Exact descriptive edition identity and integrity, without transport or grants. Runtime additionally validates credential-free authority, canonical composite part count and portable-data bounds. A COMPOSITE digest hashes fixed 8 MiB part hashes, not the complete object bytes directly.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reference",
+    "size_bytes",
+    "media_type",
+    "integrity"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "reference": {
+      "$ref": "#/$defs/reference"
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 134217728
+    },
+    "media_type": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+/[!#$%&'*+.^_`|~0-9A-Za-z-]+(?: *; *[!#$%&'*+.^_`|~0-9A-Za-z-]+=(?:[!#$%&'*+.^_`|~0-9A-Za-z-]+|\"(?:[\\x20-\\x21\\x23-\\x5b\\x5d-\\x7e]|\\\\[\\x20-\\x7e])*\"))*$(?![\\s\\S])"
+    },
+    "integrity": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/full_integrity"
+        },
+        {
+          "$ref": "#/$defs/composite_integrity"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "size_bytes": {
+            "const": 0
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "integrity": {
+            "$ref": "#/$defs/full_integrity"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 192,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,191}$(?![\\s\\S])"
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "authority",
+        "resource_id",
+        "resource_type",
+        "workspace_id",
+        "version_id"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "authority": {
+          "type": "string",
+          "maxLength": 500,
+          "format": "uri",
+          "pattern": "^(?:https?://[^/?#\\s@]+(?:/[^?#\\s]*)?|urn:[a-z0-9][a-z0-9-]{0,31}:[^?#\\s]+)$"
+        },
+        "resource_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "resource_type": {
+          "const": "document"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "full_integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "type",
+        "value"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "SHA256"
+        },
+        "type": {
+          "const": "FULL_OBJECT"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$(?![\\s\\S])"
+        }
+      }
+    },
+    "composite_integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "type",
+        "value",
+        "part_size_bytes"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "SHA256"
+        },
+        "type": {
+          "const": "COMPOSITE"
+        },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=-(?:[1-9]|1[0-6])$(?![\\s\\S])"
+        },
+        "part_size_bytes": {
+          "const": 8388608
+        }
+      }
+    }
+  }
+}

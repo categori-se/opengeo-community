@@ -1,0 +1,58 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "metadata-002.extended.roundtrip",
+  "title": "ISO, schema.org, DataCite, and GeoDCAT-AP semantic metadata round trip",
+  "fixtureType": "dataset",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic public metadata documents exercising four additional standards mappings, exact XML/canonical JSON preservation, and explicit losses without network access."
+  },
+  "license": {"spdxId": "CC0-1.0", "redistributable": true},
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "metadata-003-schemaorg30-dataset.json",
+      "mediaType": "application/ld+json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-003-schemaorg30-dataset.json",
+      "sha256": "bdbb054f3e0646bc2d076583b2997cbfb9abd6a12140de5024907e92c0287eb7"
+    },
+    {
+      "name": "metadata-004-datacite47.json",
+      "mediaType": "application/vnd.api+json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-004-datacite47.json",
+      "sha256": "4cc1c094dacf5b901500e846e81ba5c695d7755d5f18ed085d66e844739aef1d"
+    },
+    {
+      "name": "metadata-005-geodcat-ap31.json",
+      "mediaType": "application/ld+json",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-005-geodcat-ap31.json",
+      "sha256": "54948209774f2efaef70104d71b549ddd9d6a4a342a15049a5d701a32fa1a854"
+    },
+    {
+      "name": "metadata-006-iso19115-3.xml",
+      "mediaType": "application/xml",
+      "encoding": "path",
+      "value": "parity/fixtures/data/metadata-006-iso19115-3.xml",
+      "sha256": "49561d52e0e5023a21a4666df46838856a08c906d43437e32ebd98c92d065fc1"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "ISO 19115-3:2023, schema.org Dataset 30.0, DataCite 4.7, and GeoDCAT-AP 3.1.0 inputs preserve their exact source evidence and supported semantics."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "Every mapping reports its checksum basis and losses without claiming official standards or application-profile conformance."
+    },
+    {
+      "rowId": "geonode.metadata-management",
+      "assertion": "schema.org, DataCite, GeoDCAT-AP, and ISO source agents or CRS identifiers populate the bounded native OpenGeo catalog extension where present."
+    }
+  ],
+  "constraints": {"offline": true, "containsPersonalData": false, "requiresCredentials": false}
+}

@@ -1,0 +1,288 @@
+{
+  "schemaVersion": "1.0.0",
+  "contractKind": "source-operation-matrix",
+  "fixtureId": "geolibre-003.source-operation-matrix",
+  "observedAt": "2026-09-01",
+  "reference": {
+    "product": "GeoLibre",
+    "release": "2.6.0",
+    "tag": "v2.6.0",
+    "commit": "ef1604f66bb19157ea24202d78bdc60aad6e53a3",
+    "tree": "7b75920ba1a5e95a1b42d2e3383c5da67e0eee6e",
+    "catalogPath": "apps/geolibre-desktop/src/lib/ui-profile.ts",
+    "catalogGitBlob": "93e539f03e12d24500eeb5a5892a3bc89489966b",
+    "catalogSha256": "e96c83f1107d7f886aa045f4d4375e233027ad36b56bfab361ba4f06cf58e504",
+    "catalogBytes": 28839
+  },
+  "operations": [
+    "register",
+    "read",
+    "stream",
+    "preview",
+    "write",
+    "edit",
+    "preserve"
+  ],
+  "sourceFamilies": [
+    {
+      "id": "vector",
+      "section": "files",
+      "tier": "basic",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "raster",
+      "section": "files",
+      "tier": "basic",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "delimited-text",
+      "section": "files",
+      "tier": "basic",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "cad",
+      "section": "files",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "gdb",
+      "section": "files",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "photos",
+      "section": "files",
+      "tier": "intermediate",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "gpx",
+      "section": "files",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "mbtiles",
+      "section": "files",
+      "tier": "basic",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "osm-pbf",
+      "section": "files",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "xyz",
+      "section": "web-services",
+      "tier": "basic",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "wms",
+      "section": "web-services",
+      "tier": "basic",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "wfs",
+      "section": "web-services",
+      "tier": "intermediate",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "wmts",
+      "section": "web-services",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "ogc-features",
+      "section": "web-services",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "ogc-vector-tiles",
+      "section": "web-services",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "arcgis",
+      "section": "web-services",
+      "tier": "intermediate",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "georss",
+      "section": "web-services",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "stac",
+      "section": "web-services",
+      "tier": "advanced",
+      "disposition": "metadata-only"
+    },
+    {
+      "id": "video",
+      "section": "web-services",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "deckgl-viz",
+      "section": "web-services",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "geoparquet",
+      "section": "cloud",
+      "tier": "basic",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "flatgeobuf",
+      "section": "cloud",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "pmtiles",
+      "section": "cloud",
+      "tier": "intermediate",
+      "disposition": "bounded-current"
+    },
+    {
+      "id": "zarr",
+      "section": "cloud",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "netcdf",
+      "section": "cloud",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "lidar",
+      "section": "3d",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "splatting",
+      "section": "3d",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "3d-tiles",
+      "section": "3d",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "gltf-model",
+      "section": "3d",
+      "tier": "advanced",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "duckdb",
+      "section": "databases",
+      "tier": "intermediate",
+      "disposition": "preserve-only"
+    },
+    {
+      "id": "postgres",
+      "section": "databases",
+      "tier": "advanced",
+      "disposition": "connection-only"
+    }
+  ],
+  "acceptance": {
+    "sourceFamilies": 31,
+    "operationClaims": 217,
+    "boundedCurrentFamilies": 10,
+    "metadataOnlyFamilies": 1,
+    "connectionOnlyFamilies": 1,
+    "preserveOnlyFamilies": 19,
+    "operationStatusCounts": {
+      "available": 7,
+      "bounded": 53,
+      "preserve-only": 19,
+      "unavailable": 138,
+      "not-applicable": 0
+    }
+  },
+  "artifacts": [
+    {
+      "path": "app/src/lib/sourceCapabilityCatalog.js",
+      "bytes": 23409,
+      "sha256": "cab2cebfe5b30cffaba4a5f4ee92fe95c3ecdafb8c45ea27b33da67fdcada322"
+    },
+    {
+      "path": "app/src/components/PlatformDirectory.js",
+      "bytes": 138998,
+      "sha256": "9d3b2dde616ea09fc611deaabced58366f18eb83d9814bff254f5349a123596c"
+    },
+    {
+      "path": "app/src/lib/geolibreProject.js",
+      "bytes": 38923,
+      "sha256": "f9e73003f5d6a830d355efa3b4627ee8448a3098b0c7a6cda0904b93db7a1d17"
+    },
+    {
+      "path": "services/worker/src/opengeo_worker/inspector.py",
+      "bytes": 45110,
+      "sha256": "548791c7f9f7798fd0a1b705b1ecd8569d73b80c645e7c91fed91ef97e78a55c"
+    },
+    {
+      "path": "services/api/src/opengeo_api/external_source_routes.py",
+      "bytes": 25740,
+      "sha256": "e7da0506e3347dc050d3fdc4703eed7a16f7f3e42527064b6297de96d51e78e0"
+    },
+    {
+      "path": "services/api/src/opengeo_api/source_archiver.py",
+      "bytes": 62801,
+      "sha256": "01247492fb5033050c0f11cbab94c5d62cd3c9aa8134c1409f2cb17bf8249c57"
+    },
+    {
+      "path": "services/api/src/opengeo_api/metadata_adapters.py",
+      "bytes": 121975,
+      "sha256": "27b085c7335d308dac195a71fa1a3c769c701d9f37e9d04059aa1f8ff6cec59e"
+    },
+    {
+      "path": "services/api/src/opengeo_api/user_connection_routes.py",
+      "bytes": 54747,
+      "sha256": "34e63c95f05be5708c9a69d4e73799184cf23c9a4e0b21a3951e1ea91782080e"
+    },
+    {
+      "path": "services/api/src/opengeo_api/connection_verification_runtime.py",
+      "bytes": 22794,
+      "sha256": "3bc63c79989dfe0c6f96f94bba926b2eea7bcd33707c9646fa6fafdf0e004e11"
+    },
+    {
+      "path": "parity/fixtures/geolibre/geolibre-2.6.0-source-lock.json",
+      "bytes": 19473,
+      "sha256": "2ba5f5e01f84ce1134dd2678f757ba219b95ff9c9686a4c6ccfb2d45cf501b81"
+    }
+  ],
+  "knownDifferences": [
+    "OpenGeo has bounded current operations for 10 source families, metadata-only STAC import, and PostGIS connection verification; those bounds are the complete current claims rather than implied full-format support.",
+    "Nineteen exact GeoLibre families are preserve-only: their safe project definitions and explicit losses survive conversion, but OpenGeo does not register or execute those adapters.",
+    "A preserve-only disposition records compatibility state and loss; it does not read source bytes, open a database, fetch a service, load executable JavaScript, or render 3D content.",
+    "STAC support is one bounded Collection metadata document and does not search items or read assets; PostGIS support verifies one TLS read-only capability query and does not discover or stream tables.",
+    "This operation matrix validates the exact advertised source catalog and OpenGeo's finite registry; it does not execute GeoLibre UI flows or every bounded OpenGeo adapter against a live external system."
+  ]
+}

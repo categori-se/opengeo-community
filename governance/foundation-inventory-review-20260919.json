@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0.0",
+  "reviewedAt": "2026-09-19",
+  "scope": "Eight newly recorded direct dependencies; source manifests and installed package versions/licenses checked against lockfiles. No package changes or downloads.",
+  "packages": [
+    {
+      "name": "@observablehq/notebook-kit",
+      "version": "2.5.6",
+      "packageMetadataPath": "app/node_modules/@observablehq/notebook-kit/package.json",
+      "packageMetadataSha256": "3c5e1d3f562d5de70affcc4e478389bbd877a1a7f41de535ce3cc5d5de9d77a5",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/notebook-kit",
+      "licenseFiles": [
+        {
+          "name": "LICENSE",
+          "sha256": "40ab001d0c97eb534aae92d7ccc5fec92043f9727ea5b505a9dedeffe0038274"
+        }
+      ]
+    },
+    {
+      "name": "markdown-it",
+      "version": "14.2.0",
+      "packageMetadataPath": "app/node_modules/markdown-it/package.json",
+      "packageMetadataSha256": "adb5bd0bae622b295e374fc3766c5864c35ec63de91fafaed6b99e00486bde33",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/markdown-it/markdown-it",
+      "licenseFiles": [
+        {
+          "name": "LICENSE",
+          "sha256": "792c48c5a849a15fdf9e37e8bcf9e6d1dd13b32b46c642a748a0a46a9919d473"
+        }
+      ]
+    },
+    {
+      "name": "monaco-editor",
+      "version": "0.56.0",
+      "packageMetadataPath": "app/node_modules/monaco-editor/package.json",
+      "packageMetadataSha256": "3555e3e0bc0d5f8c22be8f26164c11778dff0feabf564c67185726636f4b15c7",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/microsoft/monaco-editor",
+      "licenseFiles": [
+        {
+          "name": "LICENSE",
+          "sha256": "33e4ff1a06ef62ba21788ea162564ee8165269a24a9ce6ef301837447eab0ac6"
+        }
+      ]
+    },
+    {
+      "name": "path-browserify",
+      "version": "1.0.1",
+      "packageMetadataPath": "app/node_modules/path-browserify/package.json",
+      "packageMetadataSha256": "8adb61e752398b45fbcf7bc35f254b74302622b100e49915a4905e74c97acb42",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/browserify/path-browserify",
+      "licenseFiles": [
+        {
+          "name": "LICENSE",
+          "sha256": "a22b9d5763f574e5db347c30acc0b33eaf4846767c03d2e27d012e864e79a824"
+        }
+      ]
+    },
+    {
+      "name": "@observablehq/inputs",
+      "version": "0.12.0",
+      "packageMetadataPath": "services/observable-builder/node_modules/@observablehq/inputs/package.json",
+      "packageMetadataSha256": "7f77ba8977c996ca4c292b1a62d451eafa68eef3f988960a451e038df41196ad",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/inputs",
+      "licenseFiles": [
+        {
+          "name": "LICENSE",
+          "sha256": "7f929e6c5e0d434041d8e7425c012a49e051f7b27583ee9a39f74e323d083ae2"
+        }
+      ]
+    },
+    {
+      "name": "esbuild",
+      "version": "0.28.2",
+      "packageMetadataPath": "services/observable-builder/node_modules/esbuild/package.json",
+      "packageMetadataSha256": "9d0bc453f4e791553c4cc2298ba023b409241fd9801e494741666eb0f6051490",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/evanw/esbuild",
+      "licenseFiles": [
+        {
+          "name": "LICENSE.md",
+          "sha256": "b40ec5baec7bb34fa5b1c09521fa3cd52d5fad7adafed74932a2010d3612a681"
+        }
+      ]
+    },
+    {
+      "name": "htl",
+      "version": "0.3.1",
+      "packageMetadataPath": "services/observable-builder/node_modules/htl/package.json",
+      "packageMetadataSha256": "6bd71a4cb6dcfdc8bf0ed76567591ebed9363ba321c1bf780e7d32a63cd4e5c4",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/observablehq/htl",
+      "licenseFiles": [
+        {
+          "name": "LICENSE",
+          "sha256": "f5f76da401192cb85b52b3bf3b54c490b3f701a79e33902dcc7af5c1b238d1f8"
+        }
+      ]
+    },
+    {
+      "name": "jszip",
+      "version": "3.10.1",
+      "packageMetadataPath": "services/observable-builder/node_modules/jszip/package.json",
+      "packageMetadataSha256": "83569b5b130b5ec27ae281ed80420ad364baf1bf64cb82e6ac8fb891e1b4ec4c",
+      "licenseExpression": "(MIT OR GPL-3.0-or-later)",
+      "sourceUrl": "https://github.com/Stuk/jszip",
+      "licenseFiles": [
+        {
+          "name": "LICENSE.markdown",
+          "sha256": "566c953c6090b1218ca6217dd7359d45dde46581968586dc607d59a78af6a9c4"
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Installed license hashes record this local review; they do not replace shipped notices, transitive SBOMs or release artifact license checks.",
+    "Existing platform and reference-product entries were not re-audited by this direct-dependency review."
+  ]
+}

@@ -1,0 +1,309 @@
+BEGIN;
+
+CREATE TYPE app.dataset_connection_provider AS ENUM ('s3');
+CREATE TYPE app.dataset_connection_credential_mode AS ENUM (
+  'workload_identity',
+  'assume_role',
+  'access_key'
+);
+CREATE TYPE app.dataset_connection_status AS ENUM (
+  'draft',
+  'unverified',
+  'verified',
+  'error',
+  'disabled'
+);
+
+CREATE TABLE app.user_dataset_connections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES app.organizations(id),
+  owner_user_id uuid NOT NULL REFERENCES app.users(id),
+  provider app.dataset_connection_provider NOT NULL,
+  display_name text NOT NULL,
+  bucket_name text NOT NULL,
+  region_name text NOT NULL,
+  object_prefix text NOT NULL DEFAULT '',
+  credential_mode app.dataset_connection_credential_mode NOT NULL,
+  role_arn text,
+  secret_arn text,
+  configured_secret_fields text[] NOT NULL DEFAULT ARRAY[]::text[],
+  credential_revision bigint NOT NULL DEFAULT 0,
+  status app.dataset_connection_status NOT NULL DEFAULT 'draft',
+  last_verified_at timestamptz,
+  sanitized_error_code text,
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (organization_id, id),
+  FOREIGN KEY (organization_id, owner_user_id)
+    REFERENCES app.organization_memberships (organization_id, user_id),
+  CONSTRAINT user_dataset_connections_name_bounded CHECK (
+    display_name = btrim(display_name)
+    AND char_length(display_name) BETWEEN 1 AND 200
+  ),
+  CONSTRAINT user_dataset_connections_s3_bucket_safe CHECK (
+    bucket_name = lower(bucket_name)
+    AND char_length(bucket_name) BETWEEN 3 AND 63
+    AND bucket_name ~ '^[a-z0-9][a-z0-9.-]*[a-z0-9]$'
+    AND bucket_name !~ '(\.\.|\.-|-\.)'
+    AND bucket_name !~ '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'
+  ),
+  CONSTRAINT user_dataset_connections_region_safe CHECK (
+    region_name = lower(region_name)
+    AND char_length(region_name) BETWEEN 3 AND 32
+    AND region_name ~ '^[a-z]{2}(?:-gov)?-[a-z0-9-]+-[0-9]+$'
+  ),
+  CONSTRAINT user_dataset_connections_prefix_safe CHECK (
+    octet_length(object_prefix) <= 1024
+    AND object_prefix !~ '^[\/]'
+    AND object_prefix !~ '[\\[:cntrl:]]'
+  ),
+  CONSTRAINT user_dataset_connections_role_mode CHECK (
+    (credential_mode = 'assume_role'
+      AND char_length(role_arn) BETWEEN 32 AND 2048
+      AND role_arn ~ '^arn:aws(?:-us-gov)?:iam::[0-9]{12}:role/[A-Za-z0-9_+=,.@/-]+$')
+    OR (credential_mode <> 'assume_role' AND role_arn IS NULL)
+  ),
+  CONSTRAINT user_dataset_connections_secret_reference_safe CHECK (
+    (
+      secret_arn IS NULL
+      AND configured_secret_fields = ARRAY[]::text[]
+      AND credential_revision = 0
+    )
+    OR (
+      secret_arn ~ '^arn:aws(?:-us-gov)?:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:opengeo/[A-Za-z0-9/_+=.@-]+$'
+      AND credential_revision > 0
+      AND credential_mode <> 'workload_identity'
+      AND (
+        (credential_mode = 'assume_role'
+          AND configured_secret_fields = ARRAY['external_id']::text[])
+        OR
+        (credential_mode = 'access_key'
+          AND configured_secret_fields IN (
+            ARRAY['access_key_id', 'secret_access_key']::text[],
+            ARRAY['access_key_id', 'secret_access_key', 'session_token']::text[]
+          ))
+      )
+    )
+  ),
+  CONSTRAINT user_dataset_connections_state_consistent CHECK (
+    (credential_mode = 'access_key' AND secret_arn IS NULL AND status = 'draft')
+    OR (NOT (credential_mode = 'access_key' AND secret_arn IS NULL) AND status <> 'draft')
+  ),
+  CONSTRAINT user_dataset_connections_verification_consistent CHECK (
+    (status = 'verified' AND last_verified_at IS NOT NULL AND sanitized_error_code IS NULL)
+    OR (status = 'error' AND sanitized_error_code IS NOT NULL)
+    OR status IN ('draft', 'unverified', 'disabled')
+  )
+);
+
+CREATE INDEX user_dataset_connections_owner_idx
+  ON app.user_dataset_connections
+    (organization_id, owner_user_id, updated_at DESC, id);
+
+CREATE TABLE app.project_dataset_connection_bindings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id uuid NOT NULL REFERENCES app.organizations(id),
+  project_id uuid NOT NULL,
+  connection_id uuid NOT NULL,
+  display_name text NOT NULL,
+  created_by uuid NOT NULL REFERENCES app.users(id),
+  created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+  UNIQUE (organization_id, id),
+  UNIQUE (organization_id, project_id, connection_id),
+  FOREIGN KEY (organization_id, project_id)
+    REFERENCES app.projects (organization_id, id),
+  FOREIGN KEY (organization_id, connection_id)
+    REFERENCES app.user_dataset_connections (organization_id, id),
+  CONSTRAINT project_dataset_connection_bindings_name_bounded CHECK (
+    display_name = btrim(display_name)
+    AND char_length(display_name) BETWEEN 1 AND 200
+  )
+);
+
+CREATE INDEX project_dataset_connection_bindings_connection_idx
+  ON app.project_dataset_connection_bindings
+    (organization_id, connection_id, project_id);
+
+CREATE TRIGGER user_dataset_connections_set_updated_at
+  BEFORE UPDATE ON app.user_dataset_connections
+  FOR EACH ROW EXECUTE FUNCTION app.set_updated_at();
+
+ALTER TABLE app.user_dataset_connections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.project_dataset_connection_bindings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE app.user_dataset_connections FORCE ROW LEVEL SECURITY;
+ALTER TABLE app.project_dataset_connection_bindings FORCE ROW LEVEL SECURITY;
+
+CREATE FUNCTION app.current_user_is_organization_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY INVOKER
+SET search_path = pg_catalog, app
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM app.organization_memberships membership
+    WHERE membership.organization_id = app.current_organization_id()
+      AND membership.user_id = app.current_user_id()
+      AND membership.role = 'admin'
+  )
+$$;
+
+CREATE POLICY user_dataset_connections_select ON app.user_dataset_connections
+  FOR SELECT USING (
+    organization_id = app.current_organization_id()
+    AND (
+      owner_user_id = app.current_user_id()
+      OR app.current_user_is_organization_admin()
+      OR EXISTS (
+        SELECT 1
+        FROM app.project_dataset_connection_bindings binding
+        WHERE binding.organization_id = user_dataset_connections.organization_id
+          AND binding.connection_id = user_dataset_connections.id
+          AND app.effective_project_role(binding.project_id) IS NOT NULL
+      )
+    )
+  );
+CREATE POLICY user_dataset_connections_insert ON app.user_dataset_connections
+  FOR INSERT WITH CHECK (
+    organization_id = app.current_organization_id()
+    AND owner_user_id = app.current_user_id()
+  );
+CREATE POLICY user_dataset_connections_update ON app.user_dataset_connections
+  FOR UPDATE USING (
+    organization_id = app.current_organization_id()
+    AND owner_user_id = app.current_user_id()
+  ) WITH CHECK (
+    organization_id = app.current_organization_id()
+    AND owner_user_id = app.current_user_id()
+  );
+CREATE POLICY user_dataset_connections_delete ON app.user_dataset_connections
+  FOR DELETE USING (
+    organization_id = app.current_organization_id()
+    AND owner_user_id = app.current_user_id()
+  );
+
+CREATE POLICY project_dataset_connection_bindings_select
+  ON app.project_dataset_connection_bindings
+  FOR SELECT USING (
+    organization_id = app.current_organization_id()
+    AND (
+      app.effective_project_role(project_id) IS NOT NULL
+      OR app.current_user_is_organization_admin()
+      OR created_by = app.current_user_id()
+    )
+  );
+CREATE POLICY project_dataset_connection_bindings_insert
+  ON app.project_dataset_connection_bindings
+  FOR INSERT WITH CHECK (
+    organization_id = app.current_organization_id()
+    AND (
+      app.effective_project_role(project_id) = 'owner'
+      OR app.current_user_is_organization_admin()
+    )
+    AND EXISTS (
+      SELECT 1 FROM app.user_dataset_connections connection
+      WHERE connection.organization_id = project_dataset_connection_bindings.organization_id
+        AND connection.id = project_dataset_connection_bindings.connection_id
+        AND connection.owner_user_id = app.current_user_id()
+    )
+  );
+CREATE POLICY project_dataset_connection_bindings_delete
+  ON app.project_dataset_connection_bindings
+  FOR DELETE USING (
+    organization_id = app.current_organization_id()
+    AND (
+      app.effective_project_role(project_id) = 'owner'
+      OR app.current_user_is_organization_admin()
+      OR created_by = app.current_user_id()
+    )
+  );
+
+CREATE FUNCTION app.prepare_user_dataset_connection_credential_rotation(
+  p_connection_id uuid
+)
+RETURNS TABLE (
+  credential_mode app.dataset_connection_credential_mode,
+  current_secret_arn text,
+  credential_revision bigint
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, app
+AS $$
+  SELECT connection.credential_mode, connection.secret_arn,
+         connection.credential_revision
+  FROM app.user_dataset_connections connection
+  WHERE connection.organization_id = app.current_organization_id()
+    AND connection.owner_user_id = app.current_user_id()
+    AND connection.id = p_connection_id
+    AND connection.status <> 'disabled'
+$$;
+
+CREATE FUNCTION app.commit_user_dataset_connection_credential_rotation(
+  p_connection_id uuid,
+  p_expected_revision bigint,
+  p_secret_arn text,
+  p_configured_secret_fields text[]
+)
+RETURNS boolean
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, app
+AS $$
+BEGIN
+  UPDATE app.user_dataset_connections connection
+  SET secret_arn = p_secret_arn,
+      configured_secret_fields = p_configured_secret_fields,
+      credential_revision = p_expected_revision + 1,
+      status = 'unverified',
+      last_verified_at = NULL,
+      sanitized_error_code = NULL
+  WHERE connection.organization_id = app.current_organization_id()
+    AND connection.owner_user_id = app.current_user_id()
+    AND connection.id = p_connection_id
+    AND connection.credential_revision = p_expected_revision
+    AND connection.credential_mode <> 'workload_identity'
+    AND connection.status <> 'disabled';
+  RETURN FOUND;
+END;
+$$;
+
+GRANT SELECT (
+  id, organization_id, owner_user_id, provider, display_name, bucket_name,
+  region_name, object_prefix, credential_mode, role_arn,
+  configured_secret_fields, credential_revision, status, last_verified_at,
+  sanitized_error_code, created_at, updated_at
+) ON app.user_dataset_connections TO opengeo_runtime;
+GRANT INSERT ON app.user_dataset_connections TO opengeo_runtime;
+GRANT UPDATE (
+  display_name, bucket_name, region_name, object_prefix, role_arn, status,
+  last_verified_at, sanitized_error_code
+) ON app.user_dataset_connections TO opengeo_runtime;
+GRANT SELECT, INSERT, DELETE ON app.project_dataset_connection_bindings TO opengeo_runtime;
+
+REVOKE EXECUTE ON FUNCTION
+  app.current_user_is_organization_admin(),
+  app.prepare_user_dataset_connection_credential_rotation(uuid),
+  app.commit_user_dataset_connection_credential_rotation(uuid, bigint, text, text[])
+FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION
+  app.current_user_is_organization_admin(),
+  app.prepare_user_dataset_connection_credential_rotation(uuid),
+  app.commit_user_dataset_connection_credential_rotation(uuid, bigint, text, text[])
+TO opengeo_runtime;
+
+REVOKE ALL ON
+  app.user_dataset_connections,
+  app.project_dataset_connection_bindings
+FROM opengeo_worker, opengeo_connector, opengeo_observable_coordinator;
+
+COMMENT ON TABLE app.user_dataset_connections IS
+  'Reusable user-owned dataset connection metadata. Credential values live only in Secrets Manager.';
+COMMENT ON TABLE app.project_dataset_connection_bindings IS
+  'Explicit project references to reusable connections; projects retain independent maps and styling.';
+COMMENT ON FUNCTION app.prepare_user_dataset_connection_credential_rotation(uuid) IS
+  'Returns the owning caller only the opaque reference needed for write-only credential replacement.';
+
+COMMIT;

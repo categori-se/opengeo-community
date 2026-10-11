@@ -1,0 +1,35 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {"name": "North Ridge Road", "surface": "gravel", "status": "verified"},
+      "geometry": {"type": "LineString", "coordinates": [[85.22, 27.59], [85.26, 27.62], [85.31, 27.65]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "River Access Track", "surface": "earth", "status": "needs review"},
+      "geometry": {"type": "LineString", "coordinates": [[85.25, 27.61], [85.29, 27.63], [85.34, 27.66]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Market Connector", "surface": "paved", "status": "verified"},
+      "geometry": {"type": "LineString", "coordinates": [[85.27, 27.58], [85.32, 27.6], [85.38, 27.63]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Feeder Spur A", "surface": "gravel", "status": "draft"},
+      "geometry": {"type": "LineString", "coordinates": [[85.33, 27.66], [85.36, 27.69], [85.4, 27.72]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "Feeder Spur B", "surface": "earth", "status": "draft"},
+      "geometry": {"type": "LineString", "coordinates": [[85.31, 27.65], [85.35, 27.67], [85.39, 27.7]]}
+    },
+    {
+      "type": "Feature",
+      "properties": {"name": "South Service Road", "surface": "paved", "status": "verified"},
+      "geometry": {"type": "LineString", "coordinates": [[85.23, 27.6], [85.28, 27.59], [85.36, 27.61], [85.42, 27.64]]}
+    }
+  ]
+}

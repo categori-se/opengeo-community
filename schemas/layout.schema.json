@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Layout",
+  "type": "object",
+  "required": ["layoutId", "tenantId", "workspaceId", "title", "pageSize", "orientation", "page", "elements", "classification", "createdBy", "updatedAt"],
+  "properties": {
+    "layoutId": {"type": "string"},
+    "tenantId": {"type": "string"},
+    "workspaceId": {"type": "string"},
+    "title": {"type": "string"},
+    "pageSize": {"type": "string"},
+    "orientation": {"enum": ["portrait", "landscape"]},
+    "classification": {"enum": ["public", "internal", "restricted"]},
+    "page": {
+      "type": "object",
+      "required": ["size", "orientation", "widthMm", "heightMm", "marginMm"],
+      "properties": {
+        "size": {"type": "string"},
+        "orientation": {"enum": ["portrait", "landscape"]},
+        "widthMm": {"type": "number"},
+        "heightMm": {"type": "number"},
+        "marginMm": {"type": "number"}
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": {"$ref": "./layout-element.schema.json"}
+    },
+    "createdBy": {"type": "string"},
+    "updatedAt": {"type": "string", "format": "date-time"}
+  }
+}

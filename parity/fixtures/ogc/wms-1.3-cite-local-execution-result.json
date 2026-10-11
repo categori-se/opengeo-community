@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0.0",
+  "artifactType": "wms-1.3-cite-local-execution-result",
+  "status": "official_basic_class_passed_aggregate_failed_one_runner_error",
+  "observedAt": "2026-09-04",
+  "source": {
+    "repository": "https://github.com/opengeospatial/ets-wms13",
+    "projectVersion": "1.35-SNAPSHOT",
+    "commit": "9a45b91e8e1dc600f574002ac89342b20bac3106",
+    "archiveSizeBytes": 4384850,
+    "archiveSha256": "487bd1d02932c75470cb314bbbed7216add8fa003aff2aeb8f07d86e33a1829d",
+    "getMapPath": "src/main/scripts/ctl/getmap.xml",
+    "getMapSha256": "14e9cabe9253f98c7ccde0acb97affcee2d4a4b36f77aa5d2d55c1ec7a9e99a0"
+  },
+  "runner": {
+    "candidateSha256": "c9bc864aeef0c5738ab58b6e6f835ac2e11aaca290b0f22c41238e3fc9c7ff44",
+    "candidateSizeBytes": 20199068,
+    "entryCount": 14451,
+    "changedTrackedPaths": ["pom.xml"],
+    "officialSuiteSourceOrTestChanges": 0,
+    "executionForm": "freshly scanned candidate expanded to a disposable classpath because the upstream all-in-one entry point cannot convert its jar resource URI to java.io.File",
+    "trivy": {
+      "version": "0.73.0",
+      "binarySha256": "5b3ebab0f98d95196c85efc3a9d31a01520c96fa342e4e611f56db64c516df1d",
+      "databaseUpdatedAt": "2026-09-04T08:16:30.553157885Z",
+      "javaDatabaseUpdatedAt": "2026-09-04T01:11:37.497889969Z",
+      "resultCount": 27,
+      "vulnerabilities": 0,
+      "scanSizeBytes": 43732,
+      "scanSha256": "302bb0229830b6255e834656f945648870e4cfbeb983f6ccde97011ac37c2650"
+    }
+  },
+  "implementation": {
+    "fixtureId": "ogc.wms-1.3.0.cite-blue-lake.basic",
+    "layers": 11,
+    "features": 20,
+    "advertisedLayerLimit": 16,
+    "formats": ["image/png", "image/svg+xml"],
+    "crs": ["CRS:84", "EPSG:3857"],
+    "requestParser": "services/api/src/opengeo_api/wms.py",
+    "capabilitiesSerializer": "services/api/src/opengeo_api/wms.py",
+    "renderRequestBuilder": "services/api/src/opengeo_api/render_routes.py",
+    "configurationCompiler": "services/api/src/opengeo_api/maplibre_render.py",
+    "renderer": "services/worker/src/opengeo_worker/renderer.py",
+    "diagnosticServer": "scripts/serve-wms-cite-diagnostic.py",
+    "authorizationBridge": "scripts/run-wms-ets-auth-bridge.mjs"
+  },
+  "execution": {
+    "repetitions": 2,
+    "resultDocumentsPerRun": 146,
+    "resultCountsPerRun": {
+      "passed": 141,
+      "inheritedFailed": 4,
+      "error": 1
+    },
+    "officialBasicClass": "passed",
+    "dataPreconditions": "passed",
+    "aggregateSuite": "failed",
+    "cleanRun": {
+      "rootLogSizeBytes": 24289,
+      "rootLogSha256": "48e91dc49155901fc0efce39e1b13dec565f2295678840ff66f7facb4162728b",
+      "reportLogSizeBytes": 16482,
+      "reportLogSha256": "2008f4262408711ac1e750d52da26f13af631cfc584f8749063971cfc950b5f4",
+      "requestLogSizeBytes": 11794,
+      "requestLogSha256": "78ab9454ff8a7bfcff3d6cfe04ee3ace1d060d2b8d85f976fb8ca8d825e35e89"
+    },
+    "requestObservations": [
+      {"operation": "GetCapabilities", "status": 200, "mediaType": "text/xml", "count": 22},
+      {"operation": "GetMap", "status": 200, "mediaType": "image/png", "count": 98},
+      {"operation": "GetMap", "status": 200, "mediaType": "image/svg+xml", "count": 2},
+      {"operation": "exception", "status": 400, "mediaType": "text/xml", "count": 32}
+    ]
+  },
+  "runnerError": {
+    "test": "getmap:layerlimit",
+    "result": "error",
+    "inheritedFailures": ["getmap:layers", "getmap:getmap", "main:data-independent", "main:main-auto"],
+    "requestStatus": 400,
+    "cause": "The unchanged suite assigns an already percent-encoded layer name, encodes that variable again while constructing LayerLimit repetitions, and sends cite%253ALakes. OpenGeo decodes the HTTP query once and correctly rejects cite%3ALakes as an unadvertised name.",
+    "sourcePatchedForExecution": false,
+    "openGeoParserWidened": false,
+    "optionalLayerLimitRemoved": false,
+    "formalConformanceClaim": false
+  },
+  "trace": {
+    "path": "parity/fixtures/ogc/wms-1.3-cite-local-successful-getmap-trace.json",
+    "repetitions": 2,
+    "byteIdentical": true,
+    "sizeBytes": 34807,
+    "sha256": "889093b50d26ab31f0fe17c1c563a7bfc737a11ee7332c89f36154e0f0a65fa2",
+    "uniqueRequests": 42,
+    "observationsPerRun": 100,
+    "uniquePngRequests": 41,
+    "uniqueSvgRequests": 1,
+    "uniqueCrs84Requests": 41,
+    "uniqueEpsg3857Requests": 1,
+    "multiLayerRequests": 7,
+    "maximumLayerCount": 8,
+    "minimumResponseBytes": 1118,
+    "maximumResponseBytes": 91780,
+    "allElevenLayersObserved": true,
+    "authorizationHeadersRecorded": false,
+    "rawQueriesRecorded": false
+  },
+  "boundary": {
+    "officialSuiteExecuted": true,
+    "officialBasicClassPassed": true,
+    "aggregateSuitePassed": false,
+    "ogcCertification": false,
+    "productionConformanceDeclarationsRemainEmpty": true,
+    "governedPublicationExecuted": false,
+    "deployedEndpointContacted": false,
+    "deploymentChanged": false,
+    "awsStateChanged": false,
+    "fixedInactiveCostDeltaUsd": 0
+  }
+}

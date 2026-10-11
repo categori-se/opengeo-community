@@ -1,0 +1,280 @@
+[
+  {
+    "name": "immutable reference",
+    "kind": "immutableReference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": "revision_1"
+    },
+    "valid": true
+  },
+  {
+    "name": "envelope preserves unknown date",
+    "kind": "envelope",
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:archive",
+        "resource_id": "asset_1",
+        "resource_type": "asset",
+        "workspace_id": "workspace_a",
+        "version_id": "revision_1"
+      },
+      "record_revision": 1,
+      "aliases": [],
+      "relationships": [],
+      "extensions": {
+        "esia:evidence": {
+          "observed_at": null,
+          "title": "Synthetic evidence"
+        }
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "mutable reference",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a"
+    },
+    "valid": true
+  },
+  {
+    "name": "immutable requires version",
+    "kind": "immutableReference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a"
+    },
+    "valid": false
+  },
+  {
+    "name": "wrong wire version",
+    "kind": "reference",
+    "value": {
+      "schema_version": "1",
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": "revision_1"
+    },
+    "valid": false
+  },
+  {
+    "name": "unsupported field",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": "revision_1",
+      "grant": "edit"
+    },
+    "valid": false
+  },
+  {
+    "name": "credential authority",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "https://user:pass@example.invalid",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": "revision_1"
+    },
+    "valid": false
+  },
+  {
+    "name": "signed authority",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "https://example.invalid/?token=synthetic",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": "revision_1"
+    },
+    "valid": false
+  },
+  {
+    "name": "empty scope",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "",
+      "version_id": "revision_1"
+    },
+    "valid": false
+  },
+  {
+    "name": "null version",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": null
+    },
+    "valid": false
+  },
+  {
+    "name": "blank version",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": "asset_1",
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": " "
+    },
+    "valid": false
+  },
+  {
+    "name": "numeric identity",
+    "kind": "reference",
+    "value": {
+      "schema_version": 1,
+      "authority": "urn:example:archive",
+      "resource_id": 3,
+      "resource_type": "asset",
+      "workspace_id": "workspace_a",
+      "version_id": "revision_1"
+    },
+    "valid": false
+  },
+  {
+    "name": "zero revision",
+    "kind": "envelope",
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:archive",
+        "resource_id": "asset_1",
+        "resource_type": "asset",
+        "workspace_id": "workspace_a",
+        "version_id": "revision_1"
+      },
+      "record_revision": 0,
+      "aliases": [],
+      "relationships": [],
+      "extensions": {
+        "esia:evidence": {
+          "observed_at": null,
+          "title": "Synthetic evidence"
+        }
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "missing namespace",
+    "kind": "envelope",
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:archive",
+        "resource_id": "asset_1",
+        "resource_type": "asset",
+        "workspace_id": "workspace_a",
+        "version_id": "revision_1"
+      },
+      "record_revision": 1,
+      "aliases": [],
+      "relationships": [],
+      "extensions": {
+        "evidence": {}
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown envelope field",
+    "kind": "envelope",
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:archive",
+        "resource_id": "asset_1",
+        "resource_type": "asset",
+        "workspace_id": "workspace_a",
+        "version_id": "revision_1"
+      },
+      "record_revision": 1,
+      "aliases": [],
+      "relationships": [],
+      "extensions": {
+        "esia:evidence": {
+          "observed_at": null,
+          "title": "Synthetic evidence"
+        }
+      },
+      "permissions": []
+    },
+    "valid": false
+  },
+  {
+    "name": "wrong relation shape",
+    "kind": "envelope",
+    "value": {
+      "schema_version": 1,
+      "reference": {
+        "schema_version": 1,
+        "authority": "urn:example:archive",
+        "resource_id": "asset_1",
+        "resource_type": "asset",
+        "workspace_id": "workspace_a",
+        "version_id": "revision_1"
+      },
+      "record_revision": 1,
+      "aliases": [],
+      "relationships": [
+        {
+          "type": "derived_from",
+          "target": {
+            "schema_version": 1,
+            "authority": "urn:example:archive",
+            "resource_id": "asset_1",
+            "resource_type": "asset",
+            "workspace_id": "workspace_a",
+            "version_id": "revision_1"
+          },
+          "grant": true
+        }
+      ],
+      "extensions": {
+        "esia:evidence": {
+          "observed_at": null,
+          "title": "Synthetic evidence"
+        }
+      }
+    },
+    "valid": false
+  }
+]

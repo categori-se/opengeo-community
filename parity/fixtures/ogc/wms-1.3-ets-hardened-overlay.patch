@@ -1,0 +1,37 @@
+diff --git a/pom.xml b/pom.xml
+index 9fbffb5..e9c174c 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -72,6 +72,32 @@
+     <dependency>
+       <groupId>org.opengis.cite.teamengine</groupId>
+       <artifactId>teamengine-spi-ctl</artifactId>
++      <exclusions>
++        <exclusion>
++          <groupId>org.slf4j</groupId>
++          <artifactId>slf4j-log4j12</artifactId>
++        </exclusion>
++        <exclusion>
++          <groupId>log4j</groupId>
++          <artifactId>log4j</artifactId>
++        </exclusion>
++      </exclusions>
++    </dependency>
++    <!--
++      OpenGeo hardened-runner overlay: retain the legacy Log4j 1.x API surface
++      required by inherited dependencies while routing it through the resolved
++      SLF4J 2 runtime. Official suite sources, resources, test selection, and
++      runner behavior remain unchanged.
++    -->
++    <dependency>
++      <groupId>org.slf4j</groupId>
++      <artifactId>log4j-over-slf4j</artifactId>
++      <version>2.0.16</version>
++    </dependency>
++    <dependency>
++      <groupId>org.slf4j</groupId>
++      <artifactId>slf4j-simple</artifactId>
++      <version>2.0.16</version>
+     </dependency>
+     <dependency>
+       <groupId>junit</groupId>

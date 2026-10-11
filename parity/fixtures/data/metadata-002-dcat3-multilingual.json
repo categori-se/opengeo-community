@@ -1,0 +1,66 @@
+{
+  "@context": {
+    "dcat": "http://www.w3.org/ns/dcat#",
+    "dct": "http://purl.org/dc/terms/",
+    "locn": "http://www.w3.org/ns/locn#"
+  },
+  "@id": "https://catalog.example.test/datasets/road-network",
+  "@type": "dcat:Dataset",
+  "dct:identifier": "road-network-multilingual-2026",
+  "dct:title": [
+    {
+      "@value": "Road network",
+      "@language": "en"
+    },
+    {
+      "@value": "Réseau routier",
+      "@language": "fr"
+    }
+  ],
+  "dct:language": [
+    "en",
+    "fr"
+  ],
+  "dct:description": [
+    {
+      "@value": "A curated road network.",
+      "@language": "en"
+    },
+    {
+      "@value": "Un réseau routier organisé.",
+      "@language": "fr"
+    }
+  ],
+  "dct:license": "CC-BY-4.0",
+  "dct:rights": [
+    {
+      "@value": "Research team",
+      "@language": "en"
+    },
+    {
+      "@value": "Équipe de recherche",
+      "@language": "fr"
+    }
+  ],
+  "dcat:keyword": [
+    {
+      "@value": "roads",
+      "@language": "en"
+    },
+    {
+      "@value": "routes",
+      "@language": "fr"
+    }
+  ],
+  "dct:spatial": {
+    "@type": "dct:Location",
+    "locn:geometry": {
+      "@value": "POLYGON ((-77.2 38.7, -76.8 38.7, -76.8 39.1, -77.2 39.1, -77.2 38.7))",
+      "@type": "http://www.opengis.net/ont/geosparql#wktLiteral"
+    }
+  },
+  "dct:temporal": {
+    "@type": "dct:PeriodOfTime",
+    "dcat:startDate": "2026-01-01T00:00:00Z"
+  }
+}

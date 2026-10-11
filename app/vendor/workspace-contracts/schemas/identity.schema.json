@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:categori:identity:v1",
+  "title": "Categori identity and scoped participation v1",
+  "$comment": "Record structure only. Current token/provider verification, authoritative storage, portable-data bounds, ECMAScript UTF-16 string-size limits and access evaluation remain runtime requirements. Timestamp calendar validity requires date-time format assertion and the runtime UTC roundtrip check; participation interval ordering is also checked at runtime.",
+  "oneOf": [
+    {"$ref": "#/$defs/externalIdentityLink"},
+    {"$ref": "#/$defs/identityUser"},
+    {"$ref": "#/$defs/identityWorkspace"},
+    {"$ref": "#/$defs/workspaceParticipation"}
+  ],
+  "$defs": {
+    "id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,191}(?![\\s\\S])"},
+    "status": {"enum": ["active", "suspended", "revoked"]},
+    "revision": {"type": "integer", "minimum": 1, "maximum": 9007199254740991},
+    "utcTimestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,3})?Z(?![\\s\\S])", "format": "date-time"},
+    "nullableTimestamp": {"anyOf": [{"$ref": "#/$defs/utcTimestamp"}, {"type": "null"}]},
+    "externalIdentityLink": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "link_id", "issuer", "subject", "user_id", "status", "revision", "verified_at"],
+      "properties": {
+        "schema_version": {"const": 1}, "link_id": {"$ref": "#/$defs/id"}, "user_id": {"$ref": "#/$defs/id"},
+        "issuer": {"type": "string", "maxLength": 500, "format": "uri", "pattern": "^[Hh][Tt][Tt][Pp][Ss]://[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff/?#@]+(?:/[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff?#]*)?(?![\\s\\S])"},
+        "subject": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?![\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff])(?![\\s\\S]*[\\u0000-\\u001f\\u007f])[\\s\\S]*[^\\u0009-\\u000d\\u0020\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000\\ufeff](?![\\s\\S])"},
+        "status": {"$ref": "#/$defs/status"}, "revision": {"$ref": "#/$defs/revision"}, "verified_at": {"$ref": "#/$defs/utcTimestamp"}
+      }
+    },
+    "identityUser": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "user_id", "status", "revision"],
+      "properties": {"schema_version": {"const": 1}, "user_id": {"$ref": "#/$defs/id"}, "status": {"$ref": "#/$defs/status"}, "revision": {"$ref": "#/$defs/revision"}}
+    },
+    "identityWorkspace": {
+      "type": "object", "additionalProperties": false, "required": ["schema_version", "workspace_id", "status", "revision"],
+      "properties": {"schema_version": {"const": 1}, "workspace_id": {"$ref": "#/$defs/id"}, "status": {"$ref": "#/$defs/status"}, "revision": {"$ref": "#/$defs/revision"}}
+    },
+    "resourceScope": {
+      "type": "object", "additionalProperties": false, "required": ["resource_type", "resource_id"],
+      "properties": {"resource_type": {"$ref": "#/$defs/id"}, "resource_id": {"$ref": "#/$defs/id"}}
+    },
+    "workspaceParticipation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema_version", "participation_id", "workspace_id", "user_id", "mode", "status", "revision", "resource_scopes", "not_before", "expires_at"],
+      "properties": {
+        "schema_version": {"const": 1}, "participation_id": {"$ref": "#/$defs/id"}, "workspace_id": {"$ref": "#/$defs/id"}, "user_id": {"$ref": "#/$defs/id"},
+        "mode": {"enum": ["member", "guest"]}, "status": {"$ref": "#/$defs/status"}, "revision": {"$ref": "#/$defs/revision"},
+        "resource_scopes": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"$ref": "#/$defs/resourceScope"}},
+        "not_before": {"$ref": "#/$defs/nullableTimestamp"}, "expires_at": {"$ref": "#/$defs/nullableTimestamp"}
+      },
+      "allOf": [
+        {"if": {"properties": {"mode": {"const": "guest"}}, "required": ["mode"]}, "then": {"properties": {"resource_scopes": {"minItems": 1}}}},
+        {"if": {"properties": {"mode": {"const": "member"}}, "required": ["mode"]}, "then": {"properties": {"resource_scopes": {"maxItems": 0}}}}
+      ]
+    }
+  }
+}

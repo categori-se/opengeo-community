@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0.0",
+  "scope": "GeoLibre primary-renderer project interchange; exact core parser/serializer source",
+  "upstream": {
+    "product": "geolibre",
+    "version": "3.0.0",
+    "tag": "v3.0.0",
+    "commit": "9778da6cbf5c06d5395b0725f24f025a029bc3df",
+    "releaseUrl": "https://github.com/opengeos/GeoLibre/releases/tag/v3.0.0",
+    "license": "MIT"
+  },
+  "files": [
+    {
+      "path": "package.json",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/package.json",
+      "bytes": 3572,
+      "sha256": "a010f90b15dc2af9506ed4a71699f5739be6f1a1bf5a349031e8024a425d9baf"
+    },
+    {
+      "path": "LICENSE",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/LICENSE",
+      "bytes": 1068,
+      "sha256": "8c1ec2eadbee4b5a632b49679a177e02ed980079435a73449045aca3f2e7651e"
+    },
+    {
+      "path": "packages/core/src/project.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/project.ts",
+      "bytes": 79024,
+      "sha256": "3f781068702058f811aa03a1be447e3ee8687cfa1f8ac8e2193b232ca41eca32"
+    },
+    {
+      "path": "packages/core/src/types.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/types.ts",
+      "bytes": 94873,
+      "sha256": "588d96023762abd3099570f085bf4b61acb550b7304ff0bc5aca42dd23590ce6"
+    },
+    {
+      "path": "packages/core/src/cesium-imagery.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/cesium-imagery.ts",
+      "bytes": 15738,
+      "sha256": "e3d72f91d96a9bca73f4ab0961310010b6c86cdbc72e6dd06936c2b26da90957"
+    },
+    {
+      "path": "packages/core/src/layer-groups.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/layer-groups.ts",
+      "bytes": 26851,
+      "sha256": "500ff3b4ee10cf71bfa72cf79ffb9fbb19cbc48adab0fed74177a9776ade7aff"
+    },
+    {
+      "path": "packages/core/src/style-library.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/style-library.ts",
+      "bytes": 19642,
+      "sha256": "e160b102c13b40cf351ab7c1e7bee5cb0b7c39cdcd951972beeed048c1a03a61"
+    },
+    {
+      "path": "packages/core/src/capabilities.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/capabilities.ts",
+      "bytes": 6844,
+      "sha256": "9025c08030f5c0947a4840c2defd4c4d055464994ce5b1cfcb61c97e1ed88eff"
+    },
+    {
+      "path": "packages/core/src/expressions.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/expressions.ts",
+      "bytes": 22559,
+      "sha256": "5e75fe5ce2adfc26493243da91a48198529e6d937174d0b7a0c7b692ea99a2df"
+    },
+    {
+      "path": "packages/core/src/print-layout-config.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/print-layout-config.ts",
+      "bytes": 20094,
+      "sha256": "3197c9e6db6fa3a043ddd3224a0ee439d78f1e8395ae938304e4a520341e4858"
+    },
+    {
+      "path": "packages/core/src/ellipsoids.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/ellipsoids.ts",
+      "bytes": 24607,
+      "sha256": "38d6b8e874bdb80b685c180fb5ab4ca4cdc6be5e7d58d86ac05b70216a9802ee"
+    },
+    {
+      "path": "packages/core/src/layer-ref-scrub.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/layer-ref-scrub.ts",
+      "bytes": 3336,
+      "sha256": "17eebe6b568fd09938cfa7abf0bf8bc635c0499f23a4e263c7832e6406ac3738"
+    },
+    {
+      "path": "packages/core/src/regional-basemaps.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/regional-basemaps.ts",
+      "bytes": 6845,
+      "sha256": "349d40ab0fe3fd07a245561604c01e17b850f085978f75391906082e09a6e934"
+    },
+    {
+      "path": "packages/core/src/selection.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/selection.ts",
+      "bytes": 2133,
+      "sha256": "f3cb0ccc58798800e94694d53dcc43e6c22e534d1e6f78ed9c41a9febdd53e9c"
+    }
+  ],
+  "findings": [
+    "Project format remains 0.2.0.",
+    "The native primaryRenderer field persists only the non-default cesium value; omitted or unknown values normalize to the MapLibre default.",
+    "Secondary viewKind accepts maplibre or cesium.",
+    "Native Cesium background and terrain preferences are separate from primaryRenderer."
+  ],
+  "limits": [
+    "Core parser/serializer exercised with installed MapLibre style-spec 26.4.4 and an unused throwing UUID stub; upstream desktop UI, provider authorization and renderer equivalence remain untested.",
+    "The GeoLibre 2.6.0 product parity baseline and historical peer evidence remain unchanged.",
+    "Release pins identify reviewed conversion semantics, not the producer of an arbitrary uploaded project."
+  ]
+}

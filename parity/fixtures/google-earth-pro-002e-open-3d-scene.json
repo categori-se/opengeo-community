@@ -1,0 +1,94 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-002e.open-3d-scene",
+  "title": "Governed open building and woodland-canopy 3D scene",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "upstream",
+    "description": "Current OpenFreeMap/OpenMapTiles snapshot contract with local hosted-origin acceptance. The retained historical report concerns the earlier snapshot and local-only policy; it is not evidence of the current deployment. No upstream vector-tile or proprietary Google byte is vendored.",
+    "url": "https://tiles.openfreemap.org/planet",
+    "version": "20260906_080001_pt"
+  },
+  "license": {
+    "spdxId": "ODbL-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package.json",
+      "sha256": "399cd2c91d74b0a9b53428d4dbb8d037f2bfbe30dbb660907e64196dffc12d8b"
+    },
+    {
+      "name": "package-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package-lock.json",
+      "sha256": "cad9781aa572087cda8a9ff96ccd93d551028795a05abbedcb54c449cc134e9d"
+    },
+    {
+      "name": "openScene3d.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/openScene3d.js",
+      "sha256": "ec9a29115225a33ca19fa3cc108ac4ae9538fadf3f0e351044d3182a9db484d9"
+    },
+    {
+      "name": "open-scene-3d.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/open-scene-3d.test.mjs",
+      "sha256": "4055f9ebb74fd831e6df9074e6715e36d133bdc386d764cdd375726d9ddfbcf8"
+    },
+    {
+      "name": "check-open-3d-scene-source.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-open-3d-scene-source.mjs",
+      "sha256": "cde9a7773c75f3446ce18f95c29ba2c73159af48fc432089c7bc116b1971707f"
+    },
+    {
+      "name": "google-earth-pro-open-3d-source.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/google-earth-pro-open-3d-source.test.mjs",
+      "sha256": "5be19957e16bb87783e5d282ae23ee5ef919b410fdabcf52422c06f62acb6278"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "google-earth-pro-002e-open-3d-scene.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-002e-open-3d-scene.json",
+      "sha256": "62ae65a8f54fce45963d4585053ea38ba90c2d9a63f49c6435186c9e12f893ae"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+      "assertion": "On an effective globe, current local tests render height-bounded open building extrusions and woodland-area canopy from one reviewed OpenFreeMap snapshot on hosted and local origins, retain attribution and source identity, omit credentials, and isolate building-source outage recovery from terrain. The retained historical report predates this policy correction. Individual trees, meshes, live deployment, representative real-scene acceptance, and full-row parity are not claimed."
+    }
+  ],
+  "constraints": {
+    "offline": false,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/opengeo-map-definition-1.2.0.schema.json",
+  "title": "OpenGeo map definition 1.2.0",
+  "description": "The OpenGeo 1.1.0 map composition plus bounded saved path measurements and optional renderer-derived elevation profiles. The API additionally recomputes measurement summaries and validates spatial-body identity.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mapViews",
+    "basemaps",
+    "bookmarks",
+    "activeLayerId",
+    "activeProcessingModelId",
+    "models",
+    "processingHistory",
+    "measurements",
+    "projection",
+    "colorMode",
+    "layers"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "opengeo.map-definition.1.2.0"},
+    "mapViews": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/mapViews"},
+    "basemaps": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/basemaps"},
+    "bookmarks": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/bookmarks"},
+    "activeLayerId": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/activeLayerId"},
+    "activeProcessingModelId": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/activeProcessingModelId"},
+    "models": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/models"},
+    "processingHistory": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/processingHistory"},
+    "measurements": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {"$ref": "#/$defs/pathMeasurement"}
+    },
+    "spatialBody": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/spatialBody"},
+    "projection": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/projection"},
+    "colorMode": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/colorMode"},
+    "layers": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/layers"},
+    "portal": {"$ref": "opengeo-map-definition-1.1.0.schema.json#/properties/portal"},
+    "extensions": {"type": "object"}
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "coordinate": {
+      "type": "array",
+      "prefixItems": [
+        {"type": "number", "minimum": -180, "maximum": 180},
+        {"type": "number", "minimum": -85.05112878, "maximum": 85.05112878}
+      ],
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "terrainSource": {
+      "type": ["object", "null"],
+      "required": ["sourceId", "provider", "queryMode", "termsUrl", "observedAt"],
+      "properties": {
+        "sourceId": {"$ref": "#/$defs/identifier"},
+        "provider": {"type": "string", "minLength": 1, "maxLength": 120},
+        "queryMode": {"const": "renderer-unexaggerated-point-sample"},
+        "termsUrl": {"type": "string", "format": "uri", "maxLength": 2048},
+        "observedAt": {"type": "string", "format": "date"}
+      },
+      "additionalProperties": false
+    },
+    "terrainSample": {
+      "type": "object",
+      "required": ["distanceMeters", "coordinate", "elevationMeters"],
+      "properties": {
+        "distanceMeters": {"type": "number", "minimum": 0, "maximum": 2000000000},
+        "coordinate": {"$ref": "#/$defs/coordinate"},
+        "elevationMeters": {"type": ["number", "null"], "minimum": -100000, "maximum": 100000, "not": {"const": -32768}}
+      },
+      "additionalProperties": false
+    },
+    "terrainSummary": {
+      "type": "object",
+      "required": ["threeDimensionalDistanceMeters", "minimumElevationMeters", "maximumElevationMeters", "ascentMeters", "descentMeters"],
+      "properties": {
+        "threeDimensionalDistanceMeters": {"type": ["number", "null"], "minimum": 0, "maximum": 2000000000},
+        "minimumElevationMeters": {"type": ["number", "null"], "minimum": -100000, "maximum": 100000},
+        "maximumElevationMeters": {"type": ["number", "null"], "minimum": -100000, "maximum": 100000},
+        "ascentMeters": {"type": ["number", "null"], "minimum": 0, "maximum": 200000000},
+        "descentMeters": {"type": ["number", "null"], "minimum": 0, "maximum": 200000000}
+      },
+      "additionalProperties": false
+    },
+    "terrainProfile": {
+      "type": "object",
+      "required": ["status", "source", "samples", "summary"],
+      "properties": {
+        "status": {"enum": ["complete", "partial", "unavailable"]},
+        "source": {"$ref": "#/$defs/terrainSource"},
+        "samples": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 128,
+          "items": {"$ref": "#/$defs/terrainSample"}
+        },
+        "summary": {"$ref": "#/$defs/terrainSummary"}
+      },
+      "additionalProperties": false
+    },
+    "pathMeasurement": {
+      "type": "object",
+      "required": ["schemaVersion", "id", "title", "kind", "spatialBodyId", "measurementModel", "distanceUnit", "coordinates", "horizontalDistanceMeters", "terrainProfile"],
+      "properties": {
+        "schemaVersion": {"const": "opengeo.path-measurement.1.0.0"},
+        "id": {"$ref": "#/$defs/identifier"},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "kind": {"const": "path-profile"},
+        "spatialBodyId": {"enum": ["earth", "moon", "mars"]},
+        "measurementModel": {"const": "spherical-mean-radius"},
+        "distanceUnit": {"const": "meter"},
+        "coordinates": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 128,
+          "items": {"$ref": "#/$defs/coordinate"}
+        },
+        "horizontalDistanceMeters": {"type": "number", "exclusiveMinimum": 0, "maximum": 2000000000},
+        "terrainProfile": {"$ref": "#/$defs/terrainProfile"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

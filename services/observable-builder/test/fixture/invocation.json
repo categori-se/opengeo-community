@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "opengeo.observable-runner-invocation.1.0.0",
+  "buildJobId": "f0000000-0000-4000-8000-000000000451",
+  "requestChecksumSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "inputManifestChecksumSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "entryPath": "index.md",
+  "lockfilePath": null,
+  "files": [
+    {
+      "path": "index.md",
+      "contentType": "text/markdown",
+      "sizeBytes": 92,
+      "checksumSha256": "4ce70b8697983fd581a773816a68f4c36c41c0d02e48617a9ef6db4fc6c4167b"
+    }
+  ],
+  "request": {
+    "schemaVersion": "opengeo.observable-build-request.1.0.0",
+    "sourceProjectId": "b0000000-0000-4000-8000-000000000451",
+    "sourceRevisionId": "e0000000-0000-4000-8000-000000000451",
+    "sourceRevisionNumber": 1,
+    "sourceManifestChecksumSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "purpose": "preview",
+    "compilerImageDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    "frameworkVersion": "1.13.4",
+    "lockfileFormat": "npm-package-lock-v3",
+    "lockfileChecksumSha256": null,
+    "networkPolicy": "deny_all",
+    "resourceLimits": {
+      "cpuMillis": 1000,
+      "memoryMiB": 1024,
+      "timeoutSeconds": 60,
+      "maxInputFiles": 128,
+      "maxInputBytes": 16777216,
+      "maxOutputFiles": 512,
+      "maxOutputBytes": 33554432
+    }
+  }
+}

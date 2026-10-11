@@ -1,0 +1,105 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-027.sos-2.0-interoperability",
+  "title": "Bounded governed SOS 2.0 observation publication and schema validation",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact checksum-pinned OGC SOS, SWES, O&M, SensorML, OWS, GML, Filter, SWE Common, ISO, and W3C/OASIS dependency schemas validate the three bounded OpenGeo SOS response types offline.",
+    "url": "https://schemas.opengis.net/sos/2.0/",
+    "version": "OGC 12-006, SOS 2.0"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "Official SOS schema lock",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/sos-2.0-schema-lock.json",
+      "sha256": "5211044e8ae354322e769f99d7c676ebf50ad88e0e68774d2dce0b4c24780466"
+    },
+    {
+      "name": "Bounded SOS serializer",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/sos.py",
+      "sha256": "64821d1ef0d9e7486c38a65695a73f7f1a0a6cc3942ce92e97c266052a80b589"
+    },
+    {
+      "name": "Governed SOS route",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_service_routes.py",
+      "sha256": "975559cd790c5ac3beb2a0a6e182b47d2c6e81108544beacae10423bbbc217cc"
+    },
+    {
+      "name": "Serializer acceptance tests",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_sos.py",
+      "sha256": "10a457bc4b36ae002d87afa5d7ba8da6f0699e7e7cc86c6f571f8a29ba6be5aa"
+    },
+    {
+      "name": "Route acceptance tests",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_service_routes.py",
+      "sha256": "90ab062b2d50553fd091cf03c71ee0fd0e9c44a18590c2b745879dbc56e31e0b"
+    },
+    {
+      "name": "Locked offline schema validator",
+      "mediaType": "text/x-java-source",
+      "encoding": "path",
+      "value": "scripts/SosOfflineValidator.java",
+      "sha256": "044f5c7dd8f86bc3e6d3eb539502f10428d984cca018eaad3b8f952382774417"
+    },
+    {
+      "name": "Executable interoperability runner",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-sos-interoperability.py",
+      "sha256": "519a9f0ac2a790dcf656c90208e701cbbf008a1e2c10233dd70e07be0b108ee8"
+    },
+    {
+      "name": "Recorded interoperability report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/mapserver-sos-2.0-interoperability.json",
+      "sha256": "f618f40aa0782ded1f7cada6b194db51df0fc53ee17ab7c7ecfe9a314f7ad406"
+    },
+    {
+      "name": "Twelve-profile publication matrix",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-ogc-publication-version-matrix.json",
+      "sha256": "2f8a67f5778baadb274908cd8d7f68aa6b833420d151ab647db5f6c9ea5e31b0"
+    },
+    {
+      "name": "Evidence regression test",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/sos-interoperability.test.mjs",
+      "sha256": "3f06fdc2ea224b3fa2c0b4eaef2f32c4c08051a6411a430d30e090496f3715cf"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "A fresh immutable service collection with the explicit observation field profile exposes authenticated strict GetCapabilities, DescribeSensor, and GetObservation reads without creating a parallel sensor store."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The three generated responses pass exact checksum-locked official schemas with three active invalid controls, while executable-suite, deployment, client acceptance, and conformance remain unclaimed."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

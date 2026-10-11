@@ -1,0 +1,79 @@
+{
+  "commit": "f5fee67d8cf053d741590a00a55fe1870eed2b92",
+  "license": "Apache-2.0",
+  "scope": "Unmodified runtime audit inputs only. Dependency closure and runtime execution are not established.",
+  "files": [
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/app/modules/catalog/datasets/api/router_refresh.py",
+      "upstreamPath": "backend/app/modules/catalog/datasets/api/router_refresh.py",
+      "sha256": "46d7dba113136e6105355498fc9bfe0dafa15187a4daad8931cbe3a346a48a6f",
+      "gitBlob": "467b0841d1f340ede171285b64f8b21e7fd360b7"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/app/platform/refresh/models.py",
+      "upstreamPath": "backend/app/platform/refresh/models.py",
+      "sha256": "be3907fe038378c7d8189e7bbbbc453555ec7dc6dbfab87c0204912cd9c7f213",
+      "gitBlob": "26eefad9a575d6043952c5d1eeef032de23551f5"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/app/platform/refresh/service.py",
+      "upstreamPath": "backend/app/platform/refresh/service.py",
+      "sha256": "125f44e2421cbc7a79de0ba497e41c58558c8a313c1abe910b3e51441e9ffdb4",
+      "gitBlob": "8cd8cd8678c147926a998ac9d770968147b6c17b"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/app/processing/ingest/tasks_common.py",
+      "upstreamPath": "backend/app/processing/ingest/tasks_common.py",
+      "sha256": "c7f2decb72e0182de8aa374022e8e1d30dad5625a7b281ecc8908e54577de740",
+      "gitBlob": "11870a6a3cdefd64acfe41cc5e99cae95ea47cae"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/app/processing/ingest/tasks_reupload.py",
+      "upstreamPath": "backend/app/processing/ingest/tasks_reupload.py",
+      "sha256": "5b0217535911cf073ecbdbd63aa21d9e1cf41aad4128111d6f008ddd379d4083",
+      "gitBlob": "e22b376428c622a7c905ee033bbd7b3a06043d3f"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/app/processing/ingest/tasks_staging.py",
+      "upstreamPath": "backend/app/processing/ingest/tasks_staging.py",
+      "sha256": "021f87ca3566c86977fbf2e786b705ba8995e5470183218ab2d0eb252a07c9aa",
+      "gitBlob": "17e9d563f23f15ae8b1bf5c18d3767762833a377"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/app/processing/ingest/tasks_vector.py",
+      "upstreamPath": "backend/app/processing/ingest/tasks_vector.py",
+      "sha256": "f8ba38290766cd4fd14cf8f6ec9402c375c91f95eb2dfd7b96f9edd28db89586",
+      "gitBlob": "de09419731e93a646a46efaf9e1f8f2a9b3ee8aa"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/pyproject.toml",
+      "upstreamPath": "backend/pyproject.toml",
+      "sha256": "5c8b952c9e44ed8c621563dc2bc1cfbdfaeef954885eca8159fd932d44be79e9",
+      "gitBlob": "920e23e206dd88ccd8e0c89f83b6c5c124ce0eea"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/tests/conftest.py",
+      "upstreamPath": "backend/tests/conftest.py",
+      "sha256": "44105f66305e76fc6d1332874d62731fefac5d582385c36170b61afe917a5315",
+      "gitBlob": "dd6ad915b8eca1e7b094dac8bf38cfb15c80c818"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/tests/test_refresh_gate_1269.py",
+      "upstreamPath": "backend/tests/test_refresh_gate_1269.py",
+      "sha256": "2c6bc4d1f56086f3d2f0d49bdebb52942741eced02a973e989c7c9e6628e2e24",
+      "gitBlob": "6bcf27622b9c74d9f0e35e16aa8225c1b4d27a52"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/tests/test_service_refresh_1220.py",
+      "upstreamPath": "backend/tests/test_service_refresh_1220.py",
+      "sha256": "294881f8bc1bc95fada928ba511daaf233e5bfd70c42fba9892dfc074d2141a9",
+      "gitBlob": "948de27ca71be32d3fdcf907c27f2ad5cee89e20"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/runtime/backend/uv.lock",
+      "upstreamPath": "backend/uv.lock",
+      "sha256": "ba671da9e912259eefe22ff619a94d7943e5be5faefdbce3160950b12f371c4b",
+      "gitBlob": "cd0c51f859cdfa8f0911187b05b0edfd6af52f06"
+    }
+  ]
+}

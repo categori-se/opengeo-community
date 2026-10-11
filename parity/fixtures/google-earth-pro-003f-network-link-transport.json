@@ -1,0 +1,117 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-003f.network-link-transport",
+  "title": "DNS-pinned KML NetworkLink transport and distributed request quota",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local production-shaped transport, project authorization, database lease, rate, cancellation, response parsing, redaction, and infrastructure synthesis evidence. No external endpoint, proprietary byte, Google service, AWS deployment, or credential is used."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "kml_network_links.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/kml_network_links.py",
+      "sha256": "c3b407346e5107d080d92a20362732c0d8559609ce21e5612af0184c00c683c4"
+    },
+    {
+      "name": "kml_network_link_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/kml_network_link_routes.py",
+      "sha256": "6b83d1e3eb7ad657203b84e4ab0b1267d60fb6a7e064266fa99dc9b9732d68b3"
+    },
+    {
+      "name": "app.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/app.py",
+      "sha256": "6902e07168011a326eefdbd5d192ece92c086b96281c4b347a5f0a3775699dca"
+    },
+    {
+      "name": "test_kml_network_links.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_kml_network_links.py",
+      "sha256": "7da535ddd4f3a9c4dd026ba39497b5c217c9d3ba0f38f897203fbeb4add424d1"
+    },
+    {
+      "name": "test_kml_network_link_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_kml_network_link_routes.py",
+      "sha256": "3221c555cd3e7567e6dfd50b13846bdea27498aa9141335a06964cd8db0eb49f"
+    },
+    {
+      "name": "0053_kml_network_link_request_quota.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0053_kml_network_link_request_quota.sql",
+      "sha256": "e341719da1eb887df34e04c6464085efda9c56fc78d30846ca1ac586701f128f"
+    },
+    {
+      "name": "kml-network-link-request-quota.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/kml-network-link-request-quota.test.mjs",
+      "sha256": "b067f59951c8bebc95ac7d6f23660d4ba0ffddcfaa0738a993c0e211f4c1d9c9"
+    },
+    {
+      "name": "opengeo.ts",
+      "mediaType": "text/typescript",
+      "encoding": "path",
+      "value": "infrastructure/bin/opengeo.ts",
+      "sha256": "6ca51cb03046e42d8db3c5fe7f98b9b2d804d0586ba4e53b921ea06fa896503c"
+    },
+    {
+      "name": "serverless-api-stack.ts",
+      "mediaType": "text/typescript",
+      "encoding": "path",
+      "value": "infrastructure/lib/serverless-api-stack.ts",
+      "sha256": "21ea1da8e0ed454cdf6601a2d5ee19bae34619783132c5003a6343ba08b47fc8"
+    },
+    {
+      "name": "serverless-api-stack.test.ts",
+      "mediaType": "text/typescript",
+      "encoding": "path",
+      "value": "infrastructure/test/serverless-api-stack.test.ts",
+      "sha256": "e38674ad4c6b39563f0a9d1e91da3c7f212b9acc0553e05a3206338256ba2002"
+    },
+    {
+      "name": "platform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/platform.js",
+      "sha256": "d33430e7ff6dc5056e293e01432b4e56c4a0cbbdc91e3d16f989203b65181f4e"
+    },
+    {
+      "name": "google-earth-pro-003f-network-link-transport.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-003f-network-link-transport.json",
+      "sha256": "d82c4065dd784a0e39af720447a923d73c0e415ff0404025ad489f7e348a645c"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.places-kml-kmz-authoring",
+      "assertion": "The existing inert, session-authorized NetworkLink workflow can use a same-origin production-shaped API that reauthorizes the active project, preserves the closed browser request and receipt contract, and stores no approval or response body. Deployment, Google Earth exchange, complete KML/gx/KMZ, and full-row parity remain open."
+    },
+    {
+      "rowId": "google-earth-pro.network-links-overlays-regionation",
+      "assertion": "The local server resolves and validates the complete public-address set once, connects to at most two pinned addresses with the original TLS hostname, follows no redirects, sends no application authority, bounds bytes and time, and applies distributed 60/minute, four-per-user/project, and eight-platform-wide leases. Live external-host, deployed load/cost/rollback, recursive graph, super-overlay, Google Earth, and full-row evidence remain open."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,123 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-021.wms-cite-runtime-materialization",
+  "title": "Canonical WMS CITE fixed-dataset worker and prewarm materialization",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "The exact Apache-2.0 CITE Blue Lake Basic archive is deterministically split, twice inspected and security-scanned in the reviewed worker image, then its ten source-derived GetMap identities are twice compiled and rendered through production code without contacting OpenGeo or executing the official suite.",
+    "url": "https://github.com/opengeospatial/ets-wms13",
+    "version": "1.35-SNAPSHOT at 9a45b91e8e1dc600f574002ac89342b20bac3106"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "verify-wms-cite-ingestion.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/verify-wms-cite-ingestion.py",
+      "sha256": "20f31b9bb619345fe2e08f937cdfdea59d7feac787f9360ce582fbb6275d20ca"
+    },
+    {
+      "name": "materialize-wms-cite-prewarm.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/materialize-wms-cite-prewarm.py",
+      "sha256": "0084ffa7abd9e5ca13bfe7d3ce261adb64c3cb668be510ebc3eda77ec9437344"
+    },
+    {
+      "name": "check-wms-cite-runtime-materialization.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-wms-cite-runtime-materialization.mjs",
+      "sha256": "fd82a238b7402ea81298b058e2f65809ea92ee69bdf3c8f3ced8564d11849745"
+    },
+    {
+      "name": "service-021-wms-cite-runtime-materialization.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-021-wms-cite-runtime-materialization.json",
+      "sha256": "11069591dda5e11b1a1ff96f7ac8a588891e9f87e217a5b266397dfba6f54350"
+    },
+    {
+      "name": "wms-1.3-cite-source-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wms-1.3-cite-source-lock.json",
+      "sha256": "2f6e70431aeba6e4ec4531d5483b841594ffc4b2ac62ba82292d2a05ae3e8801"
+    },
+    {
+      "name": "wms-1.3-cite-prewarm-inventory.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wms-1.3-cite-prewarm-inventory.json",
+      "sha256": "cd7f8a537ebb93f662a80ed543dd6be3a856f9612c6aeb2f86d83b9b753c3883"
+    },
+    {
+      "name": "service-wms-cite-runtime-materialization.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-wms-cite-runtime-materialization.test.mjs",
+      "sha256": "9fdda2861e6bb6002bf6a2641d986a44f71ff0541553de384fa7e863a33b2c36"
+    },
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    },
+    {
+      "name": "local-milestones.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/evidence/local-milestones.json",
+      "sha256": "930b4b28fbc6f81b81798ef94ca44b527342fd8ed61ed883c14cb4a4312fff76"
+    },
+    {
+      "name": "implementation-roadmap.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/implementation-roadmap.md",
+      "sha256": "497bdbb0952cb5be92b12ee973b90326163fa28301fb7bd1e5a3420fa46e61c5"
+    },
+    {
+      "name": "progress.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "parity/references/progress-6d09b317.md",
+      "sha256": "a990c7141e7b9146d1ae6164aaaed02b8043da13fec64c9ae9dcc21692e54db3"
+    },
+    {
+      "name": "interoperability-contract.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/interoperability-contract.md",
+      "sha256": "5899ed98ffd482a3d9fe97a346c16a95b359d9a8b665bb2bcb688d280f64a443"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "The exact 11-layer CITE fixed dataset passes two byte-identical worker inspections and all ten source-derived PNG identities render reproducibly through production request, style, and worker code; governed publication, capability-resolved requests, official execution, deployment, and the aggregate row remain partial."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "All eleven inputs pass the exact bundled ClamAV boundary and exact idempotent cache identities remain reproducible, without widening anonymous dispatch, installation, deployment, or conformance claims."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The fixed-dataset WMS image inventory is now executable through production rendering code while public delivery, browser/desktop clients, always-run capability-resolved identities, and official suite results remain separate gates."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

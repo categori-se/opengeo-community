@@ -1,0 +1,92 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-030.sld-interoperability",
+  "title": "Bounded SLD 1.0 and 1.1 official-schema interoperability",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Two non-personal line styles pass the production inert-ingest boundary and checksum-locked official SLD 1.0/1.1 plus SE 1.1 schemas; active invalid and hostile controls fail, and an existing exact GeoServer 3.0.1 SLD 1.0 render receipt remains linked without reexecution."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "resource_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/resource_routes.py",
+      "sha256": "660fd37c18abb0f438613dcb231ac992c8f285ad03e51309ff5d9dfb968fe1d0"
+    },
+    {
+      "name": "test_resource_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_resource_routes.py",
+      "sha256": "1eda8b429de0b99fff14aab186a0e69ed3ba324531d084480c009e74a6a5d85e"
+    },
+    {
+      "name": "roads-line.sld",
+      "mediaType": "application/vnd.ogc.sld+xml",
+      "encoding": "path",
+      "value": "parity/fixtures/geoserver/roads-line.sld",
+      "sha256": "46b1025683ffde80eb241fa67fe8f8a0eb79c80870617133974c77b7e1c73265"
+    },
+    {
+      "name": "sld-1.1-roads-line.xml",
+      "mediaType": "application/vnd.ogc.se+xml",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/sld-1.1-roads-line.xml",
+      "sha256": "6b9313be4293c88dc48dba475318940e6994c9176e6d95d1f2c1a1e7f324f121"
+    },
+    {
+      "name": "sld-1.0-1.1-schema-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/sld-1.0-1.1-schema-lock.json",
+      "sha256": "404c8b20fc592cc25fd69ed7e42465de1ee6066a4d7b13f597b521e15773826a"
+    },
+    {
+      "name": "SldOfflineValidator.java",
+      "mediaType": "text/x-java-source",
+      "encoding": "path",
+      "value": "scripts/SldOfflineValidator.java",
+      "sha256": "77ca23c361aa886882cc39295caa2baa7a2ad4e84018aefa5d1f92a5d14527d7"
+    },
+    {
+      "name": "check-sld-interoperability.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-sld-interoperability.py",
+      "sha256": "11581dbf498bde85f407dfed87517f466394d1d0c020d28e86552456b7dedbe2"
+    },
+    {
+      "name": "service-030-sld-interoperability.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-030-sld-interoperability.json",
+      "sha256": "ad84c3752dc67dda381ee2c9e293ca0f5d57c6f15fe4a8130191254acb7f80e4"
+    },
+    {
+      "name": "sld-interoperability.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/sld-interoperability.test.mjs",
+      "sha256": "f7a2893c483b7b1b98fd4e9e4b93e9ff95b8deb2dc3dd4c3f106f1b68d434841"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The selected SLD 1.0/1.1 profile has bounded production ingestion, official-schema validation, active invalid controls, hostile-input rejection, and an exact linked GeoServer 3.0.1 SLD 1.0 render while OpenGeo publication and SLD 1.1 portrayal remain open."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

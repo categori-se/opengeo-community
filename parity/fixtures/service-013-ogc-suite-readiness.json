@@ -1,0 +1,130 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-013.official-ogc-suite-readiness",
+  "title": "Official WMTS 1.0 and WFS 2.0 suite source-lock and readiness contract",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact Apache-2.0 OGC ets-wmts10 1.11 and ets-wfs20 1.43 release sources are checksum-audited against OpenGeo's current bounded WMTS/WFS compatibility surfaces without executing or claiming either official suite.",
+    "url": "https://github.com/opengeospatial",
+    "version": "ets-wmts10 1.11; ets-wfs20 1.43"
+  },
+  "license": {
+    "spdxId": "Apache-2.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "wmts-1.0-ets-source-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wmts-1.0-ets-source-lock.json",
+      "sha256": "f53a4c85ed9f4d4d515cc650fc52dc0fc2b3ebdcd2d4df65aba8dfdc6dbd742f"
+    },
+    {
+      "name": "wfs-2.0-ets-source-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wfs-2.0-ets-source-lock.json",
+      "sha256": "59adc0350d3635b943bd5364170fee11ecd1a5409893f7d36f1b95f5f800a49b"
+    },
+    {
+      "name": "service-013-ogc-suite-readiness.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-013-ogc-suite-readiness.json",
+      "sha256": "5c91d147a8a451c41374d3d846016bedc116e3bf69505b84ac56dfeade0e6775"
+    },
+    {
+      "name": "check-ogc-service-suite-readiness.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-ogc-service-suite-readiness.mjs",
+      "sha256": "3dfde6bb24ae26c7947260ae215e46b31247dcfbbf766b2fe55b90aa7a5174c0"
+    },
+    {
+      "name": "service-ogc-suite-readiness.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/service-ogc-suite-readiness.test.mjs",
+      "sha256": "f9a38cec66c0d69da5e30bd114c2892d4f80d503458201c9fa6435c65a00817c"
+    },
+    {
+      "name": "wmts.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wmts.py",
+      "sha256": "682e3a2a890c02301234f6fe99277c673bd45631c4220d50f609bbc8e7b3b648"
+    },
+    {
+      "name": "wfs.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs.py",
+      "sha256": "9732286d4015f6d08da6f2f91ff896d68d08af10299ba1fb0ead2dfe1405bb48"
+    },
+    {
+      "name": "wfs-routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs_routes.py",
+      "sha256": "bbeb8a0e5dd5bf1b345f6ec3502c600f94759ff0bdfe3937d5795bacda15f964"
+    },
+    {
+      "name": "test-wfs-routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_wfs_routes.py",
+      "sha256": "64d613b4dcf429ea1235729b6a1c2a1931686cda2756bec5d2c9e6f8b72e232a"
+    },
+    {
+      "name": "service-005-qgis-wmts-cache-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-005-qgis-wmts-cache-peer.json",
+      "sha256": "ecd816b1f5b4fda7acbd9abae840bc3b53c6624b3437dcca49ad83195de3270b"
+    },
+    {
+      "name": "service-004-qgis-wfs-transaction-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-004-qgis-wfs-transaction-peer.json",
+      "sha256": "431013d2696107a946398100c0bd5728568f39ef7ff3f9da8d24cbe8baa5a9d3"
+    },
+    {
+      "name": "service-012-openlayers-wmts-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-012-openlayers-wmts-peer.json",
+      "sha256": "07c23e1896e642eb9264ad9386ce93183bc9d3ad21487229c28665a99876cdcc"
+    },
+    {
+      "name": "package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "Exact official WMTS/WFS suite releases and mandatory runner/profile requirements are source-pinned, while missing Simple WFS stored-query operations and the WMTS reference profile remain explicit non-conformance gates."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Official runners cannot silently bypass shared auth or turn cache misses into work; a credential-redacted diagnostic bridge and exact governed WMTS reference seed remain required before execution."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "Native client compatibility stays separate from official service conformance, and production WFS/WMTS declarations remain empty until exact suite readiness and result gates pass."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

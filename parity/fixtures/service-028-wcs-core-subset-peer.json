@@ -1,0 +1,96 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-028.wcs-core-subset-peer",
+  "title": "WCS 2.0.1 bounded subset and multipart component acceptance",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Production WCS planning and serialization plus the production worker generate the same bounded synthetic subset twice; independent GDAL 3.11.5 inspects the exact COG carried by the multipart response."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "spatial_services.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_services.py",
+      "sha256": "5bd1446c060ba73a02dfa16f119108c3f34a527e57a173ec649cb868e2895161"
+    },
+    {
+      "name": "coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverage_routes.py",
+      "sha256": "8e4bbf15630eb288e4e760c3fa258a37ff202b49902c68fb24111a1ab13a249e"
+    },
+    {
+      "name": "wcs.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wcs.py",
+      "sha256": "ca84657e6f2ad85c2cc7568d53a1fe793863fd5b0a682195816c40624623671f"
+    },
+    {
+      "name": "test_coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_coverage_routes.py",
+      "sha256": "174d9467da7f5815d34b94d9002c564efc2262f79e4c68f8534212416d55daf5"
+    },
+    {
+      "name": "coverage_derivatives.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/coverage_derivatives.py",
+      "sha256": "8c42e794e9888d9e384801073fba1804f1c59764e782c3829f6720f1677c0e45"
+    },
+    {
+      "name": "check-wcs-core-subset-peer.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-wcs-core-subset-peer.py",
+      "sha256": "23a6bb9de562c8637e37024d63778e1a2b4a90161b32185f316fddd8a5f8f24e"
+    },
+    {
+      "name": "service-028-wcs-native-grid-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-028-wcs-native-grid-peer.json",
+      "sha256": "3047c5f6a4bab8bdc6fe629b9948dab938ecc85f61b6aa5f104d4ffd3272ebc5"
+    },
+    {
+      "name": "wcs-core-subset-peer.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/wcs-core-subset-peer.test.mjs",
+      "sha256": "a8a14a5d58c13827c3cd6e9d32a7bfe7ca9bc22a1d7dd4bb6c5095890c93f615"
+    },
+    {
+      "name": "a-serverless-protocol-port-includes-the-control-plane.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/logbook/a-serverless-protocol-port-includes-the-control-plane.md",
+      "sha256": "826d8bb9ee85068c15d39d9847843e2d86633093c8364149baa2b5f3d9eceaae"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "A canonical GET-KVP subset plan produces a repeatable exact COG and matching GML multipart metadata while formal WCS Core, governed publication, and deployment remain explicitly open."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "The WCS runtime now honors the service's immutable protocol enablement and requires a separately prepared derivative instead of creating raster work during an ordinary read."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

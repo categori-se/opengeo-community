@@ -1,0 +1,42 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-001.gdal-wms-peer",
+  "title": "GDAL 3.11.5 authenticated WMS 1.3 discovery and map retrieval",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Version-pinned GDAL WMS driver discovers and consumes the real resource-scoped FastAPI route over loopback HTTP with explicit test authority.",
+    "url": "https://gdal.org/en/stable/drivers/raster/wms.html",
+    "version": "3.11.5"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "service-001-gdal-wms-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-001-gdal-wms-peer.json",
+      "sha256": "dc0b68ac6da1c6476a56e32fdeeeec8a0d1e7d8721db71744e90052df9fff2fb"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "GDAL is denied without authority, then sends the test bearer and organization headers, discovers the exact WMS 1.3 layer, and retrieves a governed PNG through the real application route."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "The independent WMS driver reconstructs the exact CRS84 axis order, bbox, 256 by 256 dimensions, geotransform, and three byte raster bands."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

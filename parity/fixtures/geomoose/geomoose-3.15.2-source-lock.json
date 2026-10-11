@@ -1,0 +1,534 @@
+{
+  "schemaVersion": "1.0.0",
+  "referenceId": "geomoose.portal-workflows",
+  "status": "source_verified",
+  "observedAt": "2026-08-24",
+  "upstream": {
+    "repository": "https://github.com/geomoose/gm3",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "commitDate": "2026-06-03T22:33:26-05:00",
+    "license": "MIT",
+    "tagIdentity": {
+      "kind": "annotated",
+      "resolvesToCommit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+      "signaturePresent": false,
+      "trustVerified": false,
+      "reason": "The official v3.15.2 ref is an annotated Git tag, but its tag object contains no cryptographic signature to verify."
+    }
+  },
+  "scope": {
+    "evidenceType": "upstream-source-inventory",
+    "purpose": "Bind the six formal GeoMoose parity rows to exact upstream source for ordinary mapbook, catalog, query, annotation, print, responsive, and distributed-source workflows.",
+    "geomooseIsParityBaseline": true,
+    "geomooseRuntimeExecuted": false,
+    "openGeoWorkflowExecuted": false,
+    "existingProtocolPeerEvidenceIsSeparate": true,
+    "sourceAuditChangesRowStatus": false
+  },
+  "identityAssertions": [
+    {
+      "path": "package.json",
+      "requiredStrings": [
+        "\"name\": \"@geomoose/gm3\"",
+        "\"version\": \"3.15.2\"",
+        "\"description\": \"GeoMoose is a Web Client JavaScript Framework for displaying distributed cartographic data.\""
+      ]
+    },
+    {
+      "path": "README.md",
+      "requiredStrings": [
+        "# GeoMoose 3",
+        "This is the main repository for the new GeoMoose3 library/application."
+      ]
+    },
+    {
+      "path": "LICENSE.md",
+      "requiredStrings": [
+        "The MIT License (MIT)",
+        "Copyright (c) 2016-2026 Dan \"Ducky\" Little & GeoMoose.org"
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "rowId": "geomoose.configurable-portal-mapbook",
+      "expectedStatus": "pass",
+      "userOutcome": "Configure an ordinary GeoMoose portal through a mapbook that composes sources, a grouped catalog, toolbar actions, and query services without changing the central application parser.",
+      "sourceAssertions": [
+        {
+          "path": "src/gm3/application.js",
+          "requiredStrings": [
+            "populateMapbook(contents) {",
+            "const sources = mapbookXml.getElementsByTagName(\"map-source\");",
+            "parseCatalog(this.store, mapbookXml.getElementsByTagName(\"catalog\")[0])",
+            "parseToolbar(mapbookXml.getElementsByTagName(\"toolbar\")[0])",
+            "const mapbookName = parseQuery().mapbook || \"default\";"
+          ]
+        },
+        {
+          "path": "src/gm3/reducers/config.js",
+          "requiredStrings": [
+            "const DEFAULT_CONFIG = {",
+            "serviceManager: {},",
+            "return { ...state, ...config };"
+          ]
+        },
+        {
+          "path": "docs/actions-and-services.rst",
+          "requiredStrings": [
+            "GeoMoose 3+ supports two different types of tools in the toolbar.",
+            "<tool type=\"action\" name=\"say-hello\" title=\"Say Hello\"/>",
+            "Services are more complex. A service is used to collect information from",
+            "``Application.dispatchQuery`` will"
+          ]
+        },
+        {
+          "path": "examples/desktop/mapbook.xml",
+          "requiredStrings": [
+            "<mapbook version=\"3.0\">",
+            "<catalog>",
+            "<toolbar>",
+            "<drawer name=\"searches\" title=\"Search\" tip=\"Collection of search services\">",
+            "<tool name=\"open-streetview\" title=\"3D View\" type=\"service\" />"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geomoose.catalog-layers",
+      "expectedStatus": "pass",
+      "userOutcome": "Browse and search a grouped catalog, toggle mutually exclusive or independent layers, expose scale-aware tools and legends, and display coordinates in configured projections.",
+      "sourceAssertions": [
+        {
+          "path": "src/gm3/actions/catalog.js",
+          "requiredStrings": [
+            "export const setLegendVisibility = createAction(\"catalog/set-legend-vis\"",
+            "export const setGroupExpand = createAction(\"catalog/set-group-expand\"",
+            "multiple: parseBoolean(groupXml.getAttribute(\"multiple\"), true)",
+            "legend: parseBoolean(layerXml.getAttribute(\"show-legend\"), true)",
+            "\"minresolution\", \"maxresolution\"",
+            "export function parseCatalog(store, catalogXml) {"
+          ]
+        },
+        {
+          "path": "src/gm3/reducers/catalog.js",
+          "requiredStrings": [
+            "const DEFAULT_CATALOG = {",
+            "state[parentId].children.push(payload.childId);",
+            "state[payload.id].legend = payload.on;",
+            "state[payload.id].expand = payload.expand;"
+          ]
+        },
+        {
+          "path": "src/gm3/components/catalog/index.js",
+          "requiredStrings": [
+            "export class Catalog extends React.Component {",
+            "placeholder={t(\"search-catalog\")}",
+            "showSearch: true"
+          ]
+        },
+        {
+          "path": "src/gm3/components/catalog/layer-control.js",
+          "requiredStrings": [
+            "const getNeighboringLayers = (catalog, layer) => {",
+            "if (layer.exclusive !== true) {",
+            "dispatch(setLayerVisibility(src.mapSourceName, src.layerName, true));",
+            "return t(on ? \"hide-layer\" : \"show-layer\", { label: layer.label });"
+          ]
+        },
+        {
+          "path": "src/gm3/components/catalog/legend.js",
+          "requiredStrings": [
+            "case \"html\":",
+            "alt=\"layer legend\"",
+            "return <div className=\"catalog-legend\">{layer.src.map(this.renderLegend)}</div>;"
+          ]
+        },
+        {
+          "path": "src/gm3/components/catalog/layer.js",
+          "requiredStrings": [
+            "case \"up\":",
+            "case \"fade\":",
+            "{canEdit(enabledTools) && <EditTool layer={layer} />}",
+            "layerClasses.push(\"out-of-resolution\");"
+          ]
+        },
+        {
+          "path": "src/gm3/components/coordinate-display.js",
+          "requiredStrings": [
+            "export function formatCoordinates(projection, coords, defaultPrecision = 4) {",
+            "label: \"Lat,Lng\"",
+            "label: \"USNG\"",
+            "return proj.transform(this.props.coords, mapProj, latlonProj);"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geomoose.identify-search-query",
+      "expectedStatus": "partial",
+      "userOutcome": "Identify visible layers, run attribute and geometry searches, select with point, box, line, polygon, modify, and buffer tools, and keep rendered results linked to the active query state.",
+      "sourceAssertions": [
+        {
+          "path": "src/services/identify.js",
+          "requiredStrings": [
+            "Used to do a drill-down single-point query of all visible layers.",
+            "this.tools = { Point: true, default: \"Point\" };",
+            "var visibleLayers = Application.getQueryableLayers({",
+            "Application.dispatchQuery(this.name, selection, fields, visibleLayers, templates);"
+          ]
+        },
+        {
+          "path": "src/services/search.js",
+          "requiredStrings": [
+            "this.searchLayers = options.searchLayers ? options.searchLayers : [];",
+            "comparitor: \"ilike\"",
+            "this.resultsPath = options.resultsPath ? options.resultsPath : \"results/results\";",
+            "Search does not use a geometry filter"
+          ]
+        },
+        {
+          "path": "src/services/select.js",
+          "requiredStrings": [
+            "Used to select a set of features using a given geometry.",
+            "Box: true,",
+            "LineString: true,",
+            "Modify: true,",
+            "this.bufferAvailable = true;"
+          ]
+        },
+        {
+          "path": "src/gm3/actions/query.js",
+          "requiredStrings": [
+            "export const createQuery = createAction(",
+            "export const runQuery = createAsyncThunk(\"query/run\"",
+            "case \"wms\":",
+            "case \"ags-vector\":",
+            "export const bufferResults = createAsyncThunk("
+          ]
+        },
+        {
+          "path": "src/gm3/reducers/query.js",
+          "requiredStrings": [
+            "export const SERVICE_STEPS = {",
+            "state.results = payload;",
+            "state.step = SERVICE_STEPS.RESULTS;",
+            "state.filter.push(payload);"
+          ]
+        },
+        {
+          "path": "src/gm3/components/serviceManager/results.js",
+          "requiredStrings": [
+            "const bufferEnabled = featureCount <= config.bufferMaxFeatures;",
+            "className=\"results-info-item zoomto\"",
+            "className=\"results-info-item features-count\"",
+            "bufferMaxFeatures: 100"
+          ]
+        },
+        {
+          "path": "src/gm3/query/wfs.js",
+          "requiredStrings": [
+            "export const wfsGetFeatureQuery = (layer, mapState, mapSource, query) => {",
+            "const wfsQueryXml = buildWfsQuery(",
+            "const gmlFormat = new GML2Format();",
+            "jsFeature.properties.boundedBy = feature.getGeometry().getExtent();"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geomoose.temporary-annotation",
+      "expectedStatus": "partial",
+      "userOutcome": "Draw point, line, and polygon work, modify or edit it, load local KML or GeoJSON into a vector layer, and distinguish client-side edits from WFS-backed saves in the upstream workflow inventory.",
+      "sourceAssertions": [
+        {
+          "path": "src/gm3/components/drawTool.js",
+          "requiredStrings": [
+            "class DrawTool extends React.Component {",
+            "name=\"draw-tool\"",
+            "dispatch(changeTool(type, layer));"
+          ]
+        },
+        {
+          "path": "src/gm3/components/catalog/tools/draw-tool.js",
+          "requiredStrings": [
+            "point: \"Point\"",
+            "line: \"LineString\"",
+            "polygon: \"Polygon\"",
+            "changeTool(DRAW_TYPES[drawType], path);"
+          ]
+        },
+        {
+          "path": "src/gm3/components/catalog/tools/upload.js",
+          "requiredStrings": [
+            "import KMLFormat from \"ol/format/KML\";",
+            "accept=\".geojson,.json,.kml\"",
+            "f.setGeometry(f.getGeometry().transform(\"EPSG:4326\", \"EPSG:3857\"));",
+            "Currently supports KML and GeoJSON.",
+            "dispatch(addFeatures(mapSourceName, features));"
+          ]
+        },
+        {
+          "path": "src/gm3/components/editor/index.js",
+          "requiredStrings": [
+            "import { clearFeatures, saveFeature, getLayerFromPath } from \"../../actions/mapSource\";",
+            "if (action === \"save\") {",
+            "dispatch(saveFeature(path, feature));",
+            "dispatch(finishEditing());"
+          ]
+        },
+        {
+          "path": "src/gm3/actions/mapSource.js",
+          "requiredStrings": [
+            "export function saveFeature(path, feature) {",
+            "if (mapSource.type === \"vector\" || mapSource.type === \"measure\") {",
+            "dispatch(modifyFeatureGeometry(mapSourceName, id, feature.geometry, idProp));",
+            "} else if (mapSource.type === \"wfs\") {",
+            "const changeRequest = wfsSaveFeatures(mapSource, projection, features, !id);"
+          ]
+        },
+        {
+          "path": "examples/desktop/mapbook-editing.xml",
+          "requiredStrings": [
+            "draw-point=\"true\" draw-line=\"true\" draw-polygon=\"true\"",
+            "draw-modify=\"true\" draw-remove=\"true\" draw-edit=\"true\"",
+            "<map-source name=\"vector-parcels\" type=\"mapserver-wfs\">"
+          ]
+        },
+        {
+          "path": "docs/howto/vectorediting/add-vector-editing.rst",
+          "requiredStrings": [
+            "The Vector Editing capabilities of GeoMoose allow your users to create, edit, and delete geometry and properties of",
+            "point, line, and polygon vector features and save those edits on your server.",
+            "Only some layers in the Catalog will be enabled for editing."
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geomoose.print-responsive",
+      "expectedStatus": "partial",
+      "userOutcome": "Choose a layout and resolution, preview the active printable layers, create a client-side PDF with map, legend, text, image, and shape elements, and expose a compact mobile map/results navigation example.",
+      "sourceAssertions": [
+        {
+          "path": "src/gm3/actions/print.js",
+          "requiredStrings": [
+            "export const printRequest = createAction(\"print/request\"",
+            "export const printImage = createAction(\"print/image\");",
+            "export const printed = createAction(\"print/finished\");"
+          ]
+        },
+        {
+          "path": "src/gm3/reducers/print.js",
+          "requiredStrings": [
+            "printData: \"\"",
+            "state.state = \"printing\";",
+            "state.state = \"printed\";"
+          ]
+        },
+        {
+          "path": "src/gm3/components/print/printModal.js",
+          "requiredStrings": [
+            "export class PrintModal extends Modal {",
+            "const doc = new jsPDF(layout.orientation, layout.units, layout.page);",
+            "case \"legend\":",
+            "doc.save(\"print_\" + new Date().getTime() + \".pdf\");",
+            "Some of the map layers cannot be printed.",
+            "{this.renderLayoutSelect(t)}"
+          ]
+        },
+        {
+          "path": "src/gm3/components/print/printLayouts.js",
+          "requiredStrings": [
+            "Collection of print layouts used by default.",
+            "label: \"letter-landscape-legend\"",
+            "label: \"letter-portrait\"",
+            "label: \"tabloid-landscape\"",
+            "label: \"a4-landscape-legend\""
+          ]
+        },
+        {
+          "path": "src/gm3/components/print/printImage.js",
+          "requiredStrings": [
+            "return mapCanvas.toDataURL(\"image/png\");",
+            "printOnly={true}",
+            "includeSelection={props.includeSelection}"
+          ]
+        },
+        {
+          "path": "docs/howto/print-layouts.rst",
+          "requiredStrings": [
+            "GeoMoose uses jsPDF to perform client-side generation of PDF printouts.",
+            "A print layout is comprised of a label, orientation, page size, unit",
+            "To override the default layouts the layouts need to be configured for",
+            "``image`` - Add an image to the map."
+          ]
+        },
+        {
+          "path": "examples/mobile/mobile.js",
+          "requiredStrings": [
+            "function changeTab(tabName) {",
+            "if (ui.hint === 'new-results') {",
+            "app.add(gm3.components.Catalog, 'catalog');",
+            "app.startService('identify', {changeTool: 'Point'});"
+          ]
+        },
+        {
+          "path": "examples/mobile/mobile.css",
+          "requiredStrings": [
+            "#map, #tabs {",
+            "#map.hidden {",
+            "#tabs.show {"
+          ]
+        }
+      ]
+    },
+    {
+      "rowId": "geomoose.distributed-interoperability",
+      "expectedStatus": "partial",
+      "userOutcome": "Configure ordinary GeoJSON, WMS, WFS/GML, XYZ, and ArcGIS REST display/query sources while keeping supported, unsupported, cross-origin, and transactional behavior explicit.",
+      "sourceAssertions": [
+        {
+          "path": "docs/protocols.rst",
+          "requiredStrings": [
+            "GeoMoose Data Protocol Support",
+            "GeoMoose supports the reading of spatial data from web-based servers using standard protocols.",
+            "| **Vector files**                  | GeoJSON",
+            "| **OGC OWS**                       | WMS: v1.1.1",
+            "| (UMN MapServer, geoserver)        | WFS: v1.1.0",
+            "| **Image Tile Servers**            | XYZ (e.g OSM)",
+            "| WFS-T          | Point            | Yes"
+          ]
+        },
+        {
+          "path": "examples/desktop/mapbook-test-servers.xml",
+          "requiredStrings": [
+            "<map-source name=\"geojson-polygons\"           type=\"geojson\"",
+            "<map-source name=\"wfs-points\"                 type=\"wfs\"",
+            "<map-source name=\"wms-image\"                  type=\"wms\" opacity=\"0.5\">",
+            "<map-source name=\"ags\"                        type=\"ags\">",
+            "<map-source name=\"openstreetmap\"              type=\"xyz\">",
+            "<param name=\"cross-origin\" value=\"anonymous\"/>"
+          ]
+        },
+        {
+          "path": "src/gm3/components/map/layers/wms.js",
+          "requiredStrings": [
+            "VERSION: \"1.1.1\"",
+            "LAYERS: layers.join(\",\")",
+            "sourceOpts.crossOrigin = \"anonymous\";",
+            "source: new ImageWMS(defineSource(mapSource))"
+          ]
+        },
+        {
+          "path": "src/gm3/components/map/layers/wfs.js",
+          "requiredStrings": [
+            "const DEFAULT_OUTPUT_FORMAT = \"text/xml; subtype=gml/2.1.2\";",
+            "export function buildWfsQuery(",
+            "const featureRequest = new WFSFormat().writeGetFeature(formatOptions);",
+            "export function wfsGetFeatures(",
+            "const transaction = format.writeTransaction(",
+            "features.inserts,"
+          ]
+        },
+        {
+          "path": "src/gm3/components/map/layers/xyz.js",
+          "requiredStrings": [
+            "import XYZSource from \"ol/source/XYZ\";",
+            "crossOrigin = \"anonymous\";",
+            "source: new XYZSource(defineSource(mapSource))",
+            "src.setUrls(defn.urls);"
+          ]
+        },
+        {
+          "path": "src/gm3/components/map/layers/ags.js",
+          "requiredStrings": [
+            "ArcGIS REST Services layer.",
+            "import ArcRestSource from \"ol/source/TileArcGISRest\";",
+            "crossOrigin = \"anonymous\";",
+            "source: new ArcRestSource(defineSource(mapSource))"
+          ]
+        },
+        {
+          "path": "src/gm3/components/map/layers/vector.js",
+          "requiredStrings": [
+            "if (mapSource.type === \"wfs\") {",
+            "service: \"WFS\"",
+            "} else if (mapSource.type === \"geojson\") {",
+            "format: new GeoJSONFormat()",
+            "} else if (mapSource.type === \"ags-vector\") {",
+            "spatialRel: \"esriSpatialRelIntersects\""
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceEvidence": [
+    {"path":"LICENSE.md","gitBlob":"ab04995db8b5b18fc6ae123266c7b96d33b6bde8","sha256":"26a2dbb079ce661a1e29ce296856be77361985c127cf8f0107cf2a4b79a0e1b2","bytes":1167},
+    {"path":"README.md","gitBlob":"08d5a294fcbe63e7b5b5ebda941cf4ae005bf49a","sha256":"316fc0fad966afe1791e475181119f17408fcf5bc3ff2995f303e665c31b59c4","bytes":1386},
+    {"path":"package.json","gitBlob":"271ac3e88b67862595a93afda84c462502e5ebbc","sha256":"08f3f599cf5df9fedc05f76cb08065ee91db4aa54d047ec3622406bac6ac465e","bytes":3136},
+    {"path":"docs/actions-and-services.rst","gitBlob":"957beadf21cf602a2a0a99e2dfe72aa8225332ab","sha256":"44b956415572fb7beabd3a9dd71da7a7fefe0a47374e9e7719a37627ae9abc7b","bytes":4668},
+    {"path":"examples/desktop/mapbook.xml","gitBlob":"9b81aeb550a203693423961984d102efc5c0aa71","sha256":"1dc5a2e1ae199a2a5229f39fd6b04e30ecc88ff535b8d23298a29132e799c201","bytes":23998},
+    {"path":"src/gm3/application.js","gitBlob":"0ade24a678641db21b6207912d90d7b80f556c65","sha256":"15841cf42df87c404c4445a08a06ef85c89821ad2736c81cf5107a29453a2a47","bytes":29941},
+    {"path":"src/gm3/reducers/config.js","gitBlob":"3a92976b851048cb25bca631aba24f42110d2f39","sha256":"35865aeb3d167e7be983feae6f75cb67b2222c1bd411d56dd5230b30c8725176","bytes":1645},
+    {"path":"src/gm3/actions/catalog.js","gitBlob":"191595bc293ded8e9c611da85e807a21e1318b9a","sha256":"46fe413c8922f3e992f6c9a2b5e803c3c880f242e942b7279cd59f7ddabd6277","bytes":7671},
+    {"path":"src/gm3/reducers/catalog.js","gitBlob":"ce3f4809eff28f3fe3bcafd22fce17a5f2bd27a4","sha256":"fb2bd1539a7fcd3844a341be29e59f40515bb4481d1fe3c4b13cb3c75b3bb661","bytes":2097},
+    {"path":"src/gm3/components/catalog/index.js","gitBlob":"128b38ef76ab782af4c1f11b55f5fca3883c06e6","sha256":"fce6e1393e54de4ba718bdefe61cc8b003ba1eba13d87637369bbaf83c8c3281","bytes":4830},
+    {"path":"src/gm3/components/catalog/layer-control.js","gitBlob":"035df66556299937118164bf1e7516be890c497b","sha256":"f9a3b14e30f3d86c9f66f5da635d5dfe7f2bf8edb598cdba1621d273db998e18","bytes":3856},
+    {"path":"src/gm3/components/catalog/legend.js","gitBlob":"3f2bc62e0354e94d4d7226a90d8f20a6c0388bf0","sha256":"f712bf9deecb80ef70094d2f8bdcca98a1f7a7113d40605ad6ca101db1ff1b69","bytes":3033},
+    {"path":"src/gm3/components/catalog/layer.js","gitBlob":"20a3200f02c2b4ec3795eb4c90ffd9d72c0d42ab","sha256":"4ce40f9f9fe58d33fab45c1ec4bac98c70a87a8466189f4be5e42e2de30ddad1","bytes":4675},
+    {"path":"src/gm3/components/coordinate-display.js","gitBlob":"a42c2a3c99ed822a2ad9e081dc8aeb6b430e9d66","sha256":"0cc5e0de66f0115bf09989c3b19c169e9aec53bf5ef2ac56920ecb7d3390ad1d","bytes":7892},
+    {"path":"src/services/identify.js","gitBlob":"8e38d6fe0727e80ccf2bb1f651d46ec52ec379a4","sha256":"ad4f52655dfd938e3121b0fe316173c4c45bb75289e27044bb354bce1836057a","bytes":5069},
+    {"path":"src/services/search.js","gitBlob":"651fc6da23e994da51c3bf3b929259b2c1e0d92b","sha256":"a8835fa528fb85975ee48ca1d6ffca6f2890e5eac4b702f90c254567ded77691","bytes":6689},
+    {"path":"src/services/select.js","gitBlob":"fe920c942ccb5846de38110925a110820a224a71","sha256":"53b9752612d10c8b7fbcfed6deb7468e8fd69e4b1ff71b81aeede656cbef95cd","bytes":6394},
+    {"path":"src/gm3/actions/query.js","gitBlob":"5d5310fbddfc26f49d89ec7319b31784bde9b58e","sha256":"93c8fed61198797d672b6f137a1dafe664a956a51d69945c393bab24690c37df","bytes":5819},
+    {"path":"src/gm3/reducers/query.js","gitBlob":"65a002b8f0b44f5c39739631ea855e3980a5f28d","sha256":"edc1f38a7001e2c4cf418de2724400b391ff1aefe72d95808a566c7977c51587","bytes":3554},
+    {"path":"src/gm3/components/serviceManager/results.js","gitBlob":"f9a1f96def820c747dad9de2fed0b8e62ea67c74","sha256":"4ca407871eeee37284f49c9231e0652ead21d9f40b85672edd5c0dc379a08218","bytes":5963},
+    {"path":"src/gm3/query/wfs.js","gitBlob":"49a511d970120673fdab136518c6773fcdec580a","sha256":"a4c38a57c95077bfa2f9ec4211c8a8504e8aaf451f72280123c4e86074f0cd10","bytes":3644},
+    {"path":"src/gm3/components/drawTool.js","gitBlob":"086141c32f90d5f04443e8ffdfeb6fdae461bed3","sha256":"b11b89453bd3d3bae4674e2e702630461c26abdfe80db97f9c3d2930b391bc50","bytes":4384},
+    {"path":"src/gm3/components/catalog/tools/draw-tool.js","gitBlob":"0abb734fde0a31675995d129d634330359055da7","sha256":"6b136848028732de9259160b06e11a0c16e23bd9404ddb0c04c278fd9d4ba55f","bytes":2549},
+    {"path":"src/gm3/components/catalog/tools/upload.js","gitBlob":"7d5a937e7892364e06478eae7b1f46fa4123c0a3","sha256":"d5768f6fe4f792a13aa7ad3b8ddd68d992e9e7178e5401eb8554f18458c5c453","bytes":8318},
+    {"path":"src/gm3/components/editor/index.js","gitBlob":"3517f6d339b78896eaad1010959379dc330dfe04","sha256":"0b4791a12c814bf368ed88baa87c5ef42d65a4f471ce21302c8cb1c897c4d51e","bytes":1582},
+    {"path":"src/gm3/actions/mapSource.js","gitBlob":"aa66765abc4ec432ea7e4e410d2225f69b812736","sha256":"cafdce27078632f0e4a496bf70ef2275dee7c7c62c79df229062a672963aec34","bytes":27083},
+    {"path":"examples/desktop/mapbook-editing.xml","gitBlob":"1880bf6c8ac5f3ad5e488e2828543b125ba02d0c","sha256":"61501eb5a934cf9a819917462e62d7e951ea046860a8bcd2f5c0f27473899787","bytes":31871},
+    {"path":"docs/howto/vectorediting/add-vector-editing.rst","gitBlob":"e9682e8bbb79cc35e312d0f23b4bfbcbde278ea9","sha256":"2d5c66f148a8d8fb838d9c9a20c9ba8bc0d70d57677865bb93a2ea95f214674e","bytes":11397},
+    {"path":"src/gm3/actions/print.js","gitBlob":"cf6b41b5f4aebde2c08258647a4136ab2b919650","sha256":"8edc2ccf9ba9683d8ae79c7be978f2dcde41c3d5d9fc3df6219f16f04cf412ea","bytes":1792},
+    {"path":"src/gm3/reducers/print.js","gitBlob":"f86af8d5b0d179ac96b34989c213c5bed9ce42dd","sha256":"febfa5f14ebde7bcd1bdb36b91ce07e719f340208c882ac7b86c0dfa1fb8aa9e","bytes":1792},
+    {"path":"src/gm3/components/print/printModal.js","gitBlob":"a2d228ba5d482b069fad4e0b87f23d5a77e23321","sha256":"9f1e11aac87fc993bc534d72fbe0bb5f4b17c76cc121b222b3f7f8a98138db6f","bytes":18550},
+    {"path":"src/gm3/components/print/printLayouts.js","gitBlob":"8e5b26aa6c6bca5bc4e985f72d5dd001f213b197","sha256":"70989f32c9f9696d2a10e26fc94613bea70bd011ff8f0699712d67bc80c999b9","bytes":5118},
+    {"path":"src/gm3/components/print/printImage.js","gitBlob":"a610d0e17cb90c973161e0b43637f4607218c1b1","sha256":"a24f9903ae6dada74709aa9165cf31e5d97f58fa556a9b4d9513b213a72affaa","bytes":3796},
+    {"path":"docs/howto/print-layouts.rst","gitBlob":"16b2607862377da2a0d052cef95a00485a80ed35","sha256":"c0c8a833473b52db270ee7dc98858efb8a6340e3c2f2ae670c765e6ecae83271","bytes":4222},
+    {"path":"examples/mobile/mobile.js","gitBlob":"41fdce653bf78676fb3171a5d0bbc7c8e323fbe5","sha256":"6b097f6f82655367923262d8d05ce7fed8c11ce3afc60fb27f2ba4913f3553d9","bytes":3244},
+    {"path":"examples/mobile/mobile.css","gitBlob":"cb8e1ef71f0e225b4ab2f4ab987e60bcc4d60aed","sha256":"3f950053ce1d4bafae0dc933be7518dc4ca813f61c861f6ba3d4ec09cfbde51d","bytes":1610},
+    {"path":"docs/protocols.rst","gitBlob":"2b121d225772e8db0874e815eb3bf732a3d5dffb","sha256":"1be8091d633640a828fb0187703155b817e3adef51e76652b9b0952a3e0d02f6","bytes":9233},
+    {"path":"examples/desktop/mapbook-test-servers.xml","gitBlob":"2a0eed172995644da1d4f12aa538447eb8f46457","sha256":"8a74286fc572dda8fd07d17b390a66fe30eccf75ebebdb94605420c8da79ea93","bytes":52138},
+    {"path":"src/gm3/components/map/layers/wms.js","gitBlob":"804a79898160cd2b43508acd1bb57468e40dad4c","sha256":"886e54af59ce72ed48949fcd24916a00dea0daa3bd9eef34f14eac70dedf9de5","bytes":4141},
+    {"path":"src/gm3/components/map/layers/wfs.js","gitBlob":"782f4b7cf510b2e3486903c541bdf7d3b8781041","sha256":"46efe0698fcce42c352e778fd222610c0d3ba714c0c9b7e104d967e975cbc66c","bytes":7383},
+    {"path":"src/gm3/components/map/layers/xyz.js","gitBlob":"498d8abdd20579147ceaa75b82cef5a0e13987ab","sha256":"b0cf2739799796d063a3dce99c89df18165180124bc2600e1c216f1858257998","bytes":2660},
+    {"path":"src/gm3/components/map/layers/ags.js","gitBlob":"98ab99eb7d22a8d5a49bcf9a96dc4918e7fd26e9","sha256":"0a8a35e5c154495db4e671bc2054354d3c58aaaf77b68e58239ba5c29297d752","bytes":2535},
+    {"path":"src/gm3/components/map/layers/vector.js","gitBlob":"7fad94af8c0a739935e891541e1214eb13e618ba","sha256":"848506be736e047ad631c91b4c3bea768000968e3a28a7724b11e04a54968d45","bytes":12495}
+  ],
+  "separateEvidence": {
+    "existingProtocolPeers": [
+      "parity/reports/service-004-qgis-wfs-transaction-peer.json",
+      "parity/reports/service-015-wfs-simple-stored-queries.json",
+      "parity/fixtures/source-001-xyz.json",
+      "parity/reports/publish-001-portable-site-publication.json"
+    ],
+    "openGeoWorkflowEvidence": [
+      "docs/workbench-command-surface-local-evidence.json",
+      "docs/workbench-map-authoring-local-evidence.json",
+      "app/src/components/WorkbenchView.js"
+    ]
+  },
+  "limitations": [
+    "This source inventory does not execute the GeoMoose application, its browser UI, example services, mobile example, print output, or a deployed GeoMoose instance.",
+    "This source inventory does not evaluate the existing protocol peers and does not execute OpenGeo workflows; those remain separate evidence.",
+    "The v3.15.2 annotated tag contains no cryptographic signature, so source identity is bound to the exact tag object, commit, tree, Git blobs, and SHA-256 digests without a verified signer trust chain.",
+    "Four formal GeoMoose rows remain partial, including temporary annotation; the source inventory does not change their missing-evidence declarations."
+  ]
+}

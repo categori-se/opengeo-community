@@ -1,0 +1,17 @@
+{
+  "authorityValuesRecorded": false,
+  "externalNetworkAvailable": false,
+  "operations": [
+    {
+      "operation": "GetCapabilities",
+      "requests": 4,
+      "status": 200
+    }
+  ],
+  "persistentStoreAvailable": false,
+  "requestBodiesRecorded": false,
+  "requestCount": 4,
+  "requestParametersRecorded": false,
+  "result": "bounded_wcs_production_document_loopback_trace",
+  "schemaVersion": "1.0.0"
+}

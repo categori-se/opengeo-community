@@ -1,0 +1,34 @@
+{
+  "@context": "https://schema.org/",
+  "@id": "https://catalog.example.org/datasets/road-access-2026",
+  "@type": "Dataset",
+  "identifier": {
+    "@type": "PropertyValue",
+    "propertyID": "local",
+    "value": "road-access-2026"
+  },
+  "name": [
+    {"@value": "Road access survey", "@language": "en"},
+    {"@value": "Enquête sur l'accès routier", "@language": "fr"}
+  ],
+  "description": [
+    {"@value": "Verified roads metadata.", "@language": "en"},
+    {"@value": "Métadonnées routières vérifiées.", "@language": "fr"}
+  ],
+  "inLanguage": ["en", "fr"],
+  "license": "CC-BY-4.0",
+  "creditText": "Research team",
+  "keywords": ["roads", "transport"],
+  "spatialCoverage": {
+    "@type": "Place",
+    "geo": {
+      "@type": "GeoShape",
+      "box": "27.0 84.0 29.0 86.0"
+    }
+  },
+  "temporalCoverage": "2026-01-01T00:00:00+00:00/2026-08-20T00:00:00+00:00",
+  "creator": {"@type": "Organization", "name": "Research team"},
+  "publisher": {"@type": "Organization", "name": "Open Research Press"},
+  "distribution": [],
+  "variableMeasured": "Travel time"
+}

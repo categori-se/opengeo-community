@@ -1,0 +1,134 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-006.gdal-wcs-peer",
+  "title": "GDAL 3.11.5 authenticated exact-COG WCS compatibility",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Version-pinned GDAL uses its native WCS 2.0.1 driver for authenticated discovery and description, then its GeoTIFF driver follows OpenGeo's exact-object GetCoverage redirect over loopback HTTP.",
+    "url": "https://gdal.org/en/stable/drivers/raster/wcs.html",
+    "version": "3.11.5"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0036_spatial_coverage_services.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0036_spatial_coverage_services.sql",
+      "sha256": "9c9a8b9421d36a7a319a89f342a31369229a050b9ea5dcbda9aed1903e0896f3"
+    },
+    {
+      "name": "spatial-coverage-services.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-coverage-services.test.mjs",
+      "sha256": "da11252e171ae54d9692bb0f767568d2367a481e2522bd3fb96c8484e30ad4d8"
+    },
+    {
+      "name": "coverages.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverages.py",
+      "sha256": "f86208378d68652a1666345536804989f63e39554b27b9e216ab6871204b8c2c"
+    },
+    {
+      "name": "wcs.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wcs.py",
+      "sha256": "ca84657e6f2ad85c2cc7568d53a1fe793863fd5b0a682195816c40624623671f"
+    },
+    {
+      "name": "coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/coverage_routes.py",
+      "sha256": "8e4bbf15630eb288e4e760c3fa258a37ff202b49902c68fb24111a1ab13a249e"
+    },
+    {
+      "name": "spatial_service_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_service_routes.py",
+      "sha256": "975559cd790c5ac3beb2a0a6e182b47d2c6e81108544beacae10423bbbc217cc"
+    },
+    {
+      "name": "test_coverages.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_coverages.py",
+      "sha256": "a6187739e0e03e30f08926843e53d1c2e9e573147086578f865455577bca43ce"
+    },
+    {
+      "name": "test_coverage_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_coverage_routes.py",
+      "sha256": "174d9467da7f5815d34b94d9002c564efc2262f79e4c68f8534212416d55daf5"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "ProjectServices.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectServices.js",
+      "sha256": "a25fc29a1c2c72292af43efb3f636d6c58ba308c8e2ecc5e11ef82f48fa1beaa"
+    },
+    {
+      "name": "serve-wcs-parity.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/serve-wcs-parity.py",
+      "sha256": "e8f57398904c0724d2608b5916ad9e8a0e2f801f8f997fbb0c239a04dec23d1e"
+    },
+    {
+      "name": "check-gdal-wcs-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-gdal-wcs-peer.mjs",
+      "sha256": "88588aad338a4320e08317ed8237038bda4aebddee8ad1746bf8a4a479ea8efe"
+    },
+    {
+      "name": "service-006-gdal-wcs-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-006-gdal-wcs-peer.json",
+      "sha256": "a4fa6d1902a9ac4980450803616c348a282506aaa13de755e0e1c3bdf73a14cf"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.source-layer-breadth",
+      "assertion": "A governed current validated COG can be published and read through a standalone standards-oriented coverage endpoint without GeoLibre running."
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "assertion": "An uploaded raster version is bound to immutable object and raster metadata and retrieved as the exact governed GeoTIFF."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo supplies a bounded native WCS 2.0.1 compatibility slice without an always-on GeoServer runtime dependency."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "An independent GDAL client discovers, describes, and retrieves a bounded WCS coverage while unsupported processing parameters fail closed."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

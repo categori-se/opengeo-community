@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-19",
+  "region": "us-east-1",
+  "currency": "USD",
+  "scenario": "zero-request inactive dev foundation and serverless API",
+  "idleTargetMonthlyUsd": 5,
+  "expectedMonthlyUsd": 2.803,
+  "maxPaidKmsRotations": 2,
+  "maxRotationExpectedMonthlyUsd": 4.803,
+  "satisfiesIdleTarget": true,
+  "assumptions": [
+    "No user or health-check requests, no queued jobs, and no provisioned Lambda concurrency.",
+    "Aurora PostgreSQL Serverless v2 has reached zero ACUs after its five-minute auto-pause window; one GB of Aurora Standard storage covers the empty platform schema and is included.",
+    "The default API is an ARM64 Lambda behind API Gateway HTTP API and reaches Aurora only through Data API, so it has no VPC attachment, NAT gateway, load balancer, public IPv4 address, RDS Proxy, or interface endpoint.",
+    "Five GB of private ECR storage retains bounded API and worker release images and 0.1 GB-month retains inactive platform logs.",
+    "One customer-managed KMS key and three Secrets Manager database credentials remain allocated.",
+    "The checked worst case adds the two paid KMS rotation copies allowed by AWS pricing; later rotations do not add another monthly key-storage charge.",
+    "Retained user database/object versions, user-owned connection secrets, backups above the included allowance, an optional domain, tax, support, credits, and free-tier credits are excluded and must be reported as linear add-ons.",
+    "The endpoint-backed Fargate worker is an activation-only stack and must be absent from an accepted inactive deployment."
+  ],
+  "sources": {
+    "aurora": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/rds/aurora/pricing/"
+    },
+    "apiGateway": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/api-gateway/pricing/"
+    },
+    "lambda": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/lambda/pricing/"
+    },
+    "ecr": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/ecr/pricing/"
+    },
+    "s3": {
+      "publicationDate": "2026-08-18T18:11:13Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonS3/current/us-east-1/index.json"
+    },
+    "cloudwatch": {
+      "publicationDate": "2026-08-06T20:18:40Z",
+      "url": "https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonCloudWatch/current/us-east-1/index.json"
+    },
+    "kms": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/kms/pricing/"
+    },
+    "secrets": {
+      "publicationDate": "checked 2026-08-19",
+      "url": "https://aws.amazon.com/secrets-manager/pricing/"
+    }
+  },
+  "items": [
+    {
+      "id": "aurora-serverless-capacity",
+      "scope": "foundation",
+      "description": "Aurora Standard capacity after automatic pause",
+      "quantity": 0,
+      "unit": "ACU-hour",
+      "rateUsd": 0.12,
+      "source": "aurora"
+    },
+    {
+      "id": "aurora-platform-storage",
+      "scope": "foundation",
+      "description": "Empty platform schema storage assumption",
+      "quantity": 1,
+      "unit": "GB-month",
+      "rateUsd": 0.1,
+      "source": "aurora"
+    },
+    {
+      "id": "data-api-requests",
+      "scope": "api",
+      "description": "Data API requests while inactive",
+      "quantity": 0,
+      "unit": "32-KB request",
+      "rateUsd": 0.00000035,
+      "source": "aurora"
+    },
+    {
+      "id": "http-api-requests",
+      "scope": "api",
+      "description": "API Gateway HTTP API requests while inactive",
+      "quantity": 0,
+      "unit": "request",
+      "rateUsd": 0.000001,
+      "source": "apiGateway"
+    },
+    {
+      "id": "lambda-requests",
+      "scope": "api",
+      "description": "Lambda requests while inactive",
+      "quantity": 0,
+      "unit": "request",
+      "rateUsd": 0.0000002,
+      "source": "lambda"
+    },
+    {
+      "id": "lambda-compute",
+      "scope": "api",
+      "description": "Lambda duration while inactive",
+      "quantity": 0,
+      "unit": "GB-second",
+      "rateUsd": 0.0000133334,
+      "source": "lambda"
+    },
+    {
+      "id": "kms-key",
+      "scope": "foundation",
+      "description": "One customer-managed KMS key before paid rotation copies",
+      "quantity": 1,
+      "unit": "key-month",
+      "rateUsd": 1,
+      "source": "kms"
+    },
+    {
+      "id": "secrets-storage",
+      "scope": "foundation",
+      "description": "Administrator, API runtime, and transitional GIS worker database credentials",
+      "quantity": 3,
+      "unit": "secret-month",
+      "rateUsd": 0.4,
+      "source": "secrets"
+    },
+    {
+      "id": "ecr-storage",
+      "scope": "foundation",
+      "description": "Bounded private API and worker release-image storage",
+      "quantity": 5,
+      "unit": "GB-month",
+      "rateUsd": 0.1,
+      "source": "ecr"
+    },
+    {
+      "id": "cloudwatch-log-storage",
+      "scope": "foundation",
+      "description": "Inactive retained platform logs",
+      "quantity": 0.1,
+      "unit": "GB-month",
+      "rateUsd": 0.03,
+      "source": "cloudwatch"
+    }
+  ],
+  "forbiddenFixedIdleResources": [
+    "provisioned database instance or RDS Proxy",
+    "Fargate API or worker task",
+    "Application Load Balancer",
+    "NAT gateway",
+    "public IPv4 address",
+    "interface VPC endpoint",
+    "Lambda provisioned concurrency"
+  ],
+  "linearRetainedDataRates": [
+    {
+      "description": "One encrypted Secrets Manager credential version retained by a user-owned dataset connection",
+      "rateUsd": 0.4,
+      "unit": "secret-month",
+      "source": "secrets"
+    },
+    {
+      "description": "Aurora Standard database storage beyond the included one-GB schema assumption",
+      "rateUsd": 0.1,
+      "unit": "GB-month",
+      "source": "aurora"
+    },
+    {
+      "description": "S3 Standard retained user objects at the first pricing tier",
+      "rateUsd": 0.023,
+      "unit": "GB-month",
+      "source": "s3"
+    }
+  ]
+}

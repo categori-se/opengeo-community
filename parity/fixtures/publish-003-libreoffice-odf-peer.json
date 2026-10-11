@@ -1,0 +1,117 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "publish-003.libreoffice-odf-peer",
+  "title": "Bounded ODF semantic preview and LibreOffice producer peer",
+  "fixtureType": "publication",
+  "source": {
+    "kind": "synthetic",
+    "description": "A CC0 HTML document is converted once by exact-version LibreOffice into a real ODF 1.4 text package, then inspected by the production bounded ODT parser and compared at the semantic-preview boundary."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "publish-003-libreoffice-odf.html",
+      "mediaType": "text/html",
+      "encoding": "path",
+      "value": "parity/fixtures/data/publish-003-libreoffice-odf.html",
+      "sha256": "26cdf2e980fc2ee832de416015e5845cd1ecaf14f1a830b18d9990656b337457"
+    },
+    {
+      "name": "check-libreoffice-odf-peer.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-libreoffice-odf-peer.py",
+      "sha256": "1fdf35dd122871f8880e16da02ee675c8f5b2ffc4ae1f364b66cb425fdccb65d"
+    },
+    {
+      "name": "odf_documents.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/odf_documents.py",
+      "sha256": "68da974d041cf3f0e9883eb5bc65563e986068c64194132544a84ce4806a612c"
+    },
+    {
+      "name": "test_odf_documents.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_odf_documents.py",
+      "sha256": "ab38727c4f2cc813356681c651554145aad2b65ceb5499ad04452f897460daa3"
+    },
+    {
+      "name": "0031_governed_odf_text_documents.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0031_governed_odf_text_documents.sql",
+      "sha256": "9742b12204aeb0c16918bd001694854cb24f1d0dcc43a93c388e843e5fcf7a2b"
+    },
+    {
+      "name": "open-document-ingestion.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/open-document-ingestion.test.mjs",
+      "sha256": "319e8b108a5d558ed91768bdca5bf0028e8065859920491ea0269c21dabbfd4e"
+    },
+    {
+      "name": "catalog.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/catalog.py",
+      "sha256": "29cda308c0599e9861df755210809e717f82b604948a93a7cb5216ff90e558aa"
+    },
+    {
+      "name": "document_previews.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/document_previews.py",
+      "sha256": "9506f2fd4574e56753c6eb02f2bfe5f4d4480997416b917c29befd0c4340b1ec"
+    },
+    {
+      "name": "catalog_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/catalog_routes.py",
+      "sha256": "99a0ef3f8bc6b4ff9962c19d9ebe0c822869c547ff4f1ea4ed7a7e44c4f0ec97"
+    },
+    {
+      "name": "test_catalog.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_catalog.py",
+      "sha256": "24939a2fa22f637645eaf8feeb2b2fc9bc57456da3fb3dfc3ab311119770f558"
+    },
+    {
+      "name": "test_catalog_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_catalog_routes.py",
+      "sha256": "7c81e945cd96d5970706f1e711865d5790a6f65b03d2839aaeeffeef0255f401"
+    },
+    {
+      "name": "publish-003-libreoffice-odf-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/publish-003-libreoffice-odf-peer.json",
+      "sha256": "9ef0ecba7256ed9b168b9051543242d91498a6a09c4f03aa92462dbc82a8bce6"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.layout-story-dashboard-print",
+      "assertion": "OpenGeo ingests a real ODF 1.4 text package and exposes a bounded exact semantic preview without GeoLibre or an office suite at runtime while clearly declaring layout losses."
+    },
+    {
+      "rowId": "geonode.publishing-administration",
+      "assertion": "A governed document uses shared authentication, immutable exact-version storage, activation-only scanning, and accessible private plus separately sealed public semantic presentation without adding a fixed-idle service."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

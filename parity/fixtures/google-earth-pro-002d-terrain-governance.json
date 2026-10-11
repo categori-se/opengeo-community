@@ -1,0 +1,85 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-002d.terrain-governance",
+  "title": "Governed terrain freshness, outage fallback, and recovery",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Exact source-receipt policy, deterministic clocks, source-specific failures, a local managed-browser 503 outage, cooldown retry, and recovery. No proprietary or upstream tile byte is vendored."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "terrainGovernance.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/terrainGovernance.js",
+      "sha256": "d199f2b480f5dab550d31a25567dccaf76921a24c85bb8455fca2b1ecc58470e"
+    },
+    {
+      "name": "terrainView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/terrainView.js",
+      "sha256": "c683eecff8be77a89f1e56eb65513ccb701a05f91b79e673fa34ed41c60dc3e6"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "terrain-governance.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/terrain-governance.test.mjs",
+      "sha256": "60306b44b1e68f08808b5868df2313fd24b36bd8722b391cb0d4653b15e2df8b"
+    },
+    {
+      "name": "terrain-view.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/terrain-view.test.mjs",
+      "sha256": "be4d19d3b6b54649c4fe01b9dd13913eefd60d1ae734172b61bcb65d58b062f2"
+    },
+    {
+      "name": "globeTelemetry.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/globeTelemetry.js",
+      "sha256": "3e982af27b5f8dab40b7a2a02f003ecf61e440d4d0afed73b783f2fc75e2f4e1"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "google-earth-pro-002d-terrain-governance.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-002d-terrain-governance.json",
+      "sha256": "1814ea00e4d9e0904d87d285cb2ac72468043fe38814674b76a36dcc652b1dc2"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+      "assertion": "Current local tests permit the reviewed public terrain provider on hosted and local origins, retain receipt-integrity and clock checks, treat review age as advisory, and recover after a source-specific outage cooldown. The retained historical report records the earlier local-only policy, superseded by the September 9 source-policy correction. Live deployment and full-row parity are not claimed."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

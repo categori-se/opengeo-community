@@ -1,0 +1,126 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "openlayers.map-model-browser-peer",
+  "title": "Rendered OpenLayers map model, browser-platform outcomes, and responsive controls",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "upstream",
+    "description": "Version-pinned OpenLayers renders one exact governed feature generation with deterministic tile and image layers in a real browser map, then exercises ordering, constraints, state restoration, accessible controls, touch pan, popup and hit detection, geolocation, loading, PNG export receipts, a same-origin extension boundary, and bounded failure.",
+    "url": "https://github.com/openlayers/openlayers/releases/tag/v10.10.0",
+    "version": "10.10.0"
+  },
+  "license": {
+    "spdxId": "BSD-2-Clause",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "map-model.html",
+      "mediaType": "text/html",
+      "encoding": "path",
+      "value": "parity/peer/openlayers/map-model.html",
+      "sha256": "a1996852f64d2f05137f70031a9f34c20185dc2f3ca8f9f549e0de1f0b3c1358"
+    },
+    {
+      "name": "map-model.css",
+      "mediaType": "text/css",
+      "encoding": "path",
+      "value": "parity/peer/openlayers/map-model.css",
+      "sha256": "68d73db029a52a1b449d2aca0e21e9d49658f49d034929147b3639b7fb954848"
+    },
+    {
+      "name": "map-model-harness.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "parity/peer/openlayers/map-model-harness.js",
+      "sha256": "f8a6149411eacbd48af1f0149df3d91ad95ee4875fc76139a19ae06ac42c118e"
+    },
+    {
+      "name": "check-openlayers-map-model-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-openlayers-map-model-peer.mjs",
+      "sha256": "204eb743fdd80f4761bdf963fa60568145009888dead84ade9db830d22f34bb0"
+    },
+    {
+      "name": "serve-records-parity.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/serve-records-parity.py",
+      "sha256": "c7b5809adb2acefa5238661fc8b51af2f2f37af51478c355be60ef4af8de9ace"
+    },
+    {
+      "name": "openlayers-map-model-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/openlayers-map-model-peer.json",
+      "sha256": "ba0bef99677edb46d82f30d723bc3d0661f82986953a7acf945bf70544582f01"
+    },
+    {
+      "name": "openlayers-map-model-peer.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/openlayers-map-model-peer.test.mjs",
+      "sha256": "833ea96823de71699dd7ef818938b7ced0e8b21b73c0aa79fb6fea5830b47dee"
+    },
+    {
+      "name": "browserPlatform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/browserPlatform.js",
+      "sha256": "936acd39cb8534ec99a46a80a6b1d6eab1e7988aec04efd5bcb2d1ba1f021682"
+    },
+    {
+      "name": "browser-platform.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/browser-platform.test.mjs",
+      "sha256": "4d76dfa393a9bd228b28a6fef7e96107df6930dfcdcbb012b27e3c8101e6a965"
+    },
+    {
+      "name": "root-package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "package.json",
+      "sha256": "355dfd1256bb0c790ed4c168e49d29f2fb6d1d5a578634312b5aa997847e1575"
+    },
+    {
+      "name": "app-package.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package.json",
+      "sha256": "399cd2c91d74b0a9b53428d4dbb8d037f2bfbe30dbb660907e64196dffc12d8b"
+    },
+    {
+      "name": "app-package-lock.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "app/package-lock.json",
+      "sha256": "cad9781aa572087cda8a9ff96ccd93d551028795a05abbedcb54c449cc134e9d"
+    },
+    {
+      "name": "validate-local.sh",
+      "mediaType": "text/x-shellscript",
+      "encoding": "path",
+      "value": "scripts/validate-local.sh",
+      "sha256": "cc0505a0ec2c70d76c04dec44664c6825182fb03bfa0b31c2e0fcccad94facaf"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "openlayers.map-view-layer-model",
+      "assertion": "OpenLayers 10.10.0 renders a responsive Map/View/LayerGroup with governed vector data plus tile and static-image layers, preserves order, visibility, opacity, extent, resolution, rotation, and exact saved state, and retains the prior map through a bounded tile error."
+    },
+    {
+      "rowId": "openlayers.browser-platform-features",
+      "assertion": "The OpenGeo workbench and independent OpenLayers 10.10.0 peer expose accessible popup, style, hit detection, bounded geolocation, loading and retained-error status, credential-free PNG provenance, touch pan, and deny-by-default same-origin extension outcomes without browser authority."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

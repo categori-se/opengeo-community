@@ -1,0 +1,82 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "editing-001.governed-feature-store",
+  "title": "Governed standalone GeoJSON feature editing with immutable history",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local contract evidence for tenant-scoped PostGIS feature heads, exact expected-version mutations, immutable revisions, and browser GeoJSON controls."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0021_governed_feature_editing.sql",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "database/migrations/0021_governed_feature_editing.sql",
+      "sha256": "8c5bd4eabab6183cf46e4c7ec441e7f9ea8b5c737b9e099bdf195df9b3403042"
+    },
+    {
+      "name": "features.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/features.py",
+      "sha256": "f5642292c13073fb372d619c50b54fb5fe1f9b250571d327ced9bb0342b7b3fd"
+    },
+    {
+      "name": "feature_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/feature_routes.py",
+      "sha256": "ab993b9e984bb76399b1addd0db7f3ff4fad298674ed3494f7d1c683cbaa1682"
+    },
+    {
+      "name": "governed-feature-editing.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/governed-feature-editing.test.mjs",
+      "sha256": "c9fd122d70d9f62fa95637f5b1c4e619b3acec0aa54342a3491eefefada21f80"
+    },
+    {
+      "name": "test_feature_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_feature_routes.py",
+      "sha256": "82b45744360134ea88fdb5900c4e4588ec430cd6763f5079fb495c9d1bd01db3"
+    },
+    {
+      "name": "ProjectDatasets.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectDatasets.js",
+      "sha256": "12ed98b3951694aedbe7a7331ebd2eddbcd652087db51bf5c7b619ee82ae9ddc"
+    },
+    {
+      "name": "editing-001-governed-feature-store.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/editing-001-governed-feature-store.json",
+      "sha256": "d2ed066ba91b8ecfde8d322fa134ffcc05bf45182c6a81de6f500a048c8ab10c"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.gis-authoring-inspection",
+      "assertion": "The standalone browser and API durably create, replace, delete, list, and inspect stable-ID GeoJSON features with explicit versions and immutable history."
+    },
+    {
+      "rowId": "geonode.upload-create-edit-style",
+      "assertion": "An authorized editable vector dataset gains a PostGIS system of record, bounded schema, spatial query, conflict-safe edits, and attributable activity without depending on GeoNode."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

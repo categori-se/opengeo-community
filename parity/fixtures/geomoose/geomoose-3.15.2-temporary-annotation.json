@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geomoose-004.temporary-annotation-behavior",
+  "observedAt": "2026-08-30",
+  "reference": {
+    "product": "GeoMoose",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "sourceLock": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+  },
+  "openGeoContract": {
+    "schemaVersion": "1.0.0",
+    "retentionHours": 24,
+    "maximumLayers": 12,
+    "maximumFeaturesPerLayer": 1000,
+    "maximumPositionsPerLayer": 10000,
+    "maximumUploadBytes": 1048576,
+    "maximumStoredBytes": 2097152,
+    "uploadFormats": ["geojson", "json", "kml"],
+    "authority": "none",
+    "persistence": "browser-only",
+    "promotion": "governed-ingest-required"
+  },
+  "cases": [
+    {
+      "id": "draw-point",
+      "kind": "Point",
+      "coordinates": [[-71.06, 42.36]],
+      "expectedGeometryType": "Point",
+      "expectedPositions": 1
+    },
+    {
+      "id": "draw-line",
+      "kind": "LineString",
+      "coordinates": [[-71.06, 42.36], [-71.04, 42.38]],
+      "expectedGeometryType": "LineString",
+      "expectedPositions": 2
+    },
+    {
+      "id": "draw-polygon",
+      "kind": "Polygon",
+      "coordinates": [[-71.06, 42.36], [-71.04, 42.36], [-71.04, 42.38]],
+      "expectedGeometryType": "Polygon",
+      "expectedPositions": 4
+    }
+  ],
+  "uploads": [
+    {"id": "geojson-upload", "fileName": "screening.geojson", "format": "geojson", "byteLength": 168},
+    {"id": "json-upload", "fileName": "screening.json", "format": "json", "byteLength": 168},
+    {"id": "kml-upload", "fileName": "screening.kml", "format": "kml", "byteLength": 244}
+  ],
+  "knownDifferences": [
+    "GeoMoose adds uploaded KML or GeoJSON features to a named client vector map source. OpenGeo gives every temporary upload and annotation a visible non-authoritative marker, a project-scoped browser key, and a 24-hour expiry.",
+    "GeoMoose can save edits in a client vector source or dispatch WFS transactions according to source type. OpenGeo prohibits in-place promotion and creates a separate managed-ingest request that is hashed, uploaded, verified, and queued for review.",
+    "OpenGeo intentionally excludes temporary layers from authoritative Save, Save as, ordinary project drafts, and map-definition serialization."
+  ]
+}

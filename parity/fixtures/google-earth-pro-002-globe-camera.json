@@ -1,0 +1,71 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-002.globe-camera",
+  "title": "Bounded browser globe projection and saved camera",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local deterministic projection, camera normalization, fallback, project serialization, browser build, and managed Chromium evidence. No proprietary package byte or Google-hosted service is used."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "globeView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/globeView.js",
+      "sha256": "be671a9671a2e9280acae1dce60ab4fbdc6c87f91cecc68281cf2c55349d47f4"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "style.css",
+      "mediaType": "text/css",
+      "encoding": "path",
+      "value": "app/src/style.css",
+      "sha256": "b267b92ee033a73c7fca50da768b53d007685fc086f30479dd1322069541d6ee"
+    },
+    {
+      "name": "globe-view.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/globe-view.test.mjs",
+      "sha256": "93bb74a2853e57653f7e0c3a1ad04d194cb05fb444aa1cebc8a5101d1a5cb836"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "google-earth-pro-002-globe-camera.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-002-globe-camera.json",
+      "sha256": "35452cad0bb933d117760a2101ffac57542bf0a095ba10fee54a035c4934dbe6"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+      "assertion": "OpenGeo supplies a real browser globe projection, atmospheric presentation, bounded saved camera, and accessible Mercator fallback. GEP-002B separately covers bounded attributed terrain; the remaining 3D scene and full-row evidence are not implemented."
+    }
+  ],
+  "constraints": {
+    "offline": false,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

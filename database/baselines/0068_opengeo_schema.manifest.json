@@ -1,0 +1,285 @@
+{
+  "schemaVersion": "opengeo.database-baseline-manifest.1.0.0",
+  "release": 68,
+  "baseline": "0068_opengeo_schema.sql",
+  "baselineSha256": "20a366842e37bc4dd08e2be0c82fe841c381742c2cbfbe92846039fef10d983e",
+  "migrationChainSha256": "c6e2608733c2b4c95d388e97c710dfaa96dc8d9c5eeaf24d610b391e7b85a26b",
+  "postgresMajor": 16,
+  "postgisSeries": "3.5",
+  "generatorImage": "docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932",
+  "containsUserData": false,
+  "migrations": [
+    {
+      "name": "0001_platform_foundation.sql",
+      "sha256": "6b2c4e60261619a8027750e98c894d21b07420d3d8f9935d3b52d18e69d3790d"
+    },
+    {
+      "name": "0002_membership_invitations.sql",
+      "sha256": "333f30df5fe0dee9ba964a77cdd9c3baaebab42a0ad13d3d9104455f1e9def9c"
+    },
+    {
+      "name": "0003_managed_ingestion_foundation.sql",
+      "sha256": "e99dcfe9b4debb0ba184eb6fc2579eea1370450300522707e7162430230cede1"
+    },
+    {
+      "name": "0004_worker_execution_boundary.sql",
+      "sha256": "4f82200eb35b653715c59fefdc0cfca6ccf57a5b203028604c910c44d4b4e833"
+    },
+    {
+      "name": "0005_catalog_access.sql",
+      "sha256": "61a245ebb826c42ec8d173718e2f19f74ac2cb2d38635d1aa7beeb6101790767"
+    },
+    {
+      "name": "0006_governed_external_sources.sql",
+      "sha256": "17595926f2d5e192b55831633f9257f8fb5ebec1e8bcf340c18c95e2dc126600"
+    },
+    {
+      "name": "0007_governed_pmtiles_sources.sql",
+      "sha256": "fea83edf305fdc992aa04fd930f4df06b2f5d888b43f72e91e99aa7c4c0d94f8"
+    },
+    {
+      "name": "0008_recoverable_project_imports.sql",
+      "sha256": "4a58dcc26bafd5df1e50d700e8262416ab2d0740e2e059f4dfd3051d7642a8d8"
+    },
+    {
+      "name": "0009_governed_resources.sql",
+      "sha256": "076b7b99a3a7dbe03195847f55d8797bb13f531a3860a69edf796e231c7e6fe5"
+    },
+    {
+      "name": "0010_resource_governance.sql",
+      "sha256": "99662c4242b04cb20039e5913bfa877fd1df602e5b248b4382bddd5948cf27e1"
+    },
+    {
+      "name": "0011_governed_rendering.sql",
+      "sha256": "9b377e7ba389d7da7e4fe8e780934a51b3ba37ee298ebb3cffd4a6f5c5f0fe80"
+    },
+    {
+      "name": "0012_raster_reprojection.sql",
+      "sha256": "9eaa2fd6e827ebeb653dda4d328b59ae53b5b1ca241f1181413b89ad59ae11ef"
+    },
+    {
+      "name": "0013_wms_basic_presentation.sql",
+      "sha256": "14ff3ee5319c574a741909f43f93a5ac07eeb7cfe8dc8a5da02ea1d61c80074b"
+    },
+    {
+      "name": "0014_ordered_map_compositions.sql",
+      "sha256": "630e08c225821928dd34e3950351367ae3a5b97c3c37330f410018c3c3f1d034"
+    },
+    {
+      "name": "0015_governed_wms_publications.sql",
+      "sha256": "92879d419af0b8c00437cfa3241823ea2073043e8418f80209220d3e2789468c"
+    },
+    {
+      "name": "0016_public_wms_services.sql",
+      "sha256": "75ada4e89fbb57f1bbb1405f00604cee8556d62876b1db8d30e8e4745817fd17"
+    },
+    {
+      "name": "0017_metadata_governance.sql",
+      "sha256": "413a07efb7c3dd4298b4858fde7b557ed52df103416d2f8dab75d5a0a3bfc499"
+    },
+    {
+      "name": "0018_metadata_source_documents.sql",
+      "sha256": "95180ef51d1cd71caaef93b214d25a1e3d668a44d44fc6942539488494dc094a"
+    },
+    {
+      "name": "0019_multilingual_metadata.sql",
+      "sha256": "4f4e4d943babab278e4f111c6425a48edd86d09e9a51bb2d432958863071ba18"
+    },
+    {
+      "name": "0020_extended_metadata_exchange.sql",
+      "sha256": "b0789ce337137471144b4ca821592c9e478c0555bfbbfcada8945276022c6342"
+    },
+    {
+      "name": "0021_governed_feature_editing.sql",
+      "sha256": "8c5bd4eabab6183cf46e4c7ec441e7f9ea8b5c737b9e099bdf195df9b3403042"
+    },
+    {
+      "name": "0022_field_capture.sql",
+      "sha256": "1bfd8162b19445b744df202b4474de1ebb1b70bdf2a6d2c7b75e444b4ff4c4aa"
+    },
+    {
+      "name": "0023_spatial_service_catalog.sql",
+      "sha256": "ed8932cd53bf5445fc1f663734d25c5d31ccac4ea17c2dd9186722e80540748f"
+    },
+    {
+      "name": "0024_durable_tile_cache.sql",
+      "sha256": "c7b981757c5f44c747ae06e1f87df8501bab849220fda51705e2a64fcd51b9c0"
+    },
+    {
+      "name": "0025_portable_site_publications.sql",
+      "sha256": "77306d76c45acef6332d482271cbe91a236b08994bf3d3ef757da8330bada90d"
+    },
+    {
+      "name": "0026_general_media_ingestion.sql",
+      "sha256": "305597d55a9c6e7b98fdb35b567345c2ef0c07bcae1b2ab94cd855c181c9bb9c"
+    },
+    {
+      "name": "0027_print_layout_publications.sql",
+      "sha256": "9c35f9debdcbf7ba561037085cf818174ad3346ef72e84060221038e53727fe7"
+    },
+    {
+      "name": "0028_positioned_site_print_layouts.sql",
+      "sha256": "df1d140940bec165fd733a5539977bae6203f3929aaef1c43cc67f22c793c7e5"
+    },
+    {
+      "name": "0029_governed_pdf_documents.sql",
+      "sha256": "90c89648ecde37200f36b64b34878463207e718af0779fead52a61d8b8ef712b"
+    },
+    {
+      "name": "0030_rich_positioned_print_layouts.sql",
+      "sha256": "1cb0c0e53470a70e60149b244165d74d8c473466baa7db582e1ebe46591f9e12"
+    },
+    {
+      "name": "0031_governed_odf_text_documents.sql",
+      "sha256": "9742b12204aeb0c16918bd001694854cb24f1d0dcc43a93c388e843e5fcf7a2b"
+    },
+    {
+      "name": "0032_public_odf_text_documents.sql",
+      "sha256": "3a39ed95553c4e400ebed8997faceea4bd1427f874361f4f46a92830703353c3"
+    },
+    {
+      "name": "0033_public_pdf_semantic_documents.sql",
+      "sha256": "7b6fe77255d607cd3a1482298df047019807d81f099ab9d931899cab2f8bc770"
+    },
+    {
+      "name": "0034_public_pdf_visual_presentations.sql",
+      "sha256": "54d46096811b1d028cadeb79538b0b091ecf671d92ff8807bf52905e689ada80"
+    },
+    {
+      "name": "0035_public_pdf_ocr_documents.sql",
+      "sha256": "012dca483c6dcf15a968a4350a5d05aaf5b14a3c9c24a5965d339f31d141135c"
+    },
+    {
+      "name": "0036_spatial_coverage_services.sql",
+      "sha256": "9c9a8b9421d36a7a319a89f342a31369229a050b9ea5dcbda9aed1903e0896f3"
+    },
+    {
+      "name": "0037_coverage_derivatives.sql",
+      "sha256": "a38436a749ab6ab213312bb1cfcb2a2f8805bfc633b51d77cbfd5cca73f1af68"
+    },
+    {
+      "name": "0038_coverage_range_scaling_lifecycle.sql",
+      "sha256": "a4f872b8610b8470957186d3f70d2c00a2fdab7b16d2f3f31d99a3ee12b8e82b"
+    },
+    {
+      "name": "0039_coverage_derivative_reclamation.sql",
+      "sha256": "38aed75d0afde5ed3a6ea7be65623e210da7e289e7fca49f3b641ef2e8ff0f20"
+    },
+    {
+      "name": "0040_render_cache_reclamation.sql",
+      "sha256": "8c8065edec233c0534b64f7f4db4e756785109300348e29765bbbadd78cdb716"
+    },
+    {
+      "name": "0041_durable_tile_seed_plans.sql",
+      "sha256": "1ba8f9638f7225235abc76f6d09af9cb553032742d39292cb6cd16063006dcbb"
+    },
+    {
+      "name": "0042_governed_page_sources.sql",
+      "sha256": "5aad8ac54c70e7bb5bc15adcec53529a0bb6303e41ade41c08a51b109e2807a1"
+    },
+    {
+      "name": "0043_recoverable_page_drafts.sql",
+      "sha256": "9075a9538e7826b569826d7b6802c668be1fddc77f0f1f9eef8d85e64eb25290"
+    },
+    {
+      "name": "0044_structural_page_blocks.sql",
+      "sha256": "6084b69a49103ada90b1a407211fe46badbc30d42cb8b034fceda467ee008a59"
+    },
+    {
+      "name": "0045_observable_source_projects.sql",
+      "sha256": "e8030adaa94165e999ea19b8f0b07f884664ee1dc217f9382285ec310babd5c7"
+    },
+    {
+      "name": "0046_observable_preview_capabilities.sql",
+      "sha256": "c7b5f658ad21b3f4742c1ebe8aa4cffa9dc3ac89f55cb64e396f3e094a0f2a93"
+    },
+    {
+      "name": "0047_governed_external_connections.sql",
+      "sha256": "f0f1faa27e33d881420f91310572596cf6ad010d9d50f13086fe48d630015388"
+    },
+    {
+      "name": "0048_external_connection_verification.sql",
+      "sha256": "2abad7ccad300f802a8ff3f5a124e3229d0bb36832d11937595c2454c810c670"
+    },
+    {
+      "name": "0049_observable_coordinator_runtime.sql",
+      "sha256": "0ff920f06eb7a17c34ad15b2ef0f7a28b4c45dba95e73c2b8883dd86172e81fb"
+    },
+    {
+      "name": "0050_team_project_access.sql",
+      "sha256": "57c54179c72439a7bf046d5e48712c0f966c46ddd486600fffd8c6929e9acb96"
+    },
+    {
+      "name": "0051_user_dataset_connections.sql",
+      "sha256": "e9aeda061ebc8b71d0e6c674588ee26ce105ffe968d6babfdb6b2b88ef063b15"
+    },
+    {
+      "name": "0052_user_dataset_connection_verification.sql",
+      "sha256": "2e48cc1310b9476b85d10e1c57c481a23a25c3278796914fafdd44f1fd8cc4d0"
+    },
+    {
+      "name": "0053_kml_network_link_request_quota.sql",
+      "sha256": "e341719da1eb887df34e04c6464085efda9c56fc78d30846ca1ac586701f128f"
+    },
+    {
+      "name": "0054_reusable_project_datasets.sql",
+      "sha256": "4645ed6c981f8c4c662951b30640b987e98e78f44b467dcb3cbd1f689bcf219e"
+    },
+    {
+      "name": "0055_project_dataset_detach_lock.sql",
+      "sha256": "f940e0edf73b48af0c2dc1fdd3ceeb0d363685cb8d2d06b76ac46ce4d375dc89"
+    },
+    {
+      "name": "0056_user_basemap_connections.sql",
+      "sha256": "42eb4e63cd6aba187ad327c91eec4b6d7db248af96e4da8a93ff8c99ca6cd4b9"
+    },
+    {
+      "name": "0057_carto_basemap_connections.sql",
+      "sha256": "42269fdba43c1c28e31098cced7c585564c894452f0b0f249d3bb7915a7ce6a5"
+    },
+    {
+      "name": "0058_durable_data_preservation.sql",
+      "sha256": "5e52e50173bd4e6d713c0c558d331bcf2d949ac34d79627a25063279b43cd552"
+    },
+    {
+      "name": "0059_processing_execution_receipts.sql",
+      "sha256": "8149561f0a7cc2d9576a91489e55ff51fe7cae218e4471f26aec12382ac24856"
+    },
+    {
+      "name": "0060_governed_geojson_archives.sql",
+      "sha256": "2d5cb54e2c6be9ee88fc357f22548e9ac929c147b22827b02e8bd5b381f50659"
+    },
+    {
+      "name": "0061_bounded_feature_source_archives.sql",
+      "sha256": "bf24778b970ff066b10c3fde6acd27040b68018174a89458ddc3b08dd6b580b5"
+    },
+    {
+      "name": "0062_external_source_discovery_jobs.sql",
+      "sha256": "2b15cc5fc1d2b24b91af1662e8d84bc4e1cea3f4abc5dc6834dd83b0bb17188d"
+    },
+    {
+      "name": "0063_project_publication_visibility.sql",
+      "sha256": "67da04049b6544ce8f48fc54344bab3245ba9435b70960552f8f15450d3e1a8c"
+    },
+    {
+      "name": "0064_user_dataset_repository_browser.sql",
+      "sha256": "bb81a982120278c19d25eb4426214ccc4f7f1fefa74195239765d44fa1615222"
+    },
+    {
+      "name": "0065_exact_repository_object_sources.sql",
+      "sha256": "7c4661da08893f7b78ebb7fdcb941c4b5f4ee9b7284359b059ac97883e352f87"
+    },
+    {
+      "name": "0066_repository_object_protected_copies.sql",
+      "sha256": "ee4ea540e741d3942e5e26435e2f88bf5ccd0197bc7056c2edb0ea744c54af37"
+    },
+    {
+      "name": "0067_geonode_federation_harvests.sql",
+      "sha256": "253474bac33c27517f7c78c6d11550b805796ddb25c6f7b2df8a070e94d0e483"
+    },
+    {
+      "name": "0068_spatial_catalog_administration.sql",
+      "sha256": "0b4d76aa4f190affbbc07c042945e9348db8c1b3022911c795692555d4130ba3"
+    }
+  ]
+}

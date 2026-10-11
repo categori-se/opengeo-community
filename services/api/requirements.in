@@ -1,0 +1,10 @@
+arabic-reshaper==3.0.1
+cryptography==50.0.0
+fastapi==0.141.1
+httpx2==2.12.0
+psycopg[binary]==3.3.4
+pydantic-settings==2.15.0
+PyJWT[crypto]==2.14.0
+python-bidi==0.6.11
+pygeofilter==0.4.0
+uvicorn==0.52.3

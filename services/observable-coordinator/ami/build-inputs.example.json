@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "opengeo.observable-runner-ami-inputs.1.0.0",
+  "region": "us-east-1",
+  "sourceAmiId": "ami-00000000000000000",
+  "subnetId": "subnet-00000000000000000",
+  "securityGroupId": "sg-00000000000000000",
+  "kmsKeyArn": "arn:aws:kms:us-east-1:000000000000:key/00000000-0000-4000-8000-000000000000",
+  "releaseId": "20260823000000-000000000000",
+  "coordinatorArchivePath": "../build/observable-coordinator.tar",
+  "nodeArchivePath": "../build/node-v24.19.0-linux-arm64.tar.xz",
+  "cloudWatchAgentPackagePath": "../build/amazon-cloudwatch-agent.ubuntu.arm64.deb",
+  "compilerOciArchivePath": "../build/opengeo-observable-compiler.oci.tar",
+  "compilerImageDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "trivyBinaryPath": "../build/trivy-linux-arm64",
+  "trivyCacheArchivePath": "../build/trivy-cache.tar"
+}

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {fromGeojsonVt} from '@maplibre/vt-pbf';
+import {VectorTile} from '@mapbox/vector-tile';
+import Pbf from 'pbf';
+import {groupOverview} from '../scripts/group-soil-overview-features.mjs';
+const ring=(x,y)=>[[x,y],[x+32,y],[x+32,y+32],[x,y+32],[x,y]];
+const feature=(code,geometry)=>({type:3,tags:{gridcode:code,representation:'Aggregated soil-class overview'},geometry});
+const pack=features=>fromGeojsonVt({data:{features}},{extent:8192,version:2});
+const source=pack([feature(0,[ring(0,0),[[8,8],[8,16],[16,16],[16,8],[8,8]]]),feature(0,[ring(64,0)]),feature(2,[ring(128,0)])]);
+const result=groupOverview(source),layer=new VectorTile(new Pbf(result.bytes)).layers.data;
+assert.equal(result.features,2);assert.equal(result.polygons,3);
+assert.equal(layer.feature(0).properties.gridcode,0);assert.equal(layer.feature(0).loadGeometry().length,3);
+assert.equal(layer.feature(1).properties.gridcode,2);
+assert.equal(groupOverview(pack(Array.from({length:450},(_,i)=>feature(1,[ring(i%100*64,Math.floor(i/100)*64)])))).features,2);
+assert.throws(()=>groupOverview(pack([{...feature(1,[ring(0,0)]),id:123}])));
+console.log('soil overview grouping: class zero, holes, disconnected components, bounded multipart groups and captured-ID rejection passed');

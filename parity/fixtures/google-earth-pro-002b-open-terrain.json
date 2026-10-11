@@ -1,0 +1,80 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-002b.open-terrain",
+  "title": "Attributed bounded open terrain on the browser globe",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "upstream",
+    "description": "Live source-contract and deterministic browser evidence for Mapterhorn open Terrarium terrain. No upstream tile or catalog byte is vendored.",
+    "url": "https://mapterhorn.com/attribution/",
+    "version": "observed-2026-08-24"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "terrainView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/terrainView.js",
+      "sha256": "c683eecff8be77a89f1e56eb65513ccb701a05f91b79e673fa34ed41c60dc3e6"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "terrain-view.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/terrain-view.test.mjs",
+      "sha256": "be4d19d3b6b54649c4fe01b9dd13913eefd60d1ae734172b61bcb65d58b062f2"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "check-mapterhorn-terrain-source.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-mapterhorn-terrain-source.mjs",
+      "sha256": "b857bc026b1b9fc751bdae2a883cfe9be353ddf9e98decdaa27fff46bba3ec7a"
+    },
+    {
+      "name": "google-earth-pro-terrain-source.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/google-earth-pro-terrain-source.test.mjs",
+      "sha256": "15e3ff6908fe2a6873fbeb111de0671cd46f0dbed0a965cbf1365b353f94c5e0"
+    },
+    {
+      "name": "google-earth-pro-002b-open-terrain.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-002b-open-terrain.json",
+      "sha256": "fa7dd6c0d2a407ee89da3deeada1e32cd44968276480a363eabcea3364d3d4f1"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+      "assertion": "OpenGeo independently renders explicitly enabled Mapterhorn open terrain on its globe, visibly preserves canonical attribution, omits authority, bounds source/exaggeration/zoom, persists state, and fails closed without claiming buildings, trees, analytical elevation, deployment, or full virtual-globe parity."
+    }
+  ],
+  "constraints": {
+    "offline": false,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "commit": "f5fee67d8cf053d741590a00a55fe1870eed2b92",
+  "license": "Apache-2.0",
+  "scope": "Unmodified refresh decision function and upstream tests; no live GeoLens service or worker.",
+  "files": [
+    {
+      "path": "parity/fixtures/geolens-003/upstream/app/platform/refresh/verification.py",
+      "upstreamPath": "backend/app/platform/refresh/verification.py",
+      "gitBlob": "fb2674cc1aa202d369aa140c08a98a13c053bba0",
+      "sha256": "6ecce4b2ac387d9d161da0a0ee21e18a2d2187d1239d40c1d77b97b9f02413cf"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/upstream/tests/test_refresh_verification.py",
+      "upstreamPath": "backend/tests/test_refresh_verification.py",
+      "gitBlob": "864b2fd03984dedc98ac258b7220c724df0ca562",
+      "sha256": "1d5ae7cdee4f4a721337d0e330117cd56032ebaf98b0de35e97729cb7bb0ac67"
+    },
+    {
+      "path": "parity/fixtures/geolens-003/upstream/LICENSE",
+      "upstreamPath": "LICENSE",
+      "gitBlob": "bbe52a5c6b70d5fd222678d9e49f58096d4a0f79",
+      "sha256": "d63ab42292ab0bc25c6ac83923020530a9ba4fa03fb7e78308586575bc79cf66"
+    }
+  ]
+}

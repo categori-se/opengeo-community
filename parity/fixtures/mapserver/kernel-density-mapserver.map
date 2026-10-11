@@ -1,0 +1,60 @@
+MAP
+  NAME "opengeo-kernel-density-peer"
+  STATUS ON
+  EXTENT -71.15 42.30 -71.00 42.45
+  SIZE 256 192
+  UNITS DD
+  IMAGETYPE "png"
+  IMAGECOLOR 255 255 255
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+  OUTPUTFORMAT
+    NAME "png"
+    DRIVER "AGG/PNG"
+    MIMETYPE "image/png"
+    IMAGEMODE RGB
+    EXTENSION "png"
+  END
+
+  LAYER
+    NAME "density"
+    TYPE RASTER
+    CONNECTIONTYPE KERNELDENSITY
+    CONNECTION "heat-points"
+    STATUS DEFAULT
+    PROCESSING "RANGE_COLORSPACE=RGB"
+    PROCESSING "KERNELDENSITY_RADIUS=24"
+    PROCESSING "KERNELDENSITY_COMPUTE_BORDERS=OFF"
+    PROCESSING "KERNELDENSITY_NORMALIZATION=AUTO"
+    OFFSITE 255 255 255
+    CLASS
+      STYLE
+        COLORRANGE "#2c7bb600" "#2c7bb6cc"
+        DATARANGE 0 1
+      END
+      STYLE
+        COLORRANGE "#2c7bb6cc" "#ffffbfcc"
+        DATARANGE 1 127
+      END
+      STYLE
+        COLORRANGE "#ffffbfcc" "#d7191ccc"
+        DATARANGE 127 255
+      END
+    END
+  END
+
+  LAYER
+    NAME "heat-points"
+    TYPE POINT
+    STATUS OFF
+    CONNECTIONTYPE OGR
+    CONNECTION "/fixture/representative-heatmap.geojson"
+    DATA "representative-heatmap"
+    PROJECTION
+      "init=epsg:4326"
+    END
+  END
+END

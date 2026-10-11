@@ -1,0 +1,121 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-005.qgis-wmts-cache-peer",
+  "title": "QGIS 3.44.12 native authenticated durable WMTS cache",
+  "fixtureType": "service",
+  "source": {
+    "kind": "upstream",
+    "description": "Version-pinned headless PyQGIS uses QGIS's native WMTS raster provider against OpenGeo's shared-auth, seeded-cache-only WebMercatorQuad compatibility endpoint over loopback HTTP.",
+    "url": "https://docs.qgis.org/3.44/en/docs/user_manual/working_with_ogc/ogc_client_support.html",
+    "version": "3.44.12-Solothurn"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0024_durable_tile_cache.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0024_durable_tile_cache.sql",
+      "sha256": "c7b981757c5f44c747ae06e1f87df8501bab849220fda51705e2a64fcd51b9c0"
+    },
+    {
+      "name": "spatial-service-catalog.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/spatial-service-catalog.test.mjs",
+      "sha256": "5baf63c167e12f74e2312b1f98c365486eb19797943d299bd4f3409d4851191d"
+    },
+    {
+      "name": "spatial_services.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/spatial_services.py",
+      "sha256": "5bd1446c060ba73a02dfa16f119108c3f34a527e57a173ec649cb868e2895161"
+    },
+    {
+      "name": "wmts.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wmts.py",
+      "sha256": "682e3a2a890c02301234f6fe99277c673bd45631c4220d50f609bbc8e7b3b648"
+    },
+    {
+      "name": "tile_cache_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/tile_cache_routes.py",
+      "sha256": "a2887d8ef30c708488df1487a39f986b91d809d8cfe9bc4fd1ce1e03d34347b5"
+    },
+    {
+      "name": "test_spatial_service_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_spatial_service_routes.py",
+      "sha256": "90ab062b2d50553fd091cf03c71ee0fd0e9c44a18590c2b745879dbc56e31e0b"
+    },
+    {
+      "name": "check-qgis-wmts-peer.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/check-qgis-wmts-peer.py",
+      "sha256": "d06d192091326055879b545267fec11592a64da546a8d269a27d8edfee8b23cf"
+    },
+    {
+      "name": "check-qgis-wmts-peer.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-qgis-wmts-peer.mjs",
+      "sha256": "cf28353007ef2df73293b6bf45636b273bd9e1846c5b36f3b7a80b1566ef7409"
+    },
+    {
+      "name": "serve-records-parity.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "scripts/serve-records-parity.py",
+      "sha256": "c7b5809adb2acefa5238661fc8b51af2f2f37af51478c355be60ef4af8de9ace"
+    },
+    {
+      "name": "service-005-qgis-wmts-cache-peer.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-005-qgis-wmts-cache-peer.json",
+      "sha256": "ecd816b1f5b4fda7acbd9abae840bc3b53c6624b3437dcca49ad83195de3270b"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.gis-authoring-inspection",
+      "assertion": "An independent open-source desktop GIS discovers and decodes an exact governed PNG tile through a standards-oriented standalone endpoint."
+    },
+    {
+      "rowId": "geonode.publishing-administration",
+      "assertion": "Project-administered layers expose authenticated WMTS discovery and cache-only reads backed by durable policy and entries."
+    },
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo supplies a bounded native WMTS compatibility slice without an always-on GeoServer or GeoWebCache runtime dependency."
+    },
+    {
+      "rowId": "geoserver.security-caching",
+      "assertion": "Tenant-safe immutable cache generations, explicit seeds, cache-only reads, and immediate logical invalidation are independently exercised."
+    },
+    {
+      "rowId": "geomoose.distributed-interoperability",
+      "assertion": "A native external WMTS client completes discovery and tile decoding under shared authority without dispatching work."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The service-side WMTS lane is independently exercised; the existing OpenLayers XYZ alias remains a separate compatibility surface."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

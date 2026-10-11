@@ -1,0 +1,72 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-015.wfs-simple-stored-queries",
+  "title": "Bounded WFS Simple stored-query discovery and GetFeatureById",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local shared-auth WFS 2.0 KVP capability, route, authoritative feature-read, fail-closed parameter, and explicit non-conformance evidence for the mandatory immutable GetFeatureById stored query."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "wfs.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs.py",
+      "sha256": "9732286d4015f6d08da6f2f91ff896d68d08af10299ba1fb0ead2dfe1405bb48"
+    },
+    {
+      "name": "wfs_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/wfs_routes.py",
+      "sha256": "bbeb8a0e5dd5bf1b345f6ec3502c600f94759ff0bdfe3937d5795bacda15f964"
+    },
+    {
+      "name": "test_wfs_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_wfs_routes.py",
+      "sha256": "64d613b4dcf429ea1235729b6a1c2a1931686cda2756bec5d2c9e6f8b72e232a"
+    },
+    {
+      "name": "api.md",
+      "mediaType": "text/markdown",
+      "encoding": "path",
+      "value": "docs/api.md",
+      "sha256": "2ebd031383e5740394e855a3dc732193cf55d153f249ab6dd9fe2e8c0d53bcec"
+    },
+    {
+      "name": "service-015-wfs-simple-stored-queries.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/service-015-wfs-simple-stored-queries.json",
+      "sha256": "e1f1ca46f55789260d4930f7dba747f622c9e944b0390eb280fb0674a59b27a2"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geoserver.data-services",
+      "assertion": "OpenGeo independently supplies bounded WFS 2.0 ListStoredQueries, DescribeStoredQueries, and GetFeatureById outcomes through its authoritative feature store without a GeoServer runtime dependency or conformance claim."
+    },
+    {
+      "rowId": "geomoose.distributed-interoperability",
+      "assertion": "The authenticated WFS compatibility lane exposes mandatory immutable stored-query discovery and exact feature-id reads while rejecting ambiguous selectors."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The service-side WFS Simple stored-query prerequisite is locally implemented and tested; direct OpenLayers WFS evidence and official service conformance remain separate gates."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

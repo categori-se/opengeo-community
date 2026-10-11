@@ -1,0 +1,80 @@
+MAP
+  NAME "opengeo-mapserver-peer"
+  STATUS ON
+  EXTENT -71.15 42.30 -71.00 42.45
+  SIZE 640 480
+  UNITS DD
+  IMAGETYPE "svg"
+  IMAGECOLOR 255 255 255
+
+  PROJECTION
+    "init=epsg:4326"
+  END
+
+  OUTPUTFORMAT
+    NAME "svg"
+    DRIVER "CAIRO/SVG"
+    MIMETYPE "image/svg+xml"
+    IMAGEMODE RGB
+    EXTENSION "svg"
+  END
+
+  LEGEND
+    STATUS EMBED
+    POSITION LR
+    KEYSIZE 18 10
+    KEYSPACING 6 4
+    LABEL
+      TYPE BITMAP
+      SIZE SMALL
+      COLOR 23 40 36
+    END
+  END
+
+  LAYER
+    NAME "roads"
+    TYPE LINE
+    STATUS DEFAULT
+    CONNECTIONTYPE OGR
+    CONNECTION "/fixture/deterministic-roads.geojson"
+    DATA "deterministic-roads"
+    CLASSITEM "status"
+    LABELITEM "name"
+
+    CLASS
+      NAME "Open"
+      EXPRESSION "open"
+      STYLE
+        COLOR 22 129 95
+        WIDTH 3
+      END
+      LABEL
+        TYPE BITMAP
+        SIZE MEDIUM
+        COLOR 23 40 36
+        OUTLINECOLOR 255 255 255
+        OUTLINEWIDTH 1
+        POSITION AUTO
+        PARTIALS FALSE
+      END
+    END
+
+    CLASS
+      NAME "Closed"
+      EXPRESSION "closed"
+      STYLE
+        COLOR 180 35 24
+        WIDTH 3
+      END
+      LABEL
+        TYPE BITMAP
+        SIZE MEDIUM
+        COLOR 23 40 36
+        OUTLINECOLOR 255 255 255
+        OUTLINEWIDTH 1
+        POSITION AUTO
+        PARTIALS FALSE
+      END
+    END
+  END
+END

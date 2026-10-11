@@ -1,0 +1,65 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Des Moines River Industrial District",
+        "risk": "high",
+        "facilities": 12,
+        "review_status": "processing"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-93.675, 41.585],
+          [-93.642, 41.585],
+          [-93.632, 41.612],
+          [-93.662, 41.632],
+          [-93.692, 41.616],
+          [-93.675, 41.585]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Fourmile Creek Facility Cluster",
+        "risk": "moderate",
+        "facilities": 7,
+        "review_status": "queued"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-93.575, 41.615],
+          [-93.535, 41.618],
+          [-93.524, 41.647],
+          [-93.552, 41.666],
+          [-93.593, 41.646],
+          [-93.575, 41.615]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Walnut Creek Warehouse Corridor",
+        "risk": "low",
+        "facilities": 4,
+        "review_status": "draft"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-93.760, 41.535],
+          [-93.713, 41.529],
+          [-93.695, 41.556],
+          [-93.727, 41.578],
+          [-93.768, 41.563],
+          [-93.760, 41.535]
+        ]]
+      }
+    }
+  ]
+}

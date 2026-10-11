@@ -1,0 +1,55 @@
+MAP
+  NAME "opengeo-mapserver-raster-peer"
+  STATUS ON
+  EXTENT -7928000 5206000 -7896000 5230000
+  SIZE 320 240
+  UNITS METERS
+  IMAGETYPE "png"
+  IMAGECOLOR 255 255 255
+
+  PROJECTION
+    "init=epsg:3857"
+  END
+
+  OUTPUTFORMAT
+    NAME "png"
+    DRIVER "AGG/PNG"
+    MIMETYPE "image/png"
+    IMAGEMODE RGB
+    EXTENSION "png"
+  END
+
+  LAYER
+    NAME "roads"
+    TYPE LINE
+    STATUS DEFAULT
+    CONNECTIONTYPE OGR
+    CONNECTION "/fixture/deterministic-roads.geojson"
+    DATA "deterministic-roads"
+    CLASSITEM "status"
+
+    PROJECTION
+      "init=epsg:4326"
+    END
+
+    CLASS
+      NAME "Open"
+      EXPRESSION "open"
+      STYLE
+        COLOR 22 129 95
+        OPACITY 85
+        WIDTH 3
+      END
+    END
+
+    CLASS
+      NAME "Closed"
+      EXPRESSION "closed"
+      STYLE
+        COLOR 180 35 24
+        OPACITY 85
+        WIDTH 3
+      END
+    END
+  END
+END

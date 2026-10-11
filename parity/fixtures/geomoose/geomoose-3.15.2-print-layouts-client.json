@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geomoose-009.print-layouts-client",
+  "observedAt": "2026-09-01",
+  "reference": {
+    "product": "GeoMoose",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "sourceLock": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+  },
+  "sourceFiles": [
+    {
+      "path": "src/gm3/components/print/printLayouts.js",
+      "gitBlob": "8e5b26aa6c6bca5bc4e985f72d5dd001f213b197",
+      "sha256": "70989f32c9f9696d2a10e26fc94613bea70bd011ff8f0699712d67bc80c999b9",
+      "bytes": 5118,
+      "requiredStrings": [
+        "const LAYOUTS = [",
+        "label: \"letter-landscape-legend\"",
+        "label: \"letter-portrait\"",
+        "label: \"tabloid-landscape\"",
+        "label: \"a4-landscape-legend\""
+      ]
+    },
+    {
+      "path": "src/gm3/components/print/printModal.js",
+      "gitBlob": "a2d228ba5d482b069fad4e0b87f23d5a77e23321",
+      "sha256": "9f1e11aac87fc993bc534d72fbe0bb5f4b17c76cc121b222b3f7f8a98138db6f",
+      "bytes": 18550,
+      "requiredStrings": [
+        "const doc = new jsPDF(layout.orientation, layout.units, layout.page);",
+        "case \"text\":",
+        "case \"map\":",
+        "case \"image\":",
+        "case \"rect\":",
+        "case \"ellipse\":",
+        "case \"legend\":"
+      ]
+    },
+    {
+      "path": "docs/howto/print-layouts.rst",
+      "gitBlob": "16b2607862377da2a0d052cef95a00485a80ed35",
+      "sha256": "c0c8a833473b52db270ee7dc98858efb8a6340e3c2f2ae670c765e6ecae83271",
+      "bytes": 4222,
+      "requiredStrings": [
+        "GeoMoose uses jsPDF to perform client-side generation of PDF printouts.",
+        "A print layout is comprised of a label, orientation, page size, unit",
+        "The following elements are available:",
+        "``image`` - Add an image to the map."
+      ]
+    }
+  ],
+  "defaultLayouts": [
+    {
+      "label": "letter-landscape-legend",
+      "orientation": "landscape",
+      "page": "letter",
+      "units": "in",
+      "elementTypes": ["text", "map", "rect", "text", "text", "legend", "rect"]
+    },
+    {
+      "label": "letter-landscape",
+      "orientation": "landscape",
+      "page": "letter",
+      "units": "in",
+      "elementTypes": ["text", "map", "rect", "text"]
+    },
+    {
+      "label": "letter-portrait",
+      "orientation": "portrait",
+      "page": "letter",
+      "units": "in",
+      "elementTypes": ["text", "map", "rect", "text"]
+    },
+    {
+      "label": "tabloid-landscape",
+      "orientation": "landscape",
+      "page": "tabloid",
+      "units": "in",
+      "elementTypes": ["text", "map", "rect", "text"]
+    },
+    {
+      "label": "a4-landscape-legend",
+      "orientation": "landscape",
+      "page": "a4",
+      "units": "mm",
+      "elementTypes": ["text", "map", "rect", "text", "text", "legend", "rect"]
+    }
+  ],
+  "openGeoInput": {
+    "sitePageSlug": "massgis-map",
+    "mapResourceId": "20000000-0000-4000-8000-000000000001",
+    "title": "MassGIS review",
+    "printedOn": "2026-09-01T12:00:00Z"
+  },
+  "expectedOutcome": {
+    "exactLayoutsImported": 5,
+    "sourceElements": 26,
+    "convertedElements": 19,
+    "omittedElements": 7,
+    "declaredLosses": 14,
+    "drawingOmissions": 7,
+    "governedLegendSubstitutions": 2,
+    "textStyleCoarsenings": 5,
+    "unresolvedTemplateTokens": 0,
+    "externalContextLosses": 4,
+    "clientNetworkRequests": 0
+  },
+  "openGeoLimits": {
+    "maximumBytesPerLayout": 32768,
+    "maximumElementsPerLayout": 32,
+    "maximumTextCharacters": 1000,
+    "supportedUnits": ["in", "mm", "pt"],
+    "supportedPages": ["letter", "legal", "tabloid", "a4", "a3", "a2", "a1", "a0"],
+    "inlineImageBytesRead": false,
+    "externalResourcesOpened": false
+  },
+  "knownDifferences": [
+    "GeoMoose's 3.15.2 print-layout guide says there are four built-in templates, while the exact source exports five. The comparison and converter follow the exact exported source inventory and retain the documentation mismatch as upstream evidence.",
+    "OpenGeo converts GeoMoose page geometry into its normalized 1000 by 1000 positioned-page coordinate space and retains the source paper size and orientation as print options; rounding is bounded but physical coordinate identity is not claimed.",
+    "GeoMoose rect and ellipse drawing instructions have no OpenGeo print-layout 1.1 frame and are omitted with one explicit source-element outcome apiece; no visual approximation is claimed.",
+    "GeoMoose font family, face, exact point size, and color map to bounded semantic OpenGeo text styles. The four default title/date tokens are resolved from explicit inputs; unknown tokens remain literal and are reported.",
+    "GeoMoose live legend images become the exact legend sealed with the OpenGeo map snapshot. Inline image bytes are never read; an image converts only when the caller supplies an explicit sealed OpenGeo content-block binding and dimensions.",
+    "GeoMoose's print resolution, include-selection option, portal-configured scale line, and jsPDF GeoArea extent live outside the layout object and are recorded as four external-context losses rather than silently converted.",
+    "This exact-source local comparison imports configuration but does not execute jsPDF, compare rendered PDF/PNG pixels, validate touch or operating-system assistive technology, deploy resources, or change fixed inactive cost."
+  ]
+}

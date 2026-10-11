@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "source-001.xyz.public-tile",
+  "title": "Anonymous one-pixel XYZ response",
+  "fixtureType": "service",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic public raster tile used to inspect the browser request boundary without contacting a third party."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "one-pixel.png",
+      "mediaType": "image/png",
+      "encoding": "base64",
+      "value": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "sha256": "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.source-layer-breadth",
+      "assertion": "A governed XYZ source can be registered, rendered, and pinned without a server-side proxy."
+    },
+    {
+      "rowId": "geomoose.distributed-interoperability",
+      "assertion": "The browser issues an anonymous XYZ request without OpenGeo API or organization authority."
+    },
+    {
+      "rowId": "openlayers.sources-protocols",
+      "assertion": "The renderer-neutral source contract retains an explicit XYZ template and source revision."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

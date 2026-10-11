@@ -1,0 +1,31 @@
+diff --git a/pom.xml b/pom.xml
+index 32d0452..8d9ee33 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -63 +63,26 @@
++  <!--
++    OpenGeo hardened-runner overlay: update the coordinated Apache Derby
++    runtime only. Official suite sources, resources, test selection, and
++    runner behavior remain unchanged.
++  -->
++  <dependencyManagement>
++    <dependencies>
++      <dependency>
++        <groupId>org.apache.derby</groupId>
++        <artifactId>derby</artifactId>
++        <version>10.17.1.0</version>
++      </dependency>
++      <dependency>
++        <groupId>org.apache.derby</groupId>
++        <artifactId>derbyshared</artifactId>
++        <version>10.17.1.0</version>
++      </dependency>
++      <dependency>
++        <groupId>org.apache.derby</groupId>
++        <artifactId>derbytools</artifactId>
++        <version>10.17.1.0</version>
++      </dependency>
++    </dependencies>
++  </dependencyManagement>
++
+   <dependencies>

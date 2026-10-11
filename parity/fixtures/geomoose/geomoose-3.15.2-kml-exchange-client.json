@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geomoose-008.kml-exchange-client",
+  "observedAt": "2026-09-01",
+  "reference": {
+    "product": "GeoMoose",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "sourceLock": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+  },
+  "sourceFiles": [
+    {
+      "path": "src/gm3/components/catalog/tools/upload.js",
+      "gitBlob": "7d5a937e7892364e06478eae7b1f46fa4123c0a3",
+      "sha256": "d5768f6fe4f792a13aa7ad3b8ddd68d992e9e7178e5401eb8554f18458c5c453",
+      "bytes": 8318,
+      "requiredStrings": [
+        "import KMLFormat from \"ol/format/KML\";",
+        "accept=\".geojson,.json,.kml\"",
+        "inputFormat = new KMLFormat();",
+        "f.setGeometry(f.getGeometry().transform(\"EPSG:4326\", \"EPSG:3857\"));",
+        "const collection = geojsonFormat.writeFeaturesObject(validFeatures);"
+      ]
+    },
+    {
+      "path": "src/gm3/components/catalog/tools/download.js",
+      "gitBlob": "89fe3a08853e199efc0ee997c365f8b1ff182780",
+      "sha256": "ceaf52f3bea02347cc0b9b01f120f493d880ee6d4f0a7bf2d9bb24354181d4d5",
+      "bytes": 5103,
+      "requiredStrings": [
+        "import KMLFormat from \"ol/format/KML\";",
+        "outputFormat = new KMLFormat();",
+        "outputMimeType = \"application/vnd.google-earth.kml+xml\";",
+        "dataProjection: Proj.get(mapProj)",
+        "featureProjection: Proj.get(\"EPSG:4326\")",
+        "const outputContents = outputFormat.writeFeatures(parsedFeatures);"
+      ]
+    }
+  ],
+  "openGeoInput": {
+    "producer": "app/src/lib/kmlPlaces.js exportKml",
+    "mediaType": "application/vnd.google-earth.kml+xml",
+    "bytes": 2193,
+    "sha256": "2833572664308a8652e2c7d850a09ac033ff2a14298dc9d50850ccab406a3ec5",
+    "featureCount": 3,
+    "names": ["Inspection point", "Governed route", "Review area"],
+    "geometryTypes": ["Point", "LineString", "Polygon"],
+    "sourceCrs": "CRS84",
+    "inlineStyles": 3,
+    "extendedDataRecords": 3
+  },
+  "expectedOutcome": {
+    "exactUploadToolExecuted": true,
+    "exactDownloadToolExecuted": true,
+    "uploadedFeatureCount": 3,
+    "downloadedFeatureCount": 3,
+    "preservedNames": 3,
+    "preservedExtendedDataRecords": 3,
+    "preservedGeometryTypes": ["Point", "LineString", "Polygon"],
+    "internalProjection": "EPSG:3857",
+    "downloadProjection": "EPSG:4326",
+    "downloadMediaType": "application/vnd.google-earth.kml+xml",
+    "clientNetworkRequests": 0
+  },
+  "openGeoLimits": {
+    "maximumKmlBytes": 262144,
+    "maximumPlaces": 1000,
+    "maximumPositions": 10000,
+    "maximumDepth": 16,
+    "activeXmlRejected": true
+  },
+  "knownDifferences": [
+    "GeoMoose 3.15.2's upload control accepts local .kml but not .kmz. OpenGeo's separately bounded ordinary KML/KMZ layer model retains KMZ resources, but this exact-client exchange covers KML only.",
+    "GeoMoose converts uploaded KML to its internal GeoJSON features and preserves the three tested ExtendedData records, but does not preserve OpenGeo's inline KML styles through its download. Geometry type, name, and simple Data semantics are the accepted round-trip surface; symbology loss remains explicit.",
+    "GeoMoose's upload converts KML CRS84 coordinates to EPSG:3857 internal coordinates; its download converts that internal map projection back to EPSG:4326 KML. The exact run checks finite geometry and the three declared geometry families, not byte identity.",
+    "The exact run is a local file exchange with no service request, credential, deployment, cloud resource, or fixed inactive cost. Governed public/private service publication, host authentication mediation, CORS/TLS, scale, devices, and live rollback remain separate evidence."
+  ]
+}

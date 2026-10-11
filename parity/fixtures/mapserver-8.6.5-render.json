@@ -1,0 +1,61 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "mapserver-001.deterministic-render",
+  "title": "MapServer 8.6.5 deterministic classified-line render comparison",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "synthetic",
+    "description": "Public two-feature GeoJSON and equivalent bounded OpenGeo and exact-pinned MapServer render configurations for semantic and numerical SVG comparison."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "deterministic-roads.geojson",
+      "mediaType": "application/geo+json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads.geojson",
+      "sha256": "5f7090caa90745f5862b4f392c63a8cb40ec58342e20be09429a2335fe7564a8"
+    },
+    {
+      "name": "deterministic-roads-mapserver.map",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads-mapserver.map",
+      "sha256": "a3a6dc66f5cc27394bd937da66cdc3b41c6d5bb5ae979f0386d9d118e5d6e2e2"
+    },
+    {
+      "name": "deterministic-roads-opengeo.svg",
+      "mediaType": "image/svg+xml",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads.svg",
+      "sha256": "50d56cb3db2da34e14fcb0db1921e54b7fff086e4aba0716ea3fb00d58e80b9a"
+    },
+    {
+      "name": "deterministic-roads-mapserver-8.6.5.svg",
+      "mediaType": "image/svg+xml",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-8.6.5.svg",
+      "sha256": "349bb7eed5ec6cd54cc769304944d01c8c2a6de413f6922ce5f86424650a7fb3"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.rendering-cartography",
+      "assertion": "Both renderers preserve the two source features, exact open and closed classifications, line widths, escaped labels, legend meaning, SVG dimensions, and a declared numerical tolerance while recording layout differences."
+    },
+    {
+      "rowId": "mapserver.configuration-automation",
+      "assertion": "A checksum-pinned, network-isolated MapServer 8.6.5 build consumes an explicit Mapfile and OGR layer without making that peer a production runtime dependency."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

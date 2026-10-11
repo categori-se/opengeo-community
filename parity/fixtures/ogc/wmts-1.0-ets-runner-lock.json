@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "1.0.0",
+  "suiteId": "ogc.ets-wmts10",
+  "observedAt": "2026-08-23",
+  "sourceRelease": "1.11",
+  "sourceCommit": "81c4d65743ad5e6128527b2340a39c456d83b785",
+  "artifact": {
+    "repository": "Maven Central",
+    "url": "https://repo1.maven.org/maven2/org/opengis/cite/ets-wmts10/1.11/ets-wmts10-1.11-aio.jar",
+    "signatureUrl": "https://repo1.maven.org/maven2/org/opengis/cite/ets-wmts10/1.11/ets-wmts10-1.11-aio.jar.asc",
+    "pomUrl": "https://repo1.maven.org/maven2/org/opengis/cite/ets-wmts10/1.11/ets-wmts10-1.11.pom",
+    "fileName": "ets-wmts10-1.11-aio.jar",
+    "sha256": "dc6b483f7bcbc4c7a2b61bd51e6eef4fc76b7b2ecdb26f26ec2699500a4c5081",
+    "sizeBytes": 21756934,
+    "signatureSha256": "ac70b1b305bd87f487a3b0937bdd39b6db13ab73851fc25dffad43fffa401e7c",
+    "pomSha256": "19eefaa5699ecadea3c3b1e56387388160046a8996a35d14d5ea7ee59261f5f6",
+    "manifest": {
+      "mainClass": "org.opengis.cite.wmts10.CtlController",
+      "buildJdkSpec": "17",
+      "createdBy": "Maven Archiver 3.6.1"
+    },
+    "zipEntries": 15449,
+    "uncompressedBytes": 49381453,
+    "embeddedMavenComponents": 37
+  },
+  "signature": {
+    "status": "good_signature",
+    "createdAt": "2025-03-05T16:27:11Z",
+    "fingerprint": "386E21996E814C2436F1DADD1CC7EFFEB71DBB75",
+    "claimedIdentity": "Open Geospatial Consortium (OGC CODE SIGNING KEY) <oss@opengeospatial.org>",
+    "publicKey": "parity/fixtures/ogc/ogc-code-signing-key.asc",
+    "publicKeySha256": "28dd3932a98a3ce4087113ea405326a5ef1136059e431573fb469e9b80f28ee8",
+    "trustBoundary": "The detached signature is cryptographically valid for the pinned fingerprint; the local keyring does not independently certify the signer's identity."
+  },
+  "resultContract": {
+    "format": "earl-rdfxml",
+    "mediaType": "application/rdf+xml",
+    "fileName": "earl-results.rdf",
+    "maxBytes": 8388608,
+    "summaryVocabulary": "http://cite.opengeospatial.org/",
+    "assertionVocabulary": "http://www.w3.org/ns/earl#",
+    "teamEngineVersion": "6.0.0-RC2",
+    "teamEngineCtlSourceJarSha256": "db8398ea0bf179f669faab898a59f021f42a7f8257eca81f95fe03a5432a92a2",
+    "ctlExecutorSourceSha256": "72e860a9dad9a4288c60cc47421312956cb0acc5e300cdf2ad3d929c447b85d4",
+    "earlReporterSourceSha256": "a04a24c2dcaf92301ee60ccbdd4fc3158c02d5d39b27a55c8075d357468f1203"
+  },
+  "executionPolicy": {
+    "status": "rejected_pending_dependency_remediation",
+    "allowsOfficialExecution": false,
+    "securityReport": "parity/reports/service-014-ogc-runner-security-scan.json",
+    "reasons": [
+      "The expanded all-in-one JAR scan reports three Critical and three High vulnerabilities in embedded Log4j 1.2.17 code, including the affected SocketServer, JDBCAppender, Chainsaw, JMSSink, and SocketAppender-era classes.",
+      "An official diagnostic must not execute this artifact until an exact replacement or reviewed hardened rebuild has no unaccepted Critical/High findings and receives a new artifact lock."
+    ]
+  }
+}

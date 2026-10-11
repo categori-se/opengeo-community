@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "1.3.0",
+  "acquisition": {
+    "instruments": [
+      {
+        "identifier": "CAM-01",
+        "type": "multispectral camera",
+        "description": "Field camera used for the 2026 survey."
+      }
+    ],
+    "platforms": [
+      {
+        "identifier": "UAV-01",
+        "description": "Uncrewed aerial survey platform.",
+        "instrumentIdentifiers": ["CAM-01"]
+      }
+    ],
+    "platformPasses": [
+      {
+        "identifier": "PASS-2026-07-A",
+        "eventIdentifiers": ["EVENT-2026-07-START"]
+      }
+    ],
+    "events": [
+      {
+        "identifier": "EVENT-2026-07-START",
+        "trigger": "automatic",
+        "context": "acquisition",
+        "sequence": "start",
+        "time": "2026-07-01T09:00:00Z",
+        "passIdentifier": "PASS-2026-07-A",
+        "instrumentIdentifiers": ["CAM-01"],
+        "objectiveIdentifiers": ["OBJECTIVE-2026-07"]
+      }
+    ],
+    "operations": [
+      {
+        "identifier": "MISSION-2026-07",
+        "description": "July 2026 field collection mission.",
+        "status": "completed",
+        "type": "real",
+        "eventIdentifiers": ["EVENT-2026-07-START"]
+      }
+    ],
+    "objectives": [
+      {
+        "identifier": "OBJECTIVE-2026-07",
+        "priority": "Document post-storm road access.",
+        "types": ["survey"],
+        "functions": ["damage assessment"],
+        "instrumentIdentifiers": ["CAM-01"],
+        "passIdentifiers": ["PASS-2026-07-A"],
+        "eventIdentifiers": ["EVENT-2026-07-START"]
+      }
+    ],
+    "requirements": [
+      {
+        "identifier": "REQUIREMENT-2026-07",
+        "requestors": ["Investigations desk"],
+        "recipients": ["Public data team"],
+        "priority": "highImportance",
+        "requestedDate": {
+          "requestedDateOfCollection": "2026-07-01T09:00:00Z",
+          "latestAcceptableDate": "2026-07-31T18:00:00Z"
+        },
+        "expiryDate": "2026-08-31T18:00:00Z"
+      }
+    ],
+    "plans": [
+      {
+        "identifier": "PLAN-2026-07",
+        "status": "planned",
+        "type": "areal",
+        "operationIdentifiers": ["MISSION-2026-07"],
+        "requirementIdentifiers": ["REQUIREMENT-2026-07"]
+      }
+    ]
+  }
+}

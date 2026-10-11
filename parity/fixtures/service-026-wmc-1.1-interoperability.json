@@ -1,0 +1,98 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "service-026.wmc-1.1-interoperability",
+  "title": "Bounded OGC Web Map Context 1.1 import, export, and schema validation",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "upstream",
+    "description": "Exact checksum-pinned OGC Web Map Context 1.1.0 schemas and W3C dependencies validate a bounded, network-disabled OpenGeo WMS composition conversion.",
+    "url": "https://schemas.opengis.net/context/1.1.0/",
+    "version": "OGC 05-005 with Corrigendum 1 OGC 08-050"
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "Official schema lock",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/ogc/wmc-1.1-schema-lock.json",
+      "sha256": "c9d8b53f4be7dafc230e13adafc8e8e17456e2e173a0272164f5f118779f774a"
+    },
+    {
+      "name": "Bounded WMC converter",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/webMapContext.js",
+      "sha256": "37cf1a0142e504c15f031c679cf2db9643ef5b85f078568a7cd15d284948ba4d"
+    },
+    {
+      "name": "Studio WMC workflow",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "Converter acceptance test",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/web-map-context.test.mjs",
+      "sha256": "8c87d2b2f7b9d89b76e637b6d7bd1d4b2ddb8ffcec5ae4495fb3bd0605645b28"
+    },
+    {
+      "name": "Locked offline schema validator",
+      "mediaType": "text/x-java-source",
+      "encoding": "path",
+      "value": "scripts/WmcOfflineValidator.java",
+      "sha256": "8bd331cb705d3eda6f24bbb88cd4d16a7bab14565b6284395d2eca1e14db898d"
+    },
+    {
+      "name": "Executable interoperability runner",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-wmc-interoperability.mjs",
+      "sha256": "c3fbf6fb4ffbfbc4f6f0b93778c1b7e770561e9a61253467573a188fb259110a"
+    },
+    {
+      "name": "Recorded interoperability report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/mapserver-wmc-1.1-interoperability.json",
+      "sha256": "e2ae6cd62e6044f0bf73f0e032e21af856c2f0d90479e7a7072cedd25f8d315d"
+    },
+    {
+      "name": "Evidence regression test",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/wmc-interoperability.test.mjs",
+      "sha256": "597f58174206b04ceb9325626da1f876f767c85074b8c32bffe5feef00477b57"
+    },
+    {
+      "name": "Twelve-profile publication matrix",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-ogc-publication-version-matrix.json",
+      "sha256": "2f8a67f5778baadb274908cd8d7f68aa6b833420d151ab647db5f6c9ea5e31b0"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "Studio maps a bounded WMS-only WMC 1.1 composition offline in both directions, preserves bottom-to-top order and explicit extensions, removes credential-bearing URL values, and reports unsupported semantics."
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "assertion": "Generated WMC passes exact checksum-locked official schemas while an invalid missing-title control fails, but the aggregate publication row remains partial pending governed publication and independent deployed-client acceptance."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

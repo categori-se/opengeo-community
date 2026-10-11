@@ -1,0 +1,506 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "publish-001.portable-site-publication",
+  "title": "OpenGeo durable mixed-content portable site publication",
+  "fixtureType": "publication",
+  "source": {
+    "kind": "synthetic",
+    "description": "Local bounded evidence for immutable page pins, editorial release, anonymous HTML, tables/charts, governed assets, shared-auth PNG/JPEG/PDF/ODT ingestion, activation-only scanning, ODT/PDF semantics, bounded PDF visuals and text-empty-page OCR with exact provenance, progressive WMS, exact map snapshots/style legends, visually edited positioned PDF/PNG with checksum-pinned embedded Unicode bitmap glyphs, accessible SVG, and portable ZIP."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "0025_portable_site_publications.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0025_portable_site_publications.sql",
+      "sha256": "77306d76c45acef6332d482271cbe91a236b08994bf3d3ef757da8330bada90d"
+    },
+    {
+      "name": "0026_general_media_ingestion.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0026_general_media_ingestion.sql",
+      "sha256": "305597d55a9c6e7b98fdb35b567345c2ef0c07bcae1b2ab94cd855c181c9bb9c"
+    },
+    {
+      "name": "0027_print_layout_publications.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0027_print_layout_publications.sql",
+      "sha256": "9c35f9debdcbf7ba561037085cf818174ad3346ef72e84060221038e53727fe7"
+    },
+    {
+      "name": "0028_positioned_site_print_layouts.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0028_positioned_site_print_layouts.sql",
+      "sha256": "df1d140940bec165fd733a5539977bae6203f3929aaef1c43cc67f22c793c7e5"
+    },
+    {
+      "name": "0029_governed_pdf_documents.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0029_governed_pdf_documents.sql",
+      "sha256": "90c89648ecde37200f36b64b34878463207e718af0779fead52a61d8b8ef712b"
+    },
+    {
+      "name": "0030_rich_positioned_print_layouts.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0030_rich_positioned_print_layouts.sql",
+      "sha256": "1cb0c0e53470a70e60149b244165d74d8c473466baa7db582e1ebe46591f9e12"
+    },
+    {
+      "name": "0032_public_odf_text_documents.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0032_public_odf_text_documents.sql",
+      "sha256": "3a39ed95553c4e400ebed8997faceea4bd1427f874361f4f46a92830703353c3"
+    },
+    {
+      "name": "0033_public_pdf_semantic_documents.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0033_public_pdf_semantic_documents.sql",
+      "sha256": "7b6fe77255d607cd3a1482298df047019807d81f099ab9d931899cab2f8bc770"
+    },
+    {
+      "name": "0034_public_pdf_visual_presentations.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0034_public_pdf_visual_presentations.sql",
+      "sha256": "54d46096811b1d028cadeb79538b0b091ecf671d92ff8807bf52905e689ada80"
+    },
+    {
+      "name": "0035_public_pdf_ocr_documents.sql",
+      "mediaType": "application/sql",
+      "encoding": "path",
+      "value": "database/migrations/0035_public_pdf_ocr_documents.sql",
+      "sha256": "012dca483c6dcf15a968a4350a5d05aaf5b14a3c9c24a5965d339f31d141135c"
+    },
+    {
+      "name": "general-media-ingestion.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/general-media-ingestion.test.mjs",
+      "sha256": "7f3e164ddc3ee5a1de1f30b8cb2496f9ee3075a2eb0ef5c89869a7171d619531"
+    },
+    {
+      "name": "document-ingestion.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/document-ingestion.test.mjs",
+      "sha256": "6ad59654f43c9173ddf1e81a2a7fc9ea20d43ceccf7f3657d18aab0322f6c744"
+    },
+    {
+      "name": "ingestion.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/ingestion.py",
+      "sha256": "0cb3ab6caae9f42fef08c12d3fee2ac46b64dbf9d30340101543635f80c9d796"
+    },
+    {
+      "name": "ingestion_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/ingestion_routes.py",
+      "sha256": "513c9053026ae369a048af391d80a57e20fbd6f0cd6c5de870be5f0b8b677761"
+    },
+    {
+      "name": "test_ingestion_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_ingestion_routes.py",
+      "sha256": "9c45b6aab28483e640a74eb0b47f3844c602b7ac43dd79564710a148f095dc3a"
+    },
+    {
+      "name": "worker_models.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/models.py",
+      "sha256": "9e1d01241be4d3191e5c509f80ffc87ab00ad7cd8d80e22a291bbb7120dd5708"
+    },
+    {
+      "name": "worker_processor.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/processor.py",
+      "sha256": "3ce3bd19ab4cac3ce3ec193a2ead86db2e864643631790aa648ff5558e077b92"
+    },
+    {
+      "name": "worker_inspector.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/inspector.py",
+      "sha256": "548791c7f9f7798fd0a1b705b1ecd8569d73b80c645e7c91fed91ef97e78a55c"
+    },
+    {
+      "name": "worker_command_runner.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/command_runner.py",
+      "sha256": "2dc74a53822414965e0dd3fbc12423a126c97106eda6e5e69d63801780fbeab1"
+    },
+    {
+      "name": "pdf_documents.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/pdf_documents.py",
+      "sha256": "07f5c6ea850205c2e24d5f2583ef859a384800181eaa69f7f4adae161c7fd941"
+    },
+    {
+      "name": "pdf_presentations.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/pdf_presentations.py",
+      "sha256": "c4aaee8c256b4a106a2a428f756e1258aadd8e1e2a425d4f4bf7ccddefc1dfef"
+    },
+    {
+      "name": "pdf_ocr.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/pdf_ocr.py",
+      "sha256": "05178507fdda60d5733ffc374664d9a9bffa0ef37a878637b9dcb71646165b0d"
+    },
+    {
+      "name": "worker_malware.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/src/opengeo_worker/malware.py",
+      "sha256": "7cdbe0731064bb8cd9f1b1f15bdff6da5593b3fdbb026962112b9eac4d085951"
+    },
+    {
+      "name": "worker.Dockerfile",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "services/worker/Dockerfile",
+      "sha256": "b4c7037dc6f8dead848f5da08dde745868aa1a72bbb965105664774f9e151599"
+    },
+    {
+      "name": "verify-toolchain.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/scripts/verify-toolchain.py",
+      "sha256": "f0fc41ecc2e0a02e320a33de1ec455386576ccc6a12ed12e92ea3ccdebbc34af"
+    },
+    {
+      "name": "test_inspector.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_inspector.py",
+      "sha256": "a4760ea80bb7839139d20ba438f360d60d6bb31e60345485a61b87a40efd874d"
+    },
+    {
+      "name": "test_command_runner.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_command_runner.py",
+      "sha256": "5f4d7f98a43bf9e9a821e4a868e19bba0af879351b20119e012e7a6765228b7f"
+    },
+    {
+      "name": "test_pdf_ocr.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_pdf_ocr.py",
+      "sha256": "1ab51c5d4180de6f3f4c208aa99824756cc305813f6c0f419ea44a5b21518904"
+    },
+    {
+      "name": "test_malware.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/worker/tests/test_malware.py",
+      "sha256": "798109a6d5e2ef2f7e50accb0beae66a76c08935efd6addf77c01d60e6f80448"
+    },
+    {
+      "name": "ProjectDatasets.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectDatasets.js",
+      "sha256": "12ed98b3951694aedbe7a7331ebd2eddbcd652087db51bf5c7b619ee82ae9ddc"
+    },
+    {
+      "name": "portable-site-publications.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "database/test/portable-site-publications.test.mjs",
+      "sha256": "84d36bd065a2dddebb98ba1066457828cf6eee62e3555c597f22ab3cc6ec5c29"
+    },
+    {
+      "name": "site_publications.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/site_publications.py",
+      "sha256": "efcea1d83129620d315d0d1552d963f35782b09cda3e2298ef229a019d1e56d9"
+    },
+    {
+      "name": "document_previews.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/document_previews.py",
+      "sha256": "9506f2fd4574e56753c6eb02f2bfe5f4d4480997416b917c29befd0c4340b1ec"
+    },
+    {
+      "name": "site_layouts.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/site_layouts.py",
+      "sha256": "dae4160cd3c760a12e02b739303d2ebe870d8bda1f721a01bcdc6354c5fe1317"
+    },
+    {
+      "name": "resource_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/resource_routes.py",
+      "sha256": "660fd37c18abb0f438613dcb231ac992c8f285ad03e51309ff5d9dfb968fe1d0"
+    },
+    {
+      "name": "rendering.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/rendering.py",
+      "sha256": "d7396516215b05312214e474048b9b66ecf68b4eeb784573f146723d837e24aa"
+    },
+    {
+      "name": "s3_downloads.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/s3_downloads.py",
+      "sha256": "5b094bc289a2246c028e2730034655f2519b6535c3faa399b0f2f49444bb1493"
+    },
+    {
+      "name": "site_export.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/site_export.py",
+      "sha256": "d09727d74d28d46a28873e71c3446250d99805c07c0e6e332e4eabb49ed01ee4"
+    },
+    {
+      "name": "site_print.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/site_print.py",
+      "sha256": "ac415510a46f4087206e9f9f4bc4b6a6d88b3ebc0d83f63be3d6a8224688a655"
+    },
+    {
+      "name": "print_text.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/print_text.py",
+      "sha256": "52038dcb78c0302169e246b235d2e70f053074bd470f07bcff2d826f095cb2cb"
+    },
+    {
+      "name": "print_fonts.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/print_fonts.py",
+      "sha256": "a11116c8d2d129c66f3103ccd60fcdb9484b0b77334918d17004e519c4f64426"
+    },
+    {
+      "name": "api-requirements.lock",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "services/api/requirements.lock",
+      "sha256": "5489333890d2e4f19ca229e41a55fb4a3ab3448571a00d5d09c79f7712cfe202"
+    },
+    {
+      "name": "api-requirements-dev.lock",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "services/api/requirements-dev.lock",
+      "sha256": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed"
+    },
+    {
+      "name": "site_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/site_routes.py",
+      "sha256": "56f8dce731bc5479ad931b4f239857043736ce1327a4f801a5e2d29f1c1c17d2"
+    },
+    {
+      "name": "app.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/app.py",
+      "sha256": "6902e07168011a326eefdbd5d192ece92c086b96281c4b347a5f0a3775699dca"
+    },
+    {
+      "name": "test_rendering.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_rendering.py",
+      "sha256": "eaf468a957c21298fd5044cb4959320072d90c3ec0916ec82d2be09fd346f10a"
+    },
+    {
+      "name": "test_s3_downloads.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_s3_downloads.py",
+      "sha256": "64207f1422790b33c746d0e8f2cba2ed17193b0b34e8821de82a81648aa4a271"
+    },
+    {
+      "name": "test_resource_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_resource_routes.py",
+      "sha256": "1eda8b429de0b99fff14aab186a0e69ed3ba324531d084480c009e74a6a5d85e"
+    },
+    {
+      "name": "test_site_publications.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_site_publications.py",
+      "sha256": "dafdff042d97ab7c9fa0bc40b1e6c568455d74e05e2818a24489e98ed94c57fd"
+    },
+    {
+      "name": "test_site_layouts.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_site_layouts.py",
+      "sha256": "1142761851332deb605e12c0c19ed7004617b3a44dfdc6805d18a88525d8dad2"
+    },
+    {
+      "name": "test_site_export.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_site_export.py",
+      "sha256": "d63e1e72f65969fb6e424ede40f91963ff51442425dfd0133dc63e54601eb5d2"
+    },
+    {
+      "name": "test_site_print.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_site_print.py",
+      "sha256": "8fb9ab4d850a8022535b4064c0883894a9ef2be23c7b752d0a262755309bc778"
+    },
+    {
+      "name": "test_print_text.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_print_text.py",
+      "sha256": "34ead164e62017922ba2b1f7bfcc0c372c41a25e7fcdb9e7aa3e5e7046c69c55"
+    },
+    {
+      "name": "test_print_fonts.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_print_fonts.py",
+      "sha256": "83e3a358dbd62cfccd758084a5c508aa6485952810969a76127b2e527617f245"
+    },
+    {
+      "name": "test_site_routes.py",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_site_routes.py",
+      "sha256": "efc9a0ffc6b347344379c86eabf97106430d5728f7cf107a0b023753a186b5e8"
+    },
+    {
+      "name": "api.Dockerfile",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "services/api/Dockerfile",
+      "sha256": "b759becc4e9a6e2b4a321db39c456d056e2ab3b1d9fdb27ee5186e7dc8e62e43"
+    },
+    {
+      "name": "api.Dockerfile.lambda",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "services/api/Dockerfile.lambda",
+      "sha256": "784a9f5709676d69c4d79a3f1617de8c985bb41fb91a6f6c32526dedac1d2cf9"
+    },
+    {
+      "name": "ProjectSites.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectSites.js",
+      "sha256": "3a4e01661d9698f0406d439e8a56aa095ca6bda4805cf9420a93b20873c302e9"
+    },
+    {
+      "name": "ProjectResources.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectResources.js",
+      "sha256": "691063f11bc84cc3dfce0808931bace1e6d91b9602f72e0a71bec99725ac2f1d"
+    },
+    {
+      "name": "fixturePlatform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/fixturePlatform.js",
+      "sha256": "f050e732ed64f157238fc6da3c06f3b8c16a6933c0cced1525e99374db911f8f"
+    },
+    {
+      "name": "style.css",
+      "mediaType": "text/css",
+      "encoding": "path",
+      "value": "app/src/style.css",
+      "sha256": "b267b92ee033a73c7fca50da768b53d007685fc086f30479dd1322069541d6ee"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "api-client.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/api-client.test.mjs",
+      "sha256": "c7f0fe7b80593a5b03b7a66af8f2dca3ea80dcd6f074df3fa8f54c63a1395094"
+    },
+    {
+      "name": "platform.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/platform.test.mjs",
+      "sha256": "7b8a9cbea2eadd0d4aef02d437336a5bc127b31cc901581443b1aac2d3e422cb"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "publish-001-portable-site-publication.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/publish-001-portable-site-publication.json",
+      "sha256": "1383a84ba5ff19bb3a6fd6dc1d0d42a19502753646f7cc42443bb2319929f88d"
+    },
+    {
+      "name": "publish-portable-site.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "test/publish-portable-site.test.mjs",
+      "sha256": "51cc677ac445ac36129d78ad05defea59f312298c8f4d18f129dc4248581d762"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "geolibre.layout-story-dashboard-print",
+      "assertion": "A mixed-content site publishes versioned stories, documents, dashboards, or maps; accepts scanned PNG/JPEG/PDF/ODT with exact semantic pages, bounded PDF visuals, and page-level OCR provenance; and exports responsive editions with governed assets, exact legends, visually edited map/image/table/chart frames, flow/formal/positioned PDF with embedded searchable Unicode bitmap glyphs, common implicit-RTL Arabic/Persian/Urdu shaping, matching Unicode whole-page PNG, and accessible SVG."
+    },
+    {
+      "rowId": "geonode.publishing-administration",
+      "assertion": "Tenant-safe editorial administration, shared-auth private PNG/JPEG/PDF/ODT registration, activation-only ClamAV/Poppler/Tesseract/ODF processing, exact resource/object/scan/OCR gates, private preview plus database-sealed public ODT/PDF semantics and bounded PDF visuals, policy-filtered selection, anonymous revocable delivery, and portable editions operate without GeoNode at runtime."
+    },
+    {
+      "rowId": "geomoose.print-responsive",
+      "assertion": "Anonymous and portable editions provide responsive/print HTML, tables, charts, exact assets and semantic document pages, immutable map PNG/style fallbacks, rotated/clipped positioned PDF with searchable Unicode glyphs and common implicit-RTL Arabic-family shaping, byte-stable 96-DPI Unicode PNG, bounded accessible SVG furniture, progressively enhanced WMS, and accessible non-map fallbacks."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

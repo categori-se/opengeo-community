@@ -1,0 +1,58 @@
+{
+  "schemaVersion": "opengeo.managed-site-directory.1.0.0",
+  "identity": {
+    "provider": "cognito-oidc",
+    "sharedUserPoolAllowed": true,
+    "separatePublicClientPerSite": true,
+    "browserTokenTransfer": "prohibited"
+  },
+  "sites": [
+    {
+      "id": "opengeo-tools",
+      "name": "OpenGeo.tools",
+      "origin": "https://studio.opengeo.tools",
+      "mode": "managed",
+      "organizationSlug": "opengeo-tools",
+      "dataPlane": "isolated",
+      "requiredProjects": [],
+      "publicSandbox": {
+        "enabled": false,
+        "persistence": "none",
+        "resetHours": 0,
+        "maxLayers": 32,
+        "maxImportBytes": 33554432,
+        "serverWrites": false
+      }
+    },
+    {
+      "id": "opengeo-demo",
+      "name": "OpenGeo public demo",
+      "origin": "https://demo.studio.opengeo.tools",
+      "mode": "demo",
+      "organizationSlug": "opengeo-demo",
+      "dataPlane": "isolated",
+      "requiredProjects": [
+        {
+          "projectCode": "OPEN-GEO-STARTER",
+          "name": "OpenGeo starter project",
+          "visibility": "published",
+          "minimumPopulatedMaps": 1
+        },
+        {
+          "projectCode": "MASSGIS-MASSENVIROSCREEN-DEMO",
+          "name": "MassGIS · MassEnviroScreen",
+          "visibility": "published",
+          "minimumPopulatedMaps": 31
+        }
+      ],
+      "publicSandbox": {
+        "enabled": true,
+        "persistence": "browser-session",
+        "resetHours": 24,
+        "maxLayers": 32,
+        "maxImportBytes": 33554432,
+        "serverWrites": false
+      }
+    }
+  ]
+}

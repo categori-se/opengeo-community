@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.example/schemas/parity-manifest.schema.json",
+  "title": "OpenGeo version-pinned parity manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "baselineId", "baselineDate", "claimPolicy", "baselines"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": "1.0.0"},
+    "baselineId": {"type": "string", "pattern": "^opengeo-[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "baselineDate": {"type": "string", "format": "date"},
+    "claimPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["parity", "compatibility", "passingRow"],
+      "properties": {
+        "parity": {"type": "string", "minLength": 20, "maxLength": 500},
+        "compatibility": {"type": "string", "minLength": 20, "maxLength": 500},
+        "passingRow": {"type": "string", "minLength": 20, "maxLength": 500}
+      }
+    },
+    "baselines": {
+      "type": "array",
+        "minItems": 8,
+        "maxItems": 8,
+      "items": {"$ref": "#/$defs/baseline"}
+    }
+  },
+  "$defs": {
+    "httpsUrl": {"type": "string", "format": "uri", "pattern": "^https://"},
+    "baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "comparisonType", "upstream", "rows"],
+      "properties": {
+        "product": {"enum": ["geolibre", "geonode", "geoserver", "mapserver", "geomoose", "openlayers", "google-earth-pro", "geolens"]},
+        "comparisonType": {
+          "enum": ["gis_application", "geospatial_cms", "service_engine", "render_engine", "web_gis_portal", "web_client", "desktop_virtual_globe"]
+        },
+        "upstream": {"$ref": "#/$defs/upstream"},
+        "rows": {
+          "type": "array",
+          "minItems": 4,
+          "items": {"$ref": "#/$defs/row"}
+        }
+      }
+    },
+    "upstream": {
+      "oneOf": [
+        {"$ref": "#/$defs/gitUpstream"},
+        {"$ref": "#/$defs/packageUpstream"}
+      ]
+    },
+    "gitUpstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version",
+        "tag",
+        "commit",
+        "releaseDate",
+        "releaseUrl",
+        "commitUrl",
+        "documentationUrl",
+        "driftReview"
+      ],
+      "properties": {
+        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"},
+        "tag": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "releaseDate": {"type": "string", "format": "date"},
+        "releaseUrl": {"$ref": "#/$defs/httpsUrl"},
+        "commitUrl": {"$ref": "#/$defs/httpsUrl"},
+        "documentationUrl": {"$ref": "#/$defs/httpsUrl"},
+        "driftReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reviewedAt", "status", "observedLatestVersion", "sourceUrl"],
+          "properties": {
+            "reviewedAt": {"type": "string", "format": "date"},
+            "status": {"enum": ["current", "changed", "review_due"]},
+            "observedLatestVersion": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"},
+            "sourceUrl": {"$ref": "#/$defs/httpsUrl"}
+          }
+        }
+      }
+    },
+    "packageUpstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "releaseDate", "releaseUrl", "documentationUrl", "packages", "driftReview"],
+      "properties": {
+        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"},
+        "releaseDate": {"type": "string", "format": "date"},
+        "releaseUrl": {"$ref": "#/$defs/httpsUrl"},
+        "documentationUrl": {"$ref": "#/$defs/httpsUrl"},
+        "packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["rpm", "deb"],
+          "properties": {
+            "rpm": {"$ref": "#/$defs/packageArtifact"},
+            "deb": {"$ref": "#/$defs/packageArtifact"}
+          }
+        },
+        "driftReview": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reviewedAt", "status", "observedLatestVersion", "sourceUrl"],
+          "properties": {
+            "reviewedAt": {"type": "string", "format": "date"},
+            "status": {"enum": ["current", "changed", "review_due"]},
+            "observedLatestVersion": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){1,3}$"},
+            "sourceUrl": {"$ref": "#/$defs/httpsUrl"}
+          }
+        }
+      }
+    },
+    "packageArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["format", "fileName", "architecture", "sizeBytes", "sha256", "verification"],
+      "properties": {
+        "format": {"enum": ["rpm", "deb"]},
+        "fileName": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"},
+        "architecture": {"enum": ["x86_64", "amd64"]},
+        "sizeBytes": {"type": "integer", "minimum": 1, "maximum": 1073741824},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "verification": {"type": "string", "minLength": 10, "maxLength": 200}
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "family",
+        "capability",
+        "requirement",
+        "scopes",
+        "operations",
+        "acceptanceCriteria",
+        "limits",
+        "milestone",
+        "owner",
+        "status",
+        "knownLosses",
+        "extensions",
+        "evidenceIds",
+        "missingEvidence",
+        "lastVerified",
+        "driftStatus"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"},
+        "family": {"type": "string", "pattern": "^[a-z0-9]+(?:_[a-z0-9]+)*$"},
+        "capability": {"type": "string", "minLength": 5, "maxLength": 200},
+        "requirement": {"enum": ["required", "conditional"]},
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"enum": ["standalone", "compatibility", "direct_integration"]},
+          "uniqueItems": true
+        },
+        "operations": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "uniqueItems": true
+        },
+        "acceptanceCriteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 10, "maxLength": 500},
+          "uniqueItems": true
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "description"],
+          "properties": {
+            "status": {"enum": ["declared", "not_measured", "not_applicable"]},
+            "description": {"type": "string", "minLength": 5, "maxLength": 500}
+          }
+        },
+        "milestone": {"type": "string", "pattern": "^[A-Z][A-Z0-9]+-[0-9]{3}$"},
+        "owner": {"type": "string", "minLength": 3, "maxLength": 100},
+        "status": {"enum": ["not_started", "partial", "pass", "blocked", "not_applicable"]},
+        "knownLosses": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 5, "maxLength": 500},
+          "uniqueItems": true
+        },
+        "extensions": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 3, "maxLength": 200},
+          "uniqueItems": true
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {"type": "string", "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*$"},
+          "uniqueItems": true
+        },
+        "missingEvidence": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 5, "maxLength": 500},
+          "uniqueItems": true
+        },
+        "lastVerified": {"type": ["string", "null"], "format": "date"},
+        "driftStatus": {"enum": ["current", "changed", "review_due"]}
+      }
+    }
+  }
+}

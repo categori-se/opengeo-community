@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rdf:RDF
+  xmlns:cite="http://cite.opengeospatial.org/"
+  xmlns:earl="http://www.w3.org/ns/earl#"
+  xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about="http://cite.opengeospatial.org/TestRun">
+    <cite:testsPassed rdf:datatype="http://www.w3.org/2001/XMLSchema#int">2</cite:testsPassed>
+    <cite:testsFailed rdf:datatype="http://www.w3.org/2001/XMLSchema#int">1</cite:testsFailed>
+    <cite:testsSkipped rdf:datatype="http://www.w3.org/2001/XMLSchema#int">0</cite:testsSkipped>
+    <cite:testsContinue rdf:datatype="http://www.w3.org/2001/XMLSchema#int">0</cite:testsContinue>
+    <cite:testsBestPractice rdf:datatype="http://www.w3.org/2001/XMLSchema#int">0</cite:testsBestPractice>
+    <cite:testsNotTested rdf:datatype="http://www.w3.org/2001/XMLSchema#int">0</cite:testsNotTested>
+    <cite:testsWarning rdf:datatype="http://www.w3.org/2001/XMLSchema#int">0</cite:testsWarning>
+    <cite:testsInheritedFailure rdf:datatype="http://www.w3.org/2001/XMLSchema#int">0</cite:testsInheritedFailure>
+    <cite:testSuiteType>ctl</cite:testSuiteType>
+    <cite:areCoreConformanceClassesPassed rdf:datatype="http://www.w3.org/2001/XMLSchema#boolean">false</cite:areCoreConformanceClassesPassed>
+  </rdf:Description>
+  <earl:Assertion rdf:about="assert-1" />
+  <earl:Assertion rdf:about="assert-2" />
+  <earl:Assertion rdf:about="assert-3" />
+</rdf:RDF>

@@ -1,0 +1,96 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-003e.network-links",
+  "title": "Governed bounded KML NetworkLink refresh and inert persistence",
+  "fixtureType": "project",
+  "source": {
+    "kind": "synthetic",
+    "description": "Deterministic public-HTTPS NetworkLink normalization, approval, request, receipt, refresh-decision, parsing, conditional-read, cancellation, persistence, reload, reauthorization, and adversarial evidence. The browser adapter is same-origin and synthetic; no external host, proprietary byte, or Google service is used."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "kmlNetworkLink.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/kmlNetworkLink.js",
+      "sha256": "a3e13757ee19f1b62ecd5fec4ddc0712bf706c308467bb1f05cf2a04a0b38916"
+    },
+    {
+      "name": "kml-network-link.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/kml-network-link.test.mjs",
+      "sha256": "d42c929f64fb096a3fba39b555507f2d00474360ee17ca26536d23ef14e04b6e"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+    },
+    {
+      "name": "fixturePlatform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/fixturePlatform.js",
+      "sha256": "f050e732ed64f157238fc6da3c06f3b8c16a6933c0cced1525e99374db911f8f"
+    },
+    {
+      "name": "platform.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/platform.js",
+      "sha256": "d33430e7ff6dc5056e293e01432b4e56c4a0cbbdc91e3d16f989203b65181f4e"
+    },
+    {
+      "name": "apiClient.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "platform.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/platform.test.mjs",
+      "sha256": "7b8a9cbea2eadd0d4aef02d437336a5bc127b31cc901581443b1aac2d3e422cb"
+    },
+    {
+      "name": "check-pages.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/scripts/check-pages.mjs",
+      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+    },
+    {
+      "name": "google-earth-pro-003e-network-links.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-003e-network-links.json",
+      "sha256": "e7bd349b3e0cfa89ff17bd1dd01a9c15cc678beb3acc5c9c8d17013df8816c58"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.places-kml-kmz-authoring",
+      "assertion": "One bounded remote NetworkLink remains inert on import, requires exact session authorization, accepts strict 200/304 receipts, contributes one parsed linked feature, persists only safe receipt metadata through Save As and re-save, and requires an unconditional refetch after reload. A live external adapter, Google Earth exchange, complete KML/gx/KMZ, deployment, and full-row parity are not claimed."
+    },
+    {
+      "rowId": "google-earth-pro.network-links-overlays-regionation",
+      "assertion": "Bounded refresh, interval, expiry, view-stop, on-request, and region-entry decisions; strict public-HTTPS request/receipt contracts; cancellation; zero redirects/credentials; conditional reads; and inert persistence pass locally. The production DNS-pinned fetcher, external-host security/load evidence, recursive graphs, super overlays, Google Earth peers, and full-row parity remain open."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,47 @@
+node_modules/
+dist/
+.observablehq/
+app/src/.observablehq/
+app/dist/
+app/page-check-artifacts/
+infrastructure/cdk.out/
+infrastructure/.cdk.out-*/
+infrastructure/cdk.context.json
+infrastructure/.test-tmp-auth/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+services/api/.venv/
+__pycache__/
+*.py[cod]
+
+# Local build, browser, and rootless-container workspaces.
+.aws-build/
+.podman-config/
+.podman-run/
+.podman-runroot/
+.podman-storage/
+.podman-tmp/
+.test-tmp/
+
+# Download inventories, original source snapshots and local archive receipts.
+.local-archives/
+
+# Generated inside the publication compiler image.
+services/observable-builder/notebook-assets.json
+
+# Community private state and credentials
+.opengeo/
+.aws/
+.ssh/
+.codex/
+.agents/
+.ai-studio/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials
+.DS_Store

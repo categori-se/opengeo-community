@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/opengeo-map-definition-1.3.0.schema.json",
+  "title": "OpenGeo map definition 1.3.0",
+  "description": "The OpenGeo 1.2.0 map composition plus bounded spherical polygon and circle measurements. The API independently recomputes every stored distance, perimeter, radius, circumference, and area.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mapViews",
+    "basemaps",
+    "bookmarks",
+    "activeLayerId",
+    "activeProcessingModelId",
+    "models",
+    "processingHistory",
+    "measurements",
+    "projection",
+    "colorMode",
+    "layers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "opengeo.map-definition.1.3.0"
+    },
+    "mapViews": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/mapViews"
+    },
+    "basemaps": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/basemaps"
+    },
+    "bookmarks": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/bookmarks"
+    },
+    "activeLayerId": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/activeLayerId"
+    },
+    "activeProcessingModelId": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/activeProcessingModelId"
+    },
+    "models": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/models"
+    },
+    "processingHistory": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/processingHistory"
+    },
+    "measurements": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "opengeo-map-definition-1.2.0.schema.json#/$defs/pathMeasurement"
+          },
+          {
+            "$ref": "#/$defs/polygonMeasurement"
+          },
+          {
+            "$ref": "#/$defs/circleMeasurement"
+          }
+        ]
+      }
+    },
+    "spatialBody": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/spatialBody"
+    },
+    "projection": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/projection"
+    },
+    "colorMode": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/colorMode"
+    },
+    "layers": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/layers",
+      "items": {
+        "properties": {
+          "labels": {
+            "properties": {
+              "fontRef": {
+                "$ref": "#/$defs/mapFontRef"
+              },
+              "drawOrder": {
+                "enum": [
+                  "with-layer",
+                  "above-data"
+                ]
+              }
+            }
+          },
+          "filter": {
+            "$ref": "opengeo-map-filter-1.0.0.schema.json"
+          },
+          "opacityMode": {
+            "enum": [
+              "feature",
+              "composite"
+            ]
+          }
+        }
+      }
+    },
+    "portal": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/portal"
+    },
+    "extensions": {
+      "type": "object",
+      "properties": {
+        "opengeoRenderer": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {"id": {"enum": ["maplibre", "mapbox"]}},
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "mapFontRef": {
+      "type": "object",
+      "required": [
+        "id",
+        "version",
+        "manifestChecksumSha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "manifestChecksumSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "identifier": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/$defs/identifier"
+    },
+    "coordinate": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/$defs/coordinate"
+    },
+    "polygonMeasurement": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "id",
+        "title",
+        "kind",
+        "spatialBodyId",
+        "measurementModel",
+        "distanceUnit",
+        "areaUnit",
+        "coordinates",
+        "perimeterMeters",
+        "areaSquareMeters"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "opengeo.area-measurement.1.0.0"
+        },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "const": "polygon-area"
+        },
+        "spatialBodyId": {
+          "enum": [
+            "earth",
+            "moon",
+            "mars"
+          ]
+        },
+        "measurementModel": {
+          "const": "spherical-mean-radius"
+        },
+        "distanceUnit": {
+          "const": "meter"
+        },
+        "areaUnit": {
+          "const": "square-meter"
+        },
+        "coordinates": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/coordinate"
+          }
+        },
+        "perimeterMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2000000000
+        },
+        "areaSquareMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000000000
+        }
+      },
+      "additionalProperties": false
+    },
+    "circleMeasurement": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "id",
+        "title",
+        "kind",
+        "spatialBodyId",
+        "measurementModel",
+        "distanceUnit",
+        "areaUnit",
+        "center",
+        "radiusPoint",
+        "radiusMeters",
+        "circumferenceMeters",
+        "areaSquareMeters"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "opengeo.area-measurement.1.0.0"
+        },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "const": "circle-area"
+        },
+        "spatialBodyId": {
+          "enum": [
+            "earth",
+            "moon",
+            "mars"
+          ]
+        },
+        "measurementModel": {
+          "const": "spherical-mean-radius"
+        },
+        "distanceUnit": {
+          "const": "meter"
+        },
+        "areaUnit": {
+          "const": "square-meter"
+        },
+        "center": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "radiusPoint": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "radiusMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2000000000
+        },
+        "circumferenceMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2000000000
+        },
+        "areaSquareMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000000000
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

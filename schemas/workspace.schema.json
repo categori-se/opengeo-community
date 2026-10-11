@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Workspace",
+  "type": "object",
+  "required": ["workspaceId", "tenantId", "title", "classification", "createdAt", "updatedAt"],
+  "properties": {
+    "workspaceId": {"type": "string"},
+    "tenantId": {"type": "string"},
+    "title": {"type": "string"},
+    "description": {"type": "string"},
+    "status": {"type": "string"},
+    "classification": {"enum": ["public", "internal", "restricted"]},
+    "createdBy": {"type": "string"},
+    "createdAt": {"type": "string", "format": "date-time"},
+    "updatedAt": {"type": "string", "format": "date-time"}
+  }
+}

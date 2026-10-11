@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "1.0.0",
+  "verifiedOn": "2026-08-20",
+  "sources": {
+    "iso19115_3": {
+      "version": "ISO 19115-3:2023 mds 2.0 aggregate",
+      "repository": "https://github.com/ISO-TC211/schemas.git",
+      "commit": "973b2d578265657246404a1889c544c8d8374c9b",
+      "artifact": "19115/-3/mds/2.0/mds.xsd",
+      "artifactUrl": "https://schemas.isotc211.org/19115/-3/mds/2.0/mds.xsd",
+      "sha256": "daf364d310bdccabdf0de1f4cc8bd26eeea01ba8750459c0b3c265bb9102dc9f",
+      "bytes": 4122,
+      "license": "ISO copyright; no open redistribution grant identified",
+      "vendored": false
+    },
+    "datacite47": {
+      "version": "DataCite Metadata Schema 4.7",
+      "repository": "https://github.com/datacite/schema.git",
+      "commit": "b7713dd7fc399c864b34ebaedbe0e60ce25ab34e",
+      "artifact": "source/meta/kernel-4/metadata.xsd",
+      "artifactUrl": "https://schema.datacite.org/meta/kernel-4/metadata.xsd",
+      "sha256": "be878f9afddeb677ec4cd274233de0c328246748305d9f58ee78352714412522",
+      "bytes": 42747,
+      "license": "No repository-wide schema redistribution grant identified",
+      "vendored": false
+    },
+    "geodcatAp31": {
+      "version": "GeoDCAT-AP 3.1.0",
+      "repository": "https://github.com/SEMICeu/GeoDCAT-AP.git",
+      "commit": "7e7d6a82f4bd4491c68f774f185193439881ab42",
+      "artifact": "releases/3.1.0/shacl/geodcat-ap-SHACL.ttl",
+      "artifactUrl": "https://semiceu.github.io/GeoDCAT-AP/releases/3.1.0/shacl/geodcat-ap-SHACL.ttl",
+      "sha256": "53f72ec0bd77f0dfdcbeac6718586986be3d3628791618d61db0de7444eb4bb0",
+      "bytes": 355901,
+      "license": "CC-BY-4.0",
+      "vendored": false
+    },
+    "w3cXlink": {
+      "version": "W3C XLink schema",
+      "artifactUrl": "https://www.w3.org/1999/xlink.xsd",
+      "sha256": "c3dbbaa28b884377ecd4a6c49d1f12566d8227cb0dce8ced10c0f66f8fa266e3",
+      "bytes": 8322,
+      "vendored": false
+    },
+    "w3cXml": {
+      "version": "W3C XML namespace schema",
+      "artifactUrl": "https://www.w3.org/2001/xml.xsd",
+      "sha256": "61960fb3131e38022caad5360e2f33a3382578ab3c80cd58bd74320ede61b20c",
+      "bytes": 8836,
+      "vendored": false
+    }
+  },
+  "validators": {
+    "xmlSchema": "xmllint/libxml2 2.12.10",
+    "shacl": "PySHACL 0.40.1"
+  },
+  "policy": {
+    "networkDuringValidation": false,
+    "officialArtifactsVendored": false,
+    "runtimeConformanceClaimed": false,
+    "idleMonthlyCostDeltaUsd": "0.000"
+  }
+}

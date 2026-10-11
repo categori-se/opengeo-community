@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "asOf": "2026-08-23",
+  "region": "us-east-1",
+  "currency": "USD",
+  "scenario": "combined optional zero-command GIS worker and Observable coordinator runtimes",
+  "expectedMonthlyUsd": 44.6,
+  "combinedCurrentMonthlyUsd": 47.403,
+  "combinedAfterTwoKmsRotationsMonthlyUsd": 49.403,
+  "budgetMonthlyUsd": 125,
+  "assumptions": [
+    "Both optional runtime stacks and their shared endpoint stack exist while the GIS worker has desired count zero, the coordinator ASG has desired capacity zero, and no command is queued.",
+    "Six deduplicated single-AZ interface endpoint ENIs provide ECR API/Docker, CloudWatch Logs, Secrets Manager, SQS, and RDS Data API; the S3 gateway endpoint has no hourly charge.",
+    "The continuously retained runtime resources are one coordinator database secret plus two worker and two coordinator standard CloudWatch alarms.",
+    "Fargate, EC2, EBS while running, requests, endpoint data, logs, S3, Data API, KMS API calls, and database wake time are usage-dependent and excluded at zero commands."
+  ],
+  "sources": {
+    "vpc": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/privatelink/pricing/"
+    },
+    "secrets": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/secrets-manager/pricing/"
+    },
+    "cloudwatch": {
+      "publicationDate": "checked 2026-08-23",
+      "url": "https://aws.amazon.com/cloudwatch/pricing/"
+    }
+  },
+  "items": [
+    {
+      "id": "combined-interface-endpoints",
+      "scope": "private-runtimes",
+      "description": "Six deduplicated continuously provisioned single-AZ interface endpoint ENIs",
+      "quantity": 4380,
+      "unit": "endpoint-hour",
+      "rateUsd": 0.01,
+      "source": "vpc"
+    },
+    {
+      "id": "coordinator-database-secret",
+      "scope": "observable-coordinator",
+      "description": "Dedicated function-only coordinator database credential",
+      "quantity": 1,
+      "unit": "secret-month",
+      "rateUsd": 0.4,
+      "source": "secrets"
+    },
+    {
+      "id": "combined-standard-alarms",
+      "scope": "private-runtimes",
+      "description": "Worker and coordinator oldest-message and dead-letter-queue alarms",
+      "quantity": 4,
+      "unit": "alarm-month",
+      "rateUsd": 0.1,
+      "source": "cloudwatch"
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+[
+  {
+    "id": "hatch",
+    "pattern": {
+      "id": "hatch",
+      "foreground": "#0000ff",
+      "background": "#ffffff",
+      "size": 24,
+      "width": 2,
+      "transparent": true
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" fill=\"#ffffff\" fill-opacity=\"0\"/><path d=\"M-8 8L8-8 M0 32L32 0 M24 40L40 24\" stroke=\"#0000ff\" stroke-width=\"2\" stroke-linecap=\"round\" fill=\"none\"/></svg>",
+    "definition": "<StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:se=\"http://www.opengis.net/se\" version=\"1.1.0\"><NamedLayer><se:Name>features</se:Name><UserStyle><se:Name>Water &amp; plants</se:Name><se:Description><se:Title>Water &amp; plants</se:Title><se:Abstract>OpenGeo procedural pattern v1 {&quot;id&quot;:&quot;hatch&quot;,&quot;foreground&quot;:&quot;#0000ff&quot;,&quot;background&quot;:&quot;#ffffff&quot;,&quot;size&quot;:24,&quot;width&quot;:2,&quot;transparent&quot;:true}</se:Abstract></se:Description><se:FeatureTypeStyle><se:Rule><se:PolygonSymbolizer><se:Fill><se:GraphicFill><se:Graphic><se:ExternalGraphic><se:InlineContent encoding=\"base64\">PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMCIvPjxwYXRoIGQ9Ik0tOCA4TDgtOCBNMCAzMkwzMiAwIE0yNCA0MEw0MCAyNCIgc3Ryb2tlPSIjMDAwMGZmIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgZmlsbD0ibm9uZSIvPjwvc3ZnPg==</se:InlineContent><se:Format>image/svg+xml</se:Format></se:ExternalGraphic><se:Size>24</se:Size></se:Graphic></se:GraphicFill></se:Fill></se:PolygonSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>"
+  },
+  {
+    "id": "dots",
+    "pattern": {
+      "id": "dots",
+      "foreground": "#0000ff",
+      "background": "#ffffff",
+      "size": 24,
+      "width": 2,
+      "transparent": true
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" fill=\"#ffffff\" fill-opacity=\"0\"/><path d=\"M8 8h.1 M24 24h.1\" stroke=\"#0000ff\" stroke-width=\"2\" stroke-linecap=\"round\" fill=\"none\"/></svg>",
+    "definition": "<StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:se=\"http://www.opengis.net/se\" version=\"1.1.0\"><NamedLayer><se:Name>features</se:Name><UserStyle><se:Name>Water &amp; plants</se:Name><se:Description><se:Title>Water &amp; plants</se:Title><se:Abstract>OpenGeo procedural pattern v1 {&quot;id&quot;:&quot;dots&quot;,&quot;foreground&quot;:&quot;#0000ff&quot;,&quot;background&quot;:&quot;#ffffff&quot;,&quot;size&quot;:24,&quot;width&quot;:2,&quot;transparent&quot;:true}</se:Abstract></se:Description><se:FeatureTypeStyle><se:Rule><se:PolygonSymbolizer><se:Fill><se:GraphicFill><se:Graphic><se:ExternalGraphic><se:InlineContent encoding=\"base64\">PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMCIvPjxwYXRoIGQ9Ik04IDhoLjEgTTI0IDI0aC4xIiBzdHJva2U9IiMwMDAwZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBmaWxsPSJub25lIi8+PC9zdmc+</se:InlineContent><se:Format>image/svg+xml</se:Format></se:ExternalGraphic><se:Size>24</se:Size></se:Graphic></se:GraphicFill></se:Fill></se:PolygonSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>"
+  },
+  {
+    "id": "waves",
+    "pattern": {
+      "id": "waves",
+      "foreground": "#0000ff",
+      "background": "#ffffff",
+      "size": 24,
+      "width": 2,
+      "transparent": true
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" fill=\"#ffffff\" fill-opacity=\"0\"/><path d=\"M-8 8Q0 24 8 8T24 8T40 8 M-8 24Q0 40 8 24T24 24T40 24\" stroke=\"#0000ff\" stroke-width=\"2\" stroke-linecap=\"round\" fill=\"none\"/></svg>",
+    "definition": "<StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:se=\"http://www.opengis.net/se\" version=\"1.1.0\"><NamedLayer><se:Name>features</se:Name><UserStyle><se:Name>Water &amp; plants</se:Name><se:Description><se:Title>Water &amp; plants</se:Title><se:Abstract>OpenGeo procedural pattern v1 {&quot;id&quot;:&quot;waves&quot;,&quot;foreground&quot;:&quot;#0000ff&quot;,&quot;background&quot;:&quot;#ffffff&quot;,&quot;size&quot;:24,&quot;width&quot;:2,&quot;transparent&quot;:true}</se:Abstract></se:Description><se:FeatureTypeStyle><se:Rule><se:PolygonSymbolizer><se:Fill><se:GraphicFill><se:Graphic><se:ExternalGraphic><se:InlineContent encoding=\"base64\">PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMCIvPjxwYXRoIGQ9Ik0tOCA4UTAgMjQgOCA4VDI0IDhUNDAgOCBNLTggMjRRMCA0MCA4IDI0VDI0IDI0VDQwIDI0IiBzdHJva2U9IiMwMDAwZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBmaWxsPSJub25lIi8+PC9zdmc+</se:InlineContent><se:Format>image/svg+xml</se:Format></se:ExternalGraphic><se:Size>24</se:Size></se:Graphic></se:GraphicFill></se:Fill></se:PolygonSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>"
+  },
+  {
+    "id": "ripples",
+    "pattern": {
+      "id": "ripples",
+      "foreground": "#0000ff",
+      "background": "#ffffff",
+      "size": 24,
+      "width": 2,
+      "transparent": true
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" fill=\"#ffffff\" fill-opacity=\"0\"/><path d=\"M2 8h12 M18 24h12\" stroke=\"#0000ff\" stroke-width=\"2\" stroke-linecap=\"round\" fill=\"none\"/></svg>",
+    "definition": "<StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:se=\"http://www.opengis.net/se\" version=\"1.1.0\"><NamedLayer><se:Name>features</se:Name><UserStyle><se:Name>Water &amp; plants</se:Name><se:Description><se:Title>Water &amp; plants</se:Title><se:Abstract>OpenGeo procedural pattern v1 {&quot;id&quot;:&quot;ripples&quot;,&quot;foreground&quot;:&quot;#0000ff&quot;,&quot;background&quot;:&quot;#ffffff&quot;,&quot;size&quot;:24,&quot;width&quot;:2,&quot;transparent&quot;:true}</se:Abstract></se:Description><se:FeatureTypeStyle><se:Rule><se:PolygonSymbolizer><se:Fill><se:GraphicFill><se:Graphic><se:ExternalGraphic><se:InlineContent encoding=\"base64\">PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMCIvPjxwYXRoIGQ9Ik0yIDhoMTIgTTE4IDI0aDEyIiBzdHJva2U9IiMwMDAwZmYiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBmaWxsPSJub25lIi8+PC9zdmc+</se:InlineContent><se:Format>image/svg+xml</se:Format></se:ExternalGraphic><se:Size>24</se:Size></se:Graphic></se:GraphicFill></se:Fill></se:PolygonSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>"
+  },
+  {
+    "id": "forest",
+    "pattern": {
+      "id": "forest",
+      "foreground": "#0000ff",
+      "background": "#ffffff",
+      "size": 24,
+      "width": 2,
+      "transparent": true
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" fill=\"#ffffff\" fill-opacity=\"0\"/><path d=\"M8 3l-5 9h10z M8 12v5 M24 18l-5 9h10z M24 27v4\" stroke=\"#0000ff\" stroke-width=\"2\" stroke-linecap=\"round\" fill=\"none\"/></svg>",
+    "definition": "<StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:se=\"http://www.opengis.net/se\" version=\"1.1.0\"><NamedLayer><se:Name>features</se:Name><UserStyle><se:Name>Water &amp; plants</se:Name><se:Description><se:Title>Water &amp; plants</se:Title><se:Abstract>OpenGeo procedural pattern v1 {&quot;id&quot;:&quot;forest&quot;,&quot;foreground&quot;:&quot;#0000ff&quot;,&quot;background&quot;:&quot;#ffffff&quot;,&quot;size&quot;:24,&quot;width&quot;:2,&quot;transparent&quot;:true}</se:Abstract></se:Description><se:FeatureTypeStyle><se:Rule><se:PolygonSymbolizer><se:Fill><se:GraphicFill><se:Graphic><se:ExternalGraphic><se:InlineContent encoding=\"base64\">PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMCIvPjxwYXRoIGQ9Ik04IDNsLTUgOWgxMHogTTggMTJ2NSBNMjQgMThsLTUgOWgxMHogTTI0IDI3djQiIHN0cm9rZT0iIzAwMDBmZiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIGZpbGw9Im5vbmUiLz48L3N2Zz4=</se:InlineContent><se:Format>image/svg+xml</se:Format></se:ExternalGraphic><se:Size>24</se:Size></se:Graphic></se:GraphicFill></se:Fill></se:PolygonSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>"
+  },
+  {
+    "id": "grass",
+    "pattern": {
+      "id": "grass",
+      "foreground": "#0000ff",
+      "background": "#ffffff",
+      "size": 24,
+      "width": 2,
+      "transparent": true
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" fill=\"#ffffff\" fill-opacity=\"0\"/><path d=\"M4 18l4 6 4-9 M8 24v4 M20 2l4 6 4-5 M24 8v4\" stroke=\"#0000ff\" stroke-width=\"2\" stroke-linecap=\"round\" fill=\"none\"/></svg>",
+    "definition": "<StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:se=\"http://www.opengis.net/se\" version=\"1.1.0\"><NamedLayer><se:Name>features</se:Name><UserStyle><se:Name>Water &amp; plants</se:Name><se:Description><se:Title>Water &amp; plants</se:Title><se:Abstract>OpenGeo procedural pattern v1 {&quot;id&quot;:&quot;grass&quot;,&quot;foreground&quot;:&quot;#0000ff&quot;,&quot;background&quot;:&quot;#ffffff&quot;,&quot;size&quot;:24,&quot;width&quot;:2,&quot;transparent&quot;:true}</se:Abstract></se:Description><se:FeatureTypeStyle><se:Rule><se:PolygonSymbolizer><se:Fill><se:GraphicFill><se:Graphic><se:ExternalGraphic><se:InlineContent encoding=\"base64\">PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMCIvPjxwYXRoIGQ9Ik00IDE4bDQgNiA0LTkgTTggMjR2NCBNMjAgMmw0IDYgNC01IE0yNCA4djQiIHN0cm9rZT0iIzAwMDBmZiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIGZpbGw9Im5vbmUiLz48L3N2Zz4=</se:InlineContent><se:Format>image/svg+xml</se:Format></se:ExternalGraphic><se:Size>24</se:Size></se:Graphic></se:GraphicFill></se:Fill></se:PolygonSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>"
+  },
+  {
+    "id": "wetland",
+    "pattern": {
+      "id": "wetland",
+      "foreground": "#0000ff",
+      "background": "#ffffff",
+      "size": 24,
+      "width": 2,
+      "transparent": true
+    },
+    "svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\" viewBox=\"0 0 32 32\"><rect width=\"32\" height=\"32\" fill=\"#ffffff\" fill-opacity=\"0\"/><path d=\"M2 23h12 M18 10h12 M8 22V12m0 5l-4-4m4 6l4-5 M24 9V1\" stroke=\"#0000ff\" stroke-width=\"2\" stroke-linecap=\"round\" fill=\"none\"/></svg>",
+    "definition": "<StyledLayerDescriptor xmlns=\"http://www.opengis.net/sld\" xmlns:se=\"http://www.opengis.net/se\" version=\"1.1.0\"><NamedLayer><se:Name>features</se:Name><UserStyle><se:Name>Water &amp; plants</se:Name><se:Description><se:Title>Water &amp; plants</se:Title><se:Abstract>OpenGeo procedural pattern v1 {&quot;id&quot;:&quot;wetland&quot;,&quot;foreground&quot;:&quot;#0000ff&quot;,&quot;background&quot;:&quot;#ffffff&quot;,&quot;size&quot;:24,&quot;width&quot;:2,&quot;transparent&quot;:true}</se:Abstract></se:Description><se:FeatureTypeStyle><se:Rule><se:PolygonSymbolizer><se:Fill><se:GraphicFill><se:Graphic><se:ExternalGraphic><se:InlineContent encoding=\"base64\">PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDMyIDMyIj48cmVjdCB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMCIvPjxwYXRoIGQ9Ik0yIDIzaDEyIE0xOCAxMGgxMiBNOCAyMlYxMm0wIDVsLTQtNG00IDZsNC01IE0yNCA5VjEiIHN0cm9rZT0iIzAwMDBmZiIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2UtbGluZWNhcD0icm91bmQiIGZpbGw9Im5vbmUiLz48L3N2Zz4=</se:InlineContent><se:Format>image/svg+xml</se:Format></se:ExternalGraphic><se:Size>24</se:Size></se:Graphic></se:GraphicFill></se:Fill></se:PolygonSymbolizer></se:Rule></se:FeatureTypeStyle></UserStyle></NamedLayer></StyledLayerDescriptor>"
+  }
+]

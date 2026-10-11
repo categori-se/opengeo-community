@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0.0",
+  "suiteId": "ogc.ets-wfs20",
+  "status": "source_locked_not_run",
+  "observedAt": "2026-08-23",
+  "upstream": {
+    "repository": "https://github.com/opengeospatial/ets-wfs20",
+    "tag": "1.43",
+    "tagObject": "ee515040b58d4189c56ff7eba3a6f0b0b06c109e",
+    "commit": "843c9f358d32cd5ef92c0dd5bbb6ff6c08f6092a",
+    "commitDate": "2024-11-08T17:22:32-05:00",
+    "projectVersion": "1.43",
+    "license": "Apache-2.0"
+  },
+  "specification": {
+    "service": "WFS",
+    "version": "2.0.0",
+    "documents": ["OGC 09-025r2", "OGC 09-026r2", "OGC 07-036"],
+    "suiteStyle": "TestNG plus GML 3.2 suite"
+  },
+  "runner": {
+    "mainClass": "org.opengis.cite.iso19142.TestNGController",
+    "inputKey": "wfs",
+    "documentedInputSchemes": ["http", "file"],
+    "customRequestHeaders": false,
+    "resultFile": "${user.home}/testng/{run-uuid}/testng-results.xml",
+    "sourceTestAnnotations": 82,
+    "executionIsCapabilitiesDriven": true
+  },
+  "mandatorySimpleProfile": {
+    "operations": [
+      "GetCapabilities",
+      "DescribeFeatureType",
+      "ListStoredQueries",
+      "DescribeStoredQueries",
+      "GetFeature/GetFeatureById"
+    ],
+    "preconditions": [
+      "WFS 2.0 capabilities document",
+      "GML application schema defines features and feature collections",
+      "at least one advertised feature type has data",
+      "mandatory Simple WFS service constraints and operation endpoints are advertised"
+    ],
+    "additionalCapabilitiesDrivenClasses": [
+      "Basic WFS",
+      "HTTP GET",
+      "HTTP POST",
+      "SOAP",
+      "Spatial filter",
+      "Temporal filter",
+      "Transactional WFS",
+      "Locking WFS",
+      "Response paging",
+      "Manage stored queries",
+      "Feature versions",
+      "Standard joins",
+      "Spatial joins",
+      "Temporal joins"
+    ]
+  },
+  "sourceEvidence": [
+    {"path": "README.md", "sha256": "80e71fe052ecab5f867e51fbf83a5ef1fcf1d7b3ab56f014b7a32b8a599db0d6"},
+    {"path": "pom.xml", "sha256": "5416f202487c5ed89dbc6be55c18247f459e3fc087c6305f623aed96493e2fa2"},
+    {"path": "LICENSE.txt", "sha256": "4ce53a8014a935d021ba1eb965bdf7c2596aca133d2caee678af891d268d1df1"},
+    {"path": "src/main/config/test-run-props.xml", "sha256": "81422a75277f4b18d41a72c6c5c8ab1e40946ffabe3422e63abc576e79f26c93"},
+    {"path": "src/main/resources/org/opengis/cite/iso19142/testng.xml", "sha256": "1fe9f3219846a1aca9044229db09a909ea56553c3429802aeb80a15f6c4ab8d6"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/ConformanceClass.java", "sha256": "1a8fadc463298764b537f3a7c10bd9b054b13ef708bdf372737cf0d5bf7613d3"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/SuitePreconditions.java", "sha256": "2e62d1f1e4e5ccdda1dc2199883b14acc6ded0b4b80a722e5b5c4833d9d3bc8c"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/simple/ServiceMetadataTests.java", "sha256": "036e5fe67c98591c3a69fcc8091039c40df79ea59dc4451ee1d9833ba5307081"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/simple/SimpleCapabilitiesTests.java", "sha256": "5d49d235ee5d7ba7b8a5f5c6279896b23fe73abe5577fb19286a8bf7a622c948"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/simple/DescribeFeatureTypeTests.java", "sha256": "3624fbf5c485905c1f12fa4eaa3cfdf5ec660215fbf11404dbfe4a2f37b6dcd9"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/simple/ListStoredQueriesTests.java", "sha256": "f2ce69f9124606d81a33ef07ce391552d6647a0fe5639ea29ddc31ecd5c9437f"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/simple/DescribeStoredQueriesTests.java", "sha256": "6d45ef628dd23817fc964d6305323f35b970ee008c2b4ca8acabaac6f5fb6167"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/simple/StoredQueryTests.java", "sha256": "d6f32ffa2ff6efb7d1156be71a9ad7314da726fed3233f5ade9339f5856d2245"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/basic/GetPropertyValueTests.java", "sha256": "b9943f8a7f7b2f8a4e13d2130c68be21b5b0ac34566d266b416d9a06f6543106"},
+    {"path": "src/main/java/org/opengis/cite/iso19142/transaction/TransactionCapabilitiesTests.java", "sha256": "de613189f5e23b7c3c43fb93703e2250b41d881bda6e1336902afd326df29b78"},
+    {"path": "src/main/resources/org/opengis/cite/iso19142/sch/wfs-capabilities-2.0.sch", "sha256": "c967d135e169ecef22b9227501e1fe49b944bd636181a52e96218cf1a5755eed"}
+  ],
+  "limitations": [
+    "The source, release, license, runner input, suite groups, mandatory Simple WFS profile, and selected Java/Schematron files are pinned; the suite has not run against OpenGeo.",
+    "The source annotation count is not an executed-test count because data providers, prerequisites, imported GML tests, and advertised conformance classes determine the actual run.",
+    "A runner properties document does not solve shared-auth request headers, add missing mandatory operations, or establish conformance."
+  ]
+}

@@ -1,0 +1,84 @@
+{
+  "schemaVersion": "1.0.0",
+  "status": "official_core_execution_failed_missing_binding_profile",
+  "observedAt": "2026-09-04",
+  "source": {
+    "repository": "https://github.com/opengeospatial/ets-wcs20",
+    "tag": "1.22",
+    "commit": "afcee1b0fd72358c301b4e6007344d97b2857382",
+    "commitTree": "978ebe76c012da655112a01ca102318ad268996b",
+    "officialSuiteSourceOrTestChanges": 0
+  },
+  "upstreamCandidateRejection": {
+    "vulnerabilities": 11,
+    "critical": 3,
+    "high": 3,
+    "executed": false,
+    "reason": "The unmodified upstream dependency graph contains Log4j 1.2.17 and failed the no-waiver security policy."
+  },
+  "runner": {
+    "overlay": "parity/fixtures/ogc/wcs-2.0.1-ets-hardened-overlay.xml",
+    "overlaySha256": "b21ab0c46d23368f335cec1c689aaf20498b601afe2bc0a8cdabf8920233a373",
+    "sha256": "f0fbd6503fc61ec7c6a737b8b521cd29b061f880b739a5a0b33d0fac74c9a094",
+    "sizeBytes": 24458950,
+    "zipEntries": 16456,
+    "mainClass": "org.opengis.cite.wcs20.CtlController",
+    "cleanReproductions": 2,
+    "byteIdenticalReproductions": true,
+    "expandedBecauseJarResourceIsNotAFile": true,
+    "trivy": {
+      "version": "0.73.0",
+      "scanSha256": "3e1d244678f0e8c0b1386501d701e8dda63b68e42c5007484a971148aa6b666b",
+      "scanSizeBytes": 15569,
+      "resultCount": 1,
+      "vulnerabilities": 0,
+      "waivers": [],
+      "vulnerabilityDatabaseUpdatedAt": "2026-09-04T08:16:30.553157885Z",
+      "javaDatabaseUpdatedAt": "2026-09-04T01:11:37.497889969Z"
+    }
+  },
+  "implementation": {
+    "productionCodePath": "services/api/src/opengeo_api/wcs.py",
+    "productionBoundary": "Authenticated WCS 2.0.1 KVP discovery, description, and whole-coverage exact GeoTIFF retrieval.",
+    "diagnosticServer": "scripts/serve-wcs-cite-diagnostic.py",
+    "diagnosticServerBytesRetained": false,
+    "advertisedBindingProfiles": [],
+    "advertisedConformance": []
+  },
+  "execution": {
+    "suite": "WCS 2.0.1 Core",
+    "processExitCode": 0,
+    "suiteResult": "failed",
+    "mandatoryFailure": "The service does not provide at least one of the required protocol binding extensions.",
+    "detailedLogSha256": "38a8be67ffe875032562ad0e62e4c09cd9b2497419699f8ca8e7f5420cd08b6f",
+    "detailedLogSizeBytes": 5103,
+    "failureLogRelativePath": "d68e38411_1/log.xml",
+    "failureLogSha256": "4a36686d629e2bee268718df99290d92e3463dd4bad4d08cb52ed971777d1744",
+    "failureLogSizeBytes": 6285,
+    "earlSha256": "87764dba8bfe9ee42b9fbf7a73a2bebc86e1939e3566576a856a84a40a42df7a",
+    "earlSizeBytes": 3519,
+    "earlSummaryReliableForThisFailure": false,
+    "earlFinding": "The generated EARL says core classes passed and reports zero leaf failures even though the detailed TEAM Engine log records the mandatory main_test failure.",
+    "traceArtifact": "parity/fixtures/ogc/wcs-2.0.1-cite-local-operation-trace.json"
+  },
+  "gap": {
+    "configuration": "Capabilities does not declare a WCS GET-KVP, POST-XML, or SOAP protocol-binding Profile.",
+    "implementation": "The current whole-coverage exact-object lane does not implement Core subsetting and therefore must not advertise the GET-KVP Core binding merely to enter later suite tests.",
+    "safeDisposition": "Keep production conformance empty and implement a governed versioned Core profile before repeating the suite."
+  },
+  "boundary": {
+    "officialSuiteExecuted": true,
+    "officialCorePassed": false,
+    "formalConformanceClaim": false,
+    "productionConformanceDeclarationsRemainEmpty": true,
+    "governedPublicationExecuted": false,
+    "deployedEndpointContacted": false,
+    "databaseChanged": false,
+    "deploymentChanged": false,
+    "awsStateChanged": false,
+    "fixedInactiveCostDeltaUsd": 0
+  },
+  "limitations": [
+    "The exact diagnostic-server bytes used on 2026-09-04 were not retained after the candidate evolved. The immutable official logs, result hashes, operation-only trace, suite source lock, hardened overlay, runner hash, and scan receipt remain the evidence for this failed run; the current script is not represented as its execution source."
+  ]
+}

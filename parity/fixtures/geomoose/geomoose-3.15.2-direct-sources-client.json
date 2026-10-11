@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0.0",
+  "fixtureId": "geomoose-007.direct-sources-client",
+  "observedAt": "2026-09-01",
+  "reference": {
+    "product": "GeoMoose",
+    "release": "3.15.2",
+    "tag": "v3.15.2",
+    "tagObject": "9b2ba2305cc1bd2e7da266c76a8b900c738e9f14",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "tree": "9d3a3c8cc58af5f492d64a63b2af26b9d40f5345",
+    "sourceLock": "parity/fixtures/geomoose/geomoose-3.15.2-source-lock.json"
+  },
+  "sourceFiles": [
+    {
+      "path": "src/gm3/components/map/layers/vector.js",
+      "gitBlob": "7fad94af8c0a739935e891541e1214eb13e618ba",
+      "sha256": "848506be736e047ad631c91b4c3bea768000968e3a28a7724b11e04a54968d45",
+      "bytes": 12495,
+      "requiredStrings": [
+        "} else if (mapSource.type === \"geojson\") {",
+        "format: new GeoJSONFormat()",
+        "} else if (mapSource.type === \"ags-vector\") {",
+        "returnIdsOnly: true",
+        "type: \"jsonp\"",
+        "objectIds: batch.join(\",\")"
+      ]
+    },
+    {
+      "path": "src/gm3/components/map/layers/xyz.js",
+      "gitBlob": "498d8abdd20579147ceaa75b82cef5a0e13987ab",
+      "sha256": "b0cf2739799796d063a3dce99c89df18165180124bc2600e1c216f1858257998",
+      "bytes": 2660,
+      "requiredStrings": [
+        "import XYZSource from \"ol/source/XYZ\";",
+        "crossOrigin = \"anonymous\";",
+        "source: new XYZSource(defineSource(mapSource))"
+      ]
+    },
+    {
+      "path": "src/gm3/components/map/layers/ags.js",
+      "gitBlob": "98ab99eb7d22a8d5a49bcf9a96dc4918e7fd26e9",
+      "sha256": "0a8a35e5c154495db4e671bc2054354d3c58aaaf77b68e58239ba5c29297d752",
+      "bytes": 2535,
+      "requiredStrings": [
+        "import ArcRestSource from \"ol/source/TileArcGISRest\";",
+        "crossOrigin = \"anonymous\";",
+        "source: new ArcRestSource(defineSource(mapSource))"
+      ]
+    }
+  ],
+  "clientRequests": {
+    "geojson": {
+      "url": "https://api.opengeo.test/projects/p/services/atlas/ogc/collections/roads/items?limit=100",
+      "format": "GeoJSON",
+      "projection": "EPSG:4326",
+      "credentialsAddedByGeoMoose": false
+    },
+    "xyz": {
+      "template": "https://api.opengeo.test/projects/p/services/atlas/xyz/roads/{z}/{x}/{y}.png",
+      "sample": "https://api.opengeo.test/projects/p/services/atlas/xyz/roads/2/1/2.png",
+      "crossOrigin": "anonymous",
+      "credentialsAddedByGeoMoose": false
+    },
+    "arcgisRaster": {
+      "service": "https://api.opengeo.test/projects/p/services/atlas/arcgis/rest/services/roads/MapServer",
+      "operation": "export",
+      "format": "PNG32",
+      "spatialReference": 3857,
+      "size": [256, 256],
+      "layers": "show:0",
+      "crossOrigin": "anonymous",
+      "credentialsAddedByGeoMoose": false
+    },
+    "arcgisVector": {
+      "service": "https://api.opengeo.test/projects/p/services/atlas/arcgis/rest/services/roads/FeatureServer/0",
+      "operation": "query",
+      "requestType": "jsonp",
+      "stages": ["returnIdsOnly", "objectIds feature batch"],
+      "spatialRelation": "esriSpatialRelIntersects",
+      "inputWkid": 102100,
+      "outputWkid": 102100,
+      "credentialsAddedByGeoMoose": false
+    }
+  },
+  "openGeoContract": {
+    "authentication": "bearer plus selected organization supplied by the OpenGeo host",
+    "directPrivateCredentialInjection": false,
+    "immutableServiceBindingRequired": true,
+    "maximumFeatures": 100,
+    "maximumArcgisQueryBytes": 8192,
+    "maximumArcgisObjectIds": 100,
+    "maximumArcgisMapPixels": 4194304,
+    "maximumTileMatrix": 22,
+    "acceptedArcgisInputWkids": [4326, 3857, 102100, 102113],
+    "acceptedArcgisOutputWkids": [4326, 3857, 102100, 102113],
+    "arcgisMutationSupported": false,
+    "anonymousAccess": false,
+    "conformanceClaimed": false
+  },
+  "expectedOutcome": {
+    "actualOpenGeoSerializersUsed": true,
+    "exactClientCasesExecuted": 4,
+    "geojsonFeaturesRead": 1,
+    "xyzUrlsConstructed": 1,
+    "arcgisRasterUrlsConstructed": 1,
+    "arcgisVectorRequestsConstructed": 2,
+    "arcgisVectorFeaturesRead": 1,
+    "clientNetworkRequests": 0,
+    "unauthenticatedStatus": 401,
+    "authenticatedStatus": 200
+  },
+  "knownDifferences": [
+    "GeoMoose 3.15.2 adds neither OpenGeo bearer nor selected-organization headers to these direct sources. The exact modules and representations interoperate, but private use requires authenticated host mediation; a separately governed anonymous publication is not introduced here.",
+    "The ArcGIS facade is a bounded read adapter over one immutable OpenGeo service binding: envelope intersection, IDs, one feature batch, and one raster export. It is not an ArcGIS Server implementation and does not support edits, arbitrary where clauses, statistics, pagination, or service administration.",
+    "GeoMoose's ags-vector source requires JSONP. OpenGeo admits only a bounded JavaScript identifier callback, rejects duplicate and unknown parameters, and retains private no-store policy; configured-origin deployment behavior remains unverified.",
+    "The exact client run is local and network-free. Governed public/private publication, CORS/TLS, live authentication, deployment, withdrawal races, load, devices, rollback, and billing remain separate evidence."
+  ]
+}

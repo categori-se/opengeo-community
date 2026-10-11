@@ -1,0 +1,109 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "mapserver-003.configuration-automation",
+  "title": "Governed MapServer configuration import, export, and explicit activation",
+  "fixtureType": "configuration",
+  "source": {
+    "kind": "upstream",
+    "description": "The exact checksum-pinned MapServer 8.6.5 render-peer Mapfile is converted through a closed, bounded, non-executing OpenGeo adapter and compared with the separately locked upstream Mapfile and MapScript source workflow.",
+    "url": "https://github.com/MapServer/MapServer/releases/tag/rel-8-6-5",
+    "version": "8.6.5 rel-8-6-5 d25c31936f3f67911a56560e95ed2c8a7cb8ab4f"
+  },
+  "license": {
+    "spdxId": "MIT",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "Exact Mapfile input",
+      "mediaType": "text/plain",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/deterministic-roads-mapserver.map",
+      "sha256": "a3a6dc66f5cc27394bd937da66cdc3b41c6d5bb5ae979f0386d9d118e5d6e2e2"
+    },
+    {
+      "name": "MapServer source lock",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/fixtures/mapserver/mapserver-8.6.5-source-lock.json",
+      "sha256": "391b5debc874351db7439069fa3d5bb8c82b40f78a5b375dc6c051a24e1a991a"
+    },
+    {
+      "name": "Configuration adapter",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/mapserver_config.py",
+      "sha256": "c101650e716a9cb02a8b540c482cd315093bac56356185173c5e91d03079bdd3"
+    },
+    {
+      "name": "Governed API routes",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/src/opengeo_api/resource_routes.py",
+      "sha256": "660fd37c18abb0f438613dcb231ac992c8f285ad03e51309ff5d9dfb968fe1d0"
+    },
+    {
+      "name": "Browser SDK",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/apiClient.js",
+      "sha256": "cbfa922236f514fe9147dcf381ce21d79a4473dc9aeba13d7f79f622d2e17950"
+    },
+    {
+      "name": "Resource administration UI",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectResources.js",
+      "sha256": "691063f11bc84cc3dfce0808931bace1e6d91b9602f72e0a71bec99725ac2f1d"
+    },
+    {
+      "name": "API acceptance tests",
+      "mediaType": "text/x-python",
+      "encoding": "path",
+      "value": "services/api/tests/test_mapserver_config.py",
+      "sha256": "ba47d885b57688d477fe5b67a00769a4dfbdb0324f322fcf63e2fd2470d24274"
+    },
+    {
+      "name": "Browser acceptance test",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/mapserver-config-ui.test.mjs",
+      "sha256": "b607faa74c62fffb1f54f530d480ae90f915d43e115a03798f268d63d9ceea26"
+    },
+    {
+      "name": "Executable parity checker",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "scripts/check-mapserver-config-peer.mjs",
+      "sha256": "30cc86beb7b0f636a5ea7389ac7ae7a1753418143288f93b17ec71e929180416"
+    },
+    {
+      "name": "Recorded comparison report",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/mapserver-003-configuration-automation.json",
+      "sha256": "df1a53de65505b5cf5b0306cb3819cf65a4da652d047873bbfcb2cd62a6504bb"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "mapserver.configuration-automation",
+      "assertion": "A closed, bounded, non-executing adapter converts the exact MapServer 8.6.5 Mapfile into an activatable governed style and deterministic detached export with every omitted binding or semantic named."
+    },
+    {
+      "rowId": "mapserver.configuration-automation",
+      "assertion": "Authenticated UI, browser SDK, and documented API use the same resource-style authorization boundary; the converted configuration remains inactive until an explicit immutable render profile is compiled."
+    },
+    {
+      "rowId": "mapserver.configuration-automation",
+      "assertion": "MapScript input is never executed or stored, unsafe file and plugin directives fail before repository access, and fixed request, concurrency, layer, pixel, and runtime limits are machine readable."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/discovery-metadata-1.0.0.schema.json",
+  "title": "Dataset-linked discovery response metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "dataset_id",
+    "discovery_job_id",
+    "source_type",
+    "service_url",
+    "collection_ref",
+    "document"
+  ],
+  "properties": {
+    "dataset_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "discovery_job_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source_type": {
+      "enum": [
+        "arcgis",
+        "wfs"
+      ]
+    },
+    "service_url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 2048
+    },
+    "collection_ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "document": {
+      "description": "Null for discoveries completed before response preservation. Checksums describe response-body bytes, not HTTP headers or transport encoding.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "body_base64",
+            "byte_length",
+            "sha256",
+            "retrieved_at"
+          ],
+          "properties": {
+            "status": {
+              "enum": [
+                "retained",
+                "not_retained_size",
+                "retained_object"
+              ]
+            },
+            "body_base64": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 43692
+            },
+            "byte_length": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 2097152
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            "retrieved_at": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "status": {
+                    "const": "retained"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "body_base64": {
+                    "type": "string",
+                    "minLength": 4,
+                    "contentEncoding": "base64"
+                  },
+                  "byte_length": {
+                    "maximum": 32768
+                  }
+                }
+              },
+              "else": {
+                "properties": {
+                  "body_base64": {
+                    "type": "null"
+                  },
+                  "byte_length": {
+                    "minimum": 32769
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

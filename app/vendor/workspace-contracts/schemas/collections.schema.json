@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:categori:workspace-contracts:collections:v1",
+  "title": "Authorized Collection metadata exchange",
+  "description": "Semantic validator additionally enforces exact owning audience scope and unique entry/reference identities. This is not a public projection or an authorization policy.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reference",
+    "record_revision",
+    "owner",
+    "contexts",
+    "title",
+    "description",
+    "audience",
+    "entries"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "reference": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/reference"
+        },
+        {
+          "properties": {
+            "resource_type": {
+              "const": "collection"
+            }
+          },
+          "not": {
+            "required": [
+              "version_id"
+            ]
+          }
+        }
+      ]
+    },
+    "record_revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "owner": {
+      "$ref": "#/$defs/principal"
+    },
+    "contexts": {
+      "type": "array",
+      "maxItems": 20,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/reference"
+      }
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S"
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 10000
+    },
+    "audience": {
+      "$ref": "#/$defs/audience"
+    },
+    "entries": {
+      "type": "array",
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 192,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]{0,191}$(?![\\s\\S])"
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "authority",
+        "resource_id",
+        "resource_type",
+        "workspace_id"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1
+        },
+        "authority": {
+          "type": "string",
+          "maxLength": 500,
+          "format": "uri",
+          "pattern": "^(?:https?://[^/?#\\s@]+(?:/[^?#\\s]*)?|urn:[a-z0-9][a-z0-9-]{0,31}:[^?#\\s]+)$"
+        },
+        "resource_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "resource_type": {
+          "$ref": "#/$defs/identifier"
+        },
+        "workspace_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "pattern": "^(?=.*\\S)[^\\u0000-\\u001f\\u007f]+$"
+        }
+      }
+    },
+    "principal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authority",
+        "principal_type",
+        "principal_id"
+      ],
+      "properties": {
+        "authority": {
+          "type": "string",
+          "maxLength": 500,
+          "format": "uri",
+          "pattern": "^(?:https?://[^/?#\\s@]+(?:/[^?#\\s]*)?|urn:[a-z0-9][a-z0-9-]{0,31}:[^?#\\s]+)$"
+        },
+        "principal_type": {
+          "enum": [
+            "user",
+            "team",
+            "organization"
+          ]
+        },
+        "principal_id": {
+          "$ref": "#/$defs/identifier"
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entry_id",
+        "reference"
+      ],
+      "properties": {
+        "entry_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/reference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "audience": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "scope"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "restricted",
+            "scope",
+            "public"
+          ]
+        },
+        "scope": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/reference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "scope"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "scope": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/reference"
+                  },
+                  {
+                    "properties": {
+                      "resource_type": {
+                        "const": "workspace"
+                      }
+                    },
+                    "not": {
+                      "required": [
+                        "version_id"
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "scope": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

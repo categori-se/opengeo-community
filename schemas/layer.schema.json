@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Layer",
+  "type": "object",
+  "required": ["layerId", "tenantId", "workspaceId", "datasetId", "sourceType", "title", "visible", "opacity", "order"],
+  "properties": {
+    "layerId": {"type": "string"},
+    "tenantId": {"type": "string"},
+    "workspaceId": {"type": "string"},
+    "datasetId": {"type": "string"},
+    "sourceType": {
+      "enum": [
+        "geojson-object",
+        "geojson-url",
+        "table-object",
+        "csv-object",
+        "delimited-text-url",
+        "pmtiles-object",
+        "pmtiles-url",
+        "vector-tile-url",
+        "raster-tile-url",
+        "xyz-url",
+        "wms-url",
+        "wmts-url",
+        "wfs-url",
+        "arcgis-feature-url",
+        "arcgis-vector-tile-url",
+        "cog-object",
+        "cog-url",
+        "geotiff-object",
+        "geoparquet-object",
+        "flatgeobuf-object",
+        "shapefile-object",
+        "geopackage-object",
+        "gpx-object",
+        "georss-url",
+        "photo-object",
+        "video-url",
+        "three-d-tiles-url",
+        "zarr-url",
+        "lidar-object",
+        "duckdb-query"
+      ]
+    },
+    "objectId": {"type": "string"},
+    "sourceUrl": {"type": "string"},
+    "title": {"type": "string"},
+    "geometryType": {"type": ["string", "null"]},
+    "bbox": {
+      "type": ["array", "null"],
+      "items": {"type": "number"},
+      "minItems": 4,
+      "maxItems": 4
+    },
+    "style": {"type": "object"},
+    "labels": {"type": "object"},
+    "visible": {"type": "boolean"},
+    "opacity": {"type": "number", "minimum": 0, "maximum": 1},
+    "order": {"type": "integer"}
+  },
+  "oneOf": [
+    {"required": ["objectId"]},
+    {"required": ["sourceUrl"]}
+  ]
+}

@@ -1,0 +1,197 @@
+{
+  "schemaVersion": "1.0.0",
+  "referenceId": "mapserver.render-engine-workflows",
+  "status": "source_verified",
+  "observedAt": "2026-08-24",
+  "upstream": {
+    "repository": "https://github.com/MapServer/MapServer",
+    "release": "8.6.5",
+    "tag": "rel-8-6-5",
+    "tagRef": "c283e671aba06ff2b23866a568b847f93a640f3f",
+    "commit": "d25c31936f3f67911a56560e95ed2c8a7cb8ab4f",
+    "tree": "f32aaa6907bbb1d767d99976a05f10efda62ae80",
+    "commitDate": "2026-07-10T14:20:43-03:00",
+    "license": "MIT",
+    "tagIdentity": {
+      "kind": "annotated",
+      "resolvesToCommit": "d25c31936f3f67911a56560e95ed2c8a7cb8ab4f",
+      "signaturePresent": false,
+      "trustVerified": false,
+      "reason": "The official rel-8-6-5 ref is an annotated Git tag object that resolves to the release commit, but its tag payload contains no PGP or SSH signature to verify."
+    }
+  },
+  "scope": {
+    "evidenceType": "upstream-source-inventory",
+    "purpose": "Bind the five formal MapServer parity rows to exact upstream rendering, format and reprojection, OGC publication, configuration and automation, and built-in tile-request surfaces. Source inspection remains separate from the exact runtime and OpenGeo cache-lifecycle evidence that closes the tile-caching row.",
+    "mapServerIsParityBaseline": true,
+    "mapServerRuntimeExecuted": false,
+    "openGeoWorkflowExecuted": false,
+    "existingMapServerPeerEvidenceIsSeparate": true,
+    "sourceAuditChangesRowStatus": false
+  },
+  "identityAssertions": [
+    {"path":"CMakeLists.txt","requiredStrings":["set (MapServer_VERSION_MAJOR 8)","set (MapServer_VERSION_REVISION 5)"]},
+    {"path":"README.md","requiredStrings":["MapServer is a system for developing web-based GIS applications.","The basic system consists of a CGI program that can be configured to"]},
+    {"path":"LICENSE.md","requiredStrings":["Permission is hereby granted, free of charge, to any person obtaining a","THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND"]},
+    {"path":"HISTORY.md","requiredStrings":["MapServer Revision History","8.6.5 release (2026-07-10)"]}
+  ],
+  "workflows": [
+    {
+      "rowId": "mapserver.rendering-cartography",
+      "expectedStatus": "partial",
+      "userOutcome": "Render styled vector, raster, label, legend, symbol, cluster, chart, kernel-density, and internationalized text surfaces through MapServer's renderer abstractions.",
+      "sourceAssertions": [
+        {"path":"src/mapdraw.c","requiredStrings":["msDrawLayer(","msDrawShape("]},
+        {"path":"src/maprendering.c","requiredStrings":["msDrawLineSymbol(","msDrawShadeSymbol("]},
+        {"path":"src/mapagg.cpp","requiredStrings":["msPopulateRendererVTableAGG(","agg2RenderPolygon("]},
+        {"path":"src/mapcairo.c","requiredStrings":["msPopulateRendererVTableCairoRaster(","renderPolygonCairo("]},
+        {"path":"src/maplabel.c","requiredStrings":["msLayoutTextSymbol(","msComputeTextPath("]},
+        {"path":"src/maplegend.c","requiredStrings":["msDrawLegendIcon(","msLegendCalcSize("]},
+        {"path":"src/classobject.c","requiredStrings":["msAddLabelToClass(","msInsertStyle("]},
+        {"path":"src/mapsymbol.c","requiredStrings":["msLoadSymbolSet(","msAddNewSymbol("]},
+        {"path":"src/mapcluster.c","requiredStrings":["msClusterLayerCopyVirtualTable(","msClusterLayerOpen("]},
+        {"path":"src/mapchart.c","requiredStrings":["msDrawPieChartLayer(","msDrawChartLayer("]},
+        {"path":"src/kerneldensity.c","requiredStrings":["msKernelDensityProcessing(","msKernelDensity("]},
+        {"path":"src/textlayout.c","requiredStrings":["msLayoutTextSymbol(","USE_HARFBUZZ"]}
+      ]
+    },
+    {
+      "rowId": "mapserver.formats-reprojection",
+      "expectedStatus": "partial",
+      "userOutcome": "Read and write representative vector and raster formats, choose output drivers, resample imagery, and transform points, shapes, extents, and rendered data between coordinate systems.",
+      "sourceAssertions": [
+        {"path":"src/mapgdal.cpp","requiredStrings":["msGDALInitialize(","msGDALDriverSupportsVirtualIOOutput("]},
+        {"path":"src/mapogr.cpp","requiredStrings":["msOGRLayerOpen(","msOGRLayerWhichShapes("]},
+        {"path":"src/mapogroutput.cpp","requiredStrings":["msInitDefaultOGROutputFormat(","msOGRWriteFromQuery("]},
+        {"path":"src/mapproject.c","requiredStrings":["msProjectCreateReprojector(","msProjectShape("]},
+        {"path":"src/mapshape.c","requiredStrings":["msSHPOpen(","msSHPWriteShape("]},
+        {"path":"src/mapflatgeobuf.c","requiredStrings":["msFlatGeobufLayerOpen(","msFlatGeobufLayerWhichShapes("]},
+        {"path":"src/mapoutput.c","requiredStrings":["msCreateDefaultOutputFormat(","msApplyDefaultOutputFormats("]},
+        {"path":"src/mapraster.c","requiredStrings":["msDrawRasterSetupTileLayer(","msDrawRasterLayerLow("]},
+        {"path":"src/mapresample.c","requiredStrings":["msNearestRasterResampler(","msInitProjTransformer("]}
+      ]
+    },
+    {
+      "rowId": "mapserver.ogc-publication",
+      "expectedStatus": "partial",
+      "userOutcome": "Dispatch and publish WMS, WFS, WCS, OGC API, SOS, GML, KML, filter, and SLD service paths while retaining protocol-specific request and output boundaries.",
+      "sourceAssertions": [
+        {"path":"src/mapwms.cpp","requiredStrings":["msWMSGetCapabilities(","msWMSDispatch("]},
+        {"path":"src/mapwfs.cpp","requiredStrings":["msWFSGetCapabilities(","msWFSDispatch("]},
+        {"path":"src/mapwfs20.c","requiredStrings":["msWFSException20(","msWFSGetCapabilities20("]},
+        {"path":"src/mapwcs.cpp","requiredStrings":["msWCSGetCoverage(","msWCSDispatch("]},
+        {"path":"src/mapwcs20.cpp","requiredStrings":["msWCSGetCapabilities20(","msWCSGetCoverage20("]},
+        {"path":"src/mapogcapi.cpp","requiredStrings":["OGCAPI_DEFAULT_TITLE", "msOGCAPIDispatchRequest("]},
+        {"path":"src/mapogcfilter.cpp","requiredStrings":["FLTIsSimpleFilterNoSpatial(","FLTApplySimpleSQLFilter("]},
+        {"path":"src/mapogcsld.cpp","requiredStrings":["msSLDApplySLDURL(","msSLDApplySLD("]},
+        {"path":"src/mapgml.c","requiredStrings":["msGMLWriteQuery(","msGMLWriteWFSQuery("]},
+        {"path":"src/mapkml.cpp","requiredStrings":["msSaveImageKml(","msPopulateRendererVTableKML("]},
+        {"path":"src/mapogcsos.c","requiredStrings":["msSOSGetCapabilities(","msSOSDispatch("]},
+        {"path":"src/mapows.c","requiredStrings":["msOWSDispatch(","msWMSDispatch(map, request"]}
+      ]
+    },
+    {
+      "rowId": "mapserver.configuration-automation",
+      "expectedStatus": "partial",
+      "userOutcome": "Load, validate, save, tokenize, script, and dispatch MapServer map configuration through mapfiles, CGI/API entry points, MapScript bindings, and the XML mapfile schema.",
+      "sourceAssertions": [
+        {"path":"src/mapfile.c","requiredStrings":["msLoadMapFromString(","msSaveMap("]},
+        {"path":"src/mapparser.y","requiredStrings":["Parser for the mapserver","%token <strval> STRING"]},
+        {"path":"src/maplexer.l","requiredStrings":["<INITIAL>layer", "<INITIAL>map"]},
+        {"path":"src/apps/mapserv.c","requiredStrings":["MapServer CGI mainline.","msCGIDispatchAPIRequest("]},
+        {"path":"src/mapserver-api.c","requiredStrings":["umnms_new_map(","msLoadMap(filename, NULL)"]},
+        {"path":"src/mapscript/mapscript.i","requiredStrings":["%module mapscript","%newobject msLoadMapFromString;"]},
+        {"path":"src/mapscript/swiginc/map.i","requiredStrings":["msLoadMapFromString(","msOWSDispatch( self, req, MS_TRUE )"]},
+        {"path":"src/xmlmapfile/mapfile.xsd","requiredStrings":["<xs:complexType name=\"Layer\">","<xs:element name=\"Map\">"]}
+      ]
+    },
+    {
+      "rowId": "mapserver.tile-caching",
+      "expectedStatus": "pass",
+      "userOutcome": "Execute MapServer's built-in tile request boundary and compare its allowed and malformed outcomes with OpenGeo's separately verified persisted seeding, invalidation, authorization, retention, reclamation, and independent-client outcomes in a lifecycle that adds no incremental fixed inactive compute.",
+      "sourceAssertions": [
+        {"path":"src/maptile.c","requiredStrings":["tile_metatile_level", "msTileDraw("]},
+        {"path":"src/maptile.h","requiredStrings":["MapServer Tile Access API", "msTileSetProjections("]},
+        {"path":"msautotest/misc/mode_tile.map","requiredStrings":["MODE=tile&TILEMODE=gmap", "TILESIZE=512+512"]}
+      ]
+    }
+  ],
+  "sourceEvidence": [
+    {"path":"CMakeLists.txt","gitBlob":"b45832b1138f03068b743524d7ef76c896781acc","sha256":"9eccb5a1ba5dd2bef2b2c7e806247d8d7d9ad566f68060ba777200557a77b62b","bytes":46377},
+    {"path":"README.md","gitBlob":"ecbd9f8ed8d63fbfff0a5b8f9434d1e9a26c5561","sha256":"8136c4648645c73d6ce9cf2e74864a1c380744624d4b1280909a29ec72bd2f7d","bytes":3240},
+    {"path":"LICENSE.md","gitBlob":"a1efd88e0bf41b3bc4fb2827ed1e8ef3d9c2dcf9","sha256":"a722dee52b3ca1905791e4ebd1eefb144e6200d257fcd1ee050550040cef9145","bytes":1523},
+    {"path":"HISTORY.md","gitBlob":"ff3f73a11b61e64a40af53cb87b88995277525c7","sha256":"f5d6021849f2ba46640692c20e469016c90910334e9172ce62321ac8b884638d","bytes":165591},
+    {"path":"src/mapdraw.c","gitBlob":"ec1083f3e6231c999bd14d5cedd9a3ce2180fe24","sha256":"3b7cc7aa5192868e4edb9d6a3b15e0e3ec96bba23212eeb346f970ed07aa9ec4","bytes":168029},
+    {"path":"src/maprendering.c","gitBlob":"63b90d68dbda6876edca0303e53fdbbe6e323ecb","sha256":"c481c732a9df38c57e2922959d610f6410024870ec1e403c57708cdc17246fe9","bytes":45399},
+    {"path":"src/mapagg.cpp","gitBlob":"21f78d6f795f3ae9fe501ce0324287196654873a","sha256":"eba89693c10df65e146d45c87b89b38cdf3d424580c59a7fa27a1d644ed075aa","bytes":50224},
+    {"path":"src/mapcairo.c","gitBlob":"f2854b7a0d2c2ce5d6f31b40d76ce90bbb6f889b","sha256":"e52d622bd236267233b15f4a9085658623885e7fdad5db726b521cf5b814f8bf","bytes":40466},
+    {"path":"src/maplabel.c","gitBlob":"35c50844fddda969407fbb67291e618c111740bc","sha256":"78e70219d28820605c7ef28da6201559b084ed6a6732d7b7dc2287119b9dddbe","bytes":43642},
+    {"path":"src/maplegend.c","gitBlob":"b8227c32d4116eda26f1868f938f754fc235913f","sha256":"fc596dfd9f71dde0f89e4305e8fab960dfd1dc4b3243320c9b223bbcae34fafc","bytes":39527},
+    {"path":"src/classobject.c","gitBlob":"dc9619df0dc047bdec914f97fa17df82ca756099","sha256":"cd91444d9f490544788d16173683b7dc3c2b8190d22f924d77980073a51af091","bytes":6509},
+    {"path":"src/mapsymbol.c","gitBlob":"46b8331c8e7363e929dd07574f09da411ed27ebe","sha256":"747254772e2f3bbbba33c6f4d658c19badb96b853eb400d5d2b4575ed071464a","bytes":35983},
+    {"path":"src/mapcluster.c","gitBlob":"ca34369b566de8b3ae41c24625f4bcc035533c55","sha256":"c0a2d2bffe98ecc9bc960a35534cbc5b8f55d91ab779605c4f4c9895258864e7","bytes":59935},
+    {"path":"src/mapchart.c","gitBlob":"97042c9de84556bc269f1f2c680a2f9272fd1777","sha256":"eae12d7e727cc934e0c1842ad3a8136fb45f50a998300907033236a501873e40","bytes":25179},
+    {"path":"src/kerneldensity.c","gitBlob":"f63e379c33023064e75cb5e073c3e930adebd2ca","sha256":"0350cab75561acf42354535110864bd570380adbf0ef8cab387f4ad1265a5b98","bytes":5667},
+    {"path":"src/textlayout.c","gitBlob":"10a239c036b6b5fba5c0f8e962c760086478bb0d","sha256":"b95e70387c761721ad88da1141795fcdd38bbefb95c6195ede0a6ac72a97337b","bytes":33143},
+    {"path":"src/mapgdal.cpp","gitBlob":"71c27251d4d04ea2eecde9db8deffe160a434271","sha256":"7668f66fd99194f616b337ac0e8221c96a74bff686f483e1a65e5ed8b4e85f70","bytes":26539},
+    {"path":"src/mapogr.cpp","gitBlob":"7e24b57b8c6d093d84f00c253deed140075cb5a4","sha256":"8099fcf7a433d8b641f6cb5c20be7775adb29ac95aecfe865d06e45f830a684a","bytes":195345},
+    {"path":"src/mapogroutput.cpp","gitBlob":"7dc4ff595b3bb0d2eacf7afdfc5484bde23a148f","sha256":"5408dc4a6458b75ddcedcfcd42eca5282ec5828a4b9e68fa6cf0adf47493c7f8","bytes":49773},
+    {"path":"src/mapproject.c","gitBlob":"55993d219aacd5f89ab969bb88abc9dfbd387b9b","sha256":"510c903753905639f3487e80967d10149fd2060f518a9e656d056206d77a92f8","bytes":94013},
+    {"path":"src/mapshape.c","gitBlob":"3704e52e8b90f39062663f9ba128c382e68cccd9","sha256":"d17f62d43cfaafb2a93b60122ad2a8a24d45a43ae49a23a549ecb52ff2809824","bytes":107869},
+    {"path":"src/mapflatgeobuf.c","gitBlob":"3b73df1de5840f09598a1db5e53bde43841db225","sha256":"c720e80725c13c9e52039d58716b4537e973828477b9eb2bfc08946741d10747","bytes":11238},
+    {"path":"src/mapoutput.c","gitBlob":"19574bdf0e8bd7661eec812d3598b503803e606f","sha256":"909b6d0ce3ab4b358139f08798c9d08bfae2c1e930b0b22ecd04eee474353569","bytes":42699},
+    {"path":"src/mapraster.c","gitBlob":"23a70c58ec94d40bc80dabae73a36cb0584fa68e","sha256":"2663bc3a09bb8c9bfbdcd53b76db8e81cc187b28a731c6d8f3550aae2248d818","bytes":42693},
+    {"path":"src/mapresample.c","gitBlob":"29f6ab792c8296550c45ee19dbfbb9d1cda85a50","sha256":"cc5e8cbae84b3dd51e407563f69eedef295eb1c92df08d2ebf1d093ba0c28384","bytes":64783},
+    {"path":"src/mapwms.cpp","gitBlob":"38514e98446be9529c5c1a2625b9ccec7848d991","sha256":"cd330d5857d2311317b4251245c8c1602858ec0ae2bc47a7e86da2d96ad22c9e","bytes":247263},
+    {"path":"src/mapwfs.cpp","gitBlob":"8c6339fc84eaa433c7e283f5ac5be950ae28e084","sha256":"22dbe33561ace68c50bc444bc363c0a155f60e986d0167d03fefad569b321a81","bytes":201713},
+    {"path":"src/mapwfs20.c","gitBlob":"5d99e96c36c048822fc397b3889b6713ce86ce78","sha256":"a6903b70f9573f7624677da467179df2db6a8255fbfd1980214535397d0444f0","bytes":64473},
+    {"path":"src/mapwcs.cpp","gitBlob":"a2b2f5827639425b6efba65ae2a8f60ce5c501f6","sha256":"f972fe95e9ba9f575e5d6baaf124fc8de697618776739ea5b1de678cdaa529a0","bytes":145816},
+    {"path":"src/mapwcs20.cpp","gitBlob":"506ad6b35bc9f50991deada2ff069da64c803232","sha256":"559b517006491f87d2ccef2ee47ab2baa014d4b70a7a10519e5c0be714b8229a","bytes":201024},
+    {"path":"src/mapogcapi.cpp","gitBlob":"004845f5292460aa3e41327da056d9a7ce1ac6f1","sha256":"29dcfd59edc03576fcc74cb69dee8d2fa27e0544201bdeb6be7ef1798419b92e","bytes":71487},
+    {"path":"src/mapogcfilter.cpp","gitBlob":"266a5f4ee477a632b75efe88696b71215121dc16","sha256":"9a00179f52e0cbd09f57fa1ca07cfd39c8ae596654192d5f9730ee89f02cb75e","bytes":139428},
+    {"path":"src/mapogcsld.cpp","gitBlob":"0c435f70f92e69e2dc97a25e7fd24b308d780451","sha256":"5e59cae40e4bbe760c676b98a4273d5da0c8c6c9d35e0015dcb9e8960c469e52","bytes":227880},
+    {"path":"src/mapgml.c","gitBlob":"e6499b7d6008d51b2325cb1184498a58e92aeb7d","sha256":"b73dc56f844fdd4e28fa68277c27d6a15e2bfde5a2b33c006de31016ce584f7e","bytes":92658},
+    {"path":"src/mapkml.cpp","gitBlob":"97c3392024762259043fe2d5cc74f0c0ce40d230","sha256":"5be62afdbbbe53f51422573a5000b6013fae95ff9f861b71c226956411cb9b69","bytes":8159},
+    {"path":"src/mapogcsos.c","gitBlob":"f6871dd74ea414e13779055369661f982c437961","sha256":"ec417681b0a2579cffb2491e47048d7cb9b6dfad13b36c5a63f4f30e50785992","bytes":136009},
+    {"path":"src/mapows.c","gitBlob":"b26924bb415e3965f4ce171d0fe29cc0267c1961","sha256":"0923a15a80bde93fec2610b0c188bf8d6ec476e168b04c6d69eb5bc0d172e9a1","bytes":109909},
+    {"path":"src/mapfile.c","gitBlob":"0a480cd78eea5115dd59f3b4c8548dfc9d7da749","sha256":"c69596dd28a117e642e92d3188e0d0ca49880314531d926e0f39bea450ab316e","bytes":241295},
+    {"path":"src/mapparser.y","gitBlob":"62f8f9fb8f38fd5d94e44ac6f351500e53836707","sha256":"44d58fc465cb0b76f78bfd2640240c10d220f635ffa9b5d2733c4478c29d0001","bytes":27880},
+    {"path":"src/maplexer.l","gitBlob":"87e642ffbb52c358f0e08cdc3c51db61490f66d1","sha256":"1e831e649132a580c68dc5ccb04aca54362cf5c2f1bd0ab291aea093e7b7ffbc","bytes":46833},
+    {"path":"src/apps/mapserv.c","gitBlob":"1fadada5808d008bcdcdb53420f77110d143e971","sha256":"fba394e25755ab00bf7f7de3fff97fad01d46804f253f97e95e46fb73f9de768","bytes":14668},
+    {"path":"src/mapserver-api.c","gitBlob":"4f9f5d30055e1dfcf8f7855bd3a4e1dbd85ddc28","sha256":"3faaf72d96b1f663e244f5d6a85d879cb764ff91bc0851eed842e23925d2972d","bytes":476},
+    {"path":"src/mapscript/mapscript.i","gitBlob":"99c71f349201d1f82d5092d927fab2e48b82f250","sha256":"b4296d443d70ddf1ee0305781ce8d49d5f8bb6048439cfc497064467eeb6ebec","bytes":8159},
+    {"path":"src/mapscript/swiginc/map.i","gitBlob":"0086477291e5b5333daff3c1edc99ab0281aa842","sha256":"0c7083b9e02a1f15c5b551a711a5e5480dc844c43cd3924671fc15dd89088ba4","bytes":24651},
+    {"path":"src/xmlmapfile/mapfile.xsd","gitBlob":"fa44f4ab7fac2c2eeda3821a88c7f88571aadf81","sha256":"dea5830507a82d18c759897ab44b6ca9613351f4146d0cd02434fbda8e276f6e","bytes":34656},
+    {"path":"src/maptile.c","gitBlob":"cfd20ccdf131c9b041314986b1ad2fd725559120","sha256":"0b905eda4b6038b4e4c15117a48c233d3da4a70357e043f73043717ada2f672b","bytes":17749},
+    {"path":"src/maptile.h","gitBlob":"5ed17a02ddff9281ce634d958c93cc3cade6f74e","sha256":"3945d426848377942e063219903ebc0e69ef131355744896b273513ebe528d6c","bytes":2363},
+    {"path":"msautotest/misc/mode_tile.map","gitBlob":"a2b50b7b18654ed50a5f2dab17452b51379de363","sha256":"345469ee94d6fc5b85589fa909294aa596c4dc515ebe4e9b8cda0646ce3f8e04","bytes":1047}
+  ],
+  "separateEvidence": {
+    "existingMapServerPeer": [
+      "parity/fixtures/mapserver-8.6.5-render.json",
+      "parity/fixtures/mapserver-8.6.5-raster.json",
+      "parity/reports/mapserver-001-peer.json",
+      "parity/reports/mapserver-001-raster-peer.json",
+      "scripts/check-mapserver-peer.mjs",
+      "scripts/check-mapserver-raster-peer.mjs",
+      "parity/peer/mapserver/Containerfile"
+    ],
+    "openGeoWorkflowEvidence": [
+      "parity/fixtures/wms-1.3-schema-validation.json",
+      "parity/fixtures/service-006-gdal-wcs-peer.json",
+      "parity/fixtures/service-010-render-cache-reclamation.json",
+      "parity/fixtures/service-011-tile-seed-plans.json",
+      "parity/fixtures/service-012-openlayers-wmts-peer.json",
+      "parity/fixtures/mapserver-002-tile-cache-peer.json",
+      "parity/reports/mapserver-002-tile-cache-peer.json",
+      "scripts/check-mapserver-tile-cache-peer.mjs"
+    ]
+  },
+  "limitations": [
+    "This source inventory does not execute the MapServer runtime, MapServer tests, existing exact-source MapServer peers, or protocol requests.",
+    "This source inventory does not execute OpenGeo workflows or replace their acceptance evidence.",
+    "The annotated release tag has no cryptographic tag signature; identity is bound to the exact tag object, commit, tree, Git blobs, and SHA-256 digests.",
+    "MapServer's selected tile source implements request-time tile and metatile rendering rather than a persisted MapCache lifecycle. Separate exact runtime, OpenGeo cache-lifecycle, QGIS, and OpenLayers evidence closes mapserver.tile-caching without attributing persistence to this source surface.",
+    "Source mapping alone is non-acceptance evidence for rendering/cartography, formats/reprojection, OGC publication, and configuration/automation. Separate executable OpenGeo and exact-runtime peers determine formal row status; this source inspection changes no row by itself."
+  ]
+}

@@ -1,0 +1,7 @@
+duckdb==1.5.5
+geopandas==1.1.4
+psycopg[binary]==3.3.4
+pyarrow==25.0.0
+rasterio==1.5.0
+rio-cogeo==7.0.2
+shapely==2.1.2

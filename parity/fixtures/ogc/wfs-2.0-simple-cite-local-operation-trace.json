@@ -1,0 +1,55 @@
+{
+  "authorityValuesRecorded": false,
+  "conformanceClaimed": false,
+  "externalNetworkAvailable": false,
+  "officialSuiteExecuted": true,
+  "operations": [
+    {
+      "operation": "DescribeFeatureType",
+      "requests": 4,
+      "status": 200
+    },
+    {
+      "operation": "DescribeStoredQueries",
+      "requests": 2,
+      "status": 200
+    },
+    {
+      "operation": "GetCapabilities",
+      "requests": 4,
+      "status": 200
+    },
+    {
+      "operation": "GetFeature",
+      "requests": 1,
+      "status": 200
+    },
+    {
+      "operation": "GetFeatureById",
+      "requests": 1,
+      "status": 200
+    },
+    {
+      "operation": "InvalidRequest",
+      "requests": 3,
+      "status": 400
+    },
+    {
+      "operation": "InvalidRequest",
+      "requests": 1,
+      "status": 404
+    },
+    {
+      "operation": "ListStoredQueries",
+      "requests": 1,
+      "status": 200
+    }
+  ],
+  "persistentStoreAvailable": false,
+  "profileSha256": "358f3adfad33f4544d33800a45047221c7977ae42b6f259f168b851c73f2a727",
+  "requestBodiesRecorded": false,
+  "requestCount": 17,
+  "requestParametersRecorded": false,
+  "result": "bounded_wfs_simple_loopback_trace",
+  "schemaVersion": "1.0.0"
+}

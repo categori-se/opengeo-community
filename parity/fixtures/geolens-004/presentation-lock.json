@@ -1,0 +1,37 @@
+{
+  "commit": "f5fee67d8cf053d741590a00a55fe1870eed2b92",
+  "files": [
+    {
+      "path": "parity/fixtures/geolens-004/shared.ts",
+      "upstreamPath": "frontend/src/components/builder/layer-adapters/shared.ts",
+      "gitBlob": "43aa85df611654b364caab395719942046862906",
+      "sha256": "b088f74af992211ac663c92940151d6eba7a6a3a85b4212476254d5b16cea885"
+    },
+    {
+      "path": "parity/fixtures/geolens-004/map-sync.ts",
+      "upstreamPath": "frontend/src/components/builder/map-sync.ts",
+      "gitBlob": "aabc19c33aa468aa932740ad6288e691d1829c3f",
+      "sha256": "b845cf71cfa8087e06ec5b0d702e28d24809a7f973138c237eb8ed0c4b9d8b5d"
+    },
+    {
+      "path": "parity/fixtures/geolens-004/cluster-adapter.ts",
+      "upstreamPath": "frontend/src/components/builder/layer-adapters/cluster-adapter.ts",
+      "gitBlob": "c3107c08dc16db89b27d37a7a438918232a5e8ed",
+      "sha256": "978b7feb697fe7e9d0aa81357990766db51359562a3970b856b54d4f2bb12fff"
+    },
+    {
+      "path": "parity/fixtures/geolens-004/mixed-adapter.ts",
+      "upstreamPath": "frontend/src/components/builder/layer-adapters/mixed-adapter.ts",
+      "gitBlob": "54ccd4e7aad74f9ee1d301db1b464f4992598a41",
+      "sha256": "8b2bcc01f7a06a76e72440ef873ee0b01ea34bcbf3535d5cc8f4d9e6dbed55dc"
+    },
+    {
+      "path": "parity/fixtures/geolens-004/companion-ids.ts",
+      "upstreamPath": "frontend/src/components/builder/companion-ids.ts",
+      "gitBlob": "40d58139c3d738582a9a674948f2609e20f43aee",
+      "sha256": "81b12c424f9738075f1d09ff027b3bf8e3f708e21fb598e56f75ada568f87cf8"
+    }
+  ],
+  "license": "Apache-2.0",
+  "scope": "Selected unmodified declarations executed after type stripping; map API is an explicit call-recording fixture, not full GeoLens frontend."
+}
