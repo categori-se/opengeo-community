@@ -50,8 +50,8 @@ release's security approval.
 Resolve local tags to immutable image IDs and use a dedicated private directory:
 
 ```bash
-community_api_image="$(podman image inspect --format '{{.Id}}' localhost/opengeo-community-api)"
-community_worker_image="$(podman image inspect --format '{{.Id}}' localhost/opengeo-community-worker)"
+community_api_image="$(podman image inspect --format '{{.ID}}' localhost/opengeo-community-api)"
+community_worker_image="$(podman image inspect --format '{{.ID}}' localhost/opengeo-community-worker)"
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/run-integrated-studio-local.py \
   --development \
   --state-directory .opengeo/community \
@@ -94,6 +94,36 @@ and restore procedures for a consistent database backup. The existing
 [local restore implementation](../scripts/integrated_studio_restore.py)
 shows how the integrated workflow handles database and object copies; it is not
 an automatic backup service.
+
+## Browser save and reopen check
+
+With the images resolved above, run this command twice from the repository
+root. Choose a new state directory for the complete journey; an existing completed
+check reopens its saved map.
+
+```bash
+OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE=1 PYTHONDONTWRITEBYTECODE=1 \
+  python3 scripts/run-integrated-studio-local.py --development \
+  --state-directory .opengeo/browser-persistence-check \
+  --api-image "$community_api_image" --worker-image "$community_worker_image"
+```
+
+The first run builds Studio, creates a Project and map, uploads the fictional
+[CC0 facilities fixture](community-examples.md), processes its queued job, adds the
+layer, selects Blank canvas, changes the point color and opacity, and clicks Save.
+The runner stops the database when Chromium closes. The second run starts the same
+database and reopens the same map in a fresh browser context. It checks the saved
+revision, layer and source identities, all five feature properties and coordinates,
+rendered feature names, and the retained color and opacity. Both runs are bounded
+to 100 API requests each.
+
+The state directory retains `task3-saved.json`, `task3-reopened.json` and matching
+screenshots, plus the exact saved API response in `development-smoke.json`.
+This headless check uses synthetic sign-in and local object/queue transports;
+Chromium runs without its browser sandbox. It makes no external provider requests.
+The [selected local evidence](api/evidence/task-3.json) records the verified run,
+including one failed selector check, recovery of its committed records, and the
+same database container and volume before and after reopening.
 
 ## Release limits
 

@@ -56,6 +56,7 @@ const developmentWrites = new Map();
 function apiRequest(path, {method = "GET", headers = {}, body} = {}) {
   if (rendererPersistenceMode) assert.ok(requests.length < 160,"Renderer persistence request ceiling");
   if (geolibreImportMode) assert.ok(requests.length < 120,"GeoLibre import request ceiling");
+  if (developmentSmoke) assert.ok(requests.length < 100,"Development persistence request ceiling");
   assert.ok(path.startsWith("/") && !path.startsWith("//"));
   const socket = apiSocket;
   return new Promise((done, reject) => {
@@ -240,28 +241,187 @@ try {
     await page.goto(`${origin}/__local/development`);
     if (developmentSmoke) {
       const checkpoint = join(work,"development-smoke.json");
+      const progressPath = join(work,"development-progress.json");
+      const fixturePath = "app/src/data/sample-public-facilities.geojson";
+      const fixtureBytes = readFileSync(join(root,fixturePath));
+      const fixture = JSON.parse(fixtureBytes);
+      const fixtureChecksum = createHash("sha256").update(fixtureBytes).digest("hex");
+      const color = "#2563eb", opacity = 0.8;
+      const featureValues = features => features.map(({properties,geometry}) => ({properties,geometry}))
+        .sort((a,b)=>a.properties.name.localeCompare(b.properties.name));
+      const expectedFeatures = featureValues(fixture.features);
+      assert.equal(expectedFeatures.length,5);
+      assert.equal(expectedFeatures.filter(({properties})=>properties.public_access).length,4);
+      const binding = layer => ({layerId:layer.layerId,datasetId:layer.datasetId,
+        datasetVersionId:layer.datasetVersionId,objectId:layer.objectId ?? null,
+        sourceType:layer.sourceType,sourceVersion:layer.sourceVersion});
+      async function sourceFacts(projectId,datasetId,versionId) {
+        const dataset = await readApi(`/projects/${projectId}/datasets/${datasetId}`);
+        assert.equal(dataset.status,"active"); assert.equal(dataset.feature_count,5);
+        assert.equal(dataset.current_version_id,versionId);
+        const versions = await readApi(`/projects/${projectId}/datasets/${datasetId}/versions`);
+        const version = versions.find(({id})=>id===versionId);
+        assert.ok(version); assert.equal(version.state,"active");
+        const original = version.objects.find(({role})=>role==="original");
+        assert.ok(original); assert.equal(original.checksum_sha256,fixtureChecksum);
+        return {datasetId,datasetVersionId:versionId,originalObjectId:original.id,
+          originalChecksumSha256:original.checksum_sha256,featureCount:dataset.feature_count};
+      }
+      async function displayedMap(datasetId) {
+        await page.waitForFunction(({datasetId,count})=>{
+          const shell=document.querySelector(".opengeo-workbench"),map=shell?.__opengeoMap;
+          const layer=shell?.__opengeoLayers?.find(layer=>layer.datasetId===datasetId);
+          return layer && shell.__opengeoData?.get(layer.layerId)?.features.length===count
+            && map?.isStyleLoaded() && !map.isMoving() && map.getLayer(`${layer.layerId}-points`)
+            && new Set(map.queryRenderedFeatures({layers:[`${layer.layerId}-points`]})
+              .map(feature=>feature.properties.name)).size===count;
+        },{datasetId,count:expectedFeatures.length});
+        return page.evaluate(datasetId=>{
+          const shell=document.querySelector(".opengeo-workbench"),map=shell.__opengeoMap;
+          const layer=shell.__opengeoLayers.find(layer=>layer.datasetId===datasetId);
+          return {layer,features:shell.__opengeoData.get(layer.layerId).features,
+            renderedNames:[...new Set(map.queryRenderedFeatures({layers:[`${layer.layerId}-points`]})
+              .map(feature=>feature.properties.name))].sort(),
+            color:map.getPaintProperty(`${layer.layerId}-points`,"circle-color"),
+            opacity:map.getPaintProperty(`${layer.layerId}-points`,"circle-opacity")};
+        },datasetId);
+      }
+      function assertDisplay(display,savedLayer) {
+        assert.deepEqual(binding(display.layer),binding(savedLayer));
+        assert.deepEqual(featureValues(display.features),expectedFeatures);
+        assert.deepEqual(display.renderedNames,expectedFeatures.map(({properties})=>properties.name).sort());
+        assert.equal(display.color,color); assert.equal(display.opacity,opacity);
+        assert.equal(display.layer.style.circleColor,color); assert.equal(display.layer.opacity,opacity);
+        assert.equal(display.layer.visible,true);
+      }
+      function record(phase,saved,display,source,saveStatus) {
+        const evidence={schemaVersion:"opengeo.browser-persistence.1",phase,observedAt:new Date().toISOString(),
+          projectId:saved.project,mapId:saved.map.id,mapVersion:saved.map.version,
+          layer:binding(display.layer),source,fixture:{path:fixturePath,checksumSha256:fixtureChecksum,license:"CC0-1.0"},
+          displayedFeatures:featureValues(display.features),renderedNames:display.renderedNames,
+          presentation:{color:display.color,opacity:display.opacity},
+          ...(saveStatus ? {uiSavePatchStatus:saveStatus} : {exactSavedMapRetained:true}),
+          applicationShell:builtShell.evidence,requestCount:requests.length,
+          screenshot:`task3-${phase}.png`,freshBrowserContext:true,syntheticAuthentication:true,localObjectAndQueueTransport:true,
+          externalBrowserRequests:"blocked",notProven:["Cognito sign-in","AWS transport","Cloud acceptance"]};
+        writeFileSync(join(work,`task3-${phase}.json`),JSON.stringify(evidence,null,2)+"\n");
+      }
       if (existsSync(checkpoint)) {
+        stage="development-reopen";
         const saved = JSON.parse(readFileSync(checkpoint));
+        assert.equal(saved.schemaVersion,"opengeo.development-persistence.1");
+        assert.equal(saved.fixtureChecksum,fixtureChecksum);
         assert.deepEqual(await readApi(`/projects/${saved.project}/maps/${saved.map.id}`),saved.map);
         await page.goto(`${origin}/workspaces?composition=${saved.map.id}`);
         await page.locator(".opengeo-workbench").waitFor();
-        console.log("Development smoke: saved Project reopened after database restart");
+        const display=await displayedMap(saved.source.datasetId);
+        assertDisplay(display,saved.map.definition.layers[0]);
+        const source=await sourceFacts(saved.project,saved.source.datasetId,saved.source.datasetVersionId);
+        assert.deepEqual(source,saved.source);
+        await page.screenshot({path:join(work,"task3-reopened.png")});
+        assert.deepEqual(errors,[]);
+        record("reopened",saved,display,source);
+        console.log("Development persistence: exact saved map, source and displayed facilities reopened");
       } else {
-        await page.goto(`${origin}/workspaces`);
-        await page.getByRole("link",{name:/New Project/}).click();
-        await page.getByLabel("New project name",{exact:true}).fill("Community development persistence smoke");
-        await page.getByLabel("First map name",{exact:true}).fill("Retained local map");
-        const created=page.waitForResponse(r=>r.url().endsWith("/api/projects") && r.request().method()==="POST");
-        const mapCreated=page.waitForResponse(r=>/\/api\/projects\/[^/]+\/maps$/.test(r.url()) && r.request().method()==="POST");
-        await page.getByRole("button",{name:"Create project and map",exact:true}).click();
-        const projectResponse=await created, mapResponse=await mapCreated;
-        assert.equal(projectResponse.status(),201); assert.equal(mapResponse.status(),201);
-        const project=developmentWrites.get("/projects"), map=developmentWrites.get(`/projects/${project.id}/maps`);
+        let progress=existsSync(progressPath) ? JSON.parse(readFileSync(progressPath)) : null;
+        let project,map;
+        const saveProgress=()=>writeFileSync(progressPath,JSON.stringify(progress,null,2)+"\n");
+        if (progress) {
+          stage="development-resume";
+          assert.equal(progress.schemaVersion,"opengeo.development-progress.1");
+          assert.equal(progress.fixtureChecksum,fixtureChecksum);
+          project=await readApi(`/projects/${progress.project}`);
+          map=await readApi(`/projects/${project.id}/maps/${progress.mapId}`);
+          assert.equal(map.definition.layers.length,0,"Review an uncheckpointed saved map rather than overwriting it");
+          console.log("Development persistence: resuming committed Project/map/source; no creation replay");
+        } else {
+          stage="development-project-creation";
+          await page.goto(`${origin}/workspaces`);
+          await page.getByRole("link",{name:/New Project/}).click();
+          await page.getByLabel("New project name",{exact:true}).fill("Community development persistence smoke");
+          await page.getByLabel("First map name",{exact:true}).fill("Retained local map");
+          const created=page.waitForResponse(r=>r.url().endsWith("/api/projects") && r.request().method()==="POST");
+          const mapCreated=page.waitForResponse(r=>/\/api\/projects\/[^/]+\/maps$/.test(r.url()) && r.request().method()==="POST");
+          await page.getByRole("button",{name:"Create project and map",exact:true}).click();
+          const projectResponse=await created, mapResponse=await mapCreated;
+          assert.equal(projectResponse.status(),201); assert.equal(mapResponse.status(),201);
+          project=developmentWrites.get("/projects"); map=developmentWrites.get(`/projects/${project.id}/maps`);
+          progress={schemaVersion:"opengeo.development-progress.1",project:project.id,mapId:map.id,fixtureChecksum};
+          saveProgress();
+          await page.locator(".opengeo-workbench").waitFor();
+        }
+        const datasetTitle="Task 3 community facilities";
+        if (!progress.source) {
+          stage="development-source-upload";
+          await page.goto(`${origin}/workspaces?project=${project.id}&manage=data`);
+          await page.getByRole("heading",{name:"Project datasets",exact:true}).waitFor();
+          await page.getByLabel("Dataset, image, or document file",{exact:true}).setInputFiles({
+            name:"sample-public-facilities.geojson",mimeType:"application/geo+json",buffer:fixtureBytes});
+          await page.getByLabel("Dataset, image, or document name",{exact:true}).fill(datasetTitle);
+          await page.getByLabel("Dataset classification",{exact:true}).selectOption("internal");
+          const completed=page.waitForResponse(r=>r.url().endsWith("/complete") && r.request().method()==="POST");
+          await page.getByRole("button",{name:"Hash and upload",exact:true}).click();
+          const completionResponse=await completed;
+          assert.equal(completionResponse.status(),200);
+          const completion=await completionResponse.json();
+          progress.source={datasetId:completion.dataset.id,datasetVersionId:completion.dataset_version_id};
+          saveProgress();
+        }
+        const dataset=await readApi(`/projects/${project.id}/datasets/${progress.source.datasetId}`);
+        if (dataset.status!=="active") {
+          assert.equal(dataset.status,"processing","Only the already queued source conversion may resume");
+          await worker();
+        }
+        const source=await sourceFacts(project.id,progress.source.datasetId,progress.source.datasetVersionId);
+        progress.source=source; saveProgress();
+        stage="development-layer-presentation";
+        await page.goto(`${origin}/workspaces?composition=${map.id}`);
         await page.locator(".opengeo-workbench").waitFor();
-        writeFileSync(checkpoint,JSON.stringify({project:project.id,map:await readApi(`/projects/${project.id}/maps/${map.id}`)})+"\n");
-        console.log("Development smoke: Project created through Studio and retained");
+        await page.getByRole("button",{name:"Add data",exact:true}).click();
+        await page.getByRole("button",{name:`Add ${datasetTitle} to map`,exact:true}).click();
+        await page.getByRole("heading",{name:"Layer Properties",exact:true}).waitFor();
+        await page.locator(".gis-basemap-tree-row > button").click();
+        const basemapDialog=page.getByRole("dialog",{name:"Change basemap",exact:true});
+        const blank=basemapDialog.locator('.gis-basemap-card[data-catalog-id="blank"]');
+        const blankGroup=blank.locator("xpath=ancestor::details[1]");
+        if (await blankGroup.getAttribute("open")===null) await blankGroup.locator("summary").click();
+        await blank.click();
+        await page.waitForFunction(()=>document.querySelector(".opengeo-workbench")?.dataset.basemapActivationState==="active");
+        assert.equal(await blank.getAttribute("aria-pressed"),"true");
+        await basemapDialog.getByRole("button",{name:"Done",exact:true}).click();
+        const inspector=page.locator(".gis-panel-right");
+        await inspector.getByLabel("Renderer",{exact:true}).selectOption("single");
+        await inspector.getByLabel("Primary color",{exact:true}).fill(color);
+        const slider=inspector.getByLabel("Opacity",{exact:true});
+        await slider.press("Home");
+        for (let step=0;step<Math.round(opacity/0.05);step++) await slider.press("ArrowRight");
+        assert.equal(Number(await slider.inputValue()),opacity);
+        await page.getByRole("button",{name:"Fit",exact:true}).click();
+        const beforeSave=await displayedMap(source.datasetId);
+        assert.equal(beforeSave.color,color); assert.equal(beforeSave.opacity,opacity);
+        assert.deepEqual(featureValues(beforeSave.features),expectedFeatures);
+        stage="development-map-save";
+        const saving=page.waitForResponse(r=>/\/maps\/[^/]+$/.test(r.url()) && r.request().method()==="PATCH");
+        await page.getByRole("button",{name:"Save",exact:true}).click();
+        const saveResponse=await saving;
+        assert.equal(saveResponse.status(),200);
+        assert.equal(saveResponse.request().postDataJSON().expected_version,map.version);
+        const savedMap=await saveResponse.json();
+        assert.equal(savedMap.id,map.id); assert.equal(savedMap.version,map.version+1);
+        assert.equal(savedMap.definition.layers.length,1);
+        assert.equal(savedMap.definition.layers[0].datasetVersionId,source.datasetVersionId);
+        assert.deepEqual(await readApi(`/projects/${project.id}/maps/${map.id}`),savedMap);
+        const display=await displayedMap(source.datasetId);
+        assertDisplay(display,savedMap.definition.layers[0]);
+        await page.screenshot({path:join(work,"task3-saved.png")});
+        assert.deepEqual(errors,[]);
+        const saved={schemaVersion:"opengeo.development-persistence.1",project:project.id,map:savedMap,
+          source,fixtureChecksum};
+        writeFileSync(checkpoint,JSON.stringify(saved,null,2)+"\n");
+        record("saved",saved,display,source,saveResponse.status());
+        console.log("Development persistence: source uploaded, presentation changed and map saved through Studio");
       }
-      assert.ok(requests.length <= 60,"Development smoke request budget");
+      assert.ok(requests.length <= 100,"Development persistence request budget");
       assert.deepEqual(errors,[]);
       break scopedJourney;
     }

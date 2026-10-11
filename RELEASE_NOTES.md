@@ -35,7 +35,11 @@ The [local authorization pilot](docs/api/authorization-local.md) checks viewer
 edit/publication denials, revoked reads and unchanged state after denied or stale
 writes against PostGIS. Sign-in and object/queue transports remain synthetic.
 
-Local checks cover Project save, database restart and reopening the saved map.
+The [built Studio persistence check](docs/community-development.md#browser-save-and-reopen-check)
+uploads the sample facilities through the UI, saves its map at revision 2 and
+reopens that exact map after restarting the same local database. Source identity,
+all five features, point color and opacity are retained. Dependencies and service
+images were cached; sign-in and object/queue transport were synthetic.
 A separate local pilot covers uploads, selected GIS derivatives, map composition,
 static publication and access controls.
 

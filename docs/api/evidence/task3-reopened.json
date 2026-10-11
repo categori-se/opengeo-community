@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "opengeo.browser-persistence.1",
+  "phase": "reopened",
+  "observedAt": "2026-10-11T23:32:43.101Z",
+  "projectId": "22da58a7-f472-4b70-a435-98ec0466a29c",
+  "mapId": "7534f9cd-6523-4f56-bf6e-4279fb6cfa11",
+  "mapVersion": 2,
+  "layer": {
+    "layerId": "dataset_25202ee4-58b4-4bc1-b5e6-73b415a77a2f_version_f2ad09aa-042d-4c0c-bdb1-1123c6acbc66",
+    "datasetId": "25202ee4-58b4-4bc1-b5e6-73b415a77a2f",
+    "datasetVersionId": "f2ad09aa-042d-4c0c-bdb1-1123c6acbc66",
+    "objectId": null,
+    "sourceType": "governed-dataset",
+    "sourceVersion": 1
+  },
+  "source": {
+    "datasetId": "25202ee4-58b4-4bc1-b5e6-73b415a77a2f",
+    "datasetVersionId": "f2ad09aa-042d-4c0c-bdb1-1123c6acbc66",
+    "originalObjectId": "01e76699-8b4b-4218-be34-e13a516536f5",
+    "originalChecksumSha256": "b384b0990bc62a8a5339e801098f995989bd6a770fdbf5fe7f58025a2351c96c",
+    "featureCount": 5
+  },
+  "fixture": {
+    "path": "app/src/data/sample-public-facilities.geojson",
+    "checksumSha256": "b384b0990bc62a8a5339e801098f995989bd6a770fdbf5fe7f58025a2351c96c",
+    "license": "CC0-1.0"
+  },
+  "displayedFeatures": [
+    {
+      "properties": {
+        "name": "Community Health Center",
+        "category": "health",
+        "public_access": true,
+        "last_verified": "2026-06-22"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.043,
+          38.912
+        ]
+      }
+    },
+    {
+      "properties": {
+        "name": "District Cooling Shelter",
+        "category": "resilience",
+        "public_access": true,
+        "last_verified": "2026-06-23"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.032,
+          38.905
+        ]
+      }
+    },
+    {
+      "properties": {
+        "name": "Emergency Supply Hub",
+        "category": "logistics",
+        "public_access": false,
+        "last_verified": "2026-06-24"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.061,
+          38.898
+        ]
+      }
+    },
+    {
+      "properties": {
+        "name": "Neighborhood Service Center",
+        "category": "services",
+        "public_access": true,
+        "last_verified": "2026-06-20"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.027,
+          38.914
+        ]
+      }
+    },
+    {
+      "properties": {
+        "name": "Public Library Branch",
+        "category": "education",
+        "public_access": true,
+        "last_verified": "2026-06-21"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -77.018,
+          38.923
+        ]
+      }
+    }
+  ],
+  "renderedNames": [
+    "Community Health Center",
+    "District Cooling Shelter",
+    "Emergency Supply Hub",
+    "Neighborhood Service Center",
+    "Public Library Branch"
+  ],
+  "presentation": {
+    "color": "#2563eb",
+    "opacity": 0.8
+  },
+  "exactSavedMapRetained": true,
+  "applicationShell": {
+    "mode": "observable-built-studio",
+    "manifestSha256": "891d21ff993ab87d98c587c2bb7659b3eb7881a38174c72a0183f89047e2a180",
+    "treeDigest": "05e7eaa439acd30bb5e3ad37ac941af95bd42c79fc7c727c654adadb5ecfe247",
+    "files": 819,
+    "routes": [
+      "/",
+      "/public-demo",
+      "/library",
+      "/login",
+      "/workspaces",
+      "/layers",
+      "/admin"
+    ],
+    "unchangedBuiltBytes": true,
+    "serviceWorkers": "registration script withheld by the local server; separate PWA checks own offline behavior"
+  },
+  "requestCount": 16,
+  "screenshot": "task3-reopened.png",
+  "freshBrowserContext": true,
+  "syntheticAuthentication": true,
+  "localObjectAndQueueTransport": true,
+  "externalBrowserRequests": "blocked",
+  "notProven": [
+    "Cognito sign-in",
+    "AWS transport",
+    "Cloud acceptance"
+  ]
+}

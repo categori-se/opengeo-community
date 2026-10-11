@@ -1,0 +1,295 @@
+{
+  "schema": "opengeo.selected-browser-persistence.1.0.0",
+  "source_commit": "6651e608a8db0d4ad3b8f3659a617a1ba7b945e3",
+  "dirty_diff": [
+    {
+      "files": [
+        "app/scripts/check-integrated-studio.mjs"
+      ],
+      "command": "git diff -- app/scripts/check-integrated-studio.mjs",
+      "sha256": "5772f96afdd2043a9ccfd7d8429a9ee9233e0bb6924f8b43f0171a9ed6eb4074"
+    },
+    {
+      "files": [
+        "scripts/run-integrated-pilot-local.py"
+      ],
+      "command": "git diff -- scripts/run-integrated-pilot-local.py",
+      "sha256": "71c564a130334959b49dcae7452e431782801c0fdb8cccd0218b3b58880ff804",
+      "relationship": "Reuses the completed Task 2 local runner change; no further modification for Task 3."
+    }
+  ],
+  "runtime_source_file_sha256": {
+    "app/scripts/check-integrated-studio.mjs": "8f4b1c2e14cbe8c206e2c2efffa1b06f17722be2061405dcf35dc86020ade66c",
+    "scripts/run-integrated-studio-local.py": "525c34cd44847c43ed2fedd7b7f54b13e6e4d98d0005f13555ac3ae94993f397",
+    "scripts/run-integrated-pilot-local.py": "ab47878d9346d02a80a85917636afe1f81b5754c1849bc24dd03379a56196da8",
+    "app/package-lock.json": "22f88084ff47a6f13a704f244c8ea5e646729c07825078014449af08b79e4477",
+    "app/src/data/sample-public-facilities.geojson": "b384b0990bc62a8a5339e801098f995989bd6a770fdbf5fe7f58025a2351c96c",
+    "services/api/requirements.lock": "5489333890d2e4f19ca229e41a55fb4a3ab3448571a00d5d09c79f7712cfe202",
+    "services/worker/requirements.lock": "53938e9f42dd6cce6f156d1c0b72c6000016686b286c86bb8fa3dfc814175ff6"
+  },
+  "frontend_source": {
+    "commit_relationship": "Build inputs under app/src, app/vendor, package/lock/config and the maintained build scripts/native notebook assets have no diff from source_commit. The browser helper is a separate dirty harness input.",
+    "fresh_builds": 1,
+    "cached_components": [
+      "app/node_modules",
+      "Observable source cache copied by the maintained runner"
+    ],
+    "previous_sealed_frontend_reused": false,
+    "build_log_sha256": "d7e522a67444bafd51cebd4150e634edcf1cb8dbcb76434115e248d0d2b71f85",
+    "manifest_sha256": "891d21ff993ab87d98c587c2bb7659b3eb7881a38174c72a0183f89047e2a180",
+    "artifact_tree_sha256": "05e7eaa439acd30bb5e3ad37ac941af95bd42c79fc7c727c654adadb5ecfe247",
+    "artifact_file_count": 819,
+    "same_built_bytes_reused_for_save_and_reopen": true
+  },
+  "working_directory": "repository root",
+  "command": "OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE=1 PYTHONDONTWRITEBYTECODE=1 python3 scripts/run-integrated-studio-local.py --development --state-directory .opengeo/task-3-persistence --api-image e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb --worker-image a830dae1cae3b4cbdd88cd44f702fd485e6d70d435557ea68d35df017a7fdb87",
+  "clean_reproduction": "Run the command twice using a new private state directory. An existing complete development-smoke.json selects reopen; it does not create another Project/map.",
+  "launches": [
+    {
+      "phase": "initial_save_attempt",
+      "exit_code": 1,
+      "result": "failed",
+      "request_count": 53,
+      "helper_sha256": "aa80007e1b53d1cdde1159d006f9b51a806269649a1c68df5b3a9529c3ec7505",
+      "selected_stdout": [
+        "worker: consumed 1 real processing request(s)",
+        "Studio failed at development-source-upload; page errors: []"
+      ],
+      "selected_stderr": "locator.click: Timeout 15000ms exceeded. Waiting for locator button[aria-label=\"Change basemap\"].",
+      "diagnosis": "The toolbar is hidden in the current workbench; its old icon selector is absent. The visible Layers tree background button opens the same basemap chooser.",
+      "committed_before_failure": [
+        "Project create 201",
+        "Map create 201",
+        "Fixture upload completion 200",
+        "One real GIS worker conversion"
+      ],
+      "correction": "Only the browser helper changed: use .gis-basemap-tree-row > button and retain pending progress after creation/upload. The pending checkpoint for this interrupted run was reconstructed from actual request/DOM/API failure evidence, then verified by API readback. No success checkpoint or database records were fabricated.",
+      "retry_limit": "One targeted retry, same retained database/source; no creation, upload or worker replay.",
+      "failure_receipt_sha256": "a708b8b7c879c66fd2163c8a5ccb79a6e2e2b5f56b483bb22431460f01729627",
+      "request_log_sha256": "f7a84653fea07ddb5cb6759b8748b37acef509a62574eee9cb65da4217e28e66"
+    },
+    {
+      "phase": "saved",
+      "exit_code": 0,
+      "result": "pass",
+      "request_count": 19,
+      "selected_stdout": [
+        "Development persistence: resuming committed Project/map/source; no creation replay",
+        "Development persistence: source uploaded, presentation changed and map saved through Studio"
+      ],
+      "request_log_sha256": "744c7f00ce4e8c98007e76ecc0cd93939b6ec5708216239cfde2d154fc6c21cd"
+    },
+    {
+      "phase": "reopened",
+      "exit_code": 0,
+      "result": "pass",
+      "request_count": 16,
+      "selected_stdout": [
+        "Development persistence: exact saved map, source and displayed facilities reopened"
+      ],
+      "request_log_sha256": "b12c790e595ca4c8f190bf9fcf0d0b26622cf35e1c8a56509ed82651f959518b"
+    }
+  ],
+  "cumulative_operations": {
+    "browser_launches": 3,
+    "failed_launches": 1,
+    "frontend_builds": 1,
+    "api_requests": 88,
+    "real_worker_processing_requests": 1,
+    "external_provider_fetches": 0,
+    "cloud_operations": 0,
+    "paid_operations": 0
+  },
+  "selected_non_get_requests": {
+    "first_failed": [
+      {
+        "method": "POST",
+        "path": "/projects",
+        "status": 201
+      },
+      {
+        "method": "POST",
+        "path": "/projects/22da58a7-f472-4b70-a435-98ec0466a29c/maps",
+        "status": 201
+      },
+      {
+        "method": "POST",
+        "path": "/projects/22da58a7-f472-4b70-a435-98ec0466a29c/uploads/request",
+        "status": 201
+      },
+      {
+        "method": "POST",
+        "path": "/__local/upload",
+        "status": 204
+      },
+      {
+        "method": "POST",
+        "path": "/projects/22da58a7-f472-4b70-a435-98ec0466a29c/uploads/74e1fcba-cadc-488a-aede-d11d56bd2b64/complete",
+        "status": 200
+      },
+      {
+        "method": "POST",
+        "path": "/projects/22da58a7-f472-4b70-a435-98ec0466a29c/datasets/25202ee4-58b4-4bc1-b5e6-73b415a77a2f/versions/f2ad09aa-042d-4c0c-bdb1-1123c6acbc66/objects/01e76699-8b4b-4218-be34-e13a516536f5/download",
+        "status": 200
+      }
+    ],
+    "saved": [
+      {
+        "method": "POST",
+        "path": "/projects/22da58a7-f472-4b70-a435-98ec0466a29c/datasets/25202ee4-58b4-4bc1-b5e6-73b415a77a2f/versions/f2ad09aa-042d-4c0c-bdb1-1123c6acbc66/objects/01e76699-8b4b-4218-be34-e13a516536f5/download",
+        "status": 200
+      },
+      {
+        "method": "PATCH",
+        "path": "/projects/22da58a7-f472-4b70-a435-98ec0466a29c/maps/7534f9cd-6523-4f56-bf6e-4279fb6cfa11",
+        "status": 200
+      }
+    ],
+    "reopened": [
+      {
+        "method": "POST",
+        "path": "/projects/22da58a7-f472-4b70-a435-98ec0466a29c/datasets/25202ee4-58b4-4bc1-b5e6-73b415a77a2f/versions/f2ad09aa-042d-4c0c-bdb1-1123c6acbc66/objects/01e76699-8b4b-4218-be34-e13a516536f5/download",
+        "status": 200
+      }
+    ]
+  },
+  "assertions_passed": [
+    "Actual Studio Save PATCH returned 200 with expected_version 1; returned map revision became 2 and exact API readback matched.",
+    "After runner stop/start, the entire saved map API response exactly matched development-smoke.json before browser reopening.",
+    "Project/map/revision, layer ID, dataset ID/version, source type/version and original object ID/checksum were retained.",
+    "Active dataset and active exact version reported five features; original object checksum matched the uploaded CC0 fixture.",
+    "Browser renderer data matched every fixture property and coordinate, including four true and one false public_access values.",
+    "MapLibre queryRenderedFeatures included all five unique fixture names in both fresh browser contexts.",
+    "Visible point color #2563eb and opacity 0.8 matched layer state and actual MapLibre paint before Save and after reopening.",
+    "No browser page errors; save and reopen each remained below the 100 API request ceiling.",
+    "Saved/reopened receipts matched on the selected comparison fields, and database inspect output before/after reopening was byte-identical."
+  ],
+  "post_run_comparison_fields": [
+    "projectId",
+    "mapId",
+    "mapVersion",
+    "layer",
+    "source",
+    "fixture",
+    "displayedFeatures",
+    "renderedNames",
+    "presentation",
+    "applicationShell"
+  ],
+  "persisted_presentation_observation": {
+    "source": "development-smoke.json: map.definition",
+    "checkpoint_sha256": "0519f8b836538fa9461ab2b2cd27bd56653dd3e560a2bc8cb7616c49d3b06063",
+    "color": "#2563eb",
+    "opacity": 0.8,
+    "visible": true,
+    "basemap": "blank"
+  },
+  "identity": {
+    "projectId": "22da58a7-f472-4b70-a435-98ec0466a29c",
+    "mapId": "7534f9cd-6523-4f56-bf6e-4279fb6cfa11",
+    "mapVersion": 2,
+    "layer": {
+      "layerId": "dataset_25202ee4-58b4-4bc1-b5e6-73b415a77a2f_version_f2ad09aa-042d-4c0c-bdb1-1123c6acbc66",
+      "datasetId": "25202ee4-58b4-4bc1-b5e6-73b415a77a2f",
+      "datasetVersionId": "f2ad09aa-042d-4c0c-bdb1-1123c6acbc66",
+      "objectId": null,
+      "sourceType": "governed-dataset",
+      "sourceVersion": 1
+    },
+    "source": {
+      "datasetId": "25202ee4-58b4-4bc1-b5e6-73b415a77a2f",
+      "datasetVersionId": "f2ad09aa-042d-4c0c-bdb1-1123c6acbc66",
+      "originalObjectId": "01e76699-8b4b-4218-be34-e13a516536f5",
+      "originalChecksumSha256": "b384b0990bc62a8a5339e801098f995989bd6a770fdbf5fe7f58025a2351c96c",
+      "featureCount": 5
+    }
+  },
+  "object_binding_note": "The governed dataset layer binds the exact datasetVersionId and has no direct objectId. Its originalObjectId/checksum are separately read from that dataset version; null is not a lost object binding.",
+  "database_restart": {
+    "container_id": "c0ade6d527a672254c57b12c7ef8c5fca12a54934cdc9e570c59ff48fcfb6d17",
+    "container_name": "opengeo-community-4eae05e0e02c4e9ab390a7e942cd3cad",
+    "volume_name": "opengeo-community-4eae05e0e02c4e9ab390a7e942cd3cad-data",
+    "destination": "/var/lib/postgresql/data",
+    "before_state": "exited",
+    "after_state": "exited",
+    "before_inspect_sha256": "6f67bf8dace49f5d617aed928ef9892ae4f1c3e0d20cd119bff79b9f93fbed9c",
+    "after_inspect_sha256": "6f67bf8dace49f5d617aed928ef9892ae4f1c3e0d20cd119bff79b9f93fbed9c",
+    "metadata_sha256": "ecab89cba58d2885a51e207ff280cf2a0b6f47317a21845ffbffebb338426213",
+    "same_container_and_volume": true,
+    "separate_restored_database": false,
+    "database_seeding_fallback": false,
+    "evidence_selection": "Container/volume identity and state selected from retained Podman inspect output; host filesystem prefixes omitted. The existing first-run synthetic identity bootstrap is distinct from UI-created Project/map/source."
+  },
+  "runtime_dependencies": {
+    "host_python": "3.14.7",
+    "node": "24.18.0",
+    "chromium": "154.0.8037.57 (Fedora 43)",
+    "playwright": "1.61.1",
+    "esbuild": "0.28.2",
+    "observable_framework": "1.13.4",
+    "maplibre_gl": "6.4.1",
+    "api_runtime": "Same cached dependency image as task-2.json: Python 3.13.15, FastAPI 0.141.1, Pydantic 2.13.4, psycopg 3.3.4; current public API source mounted by the existing runner."
+  },
+  "images": {
+    "cached": true,
+    "api_image_id": "e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb",
+    "api_repo_digest": "sha256:a02753919e79301ea100f3eda00af49400775e43b2cc2a032919ac5294654d47",
+    "worker_image_id": "a830dae1cae3b4cbdd88cd44f702fd485e6d70d435557ea68d35df017a7fdb87",
+    "worker_repo_digest": "sha256:0025085d6c31d4f0244d01482b8fb38c171004edd34bd04d247efe2f08f891b0",
+    "database_image_id": "8a7479de3b6fe7d379b2d6617a06126ee902a594f7e110fdb6ee5f2ac578fb67",
+    "database_image": "docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932",
+    "pull_policy": "never"
+  },
+  "substitutions": [
+    "Synthetic loopback owner sign-in instead of Cognito",
+    "Local file object transport instead of S3/KMS",
+    "Local queue delivery instead of SQS",
+    "Direct PostgreSQL instead of Aurora Data API",
+    "Headless Chromium uses --no-sandbox; service-worker registration is withheld"
+  ],
+  "not_proven": [
+    "Fresh dependency/image installation",
+    "Real authentication or external providers",
+    "Hosted or cloud acceptance",
+    "PWA offline behavior",
+    "Large datasets",
+    "Complete native publication"
+  ],
+  "retained_local_state": "Database stopped; same named volume, objects, queue and staged Studio retained in the private development directory.",
+  "selected_evidence": [
+    {
+      "path": "task3-saved.json",
+      "bytes": 3807,
+      "sha256": "0889efcf3bb3cd18d8a93cfd83cb127236fcf13cbd51afcbd219fcb7ceb38846"
+    },
+    {
+      "path": "task3-reopened.json",
+      "bytes": 3818,
+      "sha256": "7af3a628e4869e6745bdfc38f529e4a7bfb46e2b34b0e3abfc1d5f6074f46729"
+    },
+    {
+      "path": "task3-saved.png",
+      "bytes": 131516,
+      "sha256": "31636332ce787666db9c59315c96512f4356f3f0fef026a7127aa31171328594"
+    },
+    {
+      "path": "task3-reopened.png",
+      "bytes": 69985,
+      "sha256": "e20ddc2bd5168a28ce0fd6919a460a8c50e7a069eaf625dd5e0ce3fa61ef919b"
+    }
+  ],
+  "selection": "The two JSON receipts and screenshots are unedited originals from the successful browser runs. The compact summary selects actual request, log, saved-map and database observations. Full logs, uploaded state and host filesystem paths remain outside Git. UUIDs identify only local synthetic records and fixture features are fictional CC0 data.",
+  "documentation_correction": {
+    "file": "docs/community-development.md",
+    "change": "Use Podman image inspect --format {{.ID}} for both API and worker image identity resolution.",
+    "observed_blocker": "The previous {{.Id}} image template returned exit 125 twice on this Podman version.",
+    "verification": "Read-only {{.ID}} image inspection had already passed; no browser or runtime rerun.",
+    "guide_sha256": "120b057d918797cf026e7187ba8aa68ec09a69154ede011f208772afe6b3df9b"
+  },
+  "reviewable_increment": {
+    "path": ".opengeo/task-3.patch",
+    "sha256": "e4bde555dadca48488dab3420f7d5e9df776842d0fd2ca0d0469a3050a1e5dfe",
+    "base": "Source commit plus Task 1 and Task 2 increments",
+    "scope": "Browser helper, development guide, selected successful browser evidence and scoped release-note delta; summary receipt excluded to avoid self-hash."
+  }
+}
