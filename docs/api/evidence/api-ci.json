@@ -1,0 +1,65 @@
+{
+  "outcome": "Public API contract and metadata CI",
+  "source_commit": "a511cd652414faa6b341c4523b21390072c4bf1f",
+  "dirty_diff": {
+    "path": ".opengeo/api-ci.patch",
+    "sha256": "2f033740ada55a02d74aebaad7928ad816bc6d01fe65c9b7a687a59f2973ad7a",
+    "includes": [
+      ".github/workflows/api-contract.yml",
+      "services/api/README.md"
+    ],
+    "excludes": "This receipt and concurrent disposable CKAN increment"
+  },
+  "workflow": {
+    "path": ".github/workflows/api-contract.yml",
+    "sha256": "4123d499b443e571e83ee03eb40025180da2abc3459c494cd44eb064b36572ac",
+    "runner": "ubuntu-24.04",
+    "python_requested": "3.14",
+    "timeout_minutes": 15,
+    "permissions": {
+      "contents": "read"
+    },
+    "actions": {
+      "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1 (v7.0.1)",
+      "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97 (v7.0.0)"
+    },
+    "cache": "Pip downloads keyed by both unchanged requirement locks; hosted cache hit is recorded separately"
+  },
+  "public_ci": {
+    "status": "not_started",
+    "note": "The workflow will first run after the authorized push; local results below are not a hosted run"
+  },
+  "local_checks": {
+    "actual_interpreter": "Existing ../services/api/.venv/bin/python, resolved absolute prefix redacted",
+    "python": "3.14.7",
+    "install_performed": false,
+    "working_directory": "services/api",
+    "pytest_command": "PYTHONDONTWRITEBYTECODE=1 <cached-api-venv>/bin/python -m pytest tests/test_openapi_export.py tests/test_workspace_routes.py tests/test_metadata_adapters.py tests/test_metadata_profiles.py tests/test_ckan_export.py tests/test_ckan.py tests/test_ckan_routes.py",
+    "reproduction_command": "python -m pytest tests/test_openapi_export.py tests/test_workspace_routes.py tests/test_metadata_adapters.py tests/test_metadata_profiles.py tests/test_ckan_export.py tests/test_ckan.py tests/test_ckan_routes.py",
+    "exit_code": 0,
+    "selected_output": "89 passed in 17.99s",
+    "contract_check": "Passed after map fix; see map-default.json. Two guarded fresh exports equal the saved document",
+    "configuration": [
+      "YAML structure/input paths and run-step shell syntax passed",
+      "Independent security/reproducibility review found no blocker",
+      "git diff --check passed"
+    ],
+    "unavailable": "actionlint not installed; no substitute actionlint pass claimed"
+  },
+  "assertions": [
+    "Exporter rejects network/process calls and validates deterministic contract and examples",
+    "Workspace request/route regressions and access/revision tests pass",
+    "Metadata adapter/profile fixtures and existing CKAN import/route tests pass",
+    "STAC exporter strict subset, provenance preservation, omitted destination grants and CLI dry-run tests pass"
+  ],
+  "lock_sha256": {
+    "services/api/requirements.lock": "5489333890d2e4f19ca229e41a55fb4a3ab3448571a00d5d09c79f7712cfe202",
+    "services/api/requirements-dev.lock": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed"
+  },
+  "limits": [
+    "Local checks reused installed dependencies; first hosted installation remains pending",
+    "Synthetic identities, in-memory repositories and mocked providers; no connected database/authentication or provider acceptance",
+    "No Docker images, cloud deployment or native publication acceptance in this workflow"
+  ],
+  "usage": "One local focused batch, 89 tests. Public hosted run pending. No paid cloud or production operations; exact agent effort unavailable."
+}

@@ -1,0 +1,87 @@
+name: API contract and metadata
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/api-contract.yml
+      - services/api/src/**
+      - services/api/tests/**
+      - services/api/scripts/export_openapi.py
+      - services/api/scripts/export_stac_ckan.py
+      - services/api/pyproject.toml
+      - services/api/requirements*.in
+      - services/api/requirements*.lock
+      - docs/api/openapi.json
+      - docs/api/examples.json
+      - docs/api/fixtures/**
+      - docs/api/evidence/stac-ckan-export.json
+      - parity/fixtures/data/**
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/api-contract.yml
+      - services/api/src/**
+      - services/api/tests/**
+      - services/api/scripts/export_openapi.py
+      - services/api/scripts/export_stac_ckan.py
+      - services/api/pyproject.toml
+      - services/api/requirements*.in
+      - services/api/requirements*.lock
+      - docs/api/openapi.json
+      - docs/api/examples.json
+      - docs/api/fixtures/**
+      - docs/api/evidence/stac-ckan-export.json
+      - parity/fixtures/data/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  api-contract:
+    name: API contract and metadata (Python 3.14)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/api
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PIP_NO_INPUT: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            services/api/requirements.lock
+            services/api/requirements-dev.lock
+      - name: Install locked dependencies
+        run: python -m pip install --require-hashes --requirement requirements-dev.lock
+      - name: Record runtime dependencies
+        run: |
+          python --version
+          python -m pip --version
+          python -m pip freeze
+      - name: Check saved API contract
+        run: python scripts/export_openapi.py --check
+      - name: Check workspace routes and metadata contracts
+        run: |
+          python -m pytest \
+            tests/test_openapi_export.py \
+            tests/test_workspace_routes.py \
+            tests/test_metadata_adapters.py \
+            tests/test_metadata_profiles.py \
+            tests/test_ckan_export.py \
+            tests/test_ckan.py \
+            tests/test_ckan_routes.py
