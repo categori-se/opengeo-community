@@ -44,6 +44,8 @@ resource, render job and publication state unchanged.
 or network access, with model-validated source, map and publication examples.
 Name-only map creation supplies a valid empty definition, including measurements;
 focused request and route checks verify its initial revision and independent defaults.
+The [public API CI run](docs/api/evidence/api-ci.json) installs hash-locked
+dependencies on a hosted runner and passes the contract check and 89 focused tests.
 The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) produces a reproducible dry-run
 dataset-create payload with retained source checksums and explicit conversion
 losses, checked against a subset derived from CKAN 2.11.6.

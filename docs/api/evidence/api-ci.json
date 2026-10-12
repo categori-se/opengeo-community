@@ -26,8 +26,115 @@
     "cache": "Pip downloads keyed by both unchanged requirement locks; hosted cache hit is recorded separately"
   },
   "public_ci": {
-    "status": "not_started",
-    "note": "The workflow will first run after the authorized push; local results below are not a hosted run"
+    "status": "completed",
+    "conclusion": "success",
+    "url": "https://github.com/categori-se/opengeo-community/actions/runs/38188996276",
+    "run_id": 38188996276,
+    "event": "push",
+    "source_commit": "01fc635ec68c39e6ab04a72d669b00480ec05864",
+    "created_at": "2026-10-12T00:41:45Z",
+    "updated_at": "2026-10-12T00:42:44Z",
+    "jobs": [
+      {
+        "name": "API contract and metadata (Python 3.14)",
+        "conclusion": "success",
+        "started_at": "2026-10-12T00:41:48Z",
+        "completed_at": "2026-10-12T00:42:42Z",
+        "steps": [
+          {
+            "name": "Set up job",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check out source",
+            "conclusion": "success"
+          },
+          {
+            "name": "Set up Python",
+            "conclusion": "success"
+          },
+          {
+            "name": "Install locked dependencies",
+            "conclusion": "success"
+          },
+          {
+            "name": "Record runtime dependencies",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check saved API contract",
+            "conclusion": "success"
+          },
+          {
+            "name": "Check workspace routes and metadata contracts",
+            "conclusion": "success"
+          },
+          {
+            "name": "Post Set up Python",
+            "conclusion": "success"
+          },
+          {
+            "name": "Post Check out source",
+            "conclusion": "success"
+          },
+          {
+            "name": "Complete job",
+            "conclusion": "success"
+          }
+        ]
+      }
+    ],
+    "environment": {
+      "runner_image": "ubuntu-24.04",
+      "runner_image_version": "20261004.327.1",
+      "os": "Ubuntu 24.04.5",
+      "python": "3.14.8",
+      "pip": "26.2.1",
+      "dependencies": {
+        "fastapi": "0.141.1",
+        "httpx2": "2.12.0",
+        "jsonschema": "4.26.0",
+        "openapi-schema-validator": "0.9.0",
+        "psycopg": "3.3.4",
+        "pydantic": "2.13.4",
+        "pydantic-settings": "2.15.0",
+        "pytest": "9.1.1",
+        "ruff": "0.16.3",
+        "starlette": "1.6.0"
+      },
+      "python_cache": "CPython provided by hosted tool cache",
+      "dependency_cache": "Pip cache miss; locked dependencies installed, cache saved after successful job",
+      "containers": []
+    },
+    "install_command": "python -m pip install --require-hashes --requirement requirements-dev.lock",
+    "contract_command": "python scripts/export_openapi.py --check",
+    "contract_stdout": {
+      "credentials": "empty environment",
+      "examples": 8,
+      "fresh_processes": 2,
+      "network": "blocked",
+      "openapi": "3.1.0",
+      "paths": 398,
+      "result": "pass",
+      "schemas": 449,
+      "sha256": "b516dc5cb011449328999bd32fcf8ffc51a9942e050e0e4fa22dd9d2a4b93330"
+    },
+    "pytest_command": "python -m pytest tests/test_openapi_export.py tests/test_workspace_routes.py tests/test_metadata_adapters.py tests/test_metadata_profiles.py tests/test_ckan_export.py tests/test_ckan.py tests/test_ckan_routes.py",
+    "pytest_stdout": "89 passed in 12.88s",
+    "raw_log_local": ".opengeo/api-ci-hosted.log",
+    "raw_log_sha256": "3d3d50099e7db6b567c1cf202b6fbe3afb3e69ad8eaa2d6c981455e7278b46fb",
+    "publication_failures_resolved": [
+      "Initial HTTPS push rejected because OAuth credential lacks workflow scope",
+      "Initial SSH push approval review timed out before execution; one permitted retry using existing SSH authentication succeeded; no scope/credential changes"
+    ],
+    "reproduction_from_clean_api_environment": [
+      "python3.14 -m venv .venv",
+      ".venv/bin/python -m pip install --require-hashes --requirement requirements-dev.lock",
+      ".venv/bin/python scripts/export_openapi.py --check",
+      ".venv/bin/python -m pytest tests/test_openapi_export.py tests/test_workspace_routes.py tests/test_metadata_adapters.py tests/test_metadata_profiles.py tests/test_ckan_export.py tests/test_ckan.py tests/test_ckan_routes.py"
+    ],
+    "inspect_command": "gh run view 38188996276 --repo categori-se/opengeo-community --log",
+    "working_directory": "services/api"
   },
   "local_checks": {
     "actual_interpreter": "Existing ../services/api/.venv/bin/python, resolved absolute prefix redacted",
@@ -57,9 +164,22 @@
     "services/api/requirements-dev.lock": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed"
   },
   "limits": [
-    "Local checks reused installed dependencies; first hosted installation remains pending",
+    "Fresh hosted installation verifies only the locked API check environment; full fresh application/service installation remains open",
     "Synthetic identities, in-memory repositories and mocked providers; no connected database/authentication or provider acceptance",
-    "No Docker images, cloud deployment or native publication acceptance in this workflow"
+    "No container images, AWS deployment or native publication acceptance in this workflow"
   ],
-  "usage": "One local focused batch, 89 tests. Public hosted run pending. No paid cloud or production operations; exact agent effort unavailable."
+  "usage": "One local focused batch (89 passed) and one successful public hosted job (54 seconds), without rerun. One HTTPS scope rejection and one pre-execution automatic approval timeout retained. No paid cloud or production operations; exact agent effort unavailable.",
+  "verification_update": {
+    "source_commit": "01fc635ec68c39e6ab04a72d669b00480ec05864",
+    "dirty_diff": {
+      "path": ".opengeo/api-ci-verified.patch",
+      "sha256": "1f3fb31ccd0841ff1be56f401d60484ccedcce717ce5210b1e460c17ab061d52",
+      "includes": [
+        "docs/api/README.md",
+        "services/api/README.md",
+        "RELEASE_NOTES.md"
+      ],
+      "excludes": "This receipt and independent CKAN increment"
+    }
+  }
 }

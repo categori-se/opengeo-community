@@ -18,7 +18,11 @@ component schemas, and validates all eight examples against real Pydantic models
 It does not run an independent full-document OpenAPI specification validator.
 Regenerate without `--check` and review the schema diff with the source change.
 Export blocks network/process calls and uses an empty environment; production
-documentation exposure is unchanged. [Selected route-check evidence](evidence/route-checks.json)
+documentation exposure is unchanged. The [public CI workflow](../../.github/workflows/api-contract.yml)
+installs locked dependencies, checks this contract and runs focused workspace and
+metadata tests. [Selected hosted results](evidence/api-ci.json) record the exact
+commit, assertions, dependencies and cache status.
+[Selected route-check evidence](evidence/route-checks.json)
 records the exact reproduction command, assertions and cached environment. Those
 checks use synthetic token verification, in-memory repositories and mocked input
 resolution; they do not establish connected authentication, persistence, provider

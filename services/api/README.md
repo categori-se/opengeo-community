@@ -41,6 +41,8 @@ metadata adapter/profile and CKAN tests. Pip downloads are cached by both
 lockfiles; the job records the resolved Python and dependency versions. It has
 read-only repository permissions, cancels superseded runs for the same ref and
 stops after 15 minutes.
+The [selected hosted run](../../docs/api/evidence/api-ci.json) records the actual
+installation, 89 passing checks and deterministic export for its source commit.
 
 After installing the development lock, reproduce these checks from `services/api`:
 
