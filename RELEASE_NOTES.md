@@ -42,6 +42,8 @@ resource, render job and publication state unchanged.
 **Inspect the API and exchange metadata.** The
 [API contract](docs/api/README.md) exports deterministically without credentials
 or network access, with model-validated source, map and publication examples.
+Name-only map creation supplies a valid empty definition, including measurements;
+focused request and route checks verify its initial revision and independent defaults.
 The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) produces a reproducible dry-run
 dataset-create payload with retained source checksums and explicit conversion
 losses, checked against a subset derived from CKAN 2.11.6.

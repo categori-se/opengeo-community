@@ -216,6 +216,7 @@ class CreateMapRequest(RequestModel):
             "activeProcessingModelId": None,
             "models": [],
             "processingHistory": [],
+            "measurements": [],
             "projection": "mercator",
             "colorMode": "dark",
             "layers": [],

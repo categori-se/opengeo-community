@@ -6,7 +6,9 @@ from fastapi.testclient import TestClient
 from opengeo_api.app import create_app
 from opengeo_api.auth_models import OrganizationMembership, Principal, VerifiedAccessToken
 from opengeo_api.config import Settings
+from opengeo_api.map_definitions import MAP_DEFINITION_SCHEMA_VERSION, validate_map_definition
 from opengeo_api.tenant_database import TenantContext
+from opengeo_api.workspace_routes import CreateMapRequest
 from opengeo_api.workspaces import (
     Client,
     CompositionSummary,
@@ -268,6 +270,51 @@ def test_forged_organization_fails_before_workspace_repository() -> None:
     assert response.status_code == 403
     assert response.json() == {"detail": "organization_access_denied"}
     assert repository.calls == []
+
+
+def test_name_only_map_request_has_valid_independent_default_definitions() -> None:
+    first = CreateMapRequest(name="First map")
+    second = CreateMapRequest(name="Second map")
+
+    assert first.definition["schemaVersion"] == MAP_DEFINITION_SCHEMA_VERSION
+    assert first.definition["measurements"] == []
+    assert validate_map_definition(first.definition, require_current=True) == first.definition
+    assert first.definition is not second.definition
+    assert first.definition["measurements"] is not second.definition["measurements"]
+
+
+def test_name_only_map_create_passes_current_definition_to_repository() -> None:
+    class CreatingRepository(FakeWorkspaceRepository):
+        async def create_map(self, context, project_id, draft, request_id):
+            self.calls.append(("create_map", context, project_id, draft, request_id))
+            validate_map_definition(draft.definition, require_current=True)
+            return MapRecord(
+                map_id=MAP_ID,
+                project_id=project_id,
+                name=draft.name,
+                description=draft.description,
+                status="active",
+                definition=draft.definition,
+                version=1,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+
+    repository = CreatingRepository()
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/maps", headers=headers(), json={"name": "New map"}
+    )
+
+    assert response.status_code == 201
+    assert len(repository.calls) == 1
+    _, context, project_id, draft, request_id = repository.calls[0]
+    assert context == TenantContext(user_id=USER_ID, organization_id=ORG_ID)
+    assert project_id == PROJECT_ID
+    assert request_id == "request-route-123"
+    assert draft.definition["measurements"] == []
+    assert response.json()["definition"] == draft.definition
+    assert response.json()["id"] == str(MAP_ID)
+    assert response.json()["version"] == 1
 
 
 def test_map_patch_passes_only_changed_fields_and_expected_version() -> None:
@@ -568,7 +615,14 @@ def test_composition_listing_is_bounded_filtered_and_metadata_only() -> None:
             self.calls.append((context, page.limit, page.offset, query, status))
             return [
                 CompositionSummary(
-                    MAP_ID, PROJECT_ID, "Shared access", "Analysis", None, "active", 2, NOW,
+                    MAP_ID,
+                    PROJECT_ID,
+                    "Shared access",
+                    "Analysis",
+                    None,
+                    "active",
+                    2,
+                    NOW,
                     UUID("20000000-0000-4000-8000-000000000002"),
                 )
             ]

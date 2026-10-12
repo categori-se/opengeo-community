@@ -1,0 +1,87 @@
+{
+  "outcome": "Name-only map creation accepts a valid independent default definition",
+  "source_commit": "f097619a90f52ee5af4cc0569290594ea914271d",
+  "dirty_diff": {
+    "path": ".opengeo/map-default.patch",
+    "sha256": "066e8fb64c26b0e1da7a8ca84dbe78210281346f65c87ded96a7fd3e63f92bd3",
+    "includes": [
+      "services/api/src/opengeo_api/workspace_routes.py",
+      "services/api/tests/test_workspace_routes.py",
+      "docs/api/README.md",
+      "RELEASE_NOTES.md"
+    ],
+    "excludes": "This receipt; concurrent CI and CKAN increments are separate"
+  },
+  "before_fix": {
+    "command": "../services/api/.venv/bin/python -m pytest -c services/api/pyproject.toml services/api/tests/test_workspace_routes.py -k name_only --tb=short",
+    "exit_code": 1,
+    "selected_output": [
+      "Value error, map definition is missing required field measurements",
+      "assert 422 == 201",
+      "2 failed, 16 deselected in 3.20s"
+    ]
+  },
+  "after_fix": {
+    "command": "../services/api/.venv/bin/python -m pytest -c services/api/pyproject.toml services/api/tests/test_workspace_routes.py",
+    "exit_code": 0,
+    "selected_output": "18 passed in 7.76s"
+  },
+  "contract": {
+    "regenerate_command": "PYTHONDONTWRITEBYTECODE=1 ../services/api/.venv/bin/python services/api/scripts/export_openapi.py",
+    "check_command": "PYTHONDONTWRITEBYTECODE=1 ../services/api/.venv/bin/python services/api/scripts/export_openapi.py --check",
+    "regenerate_exit_code": 0,
+    "check_exit_code": 0,
+    "selected_output": {
+      "credentials": "empty environment",
+      "examples": 8,
+      "fresh_processes": 2,
+      "network": "blocked",
+      "openapi": "3.1.0",
+      "paths": 398,
+      "result": "pass",
+      "schemas": 449,
+      "sha256": "b516dc5cb011449328999bd32fcf8ffc51a9942e050e0e4fa22dd9d2a4b93330"
+    },
+    "bytes": 1772588,
+    "change": "Byte-identical: the runtime default factory is not emitted as an OpenAPI schema default"
+  },
+  "assertions": [
+    "Both default definitions validate against the current real map validator; their dictionaries and measurements arrays are independent",
+    "Actual POST /projects/{project_id}/maps accepts a name-only body and returns HTTP 201",
+    "Repository spy receives the validated definition, intended tenant/project and request ID; response returns its ID and initial revision 1",
+    "Full workspace route file passes, including existing access and revision checks"
+  ],
+  "environment": {
+    "python": "3.14.7",
+    "cached_components": [
+      "Existing sibling API virtual environment; no dependency install or container used"
+    ],
+    "dependencies": {
+      "fastapi": "0.141.1",
+      "pydantic": "2.13.4",
+      "pytest": "9.1.1",
+      "ruff": "0.16.3"
+    },
+    "lock_sha256": {
+      "services/api/requirements.lock": "5489333890d2e4f19ca229e41a55fb4a3ab3448571a00d5d09c79f7712cfe202",
+      "services/api/requirements-dev.lock": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed"
+    },
+    "authentication": "Synthetic verifier and principal",
+    "persistence": "Repository spy; no connected database assertion",
+    "providers": "No external requests"
+  },
+  "other_checks": [
+    "Ruff check and format --check for the two changed Python files passed",
+    "git diff --check passed"
+  ],
+  "reproduction": "From repository root after the existing locked API setup, replace ../services/api/.venv/bin/python with services/api/.venv/bin/python in the commands above",
+  "source_file_sha256": {
+    "services/api/src/opengeo_api/workspace_routes.py": "ef2478af586edd59cf58d226a85f87e2204549caf752f0e897b872e82be89109",
+    "services/api/tests/test_workspace_routes.py": "c7345c45209d913613ba22c50db526b9bff0171f7f070b75d9cddc9c11a9715e"
+  },
+  "limits": [
+    "This closes the request/route default defect; connected persistence is covered separately by the retained browser journey",
+    "No fresh dependency installation, production authentication, cloud deployment or native publication acceptance"
+  ],
+  "usage": "Cached local checks only. Exact agent effort and monetary cost unavailable; no paid services used."
+}

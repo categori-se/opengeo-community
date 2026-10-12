@@ -147,9 +147,11 @@ Use route tests and source for these gaps; schema validation alone does not prov
 a user journey, provider integration or standards conformance.
 
 This default configuration omits the optional KML NetworkLink routes, which are
-registered only when their fetch feature is enabled. Explicit map definitions
-should include `measurements`: the current name-only creation default omits that
-required field and fails model validation. The documented request supplies it.
+registered only when their fetch feature is enabled. Name-only map creation uses
+a valid empty definition with `layers` and `measurements`. Explicit definitions
+must also include `measurements`; the documented request supplies it.
+[Request and route regressions](evidence/map-default.json) cover the name-only
+request and confirm the regenerated contract remains unchanged.
 
 ## Changes and caller responsibilities
 
