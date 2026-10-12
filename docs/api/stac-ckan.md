@@ -68,9 +68,8 @@ The [pinned primary reference](evidence/ckan-2.11.6-reference.json) identifies C
 2.11.6 commit `a22d24505d1a5f75820d43cc3b0656c2c6b925a2`, upstream file checksums
 and relevant schema/validator sections. Local checks are independently derived
 structural checks for this subset, not CKAN NAVL execution, an official JSON
-Schema or server conformance. No CKAN instance was available in the local image
-cache; dataset creation/readback, harvesting, synchronization and live portal
-integration remain unverified.
+Schema or general server conformance. The separate disposable server check below
+exercises CKAN's real creation and readback path for the supplied fixture.
 
 The [input](fixtures/stac-ckan-collection.json) and
 [selected output with both reports](evidence/stac-ckan-export.json) use synthetic,
@@ -81,3 +80,48 @@ for unchanged inbound CKAN behavior. Run them from `services/api`:
 ```bash
 .venv/bin/python -m pytest tests/test_ckan_export.py tests/test_ckan.py tests/test_ckan_routes.py
 ```
+
+## Disposable server check
+
+With Podman and the locked API environment installed, the local runner creates
+one synthetic dataset in CKAN 2.11.6, reads it back, deletes and purges it, checks
+the resulting HTTP 404, then removes its four containers, anonymous volumes and
+internal network. CKAN alone exposes a random loopback port. It uses real
+PostgreSQL, Solr and Redis, with digest-pinned images and unchanged CKAN validation.
+It configures the five core INI settings through CKAN's `config-tool` before the
+official startup script initializes the database.
+
+The runner requires the pinned PostgreSQL image to be cached first. For an
+independent setup, run these commands from the repository root:
+
+```bash
+podman pull docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932
+services/api/.venv/bin/python services/api/scripts/check_stac_ckan_local.py \
+  --allow-pull --output .opengeo/ckan-roundtrip.json
+```
+
+`--allow-pull` permits only the three pinned CKAN/Solr/Redis images to be fetched
+if missing; their manifest-declared compressed layers total 1,045,111,215 bytes.
+The default performs no pulls, so omit that option when all four images are
+cached. No image is built. The default 600-second budget includes cleanup;
+`--budget-seconds` may reduce it. Downloaded images remain in the local cache.
+
+Authentication uses a generated disposable local CKAN sysadmin and a real CKAN
+token, kept inside the process. The destination explicitly enables
+`create_unowned_dataset` and uses only the `envvars` plugin. These are local test
+settings, not grants derived from STAC. The exporter leaves ownership, visibility,
+license ID and grants absent; CKAN chooses its own defaults. This check does not
+exercise destination permission policy for ordinary users.
+
+The [selected server receipt](evidence/stac-ckan-roundtrip-local.json) records the
+source commit and dirty diff, exact commands, image identities, earlier failed
+attempts, all 12 assertions and synthetic readback. The verified run preserved
+the payload's name, title, notes, tags, self URL, reference resource fields and
+every namespaced provenance/publisher/extent/license/link extra. CKAN generated
+its own IDs and selected `private=false`, `state=active`, and null owner/license
+IDs. The raw fixture and canonical source checksums remained unchanged.
+
+This establishes a local Action API roundtrip for one fixture. CKAN UI,
+harvesting, synchronization, remote reference access and cloud acceptance remain
+unverified. Reference URLs were not fetched, and no provider was mocked in this
+server check.

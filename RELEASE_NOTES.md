@@ -49,21 +49,26 @@ dependencies on a hosted runner and passes the contract check and 89 focused tes
 The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) produces a reproducible dry-run
 dataset-create payload with retained source checksums and explicit conversion
 losses, checked against a subset derived from CKAN 2.11.6.
+A [disposable CKAN 2.11.6 round trip](docs/api/stac-ckan.md#disposable-server-check)
+creates and reads the fixture, verifies its provenance and resource references,
+then purges it and confirms cleanup.
 
-These local checks use cached dependencies and service images, synthetic sign-in
-and local object/queue transports. Browser persistence runs the actual built
-Studio with the API, PostGIS and GIS worker. The API route tests and inbound CKAN
-tests also use mocked repositories or providers, as recorded in their evidence.
+The Studio and authorization checks use cached dependencies and service images,
+synthetic sign-in and local object/queue transports. Browser persistence runs the
+actual built Studio with the API, PostGIS and GIS worker. The API route tests and
+inbound CKAN tests also use mocked repositories or providers, as recorded in their evidence.
+The CKAN round trip uses the real server with a generated local sysadmin identity;
+its receipt identifies the pinned images and reused cache.
 
 ## Installation and publication status
 
 The full suite is available for local development and self-hosting. Remaining
-acceptance work covers clean-machine dependency and service-image builds, an
-independent AWS installation, and the complete native Notebook/Framework build,
-preview and publication journey. The
+acceptance work covers a clean-machine installation of the full application and
+services, an independent AWS installation, and the complete native
+Notebook/Framework build, preview and publication journey. The
 [native publication readiness review](docs/api/native-publication-readiness.md)
-identifies the missing local runtime connections. CKAN server creation/readback,
-harvesting and synchronization are unverified. Binary distributions require
+identifies the missing local runtime connections. CKAN harvesting, synchronization
+and live portal integration remain unverified. Binary distributions require
 license and security review of their exact contents.
 
 The public demo and hosted publications show deployed examples. Fresh-install

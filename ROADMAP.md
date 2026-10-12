@@ -20,12 +20,15 @@ A further local pilot exercises selected GIS processing and static publication.
 The [API contract](docs/api/README.md) provides a reproducible offline interface
 and validated examples. The [STAC-to-CKAN exporter](docs/api/stac-ckan.md) produces
 inspectable dry-run dataset metadata with retained provenance and explicit losses.
-Local checks use cached dependencies/images and synthetic authentication and
-transport. Fresh-install/image builds, independent-account AWS acceptance and
-the complete standalone native Notebook/Framework publication journey remain
+A [disposable CKAN 2.11.6 check](docs/api/stac-ckan.md#disposable-server-check)
+creates and reads the fixture through the real Action API, then purges it and
+confirms cleanup. The application checks use cached dependencies/images and
+synthetic authentication and transport; the CKAN check uses a generated local
+sysadmin identity. Fresh-install/image builds, independent-account AWS acceptance
+and the complete standalone native Notebook/Framework publication journey remain
 open; the [readiness review](docs/api/native-publication-readiness.md) identifies
-the missing local runtime connections. CKAN server acceptance is separate from
-payload generation.
+the missing local runtime connections. CKAN harvesting, synchronization and live
+portal integration remain separate acceptance work.
 The [capability matrix](docs/community-capabilities.md) separates executable
 operations, metadata-only imports and retained definitions. The
 [workflow guide](docs/community-workflow.md) labels demonstrated and

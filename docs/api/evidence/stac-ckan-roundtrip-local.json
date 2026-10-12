@@ -1,0 +1,422 @@
+{
+  "assertion_scope": "Payload omission assertion proves exporter omission. Actual destination defaults are recorded separately; no ordinary-user permission or organization-policy acceptance is claimed.",
+  "assertions": [
+    "actual CKAN version is 2.11.6",
+    "readback name matches payload",
+    "readback title matches payload",
+    "readback notes matches payload",
+    "readback url matches payload",
+    "readback tags match payload",
+    "all provenance/publisher/extent/license/link extras match exactly",
+    "resource count matches payload",
+    "all declared resource reference fields match",
+    "CKAN creates its own resource and package IDs",
+    "payload contains no destination ownership, visibility, license ID or grants",
+    "purged fixture returns actual HTTP 404"
+  ],
+  "authentication": "Real CKAN token for generated disposable local sysadmin; no Cognito",
+  "checks": {
+    "earlier_failed_runs": "Preserved in execution_history and raw_evidence; no fixture creates or token creation before the final run.",
+    "git_diff_check": {
+      "command": "git diff --check",
+      "cwd": "repository root",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    "podman_version_probe": "Sandboxed podman --version failed reading rootless runtime configuration; the scoped elevated read passed with Podman 5.8.4.",
+    "real_ckan_roundtrip": {
+      "assertion_count": 12,
+      "command": "<cached-api-venv>/bin/python services/api/scripts/check_stac_ckan_local.py --budget-seconds 180 --output .opengeo/ckan-roundtrip-third.json",
+      "cwd": "repository root",
+      "exit_code": 0,
+      "result": "passed"
+    },
+    "ruff_format": {
+      "command": "<cached-api-venv>/bin/ruff format --check scripts/check_stac_ckan_local.py",
+      "cwd": "services/api",
+      "exit_code": 0,
+      "result": "passed",
+      "stdout": "1 file already formatted"
+    },
+    "ruff_lint": {
+      "command": "<cached-api-venv>/bin/ruff check scripts/check_stac_ckan_local.py",
+      "cwd": "services/api",
+      "exit_code": 0,
+      "result": "passed",
+      "stdout": "All checks passed!"
+    },
+    "selected_receipt_consistency": {
+      "assertions": [
+        "Exactly 12 successful real-run assertions and pass result",
+        "All final cleanup fields true",
+        "Current runner SHA256 equals actually executed final runner",
+        "418.28s equals sum of all three measured attempts and cleanup follow-up"
+      ],
+      "exit_code": 0,
+      "result": "passed"
+    },
+    "unchanged_exporter_checks": "No exporter/model/lock changes; retain Task4 offline 45-test evidence rather than rerun equivalent coverage."
+  },
+  "ckan_defaults": {
+    "license_id": null,
+    "owner_org": null,
+    "private": false,
+    "state": "active"
+  },
+  "cleanup": {
+    "ckan_container_and_volumes_removed": true,
+    "network_removed": true,
+    "new_images_retained_in_cache": true,
+    "postgres_container_and_volumes_removed": true,
+    "redis_container_and_volumes_removed": true,
+    "solr_container_and_volumes_removed": true
+  },
+  "cumulative_usage": {
+    "actual_wire_bytes": "unavailable",
+    "cloud_or_paid_operations": 0,
+    "does_not_measure": "Total agent effort, editing/review/research wall time, registry HTTP request count, actual network bytes or dollar cost.",
+    "execution_ceiling_seconds": 600,
+    "includes": "115.15 first run + 269.51 second run + 1.27 cleanup follow-up + 32.35 final run. Diagnostics during a running attempt overlap its elapsed time.",
+    "initial_cache": "PostGIS16.9 cached; CKAN, Solr and Redis were freshly pulled in attempt1. Attempts2 and3 reused all four images.",
+    "manifest_compressed_new_layer_bytes": 1045111215,
+    "measured_runner_and_cleanup_seconds": 418.28,
+    "new_builds": 0,
+    "new_pinned_image_pulls": 3,
+    "production_writes": 0,
+    "provider_data_requests": 0,
+    "retained_resources": "Only downloaded image cache; all owned runtime containers, their anonymous volumes and network removed."
+  },
+  "destination_configuration": {
+    "create_unowned_dataset": true,
+    "plugins": [
+      "envvars"
+    ]
+  },
+  "dirty_diff": {
+    "files": [
+      "README.md",
+      "docs/api/README.md",
+      "services/api/scripts/check_stac_ckan_local.py"
+    ],
+    "path": ".opengeo/ckan-roundtrip-third-start.patch",
+    "scope": "Full tracked dirty diff plus the untracked runner at actual execution start. README/API guide edits were concurrent documentation work; runtime inputs are separately hashed. Raw snapshot stays outside Git.",
+    "sha256": "09fa9a51fc81acd5ce84d79c4870112fc5ef5b96a8abf9645155cc3a55dbeda3"
+  },
+  "documentation_update": {
+    "dirty_diff": {
+      "excludes": "This receipt and concurrent API documentation increment",
+      "includes": [
+        "RELEASE_NOTES.md",
+        "ROADMAP.md",
+        "docs/api/stac-ckan.md",
+        "services/api/scripts/check_stac_ckan_local.py"
+      ],
+      "path": ".opengeo/stac-ckan-verified.patch",
+      "sha256": "b36c980ab4b3240a8558d52f0330ad729f2a8d3d1facf72b274822ddcdbf14df"
+    },
+    "note": "Runtime runner bytes match the executed final run; only documentation/selected evidence followed acceptance",
+    "source_commit": "6bc22caefd55c4ba5c3572109af702bf8aae6fb9"
+  },
+  "elapsed_seconds": 32.35,
+  "environment": {
+    "authentication": "Generated local CKAN sysadmin and real local token; no production credentials or synthetic token verifier.",
+    "interpreter": "Cached ../services/api/.venv/bin/python; the executed absolute prefix is redacted below. Independent reproduction uses the documented repository-local locked environment.",
+    "new_dependencies": false,
+    "podman": "5.8.4",
+    "providers": "No provider mocks and no remote reference URL fetches.",
+    "python": "3.14.7"
+  },
+  "errors": [],
+  "execution_history": [
+    {
+      "attempt": 1,
+      "cached_postgres": true,
+      "command": "<cached-api-venv>/bin/python services/api/scripts/check_stac_ckan_local.py --allow-pull --output .opengeo/ckan-roundtrip-local.json",
+      "diagnosis": "All three pulls completed; Podman image-inspect Go template .Id failed before network/container creation.",
+      "dirty_diff": "Start diff was not captured; source commit and untracked runner hash were retained. This failed preflight is not acceptance evidence.",
+      "elapsed_seconds": 115.15,
+      "fixture_creates": 0,
+      "network_or_containers_created": false,
+      "new_image_pulls": 3,
+      "result": "failed",
+      "runner_sha256": "3e6620526390a80cbbef4aa4f35f46b3b8d39161f03da977f78438325fd5fdd3",
+      "source_commit": "f097619a90f52ee5af4cc0569290594ea914271d",
+      "token_created": false
+    },
+    {
+      "assertions": [],
+      "attempt": 2,
+      "cleanup": {
+        "ckan_container_and_volumes_removed": false,
+        "network_removed": false,
+        "new_images_retained_in_cache": true,
+        "postgres_container_and_volumes_removed": true,
+        "redis_container_and_volumes_removed": true,
+        "solr_container_and_volumes_removed": false
+      },
+      "command": "<cached-api-venv>/bin/python services/api/scripts/check_stac_ckan_local.py --budget-seconds 480 --output .opengeo/ckan-roundtrip-second.json",
+      "diagnosis": "Official prerun calls db init before updating plugins. Legacy connectivity-check env names did not configure core INI values, and default datastore plugins remained active. Readiness exhausted its 120 polls.",
+      "dirty_diff": {
+        "path": ".opengeo/ckan-roundtrip-second-start.patch",
+        "sha256": "48e767b4eac726190c85bf8cb3e84efd46be890849d9a77cb030f1dfd6ae8513"
+      },
+      "elapsed_seconds": 269.51,
+      "errors": [
+        {
+          "detail": "redacted",
+          "stage": "bounded local journey",
+          "type": "TimeoutError"
+        },
+        {
+          "stage": "cleanup",
+          "type": "TimeoutExpired"
+        },
+        {
+          "stage": "cleanup",
+          "type": "TimeoutExpired"
+        }
+      ],
+      "fixture_creates": 0,
+      "method_change_during_attempt": "At t=165.93s, official config-tool wrote the four endpoint INI settings from existing scoped local env, followed by one CKAN-only restart. Endpoint values then resolved correctly, but default datastore plugins still blocked startup. A plugin correction command later returned 255 because cleanup had begun. No journey or committed write was replayed.",
+      "new_image_pulls": 0,
+      "result": "failed_cleanup_unconfirmed",
+      "runner_sha256": "9b991794c482cfe9b320f99352c33f599249769c04dc85f5db68a52b8f08c941",
+      "source_commit": "01fc635ec68c39e6ab04a72d669b00480ec05864",
+      "token_created": false
+    },
+    {
+      "cleanup_followup": true,
+      "confirmed_exit_codes": {
+        "ckan": {
+          "exists": 1,
+          "kill": 0,
+          "remove": 0
+        },
+        "network": {
+          "exists": 1,
+          "remove": 0
+        },
+        "solr": {
+          "exists": 1,
+          "kill": 0,
+          "remove": 0
+        }
+      },
+      "elapsed_seconds": 1.27,
+      "method": "Immediate SIGKILL and rm --force --time 0 --volumes for exact owned CKAN/Solr names; network removal; exact exists exit code 1.",
+      "result": "owned leftovers removed and verified absent"
+    },
+    {
+      "attempt": 3,
+      "command": "<cached-api-venv>/bin/python services/api/scripts/check_stac_ckan_local.py --budget-seconds 180 --output .opengeo/ckan-roundtrip-third.json",
+      "dirty_diff_sha256": "09fa9a51fc81acd5ce84d79c4870112fc5ef5b96a8abf9645155cc3a55dbeda3",
+      "elapsed_seconds": 32.35,
+      "fixture_creates": 1,
+      "method_change": "Preconfigure all five actual INI settings, including envvars-only plugins, through official config-tool BEFORE first unchanged official startup/prerun. Cleanup uses --time 0. No exporter, source validator or CKAN validator was changed.",
+      "new_image_pulls": 0,
+      "result": "pass_local_ckan_roundtrip",
+      "runner_sha256": "aae1ea3587e4112edbfa2a72552dae3587225c43aa71d7d0339679bf2901fec9",
+      "source_commit": "6bc22caefd55c4ba5c3572109af702bf8aae6fb9"
+    }
+  ],
+  "fixture_id": "783ab77b-f635-47b9-aca7-5c5df39d48a8",
+  "images": {
+    "ckan": {
+      "cached_before": true,
+      "identity": {
+        "digests": [
+          "docker.io/ckan/ckan-base@sha256:49d527b4f5a08ae47a5e6a2f293daa1db49d08484d1a4383d072262e5746320c"
+        ],
+        "id": "f43c170f279e7754fc95eb43ae3cf97d27ac346342897a547ea0fa0bc6cc24c5"
+      },
+      "reference": "docker.io/ckan/ckan-base@sha256:49d527b4f5a08ae47a5e6a2f293daa1db49d08484d1a4383d072262e5746320c"
+    },
+    "postgres": {
+      "cached_before": true,
+      "identity": {
+        "digests": [
+          "docker.io/postgis/postgis@sha256:7ae3ab3e0fcdcaefdaa8232c8bb7cc8ef5bc99d516c7640eb8a9601ba38878cc",
+          "docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932"
+        ],
+        "id": "8a7479de3b6fe7d379b2d6617a06126ee902a594f7e110fdb6ee5f2ac578fb67"
+      },
+      "reference": "docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932"
+    },
+    "redis": {
+      "cached_before": true,
+      "identity": {
+        "digests": [
+          "docker.io/library/redis@sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2"
+        ],
+        "id": "f84b0c4678011602b9b98c227a4dcd5468bf8b088b02fdd4165cb7758bad8058"
+      },
+      "reference": "docker.io/library/redis@sha256:ca0acbb137c1dc3339c8b147a58fd6f42775d4599327b50e7b116c23de501af2"
+    },
+    "solr": {
+      "cached_before": true,
+      "identity": {
+        "digests": [
+          "docker.io/ckan/ckan-solr@sha256:ef8e5d3e6be1678cfe50ceb14a8ebf16c36d44aac2de1086a285ce6807af64e6"
+        ],
+        "id": "4d74079f7db7bfd0b5bd58a29d443ab114cd260f8aa5174818781fdd696edb7d"
+      },
+      "reference": "docker.io/ckan/ckan-solr@sha256:ef8e5d3e6be1678cfe50ceb14a8ebf16c36d44aac2de1086a285ce6807af64e6"
+    }
+  },
+  "limits": {
+    "actual_wire_bytes": "unavailable",
+    "cleanup_reserved_seconds": 45.0,
+    "fixture_count": 1,
+    "manifest_compressed_layer_bytes": 1045111215,
+    "maximum_new_pulls": 3,
+    "pull_seconds": 240,
+    "total_seconds": 180
+  },
+  "not_proven": [
+    "CKAN UI",
+    "harvesting",
+    "synchronization",
+    "cloud acceptance",
+    "destination permission policy beyond synthetic sysadmin",
+    "remote reference access",
+    "package_update merge behavior",
+    "general CKAN schema or plugin conformance"
+  ],
+  "official_startup_reference": {
+    "commit": "77e892aada4209fced5bdfd9a8e1d32ae17e3fb3",
+    "files": [
+      {
+        "path": "ckan-2.11/Dockerfile",
+        "sha256": "8ca1ff1aa59c896792769bd4de3c8963a173f8dc35abfc7d4bc31ca807b54077",
+        "url": "https://raw.githubusercontent.com/ckan/ckan-docker-base/77e892aada4209fced5bdfd9a8e1d32ae17e3fb3/ckan-2.11/Dockerfile"
+      },
+      {
+        "path": "ckan-2.11/setup/prerun.py",
+        "sha256": "e5117af2a4560b95d10ce306b8e88cb52533fb570372996c7d694f65d1cca2d2",
+        "url": "https://raw.githubusercontent.com/ckan/ckan-docker-base/77e892aada4209fced5bdfd9a8e1d32ae17e3fb3/ckan-2.11/setup/prerun.py"
+      },
+      {
+        "path": "ckan-2.11/setup/start_ckan.sh",
+        "sha256": "e94e4b3642f296198b74954ba09806b917f8eb61b947fc0a170d436b8c7ba478",
+        "url": "https://raw.githubusercontent.com/ckan/ckan-docker-base/77e892aada4209fced5bdfd9a8e1d32ae17e3fb3/ckan-2.11/setup/start_ckan.sh"
+      }
+    ],
+    "repository": "ckan/ckan-docker-base",
+    "research_usage": "Five bounded primary-source GET attempts (one wrong-branch 422, corrected once), plus three registry manifest inspections; underlying registry HTTP/cache request count unavailable. No additional reference requests during runtime."
+  },
+  "outcome": "One synthetic STAC export accepted, read back and purged through real disposable CKAN 2.11.6 Action API",
+  "payload_sha256": "daba526583ec5846206cfe2c73a14dcf2e0478535f44d820ef5f5b2fefedc8f4",
+  "raw_evidence": {
+    ".opengeo/ckan-roundtrip-first.json": "bf3bd678a39eccc8a59194383515c00ff7a05de451f229f6150428a7664b0616",
+    ".opengeo/ckan-roundtrip-first.log": "e7cf70097e0dd1af7cdedb72ba8e222c7aa4385c808186d0d5ed92e06f41a292",
+    ".opengeo/ckan-roundtrip-second-cleanup-followup.json": "4d44e9b2b848129709741c083cbfddbaa59475409f4cd6035e1754be2a96dcb3",
+    ".opengeo/ckan-roundtrip-second-configuration-correction.json": "d682703ccf0d31ff35d29dea04dfcb2bd343cb79b070671d791a49139025270b",
+    ".opengeo/ckan-roundtrip-second-start.patch": "48e767b4eac726190c85bf8cb3e84efd46be890849d9a77cb030f1dfd6ae8513",
+    ".opengeo/ckan-roundtrip-second.json": "913cf6f32d56273843b85b20f6bfcf9196a7279adb4395ee50a7c56bd5bb0389",
+    ".opengeo/ckan-roundtrip-second.log": "f68049b974e70e605ab674500b0eb36666b384a6603e570eca07e4430066d3b1",
+    ".opengeo/ckan-roundtrip-third-start.patch": "09fa9a51fc81acd5ce84d79c4870112fc5ef5b96a8abf9645155cc3a55dbeda3",
+    ".opengeo/ckan-roundtrip-third.json": "ad4d1a794331a507a8fdaaecfc1292d696e92ec55355e8a703a60d98c921f87e",
+    ".opengeo/ckan-roundtrip-third.log": "8067f76f73341a0eb45cc7dd23987125e00aa14144e7adf0aec73b5558903ac8"
+  },
+  "raw_evidence_handling": "Raw logs and execution snapshots remain outside Git. Selected readback is synthetic; passwords/token omitted. Logs were checked for JWT/credential-URL patterns without printing credentials.",
+  "raw_fixture_sha256": "0e971d6d447c7d683e797bd41cc9d1d680a5410ff7338ab934914e6386fec21e",
+  "reproduction_commands": {
+    "actual_environment": "Inherited host environment for Podman; only the explicit generated local CKAN settings are forwarded into CKAN. Loopback HTTP ignores host proxies and refuses redirects.",
+    "actual_successful_command": "<cached-api-venv>/bin/python services/api/scripts/check_stac_ckan_local.py --budget-seconds 180 --output .opengeo/ckan-roundtrip-third.json",
+    "cached_run": "services/api/.venv/bin/python services/api/scripts/check_stac_ckan_local.py --output .opengeo/ckan-roundtrip.json",
+    "independent_first_run": "services/api/.venv/bin/python services/api/scripts/check_stac_ckan_local.py --allow-pull --output .opengeo/ckan-roundtrip.json",
+    "independent_postgres_prerequisite": "podman pull docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932"
+  },
+  "resource_ids": [
+    "ff310b39-8d8a-4dec-8705-f4fd65b39989"
+  ],
+  "result": "pass_local_ckan_roundtrip",
+  "rights": "Synthetic first-party fixture and example domains; license=other is retained only as a declared metadata extra. No open license assigned to referenced data.",
+  "runner_sha256": "aae1ea3587e4112edbfa2a72552dae3587225c43aa71d7d0339679bf2901fec9",
+  "selected_readback": {
+    "extras": [
+      {
+        "key": "opengeo:declared_license",
+        "value": "other"
+      },
+      {
+        "key": "opengeo:publishers",
+        "value": "[{\"name\":\"Example Research Group\",\"roles\":[\"publisher\"]}]"
+      },
+      {
+        "key": "opengeo:source",
+        "value": "{\"checksumBasis\":\"canonical_json\",\"sourceFormat\":\"stac_1_1\",\"sourceIdentifier\":\"synthetic-facilities-2026\",\"sourceNamespace\":\"example.synthetic\",\"sourceSha256\":\"33c4e3e74bc33966a09c7c2398f483cf7b4e370da328b18c79b03d7a9b991375\",\"sourceVersion\":\"1.1.0\"}"
+      },
+      {
+        "key": "opengeo:spatial_extent",
+        "value": "[84,27,86,29]"
+      },
+      {
+        "key": "opengeo:stac_links",
+        "value": "[{\"href\":\"https://catalog.example.test/collections/synthetic-facilities-2026\",\"rel\":\"self\",\"type\":\"application/json\"},{\"href\":\"https://data.example.test/synthetic-facilities.geojson\",\"rel\":\"enclosure\",\"title\":\"Synthetic facilities reference\",\"type\":\"application/geo+json\"},{\"href\":\"https://terms.example.test/synthetic-metadata\",\"rel\":\"license\"}]"
+      },
+      {
+        "key": "opengeo:temporal_start",
+        "value": "2026-01-01T00:00:00+00:00"
+      }
+    ],
+    "id": "783ab77b-f635-47b9-aca7-5c5df39d48a8",
+    "name": "stac-662a2e1e66c7a62376ad1c6ec2557933d7257f8de046cbc16f495a7685b55484",
+    "notes": "Redistributable synthetic metadata for an offline exporter example; no observations or remote access are asserted.",
+    "resources": [
+      {
+        "cache_last_updated": null,
+        "cache_url": null,
+        "created": "2026-10-12T00:50:34.650027",
+        "description": "Declared STAC enclosure reference",
+        "format": "",
+        "hash": "",
+        "id": "ff310b39-8d8a-4dec-8705-f4fd65b39989",
+        "last_modified": null,
+        "metadata_modified": "2026-10-12T00:50:34.634909",
+        "mimetype": "application/geo+json",
+        "mimetype_inner": null,
+        "name": "Synthetic facilities reference",
+        "package_id": "783ab77b-f635-47b9-aca7-5c5df39d48a8",
+        "position": 0,
+        "resource_type": null,
+        "size": null,
+        "state": "active",
+        "url": "https://data.example.test/synthetic-facilities.geojson",
+        "url_type": null
+      }
+    ],
+    "tags": [
+      {
+        "display_name": "facilities",
+        "id": "72867b9a-5fad-4dbf-b9f3-61e30fefae12",
+        "name": "facilities",
+        "state": "active",
+        "vocabulary_id": null
+      },
+      {
+        "display_name": "synthetic",
+        "id": "46913660-5619-4832-8ac5-4f7be96ad721",
+        "name": "synthetic",
+        "state": "active",
+        "vocabulary_id": null
+      }
+    ],
+    "title": "Synthetic public facilities",
+    "url": "https://catalog.example.test/collections/synthetic-facilities-2026"
+  },
+  "source_commit": "6bc22caefd55c4ba5c3572109af702bf8aae6fb9",
+  "source_file_sha256": {
+    "docs/api/evidence/stac-ckan-export.json": "7c417ff901b334b9d2c5dd5d2faa52360cebd0adeddaf9f55661a33dc7faade6",
+    "docs/api/fixtures/stac-ckan-collection.json": "0e971d6d447c7d683e797bd41cc9d1d680a5410ff7338ab934914e6386fec21e",
+    "services/api/requirements-dev.lock": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed",
+    "services/api/requirements.lock": "5489333890d2e4f19ca229e41a55fb4a3ab3448571a00d5d09c79f7712cfe202",
+    "services/api/scripts/check_stac_ckan_local.py": "aae1ea3587e4112edbfa2a72552dae3587225c43aa71d7d0339679bf2901fec9",
+    "services/api/src/opengeo_api/ckan_export.py": "15c0d33bed0d097b7e798778041787259b8b20134bdb715071941da4f5780059",
+    "services/api/src/opengeo_api/json_canonical.py": "effb9a369be59f0ab476d045c835b37d19be33f6f64ed40bcecfc6820b7532cf",
+    "services/api/src/opengeo_api/metadata_adapters.py": "27b085c7335d308dac195a71fa1a3c769c701d9f37e9d04059aa1f8ff6cec59e"
+  },
+  "source_sha256": "33c4e3e74bc33966a09c7c2398f483cf7b4e370da328b18c79b03d7a9b991375",
+  "transport": "loopback HTTP and internal disposable Podman network",
+  "working_directory": "repository root"
+}
