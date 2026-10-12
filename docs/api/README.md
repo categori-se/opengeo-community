@@ -1,16 +1,34 @@
-# OpenGeo API contract
+# OpenGeo Studio API
 
-Inspect the current backend interface without a database, sign-in or hosted
-deployment. [openapi.json](openapi.json) is generated from the maintained FastAPI
-application; [examples.json](examples.json) contains synthetic request and response
-examples validated against its Python models. These files describe the current
-OpenGeo contract, including incomplete specification coverage.
+Use the HTTP API to register and inspect sources, save and reopen versioned maps,
+and prepare or review publication inputs. This guide explains the calling
+conventions and representative workflows. The generated [OpenAPI 3.1 contract](openapi.json)
+lists the current routes and models; [request and response examples](examples.json)
+contain synthetic values validated against the Python models.
 
-From the repository root, using the API's [locked development environment](../../services/api/README.md#local-checks):
+Start with [authentication and tenant scope](#authentication-and-scope), then
+[make a read request](#first-read-and-pagination). The workflow sections cover
+[sources](#read-and-register-a-source), [maps](#save-and-reopen-a-map) and
+[publication preparation/review](#prepare-and-review-a-native-publication).
+See [errors and schema limits](#errors-and-specification-limits) and
+[compatibility policy](#changes-and-caller-responsibilities) when building a client.
+
+## Check the contract locally
+
+Inspect and validate the interface without a database, sign-in or hosted
+deployment. From the repository root, create the API's
+[locked development environment](../../services/api/README.md#local-checks) with Python 3.14:
 
 ```bash
+python3.14 -m venv services/api/.venv
+services/api/.venv/bin/python -m pip install --require-hashes \
+  --requirement services/api/requirements-dev.lock
 services/api/.venv/bin/python services/api/scripts/export_openapi.py --check
 ```
+
+Dependency installation needs a package index or a populated package cache. Once
+installed, the contract check itself runs offline. Reuse the existing environment
+when the lockfile is unchanged.
 
 The check compares two fresh-process exports with the saved contract, validates
 FastAPI's document model, local references, unique operation IDs and OpenAPI 3.1
@@ -27,6 +45,27 @@ records the exact reproduction command, assertions and cached environment. Those
 checks use synthetic token verification, in-memory repositories and mocked input
 resolution; they do not establish connected authentication, persistence, provider
 access or cloud delivery.
+
+## Browse local Swagger documentation
+
+With the same environment installed, start the existing API on loopback:
+
+```bash
+PYTHONPATH=services/api/src OPEN_GEO_ENV=dev OPEN_GEO_HOST=127.0.0.1 \
+  OPEN_GEO_PORT=8080 OPEN_GEO_EXPOSE_DOCS=true \
+  services/api/.venv/bin/python -m opengeo_api
+```
+
+Open `http://127.0.0.1:8080/docs`; the schema is at `/openapi.json`. Both routes
+are disabled by default, and ReDoc is not served. This command opts in for local
+development; it does not change deployment configuration. Swagger uses FastAPI's
+standard CDN assets, so its browser UI is not fully offline. Without configured
+database and Cognito settings, documentation and liveness are available while
+readiness and authenticated operations remain unavailable. Use the
+[connected local environment](../community-development.md) for application
+workflows with synthetic sign-in and local transports.
+[Selected docs-route checks](evidence/api-docs.json) record the local HTML/schema
+responses; they do not establish browser asset loading or connected authentication.
 
 ## Authentication and scope
 
@@ -48,6 +87,27 @@ publication review requires `SITE_PUBLISH` (project owner/reviewer). Organizatio
 administrators are allowed by the role matrix, with resource scope still checked.
 See [authorization.py](../../services/api/src/opengeo_api/authorization.py) and the
 repositories for the full decisions.
+
+## First read and pagination
+
+For your configured installation, set `OPENGEO_API_BASE_URL` to its API base URL
+(including any gateway prefix), `OPENGEO_ACCESS_TOKEN` to your access token, and
+`OPENGEO_ORGANIZATION_ID` to a current membership's UUID. This lists up to ten
+accessible workspaces through the legacy `/projects` route:
+
+```bash
+curl --fail-with-body \
+  --header "Authorization: Bearer ${OPENGEO_ACCESS_TOKEN}" \
+  --header "X-OpenGeo-Organization: ${OPENGEO_ORGANIZATION_ID}" \
+  "${OPENGEO_API_BASE_URL}/projects?limit=10&offset=0"
+```
+
+Workspace and source list routes use `limit` (default 50, range 1–100) and
+`offset` (default 0, range 0–10,000), returning JSON arrays. Increase the offset
+for the next page; consult the OpenAPI operation for other lists' parameters.
+Responses include `X-Request-ID` for correlating a result or error with logs.
+The read example requires a configured account; it is separate from the offline
+contract check above.
 
 ## Read and register a source
 

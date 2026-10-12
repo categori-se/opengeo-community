@@ -37,6 +37,13 @@ regexes = [
 ]
 
 [[allowlists]]
+description = "Exact existing OpenAPI checksum in documentation-route evidence"
+condition = "AND"
+paths = ['''(^|/)docs/api/evidence/api-docs\.json$''']
+regexTarget = "line"
+regexes = ['''^\s*"docs/api/openapi\.json": "b516dc5cb011449328999bd32fcf8ffc51a9942e050e0e4fa22dd9d2a4b93330",$''']
+
+[[allowlists]]
 description = "Exact synthetic preview idempotency UUID in API client test"
 condition = "AND"
 paths = ['''(^|/)app/test/api-client\.test\.mjs$''']

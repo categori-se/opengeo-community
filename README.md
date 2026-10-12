@@ -15,7 +15,8 @@ installation and publishing limits.
 
 [Try the demo](https://demo.studio.opengeo.tools/) ·
 [Explore published work](https://opengeo.tools/projects/) ·
-[Run locally](docs/community-development.md)
+[Run locally](docs/community-development.md) ·
+[API documentation](docs/api/README.md)
 
 ## Work from source to publication
 
@@ -75,13 +76,20 @@ npm ci --prefix app
 npm run dev -- --host 127.0.0.1
 ```
 
-The [API contract](docs/api/README.md) supports client development with an offline
-export and validated examples. The [AWS guide](docs/community-aws.md) covers an
-installation in your own account; [our deployment guide](docs/community-deployments.md)
+The [AWS guide](docs/community-aws.md) covers an installation in your own account;
+[our deployment guide](docs/community-deployments.md)
 explains the public site, hosted Studio and demo.
 
 Follow the [roadmap](ROADMAP.md), [make a first contribution](CONTRIBUTING.md#make-a-first-contribution)
 or ask a question through [community support](SUPPORT.md#community-help).
+
+## API documentation
+
+Use Studio's HTTP API to work with sources, versioned maps and publication
+preparation and review. The [API guide](docs/api/README.md) explains authentication,
+tenant headers, pagination, revisions and errors. Browse the generated
+[OpenAPI contract](docs/api/openapi.json) and [validated examples](docs/api/examples.json),
+or follow the guide to check the contract offline and open local Swagger docs.
 
 ## License and support
 

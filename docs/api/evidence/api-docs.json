@@ -1,0 +1,189 @@
+{
+  "schema": "opengeo.selected-api-documentation.1.0.0",
+  "source_commit": "6bc22caefd55c4ba5c3572109af702bf8aae6fb9",
+  "dirty_diff": {
+    "files": [
+      "README.md",
+      "docs/api/README.md",
+      ".gitleaks.toml"
+    ],
+    "command": "git diff HEAD -- README.md docs/api/README.md .gitleaks.toml",
+    "sha256": "95e4367831da87a03b5d01e96bcbe6e957a7a463eb31581faea7370093527493",
+    "scope": "Documentation and exact existing contract-checksum secret-scan exception only; runtime/schema/examples unchanged. Receipt excluded to avoid self-reference.",
+    "path": ".opengeo/api-docs/documentation.patch"
+  },
+  "working_directory": "repository root",
+  "executed_command": "../services/api/.venv/bin/python .opengeo/api-docs/smoke.py > .opengeo/api-docs/smoke-direct.log 2>&1",
+  "execution_interpreter": "Cached ../services/api/.venv/bin/python; local absolute prefix omitted.",
+  "reproduction_command": "services/api/.venv/bin/python -c 'import json; exec(\"\\n\".join(json.load(open(\"docs/api/evidence/api-docs.json\"))[\"reproduction_python\"]))'",
+  "reproduction_python": [
+    "import faulthandler",
+    "import json",
+    "import logging",
+    "import os",
+    "from pathlib import Path",
+    "import sys",
+    "",
+    "os.environ.clear()",
+    "root = Path.cwd()",
+    "os.environ.update({'AWS_EC2_METADATA_DISABLED': 'true', 'AWS_CONFIG_FILE': '/dev/null',",
+    "                   'AWS_SHARED_CREDENTIALS_FILE': '/dev/null'})",
+    "faulthandler.dump_traceback_later(45, exit=True)",
+    "sys.path.insert(0, str(root / 'services/api/src'))",
+    "sys.path.insert(0, str(root / 'services/api/tests'))",
+    "logging.disable(logging.CRITICAL)",
+    "from asgi_test_client import DirectAsgiClient as TestClient",
+    "from opengeo_api.app import create_app",
+    "from opengeo_api.config import Settings",
+    "",
+    "observations = []",
+    "for exposed in (False, True):",
+    "    client = TestClient(create_app(Settings(env='test', expose_docs=exposed)))",
+    "    try:",
+    "        print('Checking exposed=' + str(exposed), file=sys.stderr, flush=True)",
+    "        docs = client.get('/docs')",
+    "        schema = client.get('/openapi.json')",
+    "        redoc = client.get('/redoc')",
+    "        assert docs.status_code == (200 if exposed else 404)",
+    "        assert schema.status_code == (200 if exposed else 404)",
+    "        assert redoc.status_code == 404",
+    "        row = {'expose_docs': exposed, 'docs': docs.status_code,",
+    "               'openapi': schema.status_code, 'redoc': redoc.status_code}",
+    "        if exposed:",
+    "            assert 'text/html' in docs.headers['content-type']",
+    "            assert 'SwaggerUIBundle' in docs.text",
+    "            document = schema.json()",
+    "            assert document['openapi'] == '3.1.0'",
+    "            assert document['info']['version'] == '0.1.0'",
+    "            for route in ('/projects/{project_id}/maps',",
+    "                          '/projects/{project_id}/sources',",
+    "                          '/projects/{project_id}/source-projects/{source_project_id}/publications/reviews'):",
+    "                assert route in document['paths']",
+    "            row.update(openapi_version=document['openapi'], api_version=document['info']['version'],",
+    "                       paths=len(document['paths']), schemas=len(document['components']['schemas']))",
+    "        observations.append(row)",
+    "    finally:",
+    "        pass",
+    "faulthandler.cancel_dump_traceback_later()",
+    "print(json.dumps({'result': 'pass', 'observations': observations, 'requests': 6,",
+    "                  'network': 'in-process ASGI only; no provider routes or browser assets requested',",
+    "                  'environment': 'cleared before app imports', 'lifespan': 'not entered'}, sort_keys=True))"
+  ],
+  "result": {
+    "exit_code": 0,
+    "selected_stdout": {
+      "environment": "cleared before app imports",
+      "lifespan": "not entered",
+      "network": "in-process ASGI only; no provider routes or browser assets requested",
+      "observations": [
+        {
+          "docs": 404,
+          "expose_docs": false,
+          "openapi": 404,
+          "redoc": 404
+        },
+        {
+          "api_version": "0.1.0",
+          "docs": 200,
+          "expose_docs": true,
+          "openapi": 200,
+          "openapi_version": "3.1.0",
+          "paths": 398,
+          "redoc": 404,
+          "schemas": 449
+        }
+      ],
+      "requests": 6,
+      "result": "pass"
+    },
+    "selected_stderr": [
+      "Checking exposed=False",
+      "Checking exposed=True"
+    ],
+    "warning": "The cached interpreter emitted sys.prefix/sys.exec_prefix warnings for its relative path; private absolute prefixes omitted."
+  },
+  "actual_assertions": [
+    "With expose_docs=False, GET /docs, /openapi.json and /redoc each returns 404.",
+    "With expose_docs=True, GET /docs returns 200 text/html containing SwaggerUIBundle.",
+    "With expose_docs=True, GET /openapi.json returns 200 with OpenAPI 3.1.0 and API version 0.1.0.",
+    "The returned schema includes source registration, map creation and native publication-review paths; it has 398 paths and 449 component schemas.",
+    "ReDoc returns 404 in both configurations."
+  ],
+  "source_default": "Settings.expose_docs defaults to False in config.py; the route smoke explicitly tests False and True.",
+  "request_count": 6,
+  "transport": "Maintained services/api/tests/asgi_test_client.py DirectAsgiClient, as used by the route suite, against the actual current create_app; in-process ASGI, no socket transport and no lifespan entry.",
+  "environment": "Cleared before application imports; AWS metadata disabled and AWS credential/config file locations set to /dev/null.",
+  "authentication": "Not exercised. Documentation routes are unauthenticated when enabled; no token, synthetic identity or Cognito request participates.",
+  "substitutions": [
+    "Direct ASGI transport instead of a browser or listening HTTP server"
+  ],
+  "cached_components": [
+    "Existing API development virtual environment; no install or dependency build"
+  ],
+  "dependency_identities": {
+    "python": "3.14.7",
+    "fastapi": "0.141.1",
+    "pydantic": "2.13.4",
+    "httpx2": "2.12.0"
+  },
+  "source_file_sha256": {
+    "README.md": "c434ef7387e5da09c47843c2a2322985a8fb6e237294d9676b11a1e75e04bc4a",
+    "docs/api/README.md": "eef13dfcc5e10411b6c497e872adcbe05ef517e45a8230fbe8d3a325501dd938",
+    "services/api/src/opengeo_api/app.py": "cd8ec8faea972297c67d277bbf3ebb6ff417e8d14854ac9f0e22c7fdfe5ce022",
+    "services/api/src/opengeo_api/config.py": "981386ab1e2a35b6b5985950599dae7be5fae8f7b4766096639e02a54c20c004",
+    "services/api/src/opengeo_api/__main__.py": "b7bc655415a107e3569cd317a70a0fff35a32aa0774d13289549542a31bc5f53",
+    "services/api/tests/asgi_test_client.py": "567ec4b36e4ce4ee3ccc3a52bbf86ce78420f7a7a21e915e0cb48846d8aef29f",
+    "services/api/requirements-dev.lock": "c77d1c35599f2f076550ba919117d006810d2925466254dc5bea6ae569ab84ed",
+    "docs/api/openapi.json": "b516dc5cb011449328999bd32fcf8ffc51a9942e050e0e4fa22dd9d2a4b93330",
+    "docs/api/examples.json": "726a16b1f9008c8f4a9fc6b096899f80a3fe7447323d6d27919b3b118df33094",
+    ".gitleaks.toml": "a2b2ce16d16686df1cc7472f7a35b692026bbfb1980035487e6f0b43b09847fd"
+  },
+  "retained_evidence": {
+    "script": ".opengeo/api-docs/smoke.py",
+    "script_sha256": "19746634d7ed9b86209b0a763f288f34b736851c315ebc1e18b6c111e6dbcc58",
+    "command": ".opengeo/api-docs/smoke.command",
+    "raw_log": ".opengeo/api-docs/smoke-direct.log",
+    "raw_log_sha256": "5beda441c4ffb3ecc2a79aa04a4c1c48f08eaee1182d67b4cd93367cb63d5af4"
+  },
+  "earlier_harness_attempts": [
+    {
+      "method": "Starlette TestClient plus exporter audit guard",
+      "exit_code": 130,
+      "result": "Interrupted after stalling before any completed request assertions.",
+      "raw_log_sha256": "2ddab7f18747bc5e6fd35f1d5af806cda446803d2b8b2fcb8ca7d1579876484f"
+    },
+    {
+      "method": "Same TestClient with bounded diagnostic",
+      "exit_code": 1,
+      "result": "12-second faulthandler timeout; main thread waited on the AnyIO asyncio portal. No blocked audit event recorded.",
+      "raw_log_sha256": "476c69219be7899d32de19af31145c85d22fd0d744369600b32c4c06f7d20382"
+    },
+    {
+      "method": "TestClient without the audit guard",
+      "exit_code": 1,
+      "result": "45-second faulthandler timeout at the same portal; removing the guard did not resolve the stall.",
+      "raw_log_sha256": "67c031ced45ea3bb03f40f1d922c3f8fdf3a1b15ff9c5e159d441a1934d7d702"
+    }
+  ],
+  "method_change": "Existing tests/conftest.py documents this Python 3.14 Starlette portal incompatibility and substitutes the maintained DirectAsgiClient. The final check reused that existing adapter. The audit guard was not established as the cause; no application code changed.",
+  "limits": [
+    "No Uvicorn/server or browser launched",
+    "Swagger CDN assets were not fetched",
+    "No authenticated endpoint, provider, database or lifespan exercised",
+    "No production documentation enabled",
+    "No cloud or connected acceptance",
+    "No exporter rerun: schema and model-example inputs unchanged"
+  ],
+  "selection": "Actual six-request local observations and selected failure diagnostics. Private absolute filesystem prefixes remain only in uncommitted raw logs; public fixture/model files are unchanged.",
+  "packaging_commit": "9a1700996034c9db3d7f692d00c8a4292a230aec",
+  "source_relationship": "Smoke started from source_commit plus the two documented README/guide changes. An unrelated CKAN local-check increment was committed during packaging; the application/config/entrypoint and maintained ASGI client blobs are unchanged from source_commit.",
+  "documentation_copy_update": "After route verification, first-read wording was corrected to at most ten legacy workspaces; runtime, schema, example and test-client inputs remain unchanged.",
+  "other_checks": [
+    "47 changed-guide local links/anchors and four shell-block syntax checks passed",
+    "Root verified current runtime/source and raw-script/log hashes, six actual observations and reproduction Python syntax",
+    "Staged Gitleaks passed; first generic-api-key finding was this existing OpenAPI checksum, independently verified and allowed only by exact receipt path, anchored field and digest",
+    "Exact exception positive and changed-value/field/path negative controls passed; default rules remain active",
+    "git diff --check passed"
+  ],
+  "usage": "Cached local environment; no dependency install, exporter rerun, provider/database calls, containers or remote CI run for this documentation increment. Three retained TestClient harness stalls preceded the maintained direct-ASGI method. Total agent effort and exact documentation-check elapsed time unavailable; no dollar cost asserted."
+}
