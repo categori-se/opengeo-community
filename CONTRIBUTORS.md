@@ -1,30 +1,28 @@
 # Contributors
 
-Developed by categori.se; maintained by Aaron Kyle Dennis.
+Developed and maintained by Aaron Kyle Dennis for categori.se.
 
-- [Aaron Kyle Dennis / aaronkyle](https://github.com/aaronkyle) — founding
-  maintainer of OpenGeo Studio; historical first-party commits
-  also use the name Aaron Dennis.
-- Upstream authors and contributors — retained in their source files, LICENSE
-  and NOTICE files, the [acknowledgements](ACKNOWLEDGEMENTS.md) and maintained
+- [Aaron Kyle Dennis / aaronkyle](https://github.com/aaronkyle) — development
+  and maintenance of OpenGeo Studio.
+- Upstream authors and contributors — credited in their source files, LICENSE
+  and NOTICE files, the [acknowledgements](ACKNOWLEDGEMENTS.md) and
   [foundation register](governance/open-source-foundations.json).
 
-The initial public release is a reviewed workspace snapshot. Original private
-history remains retained privately. This list records known credits; it does not
-assert sole copyright ownership or replace upstream contribution records.
-Public commits and sign-off trailers preserve contributions after this release.
-Update this list when a contributor requests a public credit or correction.
+We welcome contributions to the software, documentation and cartographic methods.
+Contributions are recorded in the repository history, sign-off trailers and
+applicable source notices. See our [contribution policy](CONTRIBUTING.md).
 
-## Maintainer focus and review
+## Project focus
 
-The founding maintainer's focus is retaining the evidence behind useful spatial
-work: which input supported a map, what was preserved, which assumptions entered
-the method and what another practitioner can inspect. Persistent resources,
-explicit custody and analytical Publications express those concerns in the
-software's design.
+Our focus is practical spatial analysis that can be inspected, reproduced and
+reused across studies. Maps and publications should make their sources, methods
+and assumptions clear while preserving the underlying data and its history.
 
-Current maintenance is led by the named founding maintainer, with contribution
-review guided by the [contribution policy](CONTRIBUTING.md). Reviews check the
-user task, source rights and credit, access/data preservation, compatibility
-limits and appropriate focused verification. This record does not imply an
-established multi-maintainer team or completed production support acceptance.
+## Maintenance and contributions
+
+Maintenance will continue to focus on dependable data connections, clear metadata,
+reusable cartography and analysis that others can verify. We preserve resource
+identities, access controls and source attribution as the software evolves.
+
+We review contributions for practical value, clear design, source credit, data
+preservation and focused verification of the affected workflow.

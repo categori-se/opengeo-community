@@ -23,9 +23,8 @@ software and do not change the community source license. See
 [support and service inquiries](../SUPPORT.md#hosting-and-enterprise-support)
 for contact details; engagement scope, terms and availability are agreed separately.
 
-Developed by categori.se; maintained by Aaron Kyle Dennis. The public maintainer
-is `aaronkyle` (`2301690+aaronkyle@users.noreply.github.com`). This credit does not establish sole ownership of every file or replace existing copyright
-holders. Publish accurate holder notices where known; do not invent ownership.
+Developed and maintained by Aaron Kyle Dennis for categori.se. Upstream files
+retain their original copyright holders and license notices.
 
 ## Initial distribution
 

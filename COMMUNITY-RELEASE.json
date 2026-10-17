@@ -135,6 +135,11 @@
       "localLinks": 266,
       "embeddedImages": 0,
       "result": "Published; 18 exact public files and image removal verified on main, anonymous README bytes match."
+    },
+    "authorshipAndVoice": {
+      "credit": "Developed and maintained by Aaron Kyle Dennis for categori.se",
+      "scope": "Contributors, README, NOTICE and licensing credit; project purpose and ongoing maintenance priorities use a professional corporate voice",
+      "verification": "Scoped local links/whitespace; documentation only; no runtime or deployment changes"
     }
   },
   "sourceMapping": "Reviewed current community checkout source update, preserving existing public contribution history and public-only API documentation, CI and regression fixes. Includes regenerated API contract and final selected clustering source. Private Git history and operational state are excluded.",
@@ -217,7 +222,7 @@
     "infrastructure/test/demo-pilot-operator.test.ts"
   ],
   "fileCount": 2272,
-  "sourceTreeSha256": "07b67d6efaf9029b88516d91b12b7768b3f1d07744f75bdf14a26c9916b0663f",
+  "sourceTreeSha256": "256579948e4d7cbd9da16ee34ca85431fc954d07a318148c862d4867902012f8",
   "sourceSyncPreparation": {
     "status": "local-source-update-verified-not-published",
     "changedPaths": 316,

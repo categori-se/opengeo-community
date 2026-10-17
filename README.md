@@ -167,5 +167,5 @@ Third-party software and data retain their own terms; see the
 We offer [hosting and enterprise support](SUPPORT.md#hosting-and-enterprise-support)
 as fee-based services. [Contact us](mailto:2301690+aaronkyle@users.noreply.github.com) with inquiries.
 
-Developed by [categori.se](https://github.com/categori-se); maintained by
-[Aaron Kyle Dennis](https://github.com/aaronkyle).
+Developed and maintained by [Aaron Kyle Dennis](https://github.com/aaronkyle)
+for [categori.se](https://categori.se).
