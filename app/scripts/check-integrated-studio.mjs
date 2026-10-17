@@ -2,7 +2,7 @@ import {exerciseFieldComparisons} from "./integrated-studio-field-comparisons.mj
 import assert from "node:assert/strict";
 import {localPublicationBridge, processLocalBuildQueue} from "../../services/observable-coordinator/src/local-adapters.mjs";
 import {startLocalPreviewServer} from "../../services/observable-preview/src/local-server.mjs";
-import {existsSync, readFileSync, writeFileSync} from "node:fs";
+import {appendFileSync, existsSync, readFileSync, writeFileSync} from "node:fs";
 import {createServer, request as httpRequest} from "node:http";
 import {spawn} from "node:child_process";
 import {resolve, join} from "node:path";
@@ -10,7 +10,7 @@ import {fileURLToPath} from "node:url";
 import {build} from "esbuild";
 import {chromium} from "playwright";
 import {unzipSync} from "fflate";
-import {createHash} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {FONT_ROUTE, FONT_LABELS, FONT_LABEL_SIZE, FONT_COMPOSITION_PROBES,
   loadIntegratedStudioFontAssets, integratedStudioFontTransport} from "./integrated-studio-font-mode.mjs";
 import {integratedStudioShellMode, loadIntegratedStudioBuild, integratedStudioAuthConfig,
@@ -166,6 +166,7 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} 
           ...(headers["user-agent"] === "OpenGeo-Integrated-QGIS/1.0" ? {client:"qgis"}
             : headers["user-agent"] === "OpenGeo-Integrated-HTTP/1.0" ? {client:"independent-http"}
             : headers["user-agent"] === "OpenGeo-Integrated-GDAL/1.0" ? {client:"gdal"} : {})});
+        if (developmentSmoke) writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
         done({status: response.statusCode, headers: response.headers, body});
       });
       response.on("error", reject);
@@ -187,16 +188,19 @@ async function readApi(path) {
 async function worker(timeout = 120_000) {
   const [executable, ...args] = JSON.parse(readFileSync(join(work, "worker-command.json")));
   assert.equal(executable, "podman");
+  const logName = `worker-${Date.now()}-${randomUUID()}.log`, logPath = join(work, logName);
+  writeFileSync(logPath, "", {flag: "wx", mode: 0o600});
+  if (developmentSmoke) checkpointDevelopment({workerLog: logName});
   const output = await new Promise((done, reject) => {
     const process = spawn(executable, args, {timeout});
     const chunks = [];
-    process.stdout.on("data", (chunk) => chunks.push(chunk));
-    process.stderr.on("data", (chunk) => chunks.push(chunk));
+    const retainOutput = chunk => {appendFileSync(logPath, chunk); chunks.push(chunk);};
+    process.stdout.on("data", retainOutput);
+    process.stderr.on("data", retainOutput);
     process.on("error", reject);
     process.on("close", (code) => code === 0 ? done(Buffer.concat(chunks))
       : reject(new Error(`Worker exited ${code}: ${Buffer.concat(chunks)}`)));
   });
-  writeFileSync(join(work, `worker-${Date.now()}.log`), output);
   console.log(output.toString().trim());
 }
 
@@ -364,7 +368,7 @@ try {
   const executablePath = ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"].find(existsSync);
   assert.ok(executablePath, "Cached system Chromium is required");
   browser = await chromium.launch({headless: publicationOnlyMode || !developmentMode || developmentSmoke, chromiumSandbox: Boolean(developmentMode && !developmentSmoke && !publicationOnlyMode), executablePath, args: [...(developmentMode && !developmentSmoke && !publicationOnlyMode ? [] : ["--no-sandbox"]),
-    ...(pinnedFontMode ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
+    ...(pinnedFontMode || developmentSmoke ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
   if (developmentSmoke) developmentBrowserTimer = setTimeout(() => void browser.close(),
     Math.max(1, 90_000 - developmentPriorMilliseconds - (Date.now() - developmentStarted)));
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
@@ -493,14 +497,31 @@ try {
           await page.getByRole("button", {name: "Hash and upload", exact: true}).click();
           assert.equal((await completed).status(), 200);
         }
+        const datasetPath = `/projects/${developmentProgress.project}/datasets/${developmentProgress.datasetId}`;
+        let dataset = await readApi(datasetPath);
+        const assertDatasetIdentity = () => {
+          assert.equal(dataset.id, developmentProgress.datasetId);
+          assert.equal(dataset.project_id, developmentProgress.project);
+          assert.equal(typeof developmentProgress.datasetVersionId, "string");
+          assert.equal(dataset.current_version_id, developmentProgress.datasetVersionId);
+          assert.equal(dataset.source_type, "upload"); assert.equal(dataset.format, "geojson");
+        };
+        const ingestCompleted = () => dataset.status === "active" && dataset.current_version_state === "active"
+          && dataset.processing_job_state === "completed" && dataset.processing_error_code === null && dataset.feature_count === 5;
+        assertDatasetIdentity();
+        if (!developmentProgress.workerCompleted && ingestCompleted()) {
+          checkpointDevelopment({workerCompleted: true, workerReconciledFromDataset: true});
+        }
         if (!developmentProgress.workerCompleted) {
           assert.ok(!developmentProgress.workerAttempted, "Worker already attempted; inspect retained result before another run");
           checkpointDevelopment({workerAttempted: true});
           await worker(30_000);
+          dataset = await readApi(datasetPath);
+          assertDatasetIdentity();
+          assert.ok(ingestCompleted(), "The exact uploaded version must have a completed ingest and five features");
           checkpointDevelopment({workerCompleted: true});
         }
-        const dataset = await readApi(`/projects/${developmentProgress.project}/datasets/${developmentProgress.datasetId}`);
-        assert.equal(dataset.status, "active"); assert.equal(dataset.feature_count, 5);
+        assert.ok(ingestCompleted(), "The retained uploaded version must still have a completed ingest and five features");
         if (!developmentProgress.catalogRendered) {
           const beforePreview = await readApi(mapPath());
           await page.goto(`${origin}/layers?id=${developmentProgress.datasetId}`);

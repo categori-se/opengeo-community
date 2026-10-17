@@ -5,14 +5,24 @@ October 17 — Catalog basemap failure handling
 `MapView` installs its preview once and can switch once to a disclosed neutral
 background before initial loading completes. A visible button also handles a
 stalled provider. Repeated errors report failure, and disposal removes the map
-hook used to inspect actual rendered features. Syntax, whitespace and the existing
-COG controls check pass; compiled acceptance and deployment remain pending.
+hook used to inspect actual rendered features. Two focused Catalog cases pass;
+compiled Catalog rendering and deployment remain pending.
 
 The existing development smoke retains committed upload/map stages, bounds API
 attempts and checks actual Catalog/Workbench features before and after Save and
-database restart. This increment has not exercised those new assertions. The
-normal offline build stopped at its batch deadline; prior accepted artifacts
-remain valid for their unchanged source, not for this preview change.
+database restart. Worker reconciliation now reads the exact version and completed
+ingest before recording success; unresolved attempted work stops without replay.
+Worker output and completed API responses are retained during execution so an
+interruption does not discard their existing logs. This continuation code is not
+yet accepted through a completed runtime journey.
+
+The normal offline build/check passes with the pinned CLI invoked directly,
+preserving configuration, routes and local executable PATH. Compiled acceptance
+found a public-only undefined owner flag in the connection form; its bucket default
+now matches canonical source. The corrected build opens and commits Project/map
+creation and the fixture upload. Worker completion, rendered Catalog/map/style
+checks and physical restart/reopening remain open. API/worker containers are absent
+and the retained database is stopped; no AWS resources are used.
 
 October 17 — Standalone images and frontend
 

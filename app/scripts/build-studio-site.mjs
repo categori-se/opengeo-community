@@ -4,7 +4,7 @@ import {writeMaplibreExportAssets, prepareMapWorkerAsset} from "./build-maplibre
 import {spawnSync} from "node:child_process";
 import {rm, readdir, readFile, mkdir, writeFile} from "node:fs/promises";
 import {createHash} from "node:crypto";
-import {resolve} from "node:path";
+import {delimiter, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 
 import {sealManifest, snapshotTree, writeJson} from "./release-utils.mjs";
@@ -129,13 +129,16 @@ console.log(JSON.stringify({
 }, null, 2));
 
 function runObservableBuild() {
-  const command = process.platform === "win32" ? "npm.cmd" : "npm";
-  const result = spawnSync(command, [
-    "exec", "--", "observable", "build", "--config", "scripts/studio.observablehq.config.mjs"
+  // Use the installed lockfile dependency without npm config, registry lookup,
+  // or an implicit install before the build.
+  const pathKey = Object.keys(process.env).find(key => key.toLowerCase() === "path") ?? "PATH";
+  const result = spawnSync(process.execPath, [
+    resolve(appRoot, "node_modules/@observablehq/framework/dist/bin/observable.js"),
+    "build", "--config", "scripts/studio.observablehq.config.mjs"
   ], {
     cwd: appRoot,
     stdio: "inherit",
-    env: process.env
+    env: {...process.env, [pathKey]: [resolve(appRoot, "node_modules/.bin"), process.env[pathKey]].filter(Boolean).join(delimiter)}
   });
   if (result.error) throw result.error;
   if (result.status !== 0) process.exit(result.status ?? 1);

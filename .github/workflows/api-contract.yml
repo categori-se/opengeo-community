@@ -20,6 +20,8 @@ on:
       - app/package.json
       - app/package-lock.json
       - app/test/catalog-project-save.test.mjs
+      - app/test/cog-preview.test.mjs
+      - app/test/project-directory-ux.test.mjs
       - app/test/project-dataset-map-handoff.test.mjs
       - app/test/geomoose-query-ui.test.mjs
       - app/test/publication-panels.test.mjs
@@ -58,6 +60,8 @@ on:
       - app/package.json
       - app/package-lock.json
       - app/test/catalog-project-save.test.mjs
+      - app/test/cog-preview.test.mjs
+      - app/test/project-directory-ux.test.mjs
       - app/test/project-dataset-map-handoff.test.mjs
       - app/test/geomoose-query-ui.test.mjs
       - app/test/publication-panels.test.mjs
@@ -116,6 +120,8 @@ jobs:
           # Each JSDOM suite owns its globals and lifecycle hooks.
           for test_file in \
             app/test/catalog-project-save.test.mjs \
+            app/test/cog-preview.test.mjs \
+            app/test/project-directory-ux.test.mjs \
             app/test/project-dataset-map-handoff.test.mjs \
             app/test/geomoose-query-ui.test.mjs \
             app/test/publication-panels.test.mjs \

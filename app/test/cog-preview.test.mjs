@@ -138,6 +138,56 @@ it("forwards temporary display options and cancels late map results without chan
   assert.equal(additions, 0); assert.equal(ready, 0); assert.equal(JSON.stringify(source), original);
 });
 
+it("Catalog preview preserves data when its basemap fails or stalls and installs the layer only once", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>"), previous = new Map();
+  const maps = [];
+  class TestMap {
+    constructor() {this.events = new Map(); this.styles = []; this.sources = []; this.layers = []; maps.push(this);}
+    on(name, handler) {this.events.set(name, handler);}
+    emit(name) {this.events.get(name)?.();}
+    addControl() {} fitBounds() {}
+    setStyle(style) {this.styles.push(style);}
+    addSource(id, source) {this.sources.push({id, source});}
+    addLayer(layer) {this.layers.push(layer);}
+    remove() {this.removed = true;}
+  }
+  const replacements = {document: dom.window.document, MutationObserver: dom.window.MutationObserver,
+    __catalogTestRenderer: {Map: TestMap, NavigationControl: class {}, ScaleControl: class {}}};
+  for (const [key, value] of Object.entries(replacements)) {previous.set(key, globalThis[key]); globalThis[key] = value;}
+  try {
+    const path = new URL("../src/components/MapView.js", import.meta.url);
+    const code = (await readFile(path, "utf8"))
+      .replace('import maplibregl from "../lib/mapRenderer.js";', 'const maplibregl = globalThis.__catalogTestRenderer;')
+      .replace(/from "(\.\.?\/[^\"]+)"/g, (_match, specifier) => `from ${JSON.stringify(new URL(specifier, path).href)}`);
+    const {MapView} = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
+    const geojson = {type: "FeatureCollection", features: [{type: "Feature", properties: {name: "Retained facility"}, geometry: {type: "Point", coordinates: [1, 2]}}]};
+    const original = JSON.stringify(geojson);
+    for (const outcome of ["ready", "failed", "stalled"]) {
+      const view = MapView({geojson, geometryType: "Point"}); document.body.append(view); await tick();
+      const map = maps.at(-1), status = view.querySelector('[role="status"]');
+      assert.equal(view.__opengeoMap, map); assert.equal(map.sources.length, 0);
+      if (outcome === "failed") map.emit("error");
+      if (outcome === "stalled") view.querySelector("button").click();
+      assert.equal(map.styles.length, outcome === "ready" ? 0 : 1);
+      map.emit("load"); map.emit("load"); map.emit("idle");
+      assert.equal(map.sources.length, 1); assert.deepEqual(map.sources[0], {id: "preview", source: {type: "geojson", data: geojson}});
+      assert.equal(map.layers.length, 1); assert.equal(view.querySelector("button"), null);
+      assert.match(status.textContent, /Layer view ready/);
+      if (outcome === "failed") assert.match(status.textContent, /Basemap unavailable/);
+      if (outcome === "stalled") assert.match(status.textContent, /Blank basemap selected/);
+      map.emit("error"); map.emit("dataloading"); map.emit("idle");
+      assert.match(status.textContent, /could not load/);
+      assert.equal(map.styles.length, outcome === "ready" ? 0 : 1);
+      assert.equal(JSON.stringify(geojson), original);
+      view.remove(); await tick(); assert.equal(map.removed, true); assert.equal(view.__opengeoMap, undefined);
+      map.emit("load"); assert.equal(map.sources.length, 1);
+    }
+  } finally {
+    for (const [key, value] of previous) {if (value === undefined) delete globalThis[key]; else globalThis[key] = value;}
+    dom.window.close();
+  }
+});
+
 it("temporary Catalog controls apply deliberately, retain the applied range on refresh and cancel reads", async () => {
   const dom = new JSDOM("<!doctype html><body></body>"), globals = new Map();
   const requests = []; let cancellations = 0, disposals = 0;

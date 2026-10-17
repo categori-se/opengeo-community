@@ -1,20 +1,33 @@
 # Resource model: active plan and continuation queue
 
-October 17 — Catalog preview fallback; connected acceptance pending
+October 17 — Community opening fixed; core ingestion acceptance pending
 
 Catalog's shared preview now offers a blank basemap while the provider is stalled
 and falls back once if its initial request fails. The status discloses the blank
-background; later layer errors retain their existing handling. The existing COG
-controls check passes. These source changes are not deployed.
+background; later layer errors retain their existing handling. Two focused Catalog
+cases pass, covering fallback/manual recovery, unchanged data, controls and disposal.
+This remains component-level evidence; compiled Catalog rendering is still pending.
 
 The existing development smoke now checks the CC0 facilities example through
 upload, actual Catalog rendering, deliberate map addition, styling, Save and
-rendered reopening. Its new assertions have not run: the affected offline build
-stopped at the cumulative 45-second batch limit. No runtime or cloud work followed.
-Preserve the staged source and prior accepted images/artifacts. The next admitted
-continuation must finish this affected build before core runtime acceptance;
-do not replay completed installation or publication checks. No Actions jobs were
-triggered, and main validation still requires verified free allowance.
+rendered reopening. The maintained builder now invokes the installed pinned CLI
+directly, retaining its routes and local executable PATH without npm configuration
+or implicit installation. The normal offline build/check passes. A compiled run
+found an undefined owner flag in the public connection form; its empty bucket
+default now matches canonical source. The existing form/navigation case passes,
+and the corrected compiled app creates a Project and completes the fixture upload.
+
+The worker phase exceeded the bounded runtime; ingest completion, Catalog rendering,
+styling and restart/reopening remain unverified. Next, read back the exact retained
+dataset/version and ingest job before another worker attempt. Completion can be
+reconciled only from active dataset/version, completed job, no processing error and
+five features. Do not recreate the Project, repeat its upload or replay attempted
+processing. Reuse the accepted frontend and initialized stopped database.
+
+Community CI adds both existing regression suites to its existing job. Public
+standard-runner compute is free under GitHub's current terms; verified cache usage
+is below its separate free allowance, with no artifact uploads. Private Actions
+remain gated on verified remaining allowance. No AWS resources are started.
 
 October 17 — Standalone installation prerequisites accepted
 

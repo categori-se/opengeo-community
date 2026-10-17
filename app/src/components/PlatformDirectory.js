@@ -1640,7 +1640,7 @@ function datasetConnectionCreationForm(state, rerender) {
   const bucket = document.createElement("input");
   bucket.required = true;
   bucket.maxLength = 63;
-  bucket.value = isExampleOwner ? "example-geodata" : "";
+  bucket.value = "";
   bucket.placeholder = "bucket-name";
   bucket.spellcheck = false;
   const region = document.createElement("input");

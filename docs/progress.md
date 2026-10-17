@@ -1,26 +1,42 @@
-## October 17 — Catalog fallback source checkpoint
+## October 17 — Community opening and connected core checkpoint
 
 The shared Catalog preview previously waited for its remote basemap before
 drawing archived features. It now offers a blank background while waiting and
 falls back once on initial provider failure, with persistent disclosure. Repeated
-errors retain the failure message. The existing COG controls test passes in
-3.940 seconds, and syntax/whitespace checks pass. Compiled behavior is unverified.
+errors retain the failure message. Two named Catalog cases pass in 1.982 seconds,
+including unchanged data and disposal. Actual compiled Catalog rendering remains
+unverified.
 
 The existing development smoke now uses the five-feature CC0 facilities fixture
 to check upload, actual Catalog rendering without changing the Project, deliberate
 map addition, styling, Save and exact rendered reopening. Persistent checkpoints
 record committed writes; limits are 100 API attempts per invocation, 160 total,
-90 seconds of combined browser/controller time and one worker execution. The
-new connected assertions have not run.
+90 seconds of combined browser/controller time and one worker execution.
 
 The affected offline build first stops before compilation because the invocation
 uses one npm config path for two roles (6.464 seconds). A changed invocation uses
 distinct empty configs and continues the same staged normal builder, then reaches
 its remaining deadline during page compilation (38.084 seconds). Both attempts
-remain recorded: 44.548 of the admitted 45 build seconds. No build processes remain,
-and runtime acceptance is not started without a verified artifact. No new images,
-dependency installs, AWS account calls or Actions jobs are used. Preserve the
-staged source and accepted earlier artifacts; no equivalent retry in this batch.
+remain recorded: 44.548 of the admitted 45 build seconds. The maintained builder
+then changes to the installed pinned CLI, retaining configuration/routes/PATH and
+avoiding npm resolution. Its normal offline build/check passes in 28.854 seconds.
+
+The compiled core run reveals `isExampleOwner` left undefined in the public
+connection form. The public default now matches canonical source, its existing
+form/navigation check passes in 3.011 seconds, and the corrected 872-file build
+passes in 23.871 seconds. One explicit 80-second local corrective window raises
+the pilot ceiling from 600 to 680 seconds, retaining prior costs and reusing the
+initialized database. The corrected app creates the Project/map and completes
+the fixture upload; its worker phase exceeds the runtime ceiling. Completed writes
+are retained. Ingest completion, rendering, style/Save and restart/reopen remain
+open; the API/worker are removed and the database is stopped.
+
+Continuation now checks exact dataset/version and ingest-job completion before
+reconciling an attempted worker, and retains logs incrementally. This change has
+not completed runtime acceptance. Reuse the verified frontend; no image, install
+or completed publication phase needs replay. No AWS account calls are made.
+Community validation retains its existing standard public jobs and adds both
+existing regression suites; private Actions still require verified free allowance.
 
 ## October 17 — Standalone image fixes and installation prerequisites
 
