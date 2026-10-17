@@ -44,11 +44,14 @@ export function loadIntegratedStudioFontAssets(root) {
     evidence.push({path: `${relative}/${filename}`, sha256: digest(bytes), bytes: bytes.length});
   }
   const packagePath = "app/node_modules/maplibre-gl/package.json";
-  const sourcePath = "app/node_modules/maplibre-gl/dist/maplibre-gl.js";
   const packageBytes = readFileSync(join(root, packagePath));
-  const engineBytes = readFileSync(join(root, sourcePath));
   const version = JSON.parse(packageBytes).version;
-  assert.equal(version, "5.24.0", "This acceptance requires the reviewed MapLibre engine, not an inferred replacement");
+  // Record the installed entry actually consumed by the Studio bundle. A new
+  // engine still needs its own rendered acceptance; old receipts retain theirs.
+  const entry = {"5.24.0": "maplibre-gl.js", "6.4.1": "maplibre-gl.mjs"}[version];
+  assert.ok(entry, "This acceptance requires a reviewed MapLibre distribution");
+  const sourcePath = `app/node_modules/maplibre-gl/dist/${entry}`;
+  const engineBytes = readFileSync(join(root, sourcePath));
   return {files, evidence, fontRef: {...PINNED_MAP_FONT}, fontStack: PINNED_MAP_FONT_STACK,
     ranges: manifest.ranges.map(entry => entry.range),
     maplibre: {version, sourcePath, sha256: digest(engineBytes), packagePath, packageSha256: digest(packageBytes)}};

@@ -19,7 +19,7 @@
     "check:public": "npm run build:public && node scripts/check-public-bundle.mjs",
     "deploy:studio": "node scripts/deploy-studio-site.mjs",
     "rollback:studio": "node scripts/rollback-studio-site.mjs",
-    "test": "node --test test/**/*.test.mjs",
+    "test": "node --test --test-concurrency=4 \"test/**/*.test.mjs\"",
     "check:pages": "npm test && npm run build:studio && node scripts/check-pages.mjs --without-ux-002 && node scripts/check-pages.mjs --ux-002",
     "check:demo:massgis": "node scripts/check-demo-massgis.mjs",
     "check:open-3d-source": "node scripts/check-open-3d-scene-source.mjs"

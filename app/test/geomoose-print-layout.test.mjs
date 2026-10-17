@@ -107,7 +107,7 @@ describe("GeoMoose 3.15.2 print-layout conversion", () => {
         sourceElementIndex: 0,
         sourceType: "text",
         code: "template_tokens_unresolved",
-        detail: "OpenGeo retained unsupported template tokens literally: organization.secret."
+        detail: "OpenGeo Studio retained unsupported template tokens literally: organization.secret."
       }
     );
   });

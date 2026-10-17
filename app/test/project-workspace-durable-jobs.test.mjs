@@ -437,7 +437,7 @@ describe("project durable-job hydration", () => {
     );
     const page = mountPage(adapter, {startPanel: "processing"});
     await waitFor(() => page.querySelector(".opengeo-workbench"));
-    page.querySelector('[aria-label="Open layer properties for Other layer"]').click();
+    page.querySelector('[aria-label="Select layer Other layer"]').click();
     clickButton(page, "Refresh jobs");
     second.resolve([{jobId: otherJob, datasetId: otherDataset, datasetVersionId: IDS.version,
       state: "queued", cancellable: true}]);
@@ -447,7 +447,7 @@ describe("project durable-job hydration", () => {
     await new Promise(setImmediate);
     assert.match(page.querySelector(".gis-durable-jobs").textContent, new RegExp(otherJob));
     assert.doesNotMatch(page.querySelector(".gis-durable-jobs").textContent, new RegExp(IDS.job));
-    page.querySelector('[aria-label="Open layer properties for Managed screening polygons"]').click();
+    page.querySelector('[aria-label="Select layer Managed screening polygons"]').click();
     assert.equal(page.querySelector(".gis-durable-job-row"), null, "The superseded read never commits stale records");
   });
 

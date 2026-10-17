@@ -25,8 +25,12 @@ for (const format of ['map','framework','notebook','jupyter']) {
       assert.match(files.get(fixture.entryPath),/\$\{total\}/);
     } else {
       assert.match(files.get(fixture.entryPath),/Synthetic observations/);
-      assert.ok(files.get(fixture.entryPath).includes('connect-src &#39;none&#39;'));
+      const policy = /http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(files.get(fixture.entryPath))?.[1];
+      assert.ok(policy);
+      assert.match(policy,/default-src &#39;none&#39;/);
+      assert.equal(policy.split(';').map(value=>value.trim()).find(value=>value.startsWith('connect-src ')),'connect-src blob:');
       assert.match(files.get(fixture.entryPath),/new maplibregl.Map/);
+      assert.match(files.get(fixture.entryPath),/#opengeo-worker\.cjs/);
     }
   });
 }

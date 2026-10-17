@@ -177,7 +177,7 @@ it('inspects native imports without execution or attachment reads and continues 
   assert.match(JSON.stringify(report.externalReferences), /example.test\/data/);
   assert.doesNotMatch(JSON.stringify(report), /user:pass|token=secret|#fragment/);
   assert(report.manualWork.some(message => /missing referenced attachments/.test(message)));
-  assert(report.manualWork.some(message => /local modules and arbitrary packages/.test(message)));
+  assert(report.manualWork.some(message => /choose pinned bundled libraries or supplied local notebooks/.test(message)));
   assert(report.limitations.some(message => /legacy hosted notebook conversion and Jupyter/.test(message)));
   assert.equal(report.truncated, false);
 });

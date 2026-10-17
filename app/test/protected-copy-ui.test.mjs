@@ -683,14 +683,16 @@ describe("managed vector to PMTiles workbench flow", () => {
     assert.equal(shell.querySelectorAll(".gis-mobile-command-sheet").length, 0);
   });
 
-  it("exposes the exact version, bounds, source layer, and bounded zoom draft", () => {
+  it("exposes the exact version, bounds, separate input/output layers, and bounded zoom draft", () => {
     const shell = mountPmtilesWorkbench();
 
-    assert.match(shell.querySelector(".gis-panel-right").textContent, /Create an archived PMTiles derivative/);
-    assert.match(shell.querySelector(".gis-panel-right").textContent, /Dataset version7/);
-    assert.match(shell.querySelector(".gis-panel-right").textContent, /Server-assigned immutable archive path/);
+    assert.match(shell.querySelector(".gis-panel-right").textContent, /Convert vector to PMTiles/);
+    assert.match(shell.querySelector(".gis-panel-right").textContent, /Dataset version: 7/);
+    assert.match(shell.querySelector(".gis-panel-right").textContent, /The original remains available for analysis/);
+    assert.match(shell.querySelector(".gis-panel-right").textContent, /omit features to meet tile budgets/);
     assert.equal(field(shell, "WGS84 bounds").value, MANAGED_DATASET.bbox.join(", "));
-    assert.equal(field(shell, "Source layer in the managed object").value, MANAGED_LAYER.sourceLayer);
+    assert.equal(field(shell, "Input layer").value, "");
+    assert.equal(field(shell, "Output tile layer").value, MANAGED_LAYER.sourceLayer);
     assert.equal(field(shell, "Minimum zoom").value, "0");
     assert.equal(field(shell, "Maximum zoom").value, "14");
   });
@@ -805,6 +807,11 @@ describe("managed vector to PMTiles workbench flow", () => {
       }
     });
     setField(rejected, "WGS84 bounds", "20, 20, 10, 10");
+    assert.match(rejected.querySelector(".gis-pmtiles-derivative-editor").textContent, /Enter ordered WGS84 bounds/);
+    assert.equal(clickableButton(rejected, "Queue on-demand conversion").disabled, true);
+    clickableButton(rejected, "Queue on-demand conversion").click();
+    assert.equal(rejectedCalls, 0, "Invalid bounds are rejected before durable submission");
+    setField(rejected, "WGS84 bounds", MANAGED_DATASET.bbox.join(", "));
     clickButton(rejected, "Queue on-demand conversion");
     await waitFor(() => rejected.querySelector(".gis-log")?.textContent.includes("invalid_bounds"));
 
@@ -826,7 +833,8 @@ describe("managed vector to PMTiles workbench flow", () => {
     });
     const expectedBounds = [-73.45, 41.3, -70.05, 42.82];
     setField(shell, "WGS84 bounds", expectedBounds.join(", "));
-    setField(shell, "Source layer in the managed object", "screening_areas");
+    setField(shell, "Input layer", "managed_source");
+    setField(shell, "Output tile layer", "screening_areas");
     setField(shell, "Minimum zoom", "4");
     setField(shell, "Maximum zoom", "12");
     clickButton(shell, "Queue on-demand conversion");
@@ -836,10 +844,14 @@ describe("managed vector to PMTiles workbench flow", () => {
     assert.equal(captured.dataset.currentVersion, 7);
     assert.deepEqual(captured.request.bounds, expectedBounds);
     assert.equal(captured.request.sourceLayer, "screening_areas");
+    assert.deepEqual(captured.request.options, {
+      inputLayer: "managed_source", extent: 4096, simplification: 1, simplificationMaxZoom: 1,
+      buffer: 80, maxSize: 500000, maxFeatures: 200000, attributeNames: null
+    });
     assert.equal(captured.request.minZoom, 4);
     assert.equal(captured.request.maxZoom, 12);
     assert.deepEqual(Object.keys(captured.request).sort(), [
-      "bounds", "idempotencyKey", "maxZoom", "minZoom", "sourceLayer"
+      "bounds", "idempotencyKey", "maxZoom", "minZoom", "options", "sourceLayer"
     ]);
     assert.match(captured.request.idempotencyKey, /^[0-9a-f-]{36}$/i);
     assert.doesNotMatch(JSON.stringify(captured), /bucket|object[_-]?key|archive[_-]?path|s3:/i);
@@ -849,7 +861,8 @@ describe("managed vector to PMTiles workbench flow", () => {
     harness.dom.window.dispatchEvent(new harness.dom.window.Event("resize"));
     await Promise.resolve();
     assert.equal(field(shell, "WGS84 bounds").value, expectedBounds.join(", "));
-    assert.equal(field(shell, "Source layer in the managed object").value, "screening_areas");
+    assert.equal(field(shell, "Input layer").value, "managed_source");
+    assert.equal(field(shell, "Output tile layer").value, "screening_areas");
     assert.equal(field(shell, "Minimum zoom").value, "4");
     assert.equal(field(shell, "Maximum zoom").value, "12");
     assert.equal(clickableButton(shell, "Queuing conversion…").disabled, true);

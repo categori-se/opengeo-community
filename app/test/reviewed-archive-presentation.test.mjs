@@ -26,7 +26,7 @@ assert.deepEqual(validateStyleMin({version: 8,
 const original = {type: 3, properties: {fid: 7, gridcode: 2}};
 const aggregate = {type: 3, properties: {gridcode: 2, representation: 'Aggregated soil-class overview'}};
 const visible = (layer, feature, zoom) => (layer.minzoom ?? 0) <= zoom && zoom < (layer.maxzoom ?? 24)
-  && featureFilter(layer.filter).filter({zoom}, feature);
+  && featureFilter(layer.filter, `layers[${result.indexOf(layer)}].filter`).filter({zoom}, feature);
 assert.deepEqual(result.filter(l => visible(l, aggregate, 7)).map(l => l.id), ['fill-aggregate']);
 assert.deepEqual(result.filter(l => visible(l, original, 14)).map(l => l.id), ['fill', 'outline']);
 assert.equal(result.find(l => l.id === 'fill-aggregate').paint['fill-antialias'], false);

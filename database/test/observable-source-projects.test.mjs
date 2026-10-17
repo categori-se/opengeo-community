@@ -165,7 +165,8 @@ describe("0045 durable Observable source projects and credential-free build boun
       "0103_delegated_publication_addresses.sql",
       "0104_observable_cache_admission.sql",
       "0158_opengeo_publication_build_sources.sql",
-      "0160_observable_tiff_archive_bindings.sql"
+      "0160_observable_tiff_archive_bindings.sql",
+      "0176_observable_preview_membership_history.sql"
     ]) {
       let sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       sql = sql.replace(/^CREATE EXTENSION IF NOT EXISTS (?:pgcrypto|postgis);\n/gm, "");
@@ -1418,6 +1419,48 @@ describe("0045 durable Observable source projects and credential-free build boun
     );
     await db.exec("RESET ROLE");
     await db.exec("SET ROLE opengeo_runtime");
+  });
+  it("offboards a preview requester without erasing capability history or permitting new issue/exchange", async () => {
+    const reviewer=randomUUID(),consumed=randomUUID(),pending=randomUUID();
+    const consumedChecksum=randomUUID().replaceAll('-','').repeat(2);
+    const pendingChecksum=randomUUID().replaceAll('-','').repeat(2);
+    await db.exec('RESET ROLE; BEGIN');
+    try {
+      await db.query("SELECT set_config('app.organization_id', $1, true), set_config('app.user_id', $2, true)", [ID.organization,reviewer]);
+      await db.query(`INSERT INTO app.users (id,cognito_subject,email,display_name)
+        VALUES ($1,$2,$3,'Temporary preview reviewer')`,[reviewer,`preview-${reviewer}`,`${reviewer}@example.test`]);
+      await db.query(`INSERT INTO app.organization_memberships (organization_id,user_id,role,invited_by)
+        VALUES ($1,$2,'guest',$3)`,[ID.organization,reviewer,ID.user]);
+      await db.query(`INSERT INTO app.project_memberships (organization_id,project_id,user_id,role)
+        VALUES ($1,$2,$3,'viewer')`,[ID.organization,ID.project,reviewer]);
+      await db.exec('SET LOCAL ROLE opengeo_runtime');
+      const issue=(id,checksum)=>db.query(`INSERT INTO app.observable_preview_capabilities
+        (id,organization_id,project_id,build_job_id,requested_by,token_checksum_sha256,expires_at)
+        VALUES ($1,$2,$3,$4,$5,$6,clock_timestamp()+interval '60 seconds')`,
+        [id,ID.organization,ID.project,ID.build,reviewer,checksum]);
+      const exchange=(id,checksum)=>db.query('SELECT * FROM app.consume_observable_preview_capability($1,$2,$3,$4)',
+        [id,ID.organization,reviewer,checksum]);
+      await issue(consumed,consumedChecksum);await issue(pending,pendingChecksum);
+      assert.equal((await exchange(consumed,consumedChecksum)).rows.length,1);
+      const history=()=>db.query(`SELECT * FROM app.observable_preview_capabilities WHERE id=ANY($1::uuid[]) ORDER BY id`,[[consumed,pending]]);
+      const before=(await history()).rows;
+      await db.exec('RESET ROLE');
+      assert.equal((await db.query('DELETE FROM app.project_memberships WHERE organization_id=$1 AND project_id=$2 AND user_id=$3',
+        [ID.organization,ID.project,reviewer])).affectedRows,1);
+      assert.equal((await db.query('DELETE FROM app.organization_memberships WHERE organization_id=$1 AND user_id=$2',
+        [ID.organization,reviewer])).affectedRows,1);
+      assert.deepEqual((await history()).rows,before,'Consumed and unused capability audit rows survive unchanged');
+      assert.equal((await db.query('SELECT role FROM app.organization_memberships WHERE organization_id=$1 AND user_id=$2',
+        [ID.organization,ID.user])).rows[0].role,'admin');
+      await db.exec('SET LOCAL ROLE opengeo_runtime');
+      assert.equal((await exchange(pending,pendingChecksum)).rows.length,0,'An unconsumed capability loses exchange authority immediately');
+      await db.exec('SAVEPOINT denied_reissue');
+      await assert.rejects(issue(randomUUID(),randomUUID().replaceAll('-','').repeat(2)),/current organization membership/);
+      await db.exec('ROLLBACK TO SAVEPOINT denied_reissue');
+      assert.deepEqual((await history()).rows,before,'Denied issuance/exchange does not alter retained history');
+    } finally {
+      await db.exec('ROLLBACK; SET ROLE opengeo_runtime');
+    }
   });
   it("commits HTML and native Jupyter revisions through the installed source-head validator", async () => {
     for (const [path, contentType] of [['index.html', 'text/html'], ['analysis.ipynb', 'application/x-ipynb+json'], ['analysis.ipynb', 'application/json']]) {

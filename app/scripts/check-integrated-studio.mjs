@@ -28,6 +28,9 @@ const {built:builtStudio, pinnedFonts:pinnedFontMode, restore:restoreCheckpoint,
 const serviceClientsMode=allServicesMode||wcsOnlyMode;
 const rendererPersistenceMode=process.env.OPENGEO_RENDERER_PERSISTENCE_ONLY === "1";
 const geolibreImportMode=process.env.OPENGEO_GEOLIBRE_IMPORT_ONLY === "1";
+const publicationSecurityOnly=process.env.OPENGEO_PUBLICATION_SECURITY_ONLY === "1";
+if(publicationSecurityOnly)assert.ok(publicationOnlyMode&&developmentMode&&!builtStudio,
+  "Publication security acceptance requires the retained development publication-only mode.");
 if (rendererPersistenceMode || geolibreImportMode) assert.ok(builtStudio && !pinnedFontMode && !restoreCheckpoint && !serviceClientsMode && !analysisOnlyMode);
 assert.ok(!(rendererPersistenceMode && geolibreImportMode), "Choose one scoped renderer journey");
 if (developmentMode) assert.equal(JSON.parse(readFileSync(join(work,"development-state.json"))).schemaVersion,"opengeo.community-development.1");
@@ -59,8 +62,41 @@ const localAnalysisRunner = developmentMode ? loadLocalAnalysisRunner(work) : nu
 const publicationProfile = existsSync(join(work, "publication-profile.json"))
   ? JSON.parse(readFileSync(join(work, "publication-profile.json"), "utf8")) : null;
 let localAnalysisBridge;
+let publicationSecurityRequests=0;
+let publicationSecurityRegularRequests=0,publicationSecurityCleanupRequests=0,securityInvitationId=null;
+const securityFacts=publicationSecurityOnly?JSON.parse(readFileSync(join(work,'publication-progress.json'))):null;
+const securityPreviousRequests=securityFacts?.previewSecurity
+  ?JSON.parse(readFileSync(join(work,'requests.json'))):[];
+const securityReviewer='20000000-0000-4000-8000-000000000002';
 
-function apiRequest(path, {method = "GET", headers = {}, body} = {}) {
+function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} = {}) {
+  if(publicationSecurityOnly){
+    const capability=securityFacts.builds.some(build=>
+      path===`/projects/${securityFacts.projectId}/observable-build-jobs/${build.id}/preview-capabilities`);
+    const membership=path===`/projects/${securityFacts.projectId}/memberships/${securityReviewer}`
+      ||path===`/organizations/current/memberships/${securityReviewer}`;
+    const invitation=securityInvitationId!==null&&path===`/organizations/current/invitations/${securityInvitationId}`;
+    const acceptInvitation=securityInvitationId!==null&&path===`/auth/invitations/${securityInvitationId}/accept`;
+    assert.ok(method==='GET'||(method==='POST'&&(capability||path==='/observable-preview/exchange'
+      ||path==='/organizations/current/invitations'||acceptInvitation))
+      ||(method==='DELETE'&&(membership||invitation)),
+    'Security acceptance must not save source, create builds or publish.');
+    if(cleanup)assert.ok((method==='DELETE'&&(membership||invitation))||(method==='GET'&&(
+      path===`/projects/${securityFacts.projectId}/memberships`||path==='/organizations/current/memberships')),
+    'Only fixture reconciliation may use the cleanup reserve.');
+    assert.ok(publicationSecurityRequests<30,'Publication security total API ceiling.');
+    assert.ok(securityPreviousRequests.length+publicationSecurityRequests<42,
+      'Retain prior API usage; the corrected security attempt has a cumulative ceiling of 42.');
+    assert.ok(cleanup?publicationSecurityCleanupRequests<4:publicationSecurityRegularRequests<26,
+      'Publication security allows 26 normal calls plus four reserved cleanup calls.');
+    if(method==='POST'&&path==='/organizations/current/invitations'){
+      assert.equal(securityInvitationId,null,'Create at most one temporary reviewer invitation.');
+      assert.deepEqual(JSON.parse(body),{email:'reviewer@local.invalid',display_name:'Local reviewer',organization_role:'guest',
+        project_id:securityFacts.projectId,project_role:'viewer',expires_in_days:1});
+    }
+    if(cleanup)publicationSecurityCleanupRequests++;else publicationSecurityRegularRequests++;
+    publicationSecurityRequests++;
+  }
   if (publicationOnlyMode) assert.ok(requests.length < 500, "Publication request ceiling");
   if (rendererPersistenceMode) assert.ok(requests.length < 160,"Renderer persistence request ceiling");
   if (geolibreImportMode) assert.ok(requests.length < 120,"GeoLibre import request ceiling");
@@ -72,6 +108,13 @@ function apiRequest(path, {method = "GET", headers = {}, body} = {}) {
       response.on("data", (chunk) => chunks.push(chunk));
       response.on("end", () => {
         const body = Buffer.concat(chunks);
+        if(publicationSecurityOnly&&method==='POST'&&path==='/organizations/current/invitations'
+          &&response.statusCode>=200&&response.statusCode<300){
+          try{
+            const invitation=JSON.parse(body);assert.match(invitation.id,/^[0-9a-f-]{36}$/);
+            securityInvitationId=invitation.id;
+          }catch{return reject(new Error('Temporary reviewer invitation response is invalid.'));}
+        }
         if (developmentSmoke && method === "POST" && response.statusCode === 201 && /^\/projects(?:\/[^/]+\/maps)?$/.test(path)) {
           developmentWrites.set(path, JSON.parse(body));
         }
@@ -84,7 +127,7 @@ function apiRequest(path, {method = "GET", headers = {}, body} = {}) {
       });
       response.on("error", reject);
     });
-    request.setTimeout(30_000, () => request.destroy(new Error("Local API timed out")));
+    request.setTimeout(publicationSecurityOnly?(cleanup?2_000:5_000):30_000, () => request.destroy(new Error("Local API timed out")));
     request.on("error", reject);
     request.end(body);
   });
@@ -114,7 +157,7 @@ async function worker() {
   console.log(output.toString().trim());
 }
 
-const bundle = builtStudio ? null : await build({
+const bundle = builtStudio || publicationSecurityOnly ? null : await build({
   stdin: {contents: `
     import {OpenGeoApiClient} from './src/lib/apiClient.js';
     import {PlatformDirectory} from './src/components/PlatformDirectory.js';
@@ -162,6 +205,7 @@ const server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://localhost").pathname;
     if (developmentMode && (request.headers.host !== new URL(origin).host ||
       (request.headers.origin && request.headers.origin !== origin))) return response.writeHead(403).end("Loopback development only");
+    if(publicationSecurityOnly&&path.startsWith('/__local/'))return response.writeHead(403).end('Security acceptance never processes queued jobs.');
     if (developmentMode && await localAnalysisBridge(request, response, path)) return;
     if (developmentMode && path === "/__local/development" && request.method === "GET") {
       response.setHeader("Content-Type","text/html; charset=utf-8").setHeader("Cache-Control","no-store").end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>OpenGeo community development</title><h1>OpenGeo community development</h1><p>Local development only. Sign-in is synthetic. Database, uploaded files and queued jobs persist after closing Chromium. External browser requests are blocked; choose Blank canvas.</p><p><a href="/" target="_blank">Open Studio</a></p><form method="post" action="/__local/process"><button>Process queued local jobs</button></form><p>After requesting a conversion or image in Studio, process the queue here, then refresh that result in Studio. Keep this page available. Close every Chromium window to stop.</p></html>`);
@@ -225,9 +269,33 @@ const publicOrigin = publicationProfile?.publicationOrigin;
 const canonicalPublicOrigin = publicationProfile?.publicationCanonicalOrigin;
 const errors = [];
 let stage = "project-creation";
+let previewDeliveryTime=null;
+let previewExchange={sequence:0};
+const previewExchangeObserver=publicationSecurityOnly
+  ?(await import('./integrated-studio-publication.mjs')).observePublicationPreviewExchange:null;
+const observePreviewExchange=()=>structuredClone(previewExchange);
+const previewApiRequest=async(path,options)=>{
+  const result=await apiRequest(path,options);
+  if(publicationSecurityOnly&&path==='/observable-preview/exchange'){
+    // Capture only bounded, non-secret metadata before the bootstrap redirects;
+    // Playwright response.json() after navigation can lose its response body.
+    previewExchange=previewExchangeObserver(previewExchange,path,options,result);
+  }
+  return result;
+};
+const expirePreviewCookies=expiresAt=>{
+  assert.ok(publicationSecurityOnly&&previewDeliveryTime===null);
+  const expiry=Date.parse(expiresAt),realNow=Date.now();
+  assert.ok(Number.isFinite(expiry)&&expiry>realNow,'Only the actual unexpired signed grant may advance the local verifier clock.');
+  previewDeliveryTime=expiry+1;
+  return {mode:'controlled-local-delivery-clock',actualGrantExpiresAt:expiresAt,
+    realElapsedAtAdvance:new Date(realNow).toISOString(),verifierNow:new Date(previewDeliveryTime).toISOString(),
+    signedPolicyUnchanged:true,sqlClockUnchanged:true,productionExpiryAcceptance:false};
+};
 try {
-  if (publicationProfile) previewServer = await startLocalPreviewServer({work, profile: publicationProfile, studioOrigin: origin, apiRequest});
-  if (publicOrigin) {
+  if (publicationProfile) previewServer = await startLocalPreviewServer({work, profile: publicationProfile, studioOrigin: origin, apiRequest:previewApiRequest,
+    ...(publicationSecurityOnly?{now:()=>previewDeliveryTime??Date.now()}:{})});
+  if (publicOrigin&&!publicationSecurityOnly) {
     const publicUrl=new URL(publicOrigin);
     assert.ok(publicUrl.origin===publicOrigin&&publicUrl.protocol==='http:'&&publicUrl.hostname==='127.0.0.1'&&publicUrl.port
       &&publicOrigin!==origin&&publicOrigin!==previewOrigin&&canonicalPublicOrigin==='https://publication.local.invalid');
@@ -256,9 +324,9 @@ try {
     ...(pinnedFontMode ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
   if (publicationOnlyMode) {
-    publicationBrowserTimer=setTimeout(()=>void browser.close(),60_000);
+    publicationBrowserTimer=setTimeout(()=>void browser.close(),publicationSecurityOnly?75_000:60_000);
     let browserRequests=0;
-    context.on('request',()=>assert.ok(++browserRequests<=500,'Publication browser request ceiling'));
+    context.on('request',()=>assert.ok(++browserRequests<=(publicationSecurityOnly?120:500),'Publication browser request ceiling'));
   }
   if (builtStudio) await context.addInitScript(initializeIntegratedStudioSession, {organization,origin});
   if (pinnedFontMode) await context.addInitScript(() => {
@@ -298,10 +366,15 @@ try {
     stage = "native-publication";
     const {exerciseNativePublication} = await import('./integrated-studio-publication.mjs');
     const publication = await exerciseNativePublication({page, browser, context, origin, organization,
-      apiRequest, work, publicationProfile});
+      apiRequest, work, publicationProfile,securityOnly:publicationSecurityOnly,
+      ...(publicationSecurityOnly?{expirePreviewCookies,observePreviewExchange,securityPreviousRequests}:{})});
     assert.deepEqual(errors,[], 'Publication source UI and native preview page errors');
     writeFileSync(join(work,"browser-result.json"),JSON.stringify({status:"pass",publication,
-      requestCount:requests.length,applicationShell:builtShell?.evidence ?? {mode:'existing source UI bundle'},
+      requestCount:requests.length,...(publicationSecurityOnly?{apiRequestAttempts:publicationSecurityRequests,
+        priorApiRequestAttempts:securityPreviousRequests.length,
+        cumulativeApiRequestAttempts:securityPreviousRequests.length+publicationSecurityRequests,
+        regularApiAttempts:publicationSecurityRegularRequests,cleanupApiAttempts:publicationSecurityCleanupRequests}:{}),
+      applicationShell:builtShell?.evidence ?? {mode:publicationSecurityOnly?'retained private preview bootstrap; no application build':'existing source UI bundle'},
       notProven:["Compiled Studio delivery","Fresh installation","Production authentication and transport"]},null,2)+"\n");
     break scopedJourney;
   }

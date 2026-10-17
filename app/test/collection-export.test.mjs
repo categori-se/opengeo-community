@@ -163,7 +163,7 @@ it("does not publish a scoped Collection after its selected account changes duri
   const f = await fixture({accountQuery: `&collectionAccount=${id(1)}`, holdRead: 1});
   try {
     await f.started.promise; f.changeAccount(id(8)); f.held.resolve();
-    await settle(() => !f.root.shouldBlockNavigation());
+    await settle(() => f.root.textContent.includes("Select the account") && !f.root.shouldBlockNavigation());
     assert.equal(f.root.querySelector("h3"), null); assert.equal(f.downloads.length, 0);
     assert.equal(f.root.textContent.includes("Saved study"), false);
     assert.match(f.root.textContent, /Select the account/);

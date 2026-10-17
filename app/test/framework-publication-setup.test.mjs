@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import {it} from "node:test";
 import {JSDOM} from "jsdom";
 import {FrameworkSourceWorkspace} from "../src/components/ProjectSites.js";
-import {publicationStarter} from "../src/lib/publicationDrafts.js";
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 function harness({fail = null, role = "owner", save = false, failure = new Error("Response lost after potential write")} = {}) {
@@ -30,18 +29,12 @@ function harness({fail = null, role = "owner", save = false, failure = new Error
 }
 
 for (const [format, entry] of [['framework', 'index.md'], ['html', 'index.html'], ['map', 'index.html'], ['notebook', 'index.html'], ['jupyter', 'index.ipynb']]) {
-  it(`prepares ${format} files without offering an undeployed creation path`, async () => {
+  it(`creates a private ${format} publication with its supported source format`, async () => {
     const h = harness({save: true});
     try {
       const select = h.root.querySelector('[aria-label="Publication format"]'); select.value = format;
       h.root.querySelector('.framework-publication-setup button').click(); await tick();
-      if (!['framework', 'html', 'map'].includes(format)) {
-        assert.equal(select.selectedOptions[0].disabled, true);
-        assert.deepEqual(h.calls, []);
-        const prepared = publicationStarter({format, title: 'Atlas', sourceProject: {currentRevisionNumber: 0}});
-        assert.equal(prepared.entryPath, entry); assert.ok(prepared.files[0].blob.size > 0);
-        return;
-      }
+      assert.equal(select.selectedOptions[0].disabled, false);
       assert.deepEqual(h.calls.map(call => call.method), ['createResource', 'createSite', 'createObservableSourceProject', 'saveObservableSourceRevision', 'refresh']);
       const draft = h.calls[3].args[2];
       assert.equal(draft.entryPath, entry); assert.equal(draft.rightsStatus, 'unreviewed');

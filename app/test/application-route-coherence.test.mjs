@@ -233,7 +233,7 @@ describe("application route coherence", () => {
       assert.match(source, new RegExp(`FileAttachment\\("\\./data/${attachment.replace(".", "\\.")}\\"`));
     }
     assert.match(source, /coordinates: \[site\.longitude, site\.latitude\]/);
-    assert.match(source, /\n  : new Map\(\);/);
+    assert.match(source, /\n\s+: new Map\(\);/);
     assert.match(source, /const projectPage = [\s\S]*?import\("\.\/components\/ProjectWorkspacePage\.js"\)\)\.ProjectWorkspacePage/);
     assert.match(source, /projectPage\(\{[\s\S]*?previewSources,/);
   });

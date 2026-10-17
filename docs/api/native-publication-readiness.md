@@ -14,7 +14,7 @@ historical; its missing-adapter findings describe the source inspected then.
 | --- | --- | --- |
 | Saved authored source | Actual Studio/API saves two approved revisions with retained input bytes and checksums. The local API supplies exact source storage, compiler identity and durable dispatch. | Independent operator installation and broader selected-input round trips. |
 | Native build and retained output | The existing coordinator, real SQL leases and exact-version object store execute the isolated native compiler twice. Completed output survives reopening and is reused without replaying builds. | Fresh compiler/image installation and independent deployment. |
-| Authorized private preview | Separate-origin signed previews display both builds. Missing cookies and cookies for another build return 403. The actual Build history button reopens the earlier edition. Installation-specific origins are validated through the API client response parser. | Capability replay, expiry and revocation through the complete connected browser journey, and production identity/delivery. |
+| Authorized private preview | Separate-origin signed previews display both builds. Missing cookies and cookies for another build return 403. The actual Build history button reopens the earlier edition. Installation-specific origins are validated through the API client response parser. | Complete viewer-access revocation and expiry journey, and production identity/delivery. Signed-preview opening and one-time capability replay denial are accepted locally. |
 | Publication and earlier editions | Actual review, acknowledgment and approval controls dispatch the existing canonical publisher. Its restricted SQL role, separate public custody and atomic prefix activation publish both editions. Both public links open and permit anonymous reads; the previous public edition remains readable after replacement. | Independent HTTPS/DNS/CDN delivery and production release. |
 
 The [source repository](../../services/api/src/opengeo_api/observable_sources.py)
@@ -31,9 +31,16 @@ and exchanges, but an already issued cookie remains valid until its signed
 expiry. Immediate cookie revocation is not implemented. The
 [local delivery verifier](../../services/observable-preview/src/local-server.mjs)
 uses the same signature, path and expiry boundaries. These are source-inspection
-findings, not additional browser acceptance: capability replay, expiry and
-revocation through the complete connected browser journey remain open, as does
-production identity and delivery acceptance.
+findings except for the locally accepted signed-preview opening and replay
+denial. A subsequent connected check accepted a temporary viewer invitation,
+but did not finish viewer-preview navigation, expiry or revocation. It also
+exposed a foreign key from retained capability records to removable organization
+membership. Forward migration0176 preserves capability audit records while allowing
+offboarding. The existing database regression verifies consumed/unconsumed
+history and denied issuance/exchange after removal; the retained local database
+applies the migration and restores the temporary guest fixture without deleting
+audit records. Production activation and the complete browser journey remain open. Production identity and
+delivery acceptance remain open.
 
 This check uses cached images, synthetic sign-in and three separate loopback
 origins. The canonical local hostname is explicitly mapped to an anonymous HTTP
@@ -89,7 +96,7 @@ watershed pilot separately verifies static ZIP delivery and revocation; that
 result does not establish native compilation.
 
 Next, reproduce the accepted local workflow on a clean independent installation
-and verify configured identity, HTTPS delivery, capability replay, expiry and
+and verify configured identity, HTTPS delivery, expiry and viewer-access
 revocation. The
 fresh-account AWS publication journey remains unfinished. This update makes no
 production deployment claim.

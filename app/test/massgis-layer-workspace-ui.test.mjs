@@ -246,6 +246,7 @@ function mountMassgisWorkbench(selectedPages = [], projectPatch = {}) {
     geojsonByLayerId: presentation.geojsonByLayerId,
     persistenceMode: "demo",
     publicDemo: true,
+    demoSurface: true,
     projectNavigation: navigation,
     draftScopeId: presentation.draftScopeId
   });

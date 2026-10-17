@@ -43,7 +43,7 @@ export function subscribeCaptureSync(handler, {
   let inFlight = null;
   let rerun = false;
   const run = (reason) => {
-    if (stopped) return Promise.resolve(null);
+    if (stopped || globalThis.navigator?.onLine === false) return Promise.resolve(null);
     if (inFlight) {
       rerun = true;
       return inFlight;

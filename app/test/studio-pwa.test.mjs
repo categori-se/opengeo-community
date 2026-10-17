@@ -85,6 +85,36 @@ test("capture sync falls back to an authenticated open client without storing au
   assert.deepEqual(reasons, ["service-worker-unavailable"]);
 });
 
+test("automatic capture sync retains offline drafts until the client returns online", async () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const navigator = {onLine: false};
+  Object.defineProperty(globalThis, "navigator", {configurable: true, value: navigator});
+  const serviceWorker = new EventTarget();
+  const onlineTarget = new EventTarget();
+  const eventTarget = new EventTarget();
+  const reasons = [];
+  const stop = subscribeCaptureSync(reason => reasons.push(reason), {serviceWorker, onlineTarget, eventTarget});
+  try {
+    await scheduleCaptureSync({serviceWorker: null, eventTarget});
+    const message = new Event("message");
+    Object.defineProperty(message, "data", {value: CAPTURE_SYNC_MESSAGE});
+    serviceWorker.dispatchEvent(message);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(reasons, [], "startup, local save and worker messages must not replay while offline");
+    navigator.onLine = true;
+    onlineTarget.dispatchEvent(new Event("online"));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(reasons, ["online"]);
+    await scheduleCaptureSync({serviceWorker: null, eventTarget});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(reasons, ["online", "service-worker-unavailable"], "online saves still replay automatically");
+  } finally {
+    stop();
+    if (descriptor) Object.defineProperty(globalThis, "navigator", descriptor);
+    else delete globalThis.navigator;
+  }
+});
+
 test("capture sync messages are exact and coalesced while replay is active", async () => {
   const serviceWorker = new EventTarget();
   const calls = [];

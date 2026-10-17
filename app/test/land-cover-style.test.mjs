@@ -103,7 +103,10 @@ it('shows eighteen local land-cover references, selects distinct class paint and
     assert.match(copied[0],/applyD3/);assert.match(copied[1],/plotGeoOptions/);assert.match(copied[0],/opengeo-landcover\.js/);
     assert.doesNotMatch(copied.join(''),/properties\.cover/);assert.match(reference.textContent,/Choose a class for each layer/);
     assert([...reference.querySelectorAll('button')].some(button=>button.textContent==='Download module'));
-    assert.equal(root.querySelector('[aria-label="Data library"]').value,'');assert.equal(root.shouldBlockNavigation(),false);
+    assert.equal(root.querySelector('[aria-label="Data library"]').value,'');
+    assert.equal(root.shouldBlockNavigation(),true,'The selected pattern remains an unsaved local Style draft');
+    [...root.querySelectorAll('button')].find(button=>button.textContent==='Discard changes').click();
+    assert.equal(root.shouldBlockNavigation(),false);
   }finally{root?.dispose();for(const[name,value]of previous)if(value===undefined)delete globalThis[name];else globalThis[name]=value;dom.window.close();}
 });
 

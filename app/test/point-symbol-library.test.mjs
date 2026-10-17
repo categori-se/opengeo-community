@@ -4,6 +4,7 @@ import {it} from "node:test";
 import {JSDOM} from "jsdom";
 import {StyleLibrary} from "../src/components/StyleLibrary.js";
 import {pointSymbolStyleDefinition, savedPointSymbolStyle} from "../src/lib/layerStyleReference.js";
+import {POINT_SYMBOLS} from "../src/lib/pointSymbols.js";
 
 function record(value = {}) {
   const definition = value.definition ?? pointSymbolStyleDefinition({pointSymbol: "hospital", circleColor: "#2563eb", circleRadius: 8}, "Hospitals");
@@ -34,12 +35,13 @@ function adapter(overrides = {}) {
     listResourceStyles: async () => [], getResourceCapabilities: async () => ({canUpdate: true}), ...overrides};
 }
 
-it("offers six local point symbols before storage selection and saves only with explicit resource edit authority", async () => {
+it("offers the complete local point symbol library before storage selection and saves only with explicit resource edit authority", async () => {
   const writes = [];let stored = [];
   await setup(adapter({getResourceCapabilities: async () => ({canUpdate:true}), listResourceStyles: async () => stored,
     createResourceStyle: async (projectId, resourceId, value) => {writes.push({projectId, resourceId, value});
       const created = record({...value, resourceId});stored = [created];return created;}}), async ({root, field, button, choose, input}) => {
-    assert.equal(field("Point symbol").options.length, 6);
+    assert.deepEqual([...field("Point symbol").options].map(option => option.value), POINT_SYMBOLS.map(symbol => symbol.id));
+    assert.ok(POINT_SYMBOLS.length > 1000, "The gallery includes the imported symbol collections");
     assert.match(root.querySelector(".style-point-preview").src, /^data:image\/svg\+xml/);
     assert.equal(button("Save point Style").disabled, true);assert.equal(writes.length, 0);
     await choose("Point symbol", "clinic");input("Point color", "#a12345");input("Point radius", "11");
@@ -68,6 +70,7 @@ it("keeps point drafts and version pins through a conflicting update and an expl
       if (writes.length === 1) throw Object.assign(Error("conflict"), {code: "resource_style_version_conflict"});
       return record({...value, versionNumber: 3});}}), async ({root, field, button, choose, input}) => {
     await choose("Data library", "container");await choose("Style resource", "resource");button("Edit point symbol").click();
+    await until(() => button("Save point changes"));
     input("Point color", "#de1234");await choose("Point symbol", "star");
     button("Delete").click();assert.match(root.textContent,/Save or discard the current draft before deleting/);
     assert.equal(root.querySelector('.style-delete-confirm').hidden,true);assert.equal(archives,0);

@@ -19,7 +19,8 @@ test("integrated font transport serves only the exact reviewed local glyph bytes
   const source = loadIntegratedStudioFontAssets(fileURLToPath(new URL("../../", import.meta.url)));
   assert.equal(source.files.size, 16);
   assert.equal(source.evidence.length, 18);
-  assert.equal(source.maplibre.version, "5.24.0");
+  assert.equal(source.maplibre.version, "6.4.1");
+  assert.equal(source.maplibre.sourcePath, "app/node_modules/maplibre-gl/dist/maplibre-gl.mjs");
   for (const path of [`${FONT_ROUTE}../../LICENSE.txt`, `${FONT_ROUTE}0-255.pbf?token=x`, `${FONT_ROUTE}LICENSE.txt`, `${FONT_ROUTE}900000-900255.pbf`]) {
     assert.equal(source.files.has(path), false);
   }
@@ -59,7 +60,13 @@ test("the opt-in transport bundles with the actual Studio component and recorded
       ${integratedStudioFontTransport(assets.ranges)}
       export const mount = options => ProjectWorkspacePage({...options,mapFontAttachments});`,
       resolveDir:join(root,"app"),sourcefile:"integrated-font-test.js"},
-    bundle:true,write:false,metafile:true,format:"esm",platform:"browser",logLevel:"silent"});
+    bundle:true,write:false,metafile:true,format:"esm",platform:"browser",logLevel:"silent",
+    plugins:[{name:"framework-stdlib",setup(builder){
+      builder.onResolve({filter:/^observablehq:/},({path})=>path==="observablehq:stdlib"
+        ? {path:join(root,"app/node_modules/@observablehq/framework/dist/client/stdlib.js")} : {path,external:true});
+      builder.onResolve({filter:/^npm:/},({path})=>path==="npm:d3-dsv"
+        ? {path:join(root,"app/node_modules/d3-dsv/src/index.js")} : {path,external:true});
+    }}]});
   assert.ok(Object.keys(result.metafile.inputs).some(path => resolve(root,path) === join(root,assets.maplibre.sourcePath)));
   assert.match(result.outputFiles[0].text, /Use Open Sans v1 for this map/);
   assert.match(result.outputFiles[0].text, /\/__local-map-fonts\/manifest\.json/);

@@ -188,7 +188,7 @@ it("keeps revision saving direct while file interchange and settings use nearby 
   const {root} = editor();
   const toolbar = root.querySelector('.source-editor-toolbar');
   assert.deepEqual([...toolbar.querySelectorAll(':scope > button')].map(button => button.textContent),
-    ['Save draft', 'Reload saved draft', 'Insert map…']);
+    ['Save draft', 'Reload saved draft', 'Insert map…', 'Insert data…']);
   assert.equal(root.querySelector('.publication-map-insert').hidden, true);
   toolbar.querySelectorAll(':scope > button')[2].click();
   assert.equal(root.querySelector('.publication-map-insert').open, true);
@@ -254,7 +254,7 @@ it("downloads untouched saved text and binary bytes through the existing exact a
   }});
   click(root, "Reload saved draft"); await tick(); await tick();
   click(root, "Download source");
-  await tick();
+  await until(() => capture.downloads.length === 1, "Exact saved text download completed");
   assert.equal(capture.downloads[0].blob, blobs.get("src/index.md"));
   assert.equal(capture.downloads[0].name, "index.md");
   input(root, "Framework source file", "src/image.png");
@@ -604,7 +604,7 @@ it("retains public file references through editor reopen and save and refuses in
   }});
   click(root, "Reload saved draft"); await tick(); await tick();
   assert.match(root.textContent, /Connected public files: src\/data\/original.tif/);
-  assert.match(root.textContent, /Use Saved preview to build these files privately; building reads the source files/);
+  assert.match(root.textContent, /Live preview reads each source once and reuses its verified bytes\. Saving retains references/);
   const readsBefore = reads;
   for (const command of ["Download complete input backup", "Download source project"]) {
     click(root, command); await tick(); await tick();
@@ -810,7 +810,7 @@ it("adds and edits a Markdown page through the interface, preserving the unsaved
   assert.match(await committed.find(item => item.relativePath === "src/field-labs/noaa.md").blob.text(), /Source and archive details/);
 });
 
-it("assigns, renames, removes and restores archive paths without changing text or writing before commit", async () => {
+it("inserts a registered file and preserves authored text through path edits without writing before save", async () => {
   let reads = 0;
   const {root, saved} = editor({adapter: {listObservableDataAttachments: async () => { reads++; return [archiveRecord]; }}});
   selectDirectory(root, [file("atlas/src/index.md", "# Home")]);
@@ -819,13 +819,16 @@ it("assigns, renames, removes and restores archive paths without changing text o
   input(root, "Framework source editor", "# Unsaved edit");
   await loadArchive(root);
   assert.equal(reads, 1);
-  input(root, "Archive path in source revision", "src/data/water.geojson");
-  click(root, "Add file path");
+  input(root, "FileAttachment path", "src/data/water.geojson");
+  click(root, "Insert file");
   assert.equal(saved.length, 0);
+  const linkedSource = root.querySelector("textarea").value;
+  assert.match(linkedSource, /# Unsaved edit/);
+  assert.match(linkedSource, /const data_water = await FileAttachment\("data\/water\.geojson"\)\.json\(\);/);
   input(root, "Archive file path 1", "src/data/changed.geojson");
-  assert.equal(root.querySelector("textarea").value, "# Unsaved edit");
+  assert.equal(root.querySelector("textarea").value, linkedSource);
   click(root, "Remove path");
-  assert.match(root.textContent, /archive and earlier revisions are unchanged/);
+  assert.match(root.textContent, /The Catalog file and earlier revisions remain available/);
   click(root, "Undo removal");
   assert.equal(root.querySelector('[aria-label="Archive file path 1"]').value, "src/data/changed.geojson");
   click(root, "Save draft");
@@ -833,7 +836,7 @@ it("assigns, renames, removes and restores archive paths without changing text o
   assert.equal(reads, 2, "Commit must recheck availability before uploading authored source");
   assert.deepEqual(saved[0][2].dataAttachments, [{attachmentId: archiveRecord.id, relativePath: "src/data/changed.geojson"}]);
   assert.equal(saved[0][2].files.length, 1);
-  assert.equal(await saved[0][2].files[0].blob.text(), "# Unsaved edit");
+  assert.equal(await saved[0][2].files[0].blob.text(), linkedSource);
 });
 
 it("rejects unsafe paths, collisions, media mismatches and repeated-reference size overflow before upload", async () => {
@@ -842,17 +845,17 @@ it("rejects unsafe paths, collisions, media mismatches and repeated-reference si
   await tick();
   await loadArchive(root);
   for (const path of ["../water.geojson", "src/processor.js", "package.json", "src/data/A.GEOJSON", "src/data/a.geojson/child.json", "src/data/water.csv"]) {
-    input(root, "Archive path in source revision", path);
-    click(root, "Add file path");
+    input(root, "FileAttachment path", path);
+    click(root, "Insert file");
     assert.equal(root.querySelectorAll('[aria-label^="Archive file path "]').length, 0, path);
   }
   for (const path of ["src/data/b.geojson", "src/data/c.geojson", "src/data/d.geojson", "src/data/e.geojson"]) {
-    input(root, "Archive path in source revision", path);
-    click(root, "Add file path");
+    input(root, "FileAttachment path", path);
+    click(root, "Insert file");
   }
   assert.equal(root.querySelectorAll('[aria-label^="Archive file path "]').length, 3);
   assert.match(root.textContent, /exceed 64 MiB/);
-  input(root, "Archive path in source revision", "");
+  input(root, "FileAttachment path", "");
   input(root, "Archive file path 1", "src/data/c.geojson");
   click(root, "Save draft");
   await tick();
@@ -867,8 +870,8 @@ it("retains source and path edits when archive access is withdrawn and can retry
   selectDirectory(root, [file("atlas/index.md", "# Home")]);
   await tick();
   await loadArchive(root);
-  input(root, "Archive path in source revision", "water.geojson");
-  click(root, "Add file path");
+  input(root, "FileAttachment path", "water.geojson");
+  click(root, "Insert file");
   input(root, "Framework source editor", "# Preserve this draft");
   available = false;
   click(root, "Save draft");
@@ -893,8 +896,8 @@ it("locks archive inputs during the commit-time metadata check and ignores a lat
   selectDirectory(root, [file("atlas/index.md", "# Home")]);
   await tick();
   await loadArchive(root);
-  input(root, "Archive path in source revision", "water.geojson");
-  click(root, "Add file path");
+  input(root, "FileAttachment path", "water.geojson");
+  click(root, "Insert file");
   click(root, "Reload registered files");
   click(root, "Save draft");
   click(root, "Save draft");
@@ -917,8 +920,8 @@ it("retains all draft paths through inventory failures and recovers with an expl
     return [archiveRecord];
   }}});
   await loadArchive(root);
-  input(root, "Archive path in source revision", "data/water.geojson");
-  click(root, "Add file path");
+  input(root, "FileAttachment path", "data/water.geojson");
+  click(root, "Insert file");
   fail = true;
   click(root, "Reload registered files");
   await tick();
@@ -941,17 +944,20 @@ it("does not discard an unadded archive path when committing or overwrite bindin
   selectDirectory(root, [file("atlas/index.md", "# Current")]);
   await tick();
   await loadArchive(root);
-  input(root, "Archive path in source revision", "water.geojson");
+  input(root, "FileAttachment path", "water.geojson");
   click(root, "Save draft");
   await tick();
   assert.equal(saved.length, 0);
-  assert.match(root.textContent, /Add the pending archive file path or clear it/);
+  assert.match(root.textContent, /Insert the selected file or clear its name/);
   click(root, "Reload saved draft");
   await tick();
-  click(root, "Add file path");
+  click(root, "Insert file");
+  const insertedSource = root.querySelector("textarea").value;
+  assert.match(insertedSource, /# Current/);
+  assert.match(insertedSource, /FileAttachment\("water\.geojson"\)/);
   finish({blob: new Blob(["# Old"])});
   await tick();
-  assert.equal(root.querySelector("textarea").value, "# Current");
+  assert.equal(root.querySelector("textarea").value, insertedSource);
   assert.equal(root.querySelector('[aria-label="Archive file path 1"]').value, "water.geojson");
   click(root, "Save draft");
   await tick();
@@ -965,8 +971,8 @@ it("preserves the caret and edited archive path when an inventory response arriv
     return new Promise(resolve => { finish = resolve; });
   }}});
   await loadArchive(root);
-  input(root, "Archive path in source revision", "water.geojson");
-  click(root, "Add file path");
+  input(root, "FileAttachment path", "water.geojson");
+  click(root, "Insert file");
   click(root, "Reload registered files");
   const path = input(root, "Archive file path 1", "data/renamed.geojson");
   path.focus();
@@ -987,8 +993,8 @@ it("cannot commit an older tree while a newly selected folder's archive verifica
   selectDirectory(root, [file("atlas/index.md", "# Old")]);
   await tick();
   await loadArchive(root);
-  input(root, "Archive path in source revision", "data/water.geojson");
-  click(root, "Add file path");
+  input(root, "FileAttachment path", "data/water.geojson");
+  click(root, "Insert file");
   selectDirectory(root, [file("atlas/index.md", "# Selected")]);
   click(root, "Save draft");
   await tick();
@@ -1007,8 +1013,8 @@ it("retains the edited working tree after a selected data file fails archive rec
   selectDirectory(root, [file("atlas/index.md", "# Old")]);
   await tick();
   await loadArchive(root);
-  input(root, "Archive path in source revision", "data/water.geojson");
-  click(root, "Add file path");
+  input(root, "FileAttachment path", "data/water.geojson");
+  click(root, "Insert file");
   input(root, "Framework source editor", "# Keep my edits");
   selectDirectory(root, [file("atlas/index.md", "# Replacement"), file("atlas/data/water.geojson", "{}")] );
   await tick();
@@ -1226,15 +1232,16 @@ it("local adapter acceptance: cell edits commit and reopen through the source wo
     const reopened = editor({revision: {currentRevisionId: "committed", currentRevisionNumber: 1}, adapter: {
       listObservableSourceRevisions: async () => [{id: "committed", revisionNumber: 1, title: draft.title, entryPath: draft.entryPath,
         lockfilePath: draft.lockfilePath, rightsStatus: draft.rightsStatus, dataAttachments: [],
-        files: draft.files.map(({relativePath, contentType}) => ({relativePath, contentType}))}],
-      readObservableSourceRevisionFile: async (...args) => {reads.push(args); return {blob: stored.get(args[3])};}
+        files: await savedSourceFiles(stored)}],
+      readObservableSourceRevisionFile: async (...args) => {reads.push(args.slice(0, 4)); return {blob: stored.get(args[3])};}
     }});
     click(reopened.root, "Reload saved draft"); await tick(); await tick();
     const reopenedText = reopened.root.querySelector('[aria-label="Framework source editor"]').value;
     assert.equal(parseNotebookCells(reopenedText).cells[0].value, 'const image = FileAttachment("plot.png"); const result = 2;');
     assert.ok(reopenedText.includes(untouchedCell));
     input(reopened.root, "Framework source file", "plot.png");
-    click(reopened.root, "Download source"); await tick();
+    click(reopened.root, "Download source");
+    await until(() => downloads.downloads.length === 1, "Exact saved notebook attachment downloaded");
     assert.equal(downloads.downloads[0].blob, image);
     assert.deepEqual(new Uint8Array(await downloads.downloads[0].blob.arrayBuffer()), new Uint8Array([137, 80, 78, 71, 0, 255, 17]));
     assert.deepEqual(reads, [["project", "source", "committed", "index.html"], ["project", "source", "committed", "plot.png"]]);
@@ -1309,8 +1316,8 @@ it("local adapter acceptance: Jupyter cell text and structure save and reopen wh
     const reopened = editor({revision: {currentRevisionId: "committed", currentRevisionNumber: 1}, adapter: {
       listObservableSourceRevisions: async () => [{id: "committed", revisionNumber: 1, title: draft.title,
         entryPath: draft.entryPath, lockfilePath: draft.lockfilePath, rightsStatus: draft.rightsStatus, dataAttachments: [],
-        files: draft.files.map(({relativePath, contentType}) => ({relativePath, contentType}))}],
-      readObservableSourceRevisionFile: async (...args) => {reads.push(args); return {blob: stored.get(args[3])};}
+        files: await savedSourceFiles(stored)}],
+      readObservableSourceRevisionFile: async (...args) => {reads.push(args.slice(0, 4)); return {blob: stored.get(args[3])};}
     }});
     click(reopened.root, "Reload saved draft");
     const reopenedText = reopened.root.querySelector('[aria-label="Framework source editor"]');
@@ -1465,7 +1472,7 @@ it('downloads a complete input backup and restores saves and reopens its exact i
   const reopened = editor({revision: {currentRevisionId: 'restored', currentRevisionNumber: 2}, adapter: {
     listObservableSourceRevisions: async () => [{id: 'restored', revisionNumber: 2, title: draft.title,
       entryPath: draft.entryPath, lockfilePath: null, rightsStatus: draft.rightsStatus, dataAttachments: [],
-      files: draft.files.map(({relativePath, contentType}) => ({relativePath, contentType}))}],
+      files: await savedSourceFiles(stored)}],
     readObservableSourceRevisionFile: async (...args) => ({blob: stored.get(args[3])})
   }});
   click(reopened.root, 'Reload saved draft');
@@ -1614,7 +1621,7 @@ it('reviews saves and reopens the pinned upstream bar chart with its exact origi
   const reopened = editor({revision: {currentRevisionId: 'upstream-527', currentRevisionNumber: 1}, adapter: {
     listObservableSourceRevisions: async () => [{id: 'upstream-527', revisionNumber: 1, title: draft.title,
       entryPath: draft.entryPath, lockfilePath: null, rightsStatus: 'unreviewed', dataAttachments: [],
-      files: draft.files.map(({relativePath, contentType}) => ({relativePath, contentType}))}],
+      files: await savedSourceFiles(stored)}],
     readObservableSourceRevisionFile: async (...args) => ({blob: stored.get(args[3])})
   }});
   await until(() => reopened.root.querySelector('[aria-label="Framework source editor"]').value.includes('<notebook'), 'Saved upstream source reopened');
@@ -1657,7 +1664,7 @@ it("converts a legacy module through review and explicit save, retaining origina
   const reopened = editor({legacyConverter, revision: {currentRevisionId: 'converted', currentRevisionNumber: 1}, adapter: {
     listObservableSourceRevisions: async () => [{id: 'converted', revisionNumber: 1, title: draft.title,
       entryPath: draft.entryPath, lockfilePath: null, rightsStatus: 'unreviewed', dataAttachments: [],
-      files: draft.files.map(({relativePath, contentType}) => ({relativePath, contentType}))}],
+      files: await savedSourceFiles(stored)}],
     readObservableSourceRevisionFile: async (...args) => ({blob: stored.get(args[3])})
   }});
   await until(() => reopened.root.querySelector('[aria-label="Framework source editor"]').value.includes('<notebook'), 'Committed conversion reopened');
@@ -1705,7 +1712,7 @@ it("reviews, saves and reopens a notebook with module-scoped helpers and a param
   const reopened = editor({legacyConverter, revision: {currentRevisionId: 'module-import', currentRevisionNumber: 1}, adapter: {
     listObservableSourceRevisions: async () => [{id: 'module-import', revisionNumber: 1, title: draft.title,
       entryPath: 'index.html', lockfilePath: null, rightsStatus: 'unreviewed', dataAttachments: [],
-      files: draft.files.map(({relativePath, contentType}) => ({relativePath, contentType}))}],
+      files: await savedSourceFiles(stored)}],
     readObservableSourceRevisionFile: async (...args) => ({blob: stored.get(args[3])})
   }});
   await until(() => reopened.root.querySelector('[aria-label="Framework source editor"]').value.includes('opengeo-legacy-modules'), 'Saved local graph reopened');
@@ -1769,11 +1776,14 @@ it("reviews an OpenGeo ZIP before applying, then commits and reopens exact files
   selectDirectory(root, [file('atlas/index.md', '# Keep this draft')]);
   await until(() => root.querySelector('[aria-label="Framework source editor"]').value === '# Keep this draft', 'Destination opened');
   await loadArchive(root);
-  input(root, 'Archive path in source revision', 'src/data/destination.geojson'); click(root, 'Add file path');
+  input(root, 'FileAttachment path', 'src/data/destination.geojson'); click(root, 'Insert file');
+  const destinationDraft = root.querySelector('[aria-label="Framework source editor"]').value;
+  assert.match(destinationDraft, /# Keep this draft/);
+  assert.match(destinationDraft, /FileAttachment\("src\/data\/destination\.geojson"\)/);
   input(root, 'Source publication rights', 'approved');
   selectSourceArchive(root, exported.blob);
   await until(() => !archiveApply(root).disabled, 'Complete ZIP reviewed');
-  assert.equal(root.querySelector('[aria-label="Framework source editor"]').value, '# Keep this draft');
+  assert.equal(root.querySelector('[aria-label="Framework source editor"]').value, destinationDraft);
   assert.equal(root.querySelector('[aria-label="Source publication rights"]').value, 'approved');
   assert.match(root.textContent, /Imported research/); assert.match(root.textContent, /foreign-project/);
   assert.equal(saved.length, 0, 'Review does not replace or save the destination draft');
@@ -1806,8 +1816,8 @@ it("reviews an OpenGeo ZIP before applying, then commits and reopens exact files
   const reopened = editor({revision: {currentRevisionId: 'imported', currentRevisionNumber: 1}, adapter: {
     listObservableSourceRevisions: async () => [{id: 'imported', revisionNumber: 1, title: draft.title, entryPath: draft.entryPath,
       lockfilePath: draft.lockfilePath, rightsStatus: draft.rightsStatus, dataAttachments: draft.dataAttachments,
-      files: draft.files.map(({relativePath, contentType}) => ({relativePath, contentType}))}],
-    readObservableSourceRevisionFile: async (...args) => {reads.push(args); return {blob: stored.get(args[3])};}
+      files: await savedSourceFiles(stored)}],
+    readObservableSourceRevisionFile: async (...args) => {reads.push(args.slice(0, 4)); return {blob: stored.get(args[3])};}
   }});
   click(reopened.root, 'Reload saved draft');
   await until(() => reopened.root.querySelector('[aria-label="Framework source editor"]').value === '# Imported source\n\nRetained text.\n', 'Saved import reopened');
@@ -1887,7 +1897,7 @@ it("reconnects imported data paths deliberately, replaces only that draft path a
   let reads = 0;
   const {root, saved} = editor({adapter: {listObservableDataAttachments: async () => {reads++; return [archiveRecord, replacement];}}});
   selectDirectory(root, [file('atlas/src/index.md', '# Destination')]); await tick(); await tick();
-  await loadArchive(root); input(root, 'Archive path in source revision', path); click(root, 'Add file path');
+  await loadArchive(root); input(root, 'FileAttachment path', path); click(root, 'Insert file');
   selectSourceArchive(root, exported.blob); await until(() => !archiveApply(root).disabled, 'Import reviewed');
   click(root, 'Use imported source'); await tick(); await tick();
   assert.equal(reads, 1, 'ZIP review/apply must not load or copy any dependency');
@@ -1899,16 +1909,18 @@ it("reconnects imported data paths deliberately, replaces only that draft path a
   assert.match(root.textContent, /Replaces the draft reference/);
   assert.equal(root.querySelector('[aria-label="Archive file path 1"]').value, path);
   assert.equal(saved.length, 0);
-  click(root, 'Reconnect imported path');
+  click(root, 'Reconnect file');
   assert.equal(root.querySelectorAll('[aria-label^="Archive file path "]').length, 1);
-  assert.match(root.textContent, /Imported data path reconnected/);
+  assert.match(root.textContent, /Imported file reconnected/);
+  const reconnectedSource = '# Portable\n\n\n```js\nconst data_water = await FileAttachment("data/water.geojson").json();\n```\n';
+  assert.equal(root.querySelector('[aria-label="Framework source editor"]').value, reconnectedSource);
   assert.equal(saved.length, 0);
   click(root, 'Save draft'); await until(() => saved.length === 1, 'Reconnected source committed');
   assert.equal(reads, 2, 'Commit checks current metadata once');
   const draft = saved[0][2];
   assert.deepEqual(draft.dataAttachments, [{attachmentId: replacement.id, relativePath: path}]);
   assert.equal(draft.rightsStatus, 'unreviewed');
-  assert.deepEqual(new Uint8Array(await draft.files[0].blob.arrayBuffer()), new TextEncoder().encode('\uFEFF# Portable\r\n'));
+  assert.deepEqual(new Uint8Array(await draft.files[0].blob.arrayBuffer()), new TextEncoder().encode('\uFEFF' + reconnectedSource.replace(/\n/g, '\r\n')));
   const reopened = editor({revision: {currentRevisionId: 'reconnected', currentRevisionNumber: 1}, adapter: {
     listObservableSourceRevisions: async () => [{id: 'reconnected', revisionNumber: 1, title: draft.title,
       entryPath: draft.entryPath, lockfilePath: draft.lockfilePath, rightsStatus: draft.rightsStatus,
@@ -1919,7 +1931,7 @@ it("reconnects imported data paths deliberately, replaces only that draft path a
   click(reopened.root, 'Reload saved draft'); await until(() => !!reopened.root.querySelector('[aria-label="Archive file path 1"]'), 'Saved binding reopened');
   assert.equal(reopened.root.querySelector('[aria-label="Archive file path 1"]').value, path);
   assert.match(reopened.root.textContent, new RegExp(replacement.id));
-  assert.equal(reopened.root.querySelector('[aria-label="Framework source editor"]').value, '# Portable\n');
+  assert.equal(reopened.root.querySelector('[aria-label="Framework source editor"]').value, reconnectedSource);
   assert.equal(reopened.root.querySelectorAll('[aria-label^="Choose destination file for "]').length, 0);
 });
 
@@ -1936,21 +1948,24 @@ it("keeps imported data reconnection local and rejects unavailable, colliding an
   root.querySelector(`[aria-label="Choose destination file for ${path}"]`).click();
   await until(() => reads === 1 && !root.querySelector('[aria-label="Registered archive file"]').disabled, 'Destination metadata loaded');
   input(root, 'Registered archive file', archiveRecord.id);
-  const reconnect = [...root.querySelectorAll('button')].find(item => item.textContent === 'Reconnect imported path');
+  const reconnect = [...root.querySelectorAll('button')].find(item => item.textContent === 'Reconnect file');
   assert.equal(reconnect.disabled, true); reconnect.click();
   assert.equal(root.querySelectorAll('[aria-label^="Archive file path "]').length, 0);
   available = true; click(root, 'Reload registered files'); await tick();
   input(root, 'Registered archive file', archiveRecord.id);
-  input(root, 'Archive path in source revision', 'src/local.geojson'); click(root, 'Add file path');
+  input(root, 'FileAttachment path', 'src/local.geojson'); click(root, 'Insert file');
   assert.match(root.textContent, /must not collide/);
   assert.equal(root.querySelectorAll('[aria-label^="Archive file path "]').length, 0);
   root.querySelector(`[aria-label="Choose destination file for ${path}"]`).click();
-  input(root, 'Registered archive file', archiveRecord.id); click(root, 'Reconnect imported path');
+  input(root, 'Registered archive file', archiveRecord.id); click(root, 'Reconnect file');
+  const reconnectedSource = root.querySelector('[aria-label="Framework source editor"]').value;
+  assert.match(reconnectedSource, /# Source/);
+  assert.match(reconnectedSource, /const data_water = await FileAttachment\("data\/water\.geojson"\)\.json\(\);/);
   available = false;
   click(root, 'Save draft'); await until(() => /archived file is unavailable/.test(root.textContent), 'Revocation detected');
   assert.equal(saved.length, 0, 'No source is uploaded after the metadata check denies access');
   assert.equal(root.querySelector('[aria-label="Archive file path 1"]').value, path, 'Retain the failed draft for recovery');
-  assert.equal(root.querySelector('[aria-label="Framework source editor"]').value, '# Source');
+  assert.equal(root.querySelector('[aria-label="Framework source editor"]').value, reconnectedSource);
   assert.equal(reads, 3);
 });
 
@@ -1966,7 +1981,7 @@ it("clears imported reconnection choices when another source folder or saved rev
   selectDirectory(root, [file('atlas/src/index.md', '# Different folder')]);
   await until(() => root.querySelector('[aria-label="Framework source editor"]').value === '# Different folder', 'Replacement folder opened');
   assert.equal(root.querySelectorAll('[aria-label^="Choose destination file for "]').length, 0);
-  assert.equal(root.querySelector('[aria-label="Archive path in source revision"]').value, '');
+  assert.equal(root.querySelector('[aria-label="FileAttachment path"]').value, '');
   click(root, 'Save draft'); await until(() => saved.length === 1, 'Replacement folder committed');
   assert.deepEqual(saved[0][2].dataAttachments, []);
 });
@@ -2060,7 +2075,7 @@ it("retains imported map reference actions started while a folder archive checks
     }
   }});
   selectDirectory(root, [file('atlas/src/index.md', '# Initial source')]); await tick();
-  await loadArchive(root); input(root, 'Archive path in source revision', dataPath); click(root, 'Add file path');
+  await loadArchive(root); input(root, 'FileAttachment path', dataPath); click(root, 'Insert file');
   selectSourceArchive(root, exported.blob); await until(() => !archiveApply(root).disabled, 'Import reviewed');
   click(root, 'Use imported source'); await tick(); await tick();
   const maps = root.querySelector('.publication-artifact-references');

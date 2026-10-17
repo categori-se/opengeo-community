@@ -24,7 +24,7 @@ pending. We record implementation, acceptance and delivery separately:
 | Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. Studio now delivers the 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides. Local checks cover navigation, rendering and memory save/reopen. | Hosted account save/reopen, individual-feature overrides and separate icon/label controls. |
 | Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. Demo now delivers immediate Identify-panel opening, local feature attributes and Hide/Escape/reopening, verified on the compiled artifact and served files. | Studio delivery of the new explicit panel action, hosted persistence and visual paper-layout acceptance. |
 | External PostGIS Layers | Connection verification, relation discovery, stable live Layer registration and bounded feature preview are implemented. A real local PostGIS journey verifies feature queries, exact numeric values, paging limits, revocation and cleanup. | Connected-browser and configured-provider acceptance, followed by deployment. The new source path defaults off. |
-| Native authored publications | Two saved revisions compile through the native runner, open signed private previews and publish through actual review/approval controls. Current and earlier public editions, private Build history and missing/cross-build cookie denials pass locally. Preview domains are installation-configured. | Clean installation, independent AWS delivery, complete browser capability replay, expiry/revocation and production delivery. Local sign-in and delivery transports are disclosed substitutes. [Readiness](docs/api/native-publication-readiness.md). |
+| Native authored publications | Two saved revisions compile through the native runner, open signed private previews and publish through actual review/approval controls. Current and earlier public editions, private Build history and missing/cross-build cookie denials pass locally. Preview domains are installation-configured; signed opening and capability replay denial also pass locally. | Clean installation, independent AWS delivery, complete viewer-access revocation/expiry journey and production delivery. Local sign-in and delivery transports are disclosed substitutes. [Readiness](docs/api/native-publication-readiness.md). |
 | API and CKAN exchange | The API contract has reproducible offline validation. The STAC-to-CKAN exporter and disposable CKAN 2.11.6 create/read/purge check are complete for their documented scope. | Complete harvesting, synchronization and live portal integration. |
 | Configurable PMTiles intake | The dedicated conversion lane, parameter review, preserved-original path and completed-display handoff are implemented locally. The pinned worker converts GeoJSON and rejects disguised VRT input. | Current security review, successful native ARM64 execution and real-data hosted acceptance before activation. The corrected native API probe passes; the worker remains unexecuted because the host rejects a launcher mount option. Both temporary stacks and containers are cleaned up. The large global KBA conversion has not completed. |
 | Analysis console | The docked JavaScript/Python/Bash editor, isolated browser JavaScript and opt-in local runners are implemented and accepted locally. Managed source connects private jobs, application storage, explicit queue/controller wake and a bounded host; local coordinator checks execute all three languages and cancellation. | Managed activation stays disabled. Connected HTTP/database and updated consumer lifecycle, admitted AMI, fresh-boot rootless security, actual AWS cleanup and production delivery remain open. |
@@ -60,6 +60,14 @@ passes source save, compilation, private preview, publication and earlier-editio
 reopening for two revisions. The [readiness review](docs/api/native-publication-readiness.md)
 distinguishes this connected local acceptance from independent installation and
 production delivery.
+
+Frontend validation now discovers both the top-level and nested test suites.
+All 41 failures found in the bounded local run have focused fixes, and every
+interrupted test file has since been exercised. Retained-build checks cover the
+core workflow in both themes, including Home access and opening/hiding Map
+controls. Consolidated release CI remains pending; this combined local evidence
+does not establish a single complete green run. No additional cloud resources
+or production deployment were needed for these repairs.
 
 ## Planning and delivery
 

@@ -65,7 +65,7 @@ it('rejects corrupt CRC, inconsistent local headers, lying sizes, overlaps and t
   ];
   for (const [index, mutate] of mutations.entries()) {
     const copy = bytes.slice(); mutate(copy, headers(copy));
-    await assert.rejects(readPublicationSourceArchive(new Blob([copy])), /OpenGeo source-project export/, `corrupt variant ${index}`);
+    await assert.rejects(readPublicationSourceArchive(new Blob([copy])), /OpenGeo Studio source-project export/, `corrupt variant ${index}`);
   }
   await assert.rejects(readPublicationSourceArchive(new Blob([bytes, new Uint8Array([0])])), /end record/);
   await assert.rejects(readPublicationSourceArchive(new Blob([bytes.subarray(0, -1)])), /end record/);
@@ -118,7 +118,7 @@ it('requires an exact supported manifest, complete file set, matching media/size
     (_manifest, entries) => {entries['source/extra.md'] = strToU8('extra');}
   ];
   for (const [index, mutate] of mutations.entries()) {
-    await assert.rejects(readPublicationSourceArchive(rewrite(entries, mutate)), /OpenGeo source-project export|content type/, `manifest variant ${index}`);
+    await assert.rejects(readPublicationSourceArchive(rewrite(entries, mutate)), /OpenGeo Studio source-project export|content type/, `manifest variant ${index}`);
   }
   await assert.rejects(readPublicationSourceArchive(pack({...entries, [manifestPath]: new Uint8Array([255])})), /UTF-8 JSON/);
 });
@@ -134,7 +134,7 @@ it('validates settings and bounded inert reference context without trusting arch
     manifest => {manifest.dataAttachments = [{attachmentId: id, relativePath: 'data.csv', bundled: true, pinDetails: 'unknown', pin: null}];},
     manifest => {manifest.metadata.provenance = ['https://example.test/?%74oken=private'];},
     manifest => {manifest.baseRevision = {purpose: 'original-context-only', revision: {url: 'https://user:secret@example.test/'}};}
-  ]) await assert.rejects(readPublicationSourceArchive(rewrite(entries, mutate)), /OpenGeo source-project export|256 KiB|Credential-bearing/);
+  ]) await assert.rejects(readPublicationSourceArchive(rewrite(entries, mutate)), /OpenGeo Studio source-project export|256 KiB|Credential-bearing/);
   const minimal = await readPublicationSourceArchive(rewrite(entries, manifest => {
     manifest.metadata = {rightsStatus: 'approved', projectId: 'untrusted', custom: {retained: true}, entryPath: '../old-draft.md', lockfilePath: 'missing.json'};
   }));

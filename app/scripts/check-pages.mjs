@@ -25,6 +25,10 @@ const kmlNetworkLinkMode = process.argv.includes("--kml-network-link")
   || process.argv.includes("--without-ux-002")
   || process.argv.length === 2;
 const geomooseQueryMode = process.argv.includes("--geomoose-query");
+const shellOnly = process.argv.includes("--shell-only");
+if (shellOnly && !process.argv.includes("--workbench-interactions")) {
+  throw new Error("--shell-only requires --workbench-interactions");
+}
 const screenshotsEnabled = process.env.OPEN_GEO_BROWSER_SCREENSHOTS !== "0";
 const performanceGateEnabled = process.env.OPEN_GEO_BROWSER_PERFORMANCE_GATE !== "0"
   && (process.argv.includes("--ux-002")
@@ -337,7 +341,7 @@ const browserUserConnections = [{
   owner_user_id: IDS.user,
   provider: "s3",
   display_name: "Geospatial data",
-  bucket_name: "example-geodata",
+  bucket_name: "geospatial.data",
   region_name: "us-east-1",
   object_prefix: "",
   credential_mode: "workload_identity",
@@ -432,6 +436,8 @@ const failures = [];
 try {
   if (process.argv.includes("--auth")) {
     await assertAuthenticationStates(browser, baseUrl);
+  } else if (process.argv.includes("--workbench-interactions")) {
+    await checkScreenshots(browser, baseUrl, [fixtureProjectRoute]);
   } else if (process.argv.includes("--studio-account")) {
     await assertStudioAccount(browser, baseUrl);
   } else if (process.argv.includes("--studio-entry")) {
@@ -542,6 +548,10 @@ if (failures.length) {
       ? "Checked the compiled GeoLibre inspect/import/reopen/export workflow with fixture services."
       : process.argv.includes("--flight-simulator")
       ? "Checked the compiled flight simulator workflow in dark and light at 1440×950, 390×844, and 844×390."
+      : process.argv.includes("--workbench-interactions")
+      ? shellOnly
+        ? "Shell only: checked the existing compiled workbench shell in dark and light on one fixture Project route; interaction actions were not replayed."
+        : "Checked the existing compiled workbench interaction journey in dark and light on one fixture Project route."
       : screenshotsEnabled
       ? `Checked ${routes.length} pages. Screenshots written to ${artifactRoot}.`
       : `Checked ${routes.length} pages. Screenshot capture disabled; layout and contrast assertions ran.`
@@ -620,7 +630,53 @@ async function checkRoutes(browser, baseUrl, routes) {
 }
 
 async function checkScreenshots(browser, baseUrl, routes) {
+  const focused = process.argv.includes("--workbench-interactions");
   for (const colorScheme of ["dark", "light"]) {
+    const checkPage = async page => {
+      for (const route of routes) {
+        await visit(page, `${baseUrl}${route}`, route);
+        await assertNoRuntimeError(page, route);
+        await assertReadable(page, route);
+
+        if (route === fixtureProjectRoute) {
+          await assertMapPreview(page, route);
+        }
+
+        if (route === "/?adapter=fixture") await assertStartExperience(page, route);
+        if (route === "/public-demo") {
+          await assertPublicDemoHandoff(page, route);
+        }
+        if (route === "/library") await assertPublicLibrary(page, route);
+        if (route === "/workspaces?adapter=fixture") await assertProjectDirectory(page, route);
+
+        if (route.startsWith("/print/")) {
+          await assertPrintLayout(page, route);
+        }
+
+        const name = screenshotArtifactName(route);
+        if (screenshotsEnabled) {
+          await page.screenshot({path: join(artifactRoot, `${name}-${colorScheme}.png`), fullPage: true});
+        }
+
+        if (route === fixtureProjectRoute && !shellOnly) {
+          await assertWorkbenchInteractions(page, route, colorScheme);
+        }
+      }
+    };
+    if (focused) {
+      await withPlatformPage(browser, baseUrl, {token: null, colorScheme}, async page => {
+        try {
+          await checkPage(page);
+        } catch (error) {
+          await Promise.allSettled([
+            page.content().then(contents => writeFile(join(artifactRoot, `workbench-interactions-failure-${colorScheme}.html`), contents)),
+            page.screenshot({path: join(artifactRoot, `workbench-interactions-failure-${colorScheme}.png`), fullPage: true, timeout: 5000})
+          ]);
+          throw error;
+        }
+      });
+      continue;
+    }
     const context = await browser.newContext({colorScheme, viewport: {width: 1440, height: 950}});
     const basemapRequests = [];
     await context.route("https://a.basemaps.cartocdn.com/**", async (route) => {
@@ -634,37 +690,7 @@ async function checkScreenshots(browser, baseUrl, routes) {
     });
     const page = await context.newPage();
     capturePageErrors(page, `${colorScheme} screenshots`);
-
-    for (const route of routes) {
-      await visit(page, `${baseUrl}${route}`, route);
-      await assertNoRuntimeError(page, route);
-      await assertReadable(page, route);
-
-      if (route === fixtureProjectRoute) {
-        await assertMapPreview(page, route);
-      }
-
-      if (route === "/?adapter=fixture") await assertStartExperience(page, route);
-      if (route === "/public-demo") {
-        await assertPublicDemoHandoff(page, route);
-      }
-      if (route === "/library") await assertPublicLibrary(page, route);
-      if (route === "/workspaces?adapter=fixture") await assertProjectDirectory(page, route);
-
-      if (route.startsWith("/print/")) {
-        await assertPrintLayout(page, route);
-      }
-
-      const name = screenshotArtifactName(route);
-      if (screenshotsEnabled) {
-        await page.screenshot({path: join(artifactRoot, `${name}-${colorScheme}.png`), fullPage: true});
-      }
-
-      if (route === fixtureProjectRoute) {
-        await assertWorkbenchInteractions(page, route, colorScheme);
-      }
-    }
-
+    await checkPage(page);
     await context.close();
   }
 }
@@ -1161,7 +1187,8 @@ async function assertMobileOrientationAndTouch(browser, baseUrl) {
 
 async function checkDirectImageOverlay(page, route) {
   const chooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", {name: "Image overlay", exact: true}).click();
+  await page.getByRole("button", {name: "Edit", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Place image overlay on map", exact: true}).click();
   await (await chooser).setFiles({name: "Direct overlay.png", mimeType: "image/png", buffer: kmlPlacesBrowserIcon});
   const editor = page.locator(".gis-image-overlay-editor");
   await editor.waitFor();
@@ -1900,14 +1927,32 @@ function capturePageErrors(page, label) {
 }
 
 async function assertMapPreview(page, route) {
+  await page.locator(".opengeo-workbench").waitFor({state: "visible"});
   const workbench = await page.locator(".opengeo-workbench").count();
   const mapFrames = await page.locator(".gis-map, .workbench-map, .map-frame").count();
   const layerRows = await page.locator(".gis-layer-row").count();
   const menus = await page.locator(".gis-menubar").count();
   const appNav = await page.locator(".gis-app-nav").count();
-  const homeLinks = await page.getByRole("link", {name: "Home"}).count();
-  const brandLinks = await page.getByRole("link", {name: /OpenGeo Studio/}).count();
-  const mapControls = await page.locator(".gis-map-control-stack").count();
+  const brand = page.locator(".gis-brand", {hasText: "OpenGeo Studio"});
+  const brandHome = await brand.count() === 1 && await brand.getAttribute("href") === "/";
+  const projectMenu = page.locator('.gis-menubar [data-menu="project"] > button');
+  await projectMenu.click();
+  const homeAction = page.locator('.gis-menu-wrap[data-menu="project"] .gis-menu-item', {hasText: "Open application home"});
+  const projectHome = await homeAction.count() === 1 && await homeAction.isVisible() && await homeAction.isEnabled();
+  await projectMenu.click();
+  const controls = page.locator(".gis-controls-command");
+  const collapsedControls = await controls.count() === 1
+    && await controls.getAttribute("aria-label") === "Show map controls"
+    && await controls.getAttribute("aria-pressed") === "false"
+    && await page.locator(".gis-map-control-stack").count() === 0;
+  await controls.click();
+  await page.locator(".gis-map-control-stack").waitFor({state: "visible"});
+  const expandedControls = await controls.getAttribute("aria-label") === "Hide map controls"
+    && await controls.getAttribute("aria-pressed") === "true";
+  await controls.click();
+  await page.locator(".gis-map-control-stack").waitFor({state: "detached"});
+  const restoredControls = await controls.getAttribute("aria-label") === "Show map controls"
+    && await controls.getAttribute("aria-pressed") === "false";
   const focusedDefault = await page.locator(".opengeo-workbench.right-collapsed").count();
   const layersMode = await page.locator(".gis-left-panel-header h2", {hasText: "Layers"}).count();
   const primaryCommands = await page.locator(".gis-primary-command").allTextContents();
@@ -1916,8 +1961,8 @@ async function assertMapPreview(page, route) {
   if (!layerRows) failures.push(`${route}: expected layer controls`);
   if (!menus) failures.push(`${route}: expected OpenGeo Studio toolbar menus`);
   if (!appNav) failures.push(`${route}: expected application navigation`);
-  if (!homeLinks || !brandLinks) failures.push(`${route}: expected obvious navigation back to the app home`);
-  if (!mapControls) failures.push(`${route}: expected map control stack`);
+  if (!brandHome || !projectHome) failures.push(`${route}: expected brand and Project-menu navigation back to the app home`);
+  if (!collapsedControls || !expandedControls || !restoredControls) failures.push(`${route}: expected accessible map controls to open and restore their initial collapsed state`);
   if (!focusedDefault || !layersMode) failures.push(`${route}: expected the map-first Layers view with the inspector initially closed`);
   for (const command of ["Open file", "Add data", "Point", "Path", "Polygon", "Fit", "Identify"]) {
     if (!primaryCommands.some((label) => label.includes(command))) {
@@ -3107,7 +3152,7 @@ async function assertProjectDirectory(page, route) {
   if (await page.locator("#connections[open]").count() !== 1) {
     failures.push(`${route}: Connections did not open the reusable connection interface directly`);
   }
-  await expectText(page, "s3://example-geodata/", "reusable fixture S3 target");
+  await expectText(page, "s3://geospatial.data/", "reusable fixture S3 target");
   await page.locator(".platform-connection-record").first().locator("summary").click();
   await expectText(page, "Live S3 verification", "truthful unverified connection disclosure");
   await page.getByRole("navigation", {name: "Account settings", exact: true})
@@ -3334,42 +3379,47 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   await capture.getByLabel("Field observation GeoJSON geometry", {exact: true})
     .fill(JSON.stringify({type: "LineString", coordinates: [[85.31, 27.7], [85.32, 27.71]]}));
   await capture.getByLabel("Feature property name", {exact: true}).fill("Reviewed field road");
-  await capture.getByRole("button", {name: "Save to device queue", exact: true}).click();
+  await page.context().setOffline(true);
   try {
-    await capture.getByText(/Draft saved on this device · 1 pending/).waitFor();
-  } catch (error) {
-    const renderedState = (await editableDataset.innerText()).replaceAll(/\s+/g, " ").trim();
-    throw new Error(
-      `${route}: offline field capture never exposed its durable queue/replay receipt; rendered dataset state: ${renderedState}`,
-      {cause: error}
-    );
-  }
-  const queuedDraft = await page.evaluate(async ({organizationId, userId, projectId, datasetId}) => {
-    const records = await new Promise((resolve, reject) => {
-      const request = indexedDB.open("opengeo-field-capture-v1");
-      request.onupgradeneeded = () => {request.transaction.abort(); reject(new Error("Device queue was not retained"));};
-      request.onerror = () => reject(new Error("Device queue could not be opened"));
-      request.onsuccess = () => {
-        const database = request.result;
-        const read = database.transaction("submissions", "readonly").objectStore("submissions").getAll();
-        read.onerror = () => {database.close(); reject(new Error("Device drafts could not be read"));};
-        read.onsuccess = () => {database.close(); resolve(read.result);};
+    await capture.getByRole("button", {name: "Save to device queue", exact: true}).click();
+    try {
+      await capture.getByText(/Draft saved on this device · 1 pending/).waitFor();
+    } catch (error) {
+      const renderedState = (await editableDataset.innerText()).replaceAll(/\s+/g, " ").trim();
+      throw new Error(
+        `${route}: offline field capture never exposed its durable queue/replay receipt; rendered dataset state: ${renderedState}`,
+        {cause: error}
+      );
+    }
+    const queuedDraft = await page.evaluate(async ({organizationId, userId, projectId, datasetId}) => {
+      const records = await new Promise((resolve, reject) => {
+        const request = indexedDB.open("opengeo-field-capture-v1");
+        request.onupgradeneeded = () => {request.transaction.abort(); reject(new Error("Device queue was not retained"));};
+        request.onerror = () => reject(new Error("Device queue could not be opened"));
+        request.onsuccess = () => {
+          const database = request.result;
+          const read = database.transaction("submissions", "readonly").objectStore("submissions").getAll();
+          read.onerror = () => {database.close(); reject(new Error("Device drafts could not be read"));};
+          read.onsuccess = () => {database.close(); resolve(read.result);};
+        };
+      });
+      const own = records.filter(record => record.organizationId === organizationId && record.userId === userId);
+      return {
+        count: own.length,
+        scoped: own.every(record => record.request.projectId === projectId && record.request.datasetId === datasetId
+          && record.request.operation === "create" && record.request.formVersion === 1
+          && record.request.feature.properties.name === "Reviewed field road"),
+        hasCredentials: /browser\.test\.token|Bearer |"accessToken"|"authorization"/i.test(JSON.stringify(records))
       };
-    });
-    const own = records.filter(record => record.organizationId === organizationId && record.userId === userId);
-    return {
-      count: own.length,
-      scoped: own.every(record => record.request.projectId === projectId && record.request.datasetId === datasetId
-        && record.request.operation === "create" && record.request.formVersion === 1
-        && record.request.feature.properties.name === "Reviewed field road"),
-      hasCredentials: /browser\.test\.token|Bearer |"accessToken"|"authorization"/i.test(JSON.stringify(records))
-    };
-  }, {organizationId: IDS.organization, userId: IDS.user, projectId: IDS.projects[0], datasetId: IDS.dataset});
-  if (queuedDraft.count !== 1 || !queuedDraft.scoped || queuedDraft.hasCredentials) {
-    failures.push(`${route}: field draft was not retained under the selected account, layer and form without credentials`);
-  }
-  if (browserFieldSubmissions.length !== 0 || browserAuthoritativeFeatureState.features.length !== 1) {
-    failures.push(`${route}: saving a device draft changed the review queue or authoritative features`);
+    }, {organizationId: IDS.organization, userId: IDS.user, projectId: IDS.projects[0], datasetId: IDS.dataset});
+    if (queuedDraft.count !== 1 || !queuedDraft.scoped || queuedDraft.hasCredentials) {
+      failures.push(`${route}: field draft was not retained under the selected account, layer and form without credentials`);
+    }
+    if (browserFieldSubmissions.length !== 0 || browserAuthoritativeFeatureState.features.length !== 1) {
+      failures.push(`${route}: saving a device draft changed the review queue or authoritative features`);
+    }
+  } finally {
+    await page.context().setOffline(false);
   }
   await capture.getByRole("button", {name: "Sync device queue", exact: true}).click();
   try {
@@ -3418,7 +3468,7 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   await assertGovernedQueryWorkflow(page, route, colorScheme);
 
   const firstLayer = page.locator(".gis-layer-row").first();
-  await firstLayer.getByRole("button", {name: /^Open layer properties for /}).click();
+  await firstLayer.getByRole("button", {name: /^Select layer /}).click();
   await firstLayer.locator("summary[aria-label^='Layer actions for ']").click();
   await firstLayer.getByRole("button", {name: "Style layer"}).click();
   await page.getByLabel("Layer name").fill("Access roads renamed");
@@ -3496,7 +3546,8 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
     failures.push(`${route}: layer stack did not expose immediate up/down ordering controls`);
   }
 
-  await page.getByRole("button", {name: "Change basemap"}).click();
+  await page.getByRole("button", {name: "View", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Change basemap", exact: true}).click();
   const basemapDialog = page.getByRole("dialog", {name: "Change basemap"});
   bodyText = await basemapDialog.innerText();
   if (!bodyText.includes("OpenFreeMap") || !bodyText.includes("Protomaps") || !bodyText.includes("Public and project sources")) {
@@ -3504,10 +3555,20 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   }
   await basemapDialog.getByRole("button", {name: "Close basemap chooser"}).click();
 
-  await page.getByRole("button", {name: "Catalog"}).first().click();
-  bodyText = await page.locator("body").innerText();
-  if (!bodyText.toLowerCase().includes("workspace directory")) failures.push(`${route}: catalog panel did not expose workspace navigation`);
-  if (!bodyText.includes("s3://dev.storage.opengeo.tools/dev/")) failures.push(`${route}: catalog panel did not expose AWS dev storage target`);
+  await page.getByRole("button", {name: "Processing", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Project processing jobs", exact: true}).click();
+  const catalog = page.locator(".gis-panel-right .gis-panel-body");
+  const catalogLink = catalog.getByRole("link", {name: "Browse catalog", exact: true});
+  if (await catalogLink.getAttribute("href") !== "/workspaces?view=data") {
+    failures.push(`${route}: project data panel did not expose the account Catalog destination`);
+  }
+  const datasetLink = catalog.locator(".gis-catalog-row", {hasText: "Access Road Network"}).first();
+  const datasetUrl = new URL(await datasetLink.getAttribute("href"), page.url());
+  if (datasetUrl.searchParams.get("project") !== IDS.projects[0]
+    || datasetUrl.searchParams.get("manage") !== "data"
+    || datasetUrl.searchParams.get("dataset") !== IDS.dataset) {
+    failures.push(`${route}: project data catalog did not retain the selected Layer and its access context`);
+  }
 
   await page.getByRole("button", {name: "Add Data", exact: true}).click();
   await page.locator('.gis-menu-wrap[data-menu="add"] .gis-menu-item', {hasText: "PMTiles layer"}).click();
@@ -3540,8 +3601,9 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   }
   await assertWorkbenchLayoutConflicts(page, route, 1440, colorScheme);
 
+  await page.locator(".gis-layer-row").getByRole("button", {name: "Select layer Access roads renamed", exact: true}).click();
   await page.getByRole("button", {name: "Processing", exact: true}).click();
-  await page.locator('.gis-menu-wrap[data-menu="processing"] .gis-menu-item', {hasText: "Create centroid layer"}).click();
+  await page.getByRole("menuitem", {name: "Create vertex-mean centers (browser)", exact: true}).click();
   await page.getByRole("button", {name: "Run"}).click();
   const centroidRows = await page.locator(".gis-layer-row", {hasText: "centroids"}).count();
   if (!centroidRows) failures.push(`${route}: processing tool did not create a centroid layer`);
@@ -3557,7 +3619,7 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   if (await processingPanel.getAttribute("data-processing-history-count") !== "1"
     || await processingReceipt.count() !== 1
     || !processingPanelText.includes("Project processing history")
-    || !processingPanelText.includes("Create centroid layer · success")) {
+    || !processingPanelText.includes("Create vertex-mean centers · success")) {
     failures.push(`${route}: successful browser processing did not create visible portable project history`);
   }
 
@@ -3583,10 +3645,13 @@ async function assertGovernedQueryWorkflow(page, route, colorScheme) {
     hasText: "Access Road Network · authoritative features"
   });
   await layer.waitFor();
-  await page.getByRole("button", {name: "Query", exact: true}).click();
+  await page.getByRole("button", {name: "Layer", exact: true}).click();
+  await page.getByRole("menuitem", {name: "Query features…", exact: true}).click();
   const panel = page.locator('.gis-panel-right [data-query-state="draft"]');
   await panel.waitFor();
-  await panel.getByLabel("Value").fill("value");
+  await panel.getByLabel("Field", {exact: true}).selectOption("name");
+  await panel.getByLabel("Operator", {exact: true}).selectOption("contains");
+  await panel.getByLabel("Value", {exact: true}).fill("value");
 
   const mapCanvas = page.locator(".gis-map .maplibregl-canvas");
   await panel.getByRole("button", {name: "Select by point", exact: true}).click();
@@ -3621,24 +3686,43 @@ async function assertGovernedQueryWorkflow(page, route, colorScheme) {
   await polygonStep.waitFor();
   await polygonStep.getByRole("button", {name: "Remove condition", exact: true}).click();
 
+  const submittedQuery = page.waitForRequest(request => request.method() === "POST"
+    && new URL(request.url()).pathname === `/api/projects/${IDS.projects[0]}/datasets/${IDS.dataset}/feature-query`);
   await panel.getByRole("button", {name: "Run query", exact: true}).click();
+  const queryRequest = (await submittedQuery).postDataJSON();
+  const condition = queryRequest.steps?.[0];
+  if (queryRequest.expected_generation !== 3 || queryRequest.steps?.length !== 1
+    || condition?.kind !== "attribute" || condition.field !== "name" || condition.operator !== "contains"
+    || condition.value !== "value" || condition.case_sensitive !== false) {
+    failures.push(`${route}: final query did not preserve the exact name-contains-value predicate at generation 3 (${JSON.stringify(queryRequest)})`);
+  }
   const results = page.locator('.gis-panel-right [data-query-state="ready"]');
-  await results.getByText("2 of 2 matching features at generation 3.").waitFor();
+  try {
+    await results.getByText("1 of 1 matching features at generation 3.").waitFor();
+  } catch (error) {
+    const rendered = await page.locator(".gis-panel-right").innerText().catch(() => "Query panel unavailable");
+    throw new Error(`${route}: expected only the original name=value feature at generation 3; submitted query: ${JSON.stringify(queryRequest)}; current query result and receipt: ${rendered}`, {cause: error});
+  }
   const receiptText = await results.locator(".gis-query-receipt").innerText();
   if (!/SHA-256 [0-9a-f]{64}/.test(receiptText)) {
     failures.push(`${route}: governed query did not expose its exact parameter receipt`);
   }
-  if (await results.locator(".gis-query-result-table tbody tr").count() !== 2) {
-    failures.push(`${route}: governed query did not render its bounded result table`);
+  const resultRows = results.locator(".gis-query-result-table tbody tr");
+  const expectedFeatureId = "88000000-0000-4000-8000-000000000011";
+  if (await resultRows.count() !== 1
+    || await resultRows.first().getAttribute("data-feature-id") !== expectedFeatureId
+    || await resultRows.first().locator("td").nth(1).innerText() !== "value"
+    || (await results.locator(".gis-query-result-table").innerText()).includes("Reviewed field road")) {
+    failures.push(`${route}: name contains value did not return only the original feature and exclude the reviewed field road`);
   }
-  await results.locator(".gis-query-result-table tbody tr").first().click();
+  await resultRows.first().click();
   const linked = await page.locator(".opengeo-workbench").evaluate((shell) => {
     const source = shell.__opengeoMap?.getSource("opengeo-query-result-source");
     return source?._data?.geojson?.features?.filter(
       (feature) => feature.properties?.opengeoQuerySelected === true
-    ).length ?? 0;
+    ).map(({id}) => String(id)) ?? [];
   });
-  if (linked !== 1) {
+  if (JSON.stringify(linked) !== JSON.stringify([expectedFeatureId])) {
     failures.push(`${route}: selecting a query table row did not select the same map feature`);
   }
 
@@ -3648,8 +3732,11 @@ async function assertGovernedQueryWorkflow(page, route, colorScheme) {
   const csvPath = await csv.path();
   const csvText = csvPath ? await readFile(csvPath, "utf8") : "";
   if (csv.suggestedFilename() !== "access-road-network-authoritative-features-query.csv"
-    || !csvText.startsWith('"feature_id","feature_version","geometry_type","name"\r\n')
-    || csvText.trimEnd().split("\r\n").length !== 3) {
+    || csvText !== [
+      '"feature_id","feature_version","geometry_type","name"',
+      `"${expectedFeatureId}","1","LineString","value"`,
+      ""
+    ].join("\r\n")) {
     failures.push(`${route}: bounded query CSV was not deterministic (${csv.suggestedFilename()})`);
   }
 
@@ -3744,7 +3831,8 @@ async function assertGeoMooseQueryWorkflow(browser, baseUrl) {
         failures.push(`${label}: governed map identify also opened a duplicate MapLibre feature popup`);
       }
 
-      await page.getByRole("button", {name: "Query", exact: true}).click();
+      await page.getByRole("button", {name: "Layer", exact: true}).click();
+      await page.getByRole("menuitem", {name: "Query features…", exact: true}).click();
       const savedInput = page.getByLabel("Open saved query receipt");
       await savedInput.setInputFiles({
         name: "massgis-water-quality-query.json",
@@ -7830,17 +7918,18 @@ async function withPlatformPage(
 ) {
   const flightOnly = process.argv.includes("--flight-simulator");
   const offlineDirectory = process.argv.includes("--project-directory");
+  const offlineWorkbench = process.argv.includes("--workbench-interactions");
   const context = await browser.newContext({
     colorScheme, viewport, hasTouch, isMobile,
-    ...(flightOnly || offlineDirectory ? {serviceWorkers: "block"} : {})
+    ...(flightOnly || offlineDirectory || offlineWorkbench ? {serviceWorkers: "block"} : {})
   });
-  if (flightOnly || offlineDirectory) {
+  if (flightOnly || offlineDirectory || offlineWorkbench) {
     // Register first so the existing explicit local/provider fixture routes take
     // precedence. Every remaining remote request fails before network access.
     await context.route("**/*", async (route) => {
       if (new URL(route.request().url()).origin === baseUrl) return route.continue();
       flightBrowserRequests.blockedUnexpected += 1;
-      failures.push(`${offlineDirectory ? "project directory" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
+      failures.push(`${offlineDirectory ? "project directory" : offlineWorkbench ? "workbench interactions" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
       await route.abort("blockedbyclient");
     });
     context.on("request", (request) => {

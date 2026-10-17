@@ -1,4 +1,6 @@
 import {readFile} from 'node:fs/promises';
+import {fileURLToPath} from 'node:url';
+import {buildMaplibre6Bundle} from './build-maplibre-render-bundle.mjs';
 import {staticMapDocument} from '../src/lib/staticMapExport.js';
 
 export async function acceptanceFixture(format, {version=1}={}) {
@@ -35,7 +37,14 @@ export async function acceptanceFixture(format, {version=1}={}) {
     ]});
   } else if (format === 'map') {
     const runtime = new URL('../node_modules/maplibre-gl/', import.meta.url);
-    const [runtimeJs,runtimeCss,runtimeLicense] = await Promise.all(['dist/maplibre-gl.js','dist/maplibre-gl.css','LICENSE.txt'].map(path=>readFile(new URL(path,runtime),'utf8')));
+    const {version} = JSON.parse(await readFile(new URL('package.json',runtime),'utf8'));
+    if (!['5.24.0','6.4.1'].includes(version)) throw new Error('Unreviewed MapLibre acceptance runtime');
+    const [runtimeBytes,runtimeCss,runtimeLicense] = await Promise.all([
+      version === '6.4.1' ? buildMaplibre6Bundle({packageRoot:fileURLToPath(runtime),globalName:'maplibregl'})
+        : readFile(new URL('dist/maplibre-gl.js',runtime)),
+      ...['dist/maplibre-gl.css','LICENSE.txt'].map(path=>readFile(new URL(path,runtime),'utf8'))
+    ]);
+    const runtimeJs = Buffer.from(runtimeBytes).toString('utf8');
     files[entryPath] = staticMapDocument({title:'Publisher acceptance map',mode:'offline',view:{center:[0,0],zoom:3},runtimeJs,runtimeCss,runtimeLicense,selectedIds:['synthetic'],candidates:[{
       id:'synthetic',title:'Synthetic observations',visible:true,reason:null,sourceId:'observations',attribution:'Synthetic publisher acceptance data',
       source:{type:'geojson',data:{type:'FeatureCollection',features:[[-2,0],[2,1],[0,-2]].map((coordinates,index)=>({type:'Feature',properties:{site:index+1},geometry:{type:'Point',coordinates}}))}},

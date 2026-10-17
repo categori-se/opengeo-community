@@ -107,14 +107,14 @@ class MigrationPlanTests(unittest.TestCase):
             cls.migrations,
         )
 
-    def test_loads_exact_contiguous_175_migrations(self) -> None:
-        self.assertEqual(len(self.migrations), 175)
+    def test_loads_exact_contiguous_176_migrations(self) -> None:
+        self.assertEqual(len(self.migrations), 176)
         self.assertEqual(self.migrations[0].name, "0001_platform_foundation.sql")
         self.assertEqual(
             self.migrations[-1].name,
-            "0175_analysis_runtime_control.sql",
+            "0176_observable_preview_membership_history.sql",
         )
-        self.assertEqual([item.number for item in self.migrations], list(range(1, 176)))
+        self.assertEqual([item.number for item in self.migrations], list(range(1, 177)))
 
     def test_implicit_migration_is_atomic_and_retains_its_source_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -209,7 +209,7 @@ class MigrationPlanTests(unittest.TestCase):
             if migration.transaction_count == 2
         }
         self.assertEqual(actual, expected_two_transaction_migrations)
-        self.assertEqual(sum(item.transaction_count for item in self.migrations), 185)
+        self.assertEqual(sum(item.transaction_count for item in self.migrations), 186)
 
     def test_connector_password_configuration_is_explicit_and_optional(self) -> None:
         self.assertIn("opengeo_connector", MODULE.ALLOWED_DATABASE_ROLES)

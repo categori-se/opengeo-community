@@ -1640,7 +1640,7 @@ function fieldObservationForm(
   const feedback = text(
     "p",
     notice ?? (state.demoCapture ? "Temporary tab storage. Save keeps a draft in this tab; submit, sync and review are simulated. Reloading clears your work." : offlineAllowed
-      ? "Save to device queue keeps a draft here for this account. Sync sends saved drafts for review when connected."
+      ? "Save to device queue keeps a draft here for this account. Saved drafts sync automatically while this signed-in page is open and online. Sync device queue sends them now."
       : "Device saving is disabled for confidential/restricted layers. Submit through your signed-in connection."),
     "project-catalog-feedback"
   );
@@ -1910,7 +1910,7 @@ function fieldObservationForm(
   actions.append(submitNow, saveOffline, sync);
   const destination = text("p", state.demoCapture
     ? "Submit now sends this observation to demo review. Save keeps a draft in this tab; Sync sends saved drafts to demo review. Nothing reaches an account."
-    : "Submit now sends this observation for review. Save keeps a device draft; Sync sends saved drafts. Acceptance makes the reviewed observation part of this layer.", "project-catalog-feedback");
+    : "Submit now sends this observation for review. Save keeps a device draft that syncs automatically while this signed-in page is open and online. Sync device queue sends saved drafts now. Acceptance makes the reviewed observation part of this layer.", "project-catalog-feedback");
   form.append(targetField, location, text("h5", "2. Describe the observation"), properties.element, text("h5", "3. Save or submit"), destination, actions, feedback);
   queue.list(scope).then((records) => {
     if (!notice && records.length) feedback.textContent = `${records.length} submission${records.length === 1 ? "" : "s"} pending on this device.`;

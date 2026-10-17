@@ -29,7 +29,11 @@ describe("GeoMoose-comparable temporary annotation workflow", () => {
     const original = structuredClone(data);
     const layer = {...authoritativeLayer(), sourceType: "geojson-object", fixtureSource: true};
     const shell = mountWorkbench({publicDemo: true, persistenceMode: "demo", layers: [layer], geojsonByLayerId: new Map([[layer.layerId, data]])});
-    assert.equal(shell.querySelector('.gis-app-nav a[href="/workspaces"]'), null);
+    const navigation = shell.querySelector(".gis-app-nav");
+    assert.equal(navigation.querySelector('a[href="/"]').textContent, "Home");
+    assert.equal(navigation.querySelector('a[href="/workspaces"]').textContent, "Projects");
+    assert.equal(navigation.querySelector('a[href="/?view=examples"], a[href^="https://demo.studio.opengeo.tools/"], a[href="https://studio.opengeo.tools/"]'), null);
+    assert.doesNotMatch(navigation.textContent, /Demo|Sample datasets|Open Studio/);
     clickButton(shell, "Edit a copy · Authoritative layer");
     assert.equal(shell.querySelectorAll('[data-persistence="temporary"]').length, 1);
     clickButton(shell, "Edit geometry");
