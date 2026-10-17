@@ -5,6 +5,11 @@ Parameters:
   SourceAmiId:
     Type: AWS::EC2::Image::Id
     Description: Exact official Canonical Ubuntu 24.04 Minimal ARM64 controller source AMI.
+  NativeOciToolsBootstrap:
+    Type: String
+    Default: "false"
+    AllowedValues: ["false", "true"]
+    Description: Prepare the bounded Podman/Skopeo helper for reviewed native OCI acceptance; no installation in user data.
   ControllerInstanceProfileName:
     Type: String
     Default: OpenGeoDevAmiBuildControllerProfile
@@ -268,6 +273,57 @@ Resources:
           set -euo pipefail
           install --directory --owner=root --group=root --mode=0700 /opt/opengeo-build
           printf '%s\n' '${AWS::StackName}' > /opt/opengeo-build/stack-name
+          if [[ '${NativeOciToolsBootstrap}' == true ]]; then
+            cat > /opt/opengeo-build/bootstrap-native-oci-tools.sh <<'NATIVE_OCI_TOOLS'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          umask 0077
+          [[ "$(uname -m)" == aarch64 ]]
+          . /etc/os-release
+          [[ "$ID" == ubuntu && "$VERSION_ID" == 24.04 ]]
+          for tool in aws apt-get dpkg-query python3 tar sha256sum timeout stat head sed; do
+            command -v "$tool" >/dev/null || { echo "Missing native bootstrap prerequisite: $tool" >&2; exit 2; }
+          done
+          # One attempt per host. A failed/timed-out installation is not replayed.
+          ( set -o noclobber; printf 'started\n' > /opt/opengeo-build/native-oci-tools-started )
+          export OPEN_GEO_NATIVE_TOOL_INSTALL_REQUESTED=false
+          if ! command -v podman >/dev/null || ! command -v skopeo >/dev/null; then
+            export OPEN_GEO_NATIVE_TOOL_INSTALL_REQUESTED=true DEBIAN_FRONTEND=noninteractive
+            # Reuse the maintained global Ubuntu mirror; retain APT signature checks.
+            for source_file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+              [[ -f "$source_file" ]] || continue
+              sed --in-place --regexp-extended \
+                's#https?://[a-z0-9.-]+\.ec2\.ports\.ubuntu\.com/ubuntu-ports#http://ports.ubuntu.com/ubuntu-ports#g' "$source_file"
+            done
+            native_apt() {
+              apt-get -o Acquire::Retries=0 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 \
+                -o DPkg::Lock::Timeout=10 -o Acquire::AllowInsecureRepositories=false -o APT::Get::AllowUnauthenticated=false "$@"
+            }
+            native_apt update > /opt/opengeo-build/native-oci-tools-apt.log 2>&1
+            native_apt install -y --no-install-recommends podman skopeo >> /opt/opengeo-build/native-oci-tools-apt.log 2>&1
+          fi
+          for tool in aws podman skopeo python3 tar sha256sum timeout stat head; do
+            command -v "$tool" >/dev/null || { echo "Missing native acceptance prerequisite: $tool" >&2; exit 2; }
+          done
+          python3 - <<'NATIVE_TOOL_VERSIONS'
+          import datetime,json,os,pathlib,subprocess
+          versions={}
+          for name,command in {'aws':['aws','--version'],'podman':['podman','--version'],
+              'skopeo':['skopeo','--version'],'python3':['python3','--version'],'tar':['tar','--version']}.items():
+              output=subprocess.check_output(command,stderr=subprocess.STDOUT,timeout=5)
+              assert len(output)<=4096
+              versions[name]=output.decode().splitlines()[0]
+          packages=subprocess.check_output(['dpkg-query','--show','podman','skopeo'],timeout=5).decode().splitlines()
+          assert len(packages)==2 and all(len(line)<=512 for line in packages)
+          receipt={'architecture':'aarch64','recordedAt':datetime.datetime.now(datetime.timezone.utc).isoformat(),
+              'packages':packages,'toolVersions':versions,'hostPackageInstallationRequested':os.environ['OPEN_GEO_NATIVE_TOOL_INSTALL_REQUESTED']=='true',
+              'securityFreshness':'not established; resolved host package versions only'}
+          path=pathlib.Path('/opt/opengeo-build/native-oci-tools-versions.json')
+          path.write_text(json.dumps(receipt,sort_keys=True)+'\n')
+          NATIVE_TOOL_VERSIONS
+          NATIVE_OCI_TOOLS
+            chmod 0700 /opt/opengeo-build/bootstrap-native-oci-tools.sh
+          fi
           if [[ ! -x /snap/bin/aws ]]; then
             for attempt in 1 2 3; do
               if snap install aws-cli --classic; then
