@@ -1,17 +1,21 @@
 # Resource model: active plan and continuation queue
 
-October 17 — Standalone frontend build accepted
+October 17 — Standalone installation prerequisites accepted
 
-The public-source app installs the current lockfile into an empty dependency
-directory, including esbuild's real install script/native binary and 154 client
-tests. The maintained local runner now stages the canonical native-viewer source;
-its focused staging test passes. The seven-page frontend build and sealed artifact
-check pass with external networking disabled. Existing Framework version indexes
-and one cached CSV parser are reused; compiled modules come from the fresh graph.
-Identify presentation is extracted from Workbench with selected regressions kept.
-Next, accept fresh maintained images and the independent core journey. This is
-not clean-machine or production-installation acceptance. No AWS or Actions run
-is admitted; required main validation awaits verified free capacity.
+The current public-source app installs into an empty dependency directory; its
+native esbuild binary, 154 client tests and seven-page frontend build/check pass.
+The maintained runner stages the canonical native viewer. The standalone API
+image now includes the libuuid/SQLite fixes already present in the Lambda image,
+with the private integration source policy enforcing both. Moving these OS-only updates after
+locked Python installation reuses that dependency layer; the corrected build takes
+9.169 seconds and exact packages/nonroot HTTP startup pass with networking off.
+
+The current compiler image also builds with its pinned defaults and passes the
+existing credential-free compilation fixture under network/read-only restrictions.
+No runtime test containers remain. Next, reproduce the connected core journey
+on an independent installation, reusing these images and the accepted frontend.
+Full-stack installation and production identity/delivery remain open. No AWS
+account calls or Actions jobs were used; main validation awaits free capacity.
 
 October 17 — Selected publication access journey accepted locally
 

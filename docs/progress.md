@@ -1,26 +1,30 @@
-## October 17 — Standalone frontend build and Identify boundary
+## October 17 — Standalone image fixes and installation prerequisites
 
-An empty dependency directory installs the current community lockfile in 21.755
-seconds. The private cache reuses 395 tarballs and retrieves only 13 missing locked
-packages (23,495,154 bytes), with verified integrity. Installation has unchanged
-package files and real lifecycle scripts. Esbuild postinstall/native 0.28.2 and
-154 client tests pass with external networking disabled.
+The maintained standalone API image builds from public source and starts its real
+server as user 10001 on a read-only filesystem without networking or credentials.
+Inspection finds libuuid/SQLite versions older than the reviewed Lambda image.
+The private integration source policy now guards both Dockerfiles; the standalone
+Dockerfile applies the missing pins after locked Python dependency installation.
+A Docker-format attempt times out at 90.060 seconds while reinstalling unchanged
+dependencies. The single changed-method retry preserves the normal OCI format,
+reuses the Python layer and builds in 9.169 seconds. Exact fixed package versions
+and HTTP 200 pass in 13.764 seconds. The runtime container is removed; ten owned
+stopped containers from the timed-out build are removed without pruning images.
+Podman OCI health-check metadata remains omitted; HTTP liveness is checked directly.
 
-The maintained local runner now includes the canonical native-viewer source in
-its build snapshot; the existing focused staging test passes. The seven-page,
-872-file frontend build and sealed artifact check pass in 36.922 seconds. An
-initial attempt stops after 35.886 seconds at Framework's default library version
-lookups. The single diagnosed retry reuses freshly generated modules and existing
-version-index directories, without network or stale compiled modules. Known pilot
-stages total 101.898 seconds, including the failed attempt and source staging;
-agent effort is not included. Fresh images, an independent core journey and
-production installation remain open. AWS, Actions and containers used: zero.
+The current compiler image builds with its pinned defaults in 130.137 seconds.
+Its existing fixture compiles in 29.256 seconds with network disabled, nonroot
+execution, a read-only root and credential sentinels excluded. Output/report
+validation and container cleanup pass. The earlier two-edition publication and
+current worker CI evidence are reused. No AWS account calls, Actions jobs or
+hosted resources are used. Public build-download bytes are not measured; retained
+estimates are not presented as actual usage. Independent full-stack installation
+and production identity/delivery remain open.
 
-The compiler guide supplies the missing maintained image build/resolve commands.
-Identify presentation is extracted into `IdentifyResultsPanel.js`, reducing the
-Workbench controller by 87 lines while preserving query/selection authority.
-Three existing cases pass in 6.870 seconds. The new local artifact is not deployed;
-broader decomposition and release acceptance remain open.
+The fresh app install, native esbuild binary, 154 client tests and seven-page,
+872-file frontend build/check remain accepted. The runner now stages the native
+viewer source. Identify presentation is extracted, with three existing interaction
+checks passing. These new local images/artifacts have not been deployed.
 
 ## October 17 — Publication access and API response contracts accepted locally
 

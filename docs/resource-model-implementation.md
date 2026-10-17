@@ -1,20 +1,27 @@
 # Resource model implementation — September 19, 2026
 
-October 17 — Standalone frontend and Identify presentation
+October 17 — Standalone images and frontend
 
-An isolated public-source app installs the exact current lockfile into empty
-node_modules. Real esbuild postinstall/native binary and 154 client tests pass.
-The maintained local runner now stages `project_module.py`, required by the native
-viewer build; its existing staging test passes. The frontend build and sealed
-artifact checker pass for seven pages and 872 files with networking disabled.
-The first attempt stops at missing Framework version indexes; one diagnosed retry
-reuses its fresh generated modules and existing version-index directories. Optional
-Framework libraries, fresh images and independent installation remain unproved.
+The standalone API Dockerfile now applies libuuid 2.41.6-r1 and SQLite 3.53.4-r0,
+matching the reviewed Lambda fixes. The private integration source policy checks both
+Dockerfiles. Its OS-only update follows locked Python installation so cached Python
+packages remain reusable. After an initial Docker-format rebuild hits its time
+ceiling, the normal OCI build reuses that layer and completes in 9.169 seconds.
+Exact package readback and real HTTP 200 pass as user 10001 with read-only root,
+network disabled and no credentials. Automatic health metadata is not accepted:
+Podman's normal OCI format omits it. Database readiness/auth remain unproved.
 
-IdentifyResultsPanel owns the existing report DOM, grouped vector/raster results
-and summary. Workbench retains request revisions, aborts, raster sampling, focus,
-reopening and selection callbacks. Three existing Identify cases pass. Both
-editions carry the same source; the new local artifact has not been deployed.
+The maintained compiler Dockerfile builds with its default pinned images and
+passes its existing real compilation fixture. Credential exclusion, route/output
+validation and runtime cleanup pass without a source overlay. Current worker
+build/security CI evidence is reused; no worker rebuild or publication replay.
+An independent full-stack journey and production identity/delivery remain open.
+
+The fresh app graph, esbuild lifecycle/native binary, 154 client tests and sealed
+seven-page frontend build also pass. The runner includes `project_module.py` in
+its snapshot. IdentifyResultsPanel owns the report presentation; Workbench keeps
+query/selection authority. Three existing Identify cases pass. These new local
+artifacts have not been deployed.
 
 October 17 — Publication access and response-validation boundary
 

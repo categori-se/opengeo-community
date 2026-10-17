@@ -16,8 +16,14 @@ external networking. The seven-page frontend build and artifact checks also pass
 in an isolated public-source copy. That build reuses Framework package-version
 indexes and the CSV parser cache; application modules are generated from the
 fresh installed graph. It does not verify every optional Framework library.
-Fresh container images, a complete independent installation, production
-identity/delivery and large uploads remain separate acceptance work.
+The maintained standalone API image also builds from current community source.
+It includes the reviewed libuuid/SQLite fixes and reuses unchanged Python
+dependencies when those OS packages change. Its real server starts as user 10001
+on a read-only filesystem with networking disabled; `/health/live` returns HTTP
+200 and package versions match. The test container is removed.
+That liveness check does not establish database readiness or authentication.
+Independent full-stack installation, production identity/delivery and large
+uploads remain separate acceptance work.
 See the [release record](../COMMUNITY-RELEASE.json) for detailed results.
 
 The [deployment guide](community-deployments.md) explains how local development,
@@ -48,6 +54,10 @@ podman build --tag localhost/opengeo-community-worker \
   --file services/worker/Dockerfile services/worker
 podman pull docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932
 ```
+
+Podman's default OCI format omits Dockerfile health-check metadata. The
+standalone server check verifies the HTTP endpoint directly; automatic image
+health checks are not part of that acceptance.
 
 These are the existing maintained images and build commands. The worker includes
 native GIS tools, malware signatures, OCR tools and their licenses, so its first
@@ -140,7 +150,9 @@ leaves this profile disabled. The accepted local CC0 study demonstrates two
 revisions, private previews, publication and reopening earlier editions. Viewer
 opening, revoked grants and real capability expiry also pass. Signed-cookie
 expiry uses a qualified local verifier clock; issued cookies remain valid until
-their 15-minute expiry. Fresh container images, a complete independent operator installation and
+their 15-minute expiry. The current compiler Dockerfile also builds with its pinned
+defaults and passes its existing credential-free compilation fixture. No source
+overlay or publication replay is used. Independent full-stack installation and
 production identity/delivery remain separate acceptance work.
 
 ## Release limits

@@ -40,6 +40,11 @@ RUN chmod 0444 /srv/opengeo/fonts/GNU-Unifont-LICENSE.txt \
 COPY requirements.lock ./requirements.lock
 RUN python -m pip install --no-cache-dir --require-hashes --requirement requirements.lock
 
+# Keep OS-only updates from reinstalling unchanged Python dependencies.
+RUN apk add --no-cache --upgrade \
+    'libuuid=2.41.6-r1' \
+    'sqlite-libs=3.53.4-r0'
+
 COPY src ./src
 
 USER 10001:10001

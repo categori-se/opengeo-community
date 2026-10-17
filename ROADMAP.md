@@ -87,10 +87,15 @@ needed for this increment.
 A fresh app dependency directory now installs the current lockfile, runs esbuild's
 install script/native binary and passes 154 existing client tests. Its verified
 package cache needed 13 locked downloads; install/tests use network isolation.
-The development guide now includes the compiler build and immutable-ID commands.
-Fresh container images and a complete independent installation remain open.
-Identify report presentation is also separated from Workbench, with three existing
-interaction/focus checks passing. These source changes await release validation.
+The seven-page frontend build and artifact check also pass with networking off.
+The current standalone API and compiler Dockerfiles build locally. Exact API
+package versions and nonroot HTTP startup pass; the compiler's existing real
+fixture passes with credentials excluded and networking disabled. OS-only API
+fixes now reuse the unchanged Python dependency layer. Runtime test containers
+are removed; current worker CI evidence is reused. A complete independent
+installation and production delivery remain open. Identify presentation is also
+separated from Workbench, with three existing interaction/focus checks passing.
+These source changes await release validation.
 
 ## Planning and delivery
 
