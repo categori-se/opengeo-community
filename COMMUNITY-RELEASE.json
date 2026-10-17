@@ -140,6 +140,16 @@
       "credit": "Developed and maintained by Aaron Kyle Dennis for categori.se",
       "scope": "Contributors, README, NOTICE and licensing credit; project purpose and ongoing maintenance priorities use a professional corporate voice",
       "verification": "Scoped local links/whitespace; documentation only; no runtime or deployment changes"
+    },
+    "roadmapAndContactPrivacy": {
+      "date": "2026-10-17",
+      "scope": "Correct current roadmap states and tracker links; replace personal email contacts with LinkedIn and Observable profiles; use synthetic fixture identities and GitHub no-reply metadata.",
+      "sourceChanges": 13,
+      "scopedChecks": "Whitespace, affected syntax and ten root/public bootstrap fixture cases pass. Existing accepted application evidence retained.",
+      "history": "Published history cleanup prepared separately; no remote history rewrite claimed.",
+      "builds": 0,
+      "AWS": 0,
+      "manualCI": 0
     }
   },
   "sourceMapping": "Reviewed current community checkout source update, preserving existing public contribution history and public-only API documentation, CI and regression fixes. Includes regenerated API contract and final selected clustering source. Private Git history and operational state are excluded.",
@@ -222,7 +232,7 @@
     "infrastructure/test/demo-pilot-operator.test.ts"
   ],
   "fileCount": 2272,
-  "sourceTreeSha256": "256579948e4d7cbd9da16ee34ca85431fc954d07a318148c862d4867902012f8",
+  "sourceTreeSha256": "dfcc0ecd414f14dbc5a6d9d139aae4c1a4f212fe40bae14e4fb9dfef2163edfb",
   "sourceSyncPreparation": {
     "status": "local-source-update-verified-not-published",
     "changedPaths": 316,

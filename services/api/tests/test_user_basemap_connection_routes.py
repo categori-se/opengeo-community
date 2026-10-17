@@ -51,7 +51,7 @@ class FakePrincipalRepository:
         return Principal(
             user_id=USER_ID,
             subject=subject,
-            email="2301690+aaronkyle@users.noreply.github.com",
+            email="owner@example.test",
             display_name="Aaron Dennis",
             memberships=(OrganizationMembership(ORG_ID, "admin"),),
         )

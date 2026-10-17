@@ -17,12 +17,23 @@ MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
-CATALOG = Path(__file__).resolve().parents[2] / "imports" / "observable-framework-projects.json"
-
-
 class PrivateProjectBootstrapTests(unittest.TestCase):
-    def test_reviewed_catalog_prepares_private_records_without_local_paths(self) -> None:
-        sources = MODULE.load_catalog(CATALOG, "2301690+aaronkyle@users.noreply.github.com")
+    def setUp(self) -> None:
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.catalog = Path(directory.name) / "catalog.json"
+        self.catalog.write_text(json.dumps({
+            "schemaVersion": "opengeo.observable-import-catalog.1.0.0",
+            "owner": {"email": "owner@example.test"},
+            "projectVisibility": "private",
+            "sources": [{"id": f"source-{index}", "title": f"Source {index}",
+                         "classification": "research", "conversionPlan": "normalize_source_project",
+                         "sourceDirectory": "/home/example/private-input",
+                         "routeNamespace": f"projects/source-{index}"} for index in range(17)],
+        }), encoding="utf-8")
+
+    def test_catalog_prepares_private_records_without_local_paths(self) -> None:
+        sources = MODULE.load_catalog(self.catalog, "owner@example.test")
 
         self.assertEqual(len(sources), 17)
         self.assertTrue(all(set(source) == {
@@ -35,7 +46,7 @@ class PrivateProjectBootstrapTests(unittest.TestCase):
         )
 
     def test_apply_prepares_access_without_creating_empty_compositions(self) -> None:
-        sources = MODULE.load_catalog(CATALOG, "2301690+aaronkyle@users.noreply.github.com")[:1]
+        sources = MODULE.load_catalog(self.catalog, "owner@example.test")[:1]
         migrator = Mock()
         migrator._base.return_value = {}
         migrator._transaction_base.return_value = {}
@@ -62,13 +73,13 @@ class PrivateProjectBootstrapTests(unittest.TestCase):
         bootstrap.verify.assert_called_once()
 
     def test_catalog_rejects_public_visibility_and_owner_mismatch(self) -> None:
-        payload = json.loads(CATALOG.read_text(encoding="utf-8"))
+        payload = json.loads(self.catalog.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "catalog.json"
             payload["projectVisibility"] = "public"
             path.write_text(json.dumps(payload), encoding="utf-8")
             with self.assertRaisesRegex(MODULE.MigrationError, "remain private"):
-                MODULE.load_catalog(path, "2301690+aaronkyle@users.noreply.github.com")
+                MODULE.load_catalog(path, "owner@example.test")
 
             payload["projectVisibility"] = "private"
             path.write_text(json.dumps(payload), encoding="utf-8")

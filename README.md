@@ -16,7 +16,8 @@ installation and publishing limits.
 
 [Try the demo](https://demo.studio.opengeo.tools/) ·
 [Open hosted Studio](https://studio.opengeo.tools/) ·
-[Request hosted Studio access](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20Studio%20access) ·
+[LinkedIn](https://www.linkedin.com/in/akdennis/) ·
+[Observable community profile](https://talk.observablehq.com/u/aaronkyle/activity) ·
 [Explore published work](https://opengeo.tools/projects/) ·
 [Choose an installation](docs/community-deployments.md) ·
 [API documentation](docs/api/README.md)
@@ -26,7 +27,7 @@ installation and publishing limits.
 | Path | What to expect |
 | --- | --- |
 | [Try the browser Demo](https://demo.studio.opengeo.tools/) | Inspect, modify and export a small study without installing the stack. Personal saves stay on your device, separate from samples and account storage. |
-| [Use hosted Studio](https://studio.opengeo.tools/) | Existing users sign in to the installation we operate. [Request hosted Studio access](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20Studio%20access) with your workflow and team size; access, availability and services are arranged with the maintainer. |
+| [Use hosted Studio](https://studio.opengeo.tools/) | Existing users sign in to the installation we operate. [Request hosted Studio access](https://www.linkedin.com/in/akdennis/) with your workflow and team size; access, availability and services are arranged with the maintainer. |
 | [Run the community stack](docs/community-development.md) | Operate the browser application and its supporting services locally or in [your own AWS account](docs/community-aws.md). Configure your domains, styles, connections, permissions and usage limits. |
 | [Commission a company deployment](SUPPORT.md#hosting-and-enterprise-support) | Agree a scope for installation, configuration, integration, training and handover into your environment. |
 | [Arrange managed operation](SUPPORT.md#hosting-and-enterprise-support) | Use an organizational installation with agreed responsibilities for maintenance, recovery, upgrades and support. |
@@ -165,7 +166,7 @@ Third-party software and data retain their own terms; see the
 [NOTICE](NOTICE) and [foundation inventory](docs/open-source-foundations.md).
 
 We offer [hosting and enterprise support](SUPPORT.md#hosting-and-enterprise-support)
-as fee-based services. [Contact us](mailto:2301690+aaronkyle@users.noreply.github.com) with inquiries.
+as fee-based services. [Contact us](https://www.linkedin.com/in/akdennis/) with inquiries.
 
 Developed and maintained by [Aaron Kyle Dennis](https://github.com/aaronkyle)
 for [categori.se](https://categori.se).

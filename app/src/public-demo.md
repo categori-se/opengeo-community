@@ -22,7 +22,8 @@ authentication state, private project references, or managed uploads with
 
 The community edition delivers the full suite of tools. See the
 [source and deployment guides](https://github.com/categori-se/opengeo-community)
-or [ask about fee-based hosting and enterprise support](mailto:2301690+aaronkyle@users.noreply.github.com).
+or [ask about hosting and enterprise support on LinkedIn](https://www.linkedin.com/in/akdennis/).
+You can also visit [Aaron’s Observable forum profile](https://talk.observablehq.com/u/aaronkyle/activity).
 
 ## Reusable NOAA map
 

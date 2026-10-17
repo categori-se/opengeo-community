@@ -1597,11 +1597,10 @@ function providerSetupText(provider) {
 function datasetConnectionCreationForm(state, rerender) {
   const form = document.createElement("form");
   form.className = "platform-connection-form";
-  const isExampleOwner = state.session.email?.toLowerCase() === "2301690+aaronkyle@users.noreply.github.com";
   const name = document.createElement("input");
   name.required = true;
   name.maxLength = 200;
-  name.value = isExampleOwner ? "Geospatial data" : "";
+  name.value = "";
   name.placeholder = "Connection name";
   const bucket = document.createElement("input");
   bucket.required = true;

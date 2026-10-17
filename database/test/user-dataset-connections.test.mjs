@@ -54,7 +54,7 @@ describe("0051 user dataset connections migration", () => {
     await db.exec(`
       INSERT INTO app.users (id, cognito_subject, email, display_name)
       VALUES
-        ('${IDS.owner}', 'owner-51', '2301690+aaronkyle@users.noreply.github.com', 'Aaron Dennis'),
+        ('${IDS.owner}', 'owner-51', 'owner@example.test', 'Aaron Dennis'),
         ('${IDS.collaborator}', 'collaborator-51', 'collaborator@example.test', 'Collaborator'),
         ('${IDS.otherUser}', 'other-51', 'other@example.test', 'Other');
       INSERT INTO app.organizations (id, name, slug, created_by)

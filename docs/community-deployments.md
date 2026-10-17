@@ -14,7 +14,7 @@ Hosting and implementation services use the same software.
 | Path | Operator | Data and account management | Prerequisites | Updates and support |
 | --- | --- | --- | --- | --- |
 | [Browser Demo](https://demo.studio.opengeo.tools/) | Maintainer | Personal saves in your browser; no Studio account. Remote services retain their own data and terms. | A supported browser and permitted inputs; [small exercise](community-examples.md#try-it-community-facilities). | Maintainer updates the Demo; you retain browser backups. |
-| [Hosted Studio](https://studio.opengeo.tools/) | Maintainer | Account-backed work and permitted resources in the operated installation; access is arranged with the maintainer. | Existing access or [request hosted Studio access](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20Studio%20access). | Hosting, usage, data handling and support follow agreed terms. |
+| [Hosted Studio](https://studio.opengeo.tools/) | Maintainer | Account-backed work and permitted resources in the operated installation; access is arranged with the maintainer. | Existing access or [request hosted Studio access](https://www.linkedin.com/in/akdennis/). | Hosting, usage, data handling and support follow agreed terms. |
 | [Community installation](community-development.md) | You or your chosen operator | Your configured database, storage, identity and resource permissions. | Connected local services or an [AWS account and deployment configuration](community-aws.md). | Your operator manages updates and recovery; community help is available as time allows. |
 | [Assisted company deployment](../SUPPORT.md#hosting-and-enterprise-support) | Agreed during implementation and handover | Organizational infrastructure, connections and account administration defined in the scope. | An agreed environment, workflow and implementation scope. | Scoped installation, integration, training and handover; ongoing operation is agreed separately. |
 | [Managed organizational deployment](../SUPPORT.md#hosting-and-enterprise-support) | Maintainer under an agreement | An organizational installation with agreed hosting, data access and account responsibilities. | Agreed infrastructure access, workflows, usage and responsibilities. | Maintenance, upgrades, backup/recovery and support only as agreed for that installation. |
@@ -41,7 +41,7 @@ read your Demo browser storage. See the [workflow guide](community-workflow.md#c
 
 Existing users can [open Studio](https://studio.opengeo.tools/) and sign in to
 work within their account and resource permissions. To discuss access,
-[request hosted Studio access](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20Studio%20access)
+[request hosted Studio access](https://www.linkedin.com/in/akdennis/)
 with your intended workflow, team size, source types, approximate volumes and
 publishing destination. Access and services are arranged with the maintainer.
 
@@ -70,7 +70,7 @@ and handover. Managed operation adds responsibilities agreed for the installatio
 Specify who administers accounts and infrastructure, where data resides, how
 updates are approved, and which retention, backup, recovery and support
 arrangements apply. No schedule, hosting region or service-level commitment is
-implied before agreement. [Discuss a deployment](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20deployment)
+implied before agreement. [Discuss a deployment](https://www.linkedin.com/in/akdennis/)
 through the [support guide](../SUPPORT.md#hosting-and-enterprise-support).
 
 ## Shared core, separate configured deployments
@@ -134,5 +134,7 @@ For installation requirements and known limitations, see the
 [roadmap](../ROADMAP.md).
 
 For fee-based hosting or enterprise support for your installation, contact
-[Aaron Kyle Dennis](mailto:2301690+aaronkyle@users.noreply.github.com) through the
+[Aaron Kyle Dennis](https://www.linkedin.com/in/akdennis/) through the
 [support guide](../SUPPORT.md#hosting-and-enterprise-support).
+
+Find Aaron on [LinkedIn](https://www.linkedin.com/in/akdennis/) or the [Observable forum](https://talk.observablehq.com/u/aaronkyle/activity).

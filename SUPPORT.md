@@ -32,7 +32,7 @@ organizations deploy and operate the same software.
 
 | Service | Scope to agree |
 | --- | --- |
-| Hosted Studio access | Use an installation we operate, with account and resource permissions and agreed services. Existing users can [open Studio](https://studio.opengeo.tools/); new users can [request hosted Studio access](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20Studio%20access). |
+| Hosted Studio access | Use an installation we operate, with account and resource permissions and agreed services. Existing users can [open Studio](https://studio.opengeo.tools/); new users can [request hosted Studio access](https://www.linkedin.com/in/akdennis/). |
 | Assisted company deployment | Installation, configuration, private connections, integrations, training and handover into an organizational environment. |
 | Managed organizational deployment | Agreed operation of an organizational installation, including the maintenance, upgrades, backup/recovery and support responsibilities selected for that engagement. |
 
@@ -48,6 +48,8 @@ An inquiry does not activate a subscription or grant access. The software licens
 does not establish a hosting entitlement or service guarantee.
 
 For hosting or enterprise support inquiries, contact
-[Aaron Kyle Dennis](mailto:2301690+aaronkyle@users.noreply.github.com). Describe your intended workflows,
+[Aaron Kyle Dennis](https://www.linkedin.com/in/akdennis/). Describe your intended workflows,
 hosting needs and support requirements so we can discuss scope, terms and
 availability. Pricing and service commitments are agreed for the engagement.
+
+You can also find Aaron on the [Observable forum](https://talk.observablehq.com/u/aaronkyle/activity).
