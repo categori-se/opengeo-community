@@ -1844,7 +1844,10 @@ function renderTopbar(topbar, context) {
   quickToggle.classList.add("gis-quick-tools-toggle");
   quickToggle.setAttribute("aria-expanded", String(state.quickToolsOpen));
   quickToggle.title = "The same actions remain available in the menus.";
-  menus.append(quickToggle);
+  const visibility = document.createElement("div");
+  visibility.className = "gis-toolbar-visibility";
+  visibility.setAttribute("role", "group");
+  visibility.setAttribute("aria-label", "Toolbar visibility");
   const controlsVisible = state.mapControlsOpen && !state.mapOnly;
   const controls = iconButton(controlsVisible ? "Hide map controls" : "Show map controls", "☷", () => {
     state.mapControlsOpen = !controlsVisible;
@@ -1854,7 +1857,8 @@ function renderTopbar(topbar, context) {
   });
   controls.classList.add("gis-controls-command");
   controls.setAttribute("aria-pressed", String(controlsVisible));
-  menus.append(controls);
+  visibility.append(quickToggle, controls);
+  menus.append(visibility);
   toolstrip.append(menus, quickTools);
 
   const right = document.createElement("div");

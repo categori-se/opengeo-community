@@ -1,3 +1,5 @@
+import {SYMBOLOGY_REFERENCES} from '../lib/symbologyReferences.js';
+
 let gallerySequence = 0;
 const PAGE_SIZE = 48;
 const labelFor = value => String(value ?? '').replace(/[-_]/g, ' ').replace(/^./, letter => letter.toUpperCase());
@@ -52,6 +54,42 @@ export function SymbologyGallery({entries, preview, onChoose, selectedId = null}
   const geometries = select('Geometries', countValues(entry => (entry.geometryKinds ?? []).map(geometryFor)));
   const categories = select('Categories', countValues(entry => [entry.category]));
   const collections = select('Collections', countValues(entry => [entry.collection]));
+  const collectionShortcuts = node('nav', '', 'symbology-gallery-collections');
+  collectionShortcuts.setAttribute('aria-label', 'Browse symbology collections');
+  const browseCollection = value => {
+    search.value = kinds.value = geometries.value = categories.value = '';
+    collections.value = value;filter();
+    count.scrollIntoView?.({block: 'nearest'});
+  };
+  const collectionButtons = [];
+  for (const [collection, total] of [['', catalog.length], ...countValues(entry => [entry.collection])]) {
+    const button = node('button', `${collection || 'All collections'} · ${total}`);button.type = 'button';
+    button.setAttribute('aria-pressed', String(!collection));
+    button.onclick = () => browseCollection(collection);collectionButtons.push([collection, button]);collectionShortcuts.append(button);
+  }
+  const references = node('section', '', 'symbology-gallery-references');
+  references.id = `${gridId}-guides`;
+  references.setAttribute('aria-label', 'Symbology guides and sources');
+  references.append(node('h3', 'Guides and sources'));
+  const guideLink = node('a', 'Guides and sources');guideLink.href = `#${references.id}`;
+  overview.append(document.createTextNode(' · '), guideLink);
+  const referenceGrid = node('div', '', 'symbology-gallery-reference-grid');
+  for (const guide of SYMBOLOGY_REFERENCES) {
+    const card = node('article');card.append(node('h4', guide.title), node('p', guide.description));
+    const links = node('ul');
+    for (const [title, href] of guide.links) {
+      const row = node('li'), link = node('a', title);link.href = href;
+      link.target = '_blank';link.rel = 'noopener noreferrer';row.append(link);links.append(row);
+    }
+    card.append(links, node('p', guide.note, 'symbology-gallery-reference-note'));
+    const total = catalog.filter(entry => entry.collection === guide.collection).length;
+    if (guide.collection && total) {
+      const browse = node('button', `Browse ${guide.title} · ${total}`);browse.type = 'button';
+      browse.onclick = () => {browseCollection(guide.collection);collections.focus();};card.append(browse);
+    }
+    referenceGrid.append(card);
+  }
+  references.append(referenceGrid);
   const clear = node('button', 'Clear filters', 'symbology-gallery-clear'); clear.type = 'button';
   filters.append(field('Search', search), field('Kind', kinds), field('Geometry', geometries),
     field('Category', categories), field('Collection', collections), clear);
@@ -71,7 +109,7 @@ export function SymbologyGallery({entries, preview, onChoose, selectedId = null}
   const status = node('p', '', 'symbology-gallery-status'); status.setAttribute('role', 'status');
   results.append(grid, empty, pagination);
   workspace.append(results, detail);
-  root.append(heading, introduction, overview, filters, count, workspace, status);
+  root.append(heading, introduction, overview, collectionShortcuts, filters, count, workspace, status, references);
   let page = 0, filtered = catalog, choosing = false, disposed = false;
   let selected = catalog.find(entry => entry.id === selectedId) ?? null;
   const index = new Map(catalog.map(entry => [entry.id, searchable([
@@ -169,6 +207,7 @@ export function SymbologyGallery({entries, preview, onChoose, selectedId = null}
       && (!categories.value || entry.category === categories.value)
       && (!collections.value || entry.collection === collections.value)
       && terms.every(term => index.get(entry.id).includes(term)));
+    for (const [collection, button] of collectionButtons) button.setAttribute('aria-pressed', String(collection === collections.value));
     page = 0; renderResults();
   }
   search.addEventListener('input', filter);

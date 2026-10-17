@@ -21,7 +21,7 @@ pending. We record implementation, acceptance and delivery separately:
 | Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. | Broader portable round trips and the complete contributor-to-reviewer-to-publisher browser journey. |
 | Local authoring and print | Personal device saves, editable Project exports, a dedicated Print Studio, figure/print packs and interactive HTML are delivered on configured Studio/Demo. Print opens directly from a map without requiring a Publication. | Additional cartographic layout tools and higher-fidelity vector/georeferenced output. |
 | Reuse on other websites | Native JavaScript delivery, developer bundles and an Observable Framework example are implemented. Local checks cover a separate origin, map events, filtering, selection, inherited styling and cleanup. | Independent installation acceptance and expanded content compatibility. Existing native delivery is not limited to the iframe helper. |
-| Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. | Individual-feature overrides and separate icon/label controls. The comprehensive visual gallery is locally implemented; its hosted delivery remains pending. |
+| Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. The 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides pass local compiled navigation, rendering and memory save/reopen checks. | Hosted gallery delivery, individual-feature overrides and separate icon/label controls. |
 | Identify and Point clustering | The confirmed hidden-popup defect is fixed in source. Per-Layer and batch clustering, counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. | Studio delivery, hosted persistence and visual paper-layout acceptance. |
 | External PostGIS Layers | Connection verification, relation discovery, stable live Layer registration and bounded feature preview are implemented. A real local PostGIS journey verifies feature queries, exact numeric values, paging limits, revocation and cleanup. | Connected-browser and configured-provider acceptance, followed by deployment. The new source path defaults off. |
 | API and CKAN exchange | The API contract has reproducible offline validation. The STAC-to-CKAN exporter and disposable CKAN 2.11.6 create/read/purge check are complete for their documented scope. | Complete harvesting, synchronization and live portal integration. |
@@ -38,6 +38,12 @@ The [API contract](docs/api/README.md),
 The [disposable CKAN check](docs/api/stac-ckan.md#disposable-server-check)
 uses the real Action API and verifies cleanup. These completed checks do not
 establish harvesting or synchronization.
+
+The same local Studio candidate groups the desktop visibility controls and closes
+site/account menus on outside clicks or Escape, restoring keyboard focus. Site
+switcher links open each installation's home route. Its build and local browser
+checks pass; production delivery remains pending. The existing phone toolbar is
+unchanged.
 
 Existing application checks use cached dependencies/images and explicit local
 substitutes; fresh installation, clean image builds and independent-account AWS
@@ -63,7 +69,7 @@ status reports.
 
 | Priority | Next useful outcome |
 | --- | --- |
-| 1. Finish selected delivery | Release the accepted Identify/clustering changes and apply the reviewed map presentation updates. Complete the outstanding PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
+| 1. Finish selected delivery | Deliver the accepted Styles/navigation and Identify/clustering changes, then apply the reviewed map presentation updates. Complete the outstanding PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
 | 2. Finish the shared-data journey | Exercise contributor review and publication through the actual interface, then accept the implemented PostGIS Layer source with a connected browser and configured provider. Preserve identity, permissions and history when replacing data. |
 | 3. Make analytical sessions usable | Complete the docked console with explicit local and managed execution profiles, bounded runs, cancellation and deliberate result Layers. Opening the console must not allocate managed compute. |
 | 4. Verify installation and reuse | Reproduce the small reference workspace on an independent installation, finish the standalone native publication journey and verify delivery to another website. |

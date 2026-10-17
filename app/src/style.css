@@ -13122,15 +13122,24 @@ a.platform-site-switcher-item:focus-visible {
   font-size: 20px;
 }
 
-.opengeo-workbench .gis-menubar > .gis-controls-command {
-  margin-left: auto;
+.opengeo-workbench .gis-toolbar-visibility {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+}
+.opengeo-workbench .gis-toolbar-visibility > .gis-controls-command {
   flex-shrink: 0;
   border: 1px solid var(--gis-line);
   border-radius: 4px;
   min-height: 30px;
   min-width: 34px;
 }
-.opengeo-workbench .gis-menubar > .gis-quick-tools-toggle {
+.opengeo-workbench .gis-toolbar-visibility > .gis-quick-tools-toggle {
+  align-self: center;
+  min-height: 30px;
   border: 1px solid var(--gis-line);
   border-radius: 4px;
   background: var(--gis-panel-bg);
@@ -13408,6 +13417,18 @@ a.platform-site-switcher-item:focus-visible {
 .symbology-gallery { display: grid; gap: .65rem; min-width: 0; font-family: var(--sans-serif, system-ui, sans-serif); }
 .symbology-gallery > h2, .symbology-gallery > p { margin: 0; }
 .symbology-gallery-overview, .symbology-gallery-count { font-size: .8rem; color: color-mix(in srgb, var(--theme-foreground) 72%, var(--theme-background)); }
+.symbology-gallery-collections { display: flex; flex-wrap: wrap; gap: .4rem; }
+.symbology-gallery-collections button { padding: .4rem .65rem; border: 1px solid var(--opengeo-line); border-radius: .3rem; color: var(--theme-foreground); background: var(--theme-background-alt); font: inherit; font-size: .8rem; }
+.symbology-gallery-collections button[aria-pressed="true"] { border-color: var(--opengeo-blue); background: color-mix(in srgb, var(--opengeo-blue) 12%, var(--theme-background)); }
+.symbology-gallery-references { display: grid; gap: .6rem; min-width: 0; padding-top: .8rem; border-top: 1px solid var(--opengeo-line); }
+.symbology-gallery-references :is(h3, h4, p) { margin: 0; }
+.symbology-gallery-reference-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: .7rem; }
+.symbology-gallery-reference-grid article { display: grid; gap: .5rem; align-content: start; min-width: 0; padding: .8rem; border: 1px solid var(--opengeo-line); border-radius: .4rem; color: var(--theme-foreground); background: var(--theme-background-alt); font-size: .85rem; }
+.symbology-gallery-reference-grid :is(a, p, button) { overflow-wrap: anywhere; }
+.symbology-gallery-reference-grid ul { margin: 0; padding-inline-start: 1.2rem; }
+.symbology-gallery-reference-grid li + li { margin-top: .35rem; }
+.symbology-gallery-reference-grid button { justify-self: start; font: inherit; }
+.symbology-gallery-reference-note { font-size: .78rem; color: color-mix(in srgb, var(--theme-foreground) 75%, var(--theme-background)); }
 .symbology-gallery-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
 .symbology-gallery-filters label { display: grid; gap: .2rem; flex: 1 1 9rem; min-width: 0; font-size: .8rem; }
 .symbology-gallery-filters label:first-child { flex: 2 1 15rem; }

@@ -114,6 +114,7 @@ export function PlatformDirectory({
   root.dispose = () => {
     ++refreshGeneration; pendingLoading?.dispose(); directoryCore = null; coreIdentity = null;
     pendingAreaRead?.abort(); pendingAreaRead = null;
+    root.disposeDirectoryNavigation?.();
     root.accountWorkDownload?.dispose();
     root.catalogDirectory?.dispose();
     root.accessDirectory?.dispose();
@@ -277,6 +278,8 @@ export function renderDirectoryState(
 ) {
   const creationFocus = creationDraft?.panel.contains(root.ownerDocument.activeElement)
     ? root.ownerDocument.activeElement : null;
+  root.disposeDirectoryNavigation?.();
+  root.disposeDirectoryNavigation = null;
   root.accountWorkDownload?.dispose();
   root.accountWorkDownload = null;
   root.catalogDirectory?.dispose();
@@ -290,6 +293,7 @@ export function renderDirectoryState(
     root.append(platformStatePanel(state, retry, {auth, autoSignIn: true}));
     return;
   }
+  root.disposeDirectoryNavigation = dismissDirectoryNavigation(root);
 
   const activeView = directoryView(view);
   const viewCopy = directoryViewCopy(activeView, state);
@@ -665,7 +669,7 @@ function deploymentSwitcher(deployment, federation) {
     const isCurrent = site.id === current.id && site.origin === current.origin;
     const item = isCurrent
       ? text("span", "", "platform-site-switcher-item current")
-      : link("", new URL("/workspaces", site.origin).href, "platform-site-switcher-item");
+      : link("", new URL("/", site.origin).href, "platform-site-switcher-item");
     item.setAttribute("role", "listitem");
     if (isCurrent) item.setAttribute("aria-current", "page");
     item.append(
@@ -684,6 +688,37 @@ function deploymentSwitcher(deployment, federation) {
   ));
   details.append(summary, list);
   return details;
+}
+
+// Only navigation disclosures dismiss outside; data groups and forms stay open.
+function dismissDirectoryNavigation(root) {
+  const document = root.ownerDocument;
+  const openMenus = () => [...root.querySelectorAll(".platform-site-switcher[open], .platform-account-menu[open]")];
+  const pointer = event => {
+    for (const menu of openMenus()) if (!menu.contains(event.target)) menu.open = false;
+  };
+  const key = event => {
+    if (event.key !== "Escape" || event.defaultPrevented) return;
+    const menus = openMenus().filter(menu => !menu.querySelector("dialog[open]"));
+    if (!menus.length) return;
+    const current = menus.find(menu => menu.contains(document.activeElement)) ?? menus.at(-1);
+    for (const menu of menus) menu.open = false;
+    event.preventDefault();current.querySelector("summary")?.focus();
+  };
+  document.addEventListener("pointerdown", pointer, true);
+  document.addEventListener("keydown", key);
+  let connected = root.isConnected;
+  const observer = new document.defaultView.MutationObserver(() => {
+    if (root.isConnected) connected = true;
+    else if (connected) dispose();
+  });
+  observer.observe(document.documentElement, {childList: true, subtree: true});
+  function dispose() {
+    document.removeEventListener("pointerdown", pointer, true);
+    document.removeEventListener("keydown", key);
+    observer.disconnect();
+  }
+  return dispose;
 }
 
 function siteSlug(value) {

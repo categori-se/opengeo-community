@@ -97,7 +97,9 @@ export function symbologyPreview(entry) {
     const ready=entry.recipe.kind==='point' ? ensurePointSymbolAssets(entry.recipe.style) : ensureReferenceSymbolAssets();
     ready.then(()=>{
       const svg=entry.recipe.kind==='point' ? pointSymbolPreviewSvg(entry.recipe.style) : referenceSymbolPreviewSvg(entry.recipe.symbolId);
-      img.src=`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;img.dataset.state='ready';
+      // Align the retained raster runs to pixels at thumbnail sizes. Otherwise
+      // fractional SVG scaling leaves pale seams between adjacent scanlines.
+      img.src=`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.replace('<svg ', '<svg shape-rendering="crispEdges" '))}`;img.dataset.state='ready';
     }).catch(()=>{img.alt=`${entry.title} preview unavailable`;img.dataset.state='error';});
     return img;
   }

@@ -72,7 +72,7 @@ export function StyleLibrary({adapter, containers}) {
   controls.filter(input=>input!==motif).forEach(input=>input.addEventListener('input',()=>{clearPreset();updateOutputs();render();}));
   const presets=node('details');presets.append(node('summary','Land-cover presets'));presets.className='style-presets';presets.setAttribute('aria-label','Cartographic presets');
   const reference=node('p','Blue water and green vegetation draw on ');
-  const source=node('a','USGS topographic symbol conventions');source.href='https://www.usgs.gov/ngp-standards-and-specifications/us-topo-map-symbol-guide';
+  const source=node('a','USGS topographic symbol conventions');source.href='https://www.usgs.gov/ngp-standards-and-specifications/us-topo-cartographic-specifications-map-symbol-guide';
   reference.append(source,document.createTextNode('. Land-cover variants are editable conventions, not a classification standard. Adapt their contrast and spacing to your map.'));
   const grid=node('div');grid.className='style-preset-grid';
   const defaults=[
@@ -226,7 +226,7 @@ export function StyleLibrary({adapter, containers}) {
   const presetBytes=()=>{
     if(!presetEntry)throw Error('Choose a Style template');
     const field=presetField.value.trim(),original=presetEntry.recipe.field;
-    if(original&&!/^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$/.test(field))throw Error('Enter a valid numeric field name.');
+    if(original&&(!/^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$/.test(field)||['__proto__','constructor','prototype'].includes(field)))throw Error('Enter a valid numeric field name.');
     const definition=JSON.parse(presetEntry.recipe.definition);
     const bind=value=>{
       if(Array.isArray(value))return value.length===2&&value[0]==='get'&&value[1]===original?['get',field]:value.map(bind);
