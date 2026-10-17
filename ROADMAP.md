@@ -84,6 +84,14 @@ separate module, preserving their behavior; 154 existing client tests pass. Broa
 domain-parser and Workbench decomposition remain open. No AWS or Actions run was
 needed for this increment.
 
+A fresh app dependency directory now installs the current lockfile, runs esbuild's
+install script/native binary and passes 154 existing client tests. Its verified
+package cache needed 13 locked downloads; install/tests use network isolation.
+The development guide now includes the compiler build and immutable-ID commands.
+Fresh container images and a complete independent installation remain open.
+Identify report presentation is also separated from Workbench, with three existing
+interaction/focus checks passing. These source changes await release validation.
+
 ## Planning and delivery
 
 Follow the [community GitHub project](https://github.com/orgs/categori-se/projects/2)

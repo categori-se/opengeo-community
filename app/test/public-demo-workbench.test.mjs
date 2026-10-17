@@ -104,7 +104,7 @@ describe("public workbench demo source boundary", () => {
   it("focuses completed governed Identify results without stealing focus after hiding or switching panels", {timeout: 5000}, async () => {
     const dom = new JSDOM("<!doctype html><body><button id='continue'>Continue working</button></body>", {url: "https://studio.opengeo.tools/workspaces"});
     const restore = installDomGlobals(dom.window);
-    const listeners = new Map(), requests = [];
+    const listeners = new Map(), requests = [], featureBounds = [], popupLocations = [];
     const map = {
       on(type, callback) {listeners.set(type, callback);},
       off(type) {listeners.delete(type);},
@@ -116,6 +116,7 @@ describe("public workbench demo source boundary", () => {
       getCenter: () => ({lng: -71, lat: 42}),
       getLayer: () => null,
       getStyle: () => ({version: 8, sources: {}, layers: []}),
+      fitBounds: (bounds) => featureBounds.push(bounds),
       queryRenderedFeatures: () => []
     };
     const layer = {layerId: "governed-facilities", datasetId: "70000000-0000-4000-8000-000000000001",
@@ -126,7 +127,12 @@ describe("public workbench demo source boundary", () => {
       globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
       shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Identify acceptance"},
         role: "owner", project: emptyMapDefinition(), layers: [layer], persistenceMode: "fixture", restoreBrowserDraft: false,
-        rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: () => map, disposeMap() {}},
+        rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: () => map, disposeMap() {},
+          createPopup: () => ({
+            setLngLat(location) {popupLocations.push(location);return this;},
+            setDOMContent() {return this;},
+            addTo() {return this;}
+          })},
         queryDatasetFeatures: (datasetId, query, options) => new Promise(resolve => requests.push({datasetId, query, options, resolve}))});
       document.body.append(shell);
       await waitFor(() => listeners.has("click"));
@@ -162,6 +168,10 @@ describe("public workbench demo source boundary", () => {
           assert.match(panel.textContent, /Governed clinic/);
           assert.match(panel.querySelector("dl").textContent, /capacity12/);
           assert.equal(document.activeElement, panel, "completed results retain keyboard focus after rendering");
+          panel.querySelector('button[aria-label="Open Governed clinic from Governed facilities"]').click();
+          assert.equal(shell.querySelector('[data-status-field="message"]').textContent, "Governed clinic selected from Governed facilities.");
+          assert.deepEqual(featureBounds, [[[-71, 42], [-71, 42]]]);
+          assert.deepEqual(popupLocations, [[-71, 42]]);
         } else {
           assert.equal(document.activeElement, continueButton, mode);
           if (mode === "hidden") assert.equal(shell.classList.contains("right-collapsed"), true);

@@ -5,10 +5,16 @@ mode keeps your work between runs; the default automated check mode is disposabl
 This setup is for one local developer and does not require AWS credentials.
 
 Local checks cover Project save and reopen after a database restart, selected
-GIS processing and static publication. They used installed dependencies, cached
-images and synthetic sign-in. Fresh dependency and image builds, large uploads
-and the complete native publishing workflow still need verification. See the
-[release record](../COMMUNITY-RELEASE.json) for detailed results.
+GIS processing and two native publication editions with private preview and
+release reopening. Viewer access, revoked grants and expiry also pass within the
+[documented local security boundary](api/native-publication-readiness.md).
+These checks used cached images and synthetic sign-in. A separate empty-directory
+app installation now passes from the current lockfile, including esbuild's install
+script/native binary and 154 existing API-client tests. It uses verified package
+cache entries plus 13 retrieved locked tarballs; install and tests run without
+external networking. Fresh container images, a complete independent installation,
+production identity/delivery and large uploads remain separate acceptance work.
+See the [release record](../COMMUNITY-RELEASE.json) for detailed results.
 
 The [deployment guide](community-deployments.md) explains how local development,
 the public site, hosted Studio and the anonymous demo relate.
@@ -97,21 +103,41 @@ an automatic backup service.
 
 ## Native publication development
 
-The same development runner can connect saved source to native compilation,
-private preview and local publication. Add
-`--publication-compiler-digest sha256:<exact-cached-digest>`; the cached image
-must already exist. Use `--publication-only` to run the bounded two-edition
-publication check through the actual source and Publish controls. No image is
-pulled and no cloud service is used. Keep the same private state directory to
-retain source, jobs, output and release history.
+The same development runner connects saved source to native compilation,
+private preview and local publication. From the repository root, build the
+maintained compiler image and resolve its immutable ID:
+
+```bash
+podman build --tag localhost/opengeo-community-compiler \
+  --file services/observable-builder/Dockerfile services/observable-builder
+community_compiler_image="$(podman image inspect --format '{{.Id}}' localhost/opengeo-community-compiler)"
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/run-integrated-studio-local.py \
+  --development \
+  --state-directory .opengeo/community \
+  --api-image "$community_api_image" \
+  --worker-image "$community_worker_image" \
+  --publication-compiler-digest "$community_compiler_image"
+```
+
+This uses the API and worker IDs resolved above and the compiler Dockerfile's
+pinned `NODE_IMAGE` and `DISTROLESS_NODE_IMAGE` defaults. The compiler build needs
+Internet access to install dependencies and prepare its Framework cache. If you
+already retain the compiler image locally, reuse its exact `sha256:` image ID
+instead of rebuilding. The runner never pulls or rebuilds images and uses no
+cloud service. Add `--publication-only` to run the bounded two-edition check
+through the actual source and Publish controls. Keep the same private state
+directory to retain source, jobs, output and release history.
 
 Preview and anonymous delivery run on separate loopback ports. The anonymous
 server reads only activated, separately retained public objects. The local
 canonical hostname uses an explicit browser transport mapping; it does not
 establish DNS, TLS or CDN delivery. Ordinary startup without the compiler option
-leaves this profile disabled. The accepted CC0 study demonstrates two revisions,
-private access checks and reopening earlier editions; production identity and
-independent clean installation remain separate acceptance work.
+leaves this profile disabled. The accepted local CC0 study demonstrates two
+revisions, private previews, publication and reopening earlier editions. Viewer
+opening, revoked grants and real capability expiry also pass. Signed-cookie
+expiry uses a qualified local verifier clock; issued cookies remain valid until
+their 15-minute expiry. Fresh container images, a complete independent operator installation and
+production identity/delivery remain separate acceptance work.
 
 ## Release limits
 
