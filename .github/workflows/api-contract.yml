@@ -100,6 +100,12 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - name: Install locked frontend dependencies
         run: npm --prefix app ci --ignore-scripts --no-audit --no-fund
+      - name: Set up Python for local runner checks
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Check local runner boundaries without starting containers
+        run: python -I -S scripts/test_integrated_local.py
       - name: Check Catalog save, map reopen, query authority and publication drafts
         run: |
           set -euo pipefail
@@ -148,8 +154,6 @@ jobs:
           python -m pip freeze
       - name: Check saved API contract
         run: python scripts/export_openapi.py --check
-      - name: Check local runner boundaries without starting containers
-        run: python ../../scripts/test_integrated_local.py
       - name: Check workspace routes and metadata contracts
         run: |
           python -m pytest \

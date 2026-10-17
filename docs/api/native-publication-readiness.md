@@ -5,8 +5,8 @@ implemented. The complete saved-source → native compiler → authorized privat
 preview journey has **not yet been accepted in the standalone environment**.
 A connected local Studio check imports the CC0 reference study, saves its first
 source revision and creates/leases the build job. It finds a local storage adapter
-return-shape mismatch before the compiler starts. That narrow correction is checked
-offline; native compilation and the two-revision preview journey still need acceptance.
+return-shape mismatch before the compiler starts. That narrow correction passes
+the existing production read contract offline; native compilation and the two-revision preview journey still need acceptance.
 The [earlier inspection receipt](evidence/task-5.json) remains historical evidence;
 its missing-adapter findings describe the source inspected then.
 
