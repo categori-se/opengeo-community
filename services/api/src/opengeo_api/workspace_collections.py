@@ -350,8 +350,11 @@ class PostgresCollectionRepository:
                       AND (%s OR m.role::text IN ('owner','manager'))
                     ORDER BY lower(team.name),team.id LIMIT %s OFFSET %s""",
                     (
-                        context.user_id, context.organization_id,
-                        organization_role == "admin", limit, offset,
+                        context.user_id,
+                        context.organization_id,
+                        organization_role == "admin",
+                        limit,
+                        offset,
                     ),
                 )
             else:
@@ -360,7 +363,7 @@ class PostgresCollectionRepository:
                     "AND %s ORDER BY id LIMIT %s OFFSET %s",
                     (context.organization_id, organization_role == "admin", limit, offset),
                 )
-            if collection is not None:
+            if collection_id is not None:
                 current = await self._role(tx, context, collection_id)
                 if current != collection:
                     raise CollectionConflict("collection_authority_changed")
@@ -404,7 +407,11 @@ class PostgresCollectionRepository:
                 ),
             )
             await self._owner_event(
-                tx, context, identity, request_id, None,
+                tx,
+                context,
+                identity,
+                request_id,
+                None,
                 {"principal_type": kind, "principal_id": str(owner_id)},
             )
             return {"id": str(identity), "revision": 1}

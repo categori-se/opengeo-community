@@ -29,8 +29,16 @@ def principal(kind="team", identity=TEAM):
 
 def role_row(role="owner", kind="user", identity=USER):
     return (
-        "Survey", "", identity if kind == "user" else None, USER, 3, role,
-        "private", kind, identity, "Field team" if kind == "team" else "Owner",
+        "Survey",
+        "",
+        identity if kind == "user" else None,
+        USER,
+        3,
+        role,
+        "private",
+        kind,
+        identity,
+        "Field team" if kind == "team" else "Owner",
     )
 
 
@@ -91,12 +99,24 @@ def test_default_user_create_cannot_assign_someone_else_without_admin():
 
 
 def test_transfer_to_current_user_preserves_creator_and_audits_previous_owner():
-    repository, tx = setup([
-        ("member",), (None,), role_row(), ("member",), (OTHER_USER,),
-    ])
-    result = asyncio.run(repository.set_owner(
-        CONTEXT, COLLECTION, 3, principal("user", OTHER_USER), "transfer-1",
-    ))
+    repository, tx = setup(
+        [
+            ("member",),
+            (None,),
+            role_row(),
+            ("member",),
+            (OTHER_USER,),
+        ]
+    )
+    result = asyncio.run(
+        repository.set_owner(
+            CONTEXT,
+            COLLECTION,
+            3,
+            principal("user", OTHER_USER),
+            "transfer-1",
+        )
+    )
     update, event = writes(tx)
     assert result == {"id": str(COLLECTION), "revision": 4}
     assert update[2] == (OTHER_USER, None, None, ACCOUNT, COLLECTION)
@@ -124,28 +144,46 @@ def test_stale_transfer_does_not_validate_target_or_write():
 
 
 def test_unavailable_target_does_not_replace_current_owner():
-    repository, tx = setup([
-        ("member",), (None,), role_row(), ("member",), None,
-    ])
+    repository, tx = setup(
+        [
+            ("member",),
+            (None,),
+            role_row(),
+            ("member",),
+            None,
+        ]
+    )
     with pytest.raises(CollectionConflict, match="owner_unavailable"):
         asyncio.run(repository.set_owner(CONTEXT, COLLECTION, 3, principal("user", OTHER_USER)))
     assert writes(tx) == []
 
 
 def test_same_owner_transfer_rechecks_target_and_retains_revision():
-    repository, tx = setup([
-        ("member",), (None,), role_row(), ("member",), (USER,),
-    ])
+    repository, tx = setup(
+        [
+            ("member",),
+            (None,),
+            role_row(),
+            ("member",),
+            (USER,),
+        ]
+    )
     result = asyncio.run(repository.set_owner(CONTEXT, COLLECTION, 3, principal("user", USER)))
     assert result["revision"] == 3 and writes(tx) == []
     assert "FOR SHARE" in tx.calls[-1][1]
 
 
 def test_team_owner_write_pins_team_and_current_org_membership():
-    repository, tx = setup([
-        ("member",), (TEAM,), (TEAM,), role_row(kind="team", identity=TEAM),
-        ("member",), (OTHER_USER,),
-    ])
+    repository, tx = setup(
+        [
+            ("member",),
+            (TEAM,),
+            (TEAM,),
+            role_row(kind="team", identity=TEAM),
+            ("member",),
+            (OTHER_USER,),
+        ]
+    )
     asyncio.run(repository.set_owner(CONTEXT, COLLECTION, 3, principal("user", OTHER_USER)))
     assert "FOR UPDATE" in tx.calls[1][1]
     assert "FOR SHARE" in tx.calls[2][1]
@@ -186,9 +224,12 @@ def test_transfer_candidates_require_current_owner():
 def test_team_member_removal_during_target_resolution_discards_original_private_body():
     async def journey():
         saved = role_row(kind="team", identity=TEAM)
-        repository, tx = setup([saved, role_row(role="reader", kind="team", identity=TEAM)], [
-            [(COLLECTION, OTHER_USER, None)],
-        ])
+        repository, tx = setup(
+            [saved, role_row(role="reader", kind="team", identity=TEAM)],
+            [
+                [(COLLECTION, OTHER_USER, None)],
+            ],
+        )
         reached = asyncio.Event()
         resume = asyncio.Event()
 

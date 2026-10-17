@@ -21,17 +21,26 @@ def runtime_reference(value: Any) -> dict[str, str]:
         raise ValidationFailure("saved_map_gl_runtime_reference_invalid")
     return {key: value[key] for key in ("schemaVersion", "manifestSha256", "architecture")}
 
+
 # Capabilities are attached to reviewed fixed-script bytes, not a mutable runtime name.
 # Register a new script digest when a release changes its supported presentation.
-PATTERN_SCRIPT_HASHES = frozenset({"64ebcc4cdd1d6f863bff6a804bf829a22d84f7a88b8cde8d49018f60b15a47eb"})
-LABEL_ORDER_SCRIPT_HASHES = PATTERN_SCRIPT_HASHES | frozenset({"e3d902e4f43f6b02d213ed6a824242929ac8866549a6994e8c482840e18ab5e0"})
+PATTERN_SCRIPT_HASHES = frozenset(
+    {"64ebcc4cdd1d6f863bff6a804bf829a22d84f7a88b8cde8d49018f60b15a47eb"}
+)
+LABEL_ORDER_SCRIPT_HASHES = PATTERN_SCRIPT_HASHES | frozenset(
+    {"e3d902e4f43f6b02d213ed6a824242929ac8866549a6994e8c482840e18ab5e0"}
+)
 
 
 def require_render_capabilities(request: dict[str, Any], runtime: dict[str, Any]) -> None:
-    if any(occurrence["style"].get("metadata", {}).get("opengeo:patterns")
-           for occurrence in request["occurrences"]):
-        if runtime.get("scriptChecksumSha256") not in PATTERN_SCRIPT_HASHES:
-            raise ValidationFailure("saved_map_gl_pattern_runtime_unsupported")
+    if (
+        any(
+            occurrence["style"].get("metadata", {}).get("opengeo:patterns")
+            for occurrence in request["occurrences"]
+        )
+        and runtime.get("scriptChecksumSha256") not in PATTERN_SCRIPT_HASHES
+    ):
+        raise ValidationFailure("saved_map_gl_pattern_runtime_unsupported")
     composite = any(
         key.endswith("-layer-opacity")
         for occurrence in request["occurrences"]

@@ -1,19 +1,37 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
+import {spawnSync} from "node:child_process";
+import {fileURLToPath} from "node:url";
 import {it} from "node:test";
 import {PGlite} from "@electric-sql/pglite";
 
 it("canonical resource SQL and metadata revisions preserve identity, history and account boundaries", async () => {
-  const db = new PGlite();
   const id = n => `10000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
   const [org, otherOrg, reader, outsider, projectA, projectB, dataset, foreignDataset] = Array.from({length:8},(_,i)=>id(i+1));
-  const source = await readFile(new URL("../../services/api/src/opengeo_api/ingestion.py", import.meta.url), "utf8");
-  const selector = source.slice(source.indexOf("    def _dataset_select("), source.indexOf("    @staticmethod\n    def _dataset("))
-    .match(/return f"""([\s\S]+?)"""/)[1].replace("{project_relation}", "app.project_datasets project_dataset").replace("'{{}}'", "'{}'");
+  const sourceUrl = new URL("../../services/api/src/opengeo_api/ingestion.py", import.meta.url);
+  const source = await readFile(sourceUrl, "utf8");
+  // Evaluate the actual Python selector, including its conditional count and
+  // escaped JSON braces; copying an f-string's source is not executable SQL.
+  const selected = spawnSync("python3", ["-c", `
+import ast, json, pathlib, sys
+tree = ast.parse(pathlib.Path(sys.argv[1]).read_text())
+repository = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "PostgresIngestionRepository")
+method = next(node for node in repository.body if isinstance(node, ast.FunctionDef) and node.name == "_dataset_select")
+method.decorator_list = []
+namespace = {}
+exec(compile(ast.Module(body=[method], type_ignores=[]), "ingestion._dataset_select", "exec"), namespace)
+selector = namespace["_dataset_select"]
+print(json.dumps({"detail": selector(), "catalog": selector(catalog_count=True)}))
+`, fileURLToPath(sourceUrl)], {encoding: "utf8", timeout: 5000, maxBuffer: 1024 * 1024});
+  assert.equal(selected.status, 0, selected.stderr || selected.error?.message);
+  const selectors = JSON.parse(selected.stdout);
   const load = source.slice(source.indexOf("    async def _load_catalog_dataset("),source.indexOf("    async def get_dataset_knowledge(",source.indexOf("class PostgresIngestionRepository")));
   let n=0;
   const query = load.match(/f"""\{self\._dataset_select\(\)\}([\s\S]+?)"""/)[1];
-  const sql=(selector+query).replace(/%s/g,()=>`$${++n}`);
+  const sql=(selectors.detail+query).replace(/%s/g,()=>`$${++n}`);
+  n=0;
+  const catalogSql=(selectors.catalog+query).replace(/%s/g,()=>`$${++n}`);
+  const db = new PGlite();
   try {
     await db.exec(`CREATE SCHEMA app;
       CREATE ROLE opengeo_runtime NOLOGIN; CREATE ROLE opengeo_worker NOLOGIN;
@@ -25,12 +43,14 @@ it("canonical resource SQL and metadata revisions preserve identity, history and
         UNIQUE (organization_id,id));
       CREATE TABLE app.project_datasets (organization_id uuid,project_id uuid,dataset_id uuid);
       CREATE TABLE app.dataset_versions (organization_id uuid,dataset_id uuid,id uuid,version_number int,
-        state text,feature_count int,extent float[],crs text,geometry_type text,quality_results jsonb);
+        state text,feature_count int,extent float[],crs text,geometry_type text,quality_results jsonb,catalog_geometry jsonb);
       CREATE TABLE app.processing_jobs (organization_id uuid,dataset_version_id uuid,job_type text,state text,error_code text);
       CREATE TABLE app.dataset_tags (organization_id uuid,dataset_id uuid,tag_id uuid);
       CREATE TABLE app.tags (organization_id uuid,id uuid,name text);
       CREATE TABLE app.dataset_permissions (organization_id uuid,dataset_id uuid,user_id uuid,role text);
       CREATE TABLE app.project_memberships (project_id uuid,user_id uuid,role text);
+      CREATE TABLE app.external_source_revisions (organization_id uuid,dataset_id uuid,version_number int,verification_state text,created_at timestamptz);
+      CREATE TABLE app.layer_archive_distributions (organization_id uuid,dataset_id uuid,enabled boolean,source_version int,dataset_version_id uuid);
       CREATE FUNCTION app.current_user_id() RETURNS uuid LANGUAGE sql AS $$ SELECT current_setting('app.user_id')::uuid $$;
       CREATE FUNCTION app.current_organization_id() RETURNS uuid LANGUAGE sql AS $$ SELECT current_setting('app.organization_id')::uuid $$;
       CREATE FUNCTION app.effective_project_role(project uuid) RETURNS text LANGUAGE sql AS $$ SELECT role FROM app.project_memberships WHERE project_id=project AND user_id=app.current_user_id() $$;
@@ -38,6 +58,7 @@ it("canonical resource SQL and metadata revisions preserve identity, history and
     const governed=await readFile(new URL("../migrations/0009_governed_resources.sql",import.meta.url),"utf8");
     await db.exec(governed.match(/CREATE FUNCTION app.reject_governed_resource_history_mutation\(\)[\s\S]+?\$\$;/)[0]);
     await db.exec(await readFile(new URL("../migrations/0105_dataset_knowledge.sql",import.meta.url),"utf8"));
+    await db.exec("ALTER TABLE app.dataset_knowledge_revisions ADD COLUMN catalog_geometry jsonb");
     for (const user of [reader,outsider]) await db.query("INSERT INTO app.users VALUES ($1)",[user]);
     for (const [resource,account] of [[dataset,org],[foreignDataset,otherOrg]]) {
       await db.query("INSERT INTO app.datasets(id,organization_id,name) VALUES($1,$2,'Boundaries')",[resource,account]);
@@ -48,6 +69,7 @@ it("canonical resource SQL and metadata revisions preserve identity, history and
     let result=await db.query(sql,[org,dataset,false]);
     assert.equal(result.rows.length,1);
     assert.equal(result.rows[0].id,dataset);assert.equal(result.rows[0].project_id,projectB,"selects accessible use, not creator link");
+    assert.equal(Number((await db.query(catalogSql,[org,dataset,false])).rows[0].count),1,"catalog counting retains the same accessible project scope");
     assert.equal((await db.query(sql,[org,foreignDataset,false])).rows.length,0);
     await db.query("SELECT set_config('app.user_id',$1,false)",[outsider]);
     assert.equal((await db.query(sql,[org,dataset,false])).rows.length,0);

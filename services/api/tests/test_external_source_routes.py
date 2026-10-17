@@ -612,8 +612,9 @@ def test_list_get_update_and_revision_routes_preserve_tenant_and_cas_context() -
 class ClassificationSourceRepository(FakeSourceRepository):
     async def update_source(self, context, project_id, dataset_id, update, request_id):
         self.calls.append(("update", context, project_id, dataset_id, update, request_id))
-        return replace(xyz_source(version=update.expected_version),
-                       classification=update.classification)
+        return replace(
+            xyz_source(version=update.expected_version), classification=update.classification
+        )
 
 
 def test_classification_only_route_forwards_review_and_preserves_source_version() -> None:
@@ -669,7 +670,8 @@ def test_classification_route_requires_one_reviewed_operation_and_classification
     for payload in invalid:
         response = client.patch(
             f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/source",
-            headers=headers(), json=payload,
+            headers=headers(),
+            json=payload,
         )
         assert response.status_code == 422, payload
     assert repository.calls == []
@@ -677,8 +679,11 @@ def test_classification_route_requires_one_reviewed_operation_and_classification
     withdrawal = client.patch(
         f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/source",
         headers=headers(),
-        json={"expected_version": 1, "expected_classification": "public",
-              "classification": "internal"},
+        json={
+            "expected_version": 1,
+            "expected_classification": "public",
+            "classification": "internal",
+        },
     )
     assert withdrawal.status_code == 200
     assert withdrawal.json()["classification"] == "internal"
@@ -690,8 +695,11 @@ def test_classification_route_rejects_forged_tenant_before_repository_call() -> 
     response = api_client(repository).patch(
         f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/source",
         headers=headers(OTHER_ORG_ID),
-        json={"expected_version": 1, "expected_classification": "public",
-              "classification": "internal"},
+        json={
+            "expected_version": 1,
+            "expected_classification": "public",
+            "classification": "internal",
+        },
     )
     assert response.status_code == 403
     assert repository.calls == []
@@ -734,17 +742,31 @@ def test_cog_reference_preserves_asset_terms_without_fetch_or_ingestion() -> Non
     class COGRepository(FakeSourceRepository):
         async def create_source(self, context, project_id, draft, request_id):
             result = await super().create_source(context, project_id, draft, request_id)
-            return replace(result, source_type=draft.source_type, source_url=draft.source_url,
-                           configuration=draft.configuration)
+            return replace(
+                result,
+                source_type=draft.source_type,
+                source_url=draft.source_url,
+                configuration=draft.configuration,
+            )
 
     repository = COGRepository()
-    metadata = {"source": {"asset": {"license": "distribution-terms", "rights": None}},
-                "curated": {}, "inferred": {}}
-    definition = {"type": "cog", "url": "https://imagery.example/visual.tif",
-                  "bands": [1, 2, 3], "bounds": [1, 40, 16, 51], "size_bytes": 256_914_673,
-                  "license": "distribution-terms", "reference_metadata": metadata}
+    metadata = {
+        "source": {"asset": {"license": "distribution-terms", "rights": None}},
+        "curated": {},
+        "inferred": {},
+    }
+    definition = {
+        "type": "cog",
+        "url": "https://imagery.example/visual.tif",
+        "bands": [1, 2, 3],
+        "bounds": [1, 40, 16, 51],
+        "size_bytes": 256_914_673,
+        "license": "distribution-terms",
+        "reference_metadata": metadata,
+    }
     response = api_client(repository).post(
-        f"/projects/{PROJECT_ID}/sources", headers=headers(),
+        f"/projects/{PROJECT_ID}/sources",
+        headers=headers(),
         json={"name": "Reusable scene", "source": definition},
     )
     assert response.status_code == 201
@@ -762,11 +784,15 @@ def test_cog_reference_preserves_asset_terms_without_fetch_or_ingestion() -> Non
     for changes in [
         {"url": "https://127.0.0.1/visual.tif"},
         {"url": "https://imagery.example/visual.tif?X-Amz-Signature=secret"},
-        {"bands": [0]}, {"bands": [1, 2]}, {"bands": [1, 1, 3]},
-        {"bounds": [170, 40, -170, 51]}, {"reference_metadata": {"body": "x" * 262_145}},
+        {"bands": [0]},
+        {"bands": [1, 2]},
+        {"bands": [1, 1, 3]},
+        {"bounds": [170, 40, -170, 51]},
+        {"reference_metadata": {"body": "x" * 262_145}},
     ]:
         denied = api_client(repository).post(
-            f"/projects/{PROJECT_ID}/sources", headers=headers(),
+            f"/projects/{PROJECT_ID}/sources",
+            headers=headers(),
             json={"name": "Rejected reference", "source": {**definition, **changes}},
         )
         assert denied.status_code == 422

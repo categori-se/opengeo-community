@@ -100,9 +100,7 @@ class RdsDataApiPrincipalRepository:
         """Allow the session GET its existing overall lookup window for transport."""
         return await self._resolve(subject, self._timeout_seconds)
 
-    async def _resolve(
-        self, subject: str, transport_timeout_seconds: float
-    ) -> Principal | None:
+    async def _resolve(self, subject: str, transport_timeout_seconds: float) -> Principal | None:
         try:
             result = await self._client.execute(
                 """

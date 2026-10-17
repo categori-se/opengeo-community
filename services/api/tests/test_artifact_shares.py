@@ -29,9 +29,19 @@ PASSWORD = "one secret password"
 CREATED = datetime(2026, 10, 7, tzinfo=UTC)
 ROW = (SHARE, ARTIFACT, 3, "Map viewer", CREATED, None)
 TARGET = (
-    RESOURCE, UUID(int=15908), WORKSPACE, None, None, UUID(int=15909), "completed",
-    "source.opengeo.tools", "organizations/pinned/artifacts/map.html", "exact-s3-version",
-    "text/html", 1024, "b" * 64,
+    RESOURCE,
+    UUID(int=15908),
+    WORKSPACE,
+    None,
+    None,
+    UUID(int=15909),
+    "completed",
+    "source.opengeo.tools",
+    "organizations/pinned/artifacts/map.html",
+    "exact-s3-version",
+    "text/html",
+    1024,
+    "b" * 64,
 )
 
 
@@ -146,9 +156,9 @@ def test_create_requires_publisher_before_hash_and_only_portable_html(
 
     monkeypatch.setattr(shares, "_target", image_target)
     with pytest.raises(RenderConflict, match="artifact_share_representation_unsupported"):
-        asyncio.run(shares.create_share(
-            Repository([Transaction()]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD
-        ))
+        asyncio.run(
+            shares.create_share(Repository([Transaction()]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD)
+        )
     assert not derive
 
 
@@ -165,47 +175,67 @@ def test_password_bounds_reject_before_database_or_hash(password, derive):
 def test_create_rechecks_sources_and_never_returns_password_material(boundary, derive):
     insert = Transaction([None, None, ROW])
     repository = Repository([Transaction(), insert])
-    result = asyncio.run(shares.create_share(
-        repository, CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD, KEY
-    ))
+    result = asyncio.run(
+        shares.create_share(repository, CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD, KEY)
+    )
     assert result == {
-        "id": str(SHARE), "artifact_id": str(ARTIFACT), "version_number": 3,
-        "title": ROW[3], "created_at": CREATED.isoformat(), "revoked_at": None,
+        "id": str(SHARE),
+        "artifact_id": str(ARTIFACT),
+        "version_number": 3,
+        "title": ROW[3],
+        "created_at": CREATED.isoformat(),
+        "revoked_at": None,
     }
     assert PASSWORD not in repr(insert.queries) and PASSWORD not in repr(result)
     parameters = insert.queries[-1][1]
     assert len(parameters[4]) == 32 and len(parameters[5]) == 64
-    assert [name for name, _ in boundary] == [
-        "target", "target", "private-manifest", "public-seal"
-    ]
+    assert [name for name, _ in boundary] == ["target", "target", "private-manifest", "public-seal"]
     assert len(derive) == 1
 
 
 def test_same_creation_key_reuses_only_exact_password_and_intent(boundary, derive):
     inserted = Transaction([None, None, ROW])
-    asyncio.run(shares.create_share(
-        Repository([Transaction(), inserted]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD, KEY
-    ))
+    asyncio.run(
+        shares.create_share(
+            Repository([Transaction(), inserted]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD, KEY
+        )
+    )
     verifier = inserted.queries[-1][1]
     existing = (*ROW, verifier[4], verifier[5])
     same = Transaction([None, existing])
-    result = asyncio.run(shares.create_share(
-        Repository([Transaction(), same]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD, KEY
-    ))
+    result = asyncio.run(
+        shares.create_share(
+            Repository([Transaction(), same]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD, KEY
+        )
+    )
     assert result["id"] == str(SHARE)
     assert not any("INSERT" in sql for sql, _ in same.queries)
     for password, title in [("a changed password", ROW[3]), (PASSWORD, "Changed title")]:
         with pytest.raises(RenderConflict, match="artifact_share_creation_key_conflict"):
-            asyncio.run(shares.create_share(
-                Repository([Transaction(), Transaction([None, existing])]),
-                CONTEXT, ARTIFACT, 3, title, password, KEY,
-            ))
+            asyncio.run(
+                shares.create_share(
+                    Repository([Transaction(), Transaction([None, existing])]),
+                    CONTEXT,
+                    ARTIFACT,
+                    3,
+                    title,
+                    password,
+                    KEY,
+                )
+            )
     revoked = (*existing[:5], CREATED, *existing[6:])
     with pytest.raises(RenderConflict, match="artifact_share_already_revoked"):
-        asyncio.run(shares.create_share(
-            Repository([Transaction(), Transaction([None, revoked])]),
-            CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD, KEY,
-        ))
+        asyncio.run(
+            shares.create_share(
+                Repository([Transaction(), Transaction([None, revoked])]),
+                CONTEXT,
+                ARTIFACT,
+                3,
+                ROW[3],
+                PASSWORD,
+                KEY,
+            )
+        )
 
 
 def test_source_ineligibility_prevents_creation_and_unlock(boundary, derive, monkeypatch):
@@ -215,15 +245,21 @@ def test_source_ineligibility_prevents_creation_and_unlock(boundary, derive, mon
     monkeypatch.setattr(shares, "_public_seal", withdrawn)
     insertion = Transaction()
     with pytest.raises(RenderConflict, match="artifact_source_not_public"):
-        asyncio.run(shares.create_share(
-            Repository([Transaction(), insertion]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD
-        ))
+        asyncio.run(
+            shares.create_share(
+                Repository([Transaction(), insertion]), CONTEXT, ARTIFACT, 3, ROW[3], PASSWORD
+            )
+        )
     assert not insertion.queries
     with pytest.raises(RenderNotFound, match="artifact_share"):
-        asyncio.run(shares.unlock_share(
-            Repository([Transaction([stored_row(), (1,)]), Transaction([ROW])]),
-            ORG, SHARE, PASSWORD,
-        ))
+        asyncio.run(
+            shares.unlock_share(
+                Repository([Transaction([stored_row(), (1,)]), Transaction([ROW])]),
+                ORG,
+                SHARE,
+                PASSWORD,
+            )
+        )
 
 
 def test_attempt_commits_before_hash_and_success_returns_only_exact_output(
@@ -261,29 +297,35 @@ def test_quota_denies_before_hash_and_revoked_or_wrong_account_is_unavailable(bo
     stored = stored_row()
     derive.clear()
     with pytest.raises(RenderConflict, match="artifact_share_rate_limited"):
-        asyncio.run(shares.unlock_share(
-            Repository([Transaction([stored, None, (SHARE,)])]), ORG, SHARE, PASSWORD
-        ))
+        asyncio.run(
+            shares.unlock_share(
+                Repository([Transaction([stored, None, (SHARE,)])]), ORG, SHARE, PASSWORD
+            )
+        )
     assert not derive
     missing = Transaction([None])
     with pytest.raises(RenderNotFound, match="artifact_share"):
-        asyncio.run(shares.unlock_share(
-            Repository([missing]), UUID(int=999), SHARE, PASSWORD
-        ))
+        asyncio.run(shares.unlock_share(Repository([missing]), UUID(int=999), SHARE, PASSWORD))
     assert missing.queries[0][1] == (UUID(int=999), SHARE)
     assert not derive and not boundary
     with pytest.raises(RenderNotFound, match="artifact_share"):
-        asyncio.run(shares.unlock_share(
-            Repository([Transaction([stored, None, None])]), ORG, SHARE, PASSWORD
-        ))
+        asyncio.run(
+            shares.unlock_share(
+                Repository([Transaction([stored, None, None])]), ORG, SHARE, PASSWORD
+            )
+        )
 
 
 def test_revocation_during_hash_blocks_resolution(boundary, derive):
     with pytest.raises(RenderNotFound, match="artifact_share"):
-        asyncio.run(shares.unlock_share(
-            Repository([Transaction([stored_row(), (1,)]), Transaction([None])]),
-            ORG, SHARE, PASSWORD,
-        ))
+        asyncio.run(
+            shares.unlock_share(
+                Repository([Transaction([stored_row(), (1,)]), Transaction([None])]),
+                ORG,
+                SHARE,
+                PASSWORD,
+            )
+        )
     assert not boundary
 
 
@@ -314,13 +356,16 @@ def test_history_omits_verifiers_and_revoke_requires_current_publisher(boundary,
     assert history.queries[-1][1] == (ORG, ARTIFACT, 2, 0)
     revoked = Transaction([(RESOURCE, WORKSPACE, None)])
     with pytest.raises(RenderAccessDenied):
-        asyncio.run(shares.revoke_share(
-            Repository([revoked], Roles("member", project="viewer")), CONTEXT, SHARE
-        ))
+        asyncio.run(
+            shares.revoke_share(
+                Repository([revoked], Roles("member", project="viewer")), CONTEXT, SHARE
+            )
+        )
     assert not revoked.executions
     active = Transaction([(RESOURCE, WORKSPACE, None)])
     assert asyncio.run(shares.revoke_share(Repository([active]), CONTEXT, SHARE)) == {
-        "id": str(SHARE), "revoked": True,
+        "id": str(SHARE),
+        "revoked": True,
     }
     assert active.executions[0][1] == (USER, ORG, SHARE)
     repeated = Transaction([(RESOURCE, WORKSPACE, CREATED)])

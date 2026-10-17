@@ -8,9 +8,9 @@ import pytest
 
 from opengeo_api.framework_publisher import PublicationConflict
 from opengeo_api.publication_destinations import (
+    PROTECTED_STUDIO_HOSTS,
     PublicationDestination,
     PublicationDestinationRouter,
-    PROTECTED_STUDIO_HOSTS,
     configured_destination_router,
 )
 

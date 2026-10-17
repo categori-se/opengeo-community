@@ -363,13 +363,15 @@ def test_dispatches_only_a_geonode_harvest_id_to_the_outbound_queue() -> None:
 
 def test_dispatches_only_a_pmtiles_job_id_to_the_isolated_v2_queue() -> None:
     transport = Transport()
-    configured = settings().model_copy(update={
-        "worker_processing_mode": "pmtiles-v2",
-        "pmtiles_derivative_queue_url": (
-            "https://sqs.us-east-1.amazonaws.com/111111111111/opengeo-pmtiles-v2"
-        ),
-        "pmtiles_worker_image_digest": "sha256:" + "d" * 64,
-    })
+    configured = settings().model_copy(
+        update={
+            "worker_processing_mode": "pmtiles-v2",
+            "pmtiles_derivative_queue_url": (
+                "https://sqs.us-east-1.amazonaws.com/111111111111/opengeo-pmtiles-v2"
+            ),
+            "pmtiles_worker_image_digest": "sha256:" + "d" * 64,
+        }
+    )
     dispatcher = AwsSqsPmtilesDerivativeDispatcher(
         configured,
         credentials=Credentials(),
@@ -451,7 +453,9 @@ def test_framework_publication_adapter_uses_only_its_configured_queue_and_review
     configuration.framework_publication_queue_url = queue
     transport = Transport()
     dispatcher = AwsSqsFrameworkPublicationDispatcher(
-        configuration, credentials=Credentials(), transport=transport,
+        configuration,
+        credentials=Credentials(),
+        transport=transport,
         now=lambda: datetime(2026, 10, 17, tzinfo=UTC),
     )
     assert dispatcher.available is True
@@ -461,5 +465,6 @@ def test_framework_publication_adapter_uses_only_its_configured_queue_and_review
     assert url == queue
     payload = parse_qs(body.decode())
     assert json.loads(payload["MessageBody"][0]) == {
-        "schema": "opengeo.framework-publication.command.1.0.0", "review_id": str(JOB_ID)
+        "schema": "opengeo.framework-publication.command.1.0.0",
+        "review_id": str(JOB_ID),
     }

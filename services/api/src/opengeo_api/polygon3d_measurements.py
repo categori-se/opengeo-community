@@ -7,7 +7,7 @@ boundary and independently recomputes every metric and conservative height bound
 import math
 from collections import defaultdict
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 
 def validate_polygon3d_measurement(
@@ -224,7 +224,7 @@ def validate_polygon3d_measurement(
                 and len(actual) == len(expected)
                 and all(close(a, b, path) for a, b in zip(actual, expected, strict=True))
             )
-        return actual == expected
+        return cast(bool, actual == expected)
 
     summary = {
         "perimeterMeters": perimeter,

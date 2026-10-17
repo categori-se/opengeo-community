@@ -670,8 +670,12 @@ class ResourceRepository(Protocol):
     ) -> None: ...
 
     async def list_styles(
-        self, context: TenantContext, project_id: UUID, resource_id: UUID,
-        *, include_archived: bool = False,
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        resource_id: UUID,
+        *,
+        include_archived: bool = False,
     ) -> list[ResourceStyle]: ...
 
     async def get_style_version(
@@ -2426,8 +2430,12 @@ class PostgresResourceRepository:
         await self._run(context, operation)
 
     async def list_styles(
-        self, context: TenantContext, project_id: UUID, resource_id: UUID,
-        *, include_archived: bool = False,
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        resource_id: UUID,
+        *,
+        include_archived: bool = False,
     ) -> list[ResourceStyle]:
         async def operation(transaction: TenantTransaction) -> list[ResourceStyle]:
             roles = await self._resource_roles(transaction, context, project_id, resource_id)
@@ -2633,6 +2641,7 @@ class PostgresResourceRepository:
         Same-state retries are idempotent. Opposing commands serialize; the expected
         version protects against newer definitions, not intervening lifecycle commands.
         """
+
         async def operation(transaction: TenantTransaction) -> ResourceStyle:
             roles = await self._resource_roles(transaction, context, project_id, resource_id)
             self._require(Action.RESOURCE_UPDATE, roles)
@@ -2666,13 +2675,24 @@ class PostgresResourceRepository:
                     WHERE organization_id = %s AND project_id = %s
                       AND resource_id = %s AND id = %s
                     """,
-                    (archived, archived, context.user_id, context.user_id,
-                     context.organization_id, project_id, resource_id, style_id),
+                    (
+                        archived,
+                        archived,
+                        context.user_id,
+                        context.user_id,
+                        context.organization_id,
+                        project_id,
+                        resource_id,
+                        style_id,
+                    ),
                 )
                 await self._record_event(
-                    transaction, context, project_id,
+                    transaction,
+                    context,
+                    project_id,
                     "resource.style.archived" if archived else "resource.style.restored",
-                    style_id, request_id,
+                    style_id,
+                    request_id,
                     {"resourceId": str(resource_id), "version": expected_version},
                     resource_type="governed_resource_style",
                 )

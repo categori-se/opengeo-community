@@ -60,14 +60,16 @@ CONTROLLER = "arn:aws:lambda:us-east-1:111111111111:function:opengeo-dev-analysi
 
 
 def managed_settings():
-    return Settings.model_validate({
-        **settings().model_dump(),
-        "analysis_enabled": True,
-        "analysis_queue_url": CONFIG.queue_url,
-        "analysis_runtime_profiles": json.dumps(PROFILES),
-        "analysis_controller_function_arn": CONTROLLER,
-        "application_bucket": "opengeo-analysis-application-test",
-    })
+    return Settings.model_validate(
+        {
+            **settings().model_dump(),
+            "analysis_enabled": True,
+            "analysis_queue_url": CONFIG.queue_url,
+            "analysis_runtime_profiles": json.dumps(PROFILES),
+            "analysis_controller_function_arn": CONTROLLER,
+            "application_bucket": "opengeo-analysis-application-test",
+        }
+    )
 
 
 class WakeTransport:
@@ -399,8 +401,11 @@ def test_profiles_are_operator_only_pinned_closed_and_queue_uses_uuid_only():
     transport = Transport()
     wake = WakeTransport()
     dispatcher = AwsSqsAnalysisDispatcher(
-        configured, credentials=Credentials(), transport=transport,
-        wake_transport=wake, now=lambda: NOW,
+        configured,
+        credentials=Credentials(),
+        transport=transport,
+        wake_transport=wake,
+        now=lambda: NOW,
     )
     asyncio.run(dispatcher.dispatch_analysis(JOB))
     message = json.loads(parse_qs(transport.calls[0][2].decode())["MessageBody"][0])
@@ -425,7 +430,9 @@ def test_managed_wake_requires_complete_default_off_operator_configuration():
     configured = managed_settings()
     assert configured.analysis_dispatch_configured
     for missing in (
-        "analysis_controller_function_arn", "analysis_queue_url", "analysis_runtime_profiles",
+        "analysis_controller_function_arn",
+        "analysis_queue_url",
+        "analysis_runtime_profiles",
     ):
         incomplete = configured.model_copy(update={missing: None})
         assert not incomplete.analysis_dispatch_configured
@@ -437,10 +444,12 @@ def test_managed_wake_requires_complete_default_off_operator_configuration():
         update={"analysis_enabled": False}
     ).analysis_dispatch_configured
     for stage in ("dev", "staging", "demo", "production"):
-        value = Settings.model_validate({
-            **configured.model_dump(),
-            "analysis_controller_function_arn": CONTROLLER.replace("-dev-", f"-{stage}-"),
-        })
+        value = Settings.model_validate(
+            {
+                **configured.model_dump(),
+                "analysis_controller_function_arn": CONTROLLER.replace("-dev-", f"-{stage}-"),
+            }
+        )
         assert value.analysis_dispatch_configured
 
 
@@ -467,16 +476,22 @@ def test_analysis_storage_uses_application_bucket_and_missing_bucket_disables_jo
         Settings.model_validate({**configured.model_dump(), "application_bucket": ""})
 
 
-@pytest.mark.parametrize("change", [
-    {"analysis_controller_function_arn": CONTROLLER.replace("111111111111", "222222222222")},
-    {"analysis_controller_function_arn": CONTROLLER.replace("us-east-1", "us-west-2")},
-    {"analysis_controller_function_arn": CONTROLLER + ":latest"},
-    {"analysis_controller_function_arn": CONTROLLER.replace(
-        "analysis-controller", "worker-controller",
-    )},
-    {"analysis_controller_function_arn": CONTROLLER.replace("-dev-", "-*-")},
-    {"analysis_queue_url": None},
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"analysis_controller_function_arn": CONTROLLER.replace("111111111111", "222222222222")},
+        {"analysis_controller_function_arn": CONTROLLER.replace("us-east-1", "us-west-2")},
+        {"analysis_controller_function_arn": CONTROLLER + ":latest"},
+        {
+            "analysis_controller_function_arn": CONTROLLER.replace(
+                "analysis-controller",
+                "worker-controller",
+            )
+        },
+        {"analysis_controller_function_arn": CONTROLLER.replace("-dev-", "-*-")},
+        {"analysis_queue_url": None},
+    ],
+)
 def test_wake_target_rejects_other_accounts_regions_or_unbounded_functions(change):
     with pytest.raises(ValidationError, match="same-account regional analysis controller"):
         Settings.model_validate({**managed_settings().model_dump(), **change})
@@ -484,23 +499,31 @@ def test_wake_target_rejects_other_accounts_regions_or_unbounded_functions(chang
 
 def test_failed_queue_send_never_wakes_and_construction_does_no_io():
     transport, wake = Transport(status=503), WakeTransport()
-    dispatcher = AwsSqsAnalysisDispatcher(managed_settings(), credentials=Credentials(),
-                                         transport=transport, wake_transport=wake)
+    dispatcher = AwsSqsAnalysisDispatcher(
+        managed_settings(), credentials=Credentials(), transport=transport, wake_transport=wake
+    )
     assert dispatcher.available and not transport.calls and not wake.calls
     with pytest.raises(ProcessingDispatchUnavailable):
         asyncio.run(dispatcher.dispatch_analysis(JOB))
     assert len(transport.calls) == 1 and not wake.calls
 
 
-@pytest.mark.parametrize("response", [
-    (200, {}, b""), (503, {}, b""), (202, {}, b"x" * 4097),
-    (202, {"X-Amz-Function-Error": "rejected"}, b""),
-    TimeoutError("uncertain"), DatasetVerificationDependencyUnavailable("unreachable"),
-])
+@pytest.mark.parametrize(
+    "response",
+    [
+        (200, {}, b""),
+        (503, {}, b""),
+        (202, {}, b"x" * 4097),
+        (202, {"X-Amz-Function-Error": "rejected"}, b""),
+        TimeoutError("uncertain"),
+        DatasetVerificationDependencyUnavailable("unreachable"),
+    ],
+)
 def test_wake_rejection_or_uncertainty_is_not_retried(response):
     transport, wake = Transport(), WakeTransport([response])
-    dispatcher = AwsSqsAnalysisDispatcher(managed_settings(), credentials=Credentials(),
-                                         transport=transport, wake_transport=wake)
+    dispatcher = AwsSqsAnalysisDispatcher(
+        managed_settings(), credentials=Credentials(), transport=transport, wake_transport=wake
+    )
     with pytest.raises(ProcessingDispatchUnavailable, match="managed analysis wake"):
         asyncio.run(dispatcher.dispatch_analysis(JOB))
     assert len(transport.calls) == len(wake.calls) == 1
@@ -517,8 +540,9 @@ def test_wake_credential_failure_retains_sent_job_without_another_request():
             return Credentials().load()
 
     transport, wake, credentials = Transport(), WakeTransport(), FailingCredentials()
-    dispatcher = AwsSqsAnalysisDispatcher(managed_settings(), credentials=credentials,
-                                         transport=transport, wake_transport=wake)
+    dispatcher = AwsSqsAnalysisDispatcher(
+        managed_settings(), credentials=credentials, transport=transport, wake_transport=wake
+    )
     with pytest.raises(ProcessingDispatchUnavailable, match="managed analysis wake"):
         asyncio.run(dispatcher.dispatch_analysis(JOB))
     assert len(transport.calls) == 1 and not wake.calls and credentials.loads == 2
@@ -528,7 +552,10 @@ def test_explicit_retry_after_wake_failure_reuses_frozen_job_and_read_cancel_do_
     app, store, storage, _ = setup()
     transport, wake = Transport(), WakeTransport([(503, {}, b""), (202, {}, b"")])
     app.state.analysis_dispatcher = AwsSqsAnalysisDispatcher(
-        managed_settings(), credentials=Credentials(), transport=transport, wake_transport=wake,
+        managed_settings(),
+        credentials=Credentials(),
+        transport=transport,
+        wake_transport=wake,
     )
     first = request(app, "POST", PATH + f"/jobs/{JOB}/submit", request_headers=headers())
     assert first.status_code == 202 and first.json()["state"] == "dispatch_pending"

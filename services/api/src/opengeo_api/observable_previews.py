@@ -66,8 +66,11 @@ class CloudFrontPreviewCookieSigner:
         self._origins = frozenset(
             canonical_preview_origin(origin, allow_loopback_http=True)
             for origin in (
-                allowed_origins if allowed_origins is not None else [
-                    "https://preview.studio.opengeo.tools", "https://maps-preview.studio.opengeo.tools"
+                allowed_origins
+                if allowed_origins is not None
+                else [
+                    "https://preview.studio.opengeo.tools",
+                    "https://maps-preview.studio.opengeo.tools",
                 ]
             )
         )
@@ -82,7 +85,9 @@ class CloudFrontPreviewCookieSigner:
         parsed = urlsplit(resource_url)
         if (
             f"{parsed.scheme}://{parsed.netloc}" not in self._origins
-            or parsed.query or parsed.fragment or _PREVIEW_PATH.fullmatch(parsed.path) is None
+            or parsed.query
+            or parsed.fragment
+            or _PREVIEW_PATH.fullmatch(parsed.path) is None
         ):
             raise ValueError("private preview resource URL is invalid")
         expires_epoch = int(expires_at.timestamp())
@@ -156,9 +161,14 @@ class SecretsManagerPreviewCookieSigner:
         self._region = settings.aws_region
         self._key_pair_id = settings.observable_preview_key_pair_id
         self._secret_arn = settings.observable_preview_private_key_secret_arn
-        self._origins = [origin for origin in (
-            settings.observable_preview_origin, settings.observable_public_maps_preview_origin
-        ) if origin is not None]
+        self._origins = [
+            origin
+            for origin in (
+                settings.observable_preview_origin,
+                settings.observable_public_maps_preview_origin,
+            )
+            if origin is not None
+        ]
         self._timeout_seconds = settings.cognito_http_timeout_seconds
         self._credentials = credentials or AwsCredentialProvider(
             timeout_seconds=settings.cognito_http_timeout_seconds

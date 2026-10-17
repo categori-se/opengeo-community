@@ -287,13 +287,18 @@ class HeadDeniedLookup(Aws):
 
 def empty_current_lookup(**overrides):
     fields = {
-        "Name": "example-geodata", "Prefix": KEY, "MaxKeys": "1",
-        "KeyCount": "0", "IsTruncated": "false",
+        "Name": "example-geodata",
+        "Prefix": KEY,
+        "MaxKeys": "1",
+        "KeyCount": "0",
+        "IsTruncated": "false",
     }
     fields.update(overrides)
-    return ("<ListBucketResult>" + "".join(
-        f"<{name}>{value}</{name}>" for name, value in fields.items()
-    ) + "</ListBucketResult>").encode()
+    return (
+        "<ListBucketResult>"
+        + "".join(f"<{name}>{value}</{name}>" for name, value in fields.items())
+        + "</ListBucketResult>"
+    ).encode()
 
 
 def test_missing_current_object_can_use_exact_prefix_lookup_without_bucket_wide_listing():
@@ -307,18 +312,26 @@ def test_missing_current_object_can_use_exact_prefix_lookup_without_bucket_wide_
     assert storage().sign_single(KEY, 1, SHA)["headers"]["if-none-match"] == "*"
 
 
-@pytest.mark.parametrize("lookup", [
-    (403, {}, b""),
-    (200, {}, empty_current_lookup(Name="other-bucket")),
-    (200, {}, empty_current_lookup(Prefix="bhutan/private/")),
-    (200, {}, empty_current_lookup(MaxKeys="1000")),
-    (200, {}, empty_current_lookup(IsTruncated="true")),
-    (200, {}, empty_current_lookup(KeyCount="1")),
-    (200, {}, empty_current_lookup().replace(
-        b"</ListBucketResult>", f"<Contents><Key>{KEY}</Key></Contents></ListBucketResult>".encode()
-    )),
-    (200, {}, b"<Error><Code>AccessDenied</Code></Error>"),
-])
+@pytest.mark.parametrize(
+    "lookup",
+    [
+        (403, {}, b""),
+        (200, {}, empty_current_lookup(Name="other-bucket")),
+        (200, {}, empty_current_lookup(Prefix="bhutan/private/")),
+        (200, {}, empty_current_lookup(MaxKeys="1000")),
+        (200, {}, empty_current_lookup(IsTruncated="true")),
+        (200, {}, empty_current_lookup(KeyCount="1")),
+        (
+            200,
+            {},
+            empty_current_lookup().replace(
+                b"</ListBucketResult>",
+                f"<Contents><Key>{KEY}</Key></Contents></ListBucketResult>".encode(),
+            ),
+        ),
+        (200, {}, b"<Error><Code>AccessDenied</Code></Error>"),
+    ],
+)
 def test_denied_or_ambiguous_lookup_never_proves_missing_object(lookup):
     aws = HeadDeniedLookup(lookup)
     with pytest.raises(ArchiveStorageError):

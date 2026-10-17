@@ -25,8 +25,10 @@ def organization_factory(request, monkeypatch):
             "client",
             lambda principal_record, repository: TestClient(
                 create_session_app(
-                    Settings(env="test"), FakeVerifier(),
-                    FakePrincipalRepository(principal_record), repository,
+                    Settings(env="test"),
+                    FakeVerifier(),
+                    FakePrincipalRepository(principal_record),
+                    repository,
                 )
             ),
         )

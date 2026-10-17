@@ -58,10 +58,13 @@ class PreviewRequest(BaseModel):
     @field_validator("bbox", mode="before")
     @classmethod
     def bounds(cls, value: Any) -> Any:
-        if (not isinstance(value, (list, tuple)) or len(value) != 4
-                or any(not _finite_number(c) for c in value)
-                or not -180 <= value[0] < value[2] <= 180
-                or not -90 <= value[1] < value[3] <= 90):
+        if (
+            not isinstance(value, (list, tuple))
+            or len(value) != 4
+            or any(not _finite_number(c) for c in value)
+            or not -180 <= value[0] < value[2] <= 180
+            or not -90 <= value[1] < value[3] <= 90
+        ):
             raise ValueError("bbox must be ordered WGS84 bounds")
         return value
 
@@ -85,41 +88,69 @@ Session = Annotated[AuthSession, Depends(current_session)]
     response_model=RegistrationResponse,
 )
 async def register_postgis_layer(
-    project_id: UUID, connection_id: UUID, discovery_id: UUID,
-    ordinal: Annotated[int, Path(ge=1, le=100)], payload: RegistrationRequest,
-    session: Session, repository: Repository,
+    project_id: UUID,
+    connection_id: UUID,
+    discovery_id: UUID,
+    ordinal: Annotated[int, Path(ge=1, le=100)],
+    payload: RegistrationRequest,
+    session: Session,
+    repository: Repository,
 ) -> RegistrationResponse:
-    result = await execute_connection(execute_source(repository.register(
-        tenant_context(session), project_id, connection_id, discovery_id, ordinal,
-        PostgisLayerSelection(**payload.model_dump()),
-    )))
-    return RegistrationResponse(dataset_id=result.dataset_id,
-                                source_version=result.source_version, created=result.created)
+    result = await execute_connection(
+        execute_source(
+            repository.register(
+                tenant_context(session),
+                project_id,
+                connection_id,
+                discovery_id,
+                ordinal,
+                PostgisLayerSelection(**payload.model_dump()),
+            )
+        )
+    )
+    return RegistrationResponse(
+        dataset_id=result.dataset_id, source_version=result.source_version, created=result.created
+    )
 
 
 @router.post("/datasets/{dataset_id}/postgis-preview")
 async def preview_postgis_layer(
-    dataset_id: UUID, payload: PreviewRequest, session: Session,
-    repository: Repository, client: Client, response: Response,
+    dataset_id: UUID,
+    payload: PreviewRequest,
+    session: Session,
+    repository: Repository,
+    client: Client,
+    response: Response,
 ) -> dict[str, Any]:
     response.headers["Cache-Control"] = "private, no-store"
     if not client.available:
         raise HTTPException(status_code=503, detail="postgis_preview_unavailable")
-    lease = await execute_source(repository.prepare_preview(
-        tenant_context(session), dataset_id, payload.expected_source_version,
-        payload.request_key, payload.bbox,
-    ))
+    lease = await execute_source(
+        repository.prepare_preview(
+            tenant_context(session),
+            dataset_id,
+            payload.expected_source_version,
+            payload.request_key,
+            payload.bbox,
+        )
+    )
     if lease.state != "queued":
         # Completed bytes are deliberately not stored. Reusing a request key
         # never silently reruns the provider after a lost response.
-        raise HTTPException(status_code=409, detail={
-            "code": "postgis_preview_new_request_required", "state": lease.state,
-        })
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "postgis_preview_new_request_required",
+                "state": lease.state,
+            },
+        )
     try:
-        result = await client.preview(lease.preview_id, dataset_id,
-                                      payload.expected_source_version, payload.bbox)
-        return validate_postgis_preview(result, lease.preview_id, dataset_id,
-                                        payload.expected_source_version, payload.bbox)
+        result = await client.preview(
+            lease.preview_id, dataset_id, payload.expected_source_version, payload.bbox
+        )
+        return validate_postgis_preview(
+            result, lease.preview_id, dataset_id, payload.expected_source_version, payload.bbox
+        )
     except PostgisPreviewFailure as error:
         code = 409 if error.code in {"preview_stale", "preview_schema_changed"} else 503
         raise HTTPException(status_code=code, detail=error.code) from error

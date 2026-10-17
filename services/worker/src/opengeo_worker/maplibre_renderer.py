@@ -4,8 +4,6 @@ Legacy profiles never enter this path. The runtime is not downloaded or inferred
 from the host, and unavailable runtime/font assets are explicit failures.
 """
 
-from opengeo_worker.map_filters import validate_map_filter
-
 import json
 import math
 import re
@@ -16,6 +14,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from opengeo_worker.map_filters import validate_map_filter
 from opengeo_worker.models import RenderClaim, RenderLayerClaim, ValidationFailure
 from opengeo_worker.render_runtime import PINNED_GL_RENDERER, runtime_reference
 from opengeo_worker.renderer import DeterministicSvgRenderer
@@ -205,19 +204,30 @@ def _validate_style(style: Any, font_ref: Any) -> list[dict[str, Any]]:
     if not isinstance(patterns, dict) or len(patterns) > 1:
         _fail("saved_map_gl_pattern_invalid")
     for identifier, image in patterns.items():
-        if (not isinstance(identifier, str) or not re.fullmatch(r"pattern-[0-9a-f]{64}", identifier)
-            or not isinstance(image, dict) or set(image) != {"svg", "size"}
-            or not _number(image["size"], 16, 64) or not isinstance(image["svg"], str)
-            or len(image["svg"]) > 2048):
+        if (
+            not isinstance(identifier, str)
+            or not re.fullmatch(r"pattern-[0-9a-f]{64}", identifier)
+            or not isinstance(image, dict)
+            or set(image) != {"svg", "size"}
+            or not _number(image["size"], 16, 64)
+            or not isinstance(image["svg"], str)
+            or len(image["svg"]) > 2048
+        ):
             _fail("saved_map_gl_pattern_invalid")
         match = re.fullmatch(
-            r'<svg xmlns="http://www.w3.org/2000/svg" width="([0-9.]+)" height="\1" viewBox="0 0 32 32">'
+            r'<svg xmlns="http://www.w3.org/2000/svg" width="([0-9.]+)" '
+            r'height="\1" viewBox="0 0 32 32">'
             r'<rect width="32" height="32" fill="#[0-9a-fA-F]{6}" fill-opacity="[01]"/>'
-            r'<path d="[MmLlHhVvQqTtZz0-9 .,-]{1,500}" stroke="#[0-9a-fA-F]{6}" stroke-width="([0-9.]+)" stroke-linecap="round" fill="none"/></svg>',
+            r'<path d="[MmLlHhVvQqTtZz0-9 .,-]{1,500}" stroke="#[0-9a-fA-F]{6}" '
+            r'stroke-width="([0-9.]+)" stroke-linecap="round" fill="none"/></svg>',
             image["svg"],
         )
         try:
-            valid = match is not None and float(match[1]) == image["size"] and .5 <= float(match[2]) <= 4
+            valid = (
+                match is not None
+                and float(match[1]) == image["size"]
+                and 0.5 <= float(match[2]) <= 4
+            )
         except ValueError:
             valid = False
         if not valid:
@@ -248,7 +258,9 @@ def _validate_style(style: Any, font_ref: Any) -> list[dict[str, Any]]:
                 validate_map_filter(layer["filter"])
             except ValueError:
                 _fail("saved_map_gl_filter_unsupported")
-        if "metadata" in layer and (layer["type"]!="symbol" or layer["metadata"]!={"opengeo:drawOrder":"above-data"}):
+        if "metadata" in layer and (
+            layer["type"] != "symbol" or layer["metadata"] != {"opengeo:drawOrder": "above-data"}
+        ):
             _fail("saved_map_gl_style_unsupported")
         ids.add(layer["id"])
         for name, value in layer["paint"].items():

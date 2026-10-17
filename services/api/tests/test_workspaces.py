@@ -486,8 +486,12 @@ def test_map_duplicate_assigns_new_owner_after_history_without_copying_source_go
     definition = current_empty_definition()
     transaction = FakeTransaction(
         one=[
-            ("member",), ("editor",), map_row(version=7, definition=definition),
-            (duplicate_id, *map_row(definition=definition)[1:]), (1,), (True,),
+            ("member",),
+            ("editor",),
+            map_row(version=7, definition=definition),
+            (duplicate_id, *map_row(definition=definition)[1:]),
+            (1,),
+            (True,),
         ],
         all_rows=[
             definition_rows(definition),
@@ -528,17 +532,30 @@ def test_map_duplicate_assigns_new_owner_after_history_without_copying_source_go
 def test_map_creation_key_replay_never_assigns_owner_to_an_existing_map() -> None:
     definition = current_empty_definition()
     draft = MapDraft(
-        name="Atlas map", description="Map", definition=definition,
+        name="Atlas map",
+        description="Map",
+        definition=definition,
         creation_key=UUID("80000000-0000-4000-8000-000000000001"),
     )
-    request_hash = sha256(json.dumps(
-        {"project_id": str(PROJECT_ID), "name": draft.name,
-         "description": draft.description, "definition": definition},
-        sort_keys=True, separators=(",", ":"), allow_nan=False,
-    ).encode()).hexdigest()
+    request_hash = sha256(
+        json.dumps(
+            {
+                "project_id": str(PROJECT_ID),
+                "name": draft.name,
+                "description": draft.description,
+                "definition": definition,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode()
+    ).hexdigest()
     transaction = FakeTransaction(
         one=[
-            ("member",), ("editor",), (None,), (MAP_ID, PROJECT_ID, request_hash),
+            ("member",),
+            ("editor",),
+            (None,),
+            (MAP_ID, PROJECT_ID, request_hash),
             map_row(definition=definition),
         ],
         all_rows=[definition_rows(definition)],
@@ -573,11 +590,14 @@ def test_failed_new_map_owner_binding_rolls_back_the_existing_transaction() -> N
     executor = RdsDataApiTenantQueryExecutor(data_api_settings(), client)  # type: ignore[arg-type]
 
     with pytest.raises(WorkspaceConflict, match="map_version_conflict"):
-        asyncio.run(PostgresWorkspaceRepository(executor).create_map(
-            context(), PROJECT_ID,
-            MapDraft(name="Atlas map", description="Map", definition=definition),
-            "request-owner-binding-failure",
-        ))
+        asyncio.run(
+            PostgresWorkspaceRepository(executor).create_map(
+                context(),
+                PROJECT_ID,
+                MapDraft(name="Atlas map", description="Map", definition=definition),
+                "request-owner-binding-failure",
+            )
+        )
 
     assert client.events[0] == ("begin",)
     assert client.events[-1] == ("rollback", "transaction-1")
@@ -1243,10 +1263,12 @@ def test_composition_identity_hides_unreadable_container_before_loading_definiti
 def test_composition_list_uses_exact_governed_owner_with_current_account_authority() -> None:
     owner_id = UUID("20000000-0000-4000-8000-000000000002")
     transaction = FakeTransaction(
-        all_rows=[[
-            (MAP_ID, PROJECT_ID, "Shared access", "Analysis", None, "active", 2, NOW, owner_id),
-            (MAP_ID, PROJECT_ID, "Shared access", "Unbound", None, "active", 1, NOW, None),
-        ]]
+        all_rows=[
+            [
+                (MAP_ID, PROJECT_ID, "Shared access", "Analysis", None, "active", 2, NOW, owner_id),
+                (MAP_ID, PROJECT_ID, "Shared access", "Unbound", None, "active", 1, NOW, None),
+            ]
+        ]
     )
     executor = FakeExecutor(transaction)
     result = asyncio.run(
@@ -1450,18 +1472,20 @@ def test_raw_preserved_version_is_rejected_even_when_same_version_has_a_display(
 
     with pytest.raises(WorkspaceConflict) as error:
         asyncio.run(
-            PostgresWorkspaceRepository(FakeExecutor(transaction))._require_map_definition_references(
-                transaction, context(), PROJECT_ID, document
-            )
+            PostgresWorkspaceRepository(
+                FakeExecutor(transaction)
+            )._require_map_definition_references(transaction, context(), PROJECT_ID, document)
         )
 
     assert error.value.code == "map_dataset_version_invalid"
     assert "AND version.state = 'active'::app.dataset_version_state" in transaction.calls[-1][1]
-    assert transaction.calls[-1][2][0].obj == [{
-        "dataset_id": str(DATASET_ID),
-        "dataset_version_id": str(DATASET_VERSION_ID),
-        "dataset_version_number": 3,
-    }]
+    assert transaction.calls[-1][2][0].obj == [
+        {
+            "dataset_id": str(DATASET_ID),
+            "dataset_version_id": str(DATASET_VERSION_ID),
+            "dataset_version_number": 3,
+        }
+    ]
     assert not any("JOIN app.layer_archive_distributions" in call[1] for call in transaction.calls)
 
 
@@ -1495,13 +1519,15 @@ def test_mixed_raw_and_display_references_keep_the_raw_active_version_gate():
     document = managed_display_map_definition()
     raw_version = UUID(int=94)
     raw_layer = {
-        **document["layers"][0], "layerId": "active_raw", "datasetVersionId": str(raw_version)
+        **document["layers"][0],
+        "layerId": "active_raw",
+        "datasetVersionId": str(raw_version),
     }
     del raw_layer["managedDisplayId"]
     document["layers"].append(raw_layer)
-    transaction = FakeTransaction(all_rows=[
-        [(DATASET_ID,)], [(DATASET_ID, raw_version, 3)], [display_reference_row()]
-    ])
+    transaction = FakeTransaction(
+        all_rows=[[(DATASET_ID,)], [(DATASET_ID, raw_version, 3)], [display_reference_row()]]
+    )
 
     asyncio.run(
         PostgresWorkspaceRepository(FakeExecutor(transaction))._require_map_definition_references(

@@ -151,8 +151,14 @@ def retained_localized_files(plan: Any, prefix: str, bucket: str) -> dict[str, d
 
 
 def _referenced_publication_pins(
-    request, revision, approval, result, source_id, organization_id, project_id
-):
+    request: Mapping[str, Any],
+    revision: Mapping[str, Any],
+    approval: Mapping[str, Any],
+    result: Mapping[str, Any],
+    source_id: UUID,
+    organization_id: UUID,
+    project_id: UUID,
+) -> list[dict[str, Any]]:
     """Bind exact approved inputs; repository.authorize retains current authority."""
     invalid = "publication_referenced_authority_invalid"
     data = revision.get("dataAttachments")
@@ -165,9 +171,8 @@ def _referenced_publication_pins(
         or not 1 <= len(references) <= 128
         or len(data) + len(references) > 128
         or any(not isinstance(pin, Mapping) for pin in data + references)
-        or request.get("schemaVersion") not in {
-            "opengeo.observable-build-request.3.0.0", "opengeo.observable-build-request.4.0.0"
-        }
+        or request.get("schemaVersion")
+        not in {"opengeo.observable-build-request.3.0.0", "opengeo.observable-build-request.4.0.0"}
         or request.get("purpose") != "release_candidate"
         or "artifactInputsChecksumSha256" in request
         or request.get("sourceProjectId") != str(source_id)
@@ -180,15 +185,25 @@ def _referenced_publication_pins(
         or result.get("compilerImageDigest") != request.get("compilerImageDigest")
         or result.get("validationReport", {}).get("publicationAuthorized") is not False
         or request.get("outputProfile") not in {"default-32m", "archive-96m"}
-        or request.get("sizeAcknowledgment") != (
-            "allow-up-to-96-mib-output" if request.get("outputProfile") == "archive-96m" else None
-        )
+        or request.get("sizeAcknowledgment")
+        != ("allow-up-to-96-mib-output" if request.get("outputProfile") == "archive-96m" else None)
         or not isinstance(approved, Mapping)
-        or set(approved) != {
-            "schemaVersion", "organizationId", "projectId", "sourceProjectId", "sourceRevisionId",
-            "sourceManifestChecksumSha256", "compilerImageDigest", "outputProfile",
-            "artifactInputsChecksumSha256", "dataAttachments", "archiveRights", "artifacts",
-            "referencedFiles", "referenceRights",
+        or set(approved)
+        != {
+            "schemaVersion",
+            "organizationId",
+            "projectId",
+            "sourceProjectId",
+            "sourceRevisionId",
+            "sourceManifestChecksumSha256",
+            "compilerImageDigest",
+            "outputProfile",
+            "artifactInputsChecksumSha256",
+            "dataAttachments",
+            "archiveRights",
+            "artifacts",
+            "referencedFiles",
+            "referenceRights",
         }
         or approved.get("schemaVersion") != "opengeo.observable-input-distribution-approval.2.0.0"
         or approved.get("organizationId") != str(organization_id)
@@ -213,23 +228,33 @@ def _referenced_publication_pins(
     # The SQL predicate rechecks these editions and RESOURCE_PUBLISH permissions
     # around every write. Keep the reviewed rights bound to their respective pins.
     for pins, rights, keys, acknowledgment in (
-        (data, approved.get("archiveRights"), ("path", "attachmentId"),
-         "publish-exact-archive-file"),
-        (references, approved.get("referenceRights"),
-         ("referenceId", "path", "resourceId", "distributionId"), "publish-exact-referenced-file"),
+        (
+            data,
+            approved.get("archiveRights"),
+            ("path", "attachmentId"),
+            "publish-exact-archive-file",
+        ),
+        (
+            references,
+            approved.get("referenceRights"),
+            ("referenceId", "path", "resourceId", "distributionId"),
+            "publish-exact-referenced-file",
+        ),
     ):
         if not isinstance(rights, list) or len(rights) != len(pins):
             raise PublicationConflict(invalid)
         for pin, terms in zip(pins, rights, strict=True):
             if (
                 not isinstance(terms, Mapping)
-                or set(terms) != set(keys) | {
-                    "resourceId", "resourceVersionId", "license", "attribution", "acknowledgment"
-                }
+                or set(terms)
+                != set(keys)
+                | {"resourceId", "resourceVersionId", "license", "attribution", "acknowledgment"}
                 or any(terms.get(key) != pin.get(key) for key in keys)
-                or any(not isinstance(terms.get(key), str) or not re.fullmatch(
-                    r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", terms[key]
-                ) for key in ("resourceId", "resourceVersionId"))
+                or any(
+                    not isinstance(terms.get(key), str)
+                    or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", terms[key])
+                    for key in ("resourceId", "resourceVersionId")
+                )
                 or terms.get("acknowledgment") != acknowledgment
                 or terms.get("license") not in {"CC0-1.0", "CC-BY-4.0", "PDDL-1.0"}
                 or not isinstance(terms.get("attribution"), str)
@@ -240,8 +265,15 @@ def _referenced_publication_pins(
 
 
 def _native_publication_proof(
-    request, revision, approval, result, outputs, source_id, organization_id, project_id
-):
+    request: Mapping[str, Any],
+    revision: Mapping[str, Any],
+    approval: Mapping[str, Any],
+    result: Mapping[str, Any],
+    outputs: list[dict[str, Any]],
+    source_id: UUID,
+    organization_id: UUID,
+    project_id: UUID,
+) -> tuple[dict[str, Any], int]:
     invalid = "publication_localized_authority_invalid"
     if (
         request.get("schemaVersion") != "opengeo.observable-build-request.4.0.0"
@@ -466,8 +498,13 @@ def plan_publication(
     reference_pins = []
     if referenced:
         reference_pins = _referenced_publication_pins(
-            request, revision, approval, build_result,
-            source_project_id, organization_id, project_id,
+            request,
+            revision,
+            approval,
+            build_result,
+            source_project_id,
+            organization_id,
+            project_id,
         )
     if native:
         native_proof, native_maximum = _native_publication_proof(

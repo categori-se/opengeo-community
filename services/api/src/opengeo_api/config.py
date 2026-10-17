@@ -17,9 +17,13 @@ def canonical_preview_origin(value: str, *, allow_loopback_http: bool = False) -
         parsed = urlsplit(value)
         host, port = parsed.hostname, parsed.port
         labels = host.split(".") if host else []
-        valid_host = bool(labels) and len(host) <= 253 and all(
-            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
-            for label in labels
+        valid_host = (
+            host is not None
+            and bool(labels)
+            and len(host) <= 253
+            and all(
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) for label in labels
+            )
         )
         authority = host + (f":{port}" if port is not None else "") if host else ""
         valid = (
@@ -40,8 +44,7 @@ def canonical_preview_origin(value: str, *, allow_loopback_http: bool = False) -
         valid = False
     if not valid:
         raise ValueError(
-            "preview origin must be a canonical HTTPS origin; "
-            "dev/test may use HTTP on 127.0.0.1"
+            "preview origin must be a canonical HTTPS origin; dev/test may use HTTP on 127.0.0.1"
         )
     return value
 
@@ -379,15 +382,18 @@ class Settings(BaseSettings):
         ):
             raise ValueError("production Observable preview signing must be configured")
 
-        if self.pmtiles_worker_image_digest is not None and re.fullmatch(
-            r"sha256:[0-9a-f]{64}", self.pmtiles_worker_image_digest
-        ) is None:
+        if (
+            self.pmtiles_worker_image_digest is not None
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", self.pmtiles_worker_image_digest) is None
+        ):
             raise ValueError("pmtiles_worker_image_digest must be an immutable sha256 digest")
         pmtiles_formats = self.pmtiles_input_formats.split(",")
-        if (not pmtiles_formats or len(set(pmtiles_formats)) != len(pmtiles_formats)
-            or not set(pmtiles_formats) <= {
-                "geojson", "csv", "shapefile", "geopackage", "geoparquet"
-            }):
+        if (
+            not pmtiles_formats
+            or len(set(pmtiles_formats)) != len(pmtiles_formats)
+            or not set(pmtiles_formats)
+            <= {"geojson", "csv", "shapefile", "geopackage", "geoparquet"}
+        ):
             raise ValueError("pmtiles_input_formats must list distinct supported vector formats")
 
         for queue_name, queue_url in (
@@ -535,10 +541,13 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_analysis_profiles(self) -> Self:
         from opengeo_api.analysis_jobs import parse_runtime_profiles
+
         parse_runtime_profiles(self.analysis_runtime_profiles)
         if self.analysis_queue_url is not None and self.analysis_queue_url in {
-            self.processing_queue_url, self.pmtiles_derivative_queue_url,
-            self.observable_build_queue_url, self.framework_publication_queue_url,
+            self.processing_queue_url,
+            self.pmtiles_derivative_queue_url,
+            self.observable_build_queue_url,
+            self.framework_publication_queue_url,
         }:
             raise ValueError("managed analysis requires its own queue")
         if self.analysis_controller_function_arn is not None:
@@ -549,10 +558,14 @@ class Settings(BaseSettings):
             )
             queue_account = (
                 urlsplit(self.analysis_queue_url).path.split("/")[1]
-                if self.analysis_queue_url is not None else None
+                if self.analysis_queue_url is not None
+                else None
             )
-            if (controller is None or controller.group(1) != self.aws_region
-                    or controller.group(2) != queue_account):
+            if (
+                controller is None
+                or controller.group(1) != self.aws_region
+                or controller.group(2) != queue_account
+            ):
                 raise ValueError(
                     "analysis_controller_function_arn must identify the same-account regional "
                     "analysis controller as its queue"
@@ -561,10 +574,14 @@ class Settings(BaseSettings):
 
     @property
     def analysis_dispatch_configured(self) -> bool:
-        return (self.analysis_enabled and self.analysis_queue_url is not None
-                and self.analysis_controller_function_arn is not None
-                and self.analysis_runtime_profiles is not None and self.aws_region is not None
-                and self.source_upload_configured)
+        return (
+            self.analysis_enabled
+            and self.analysis_queue_url is not None
+            and self.analysis_controller_function_arn is not None
+            and self.analysis_runtime_profiles is not None
+            and self.aws_region is not None
+            and self.source_upload_configured
+        )
 
     @property
     def render_dispatch_configured(self) -> bool:

@@ -137,8 +137,11 @@ def test_resolve_referenced_file_exact_saved_authority_without_copy(case, expect
     edition = UUID("a0000000-0000-4000-8000-000000000083")
     identifier = "urn:distribution:bhutan-original-1990"
     distribution = {
-        "identifier": identifier, "downloadUrl": url, "mediaType": "image/tiff",
-        "byteSize": 64_912_721, "checksumSha256": "b" * 64,
+        "identifier": identifier,
+        "downloadUrl": url,
+        "mediaType": "image/tiff",
+        "byteSize": 64_912_721,
+        "checksumSha256": "b" * 64,
     }
     if case == "wrong_url":
         distribution["downloadUrl"] = "https://backup.example.test/different.tif"
@@ -155,7 +158,9 @@ def test_resolve_referenced_file_exact_saved_authority_without_copy(case, expect
         row[5] = "archived"
     metadata_authority = ("member", None, None if case == "metadata_denied" else "view", False)
     edition_row = (
-        edition, 4, {"opengeo": {"schemaVersion": "1.3.0", "distributions": distributions}},
+        edition,
+        4,
+        {"opengeo": {"schemaVersion": "1.3.0", "distributions": distributions}},
         url,
     )
     one = [*project_access(None), tuple(row)]
@@ -167,9 +172,14 @@ def test_resolve_referenced_file_exact_saved_authority_without_copy(case, expect
     executor = FakeExecutor([transaction])
     repo = PostgresExternalSourceRepository(executor)
     operation = repo.resolve_referenced_file(
-        context(), PROJECT_ID, dataset_id=DATASET_ID, source_version=1,
-        resource_id=RESOURCE_ID, resource_version_id=edition,
-        distribution_id=identifier, relative_path="data/LANDCOVER_19901.tif",
+        context(),
+        PROJECT_ID,
+        dataset_id=DATASET_ID,
+        source_version=1,
+        resource_id=RESOURCE_ID,
+        resource_version_id=edition,
+        distribution_id=identifier,
+        relative_path="data/LANDCOVER_19901.tif",
     )
     if expected:
         with pytest.raises(expected):
@@ -177,19 +187,32 @@ def test_resolve_referenced_file_exact_saved_authority_without_copy(case, expect
     else:
         result = asyncio.run(operation)
         assert result == {
-            "kind": "referenced-public-file", "custody": "referenced",
-            "path": "data/LANDCOVER_19901.tif", "datasetId": str(DATASET_ID),
-            "sourceVersion": 1, "resourceId": str(RESOURCE_ID),
-            "resourceVersionId": str(edition), "resourceVersionNumber": 4,
-            "distributionId": identifier, "url": url, "contentType": "image/tiff",
-            "sizeBytes": 64_912_721, "checksumSha256": "b" * 64,
+            "kind": "referenced-public-file",
+            "custody": "referenced",
+            "path": "data/LANDCOVER_19901.tif",
+            "datasetId": str(DATASET_ID),
+            "sourceVersion": 1,
+            "resourceId": str(RESOURCE_ID),
+            "resourceVersionId": str(edition),
+            "resourceVersionNumber": 4,
+            "distributionId": identifier,
+            "url": url,
+            "contentType": "image/tiff",
+            "sizeBytes": 64_912_721,
+            "checksumSha256": "b" * 64,
         }
         statement = transaction.calls[-1][1]
         assert "revision.dataset_id = resource.dataset_id" in statement
         assert "metadata.provenance->>'externalSourceVersion'" in statement
         assert "metadata.provenance->>'externalSourceUrl' = revision.source_url" in statement
         assert transaction.calls[-1][2] == (
-            edition, 1, ORG_ID, PROJECT_ID, RESOURCE_ID, DATASET_ID, "1",
+            edition,
+            1,
+            ORG_ID,
+            PROJECT_ID,
+            RESOURCE_ID,
+            DATASET_ID,
+            "1",
         )
     assert executor.contexts == [context()]
     assert all(call[0] == "one" for call in transaction.calls), "No writes, copies or reads"
@@ -398,12 +421,12 @@ def test_classification_only_update_preserves_source_revision_url_and_configurat
     audit = next(call for call in transaction.calls if "INSERT INTO app.activity_events" in call[1])
     assert audit[2][3] == "dataset.source.classification.changed"
     assert audit[2][6].obj == {
-        "previous_classification": "internal", "classification": "public", "version_number": 1
+        "previous_classification": "internal",
+        "classification": "public",
+        "version_number": 1,
     }
     assert URL not in repr(audit[2])
-    eligibility = next(
-        call for call in transaction.calls if "app.governed_resources" in call[1]
-    )
+    eligibility = next(call for call in transaction.calls if "app.governed_resources" in call[1])
     assert "externalSourceVersion" in eligibility[1] and "externalSourceUrl" in eligibility[1]
     assert "published" in eligibility[1] and "public" in eligibility[1]
     assert "metadata.license" in eligibility[1] and "metadata.attribution" in eligibility[1]
@@ -422,7 +445,9 @@ def test_classification_change_denies_ordinary_source_editors_before_writes(
             *project_access(project_role),
             (DATASET_ID, "internal"),
             source_row(
-                classification="internal", project_role=project_role, permission=permission,
+                classification="internal",
+                project_role=project_role,
+                permission=permission,
                 owner=False,
             ),
             (1,),
@@ -432,8 +457,9 @@ def test_classification_change_denies_ordinary_source_editors_before_writes(
 
     with pytest.raises(ExternalSourceAccessDenied):
         asyncio.run(
-            repository.update_source(context(), PROJECT_ID, DATASET_ID, classification_update(),
-                                     "classification-denied")
+            repository.update_source(
+                context(), PROJECT_ID, DATASET_ID, classification_update(), "classification-denied"
+            )
         )
     assert not any(call[0] == "execute" for call in transaction.calls)
 
@@ -460,8 +486,9 @@ def test_classification_change_checks_locked_classification_and_source_version(
 
     with pytest.raises(ExternalSourceConflict) as error:
         asyncio.run(
-            repository.update_source(context(), PROJECT_ID, DATASET_ID, classification_update(),
-                                     "classification-stale")
+            repository.update_source(
+                context(), PROJECT_ID, DATASET_ID, classification_update(), "classification-stale"
+            )
         )
     assert error.value.code == code
     assert not any(call[0] == "execute" for call in transaction.calls)
@@ -485,7 +512,10 @@ def test_public_classification_requires_review_and_exact_published_source_metada
     with pytest.raises(ExternalSourceConflict):
         asyncio.run(
             repository.update_source(
-                context(), PROJECT_ID, DATASET_ID, classification_update(reviewed=reviewed),
+                context(),
+                PROJECT_ID,
+                DATASET_ID,
+                classification_update(reviewed=reviewed),
                 "classification-ineligible",
             )
         )
@@ -497,8 +527,9 @@ def test_dataset_manager_needs_publisher_authority_for_public_classification() -
         one=[
             *project_access(None),
             (DATASET_ID, "internal"),
-            source_row(classification="internal", project_role=None, permission="manage",
-                       owner=False),
+            source_row(
+                classification="internal", project_role=None, permission="manage", owner=False
+            ),
             (1,),
         ],
         all_rows=[[(RESOURCE_ID, "edit")]],
@@ -507,8 +538,9 @@ def test_dataset_manager_needs_publisher_authority_for_public_classification() -
 
     with pytest.raises(ExternalSourceAccessDenied):
         asyncio.run(
-            repository.update_source(context(), PROJECT_ID, DATASET_ID, classification_update(),
-                                     "publisher-denied")
+            repository.update_source(
+                context(), PROJECT_ID, DATASET_ID, classification_update(), "publisher-denied"
+            )
         )
     assert not any(call[0] == "execute" for call in transaction.calls)
 
@@ -518,41 +550,54 @@ def test_dataset_manager_with_catalog_publish_grant_can_classify_source_public()
         one=[
             *project_access(None),
             (DATASET_ID, "internal"),
-            source_row(classification="internal", project_role=None, permission="manage",
-                       owner=False),
+            source_row(
+                classification="internal", project_role=None, permission="manage", owner=False
+            ),
             (1,),
-            source_row(classification="public", project_role=None, permission="manage",
-                       owner=False),
+            source_row(
+                classification="public", project_role=None, permission="manage", owner=False
+            ),
         ],
         all_rows=[[(RESOURCE_ID, "publish")]],
     )
     repository = PostgresExternalSourceRepository(FakeExecutor([transaction]))
 
     result = asyncio.run(
-        repository.update_source(context(), PROJECT_ID, DATASET_ID, classification_update(),
-                                 "publisher-classification")
+        repository.update_source(
+            context(), PROJECT_ID, DATASET_ID, classification_update(), "publisher-classification"
+        )
     )
     assert result.classification == "public" and result.version_number == 1
     assert result.owner_user_id == OTHER_USER_ID
-    assert not any("INSERT INTO app.external_source_revisions" in call[1]
-                   for call in transaction.calls)
+    assert not any(
+        "INSERT INTO app.external_source_revisions" in call[1] for call in transaction.calls
+    )
 
 
 @pytest.mark.parametrize(
     ("status", "access_mode", "credential_mode"),
-    [("archived", "direct_browser", "none"),
-     ("active", "server_proxy", "none"),
-     ("active", "direct_browser", "stored")],
+    [
+        ("archived", "direct_browser", "none"),
+        ("active", "server_proxy", "none"),
+        ("active", "direct_browser", "stored"),
+    ],
 )
 def test_public_classification_refuses_inactive_or_credentialed_source(
-    status: str, access_mode: str, credential_mode: str,
+    status: str,
+    access_mode: str,
+    credential_mode: str,
 ) -> None:
     transaction = FakeTransaction(
         one=[
             *project_access("owner"),
             (DATASET_ID, "internal"),
-            source_row(classification="internal", project_role="owner", status=status,
-                       access_mode=access_mode, credential_mode=credential_mode),
+            source_row(
+                classification="internal",
+                project_role="owner",
+                status=status,
+                access_mode=access_mode,
+                credential_mode=credential_mode,
+            ),
             (1,),
         ],
         all_rows=[[(RESOURCE_ID, None)]],
@@ -561,8 +606,9 @@ def test_public_classification_refuses_inactive_or_credentialed_source(
 
     with pytest.raises(ExternalSourceConflict) as error:
         asyncio.run(
-            repository.update_source(context(), PROJECT_ID, DATASET_ID, classification_update(),
-                                     "source-ineligible")
+            repository.update_source(
+                context(), PROJECT_ID, DATASET_ID, classification_update(), "source-ineligible"
+            )
         )
     assert error.value.code == "external_source_public_ineligible"
     assert not any(call[0] in {"all", "execute"} for call in transaction.calls)
@@ -582,8 +628,11 @@ def test_unchanged_classification_has_no_revision_or_activity_write() -> None:
 
     result = asyncio.run(
         repository.update_source(
-            context(), PROJECT_ID, DATASET_ID,
-            classification_update(classification="internal", reviewed=False), "unchanged",
+            context(),
+            PROJECT_ID,
+            DATASET_ID,
+            classification_update(classification="internal", reviewed=False),
+            "unchanged",
         )
     )
     assert result.classification == "internal" and result.version_number == 1

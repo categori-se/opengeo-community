@@ -255,9 +255,7 @@ class PostgresTenantQueryExecutor:
             if readonly_snapshot:
                 # PostgreSQL requires isolation before the first query, including
                 # the SELECT that establishes our transaction-local RLS context.
-                await cursor.execute(
-                    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
-                )
+                await cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             await cursor.execute(
                 """
                 SELECT

@@ -222,9 +222,12 @@ def test_session_startup_lookup_is_route_only_and_checks_fresh_membership() -> N
     assert repository.subjects == ["subject-123"]
     assert test_client.post("/auth/session", headers=auth_headers()).status_code == 405
     assert len(repository.startup_subjects) == 2
-    assert test_client.get(
-        "/auth/session", headers={"Authorization": "Bearer invalid-token"}
-    ).status_code == 401
+    assert (
+        test_client.get(
+            "/auth/session", headers={"Authorization": "Bearer invalid-token"}
+        ).status_code
+        == 401
+    )
     assert len(repository.startup_subjects) == 2
 
 

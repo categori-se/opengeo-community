@@ -115,7 +115,9 @@ async def create_collection(
 ) -> dict[str, Any]:
     return await execute(
         cast(PostgresCollectionRepository, request.app.state.collection_repository).create(
-            tenant_context(session), body.title, body.description,
+            tenant_context(session),
+            body.title,
+            body.description,
             owner=body.owner.model_dump() if body.owner is not None else None,
             request_id=get_request_id(),
         ),
@@ -169,8 +171,11 @@ async def set_collection_owner(
 ) -> dict[str, Any]:
     return await execute(
         cast(PostgresCollectionRepository, request.app.state.collection_repository).set_owner(
-            tenant_context(session), collection_id, body.expected_revision,
-            body.owner.model_dump(), get_request_id(),
+            tenant_context(session),
+            collection_id,
+            body.expected_revision,
+            body.owner.model_dump(),
+            get_request_id(),
         ),
         response,
     )

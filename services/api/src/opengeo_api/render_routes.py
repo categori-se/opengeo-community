@@ -357,8 +357,10 @@ def repository_from_request(request: Request) -> RenderRepository:
 
 
 def dispatcher_from_request(request: Request) -> RenderDispatcher:
-    if (request.app.state.settings.worker_processing_mode != "shared"
-        and request.method not in {"GET", "HEAD"}):
+    if request.app.state.settings.worker_processing_mode != "shared" and request.method not in {
+        "GET",
+        "HEAD",
+    }:
         raise HTTPException(status_code=503, detail="shared_worker_processing_held")
     return cast(RenderDispatcher, request.app.state.render_dispatcher)
 

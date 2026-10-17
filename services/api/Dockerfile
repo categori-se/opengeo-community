@@ -11,14 +11,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /srv/opengeo
 
 RUN apk add --no-cache --upgrade \
-    'libcrypto3=3.5.8-r0' \
-    'libssl3=3.5.8-r0'
+    'libcrypto3=3.5.9-r0' \
+    'libssl3=3.5.9-r0'
 
 RUN addgroup -S -g 10001 opengeo \
     && adduser -S -D -H -u 10001 -G opengeo -s /sbin/nologin opengeo
 
 RUN python -c "from urllib.request import urlretrieve; urlretrieve('https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem', '/tmp/aws-rds-global-bundle.pem')" \
-    && echo 'e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3  /tmp/aws-rds-global-bundle.pem' | sha256sum -c - \
+    && echo '90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b  /tmp/aws-rds-global-bundle.pem' | sha256sum -c - \
     && mv /tmp/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem \
     && chmod 0444 /etc/ssl/certs/aws-rds-global-bundle.pem
 

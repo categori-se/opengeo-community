@@ -401,9 +401,7 @@ def test_default_lambda_adapter_runs_lifespan_per_event_loop_and_cleans_failure(
         ("GET", "/organizations/current/memberships", "full"),
     ],
 )
-def test_lambda_dispatches_only_exact_validated_account_gets(
-    monkeypatch, method, path, selected
-):
+def test_lambda_dispatches_only_exact_validated_account_gets(monkeypatch, method, path, selected):
     from opengeo_api import lambda_handler
 
     calls = []
@@ -469,20 +467,43 @@ def test_account_lambda_handler_keeps_fresh_principal_and_tenant_transaction(mon
 
     user = "20000000-0000-4000-8000-000000000001"
     organization = "10000000-0000-4000-8000-000000000001"
-    principal_response = {"columnMetadata": [{"typeName": "text"}] * 5,
-        "records": [[{"stringValue": value} for value in
-        [user, "ada@example.test", "Ada", organization, "admin"]]]}
-    transport = FakeTransport([
-        (200, {}, principal_response),
-        (200, {}, {"transactionId": "bootstrap-transaction"}),
-        (200, {}, {"records": []}),
-        (200, {}, {"columnMetadata": [{"typeName": "text"}] * 4,
-            "records": [[{"stringValue": value} for value in
-            [organization, "Organization A", "organization-a", "active"]]]}),
-        (200, {}, {}),
-        # A subsequent changed/forged account must recheck the principal first.
-        (200, {}, principal_response),
-    ])
+    principal_response = {
+        "columnMetadata": [{"typeName": "text"}] * 5,
+        "records": [
+            [
+                {"stringValue": value}
+                for value in [user, "ada@example.test", "Ada", organization, "admin"]
+            ]
+        ],
+    }
+    transport = FakeTransport(
+        [
+            (200, {}, principal_response),
+            (200, {}, {"transactionId": "bootstrap-transaction"}),
+            (200, {}, {"records": []}),
+            (
+                200,
+                {},
+                {
+                    "columnMetadata": [{"typeName": "text"}] * 4,
+                    "records": [
+                        [
+                            {"stringValue": value}
+                            for value in [
+                                organization,
+                                "Organization A",
+                                "organization-a",
+                                "active",
+                            ]
+                        ]
+                    ],
+                },
+            ),
+            (200, {}, {}),
+            # A subsequent changed/forged account must recheck the principal first.
+            (200, {}, principal_response),
+        ]
+    )
     config = settings()
     data_client = RdsDataApiClient(config, StaticCredentials(), transport)
 
@@ -493,21 +514,35 @@ def test_account_lambda_handler_keeps_fresh_principal_and_tenant_transaction(mon
 
     original_factory = session_app.create_session_app
     monkeypatch.setattr(session_app, "RdsDataApiClient", lambda _settings: data_client)
-    monkeypatch.setattr(session_app, "create_session_app",
-        lambda: original_factory(config, Verifier()))
-    monkeypatch.setattr(lambda_handler, "_default_adapter",
-        lambda: pytest.fail("Account bootstrap must not import the full API"))
+    monkeypatch.setattr(
+        session_app, "create_session_app", lambda: original_factory(config, Verifier())
+    )
+    monkeypatch.setattr(
+        lambda_handler,
+        "_default_adapter",
+        lambda: pytest.fail("Account bootstrap must not import the full API"),
+    )
     lambda_handler._session_adapter.cache_clear()
-    request = event(rawPath="/organizations/current", rawQueryString="", cookies=[],
-        headers={"authorization": "Bearer valid-token",
-                 "x-opengeo-organization": organization}, body=None, isBase64Encoded=False)
+    request = event(
+        rawPath="/organizations/current",
+        rawQueryString="",
+        cookies=[],
+        headers={"authorization": "Bearer valid-token", "x-opengeo-organization": organization},
+        body=None,
+        isBase64Encoded=False,
+    )
     request["requestContext"]["http"]["method"] = "GET"
     try:
         response = lambda_handler.handler(request, None)
         assert response["statusCode"] == 200
         assert json.loads(base64.b64decode(response["body"]))["caller_role"] == "admin"
         assert [call[0].rsplit("/", 1)[-1] for call in transport.calls] == [
-            "Execute", "BeginTransaction", "Execute", "Execute", "CommitTransaction"]
+            "Execute",
+            "BeginTransaction",
+            "Execute",
+            "Execute",
+            "CommitTransaction",
+        ]
         context_parameters = transport.calls[2][2]["parameters"]
         assert context_parameters[0]["value"] == {"stringValue": user}
         assert context_parameters[1]["value"] == {"stringValue": organization}

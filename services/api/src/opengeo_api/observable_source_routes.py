@@ -1525,9 +1525,7 @@ async def create_observable_preview_capability(
     api_authority = location.hostname or ""
     if api_port is not None and (location.scheme, api_port) not in {("https", 443), ("http", 80)}:
         api_authority += f":{api_port}"
-    if preview_origin in {
-        request.headers.get("origin"), f"{location.scheme}://{api_authority}"
-    }:
+    if preview_origin in {request.headers.get("origin"), f"{location.scheme}://{api_authority}"}:
         raise HTTPException(status_code=503, detail="observable_preview_origin_not_isolated")
     capability = await execute_observable(
         repository.create_preview_capability(

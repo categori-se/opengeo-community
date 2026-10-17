@@ -26,11 +26,9 @@ def public_collection_projection(
 ) -> dict[str, Any]:
     """Retain only the existing public schema, never authoring/storage fields."""
     members = record.get("members", [])
-    if not isinstance(members, list) or (
-        enforce_limits and len(members) > MAX_COLLECTION_MEMBERS
-    ):
+    if not isinstance(members, list) or (enforce_limits and len(members) > MAX_COLLECTION_MEMBERS):
         raise ValueError("collection_projection_too_large")
-    result = {
+    result: dict[str, Any] = {
         key: record[key] for key in ("id", "title", "description", "visibility") if key in record
     }
     result["members"] = [

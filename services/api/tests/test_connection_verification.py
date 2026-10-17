@@ -140,9 +140,7 @@ def test_psycopg_probe_preserves_tls_hostname_but_connects_to_the_pinned_address
         recorded["kwargs"] = kwargs
         return Connection()
 
-    monkeypatch.setattr(
-        "psycopg.AsyncConnection.connect", connect
-    )
+    monkeypatch.setattr("psycopg.AsyncConnection.connect", connect)
     asyncio.run(PsycopgPostgreSqlProbe().probe(target(), credentials(), "8.8.8.8"))
 
     kwargs = recorded["kwargs"]

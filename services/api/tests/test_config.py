@@ -9,7 +9,9 @@ from opengeo_api.config import Settings
 def test_pmtiles_v2_requires_separate_queue_mode_and_final_image_pin() -> None:
     shared = "https://sqs.us-east-1.amazonaws.com/111111111111/shared"
     configured = dict(
-        env="test", aws_region="us-east-1", processing_queue_url=shared,
+        env="test",
+        aws_region="us-east-1",
+        processing_queue_url=shared,
         geodata_bucket="opengeo-pmtiles-test",
         geodata_kms_key_arn="arn:aws:kms:us-east-1:111111111111:key/test-key",
         pmtiles_derivative_queue_url=(
@@ -34,9 +36,12 @@ def test_pmtiles_v2_requires_separate_queue_mode_and_final_image_pin() -> None:
 
 def test_artifact_view_origin_is_optional_and_keeps_the_configured_https_origin() -> None:
     assert Settings(env="test").artifact_view_origin is None
-    assert Settings(
-        env="test", artifact_view_origin="https://studio.opengeo.tools"
-    ).artifact_view_origin == "https://studio.opengeo.tools"
+    assert (
+        Settings(
+            env="test", artifact_view_origin="https://studio.opengeo.tools"
+        ).artifact_view_origin
+        == "https://studio.opengeo.tools"
+    )
 
 
 @pytest.mark.parametrize(
@@ -330,8 +335,9 @@ def test_public_maps_preview_requires_separate_origin_and_existing_private_previ
         Settings(env="test", observable_public_maps_preview_origin=origin)
     common = {"env": "test", "observable_preview_origin": "https://preview.studio.opengeo.tools"}
     assert (
-        Settings(**common, observable_public_maps_preview_origin=origin)
-        .observable_public_maps_preview_origin
+        Settings(
+            **common, observable_public_maps_preview_origin=origin
+        ).observable_public_maps_preview_origin
         == origin
     )
     for invalid in [
@@ -352,12 +358,17 @@ def test_independent_installation_can_configure_exact_preview_origins() -> None:
     )
     assert settings.observable_preview_origin == "https://preview.customer.example:8443"
     for invalid in [
-        "https://preview.customer.example/path", "https://user@preview.customer.example",
-        "https://preview.customer.example?next=x", "https://preview.customer.example#x",
-        "https://preview.customer.example:0", "https://preview.customer.example\n",
-        "HTTPS://preview.customer.example", "https://preview.customer.example:443",
+        "https://preview.customer.example/path",
+        "https://user@preview.customer.example",
+        "https://preview.customer.example?next=x",
+        "https://preview.customer.example#x",
+        "https://preview.customer.example:0",
+        "https://preview.customer.example\n",
+        "HTTPS://preview.customer.example",
+        "https://preview.customer.example:443",
         "http://127.0.0.1:80",
-        "http://192.168.1.1:8080", "http://localhost.evil.example:8080",
+        "http://192.168.1.1:8080",
+        "http://localhost.evil.example:8080",
     ]:
         with pytest.raises(ValidationError, match="canonical HTTPS"):
             Settings(env="test", observable_preview_origin=invalid)
@@ -375,7 +386,8 @@ def test_plain_http_preview_is_confined_to_explicit_local_development(environmen
                 env=environment,
                 observable_preview_origin=origin,
                 database_url=SecretStr("postgresql://opengeo_runtime@database.internal/opengeo"),
-                cognito_region="us-east-1", cognito_user_pool_id="us-east-1_test",
+                cognito_region="us-east-1",
+                cognito_user_pool_id="us-east-1_test",
                 cognito_client_id="preview-test-client",
             )
 

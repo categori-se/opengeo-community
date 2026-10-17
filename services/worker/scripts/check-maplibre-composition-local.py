@@ -8,8 +8,8 @@ calls a database/cloud service, or claims Studio/deployed acceptance.
 import argparse
 import json
 import time
-from datetime import UTC, datetime
 from copy import deepcopy
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -17,10 +17,10 @@ from uuid import UUID
 
 from opengeo_api.map_definitions import MAP_DEFINITION_SCHEMA_VERSION
 from opengeo_api.render_runtime import RenderRuntimeReference
+from opengeo_api.resources import ResourceStyle
 from opengeo_api.saved_map_jobs import saved_view_bbox
 from opengeo_api.saved_map_render_passes import SavedMapStyleIdentity, compile_saved_map_passes
 from opengeo_api.saved_map_rendering import compile_saved_map
-from opengeo_api.resources import ResourceStyle
 
 from opengeo_worker.maplibre_renderer import DispatchingMapRenderer, MapLibreCompositionRenderer
 from opengeo_worker.maplibre_runtime import MapLibreRuntime
@@ -159,7 +159,9 @@ def compile_claim(
         )
         for index, layer in enumerate(definition["layers"], 1)
     }
-    passes = compile_saved_map_passes(recipe, style_bindings=identities, runtime_reference=runtime_reference)
+    passes = compile_saved_map_passes(
+        recipe, style_bindings=identities, runtime_reference=runtime_reference
+    )
     layers = []
     sources = []
     resource = identifier("a0000000", 1)
@@ -234,11 +236,31 @@ def main() -> None:
     parser.add_argument("--runtime-manifest", required=True, type=Path)
     parser.add_argument("--font-root", required=True, type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--filters", action="store_true", help="Compare filtered pixels with equivalent selected source features")
-    parser.add_argument("--membership", action="store_true", help="Compare inclusion and exclusion lists with selected source pixels")
-    parser.add_argument("--label-order", action="store_true", help="Verify raised labels above an opaque covering geometry")
-    parser.add_argument("--opacity", action="store_true", help="Render saved opacity overlap and single-feature images for pixel review")
-    parser.add_argument("--patterns", action="store_true", help="Render a pinned generated pattern and its transparent counterpart")
+    parser.add_argument(
+        "--filters",
+        action="store_true",
+        help="Compare filtered pixels with equivalent selected source features",
+    )
+    parser.add_argument(
+        "--membership",
+        action="store_true",
+        help="Compare inclusion and exclusion lists with selected source pixels",
+    )
+    parser.add_argument(
+        "--label-order",
+        action="store_true",
+        help="Verify raised labels above an opaque covering geometry",
+    )
+    parser.add_argument(
+        "--opacity",
+        action="store_true",
+        help="Render saved opacity overlap and single-feature images for pixel review",
+    )
+    parser.add_argument(
+        "--patterns",
+        action="store_true",
+        help="Render a pinned generated pattern and its transparent counterpart",
+    )
     arguments = parser.parse_args()
     if arguments.membership:
         arguments.filters = True
@@ -257,53 +279,87 @@ def main() -> None:
     if arguments.patterns:
         if any((arguments.opacity, arguments.filters, arguments.membership, arguments.label_order)):
             parser.error("--patterns runs independently of other comparison modes")
-        fixtures = Path(__file__).resolve().parents[2] / "api/tests/fixtures/cartographic-patterns.json"
+        fixtures = (
+            Path(__file__).resolve().parents[2] / "api/tests/fixtures/cartographic-patterns.json"
+        )
         pattern = next(item for item in json.loads(fixtures.read_text()) if item["id"] == "waves")
         now = datetime.now(UTC)
-        style = ResourceStyle(identifier("d0000000", 1), identifier("a0000000", 1),
-                              "waves", "sld_1_1", 1, "Water & plants", "application/xml",
-                              pattern["definition"], sha256(pattern["definition"].encode()).hexdigest(),
-                              None, identifier("80000000", 2), now, now)
+        style = ResourceStyle(
+            identifier("d0000000", 1),
+            identifier("a0000000", 1),
+            "waves",
+            "sld_1_1",
+            1,
+            "Water & plants",
+            "application/xml",
+            pattern["definition"],
+            sha256(pattern["definition"].encode()).hexdigest(),
+            None,
+            identifier("80000000", 2),
+            now,
+            now,
+        )
         areas = definition["layers"][1]
         definition["layers"] = [areas]
         definition["schemaVersion"] = "opengeo.map-definition.1.4.0"
         areas["labels"]["enabled"] = False
-        areas["styleReference"] = {"projectId": str(identifier("50000000", 1)),
-                                  "resourceId": str(style.resource_id), "styleId": str(style.style_id),
-                                  "versionNumber": 1, "format": style.format,
-                                  "checksumSha256": style.checksum_sha256}
+        areas["styleReference"] = {
+            "projectId": str(identifier("50000000", 1)),
+            "resourceId": str(style.resource_id),
+            "styleId": str(style.style_id),
+            "versionNumber": 1,
+            "format": style.format,
+            "checksumSha256": style.checksum_sha256,
+        }
         resolved_styles = {"areas": style}
     if arguments.label_order:
-        points,areas=definition["layers"]
-        points["order"]=1;areas["order"]=0
-        areas["opacity"]=1;areas["style"]["fillOpacityFactor"]=1;areas["labels"]["enabled"]=False
-        documents["points"]["features"]=[feature("Raised label", "Point", [0,0])]
-        documents["areas"]["features"]=[feature("Cover", "Polygon", [[[-60,-40],[60,-40],[60,40],[-60,40],[-60,-40]]])]
+        points, areas = definition["layers"]
+        points["order"] = 1
+        areas["order"] = 0
+        areas["opacity"] = 1
+        areas["style"]["fillOpacityFactor"] = 1
+        areas["labels"]["enabled"] = False
+        documents["points"]["features"] = [feature("Raised label", "Point", [0, 0])]
+        documents["areas"]["features"] = [
+            feature("Cover", "Polygon", [[[-60, -40], [60, -40], [60, 40], [-60, 40], [-60, -40]]])
+        ]
     if arguments.opacity:
         areas = definition["layers"][1]
         definition["layers"] = [areas]
         areas.update(opacity=0.5, filter=["has", "name"])
         areas["labels"]["enabled"] = False
         areas["style"].update(fillOpacityFactor=1, strokeWidth=1, stroke="#00000000")
-        polygon = feature("Overlap", "Polygon", [[[-40,-30],[40,-30],[40,30],[-40,30],[-40,-30]]])
+        polygon = feature(
+            "Overlap", "Polygon", [[[-40, -30], [40, -30], [40, 30], [-40, 30], [-40, -30]]]
+        )
         documents["areas"]["features"] = [polygon, deepcopy(polygon)]
     for name, document in documents.items():
         (directory / f"{name}.geojson").write_text(json.dumps(document, ensure_ascii=False))
     runtime_identity = json.loads(arguments.runtime_manifest.read_bytes())
-    runtime_reference = (RenderRuntimeReference(sha256(arguments.runtime_manifest.read_bytes()).hexdigest(), runtime_identity["architecture"])
-                         if runtime_identity.get("schema") == "opengeo.maplibre-package.1.0.0" else None)
+    runtime_reference = (
+        RenderRuntimeReference(
+            sha256(arguments.runtime_manifest.read_bytes()).hexdigest(),
+            runtime_identity["architecture"],
+        )
+        if runtime_identity.get("schema") == "opengeo.maplibre-package.1.0.0"
+        else None
+    )
     runtime = MapLibreRuntime(
         font_root=arguments.font_root, runtime_manifest=arguments.runtime_manifest
     )
     renderer = DispatchingMapRenderer(gl=MapLibreCompositionRenderer(runtime))
     runs = []
-    names = ("unfiltered", "filtered", "selected-source") if arguments.filters else ("repeat-1", "repeat-2", "repeat-3", "overlap-allowed", "labels-transparent")
+    names = (
+        ("unfiltered", "filtered", "selected-source")
+        if arguments.filters
+        else ("repeat-1", "repeat-2", "repeat-3", "overlap-allowed", "labels-transparent")
+    )
     if arguments.membership:
         names = ("unfiltered", "filtered-in", "filtered-not-in", "selected-source")
     if arguments.label_order:
-        names=("with-layer", "above-data", "transparent-labels")
+        names = ("with-layer", "above-data", "transparent-labels")
     if arguments.opacity:
-        names=("feature-overlap", "composite-overlap", "composite-single")
+        names = ("feature-overlap", "composite-overlap", "composite-single")
     if arguments.patterns:
         names = ("pattern", "transparent-pattern")
     for index, name in enumerate(names):
@@ -311,14 +367,17 @@ def main() -> None:
         if name == "transparent-pattern":
             selected["layers"][0]["opacity"] = 0
         if arguments.opacity:
-            selected["layers"][0]["opacityMode"] = "feature" if name == "feature-overlap" else "composite"
+            selected["layers"][0]["opacityMode"] = (
+                "feature" if name == "feature-overlap" else "composite"
+            )
             document = deepcopy(documents["areas"])
-            if name == "composite-single": document["features"] = document["features"][:1]
+            if name == "composite-single":
+                document["features"] = document["features"][:1]
             (directory / "areas.geojson").write_text(json.dumps(document))
         if name == "above-data":
-            selected["layers"][0]["labels"]["drawOrder"]="above-data"
+            selected["layers"][0]["labels"]["drawOrder"] = "above-data"
         elif name == "transparent-labels":
-            selected["layers"][0]["labels"].update(color="#00000000",haloColor="#00000000")
+            selected["layers"][0]["labels"].update(color="#00000000", haloColor="#00000000")
         if name == "overlap-allowed":
             for layer in selected["layers"]:
                 layer["labels"]["allowOverlap"] = True
@@ -334,11 +393,21 @@ def main() -> None:
                 if name == "filtered-in":
                     layer["filter"] = ["in", ["get", "name"], ["literal", [chosen]]]
                 if name == "filtered-not-in":
-                    excluded = [item["properties"]["name"] for item in document["features"] if item["properties"]["name"] != chosen]
+                    excluded = [
+                        item["properties"]["name"]
+                        for item in document["features"]
+                        if item["properties"]["name"] != chosen
+                    ]
                     layer["filter"] = ["!", ["in", ["get", "name"], ["literal", excluded]]]
                 if name == "selected-source":
-                    document["features"] = [item for item in document["features"] if item["properties"]["name"] == chosen]
-                (directory / f"{layer['layerId']}.geojson").write_text(json.dumps(document, ensure_ascii=False))
+                    document["features"] = [
+                        item
+                        for item in document["features"]
+                        if item["properties"]["name"] == chosen
+                    ]
+                (directory / f"{layer['layerId']}.geojson").write_text(
+                    json.dumps(document, ensure_ascii=False)
+                )
         sources, layers, claim, identity = compile_claim(
             selected, directory, index if index > 2 else 0, runtime_reference, resolved_styles
         )
@@ -357,14 +426,12 @@ def main() -> None:
             }
         )
         (directory / f"{name}.receipt.json").write_text(json.dumps(runs[-1], indent=2) + "\n")
-    if arguments.patterns:
-        assert runs[0]["engine"]["pixelSha256"] != runs[1]["engine"]["pixelSha256"]
-    elif arguments.opacity:
+    if arguments.patterns or arguments.opacity:
         assert runs[0]["engine"]["pixelSha256"] != runs[1]["engine"]["pixelSha256"]
         # Duplicate polygon edge coverage can differ; inspect interior pixels separately.
     elif arguments.label_order:
-        assert runs[0]["engine"]["pixelSha256"]==runs[2]["engine"]["pixelSha256"]
-        assert runs[0]["engine"]["pixelSha256"]!=runs[1]["engine"]["pixelSha256"]
+        assert runs[0]["engine"]["pixelSha256"] == runs[2]["engine"]["pixelSha256"]
+        assert runs[0]["engine"]["pixelSha256"] != runs[1]["engine"]["pixelSha256"]
     elif arguments.filters:
         assert runs[0]["engine"]["pixelSha256"] != runs[1]["engine"]["pixelSha256"]
         assert len({run["engine"]["pixelSha256"] for run in runs[1:]}) == 1

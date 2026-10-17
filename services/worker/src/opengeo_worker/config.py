@@ -81,9 +81,10 @@ class Settings:
         return settings
 
     def validate(self) -> None:
-        if self.pmtiles_worker_image_digest is not None and re.fullmatch(
-            r"sha256:[0-9a-f]{64}", self.pmtiles_worker_image_digest
-        ) is None:
+        if (
+            self.pmtiles_worker_image_digest is not None
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", self.pmtiles_worker_image_digest) is None
+        ):
             raise WorkerError("configuration_invalid")
         if (
             self.geodata_expected_owner is not None

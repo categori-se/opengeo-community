@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import html
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any
 from urllib.error import HTTPError
@@ -247,7 +248,7 @@ class S3PublicationStorage:
         return metadata, body
 
     async def inventory(
-        self, bucket: str, prefix: str, *, previous_release_plan=None
+        self, bucket: str, prefix: str, *, previous_release_plan: Mapping[str, Any] | None = None
     ) -> list[dict[str, Any]]:
         retained = retained_localized_files(previous_release_plan, prefix, bucket)
         files = await self._listing(bucket, prefix)

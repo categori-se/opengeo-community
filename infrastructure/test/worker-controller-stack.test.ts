@@ -82,7 +82,7 @@ test("operator-managed worker roles expose exports without changing reviewed gra
   }};
   input.configuration.runtime.execution_role_arn = "arn:aws:iam::111111111111:role/opengeo-dev-worker-lifecycle";
   const template = Template.fromStack(new WorkerControllerStack(new App(), "Retained", {...input, retainWorkerRoles: true,
-    lifecycleScope: {vpcId: "vpc-abc123", subnetIds: ["subnet-abc123"], routeTableIds: ["rtb-abc123"], databaseSecurityGroupId: "sg-db123", taskFamily: "ReviewedWorker"}
+    lifecycleScope: {vpcId: "vpc-abc123", subnetIds: ["subnet-abc123"], routeTableIds: ["rtb-abc123"], databaseSecurityGroupId: "sg-0db12345", taskFamily: "ReviewedWorker"}
   }));
   template.resourceCountIs("AWS::IAM::Role", 4);
   template.hasResourceProperties("AWS::IAM::Role", {RoleName: "opengeo-dev-worker-lifecycle",

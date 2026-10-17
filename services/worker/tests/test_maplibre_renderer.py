@@ -755,8 +755,10 @@ def test_supported_filters_reach_runtime_unchanged_and_invalid_filters_fail(tmp_
     config["source_style"]["style_checksum_sha256"] = digest
     config["saved_map"]["style_checksum_sha256"] = digest
     request_body = execute(tmp_path, [config])
-    assert predicate in [part.get("filter") for part in request_body["occurrences"][0]["style"]["layers"]]
-    config["maplibre_style"]["layers"][0]["filter"] = ["within", {"type":"Polygon"}]
+    assert predicate in [
+        part.get("filter") for part in request_body["occurrences"][0]["style"]["layers"]
+    ]
+    config["maplibre_style"]["layers"][0]["filter"] = ["within", {"type": "Polygon"}]
     digest = sha256(_canonical(config["maplibre_style"]).encode()).hexdigest()
     config["source_style"]["style_checksum_sha256"] = digest
     config["saved_map"]["style_checksum_sha256"] = digest
@@ -766,37 +768,54 @@ def test_supported_filters_reach_runtime_unchanged_and_invalid_filters_fail(tmp_
 
 def test_api_and_worker_filter_validation_contracts_stay_identical():
     root = Path(__file__).resolve().parents[3]
-    assert (root / "services/api/src/opengeo_api/map_filters.py").read_bytes() == (root / "services/worker/src/opengeo_worker/map_filters.py").read_bytes()
+    assert (root / "services/api/src/opengeo_api/map_filters.py").read_bytes() == (
+        root / "services/worker/src/opengeo_worker/map_filters.py"
+    ).read_bytes()
 
 
 def test_label_order_requires_reviewed_fixed_script_before_launch(tmp_path, monkeypatch):
     from opengeo_worker.render_runtime import LABEL_ORDER_SCRIPT_HASHES, require_render_capabilities
-    fixed=Path(__file__).resolve().parents[1]/"scripts/render-maplibre.mjs"
-    digest=sha256(fixed.read_bytes()).hexdigest()
+
+    fixed = Path(__file__).resolve().parents[1] / "scripts/render-maplibre.mjs"
+    digest = sha256(fixed.read_bytes()).hexdigest()
     assert digest in LABEL_ORDER_SCRIPT_HASHES
-    request={"occurrences":[{"fontRef":None,"style":{"layers":[{"metadata":{"opengeo:drawOrder":"above-data"}}]}}]}
-    require_render_capabilities(request,{"scriptChecksumSha256":digest})
-    runtime=MapLibreRuntime(font_root=FONT_ROOT)
-    monkeypatch.setattr(runtime,"_package",lambda *args:None)
-    monkeypatch.setattr(runtime,"_runtime",lambda:{"scriptChecksumSha256":"0"*64})
-    launch=Mock();monkeypatch.setattr("opengeo_worker.maplibre_runtime.subprocess.Popen",launch)
-    with pytest.raises(ValidationFailure,match="saved_map_gl_label_order_runtime_unsupported"):
-        runtime.render(request,tmp_path/"output.png")
+    request = {
+        "occurrences": [
+            {
+                "fontRef": None,
+                "style": {"layers": [{"metadata": {"opengeo:drawOrder": "above-data"}}]},
+            }
+        ]
+    }
+    require_render_capabilities(request, {"scriptChecksumSha256": digest})
+    runtime = MapLibreRuntime(font_root=FONT_ROOT)
+    monkeypatch.setattr(runtime, "_package", lambda *args: None)
+    monkeypatch.setattr(runtime, "_runtime", lambda: {"scriptChecksumSha256": "0" * 64})
+    launch = Mock()
+    monkeypatch.setattr("opengeo_worker.maplibre_runtime.subprocess.Popen", launch)
+    with pytest.raises(ValidationFailure, match="saved_map_gl_label_order_runtime_unsupported"):
+        runtime.render(request, tmp_path / "output.png")
     launch.assert_not_called()
     request["occurrences"][0]["style"]["layers"][0].pop("metadata")
-    require_render_capabilities(request,{"scriptChecksumSha256":"0"*64})
+    require_render_capabilities(request, {"scriptChecksumSha256": "0" * 64})
 
 
 @pytest.mark.parametrize("receipt_version", ["6.0.0", "5.24.0"])
-def test_v6_package_binds_payload_and_checks_child_engine(tmp_path, packaged_runtime, monkeypatch, receipt_version):
+def test_v6_package_binds_payload_and_checks_child_engine(
+    tmp_path, packaged_runtime, monkeypatch, receipt_version
+):
     runtime, root, manifest = packaged_runtime
     manifest["maplibreVersion"] = "6.0.0"
     save_manifest(root, manifest)
-    reference = {"schemaVersion": RUNTIME_REFERENCE_SCHEMA,
-                 "manifestSha256": sha256((root / "runtime.json").read_bytes()).hexdigest(),
-                 "architecture": "x86_64"}
+    reference = {
+        "schemaVersion": RUNTIME_REFERENCE_SCHEMA,
+        "manifestSha256": sha256((root / "runtime.json").read_bytes()).hexdigest(),
+        "architecture": "x86_64",
+    }
+
     def mutate(_path, receipt, _options, _process):
         receipt["maplibreVersion"] = receipt_version
+
     started, _ = fake_runtime_process(monkeypatch, mutate=mutate)
     request = {**runtime_request(), "runtimeReference": reference}
     if receipt_version == "6.0.0":
@@ -809,37 +828,37 @@ def test_v6_package_binds_payload_and_checks_child_engine(tmp_path, packaged_run
 
 def test_legacy_engine_is_not_reinterpreted_by_v6_runtime():
     from opengeo_worker.render_runtime import bound_engine_version
+
     with pytest.raises(ValidationFailure, match="engine_identity_mismatch"):
         bound_engine_version({}, {"maplibreVersion": "6.0.0"})
     with pytest.raises(ValidationFailure, match="engine_identity_mismatch"):
-        bound_engine_version({"runtimeReference": {}, "maplibreVersion": "5.24.0"}, {"maplibreVersion": "6.0.0"})
+        bound_engine_version(
+            {"runtimeReference": {}, "maplibreVersion": "5.24.0"}, {"maplibreVersion": "6.0.0"}
+        )
     assert bound_engine_version({}, {"maplibreVersion": "5.24.0"}) == "5.24.0"
 
 
 def test_composite_opacity_requires_v6_before_render_launch():
     from opengeo_worker.render_runtime import require_render_capabilities
-    request={"occurrences":[{"style":{"layers":[{"paint":{"fill-layer-opacity":0.5}}]}}]}
+
+    request = {"occurrences": [{"style": {"layers": [{"paint": {"fill-layer-opacity": 0.5}}]}}]}
     with pytest.raises(ValidationFailure, match="composite_opacity_runtime_unsupported"):
-        require_render_capabilities(request,{"maplibreVersion":"5.24.0"})
-    require_render_capabilities(request,{"maplibreVersion":"6.0.0"})
+        require_render_capabilities(request, {"maplibreVersion": "5.24.0"})
+    require_render_capabilities(request, {"maplibreVersion": "6.0.0"})
 
 
 def test_bounded_pattern_assets_and_paints_are_validated():
     from opengeo_worker.maplibre_renderer import _validate_style
 
     fixtures = json.loads(
-        (
-            Path(__file__).parents[2] / "api/tests/fixtures/cartographic-patterns.json"
-        ).read_text()
+        (Path(__file__).parents[2] / "api/tests/fixtures/cartographic-patterns.json").read_text()
     )
     for fixture in fixtures:
         identifier = "pattern-" + "a" * 64
         style = {
             "version": 8,
             "sources": {},
-            "metadata": {
-                "opengeo:patterns": {identifier: {"svg": fixture["svg"], "size": 24}}
-            },
+            "metadata": {"opengeo:patterns": {identifier: {"svg": fixture["svg"], "size": 24}}},
             "layers": [
                 {
                     "id": "water",
@@ -851,9 +870,7 @@ def test_bounded_pattern_assets_and_paints_are_validated():
         assert _validate_style(style, None) == []
         for bad in [
             fixture["svg"].replace("<path", "<script"),
-            fixture["svg"].replace(
-                'stroke-linecap="round"', 'href="https://example.org"'
-            ),
+            fixture["svg"].replace('stroke-linecap="round"', 'href="https://example.org"'),
             fixture["svg"].replace('stroke-width="2"', 'stroke-width="99"'),
         ]:
             changed = deepcopy(style)
@@ -869,9 +886,7 @@ def test_pattern_rendering_requires_reviewed_worker_script():
     from opengeo_worker.render_runtime import require_render_capabilities
 
     request = {
-        "occurrences": [
-            {"style": {"metadata": {"opengeo:patterns": {"tile": {}}}, "layers": []}}
-        ]
+        "occurrences": [{"style": {"metadata": {"opengeo:patterns": {"tile": {}}}, "layers": []}}]
     }
     with pytest.raises(ValidationFailure, match="pattern_runtime_unsupported"):
         require_render_capabilities(request, {"scriptChecksumSha256": "a" * 64})

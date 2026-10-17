@@ -122,7 +122,7 @@ async def _review_inputs(
         facts = {(str(row[0]), str(row[4])): row for row in rows}
         for pin in pins:
             row = facts.get((pin["resourceId"], pin["resourceVersionId"]))
-            distribution = {}
+            distribution: dict[str, Any] = {}
             can_publish = False
             if row is not None:
                 can_publish = row[6]

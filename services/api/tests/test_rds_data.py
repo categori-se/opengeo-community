@@ -457,8 +457,11 @@ def test_startup_principal_preserves_explicit_resume_backoff_inside_total_window
     resuming = (400, {"x-amzn-errortype": "DatabaseResumingException"}, {})
     transport = FakeTransport([resuming] * 5 + [(200, {}, {"records": []})])
     client = RdsDataApiClient(
-        settings(), credentials=StaticCredentials(), transport=transport,
-        sleep=sleep, monotonic_clock=lambda: elapsed,
+        settings(),
+        credentials=StaticCredentials(),
+        transport=transport,
+        sleep=sleep,
+        monotonic_clock=lambda: elapsed,
     )
     repository = RdsDataApiPrincipalRepository(settings(), client)
     assert asyncio.run(repository.resolve_for_startup("known-subject")) is None

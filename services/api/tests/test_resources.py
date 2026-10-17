@@ -760,7 +760,11 @@ def test_style_format_is_immutable_across_revisions() -> None:
         ("published", "archived", None, ("member", "owner", None, False), 2, None),
         ("draft", "archived", None, ("member", "editor", None, False), 2, "action forbidden"),
         (
-            "draft", "archived", None, ("member", "owner", None, False), 1,
+            "draft",
+            "archived",
+            None,
+            ("member", "owner", None, False),
+            1,
             "resource_version_conflict",
         ),
     ],
@@ -1201,9 +1205,20 @@ def test_exact_style_version_returns_retained_definition() -> None:
 def archived_style_row(archived: bool) -> tuple[Any, ...]:
     definition = '{"version":8}'
     return (
-        UUID("d0000000-0000-4000-8000-000000000093"), RESOURCE_ID,
-        "roads", "maplibre", 1, "Roads", "application/json", definition,
-        sha256(definition.encode()).hexdigest(), None, USER_ID, NOW, NOW, archived,
+        UUID("d0000000-0000-4000-8000-000000000093"),
+        RESOURCE_ID,
+        "roads",
+        "maplibre",
+        1,
+        "Roads",
+        "application/json",
+        definition,
+        sha256(definition.encode()).hexdigest(),
+        None,
+        USER_ID,
+        NOW,
+        NOW,
+        archived,
     )
 
 
@@ -1212,10 +1227,17 @@ def test_style_archival_serializes_reversible_head_only_and_audits_changes(previ
     row = archived_style_row(target)
     transaction = ScriptedTransaction(one=[("member", "editor", None, False), (1, previous), row])
     repository = PostgresResourceRepository(ScriptedExecutor(transaction))  # type: ignore[arg-type]
-    result = asyncio.run(repository.set_style_archived(
-        TenantContext(USER_ID, ORG_ID), PROJECT_ID, RESOURCE_ID, row[0],
-        1, target, "style-archive",
-    ))
+    result = asyncio.run(
+        repository.set_style_archived(
+            TenantContext(USER_ID, ORG_ID),
+            PROJECT_ID,
+            RESOURCE_ID,
+            row[0],
+            1,
+            target,
+            "style-archive",
+        )
+    )
     assert result.archived is target
     assert result.version_number == 1
     assert "FOR UPDATE OF style" in transaction.fetches[1]
@@ -1227,7 +1249,14 @@ def test_style_archival_serializes_reversible_head_only_and_audits_changes(previ
         assert "current_version_id" not in statement
         assert "DELETE" not in statement
         assert parameters == (
-            target, target, USER_ID, USER_ID, ORG_ID, PROJECT_ID, RESOURCE_ID, row[0]
+            target,
+            target,
+            USER_ID,
+            USER_ID,
+            ORG_ID,
+            PROJECT_ID,
+            RESOURCE_ID,
+            row[0],
         )
         event = transaction.executions[1][1]
         assert event[3] == ("resource.style.archived" if target else "resource.style.restored")
@@ -1243,10 +1272,17 @@ def test_style_archive_denies_reader_and_conflicting_revision_without_writes():
         transaction = ScriptedTransaction(one=responses)
         repository = PostgresResourceRepository(ScriptedExecutor(transaction))  # type: ignore[arg-type]
         with pytest.raises(exception):
-            asyncio.run(repository.set_style_archived(
-                TenantContext(USER_ID, ORG_ID), PROJECT_ID, RESOURCE_ID, row[0],
-                1, True, "denied-style-archive",
-            ))
+            asyncio.run(
+                repository.set_style_archived(
+                    TenantContext(USER_ID, ORG_ID),
+                    PROJECT_ID,
+                    RESOURCE_ID,
+                    row[0],
+                    1,
+                    True,
+                    "denied-style-archive",
+                )
+            )
         assert transaction.executions == []
 
 
@@ -1257,12 +1293,24 @@ def test_archived_style_rejects_definition_edit_until_restored():
     )
     repository = PostgresResourceRepository(ScriptedExecutor(transaction))  # type: ignore[arg-type]
     with pytest.raises(ResourceConflict, match="resource_style_archived"):
-        asyncio.run(repository.update_style(
-            TenantContext(USER_ID, ORG_ID), PROJECT_ID, RESOURCE_ID, archived_style_row(True)[0],
-            ResourceStyleUpdate(1, "maplibre", "Roads", "application/json", definition,
-                                sha256(definition.encode()).hexdigest(), None),
-            "archived-style-edit",
-        ))
+        asyncio.run(
+            repository.update_style(
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                RESOURCE_ID,
+                archived_style_row(True)[0],
+                ResourceStyleUpdate(
+                    1,
+                    "maplibre",
+                    "Roads",
+                    "application/json",
+                    definition,
+                    sha256(definition.encode()).hexdigest(),
+                    None,
+                ),
+                "archived-style-edit",
+            )
+        )
     assert transaction.executions == []
 
 
@@ -1270,9 +1318,17 @@ def test_archived_style_rejects_definition_edit_until_restored():
 def test_style_list_filters_archives_without_changing_exact_version_reads(include_archived):
     transaction = ScriptedTransaction(one=[("member", "viewer", None, False)], all_rows=[[]])
     repository = PostgresResourceRepository(ScriptedExecutor(transaction))  # type: ignore[arg-type]
-    assert asyncio.run(repository.list_styles(
-        TenantContext(USER_ID, ORG_ID), PROJECT_ID, RESOURCE_ID, include_archived=include_archived,
-    )) == []
+    assert (
+        asyncio.run(
+            repository.list_styles(
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                RESOURCE_ID,
+                include_archived=include_archived,
+            )
+        )
+        == []
+    )
     assert "(%s OR style.archived_at IS NULL)" in transaction.fetches[-1]
     assert transaction.executions == []
 

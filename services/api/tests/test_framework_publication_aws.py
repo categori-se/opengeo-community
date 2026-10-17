@@ -50,8 +50,8 @@ def test_native_inventory_reads_only_matching_previous_sealed_release_proof(chan
 
 @pytest.mark.parametrize("change", [None, "path", "proof", "mime"])
 def test_native_storage_bounded_copy_checks_fixed_index_proof_and_exact_html_delivery(change):
-    from test_framework_publisher import native_fixture
     from opengeo_api.framework_publisher import _jsonb_checksum
+    from test_framework_publisher import native_fixture
 
     body = b"<h1>Native proof</h1>"
     args = native_fixture(size=len(body), data=True, expanded=True)

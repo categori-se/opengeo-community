@@ -94,7 +94,7 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir --require-hash
 RUN curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
       --output /tmp/aws-rds-global-bundle.pem \
       https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
-    && echo 'e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3  /tmp/aws-rds-global-bundle.pem' \
+    && echo '90a6f1a7978a1b1b096dca6c57511ca48d3b8cf052f8e704baf358f34ea2f21b  /tmp/aws-rds-global-bundle.pem' \
       | sha256sum --check --strict
 
 FROM exr-runtime

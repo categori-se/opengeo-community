@@ -527,10 +527,21 @@ class FakeResourceRepository:
         self.calls.append(("styles", context, project_id, resource_id))
         return [resource_style()]
 
-    async def set_style_archived(self, context, project_id, resource_id, style_id,
-                                 expected_version, archived, request_id):
-        self.calls.append(("style-archive", context, project_id, resource_id, style_id,
-                           expected_version, archived, request_id))
+    async def set_style_archived(
+        self, context, project_id, resource_id, style_id, expected_version, archived, request_id
+    ):
+        self.calls.append(
+            (
+                "style-archive",
+                context,
+                project_id,
+                resource_id,
+                style_id,
+                expected_version,
+                archived,
+                request_id,
+            )
+        )
         return resource_style(version=expected_version, archived=archived)
 
     async def get_style_version(self, context, project_id, resource_id, style_id, version_number):
@@ -1886,10 +1897,13 @@ def test_style_archive_and_restore_routes_validate_version_and_retain_definition
     path = f"/projects/{PROJECT_ID}/resources/{RESOURCE_ID}/styles/{STYLE_ID}"
     for action, archived in [("archive", True), ("restore", False)]:
         assert client.post(f"{path}/{action}", json={"expected_version": 1}).status_code == 401
-        assert client.post(f"{path}/{action}", headers=headers(),
-                           json={"expected_version": 0}).status_code == 422
-        response = client.post(f"{path}/{action}", headers=headers(),
-                               json={"expected_version": 1})
+        assert (
+            client.post(
+                f"{path}/{action}", headers=headers(), json={"expected_version": 0}
+            ).status_code
+            == 422
+        )
+        response = client.post(f"{path}/{action}", headers=headers(), json={"expected_version": 1})
         assert response.status_code == 200
         assert response.json()["archived"] is archived
         assert response.json()["version_number"] == 1

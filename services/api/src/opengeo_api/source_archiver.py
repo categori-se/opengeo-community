@@ -1961,7 +1961,7 @@ def _stored_archive(
         object_key,
         version_id,
         etag.casefold(),
-        cast(ArchiveContentType, content_type),
+        content_type,
         fetched.size_bytes,
         fetched.checksum_sha256,
     )

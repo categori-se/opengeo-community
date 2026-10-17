@@ -6,7 +6,7 @@ Downloaded copies remain copies: revocation governs subsequent endpoint reads.
 """
 
 import json
-from typing import Any
+from typing import Any, cast
 
 
 def project_module(
@@ -341,7 +341,7 @@ def native_payload(html: bytes, manifest: dict[str, Any]) -> dict[str, Any]:
             sha256(canonical_json_bytes(inputs)).hexdigest() == build["inputChecksumSha256"],
             "compiler_input_binding_mismatch",
         )
-        return payload
+        return cast(dict[str, Any], payload)
     except NativePayloadUnsupported:
         raise
     except (

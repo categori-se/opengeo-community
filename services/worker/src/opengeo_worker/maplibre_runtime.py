@@ -24,7 +24,10 @@ from typing import Any
 from opengeo_worker.maplibre_package import MAX_MANIFEST_BYTES, PACKAGE_SCHEMA, verify_package
 from opengeo_worker.models import ValidationFailure
 from opengeo_worker.render_runtime import (
-    runtime_reference, require_render_capabilities, bound_engine_version, SUPPORTED_MAPLIBRE_VERSIONS,
+    SUPPORTED_MAPLIBRE_VERSIONS,
+    bound_engine_version,
+    require_render_capabilities,
+    runtime_reference,
 )
 
 _HASH = re.compile(r"[0-9a-f]{64}")
@@ -278,7 +281,12 @@ class MapLibreRuntime:
         runtime = self._runtime() if package is None else self._package_runtime(package)
         require_render_capabilities(request, runtime)
         engine_version = bound_engine_version(request, runtime)
-        payload = {**request, "maplibreVersion": engine_version, "fonts": list(fonts.values()), "runtime": runtime}
+        payload = {
+            **request,
+            "maplibreVersion": engine_version,
+            "fonts": list(fonts.values()),
+            "runtime": runtime,
+        }
         encoded = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
         if len(encoded) > 40_000_000:
             raise ValidationFailure("saved_map_gl_input_limit")

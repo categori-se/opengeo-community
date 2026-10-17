@@ -319,8 +319,11 @@ class COGSourceDefinition(RequestModel):
     @model_validator(mode="after")
     def validate_reference(self) -> "COGSourceDefinition":
         west, south, east, north = self.bounds
-        if (any(not math.isfinite(value) for value in self.bounds)
-            or not -180 <= west < east <= 180 or not -90 <= south < north <= 90):
+        if (
+            any(not math.isfinite(value) for value in self.bounds)
+            or not -180 <= west < east <= 180
+            or not -90 <= south < north <= 90
+        ):
             raise ValueError("COG bounds must be ordered WGS84 bounds")
         if len(self.bands) not in (1, 3) or len(set(self.bands)) != len(self.bands):
             raise ValueError("Select one or three distinct one-based display bands")
@@ -329,9 +332,15 @@ class COGSourceDefinition(RequestModel):
         return self
 
     def configuration(self) -> dict[str, Any]:
-        return {"service_kind": "cog", "bands": self.bands, "bounds": self.bounds,
-                "size_bytes": self.size_bytes, "attribution": self.attribution,
-                "license": self.license, "reference_metadata": self.reference_metadata}
+        return {
+            "service_kind": "cog",
+            "bands": self.bands,
+            "bounds": self.bounds,
+            "size_bytes": self.size_bytes,
+            "attribution": self.attribution,
+            "license": self.license,
+            "reference_metadata": self.reference_metadata,
+        }
 
 
 class MapServerSourceDefinition(RequestModel):
@@ -693,7 +702,8 @@ def source_response(source: ExternalSource) -> ExternalSourceResponse:
         created_at=source.created_at,
         updated_at=source.updated_at,
         capabilities=ExternalSourceCapabilitiesResponse(
-            read=source.capabilities.read, edit=source.capabilities.edit,
+            read=source.capabilities.read,
+            edit=source.capabilities.edit,
             manage_classification=source.capabilities.manage_classification,
         ),
     )

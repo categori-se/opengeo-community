@@ -87,9 +87,7 @@ async def _publish_target(
     if target[10] != "text/html":
         raise RenderConflict("artifact_share_representation_unsupported")
     if seal:
-        await _edition_manifest(
-            repository, tx, context, target[2], target[0], artifact_id, version
-        )
+        await _edition_manifest(repository, tx, context, target[2], target[0], artifact_id, version)
         await _public_seal(tx, context, target)
     return target
 

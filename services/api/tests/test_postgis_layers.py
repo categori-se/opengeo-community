@@ -51,13 +51,28 @@ def selection():
 
 def result():
     return {
-        "schemaVersion": "opengeo.postgis-preview.1.0.0", "previewId": str(PREVIEW),
-        "datasetId": str(DATASET), "sourceVersion": 1, "connectionRevision": 1,
-        "schemaFingerprint": "a" * 64, "observedAt": "2026-10-16T12:00:00Z",
-        "bbox": list(BBOX), "limit": 100, "returned": 1, "truncated": False,
-        "geojson": {"type": "FeatureCollection", "features": [{"type": "Feature", "id": "99",
-            "properties": {"id": "99", "amount": "0.12345678901234567890"},
-            "geometry": {"type": "Point", "coordinates": [1, 1]}}]},
+        "schemaVersion": "opengeo.postgis-preview.1.0.0",
+        "previewId": str(PREVIEW),
+        "datasetId": str(DATASET),
+        "sourceVersion": 1,
+        "connectionRevision": 1,
+        "schemaFingerprint": "a" * 64,
+        "observedAt": "2026-10-16T12:00:00Z",
+        "bbox": list(BBOX),
+        "limit": 100,
+        "returned": 1,
+        "truncated": False,
+        "geojson": {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "id": "99",
+                    "properties": {"id": "99", "amount": "0.12345678901234567890"},
+                    "geometry": {"type": "Point", "coordinates": [1, 1]},
+                }
+            ],
+        },
         "propertyEncodings": {"id": "int64:string", "amount": "numeric:string"},
     }
 
@@ -112,28 +127,43 @@ def body():
 def test_registration_uses_frozen_authenticated_scope_and_rejects_untrusted_bindings():
     app, store, client = setup()
     payload = {
-        "expected_connection_revision": 1, "schema_fingerprint_sha256": "a" * 64,
-        "geometry_column": 'Shape " location', "name": "Observations", "request_key": str(KEY),
+        "expected_connection_revision": 1,
+        "schema_fingerprint_sha256": "a" * 64,
+        "geometry_column": 'Shape " location',
+        "name": "Observations",
+        "request_key": str(KEY),
     }
     assert request(app, "POST", REGISTER_PATH, json_body=payload).status_code == 401
     response = request(app, "POST", REGISTER_PATH, request_headers=headers(), json_body=payload)
     assert response.status_code == 200
     assert response.json() == {"dataset_id": str(DATASET), "source_version": 1, "created": True}
-    assert store.calls == [("register", (TenantContext(USER_ID, ORG_ID), PROJECT_ID,
-                                        CONNECTION_ID, DISCOVERY, 1, selection()))]
-    for invalid in ({**payload, "secret_arn": "never"},
-                    {**payload, "expected_connection_revision": True},
-                    {**payload, "geometry_column": "x\x00y"}):
-        assert request(app, "POST", REGISTER_PATH, request_headers=headers(),
-                       json_body=invalid).status_code == 422
+    assert store.calls == [
+        (
+            "register",
+            (TenantContext(USER_ID, ORG_ID), PROJECT_ID, CONNECTION_ID, DISCOVERY, 1, selection()),
+        )
+    ]
+    for invalid in (
+        {**payload, "secret_arn": "never"},
+        {**payload, "expected_connection_revision": True},
+        {**payload, "geometry_column": "x\x00y"},
+    ):
+        assert (
+            request(
+                app, "POST", REGISTER_PATH, request_headers=headers(), json_body=invalid
+            ).status_code
+            == 422
+        )
     assert len(store.calls) == 1 and not client.calls
 
 
 def test_preview_is_explicit_bounded_not_cached_and_does_not_replay_completed_bytes():
     app, store, client = setup()
     client.available = False
-    assert request(app, "POST", PREVIEW_PATH, request_headers=headers(),
-                   json_body=body()).status_code == 503
+    assert (
+        request(app, "POST", PREVIEW_PATH, request_headers=headers(), json_body=body()).status_code
+        == 503
+    )
     assert not store.calls and not client.calls
     client.available = True
     response = request(app, "POST", PREVIEW_PATH, request_headers=headers(), json_body=body())
@@ -146,25 +176,41 @@ def test_preview_is_explicit_bounded_not_cached_and_does_not_replay_completed_by
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "postgis_preview_new_request_required"
     assert len(client.calls) == 1
-    for invalid in ({**body(), "bbox": [0, 0, 0, 2]}, {**body(), "bbox": [True, 0, 2, 2]},
-                    {**body(), "sql": "SELECT *"}, {**body(), "expected_source_version": True}):
-        assert request(app, "POST", PREVIEW_PATH, request_headers=headers(),
-                       json_body=invalid).status_code == 422
+    for invalid in (
+        {**body(), "bbox": [0, 0, 0, 2]},
+        {**body(), "bbox": [True, 0, 2, 2]},
+        {**body(), "sql": "SELECT *"},
+        {**body(), "expected_source_version": True},
+    ):
+        assert (
+            request(
+                app, "POST", PREVIEW_PATH, request_headers=headers(), json_body=invalid
+            ).status_code
+            == 422
+        )
 
 
 def test_preview_rejects_wrong_identity_and_sanitizes_stale_denied_and_failed_outcomes():
     app, store, client = setup()
     client.value = {**result(), "datasetId": str(ORG_ID)}
-    assert request(app, "POST", PREVIEW_PATH, request_headers=headers(),
-                   json_body=body()).status_code == 503
-    for code, status in (("preview_stale", 409), ("preview_schema_changed", 409),
-                         ("preview_limits_exceeded", 503), ("preview_timeout", 503)):
+    assert (
+        request(app, "POST", PREVIEW_PATH, request_headers=headers(), json_body=body()).status_code
+        == 503
+    )
+    for code, status in (
+        ("preview_stale", 409),
+        ("preview_schema_changed", 409),
+        ("preview_limits_exceeded", 503),
+        ("preview_timeout", 503),
+    ):
         client.failure = PostgisPreviewFailure(code)
         response = request(app, "POST", PREVIEW_PATH, request_headers=headers(), json_body=body())
         assert response.status_code == status and response.json()["detail"] == code
-    for failure, status in ((ExternalSourceAccessDenied("deny"), 403),
-                            (ExternalSourceNotFound("dataset"), 404),
-                            (ExternalSourceConflict("postgis_source_conflict"), 409)):
+    for failure, status in (
+        (ExternalSourceAccessDenied("deny"), 403),
+        (ExternalSourceNotFound("dataset"), 404),
+        (ExternalSourceConflict("postgis_source_conflict"), 409),
+    ):
         store.failure = failure
         response = request(app, "POST", PREVIEW_PATH, request_headers=headers(), json_body=body())
         assert response.status_code == status
@@ -218,8 +264,18 @@ def test_repository_registration_requires_manage_and_uses_one_fixed_parameterize
     sql, parameters = executor.tx.calls[-1]
     assert "FROM app.register_external_postgis_layer(" in sql
     assert 'Shape " location' not in sql
-    assert parameters == (CONNECTION_ID, DISCOVERY, 1, 1, "a" * 64,
-                          'Shape " location', "Observations", None, None, KEY)
+    assert parameters == (
+        CONNECTION_ID,
+        DISCOVERY,
+        1,
+        1,
+        "a" * 64,
+        'Shape " location',
+        "Observations",
+        None,
+        None,
+        KEY,
+    )
     executor.failure = TenantDatabaseConflict("conflict")
     with pytest.raises(ExternalSourceConflict, match="postgis_source_conflict"):
         asyncio.run(repository.register(*args))
@@ -241,9 +297,11 @@ def test_repository_preview_reads_layer_grants_without_connection_manage_or_feat
     prepare_sql, parameters = executor.tx.calls[1]
     assert "app.prepare_external_postgis_preview(" in prepare_sql
     assert parameters[:3] == (DATASET, 1, KEY) and parameters[3].obj == list(BBOX)
-    for authority, failure in ((None, ExternalSourceNotFound),
-                               (("postgis", "active", False), ExternalSourceAccessDenied),
-                               (("geojson", "active", True), ExternalSourceConflict)):
+    for authority, failure in (
+        (None, ExternalSourceNotFound),
+        (("postgis", "active", False), ExternalSourceAccessDenied),
+        (("geojson", "active", True), ExternalSourceConflict),
+    ):
         executor.tx.authority = authority
         with pytest.raises(failure):
             asyncio.run(repository.prepare_preview(*args))
@@ -254,7 +312,7 @@ def test_generic_source_creation_cannot_create_credentialed_postgis_bindings():
     repository = PostgresExternalSourceRepository(executor)
     draft = ExternalSourceDraft("Private", None, "internal", "postgis", "urn:fake", {}, ())
     with pytest.raises(ExternalSourceConflict, match="requires_catalog_registration"):
-        asyncio.run(repository.create_source(
-            TenantContext(USER_ID, ORG_ID), PROJECT_ID, draft, "req"
-        ))
+        asyncio.run(
+            repository.create_source(TenantContext(USER_ID, ORG_ID), PROJECT_ID, draft, "req")
+        )
     assert not executor.tx.calls

@@ -24,7 +24,15 @@ from opengeo_api.tenant_database import (
 )
 
 ExternalSourceType = Literal[
-    "xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog",
+    "xyz",
+    "wms",
+    "pmtiles",
+    "geojson",
+    "arcgis",
+    "wfs",
+    "imageserver",
+    "mapserver",
+    "cog",
     "postgis",
 ]
 ExternalSourceAccessMode = Literal["direct_browser", "server_mediated"]
@@ -256,8 +264,13 @@ class PostgresExternalSourceRepository:
                      AND metadata.provenance->>'externalSourceUrl' = revision.source_url
                    FOR SHARE OF resource""",
                 (
-                    resource_version_id, source_version, context.organization_id,
-                    project_id, resource_id, dataset_id, str(source_version),
+                    resource_version_id,
+                    source_version,
+                    context.organization_id,
+                    project_id,
+                    resource_id,
+                    dataset_id,
+                    str(source_version),
                 ),
             )
             if row is None:
@@ -267,7 +280,8 @@ class PostgresExternalSourceRepository:
             except CatalogMetadataInvalid as error:
                 raise ExternalSourceConflict("referenced_file_metadata_invalid") from error
             matches = [
-                item for item in metadata.get("distributions", [])
+                item
+                for item in metadata.get("distributions", [])
                 if item.get("identifier") == distribution_id
             ]
             if len(matches) != 1:
@@ -278,9 +292,12 @@ class PostgresExternalSourceRepository:
             url = distribution.get("downloadUrl")
             media = distribution.get("mediaType")
             if (
-                type(size) is not int or not 1 <= size <= 67_108_864
-                or not isinstance(checksum, str) or len(checksum) != 64
-                or url != row[3] or media not in {"image/tiff", "image/geotiff"}
+                type(size) is not int
+                or not 1 <= size <= 67_108_864
+                or not isinstance(checksum, str)
+                or len(checksum) != 64
+                or url != row[3]
+                or media not in {"image/tiff", "image/geotiff"}
             ):
                 raise ExternalSourceConflict("referenced_file_distribution_invalid")
             try:
@@ -288,12 +305,19 @@ class PostgresExternalSourceRepository:
             except ValueError as error:
                 raise ExternalSourceConflict("referenced_file_distribution_invalid") from error
             return {
-                "kind": "referenced-public-file", "custody": "referenced",
-                "path": relative_path, "datasetId": str(dataset_id),
-                "sourceVersion": source_version, "resourceId": str(resource_id),
-                "resourceVersionId": str(row[0]), "resourceVersionNumber": row[1],
-                "distributionId": distribution_id, "url": url, "contentType": media,
-                "sizeBytes": size, "checksumSha256": checksum,
+                "kind": "referenced-public-file",
+                "custody": "referenced",
+                "path": relative_path,
+                "datasetId": str(dataset_id),
+                "sourceVersion": source_version,
+                "resourceId": str(resource_id),
+                "resourceVersionId": str(row[0]),
+                "resourceVersionNumber": row[1],
+                "distributionId": distribution_id,
+                "url": url,
+                "contentType": media,
+                "sizeBytes": size,
+                "checksumSha256": checksum,
             }
 
         return await self._run(context, operation)
@@ -502,10 +526,7 @@ class PostgresExternalSourceRepository:
             )
             if not current.capabilities.edit:
                 raise ExternalSourceAccessDenied("action forbidden")
-            if (
-                update.classification is not None
-                and not current.capabilities.manage_classification
-            ):
+            if update.classification is not None and not current.capabilities.manage_classification:
                 raise ExternalSourceAccessDenied("classification management forbidden")
             if update.source_type is not None and current.source_type != update.source_type:
                 raise ExternalSourceConflict(
@@ -567,33 +588,42 @@ class PostgresExternalSourceRepository:
                              AND metadata.provenance->>'externalSourceUrl'=%s
                            FOR SHARE OF resource""",
                         (
-                            context.user_id, context.organization_id, project_id, dataset_id,
-                            str(current_version), current.source_url,
+                            context.user_id,
+                            context.organization_id,
+                            project_id,
+                            dataset_id,
+                            str(current_version),
+                            current.source_url,
                         ),
                     )
                     if not metadata:
                         raise ExternalSourceConflict("external_source_public_metadata_required")
                     if not (
-                        roles.organization == "admin" or roles.project == "owner"
+                        roles.organization == "admin"
+                        or roles.project == "owner"
                         or current.owner_user_id == context.user_id
                         or any(row[1] in {"manage", "publish"} for row in metadata)
                     ):
-                        raise ExternalSourceAccessDenied(
-                            "source publication authority required"
-                        )
+                        raise ExternalSourceAccessDenied("source publication authority required")
                 if locked[1] != update.classification:
                     await transaction.execute(
                         """UPDATE app.datasets
                            SET classification=%s::app.dataset_classification, updated_by=%s
                            WHERE organization_id=%s AND id=%s""",
                         (
-                            update.classification, context.user_id,
-                            context.organization_id, dataset_id,
+                            update.classification,
+                            context.user_id,
+                            context.organization_id,
+                            dataset_id,
                         ),
                     )
                     await self._record_event(
-                        transaction, context, project_id, "dataset.source.classification.changed",
-                        dataset_id, request_id,
+                        transaction,
+                        context,
+                        project_id,
+                        "dataset.source.classification.changed",
+                        dataset_id,
+                        request_id,
                         {
                             "previous_classification": locked[1],
                             "classification": update.classification,

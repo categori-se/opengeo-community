@@ -544,10 +544,14 @@ class AwsSqsUserDatasetVerificationDispatcher:
 
 
 class AwsSqsAnalysisDispatcher:
-    def __init__(self, settings: Settings, credentials: CredentialProvider | None = None,
-                 transport: DispatchTransport | None = None,
-                 now: Callable[[], datetime] | None = None,
-                 wake_transport: AwsJsonTransport | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        credentials: CredentialProvider | None = None,
+        transport: DispatchTransport | None = None,
+        now: Callable[[], datetime] | None = None,
+        wake_transport: AwsJsonTransport | None = None,
+    ) -> None:
         if not settings.analysis_dispatch_configured:
             raise ValueError("managed analysis dispatch must be configured")
         assert settings.aws_region is not None
@@ -557,17 +561,26 @@ class AwsSqsAnalysisDispatcher:
         self._credentials = credentials or AwsCredentialProvider(timeout_seconds=5.0)
         self._now = now or (lambda: datetime.now(UTC))
         self._wake_transport = wake_transport or UrlAwsTransport()
-        self._delegate = AwsSqsRenderDispatcher(settings, credentials=self._credentials,
-            transport=transport, now=self._now, queue_url=settings.analysis_queue_url)
+        self._delegate = AwsSqsRenderDispatcher(
+            settings,
+            credentials=self._credentials,
+            transport=transport,
+            now=self._now,
+            queue_url=settings.analysis_queue_url,
+        )
 
     @property
     def available(self) -> bool:
         return True
 
     async def dispatch_analysis(self, job_id: UUID) -> None:
-        await asyncio.to_thread(self._delegate._dispatch,
-                               "opengeo.analysis.command.1", "analysis_job_id", job_id,
-                               "schemaVersion")
+        await asyncio.to_thread(
+            self._delegate._dispatch,
+            "opengeo.analysis.command.1",
+            "analysis_job_id",
+            job_id,
+            "schemaVersion",
+        )
         # The SQL submission already froze and budgeted this exact job. Wake only
         # after its identity is queued; an uncertain response leaves dispatch_pending
         # for deliberate same-job recovery, never another snapshot or reservation.
@@ -580,20 +593,40 @@ class AwsSqsAnalysisDispatcher:
         path = f"/2015-03-31/functions/{function}/invocations"
         try:
             headers = _signed_headers(
-                method="POST", canonical_uri=path, canonical_query="", host=host,
-                region=self._region, service="lambda", credentials=self._credentials.load(),
-                body=body, now=self._now(), extra_headers={
-                    "content-type": "application/json", "x-amz-invocation-type": "Event",
+                method="POST",
+                canonical_uri=path,
+                canonical_query="",
+                host=host,
+                region=self._region,
+                service="lambda",
+                credentials=self._credentials.load(),
+                body=body,
+                now=self._now(),
+                extra_headers={
+                    "content-type": "application/json",
+                    "x-amz-invocation-type": "Event",
                 },
             )
             status, response_headers, response = self._wake_transport.call(
-                "POST", f"https://{host}{path}", headers, body, 5.0, 4096,
+                "POST",
+                f"https://{host}{path}",
+                headers,
+                body,
+                5.0,
+                4096,
             )
-        except (IdentityProvisioningUnavailable, DatasetVerificationDependencyUnavailable,
-                TimeoutError, OSError) as error:
+        except (
+            IdentityProvisioningUnavailable,
+            DatasetVerificationDependencyUnavailable,
+            TimeoutError,
+            OSError,
+        ) as error:
             raise ProcessingDispatchUnavailable("managed analysis wake is unavailable") from error
-        if (status != 202 or len(response) > 4096
-                or "x-amz-function-error" in {key.lower() for key in response_headers}):
+        if (
+            status != 202
+            or len(response) > 4096
+            or "x-amz-function-error" in {key.lower() for key in response_headers}
+        ):
             raise ProcessingDispatchUnavailable("managed analysis wake was not accepted")
 
 
@@ -640,7 +673,10 @@ class AwsSqsFrameworkPublicationDispatcher:
         if settings.framework_publication_queue_url is None:
             raise ValueError("Framework publication dispatch must be configured")
         self._delegate = AwsSqsRenderDispatcher(
-            settings, credentials=credentials, transport=transport, now=now,
+            settings,
+            credentials=credentials,
+            transport=transport,
+            now=now,
             queue_url=settings.framework_publication_queue_url,
         )
 

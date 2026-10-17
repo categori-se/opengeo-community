@@ -8,8 +8,12 @@ from uuid import UUID
 import pytest
 
 from opengeo_api.framework_publication_aws import S3PublicationStorage
-from opengeo_api.framework_publisher import PublicationConflict, plan_publication, publish_step
-from opengeo_api.framework_publisher import _jsonb_checksum
+from opengeo_api.framework_publisher import (
+    PublicationConflict,
+    _jsonb_checksum,
+    plan_publication,
+    publish_step,
+)
 
 
 def fixture():
@@ -158,41 +162,75 @@ def referenced_fixture(*, native=True, expanded=True, archive=False):
     revision, request = args["source_manifest"], args["build_request"]
     revision["schemaVersion"] = "opengeo.observable-source-revision.3.0.0"
     revision["dataAttachments"] = (
-        [{"path": "data/backup.tif", "attachmentId": str(UUID(int=31)),
-          "sizeBytes": 16, "checksumSha256": "c" * 64}]
-        if archive else []
+        [
+            {
+                "path": "data/backup.tif",
+                "attachmentId": str(UUID(int=31)),
+                "sizeBytes": 16,
+                "checksumSha256": "c" * 64,
+            }
+        ]
+        if archive
+        else []
     )
-    revision["referencedFiles"] = [{
-        "kind": "referenced-public-file", "custody": "referenced",
-        "referenceId": str(UUID(int=32)), "path": "data/original.tif",
-        "datasetId": str(UUID(int=33)), "sourceVersion": 1,
-        "resourceId": str(UUID(int=34)), "resourceVersionId": str(UUID(int=35)),
-        "resourceVersionNumber": 1, "distributionId": "tiff",
-        "url": "https://catalog.example.test/original.tif", "contentType": "image/tiff",
-        "sizeBytes": 64_912_721, "checksumSha256": "e" * 64,
-    }]
+    revision["referencedFiles"] = [
+        {
+            "kind": "referenced-public-file",
+            "custody": "referenced",
+            "referenceId": str(UUID(int=32)),
+            "path": "data/original.tif",
+            "datasetId": str(UUID(int=33)),
+            "sourceVersion": 1,
+            "resourceId": str(UUID(int=34)),
+            "resourceVersionId": str(UUID(int=35)),
+            "resourceVersionNumber": 1,
+            "distributionId": "tiff",
+            "url": "https://catalog.example.test/original.tif",
+            "contentType": "image/tiff",
+            "sizeBytes": 64_912_721,
+            "checksumSha256": "e" * 64,
+        }
+    ]
     request["purpose"] = "release_candidate"
     approved = {
         "schemaVersion": "opengeo.observable-input-distribution-approval.2.0.0",
-        "organizationId": str(args["organization_id"]), "projectId": str(args["project_id"]),
+        "organizationId": str(args["organization_id"]),
+        "projectId": str(args["project_id"]),
         "sourceProjectId": str(args["source_project_id"]),
         "sourceRevisionId": revision["revisionId"],
         "compilerImageDigest": request["compilerImageDigest"],
-        "outputProfile": request["outputProfile"], "artifactInputsChecksumSha256": None,
-        "dataAttachments": deepcopy(revision["dataAttachments"]), "artifacts": [],
+        "outputProfile": request["outputProfile"],
+        "artifactInputsChecksumSha256": None,
+        "dataAttachments": deepcopy(revision["dataAttachments"]),
+        "artifacts": [],
         "referencedFiles": deepcopy(revision["referencedFiles"]),
-        "archiveRights": ([{
-            "path": "data/backup.tif", "attachmentId": str(UUID(int=31)),
-            "resourceId": str(UUID(int=36)), "resourceVersionId": str(UUID(int=37)),
-            "license": "CC-BY-4.0", "attribution": "Archive owner",
-            "acknowledgment": "publish-exact-archive-file",
-        }] if archive else []),
-        "referenceRights": [{
-            "referenceId": str(UUID(int=32)), "path": "data/original.tif",
-            "resourceId": str(UUID(int=34)), "resourceVersionId": str(UUID(int=38)),
-            "distributionId": "tiff", "license": "CC-BY-4.0", "attribution": "Catalog owner",
-            "acknowledgment": "publish-exact-referenced-file",
-        }],
+        "archiveRights": (
+            [
+                {
+                    "path": "data/backup.tif",
+                    "attachmentId": str(UUID(int=31)),
+                    "resourceId": str(UUID(int=36)),
+                    "resourceVersionId": str(UUID(int=37)),
+                    "license": "CC-BY-4.0",
+                    "attribution": "Archive owner",
+                    "acknowledgment": "publish-exact-archive-file",
+                }
+            ]
+            if archive
+            else []
+        ),
+        "referenceRights": [
+            {
+                "referenceId": str(UUID(int=32)),
+                "path": "data/original.tif",
+                "resourceId": str(UUID(int=34)),
+                "resourceVersionId": str(UUID(int=38)),
+                "distributionId": "tiff",
+                "license": "CC-BY-4.0",
+                "attribution": "Catalog owner",
+                "acknowledgment": "publish-exact-referenced-file",
+            }
+        ],
     }
     args["input_distribution"] = {"id": str(UUID(int=22)), "manifest": approved}
     if not native:
@@ -201,11 +239,17 @@ def referenced_fixture(*, native=True, expanded=True, archive=False):
         result = args["build_result"]
         result["schemaVersion"] = "opengeo.observable-build-result.1.0.0"
         del result["outputRepresentation"], result["localizedOutput"]
-        result["outputManifest"]["files"].append({
-            "path": "dist/data/original.tif", "bucket": "private",
-            "objectKey": result["outputPrefix"] + "data/original.tif", "s3VersionId": "exact-tiff",
-            "sizeBytes": 64_912_721, "checksumSha256": "e" * 64, "contentType": "image/tiff",
-        })
+        result["outputManifest"]["files"].append(
+            {
+                "path": "dist/data/original.tif",
+                "bucket": "private",
+                "objectKey": result["outputPrefix"] + "data/original.tif",
+                "s3VersionId": "exact-tiff",
+                "sizeBytes": 64_912_721,
+                "checksumSha256": "e" * 64,
+                "contentType": "image/tiff",
+            }
+        )
     reseal_referenced_fixture(args)
     return args
 
@@ -241,10 +285,23 @@ def test_referenced_publication_plans_exact_approved_native_and_asset_tree_outpu
 
 
 @pytest.mark.parametrize("native", [False, True])
-@pytest.mark.parametrize("change", [
-    "approval-missing", "approval-id", "approval-seal", "approval-v1", "pin", "rights",
-    "rights-ack", "archive-rights", "preview", "source-only", "profile", "result-seal",
-])
+@pytest.mark.parametrize(
+    "change",
+    [
+        "approval-missing",
+        "approval-id",
+        "approval-seal",
+        "approval-v1",
+        "pin",
+        "rights",
+        "rights-ack",
+        "archive-rights",
+        "preview",
+        "source-only",
+        "profile",
+        "result-seal",
+    ],
+)
 def test_referenced_publication_denies_missing_or_tampered_consent_and_source_only_shortcuts(
     native, change
 ):
@@ -764,9 +821,9 @@ def test_referenced_publisher_rechecks_current_authority_before_copy_and_activat
     async def run():
         args = referenced_fixture()
         repository, storage, edge = Repository(args), Storage(args), Edge()
-        repository.state.update({
-            key: args[key] for key in ("build_request", "source_manifest", "input_distribution")
-        })
+        repository.state.update(
+            {key: args[key] for key in ("build_request", "source_manifest", "input_distribution")}
+        )
         storage.lose_response = False
         edge.target = f"releases/framework-{args['review_id']}"
         repository.allowed = withdrawal != "before-copy"
@@ -781,8 +838,12 @@ def test_referenced_publisher_rechecks_current_authority_before_copy_and_activat
 
         storage.apply = copy
         status = await publish_step(
-            args["review_id"], repository=repository, storage=storage, edge=edge,
-            source_bucket="private", public_bucket="public",
+            args["review_id"],
+            repository=repository,
+            storage=storage,
+            edge=edge,
+            source_bucket="private",
+            public_bucket="public",
         )
         if withdrawal:
             assert status == "needs_attention"
@@ -792,7 +853,8 @@ def test_referenced_publisher_rechecks_current_authority_before_copy_and_activat
         else:
             assert status == "deployed" and edge.calls == 1
             index = next(
-                entry for entry in repository.state["plan"]["files"]
+                entry
+                for entry in repository.state["plan"]["files"]
                 if entry["path"] == "analysis/noaa/index.html"
             )
             assert index["maximumBytes"] == 100_663_296

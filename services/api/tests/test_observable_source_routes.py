@@ -709,7 +709,10 @@ def test_publication_dispatch_injection_preserves_authority_and_exact_review_ide
 
         async def approve_publication(self, context, project, source, review):
             assert (context.user_id, project, source, review) == (
-                USER_ID, PROJECT_ID, SOURCE_PROJECT_ID, REVISION_ID
+                USER_ID,
+                PROJECT_ID,
+                SOURCE_PROJECT_ID,
+                REVISION_ID,
             )
             if self.denied:
                 raise ObservableSourceAccessDenied()
@@ -738,7 +741,8 @@ def test_publication_dispatch_injection_preserves_authority_and_exact_review_ide
     dispatcher.dispatch_framework_publication.side_effect = None
     assert api.post(url, headers=headers(), json=payload).status_code == 202
     assert [call.args for call in dispatcher.dispatch_framework_publication.await_args_list] == [
-        (REVISION_ID,), (REVISION_ID,)
+        (REVISION_ID,),
+        (REVISION_ID,),
     ]
 
 
@@ -1705,7 +1709,10 @@ def test_native_localization_request_literal_is_forwarded_without_changing_defau
 
     repository = Repository()
     api = client(repository)
-    url = f"/projects/{PROJECT_ID}/source-projects/{SOURCE_PROJECT_ID}/revisions/{REVISION_ID}/build-jobs"
+    url = (
+        f"/projects/{PROJECT_ID}/source-projects/{SOURCE_PROJECT_ID}"
+        f"/revisions/{REVISION_ID}/build-jobs"
+    )
     assert api.post(url, headers=headers(), json={}).status_code == 201
     assert repository.native_options == {}
     assert (
@@ -2045,47 +2052,82 @@ def test_referenced_preview_reauthorizes_before_reuse_artifact_or_storage_reads(
         assert params[3].obj["schemaVersion"] == "opengeo.observable-source-revision.3.0.0"
         raise ObservableSourceConflict("observable_public_file_reference_unavailable")
 
-    transaction = SimpleNamespace(fetch_one=AsyncMock(side_effect=fetch_one),
-                                  fetch_all=AsyncMock(), execute=AsyncMock())
+    transaction = SimpleNamespace(
+        fetch_one=AsyncMock(side_effect=fetch_one), fetch_all=AsyncMock(), execute=AsyncMock()
+    )
+
     async def run(context, operation):
         return await operation(transaction)
+
     repository = PostgresObservableSourceRepository(executor=SimpleNamespace(run=run))
     repository._project_roles = AsyncMock(return_value=Roles(organization="admin"))
     repository._load_project = AsyncMock(return_value=source_project())
     repository._load_revision = AsyncMock(
-        return_value=replace(source_revision(),
-            manifest={"schemaVersion": "opengeo.observable-source-revision.3.0.0"})
+        return_value=replace(
+            source_revision(),
+            manifest={"schemaVersion": "opengeo.observable-source-revision.3.0.0"},
+        )
     )
     with pytest.raises(
         ObservableSourceConflict, match="observable_public_file_reference_unavailable"
     ):
-        asyncio.run(repository.create_build_job(TenantContext(USER_ID, ORG_ID), PROJECT_ID,
-            SOURCE_PROJECT_ID, REVISION_ID, "preview", "test", idempotency_key=BUILD_ID,
-            output_profile="archive-96m" if localized else "default-32m",
-            size_acknowledgment="allow-up-to-96-mib-output" if localized else None,
-            output_representation="single-html" if localized else None))
+        asyncio.run(
+            repository.create_build_job(
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                SOURCE_PROJECT_ID,
+                REVISION_ID,
+                "preview",
+                "test",
+                idempotency_key=BUILD_ID,
+                output_profile="archive-96m" if localized else "default-32m",
+                size_acknowledgment="allow-up-to-96-mib-output" if localized else None,
+                output_representation="single-html" if localized else None,
+            )
+        )
     transaction.fetch_one.assert_awaited_once()
     transaction.fetch_all.assert_not_awaited()
     transaction.execute.assert_not_awaited()
 
 
-@pytest.mark.parametrize("options,code", [
-    ({"artifact_input_id": BUILD_ID}, "observable_referenced_file_composition_unsupported"),
-    ({"output_profile": "archive-96m"}, "observable_referenced_file_composition_unsupported"),
-    ({"distribution_approval_id": BUILD_ID}, "observable_referenced_file_publication_unavailable"),
-])
+@pytest.mark.parametrize(
+    "options,code",
+    [
+        ({"artifact_input_id": BUILD_ID}, "observable_referenced_file_composition_unsupported"),
+        ({"output_profile": "archive-96m"}, "observable_referenced_file_composition_unsupported"),
+        (
+            {"distribution_approval_id": BUILD_ID},
+            "observable_referenced_file_publication_unavailable",
+        ),
+    ],
+)
 def test_referenced_preview_keeps_unsupported_compositions_closed(options, code):
     transaction = SimpleNamespace(fetch_one=AsyncMock(), fetch_all=AsyncMock(), execute=AsyncMock())
+
     async def run(context, operation):
         return await operation(transaction)
+
     repository = PostgresObservableSourceRepository(executor=SimpleNamespace(run=run))
     repository._project_roles = AsyncMock(return_value=Roles(organization="admin"))
     repository._load_project = AsyncMock(return_value=source_project())
-    repository._load_revision = AsyncMock(return_value=replace(source_revision(),
-        manifest={"schemaVersion": "opengeo.observable-source-revision.3.0.0"}))
+    repository._load_revision = AsyncMock(
+        return_value=replace(
+            source_revision(),
+            manifest={"schemaVersion": "opengeo.observable-source-revision.3.0.0"},
+        )
+    )
     with pytest.raises(ObservableSourceConflict, match=code):
-        asyncio.run(repository.create_build_job(TenantContext(USER_ID, ORG_ID), PROJECT_ID,
-            SOURCE_PROJECT_ID, REVISION_ID, "preview", "test", **options))
+        asyncio.run(
+            repository.create_build_job(
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                SOURCE_PROJECT_ID,
+                REVISION_ID,
+                "preview",
+                "test",
+                **options,
+            )
+        )
     transaction.fetch_one.assert_not_awaited()
     transaction.fetch_all.assert_not_awaited()
     transaction.execute.assert_not_awaited()
@@ -2829,7 +2871,8 @@ def test_loopback_preview_retains_one_time_authority_and_private_cookie_scope() 
     assert created.json()["authorize_url"].startswith(origin + "/authorize/#cap=")
     payload = {"capability": repository.preview_capability}
     denied = api.post(
-        "/observable-preview/exchange", json=payload,
+        "/observable-preview/exchange",
+        json=payload,
         headers={"Origin": "http://127.0.0.1:8767", "Sec-Fetch-Site": "same-origin"},
     )
     assert denied.status_code == 403 and not denied.headers.get_list("set-cookie")

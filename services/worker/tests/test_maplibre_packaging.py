@@ -255,8 +255,13 @@ def test_full_staging_verifies_real_fonts_and_reports_manifest_in_file_and_byte_
 ):
     inputs.manifest["maplibreVersion"] = version
     if version == "6.0.0":
-        license_path = write_file(inputs.manifest_path.parent / "v6-license.txt", b"pinned v6 license")
-        inputs.manifest["files"]["maplibreLicense"] = {"path": str(license_path), "checksumSha256": builder.digest(license_path)}
+        license_path = write_file(
+            inputs.manifest_path.parent / "v6-license.txt", b"pinned v6 license"
+        )
+        inputs.manifest["files"]["maplibreLicense"] = {
+            "path": str(license_path),
+            "checksumSha256": builder.digest(license_path),
+        }
     seal_input_manifest(inputs)
     calls = []
     owner = "fixture-native-1.0-1.x86_64"

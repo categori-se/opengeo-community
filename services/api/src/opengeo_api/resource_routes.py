@@ -1988,10 +1988,19 @@ async def archive_resource_style(
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[ResourceRepository, Depends(repository_from_request)],
 ) -> ResourceStyleResponse:
-    return _style_response(await execute_resource(repository.set_style_archived(
-        tenant_context(session), project_id, resource_id, style_id,
-        payload.expected_version, True, get_request_id(),
-    )))
+    return _style_response(
+        await execute_resource(
+            repository.set_style_archived(
+                tenant_context(session),
+                project_id,
+                resource_id,
+                style_id,
+                payload.expected_version,
+                True,
+                get_request_id(),
+            )
+        )
+    )
 
 
 @router.post(
@@ -2006,10 +2015,19 @@ async def restore_resource_style(
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[ResourceRepository, Depends(repository_from_request)],
 ) -> ResourceStyleResponse:
-    return _style_response(await execute_resource(repository.set_style_archived(
-        tenant_context(session), project_id, resource_id, style_id,
-        payload.expected_version, False, get_request_id(),
-    )))
+    return _style_response(
+        await execute_resource(
+            repository.set_style_archived(
+                tenant_context(session),
+                project_id,
+                resource_id,
+                style_id,
+                payload.expected_version,
+                False,
+                get_request_id(),
+            )
+        )
+    )
 
 
 @router.get(

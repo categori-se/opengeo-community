@@ -3,7 +3,7 @@ import {test} from "node:test";
 import {workerLifecyclePolicy, type WorkerLifecycleScope} from "../lib/worker-lifecycle-policy.js";
 
 const scope: WorkerLifecycleScope = {vpcId: "vpc-abc123", subnetIds: ["subnet-abc123"],
-  routeTableIds: ["rtb-abc123"], databaseSecurityGroupId: "sg-db123", taskFamily: "ReviewedWorker"};
+  routeTableIds: ["rtb-abc123"], databaseSecurityGroupId: "sg-0db12345", taskFamily: "ReviewedWorker"};
 const cluster = "arn:aws:ecs:us-east-1:111111111111:cluster/existing";
 const policy = () => workerLifecyclePolicy("111111111111", "us-east-1", "dev", cluster, scope).toJSON();
 
@@ -26,7 +26,7 @@ test("lifecycle permissions exclude data access, IAM mutation and unrelated comp
   const pass = statements.filter((s: any) => [s.Action].flat().includes("iam:PassRole"));
   assert.equal(pass.flatMap((s: any) => s.Resource).length, 3);
   assert.ok(pass.every((s: any) => !JSON.stringify(s.Resource).includes("*") && s.Condition.StringEquals["iam:PassedToService"]));
-  const database = statements.filter((s: any) => JSON.stringify(s.Resource).includes("security-group/sg-db123"));
+  const database = statements.filter((s: any) => JSON.stringify(s.Resource).includes("security-group/sg-0db12345"));
   assert.equal(database.length, 1);
   assert.deepEqual(database[0].Action, ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"]);
   const deletion = statements.find((s: any) => [s.Action].flat().includes("ec2:DeleteSecurityGroup"));

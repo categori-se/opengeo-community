@@ -354,19 +354,21 @@ describe("credential-free Observable builder contract", () => {
       } finally {rmSync(sample.root, {recursive: true, force: true});}
     });
   }
-  it("compiles the real NOAA source with its retained lockfile, navigation and metadata", () => {
-    const directory = resolve("../../publications/noaa-coastal-imagery");
-    const files = {};
-    function load(path) {
-      for (const entry of readdirSync(join(directory, path), {withFileTypes: true})) {
-        if (entry.name.startsWith(".")) continue;
-        const name = `${path}/${entry.name}`;
-        if (entry.isDirectory()) load(name);
-        else files[name] = readFileSync(join(directory, name), "utf8");
-      }
-    }
-    load("src");
-    for (const name of ["package.json", "package-lock.json", "observablehq.config.js", "opengeo.observable.json"]) files[name] = readFileSync(join(directory, name), "utf8");
+  it("compiles the CC0 facilities study with its retained lockfile, navigation and metadata", () => {
+    const facilities = readFileSync(resolve("../../app/src/data/sample-public-facilities.geojson"), "utf8");
+    const records = JSON.parse(facilities).features;
+    assert.equal(records.length, 5);
+    assert.equal(records.filter(record => record.properties.public_access === true).length, 4);
+    const files = {
+      "src/index.md": "# Data layers\n\nFive fictional community facilities under CC0-1.0; these records do not describe real facilities.\n\n```js\nconst facilities = await FileAttachment('./data/facilities.json').json();\ndisplay(facilities.features.filter(record => record.properties.public_access === true).length);\n```\n",
+      "src/method/index.md": "# Method\n\nCount public_access values strictly equal to true: four of five fictional facilities. Preserve the original data.\n",
+      "src/data/facilities.json": facilities,
+      "package.json": JSON.stringify({private: true, type: "module", dependencies: {"@observablehq/framework": FRAMEWORK_VERSION}}),
+      "package-lock.json": readFileSync(resolve("package-lock.json"), "utf8"),
+      "opengeo.observable.json": JSON.stringify({schemaVersion: "opengeo.observable-presentation.1.0.0",
+        title: "Community facilities study", theme: ["light", "dark"],
+        pages: [{name: "Data layers", path: "/"}, {name: "Method", path: "/method/"}]})
+    };
     const sample = fixture(files);
     sample.invocation.entryPath = "src/index.md";
     sample.invocation.lockfilePath = "package-lock.json";
@@ -379,11 +381,14 @@ describe("credential-free Observable builder contract", () => {
         .map(path => `dist/${path.slice(4, -3)}.html`).sort());
     assert.equal(report.validationReport.publicationAuthorized, false);
     const home = readFileSync(join(sample.root, "workspace/dist/index.html"), "utf8");
-    assert.match(home, /Source layers/);
-    assert.match(home, /Reading beyond the visible/);
+    assert.match(home, /Data layers/);
+    assert.match(home, /Method/);
+    assert.match(home, /CC0-1.0/);
     assert.doesNotMatch(home, /theme-air,near-midnight/);
     assert.ok(report.outputManifest.files.some(file => file.path.startsWith("dist/_observablehq/theme-air-near-midnight.")));
-    assert.ok(report.outputManifest.files.some(file => file.path.endsWith(".json")));
+    const outputData = report.outputManifest.files.find(file => file.path.endsWith(".json"));
+    assert.equal(outputData?.checksumSha256, sha256(facilities));
+    assert.equal(outputData?.sizeBytes, Buffer.byteLength(facilities));
     const revisedLock = JSON.parse(files["package-lock.json"]);
     revisedLock.packages["node_modules/esbuild"].integrity = "sha512-changed";
     const changed = fixture({...files, "package-lock.json": JSON.stringify(revisedLock)});
@@ -391,6 +396,8 @@ describe("credential-free Observable builder contract", () => {
     changed.invocation.lockfilePath = "package-lock.json";
     changed.invocation.request.lockfileChecksumSha256 = sha256(files["package-lock.json"]);
     assert.throws(() => inspectInputs(changed.invocation, changed.inputRoot), /lockfile_checksum_mismatch/);
+    rmSync(sample.root, {recursive: true, force: true});
+    rmSync(changed.root, {recursive: true, force: true});
   });
 
   it("rejects unsafe, unknown and missing-target declarative presentation settings", () => {

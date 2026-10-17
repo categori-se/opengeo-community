@@ -82,7 +82,8 @@ def test_ckan_crosswalk_preserves_original_and_separates_metadata_from_access():
         original
     )
     assert plan.source_document["dct:publisher"] == {
-        "@type": "foaf:Agent", "foaf:name": "Source provider"
+        "@type": "foaf:Agent",
+        "foaf:name": "Source provider",
     }
     assert plan.source_format == "dcat_3" and plan.source_namespace == "ckan"
     assert plan.draft.kind == "dataset" and plan.draft.visibility == "restricted"

@@ -361,9 +361,12 @@ def test_coordinate_system_does_not_promote_nested_authorities() -> None:
         'GEOGCRS["invalid",ID["EPSG",4326]',
     ]:
         assert DatasetInspector._coordinate_system({"wkt": wkt}) is None
-    assert DatasetInspector._coordinate_system(
-        {"wkt": 'GEOGCS["WGS84",UNIT["degree",0.01745],AUTHORITY["EPSG","4326"]]'}
-    ) == "EPSG:4326"
+    assert (
+        DatasetInspector._coordinate_system(
+            {"wkt": 'GEOGCS["WGS84",UNIT["degree",0.01745],AUTHORITY["EPSG","4326"]]'}
+        )
+        == "EPSG:4326"
+    )
 
 
 @pytest.mark.skipif(
@@ -700,10 +703,7 @@ def test_kml_inspection_preserves_source_without_fetch_or_conversion(
     assert result.artifacts[0].content_type == "application/json"
     assert json.loads(result.artifacts[0].path.read_text()) == result.schema_definition
     assert result.artifacts[0].path.stat().st_size < 2048
-    assert (
-        result.quality_results["kml_inspection"]["rendering_status"]
-        == "not_established"
-    )
+    assert result.quality_results["kml_inspection"]["rendering_status"] == "not_established"
     assert result.quality_results["safety_scan"]
     assert source.read_bytes() == raw
     assert set(tmp_path.iterdir()) == {source, result.artifacts[0].path}

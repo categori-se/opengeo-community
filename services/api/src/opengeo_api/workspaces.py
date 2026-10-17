@@ -1137,8 +1137,12 @@ class PostgresWorkspaceRepository:
                 f"Duplicated from {map_id}",
             )
             duplicate = await self._create_map_resource(
-                transaction, context, duplicate, request_id,
-                source_map_id=map_id, source_map_version=source.version,
+                transaction,
+                context,
+                duplicate,
+                request_id,
+                source_map_id=map_id,
+                source_map_version=source.version,
             )
             await self._record_event(
                 transaction,

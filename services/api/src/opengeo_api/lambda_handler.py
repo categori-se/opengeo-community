@@ -275,8 +275,7 @@ def handler(event: Mapping[str, Any], context: object) -> dict[str, Any]:
     scope, _body = ApiGatewayV2Adapter._request(event)
     adapter = (
         _session_adapter()
-        if scope["method"] == "GET"
-        and scope["path"] in {"/auth/session", "/organizations/current"}
+        if scope["method"] == "GET" and scope["path"] in {"/auth/session", "/organizations/current"}
         else _default_adapter()
     )
     return asyncio.run(adapter.invoke(event))

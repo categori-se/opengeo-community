@@ -46,9 +46,16 @@ def catalog_service_reference(
     if source_type in {"cog", "cog-raster"}:
         if not parsed.path.lower().endswith((".tif", ".tiff")):
             return None
-        return {"url": url, "kind": "COG", "layer_id": None, "layer_url": url,
-                "rendering_source": "provider", "source_version": source_version
-                if type(source_version) is int and source_version > 0 else None}
+        return {
+            "url": url,
+            "kind": "COG",
+            "layer_id": None,
+            "layer_url": url,
+            "rendering_source": "provider",
+            "source_version": source_version
+            if type(source_version) is int and source_version > 0
+            else None,
+        }
     if source_type == "wfs":
         endpoint = urlunsplit(("https", parsed.hostname, parsed.path.rstrip("/"), "", ""))
         return {

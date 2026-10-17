@@ -2099,20 +2099,20 @@ class PostgresObservableSourceRepository:
                     cast(UUID, row[0]): ObservablePublicFileReference(*row) for row in rows
                 }
                 public_pins: list[dict[str, Any]] = []
-                for binding in draft.referenced_files:
-                    reference = references.get(binding.reference_id)
+                for reference_binding in draft.referenced_files:
+                    reference = references.get(reference_binding.reference_id)
                     if reference is None or not reference.available:
                         raise ObservableSourceConflict(
                             "observable_public_file_reference_unavailable"
                         )
-                    validate_observable_referenced_file_path(binding.relative_path)
+                    validate_observable_referenced_file_path(reference_binding.relative_path)
                     validate_observable_attachment_media(
-                        binding.relative_path, reference.content_type
+                        reference_binding.relative_path, reference.content_type
                     )
                     public_pins.append(
                         {
                             "referenceId": str(reference.id),
-                            "path": binding.relative_path,
+                            "path": reference_binding.relative_path,
                             "kind": "referenced-public-file",
                             "custody": "referenced",
                             "datasetId": str(reference.dataset_id),
@@ -2624,10 +2624,7 @@ class PostgresObservableSourceRepository:
                 revision.manifest.get("schemaVersion") == OBSERVABLE_SOURCE_DATA_MANIFEST_SCHEMA
                 and purpose != "preview"
                 and distribution_approval_id is None
-                and not (
-                    localized
-                    and not revision.manifest.get("dataAttachments")
-                )
+                and not (localized and not revision.manifest.get("dataAttachments"))
             ):
                 raise ObservableSourceConflict("observable_data_attachment_publication_unavailable")
             if purpose == "release_candidate" and revision.rights_status != "approved":
@@ -2647,8 +2644,7 @@ class PostgresObservableSourceRepository:
             ):
                 raise ObservableSourceConflict("observable_output_profile_consent_required")
             if output_profile == "archive-96m" and not (
-                revision.manifest.get("dataAttachments")
-                or revision.manifest.get("referencedFiles")
+                revision.manifest.get("dataAttachments") or revision.manifest.get("referencedFiles")
             ):
                 raise ObservableSourceConflict("observable_output_profile_archive_required")
             distribution_approval = None
