@@ -40,6 +40,11 @@ class ConnectionVerificationDispatcher(Protocol):
 
     async def dispatch_connection_verification(self, verification_id: UUID) -> None: ...
 
+    @property
+    def catalog_available(self) -> bool: ...
+
+    async def dispatch_connection_catalog_discovery(self, discovery_id: UUID) -> None: ...
+
 
 class UserDatasetVerificationDispatcher(Protocol):
     @property
@@ -87,10 +92,23 @@ class PmtilesDerivativeDispatcher(Protocol):
     @property
     def available(self) -> bool: ...
 
+    @property
+    def v2_only(self) -> bool: ...
+
+    def supports_recipe(self, recipe: str) -> bool: ...
+
     async def dispatch_pmtiles_derivative(self, pmtiles_job_id: UUID) -> None: ...
 
 
 class UnavailableConnectionVerificationDispatcher:
+    @property
+    def catalog_available(self) -> bool:
+        return False
+
+    async def dispatch_connection_catalog_discovery(self, discovery_id: UUID) -> None:
+        del discovery_id
+        raise ProcessingDispatchUnavailable("connection catalog dispatch is not configured")
+
     @property
     def available(self) -> bool:
         return False
@@ -161,6 +179,14 @@ class UnavailableGeoNodeHarvestDispatcher:
 
 
 class UnavailablePmtilesDerivativeDispatcher:
+    def supports_recipe(self, recipe: str) -> bool:
+        del recipe
+        return False
+
+    @property
+    def v2_only(self) -> bool:
+        return False
+
     @property
     def available(self) -> bool:
         return False
@@ -407,6 +433,7 @@ class AwsSqsConnectionVerificationDispatcher:
         if not settings.connection_verification_dispatch_configured:
             raise ValueError("connection verification dispatch must be configured")
         assert settings.connection_verification_queue_url is not None
+        self._catalog_available = settings.connection_catalog_discovery_enabled
         self._delegate = AwsSqsRenderDispatcher(
             settings,
             credentials=credentials,
@@ -425,6 +452,20 @@ class AwsSqsConnectionVerificationDispatcher:
             "opengeo.connection-verification.command.v1",
             "verification_id",
             verification_id,
+        )
+
+    @property
+    def catalog_available(self) -> bool:
+        return self._catalog_available
+
+    async def dispatch_connection_catalog_discovery(self, discovery_id: UUID) -> None:
+        if not self.catalog_available:
+            raise ProcessingDispatchUnavailable("connection catalog dispatch is not configured")
+        await asyncio.to_thread(
+            self._delegate._dispatch,
+            "opengeo.connection-catalog-discovery.command.v1",
+            "discovery_id",
+            discovery_id,
         )
 
 
@@ -622,6 +663,13 @@ class AwsSqsGeoNodeHarvestDispatcher:
 
 
 class AwsSqsPmtilesDerivativeDispatcher:
+    def supports_recipe(self, recipe: str) -> bool:
+        return recipe == "gdal-pmtiles-v2"
+
+    @property
+    def v2_only(self) -> bool:
+        return True
+
     def __init__(
         self,
         settings: Settings,
@@ -629,13 +677,14 @@ class AwsSqsPmtilesDerivativeDispatcher:
         transport: DispatchTransport | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
-        if not settings.render_dispatch_configured:
+        if not settings.pmtiles_derivative_dispatch_configured:
             raise ValueError("PMTiles derivative dispatch must be configured")
         self._delegate = AwsSqsRenderDispatcher(
             settings,
             credentials=credentials,
             transport=transport,
             now=now,
+            queue_url=settings.pmtiles_derivative_queue_url,
         )
 
     @property

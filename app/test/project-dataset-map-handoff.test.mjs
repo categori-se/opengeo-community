@@ -12,6 +12,16 @@ const IDS = Object.freeze({
   staleVersion: "81000000-0000-4000-8000-000000000084"
 });
 
+const DISPLAY = "82000000-0000-4000-8000-000000000083";
+const preservedDataset = () => ({datasetId: IDS.dataset, workspaceId: IDS.project, title: "Preserved source",
+  sourceType: "upload", format: "geojson", status: "draft", currentVersionState: "preserved",
+  currentVersionId: IDS.version, currentVersionNumber: 3, featureCount: null, geometryType: null,
+  capabilities: {read: true, edit: true}});
+const displayMetadata = () => ({dataset_id: IDS.dataset, dataset_version_id: IDS.version, archives: [{
+  id: DISPLAY, title: "Reviewed source tiles", format: "pmtiles", download_bytes: 4096, feature_count: 17,
+  tile_layers: [{source_layer: "retained", title: "Retained polygons", geometry_type: "Polygon", feature_count: 17, geometry_method: "quantized display"}]
+}]});
+
 let harness;
 
 beforeEach(() => {
@@ -25,6 +35,87 @@ afterEach(() => {
 });
 
 describe("exact dataset-to-map handoff", () => {
+  for (const routed of [false, true]) it(`adds a preserved original only through an explicitly chosen admitted display (${routed ? "routed" : "ordinary"})`, async () => {
+    let lists = 0, reads = 0, raw = 0;
+    const saves = [];
+    const dataset = preservedDataset();
+    const access = {assertScope: async () => {}, authorize: async () => {},
+      list: async layer => {lists++; assert.equal(layer.datasetId, IDS.dataset); assert.equal(layer.datasetVersionId, IDS.version); return displayMetadata();},
+      read: async () => {reads++; throw Error("No tile download consent was given");}};
+    const options = {datasets: [dataset], layerArchiveAccess: access,
+      initialDatasetTarget: routed ? target(IDS.version) : null,
+      async loadDatasetVersionPreview() {raw++; throw Error("No raw preview exists");},
+      async loadDatasetFeatures() {raw++; throw Error("No editable collection exists");},
+      async saveProject(definition) {saves.push(definition); return {id: IDS.map, version: 3, definition};}};
+    const shell = createWorkbench(options);
+    if (!routed) clickButton(shell, "Add data");
+    assert.equal(lists + reads + raw, 0);
+    assert.equal(findButton(shell, "Add exact v3"), null);
+    assert.equal(findButton(shell, "Add authoritative features"), null);
+    clickButton(shell, "Review tiled displays");
+    await waitFor(() => shell.querySelector('[aria-label="Admitted tiled display for Preserved source"]'));
+    assert.equal(findButton(shell, "Add selected tiled display").disabled, true);
+    const choice = shell.querySelector('[aria-label="Admitted tiled display for Preserved source"]');
+    choice.value = DISPLAY; choice.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    clickButton(shell, "Add selected tiled display");
+    await waitFor(() => shell.__opengeoLayers.length === 1);
+    assert.equal(shell.__opengeoData.size, 0);
+    assert.equal(shell.__opengeoLayers[0].geometryType, "Polygon", "Display metadata supplies the uninspected original's unknown geometry");
+    clickButton(shell, "Save"); await waitFor(() => saves.length === 1);
+    assert.equal(saves[0].schemaVersion, "opengeo.map-definition.1.5.0");
+    assert.equal(saves[0].layers[0].managedDisplayId, DISPLAY);
+    assert.equal(saves[0].layers[0].datasetVersionId, IDS.version);
+    assert.equal(saves[0].layers[0].sourceVersion, 3);
+    assert.doesNotMatch(JSON.stringify(saves[0]), /ticket|X-Amz|acknowledge_storage_cost/);
+    shell.dispose(); shell.remove();
+    const reopened = createWorkbench({...options, datasets: routed ? [dataset] : [], initialDatasetTarget: null, project: saves[0], layers: saves[0].layers});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    clickButton(reopened, "Map display");
+    const dialog = document.querySelector(".gis-layer-archive-dialog");
+    assert.equal(dialog.querySelector('input[type="checkbox"]').checked, false);
+    clickButton(dialog, "Pause tiled display");
+    assert.equal(reopened.__opengeoLayers[0].managedDisplayId, DISPLAY);
+    assert.match(dialog.textContent, /tiled display paused/);
+    assert.equal(findButton(dialog, "Use selected tiled display").disabled, true);
+    assert.deepEqual([lists, reads, raw], [1, 0, 0]);
+    reopened.dispose(); reopened.remove();
+  });
+
+  for (const result of ["empty", "wrong-version", "changed-during-review"])
+    it(`keeps a preserved original out of raw previews when display review is ${result}`, async () => {
+      const dataset = preservedDataset(); let raw = 0, release;
+      const shell = createWorkbench({datasets: [dataset], initialDatasetTarget: target(IDS.version),
+        layerArchiveAccess: {assertScope: async () => {}, list: async () => {
+          if (result === "changed-during-review") await new Promise(resolve => {release = resolve;});
+          return {...displayMetadata(), ...(result === "empty" ? {archives: []}
+            : result === "wrong-version" ? {dataset_version_id: IDS.staleVersion} : {})};
+        }},
+        async loadDatasetVersionPreview() {raw++;}, async loadDatasetFeatures() {raw++;}});
+      clickButton(shell, "Review tiled displays");
+      if (result === "changed-during-review") {
+        await waitFor(() => release); dataset.currentVersionId = IDS.staleVersion; release();
+      }
+      await waitFor(() => !findButton(shell, "Reviewing tiled displays…"));
+      assert.equal(findButton(shell, "Add selected tiled display"), null);
+      assert.equal(shell.__opengeoLayers.length, 0); assert.equal(raw, 0);
+      shell.dispose(); shell.remove();
+    });
+
+  it("does not request raw data when a preserved-version Layer has no saved display", async () => {
+    let raw = 0;
+    const shell = createWorkbench({datasets: [preservedDataset()], layers: [{layerId: "preserved-without-display",
+      datasetId: IDS.dataset, datasetVersionId: IDS.version, sourceVersion: 3, sourceType: "governed-dataset",
+      title: "Preserved original", geometryType: "Polygon", visible: true, opacity: 0.5, order: 0,
+      style: {fill: "#9933aa"}, labels: {enabled: false}}],
+      geojsonByLayerId: new Map([["preserved-without-display", featureCollection()]]),
+      async loadDatasetVersionPreview() {raw++;}, async loadDatasetFeatures() {raw++;}});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(raw, 0); assert.equal(shell.__opengeoData.size, 0);
+    assert.match(shell.textContent, /preserved original without a raw map preview/);
+    assert.equal(shell.__opengeoLayers[0].style.fill, "#9933aa");
+    shell.dispose(); shell.remove();
+  });
+
   it("closes other Layer action menus and dismisses a chosen action before rerender", () => {
     const layers = ["First", "Second"].map((title, index) => ({layerId: `menu-${index}`, datasetId: `data-${index}`,
       title, sourceType: "geojson", geometryType: "Polygon", visible: true, opacity: 1,
@@ -658,6 +749,8 @@ function installDom() {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
     url: `https://studio.opengeo.tools/workspaces?project=${IDS.project}&map=${IDS.map}`
   });
+  dom.window.HTMLDialogElement.prototype.showModal = function () {this.open = true;};
+  dom.window.HTMLDialogElement.prototype.close = function () {this.open = false;};
   const media = {matches: false, addEventListener() {}, removeEventListener() {}};
   const replacements = {
     document: dom.window.document,

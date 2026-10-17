@@ -60,6 +60,21 @@ inbound CKAN tests also use mocked repositories or providers, as recorded in the
 The CKAN round trip uses the real server with a generated local sysadmin identity;
 its receipt identifies the pinned images and reused cache.
 
+## Selected source updates
+
+Point clustering is included as local source work for supported Point Layers,
+with per-Layer controls and saved preferences. Source inclusion and focused local
+checks do not establish a delivered build or acceptance in an independent community
+installation. Compiled rendering and publication/export limits must be reviewed
+for the selected release; unsupported outputs must disclose clustering.
+
+The configurable PMTiles-v2 conversion lane remains disabled pending current
+security scanning, native ARM64 execution and hosted owner acceptance. Its source
+and local GeoJSON conversion evidence do not authorize worker activation. The
+shared worker security hold remains in effect. A preserved original is not a
+validated map display, and a local conversion does not establish completion for
+large datasets.
+
 ## Installation and publication status
 
 The full suite is available for local development and self-hosting. Remaining

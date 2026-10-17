@@ -64,14 +64,15 @@ export const PROCESSING_TOOLS = Object.freeze([
     "vector-to-pmtiles",
     "AWS conversion",
     "Vector to PMTiles",
-    "opengeo.pmtiles-derivative-request.1.0.0",
+    "opengeo.pmtiles-derivative-request.1.1.0",
     "/projects/{project_id}/datasets/{dataset_id}/versions/{dataset_version_id}/pmtiles-derivatives",
     Object.freeze([
       Object.freeze({id: "datasetVersionId", type: "uuid", required: true}),
       Object.freeze({id: "bounds", type: "crs84-bbox", required: true}),
       Object.freeze({id: "minZoom", type: "integer", required: true, minimum: 0, maximum: 22}),
       Object.freeze({id: "maxZoom", type: "integer", required: true, minimum: 0, maximum: 22}),
-      Object.freeze({id: "sourceLayer", type: "identifier", required: true})
+      Object.freeze({id: "sourceLayer", type: "identifier", required: true}),
+      Object.freeze({id: "options", type: "gdal-pmtiles-options", required: true})
     ]),
     Object.freeze({maximumSourceBytes: 536_870_912, maximumRetainedJobs: 64, maximumActiveJobs: 4})
   ),

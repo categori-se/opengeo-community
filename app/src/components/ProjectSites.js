@@ -475,7 +475,7 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   fieldset.className = "observable-source-revision-editor";
   fieldset.append(text("legend", "Source files"));
   const title = labeledInput("Source revision title", sourceProject.title, 300);
-  const entry = labeledInput("Observable entry path", "index.md", 512);
+  const entry = labeledInput("Publication entry path", "index.md", 512);
   const lockfile = labeledInput("Lockfile path (optional)", "package-lock.json", 512);
   const summary = labeledInput("Draft change note", "Update draft", 500);
   const rights = labeledSelect("Source publication rights", ["unreviewed", "approved", "rejected"]);
@@ -680,18 +680,20 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   sourceText.addEventListener("input", () => notebookReview.update());
   const showBindings = () => {
     const archived = dataAttachments.length
-      ? `Linked files: ${dataAttachments.map(item => item.relativePath).join(", ")}. Live preview reads each exact file once; saving retains references without copying data.`
-      : "Link a registered data file to use it with FileAttachment in this draft.";
+      ? `Linked files: ${dataAttachments.map(item => item.relativePath).join(", ")}. ${entry.control.value.endsWith(".ipynb") ? "Jupyter displays saved outputs; linking a file does not execute Python or refresh outputs." : "Live preview reads each exact file once; saving retains references without copying data."}`
+      : entry.control.value.endsWith(".ipynb") ? "Link exact data versions for provenance. Jupyter displays saved outputs; execute Python locally before importing." : "Link a registered data file to use it with FileAttachment in this draft.";
     boundData.textContent = referencedFiles.length
-      ? `${archived} Connected public files: ${referencedFiles.map(item => item.relativePath).join(", ")}. Live preview reads each source once and reuses its verified bytes. Saving retains references.`
+      ? `${archived} Connected public files: ${referencedFiles.map(item => item.relativePath).join(", ")}. ${entry.control.value.endsWith(".ipynb") ? "Jupyter displays saved outputs; linking a file does not execute Python or refresh outputs." : "Live preview reads each source once and reuses its verified bytes. Saving retains references."}`
       : archived;
   };
   const archiveEditor = FrameworkRevisionData({state, sourceProject,
     canManage: canManage(state),
     getBindings: () => dataAttachments, getFiles: () => workingFiles,
     getReferencedFiles: () => referencedFiles,
+    getFormat: () => entry.control.value.endsWith(".ipynb") ? "jupyter" : "framework",
     getSourceRoot: () => publicationSourceRoot(entry.control.value, workingFiles.map(file => file.relativePath)),
     onInsert: ({relativePath, readMethod}) => {
+      if (/\.ipynb$/i.test(entry.control.value)) throw Error("Jupyter publishes saved outputs. Execute Python locally with the selected data version, then import the executed notebook.");
       if (/\.html$/i.test(activePath ?? '') && !/<notebook(?:\s|>)/i.test(sourceText.value)) {
         throw Error('Open a Framework or Observable notebook page to insert FileAttachment code');
       }
@@ -1352,11 +1354,12 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
       savedFileLoader = readSavedFile;
       dataAttachments = normalizeObservableRevisionAttachments(revision.dataAttachments ?? [], records);
       referencedFiles = normalizeObservableRevisionReferencedFiles(revision.referencedFiles ?? [], [...records, ...dataAttachments]);
-      showBindings();
+      entry.control.value = revision.entryPath;
       archiveEditor.reset();
       clearImportedMaps();
       title.control.value = revision.title;
       entry.control.value = revision.entryPath;
+      showBindings();
       lockfile.control.value = revision.lockfilePath ?? "";
       summary.control.value = `Update draft ${revision.revisionNumber}`;
       rights.control.value = revision.rightsStatus ?? sourceProject.rightsStatus ?? "unreviewed";

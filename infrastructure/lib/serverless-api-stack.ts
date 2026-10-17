@@ -26,12 +26,19 @@ export interface ServerlessApiStackProps extends StackProps {
   readonly additionalCognitoClientIds?: string;
   readonly observablePreviewPrivateKeySecretArn?: string;
   readonly connectionVerificationQueue?: sqs.IQueue;
+  readonly connectionVerificationFunction?: lambda.IFunction;
+  readonly enableConnectionCatalogDiscovery?: boolean;
+  readonly enablePostgisPreview?: boolean;
   readonly userDatasetVerificationQueue?: sqs.IQueue;
   readonly userDatasetRepositoryBrowserFunction?: lambda.IFunction;
   readonly sourceArchiverQueue?: sqs.IQueue;
   readonly repositoryObjectCopyQueue?: sqs.IQueue;
   readonly observableBuildQueue?: sqs.IQueue;
   readonly frameworkPublicationQueue?: sqs.IQueue;
+  readonly pmtilesDerivativeQueue?: sqs.IQueue;
+  readonly pmtilesOnly?: boolean;
+  readonly pmtilesWorkerImageDigest?: string;
+  readonly pmtilesInputFormats?: string;
   readonly observableBuildProvider?: "private_worker" | "github";
   readonly enableKmlNetworkLinkFetch?: boolean;
   readonly enablePortableArtifacts?: boolean;
@@ -46,6 +53,17 @@ export class ServerlessApiStack extends Stack {
     super(scope, id, props);
 
     const {config, foundation, imageDigest} = props;
+    if (props.pmtilesOnly && (!props.pmtilesDerivativeQueue
+      || !/^sha256:[0-9a-f]{64}$/.test(props.pmtilesWorkerImageDigest ?? "")
+      || props.pmtilesDerivativeQueue.queueArn === foundation.processingQueue.queueArn)) {
+      throw new Error("PMTiles v2 requires an isolated queue and immutable worker image digest");
+    }
+    if (props.enablePostgisPreview && !props.connectionVerificationFunction) {
+      throw new Error("PostGIS preview requires the existing connection verifier function");
+    }
+    if (props.enableConnectionCatalogDiscovery && !props.connectionVerificationQueue) {
+      throw new Error("Connection catalog discovery requires the existing verifier queue");
+    }
     // The application bucket can be an existing, operator-owned bucket. Keep
     // its API references as concrete configuration values so an API-only
     // release does not require a new cross-stack export from an older
@@ -178,12 +196,24 @@ export class ServerlessApiStack extends Stack {
         OPEN_GEO_GEODATA_BUCKET: foundation.geodataBucket.bucketName,
         OPEN_GEO_GEODATA_KMS_KEY_ARN: foundation.dataKey.keyArn,
         OPEN_GEO_PROCESSING_QUEUE_URL: foundation.processingQueue.queueUrl,
+        ...(props.pmtilesOnly ? {OPEN_GEO_WORKER_PROCESSING_MODE: "pmtiles-v2"} : {}),
+        ...(props.pmtilesWorkerImageDigest
+          ? {OPEN_GEO_PMTILES_WORKER_IMAGE_DIGEST: props.pmtilesWorkerImageDigest} : {}),
+        ...(props.pmtilesOnly
+          ? {OPEN_GEO_PMTILES_INPUT_FORMATS: props.pmtilesInputFormats ?? "geojson"} : {}),
+        ...(props.pmtilesDerivativeQueue
+          ? {OPEN_GEO_PMTILES_DERIVATIVE_QUEUE_URL: props.pmtilesDerivativeQueue.queueUrl} : {}),
         ...(props.connectionVerificationQueue
           ? {
               OPEN_GEO_CONNECTION_VERIFICATION_QUEUE_URL:
                 props.connectionVerificationQueue.queueUrl
             }
           : {}),
+        ...(props.enableConnectionCatalogDiscovery
+          ? {OPEN_GEO_CONNECTION_CATALOG_DISCOVERY_ENABLED: "true"} : {}),
+        ...(props.enablePostgisPreview && props.connectionVerificationFunction
+          ? {OPEN_GEO_CONNECTION_POSTGIS_PREVIEW_ENABLED: "true",
+             OPEN_GEO_CONNECTION_VERIFICATION_FUNCTION_NAME: props.connectionVerificationFunction.functionName} : {}),
         ...(props.userDatasetVerificationQueue
           ? {
               OPEN_GEO_USER_DATASET_VERIFICATION_QUEUE_URL:
@@ -223,14 +253,18 @@ export class ServerlessApiStack extends Stack {
       }
     });
 
-    this.apiFunction.addToRolePolicy(
+    if (!props.pmtilesOnly) this.apiFunction.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["sqs:SendMessage"],
         resources: [foundation.processingQueue.queueArn]
       })
     );
+    props.pmtilesDerivativeQueue?.grantSendMessages(this.apiFunction);
     if (props.connectionVerificationQueue !== undefined) {
       props.connectionVerificationQueue.grantSendMessages(this.apiFunction);
+    }
+    if (props.enablePostgisPreview && props.connectionVerificationFunction) {
+      props.connectionVerificationFunction.grantInvoke(this.apiFunction);
     }
     if (props.userDatasetVerificationQueue !== undefined) {
       props.userDatasetVerificationQueue.grantSendMessages(this.apiFunction);
@@ -408,7 +442,10 @@ export class ServerlessApiStack extends Stack {
       defaultIntegration: integration,
       createDefaultStage: true,
       corsPreflight: {
-        allowOrigins: [...config.allowedWebOrigins],
+        // Public map and Collection modules support imports from arbitrary sites.
+        // CORS grants no access: private routes retain bearer and tenant checks.
+        // Keep credentials disabled; the Studio API client also omits cookies.
+        allowOrigins: ["*"],
         allowMethods: [
           apigateway.CorsHttpMethod.GET,
           apigateway.CorsHttpMethod.POST,

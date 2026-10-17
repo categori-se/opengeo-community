@@ -92,6 +92,18 @@ class WindowTests(unittest.TestCase):
             if "worker_tasks" not in change:
                 self.assertEqual(result.waiting, "processing")
 
+    def test_pmtiles_isolated_drain_requires_exact_v2_lane_and_empty_queue(self):
+        observation = self.observation(unfinished={"pmtiles": 0}, lanes=frozenset({"pmtiles"}))
+        self.assertTrue(observation.drained())
+        for changes in (
+            {"unfinished": {"pmtiles": 1}},
+            {"unfinished": {"pmtiles": 0, "ingest": 0}},
+            {"lanes": LANES},
+            {"queue": (0, 1, 0)},
+            {"dead_letters": (1, 0, 0)},
+        ):
+            self.assertFalse(replace(observation, **changes).drained())
+
     def test_work_arriving_during_drain_resumes_same_window(self):
         w = replace(self.window, phase="remove-worker", outcome="drained")
         step = advance(w, self.observation(queue=(1, 0, 0)), now=110)

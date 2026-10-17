@@ -164,9 +164,18 @@ async def public_release_map(
 
 @router.get("/public/organizations/{organization_id}/artifact-releases/{release_id}/module.mjs")
 async def public_release_module(
-    organization_id: UUID, release_id: UUID, request: Request, download: bool = False
+    organization_id: UUID,
+    release_id: UUID,
+    request: Request,
+    download: bool = False,
+    mode: Literal["iframe", "native"] = "iframe",
 ) -> Response:
-    from opengeo_api.project_module import project_module
+    from opengeo_api.project_module import (
+        NativePayloadUnsupported,
+        native_payload,
+        native_project_module,
+        project_module,
+    )
 
     headers = {**HEADERS, "Access-Control-Allow-Origin": "*", "Referrer-Policy": "no-referrer"}
     try:
@@ -195,10 +204,109 @@ async def public_release_module(
         metadata["network_required"] = True
     if download:
         headers["Content-Disposition"] = 'attachment; filename="opengeo-project.mjs"'
-    module = project_module(exact.body, metadata, public_origins=origins)
+    if mode == "native":
+        metadata["iframe_url"] = str(
+            request.url_for(
+                "public_release_map",
+                organization_id=organization_id,
+                release_id=release_id,
+            )
+        )
+        metadata["labels"] = (
+            "Retained map label styles; no remote glyphs. "
+            "Host MapLibre/local-font support determines available labels."
+        )
+        try:
+            payload = native_payload(exact.body, target[13] if len(target) > 13 else {})
+        except NativePayloadUnsupported as error:
+            raise HTTPException(
+                409,
+                {
+                    "code": "artifact_native_unavailable",
+                    "reason": str(error),
+                    "iframe_url": metadata["iframe_url"],
+                },
+                headers=headers,
+            ) from error
+        module = native_project_module(payload, metadata)
+    else:
+        module = project_module(exact.body, metadata, public_origins=origins)
     if len(module) > 4 * 1024 * 1024:
         raise HTTPException(413, "artifact_module_size_limit", headers=headers)
     return Response(module, media_type="text/javascript", headers=headers)
+
+
+@router.get("/public/organizations/{organization_id}/artifact-releases/{release_id}/descriptor")
+async def public_release_descriptor(
+    organization_id: UUID,
+    release_id: UUID,
+    request: Request,
+) -> JSONResponse:
+    headers = {**HEADERS, "Access-Control-Allow-Origin": "*", "Referrer-Policy": "no-referrer"}
+    try:
+        record, target = await _public(request, organization_id, release_id)
+    except HTTPException as error:
+        error.headers = {**(error.headers or {}), **headers}
+        raise
+    portable = target[10] == "text/html"
+    manifest = target[13] if portable and len(target) > 13 else {}
+
+    def url(name: str) -> str:
+        return str(request.url_for(name, organization_id=organization_id, release_id=release_id))
+
+    module_url = url("public_release_module") if portable else None
+    descriptor = {
+        "schemaVersion": "opengeo.public-artifact-descriptor.1.0.0",
+        "artifactId": record["artifact_id"],
+        "releaseId": record["id"],
+        "versionNumber": record["version_number"],
+        "projectId": record["project_id"],
+        "title": record["title"],
+        "license": record["license"],
+        "attribution": record["attribution"],
+        "selection": {
+            "mode": "pinned-release",
+            "followsCurrent": False,
+            "currentSelection": (
+                "Artifact current selection is independent; this release always pins its version."
+            ),
+        },
+        "representation": "portable-map-html" if portable else "saved-map-image",
+        "scope": "reviewed-browser-snapshot" if portable else "saved-map-image",
+        "output": {"mediaType": target[10], "sizeBytes": target[11], "checksumSha256": target[12]},
+        "manifestSchemaVersion": manifest.get("schemaVersion"),
+        "manifestChecksumSha256": manifest.get("manifestChecksumSha256"),
+        "sources": [
+            {
+                key: dependency[key]
+                for key in ("id", "mode", "checksumSha256", "coverage")
+                if key in dependency
+            }
+            for dependency in manifest.get("dependencies", [])
+        ],
+        "urls": {
+            "view": url("public_release_view"),
+            "htmlDownload": url("public_release_map") + "?download=true" if portable else None,
+            "staticImage": None if portable else url("public_release_image"),
+            "iframe": url("public_release_map") if portable else url("public_release_view"),
+            "module": module_url,
+            "nativeModule": module_url + "?mode=native" if module_url else None,
+        },
+        "native": {
+            "eligibility": "validated-on-request",
+            "unsupportedStatus": 409,
+            "hostRuntime": (
+                "Host supplies MapLibre and CSS; no retained HTML/runtime executes in host."
+            ),
+        }
+        if portable
+        else None,
+        "revocation": (
+            "Every endpoint read rechecks release and source eligibility; "
+            "retained/downloaded bytes cannot be recalled."
+        ),
+    }
+    return JSONResponse(descriptor, headers=headers)
 
 
 async def _release_output(

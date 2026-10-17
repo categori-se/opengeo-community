@@ -1,17 +1,35 @@
 import {ResourceStyleVersionEditor} from "./ResourceStyleVersionEditor.js";
+import {ResourceMetadataExchange} from "./ResourceMetadataExchange.js";
 // Read existing governed records in place. No backfill or authority promotion.
-export function LayerGovernedMetadata({adapter, datasetId}) {
+export function LayerGovernedMetadata({adapter, datasetId, accountId = null}) {
   const root = node("section");
   root.append(node("h2", "Existing governed metadata"), node("p",
     "These records retain their own permissions, revisions and provenance. They are separate from the Layer knowledge assertions; values are not automatically merged."));
   const status = node("p"); status.setAttribute("role", "status");
   const records = node("div");
-  let offset = 0;
+  let offset = 0, disposed = false;
+  const controller = new AbortController();
+  root.dispose = () => {disposed = true; controller.abort();};
+  async function current() {
+    if (disposed) return false;
+    const selected = typeof adapter.organizationProvider === "function" ? await adapter.organizationProvider()
+      : adapter.selectedOrganizationId;
+    if (disposed) return false;
+    if (accountId && selected !== undefined && selected !== accountId) {
+      root.dispose(); records.replaceChildren();
+      status.textContent = "The selected account changed. Reload this Layer to inspect metadata.";
+      load.disabled = true;
+    }
+    return !disposed;
+  }
   const load = button("Find metadata records", async () => {
+    if (disposed) return;
     load.disabled = true;
     status.textContent = "Loading accessible records…";
     try {
+      if (!await current()) return;
       const page = await adapter.listDatasetResources(datasetId, {limit: 50, offset});
+      if (!await current()) return;
       if (page.some(record => record.datasetId !== datasetId)) throw Error("Binding changed");
       for (const record of page) records.append(recordPanel(record));
       offset += page.length;
@@ -19,8 +37,8 @@ export function LayerGovernedMetadata({adapter, datasetId}) {
       load.textContent = "Load more records";
       load.hidden = page.length < 50 || offset > 10_000;
       if (offset > 10_000) status.textContent += " The inspection limit has been reached.";
-    } catch { status.textContent = "Records could not load. Retry, or check access and server availability."; }
-    finally { load.disabled = false; }
+    } catch {if (!disposed) status.textContent = "Records could not load. Retry, or check access and server availability."; }
+    finally {if (!disposed) load.disabled = false; }
   });
   root.append(status, load, records);
   return root;
@@ -29,26 +47,33 @@ export function LayerGovernedMetadata({adapter, datasetId}) {
     const section = node("section");
     section.append(node("h3", summary.title), node("p", `Record ${summary.id} · listed revision ${summary.versionNumber}`));
     const content = node("div"), message = node("p"); message.setAttribute("role", "status");
+    let exchange;
     const inspect = button("Inspect record", async () => {
+      if (disposed) return;
       if ([...content.querySelectorAll(".resource-style-version-editor")].some(editor=>editor.hasUnsavedChanges?.())) {
         message.textContent="A Style has unsaved edits or an unresolved save. Finish its version review before reloading this record. Your draft is retained.";
         return;
       }
       inspect.disabled = true;
+      exchange?.dispose();
       message.textContent = "Loading record…";
       try {
+        if (!await current()) return;
         const record = await adapter.getResource(summary.projectId, summary.id);
+        if (!await current()) return;
         if (record.id !== summary.id || record.projectId !== summary.projectId || record.datasetId !== datasetId) throw Error("Binding changed");
+        exchange = ResourceMetadataExchange({adapter, projectId: record.projectId, resource: record,
+          isCurrent: current, signal: controller.signal});
         content.replaceChildren(node("p", `Current record revision ${record.versionNumber} · recorded ${record.versionCreatedAt} by ${record.versionCreatedBy}`),
           node("p", record.abstract || "Description not recorded."),
           node("p", `License: ${record.license || "Not recorded"}. Attribution: ${record.attribution || "Not recorded"}.`),
           node("p", "These are governed-record statements. Their authority and distribution scope must be read with the retained metadata and provenance."),
           json("Metadata profile and extensions", {profile: record.metadataProfile, extensions: record.metadataExtensions}),
           json("Provenance and identifiers", {provenance: record.provenance, externalIdentifiers: record.externalIdentifiers}),
-          sourcePanel(record), stylesPanel(record));
+          exchange, sourcePanel(record), stylesPanel(record));
         message.textContent = record.versionNumber === summary.versionNumber ? "Record loaded." : "The record changed since listing; the current revision is shown.";
-      } catch { content.replaceChildren(); message.textContent = "Record unavailable. Access or its Layer binding may have changed."; }
-      finally { inspect.disabled = false; }
+      } catch {if (!disposed) {content.replaceChildren(); message.textContent = "Record unavailable. Access or its Layer binding may have changed.";} }
+      finally {if (!disposed) inspect.disabled = false; }
     });
     section.append(inspect, message, content);
     return section;
@@ -60,14 +85,17 @@ export function LayerGovernedMetadata({adapter, datasetId}) {
     section.append(node("h4","Styles recorded for this Layer"),node("p",
       "A saved Style has its own identity and version. Inspecting or editing it does not change a map, render profile or publication. Map style selection is not yet available here; format alone does not establish field, geometry or renderer compatibility."));
     const load=button("Inspect saved Styles",async()=>{
+      if (disposed) return;
       load.disabled=true;feedback.textContent="Loading accessible Styles…";
       try {
+        if (!await current()) return;
         const [styles,capabilities]=await Promise.all([
           adapter.listResourceStyles(record.projectId,record.id),
           typeof adapter.getResourceCapabilities==="function"
             ? adapter.getResourceCapabilities(record.projectId,record.id).catch(()=>({canUpdate:false}))
             : {canUpdate:false}
         ]);
+        if (!await current()) return;
         if(styles.some(style=>style.resourceId!==record.id)) throw Error("Style binding changed");
         const entries=styles.map(style=>{
           const item=node("article"), heading=node("h5");
@@ -83,8 +111,8 @@ export function LayerGovernedMetadata({adapter, datasetId}) {
         feedback.textContent=styles.length?`${styles.length} saved Styles. Definitions remain inert until deliberately used by a compatible renderer.`:"No saved Styles on this governed record.";
         // Keep loaded editors in place; reopening does not erase their drafts.
         load.hidden=true;
-      }catch{feedback.textContent="Styles could not load. Check access and retry.";}
-      finally{load.disabled=false;}
+      }catch{if (!disposed) feedback.textContent="Styles could not load. Check access and retry.";}
+      finally{if (!disposed) load.disabled=false;}
     });
     section.append(load,feedback,content);return section;
   }
@@ -93,9 +121,12 @@ export function LayerGovernedMetadata({adapter, datasetId}) {
     const section = node("section"), status = node("p"), content = node("div");
     status.setAttribute("role", "status");
     const load = button("Inspect retained import source", async () => {
+      if (disposed) return;
       load.disabled = true;
       try {
+        if (!await current()) return;
         const source = await adapter.getResourceMetadataSource(record.projectId, record.id);
+        if (!await current()) return;
         if (source.resourceId !== record.id) throw Error("Source binding changed");
         content.replaceChildren(node("p", `Imported ${source.importedAt} by ${source.importedBy}. Source record version ID: ${source.resourceVersionId}.`),
           node("p", "This is the latest retained import; it may predate the current governed revision. It is not a new provider fetch."),
@@ -105,9 +136,10 @@ export function LayerGovernedMetadata({adapter, datasetId}) {
           json("Conversion report", source.conversionReport));
         status.textContent = "Retained import loaded.";
       } catch (error) {
+        if (disposed) return;
         content.replaceChildren();
         status.textContent = error?.status === 404 ? "No accessible retained import source was found." : "Import source could not load. Check access and retry.";
-      } finally { load.disabled = false; }
+      } finally {if (!disposed) load.disabled = false; }
     });
     section.append(load, status, content); return section;
   }

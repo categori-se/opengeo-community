@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, cast
@@ -13,17 +14,31 @@ from opengeo_worker.config import Settings
 from opengeo_worker.models import (
     PmtilesDerivativeClaim,
     PmtilesDerivativeMetadata,
+    StoredArtifact,
     ValidationFailure,
 )
+from opengeo_worker.pmtiles_options import normalize_pmtiles_options
 
 MAX_PMTILES_BYTES = 2_147_483_648
 PMTILES_DERIVATIVE_REQUEST_SCHEMA = "opengeo.pmtiles-derivative-request.1.0.0"
 PMTILES_DERIVATIVE_RECIPE = "gdal-pmtiles-v1"
+PMTILES_CONFIGURABLE_REQUEST_SCHEMA = "opengeo.pmtiles-derivative-request.1.1.0"
+PMTILES_CONFIGURABLE_RECIPE = "gdal-pmtiles-v2"
+PMTILES_CONFIGURABLE_GDAL = "3.13.1"
+PMTILES_CONFIGURABLE_BASE = (
+    "ghcr.io/osgeo/gdal:ubuntu-small-3.13.1@"
+    "sha256:836d1646ff9ab30d7db947c7b9690de55f34c2fd7cc5af6086a0854ccb378f59"
+)
 _PMTILES_MAGIC = b"PMTiles\x03"
+PMTILES_DISPLAY_VALIDATION_SCHEMA = "opengeo.pmtiles-display-validation.1"
+_GEOMETRY_TYPES = frozenset(
+    {"Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"}
+)
 
 
 class PmtilesDerivativeGenerator:
     def __init__(self, settings: Settings, runner: CommandRunner | None = None) -> None:
+        self._worker_image_digest = settings.pmtiles_worker_image_digest
         self._runner = runner or CommandRunner(
             settings.workspace_root,
             timeout_seconds=settings.command_timeout_seconds,
@@ -76,17 +91,96 @@ class PmtilesDerivativeGenerator:
             raise ValidationFailure("pmtiles_derivative_workspace_invalid")
 
         west, south, east, north = claim.bounds
+        options = claim.options
+        input_layer = claim.source_layer
+        extra_arguments: list[str] = []
+        input_arguments: list[str] = []
+        software = None
+        if options is not None:
+            # A preserved GeoJSON original has not passed shared ingestion. Force
+            # its declared parser instead of autodetecting another GDAL format.
+            if claim.source.content_type == "application/geo+json":
+                input_arguments = ["-if", "GeoJSON"]
+            if claim.worker_image_digest != self._worker_image_digest:
+                raise ValidationFailure("pmtiles_derivative_runtime_image_mismatch")
+            version = self._runner.run(
+                "ogrinfo", ["--version"], cwd=workdir, maximum_file_bytes=MAX_PMTILES_BYTES
+            ).stdout.strip()
+            if re.match(r"GDAL\s+3\.13\.1(?:[ ,]|$)", version) is None:
+                raise ValidationFailure("pmtiles_derivative_runtime_version_mismatch")
+            software = {
+                "gdal": PMTILES_CONFIGURABLE_GDAL,
+                "workerBaseImage": PMTILES_CONFIGURABLE_BASE,
+                "projNetwork": "disabled",
+                "versionOutput": version,
+                "runtimeImageDigest": self._worker_image_digest,
+            }
+            inspected_source = self._runner.run(
+                "ogrinfo",
+                ["-ro", "-so", "-al", "-json", *input_arguments, str(source)],
+                cwd=workdir,
+                maximum_file_bytes=MAX_PMTILES_BYTES,
+            )
+            try:
+                source_document = json.loads(inspected_source.stdout)
+                source_layers = source_document["layers"]
+                if (
+                    not isinstance(source_layers, list)
+                    or not source_layers
+                    or not all(
+                        isinstance(layer, dict) and isinstance(layer.get("name"), str)
+                        for layer in source_layers
+                    )
+                ):
+                    raise ValueError("Invalid source layers")
+            except (ValueError, TypeError, KeyError) as error:
+                raise ValidationFailure("pmtiles_derivative_source_layers_invalid") from error
+            input_layer = options["input_layer"]
+            if input_layer is None:
+                if len(source_layers) != 1:
+                    raise ValidationFailure("pmtiles_derivative_input_layer_required")
+                input_layer = source_layers[0]["name"]
+            selected = [layer for layer in source_layers if layer["name"] == input_layer]
+            if (
+                len(selected) != 1
+                or not input_layer
+                or input_layer.startswith("-")
+                or len(input_layer) > 200
+                or re.search(r"[\x00-\x1f\x7f]", input_layer)
+            ):
+                raise ValidationFailure("pmtiles_derivative_input_layer_invalid")
+            fields = options["attribute_names"]
+            if fields is not None:
+                names = {
+                    field.get("name")
+                    for field in selected[0].get("fields", [])
+                    if isinstance(field, dict)
+                }
+                if not set(fields) <= names:
+                    raise ValidationFailure("pmtiles_derivative_attribute_missing")
+                extra_arguments.extend(["-select", ",".join(fields)])
+            for key, setting in (
+                ("extent", "EXTENT"),
+                ("simplification", "SIMPLIFICATION"),
+                ("simplification_max_zoom", "SIMPLIFICATION_MAX_ZOOM"),
+                ("buffer", "BUFFER"),
+                ("max_size", "MAX_SIZE"),
+                ("max_features", "MAX_FEATURES"),
+            ):
+                extra_arguments.extend(["-dsco", f"{setting}={_number(options[key])}"])
         self._runner.run(
             "ogr2ogr",
             [
                 "-f",
                 "PMTiles",
+                *input_arguments,
                 "-dsco",
                 "NAME=OpenGeo custom PMTiles derivative",
                 "-dsco",
                 f"MINZOOM={claim.minimum_zoom}",
                 "-dsco",
                 f"MAXZOOM={claim.maximum_zoom}",
+                *extra_arguments,
                 "-lco",
                 f"MINZOOM={claim.minimum_zoom}",
                 "-lco",
@@ -104,7 +198,7 @@ class PmtilesDerivativeGenerator:
                 claim.source_layer,
                 str(target),
                 str(source),
-                claim.source_layer,
+                input_layer,
             ],
             cwd=workdir,
             maximum_file_bytes=MAX_PMTILES_BYTES,
@@ -125,7 +219,7 @@ class PmtilesDerivativeGenerator:
             document = json.loads(inspected.stdout)
         except (ValueError, UnicodeError) as error:
             raise ValidationFailure("pmtiles_derivative_metadata_invalid") from error
-        return _metadata(document, claim)
+        return replace(_metadata(document, claim), software=software, input_layer=input_layer)
 
 
 def pmtiles_derivative_request_checksum(claim: PmtilesDerivativeClaim) -> str:
@@ -144,8 +238,12 @@ def pmtiles_derivative_request_canonical_bytes(claim: PmtilesDerivativeClaim) ->
     assert claim.maximum_zoom is not None
     assert claim.source_layer is not None
     request = {
-        "schema": PMTILES_DERIVATIVE_REQUEST_SCHEMA,
-        "recipe": PMTILES_DERIVATIVE_RECIPE,
+        "schema": PMTILES_CONFIGURABLE_REQUEST_SCHEMA
+        if claim.options is not None
+        else PMTILES_DERIVATIVE_REQUEST_SCHEMA,
+        "recipe": PMTILES_CONFIGURABLE_RECIPE
+        if claim.options is not None
+        else PMTILES_DERIVATIVE_RECIPE,
         "bounds": list(claim.bounds),
         "dataset_id": str(claim.dataset_id),
         "dataset_version_id": str(claim.dataset_version_id),
@@ -154,6 +252,14 @@ def pmtiles_derivative_request_canonical_bytes(claim: PmtilesDerivativeClaim) ->
         "project_id": str(claim.project_id),
         "source_layer": claim.source_layer,
         "source_object_id": str(claim.source.object_id),
+        **(
+            {
+                "options": normalize_pmtiles_options(claim.options),
+                "worker_image_digest": claim.worker_image_digest,
+            }
+            if claim.options is not None
+            else {}
+        ),
     }
     return _canonical_json_bytes(request)
 
@@ -165,6 +271,20 @@ def _validate_request(claim: PmtilesDerivativeClaim) -> None:
     assert claim.source_layer is not None
     assert claim.request_checksum_sha256 is not None
     west, south, east, north = claim.bounds
+    if claim.options is not None:
+        try:
+            if (
+                normalize_pmtiles_options(claim.options) != claim.options
+                or re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,62}", claim.source_layer) is None
+            ):
+                raise ValueError("Unnormalized options")
+            if (
+                not isinstance(claim.worker_image_digest, str)
+                or re.fullmatch(r"sha256:[0-9a-f]{64}", claim.worker_image_digest) is None
+            ):
+                raise ValueError("Unpinned v2 runtime")
+        except ValueError as error:
+            raise ValidationFailure("pmtiles_derivative_request_invalid") from error
     if (
         any(not math.isfinite(value) for value in claim.bounds)
         or not -180 <= west < east <= 180
@@ -223,7 +343,117 @@ def _metadata(document: object, claim: PmtilesDerivativeClaim) -> PmtilesDerivat
         feature_count=feature_count,
         minimum_zoom=minimum_zoom,
         maximum_zoom=maximum_zoom,
+        geometry_type=_geometry_type(layer),
     )
+
+
+def _geometry_type(layer: dict[str, object]) -> str | None:
+    fields = layer.get("geometryFields")
+    if not isinstance(fields, list) or len(fields) != 1 or not isinstance(fields[0], dict):
+        return None
+    value = fields[0].get("type")
+    return value if isinstance(value, str) and value in _GEOMETRY_TYPES else None
+
+
+def pmtiles_display_validation(
+    output: Path,
+    metadata: PmtilesDerivativeMetadata,
+    claim: PmtilesDerivativeClaim,
+    artifact: StoredArtifact,
+    expected_owner: str,
+) -> tuple[dict[str, object], bytes | None]:
+    """Seal display facts from local bytes; this never admits or enables a display."""
+    claim.require_claimed()
+    assert claim.source is not None
+    assert claim.bounds is not None
+    if (
+        re.fullmatch(r"[0-9]{12}", expected_owner) is None
+        or artifact.object_key != claim.output_object_key
+        or artifact.bucket != claim.source.bucket
+        or not 1 <= artifact.size_bytes <= MAX_PMTILES_BYTES
+        or output.is_symlink()
+        or not output.is_file()
+        or output.stat().st_size != artifact.size_bytes
+    ):
+        raise ValidationFailure("pmtiles_display_output_facts_mismatch")
+    digest = hashlib.sha256()
+    blocks: list[str] = []
+    size = 0
+    with output.open("rb") as source:
+        while block := source.read(65536):
+            size += len(block)
+            if size > artifact.size_bytes:
+                raise ValidationFailure("pmtiles_display_output_facts_mismatch")
+            digest.update(block)
+            blocks.append(hashlib.sha256(block).hexdigest())
+    if size != artifact.size_bytes or digest.hexdigest() != artifact.checksum_sha256:
+        raise ValidationFailure("pmtiles_display_output_facts_mismatch")
+    tile_layers: list[dict[str, object]] = []
+    if (
+        metadata.geometry_type in _GEOMETRY_TYPES
+        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,62}", metadata.layer_name) is not None
+        and 0 <= metadata.feature_count <= 10_000_000
+    ):
+        tile_layers.append(
+            {
+                "source_layer": metadata.layer_name,
+                "title": metadata.layer_name,
+                "geometry_type": metadata.geometry_type,
+                "feature_count": metadata.feature_count,
+                "geometry_method": (
+                    "Quantized, clipped and simplified tiled display; not analytical geometry. "
+                    "Counts are GDAL-reported tile fragments, not source records. "
+                    "Source geometry and attributes remain preserved separately."
+                ),
+            }
+        )
+    validation: dict[str, object] = {
+        "schema_version": PMTILES_DISPLAY_VALIDATION_SCHEMA,
+        "recipe": PMTILES_CONFIGURABLE_RECIPE
+        if claim.options is not None
+        else PMTILES_DERIVATIVE_RECIPE,
+        "source_object_id": str(claim.source.object_id),
+        "source_checksum_sha256": claim.source.checksum_sha256,
+        "source_s3_version_id": claim.source.s3_version_id,
+        "request_checksum_sha256": claim.request_checksum_sha256,
+        "output_checksum_sha256": artifact.checksum_sha256,
+        "output_size_bytes": artifact.size_bytes,
+        "expected_owner": expected_owner,
+        "bounds": list(claim.bounds),
+        "min_zoom": metadata.minimum_zoom,
+        "max_zoom": metadata.maximum_zoom,
+        "output_layer": {
+            "name": metadata.layer_name,
+            "reported_fragment_count": metadata.feature_count,
+            "geometry_type": metadata.geometry_type,
+            "crs": metadata.crs,
+        },
+        "tile_layers": tile_layers,
+        "count_semantics": "gdal-reported-tile-fragments-not-source-records",
+        "losses": {
+            "geometry": "quantized-clipped-simplified-display-not-analysis",
+            "attributes": "not-independently-verified-null-values-may-be-omitted",
+            "feature_ids": "not-guaranteed-to-retain-source-fids",
+            "source_record_count": None,
+            "preservation_verified": False,
+        },
+    }
+    if claim.options is not None:
+        if metadata.software is None:
+            raise ValidationFailure("pmtiles_derivative_runtime_version_missing")
+        validation["options"] = claim.options
+        validation["software"] = metadata.software
+        validation["input_layer"] = metadata.input_layer
+        losses = cast(dict[str, object], validation["losses"])
+        losses["adaptive_tile_limits"] = (
+            "Tile byte and feature limits may reduce precision or omit display features; "
+            "source data remains preserved."
+        )
+        losses["attribute_selection"] = claim.options["attribute_names"]
+    if artifact.size_bytes <= 64 * 1024**2 and metadata.feature_count <= 100_000:
+        validation["block_sha256"] = blocks
+        return validation, None
+    return validation, bytes.fromhex("".join(blocks))
 
 
 def _validate_output_crs(layer: dict[str, object]) -> None:

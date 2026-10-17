@@ -1,6 +1,6 @@
 import {browserSessionState} from "./auth.js";
 
-export const DEFAULT_AUTH_RETURN_TO = "/workspaces";
+export const DEFAULT_AUTH_RETURN_TO = "/";
 
 // Public links cannot inspect Studio's origin-scoped session. Decide only after
 // entering Studio; project/login links and ordinary direct visits stay intact.

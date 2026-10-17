@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
+import pytest
 from fastapi import HTTPException, Request
 
 from opengeo_api.artifact_release_routes import (
@@ -334,3 +335,334 @@ def test_public_collection_limits_lazy_previews_and_escapes_output_terms():
     assert body.count("<a href=") == 6
     assert "<script>" not in body and "&lt;script&gt;" in body
     assert "CC0-1.0" in body
+
+
+@pytest.fixture(scope="module")
+def native_artifact():
+    import json
+    import subprocess
+    from pathlib import Path
+
+    script = """
+import {compilePortableMapArtifact} from './app/src/lib/portableMapArtifact.js';
+const sourceId='dataset_00000000-0000-0000-0000-000000000010_'
+ +'version_00000000-0000-0000-0000-000000000011-source';
+const result=await compilePortableMapArtifact({title:'Survey <safe>',
+ runtimeJs:'globalThis.retainedRuntimeExecuted=true;',runtimeCss:'body{color:red}',
+ runtimeLicense:'BSD',candidates:[{id:'points',sourceId,title:'Points',
+ visible:true,paintOrder:{points:0},source:{type:'geojson',data:{type:'FeatureCollection',
+ features:[{type:'Feature',properties:{name:'Clinic'},geometry:{type:'Point',coordinates:[1,2]}}]}},
+ paints:[{id:'points',type:'circle',source:sourceId,paint:{'circle-radius':5}}]}],
+ selectedIds:['points'],view:{center:[1,2],zoom:8}});
+console.log(JSON.stringify(result));
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=Path(__file__).resolve().parents[3],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    return json.loads(result.stdout)
+
+
+def native_request(artifact):
+    from hashlib import sha256
+
+    from fastapi import FastAPI
+
+    from opengeo_api.artifact_release_routes import router
+
+    html = artifact["html"].encode()
+    storage = SimpleNamespace(
+        read_exact_object=AsyncMock(
+            return_value=SimpleNamespace(body=html, content_type="text/html")
+        )
+    )
+    app = FastAPI()
+    app.include_router(router)
+    app.state.render_repository = SimpleNamespace(_artifact_downloads=storage)
+    request = Request(
+        {
+            "type": "http",
+            "app": app,
+            "router": app.router,
+            "scheme": "https",
+            "server": ("api.example.test", 443),
+            "headers": [],
+            "path": "/",
+            "root_path": "",
+        }
+    )
+    target = [None] * 16
+    target[15] = {
+        "layers": [
+            {
+                "sourceType": "governed-dataset",
+                "datasetId": "00000000-0000-0000-0000-000000000010",
+                "datasetVersionId": "00000000-0000-0000-0000-000000000011",
+                "sourceVersion": 1,
+            }
+        ]
+    }
+    target[5] = UUID(int=99)
+    target[7:14] = [
+        "private-bucket",
+        "private-key",
+        "version-1",
+        "text/html",
+        len(html),
+        sha256(html).hexdigest(),
+        artifact["manifest"],
+    ]
+    record = {
+        "id": str(UUID(int=2)),
+        "artifact_id": str(UUID(int=3)),
+        "version_number": 7,
+        "project_id": str(UUID(int=4)),
+        "title": "Survey",
+        "license": "CC-BY-4.0",
+        "attribution": "Survey team",
+        "private_secret": "never-expose",
+    }
+    return request, record, target, storage
+
+
+def test_native_module_is_data_only_and_preserves_exact_authority(native_artifact):
+    from opengeo_api.project_module import native_payload
+
+    request, record, target, storage = native_request(native_artifact)
+    authority = AsyncMock(return_value=(record, target))
+    with patch("opengeo_api.artifact_release_routes._public", authority):
+        response = asyncio.run(
+            public_release_module(UUID(int=1), UUID(int=2), request, mode="native")
+        )
+    assert authority.await_count == 2 and storage.read_exact_object.await_count == 1
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["cache-control"] == "no-store"
+    assert b"retainedRuntimeExecuted" not in response.body
+    assert b"export const html" not in response.body and b"srcdoc" not in response.body
+    assert b"private-bucket" not in response.body and b"never-expose" not in response.body
+    assert b"https://api.example.test/public/" in response.body
+    payload = native_payload(native_artifact["html"].encode(), native_artifact["manifest"])
+    assert (
+        next(iter(payload["style"]["sources"].values()))["data"]["features"][0]["properties"][
+            "name"
+        ]
+        == "Clinic"
+    )
+
+
+@pytest.mark.parametrize("mutation", ["unknown", "glyphs", "url", "source", "script", "duplicate"])
+def test_native_payload_rejects_unsupported_or_unbound_input(native_artifact, mutation):
+    import copy
+    import json
+    from hashlib import sha256
+
+    from opengeo_api.json_canonical import canonical_json_bytes
+    from opengeo_api.project_module import NativePayloadUnsupported, native_payload
+
+    manifest = copy.deepcopy(native_artifact["manifest"])
+    html = native_artifact["html"]
+    start = html.index("<script>const publication=") + len("<script>const publication=")
+    payload, end = json.JSONDecoder().raw_decode(html[start:])
+    if mutation == "unknown":
+        payload["onLoad"] = "alert(1)"
+    elif mutation == "glyphs":
+        payload["style"]["glyphs"] = "https://unbound.example/{fontstack}/{range}.pbf"
+    elif mutation == "url":
+        next(iter(payload["style"]["sources"].values()))["data"] = "https://unbound.example/private"
+    elif mutation == "source":
+        next(iter(payload["style"]["sources"].values()))["data"]["features"][0]["properties"][
+            "name"
+        ] = "Changed"
+    if mutation == "script":
+        encoded = "(()=>{globalThis.executed=true;return " + json.dumps(payload) + "})()"
+    else:
+        encoded = json.dumps(payload, separators=(",", ":"))
+        if mutation == "duplicate":
+            encoded = encoded.replace('{"title":', '{"title":"duplicate","title":', 1)
+    html = (html[:start] + encoded + html[start + end :]).encode()
+    manifest["output"].update(sizeBytes=len(html), checksumSha256=sha256(html).hexdigest())
+    manifest["artifactId"] = "sha256:" + sha256(html).hexdigest()
+    manifest["manifestChecksumSha256"] = sha256(
+        canonical_json_bytes(
+            {key: value for key, value in manifest.items() if key != "manifestChecksumSha256"}
+        )
+    ).hexdigest()
+    with pytest.raises(NativePayloadUnsupported):
+        native_payload(html, manifest)
+
+
+def test_native_unsupported_returns_clear_iframe_fallback_and_cors(native_artifact):
+    request, record, target, storage = native_request(native_artifact)
+    storage.read_exact_object.return_value = SimpleNamespace(
+        body=b"<html>Other</html>", content_type="text/html"
+    )
+    with (
+        patch(
+            "opengeo_api.artifact_release_routes._public", AsyncMock(return_value=(record, target))
+        ),
+        pytest.raises(HTTPException) as rejected,
+    ):
+        asyncio.run(public_release_module(UUID(int=1), UUID(int=2), request, mode="native"))
+    assert rejected.value.status_code == 409
+    assert rejected.value.detail["code"] == "artifact_native_unavailable"
+    assert rejected.value.detail["iframe_url"].endswith("/map")
+    assert rejected.value.headers["Access-Control-Allow-Origin"] == "*"
+
+
+def test_native_controls_events_and_cleanup_with_offline_host_peer(native_artifact, tmp_path):
+    import subprocess
+
+    from opengeo_api.project_module import native_payload, native_project_module
+
+    module = tmp_path / "map.mjs"
+    module.write_bytes(
+        native_project_module(
+            native_payload(native_artifact["html"].encode(), native_artifact["manifest"]),
+            {"title": "Survey", "attribution": "Survey", "license": "CC0", "iframe_url": "/map"},
+        )
+    )
+    subprocess.run(["node", "--check", str(module)], check=True, capture_output=True, timeout=10)
+    peer = r"""
+import assert from 'node:assert/strict';
+const {createView}=await import(process.argv[1]);
+class Element extends EventTarget {constructor(tag){super();this.tag=tag;
+ this.style={};this.children=[];}
+ append(...items){this.children.push(...items);}remove(){this.removed=true;}}
+const document={createElement:tag=>new Element(tag),createTextNode:text=>({text}),
+ defaultView:{CustomEvent}};
+class MapPeer {constructor(options){this.options=options;this.events=new Map();
+ this.layers=[];
+ this.view={...options};this.removes=0;}
+ on(type,fn){this.events.set(type,fn);}off(type){this.events.delete(type);}
+ emit(type,value){this.events.get(type)?.(value);}getCenter(){return{toArray:()=>this.view.center};}
+ getZoom(){return this.view.zoom;}getPitch(){return this.view.pitch;}
+ getBearing(){return this.view.bearing;}
+ jumpTo(view){Object.assign(this.view,view);this.emit('moveend');}addLayer(value){this.layers.push(value);}
+ setLayoutProperty(id,key,value){this.visibility={id,key,value};}setFilter(id,value){this.filter={id,value};}
+
+ queryRenderedFeatures(){return[{id:1,source:'points',properties:{name:'Clinic'},
+ geometry:{type:'Point',coordinates:[1,2]}}];}resize(){this.resizes=(this.resizes??0)+1;}
+ remove(){this.removes++;}}
+const signal=new AbortController();
+const view=createView({maplibre:{Map:MapPeer},document,signal:signal.signal});
+
+const events=[];for(const type of ['mapready','camerachange','layerchange','filterchange',
+ 'selectionchange','dispose'])
+ view.addEventListener(type,event=>events.push({type,detail:event.detail}));
+assert.equal(globalThis.retainedRuntimeExecuted,undefined);
+view.setLayerVisibility('points',false);view.setFilter('points',['==',['get','name'],'Clinic']);
+view.map.emit('load');assert.equal(view.map.layers.length,1);
+assert.equal(view.map.visibility.value,'none');
+view.setCamera({zoom:9});assert.equal(view.getCamera().zoom,9);
+view.resize();
+view.map.emit('click',{point:{x:1,y:2}});assert.equal(view.getSelection()[0].properties.name,'Clinic');
+assert.throws(()=>view.setLayerVisibility('unpublished',true));
+assert.throws(()=>view.setCamera({zoom:NaN}));
+signal.abort();view.dispose();assert.equal(view.map.removes,1);
+assert.equal(view.map.events.size,0);
+assert.equal(view.removed,true);assert.throws(()=>view.resize());
+for(const type of ['mapready','camerachange','layerchange','filterchange',
+ 'selectionchange','dispose'])
+ assert(events.some(event=>event.type===type),type);
+console.log('native-peer-pass');
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", peer, module.as_uri()],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert "native-peer-pass" in result.stdout
+
+
+def test_public_descriptor_is_small_allowlisted_pinned_metadata_no_storage(native_artifact):
+    import json
+
+    from opengeo_api.artifact_release_routes import public_release_descriptor
+
+    request, record, target, storage = native_request(native_artifact)
+    authority = AsyncMock(return_value=(record, target))
+    with patch("opengeo_api.artifact_release_routes._public", authority):
+        response = asyncio.run(public_release_descriptor(UUID(int=1), UUID(int=2), request))
+    descriptor = json.loads(response.body)
+    assert descriptor["artifactId"] == record["artifact_id"] and descriptor["versionNumber"] == 7
+    assert descriptor["selection"]["followsCurrent"] is False
+    assert descriptor["output"]["checksumSha256"] == target[12]
+    assert (
+        descriptor["manifestChecksumSha256"]
+        == native_artifact["manifest"]["manifestChecksumSha256"]
+    )
+    assert descriptor["urls"]["nativeModule"].endswith("/module.mjs?mode=native")
+    assert descriptor["scope"] == "reviewed-browser-snapshot"
+    assert descriptor["urls"]["htmlDownload"].endswith("/map?download=true")
+    assert descriptor["urls"]["staticImage"] is None
+    assert response.headers["access-control-allow-origin"] == "*"
+    assert response.headers["cache-control"] == "no-store" and len(response.body) < 8192
+    assert b"private-bucket" not in response.body and b"private-key" not in response.body
+    assert b"never-expose" not in response.body
+    assert authority.await_count == 1
+    storage.read_exact_object.assert_not_awaited()
+    with (
+        patch(
+            "opengeo_api.artifact_release_routes._public",
+            AsyncMock(side_effect=HTTPException(404, "revoked")),
+        ),
+        pytest.raises(HTTPException) as rejected,
+    ):
+        asyncio.run(public_release_descriptor(UUID(int=1), UUID(int=2), request))
+    assert rejected.value.headers["Access-Control-Allow-Origin"] == "*"
+
+
+def test_native_accepts_only_recorded_public_raster_payload():
+    import json
+    import subprocess
+    from pathlib import Path
+
+    from opengeo_api.project_module import native_payload
+
+    script = """
+import {compilePortableMapArtifact} from './app/src/lib/portableMapArtifact.js';
+console.log(JSON.stringify(await compilePortableMapArtifact({title:'Public raster',mode:'live',
+ runtimeJs:'/*retained runtime*/',runtimeCss:'body{}',runtimeLicense:'BSD',
+ candidates:[{id:'raster',sourceId:'raster-source',title:'Raster',visible:true,
+ paintOrder:{raster:0},source:{type:'raster',tileSize:256,
+ tiles:['https://tiles.example.test/{z}/{x}/{y}.png']},
+ paints:[{id:'raster',type:'raster',source:'raster-source'}]}],selectedIds:['raster']})));
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", script],
+        cwd=Path(__file__).resolve().parents[3],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    artifact = json.loads(result.stdout)
+    payload = native_payload(artifact["html"].encode(), artifact["manifest"])
+    assert payload["mode"] == "live"
+    assert payload["style"]["sources"]["raster-source"]["tiles"] == [
+        "https://tiles.example.test/{z}/{x}/{y}.png"
+    ]
+
+
+def test_public_image_descriptor_does_not_advertise_html_or_native(native_artifact):
+    import json
+
+    from opengeo_api.artifact_release_routes import public_release_descriptor
+
+    request, record, target, storage = native_request(native_artifact)
+    target[10] = "image/png"
+    with patch(
+        "opengeo_api.artifact_release_routes._public", AsyncMock(return_value=(record, target))
+    ):
+        response = asyncio.run(public_release_descriptor(UUID(int=1), UUID(int=2), request))
+    descriptor = json.loads(response.body)
+    assert descriptor["urls"]["staticImage"].endswith("/image")
+    assert descriptor["urls"]["htmlDownload"] is None
+    assert descriptor["native"] is None and descriptor["urls"]["nativeModule"] is None
+    storage.read_exact_object.assert_not_awaited()

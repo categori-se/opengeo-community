@@ -7,6 +7,9 @@ import {ProjectPrintStudio} from "../src/components/ProjectPrintStudio.js";
 import {ProjectSites} from "../src/components/ProjectSites.js";
 import {ProjectWorkspacePage} from "../src/components/ProjectWorkspacePage.js";
 import {FixturePlatformAdapter, FIXTURE_PROJECTS} from "../src/lib/fixturePlatform.js";
+import {ProjectPrintEditor, capturePrintMap, printPageSvg} from "../src/components/ProjectPrintEditor.js";
+import {definitionWithPrintLayouts, definitionForPrintFrame, newProjectPrintLayout, printLayerPresentation, projectPrintLayouts, validateProjectPrintLayouts} from "../src/lib/printLayouts.js";
+import {canonicalJson} from "../src/lib/artifactCanonicalJson.js";
 
 const IDS = Object.freeze({
   organization: "10000000-0000-4000-8000-000000000001",
@@ -30,6 +33,112 @@ afterEach(() => {
 });
 
 describe("publication project surfaces", () => {
+  it("retains exact Project print bindings and preserves canonical data and other extensions", () => {
+    const map = printProjectFixture(), layout = newProjectPrintLayout(map, "layout-one");
+    const value = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
+    layout.frames[0].presentation[0].style.fill = "#00aa00";
+    const definition = definitionWithPrintLayouts(map, value);
+    assert.deepEqual(definition.layers, map.definition.layers);assert.deepEqual(definition.extensions.kept, {answer: 42});
+    const reopened = projectPrintLayouts({...map, definition});assert.equal(reopened.layouts[0].frames[0].presentation[0].style.fill, "#00aa00");
+    const view = definitionForPrintFrame(map, reopened.layouts[0].frames[0]);
+    assert.equal(view.layers[0].style.fill, "#00aa00");assert.equal(view.layers[0].sourceUrl, map.definition.layers[0].sourceUrl);
+    assert.equal(Object.hasOwn(view.layers[0], "filter"), false);assert.equal(Object.hasOwn(view.layers[0], "styleReference"), false);
+    for (const mutate of [draft => {draft.projectId = IDS.project;}, draft => {draft.layouts[0].frames[0].presentation[0].sourceVersion = 99;},
+      draft => {draft.layouts[0].frames[0].presentation[0].style.url = "https://example.org/other";},
+      draft => {draft.layouts[0].frames[0].presentation[0].filter = ["execute", "bad"];},
+      draft => {draft.layouts[0].frames[0].presentation[0].styleReference = {styleId: "unknown"};},
+      draft => {Object.assign(draft.layouts[0].page, {widthMm: 1189, heightMm: 841});draft.layouts[0].dpi = 300;},
+      draft => {draft.layouts[0].frames[0].image = "data:image/png;base64,private";}]) {
+      const rejected = structuredClone(value);mutate(rejected);assert.throws(() => validateProjectPrintLayouts(rejected, map));
+    }
+  });
+
+  it("captures and explicitly saves/reopens main and inset layouts without changing canonical Layer styling", async () => {
+    let map = printProjectFixture(), writes = 0;
+    const adapter = {organizationProvider: async () => IDS.organization, updateMap: async (project, id, payload) => {
+      writes++;assert.equal(project, IDS.project);assert.equal(id, map.id);assert.equal(payload.expectedVersion, map.version);
+      assert.deepEqual(payload.changes.definition.layers, map.definition.layers);
+      map = {...map, version: map.version + 1, definition: payload.changes.definition};return structuredClone(map);
+    }};
+    const makeWorkbench = frame => {
+      const workbench = document.createElement("section");
+      const definition = frame ? definitionForPrintFrame(map, frame) : map.definition;
+      workbench.getPrintContext = () => ({layers: definition.layers, view: frame?.view ?? map.definition.mapViews[0]});return workbench;
+    };
+    let testCamera = null;
+    const capture = async context => {
+      const selected = testCamera ?? context.view;
+      const view = {center: [...selected.center], zoom: selected.zoom, pitch: selected.pitch, bearing: selected.bearing};
+      const presentation = context.layers.map(printLayerPresentation);
+      return {...printCaptureFixture(map), view, presentation, signature: canonicalJson({view, presentation})};
+    };
+    const root = ProjectPrintEditor({state: {adapter, project: {id: IDS.project}, organization: {id: IDS.organization}, selectedMap: map},
+      workbench: makeWorkbench(), editFrame: makeWorkbench, canSave: true, captureMap: capture});document.body.append(root);
+    const click = async title => {const button = [...root.querySelectorAll("button")].find(node => node.textContent === title);assert.ok(button, title);await button.onclick();};
+    assert.equal(writes, 0);assert.equal(root.hasUnsavedChanges(), false);assert.doesNotMatch(root.textContent, /Open Publishing/);
+    await click("Capture map frame");await click("Add inset map");await click("Edit selected map frame");await click("Capture map frame");
+    testCamera = {center: [85, 28], zoom: 8, pitch: 0, bearing: 0};await click("Capture map frame");
+    await click("Undo layout change");await click("Download paper SVG");assert.match(root.textContent, /Capture every map frame/);
+    const frameChoice = root.querySelector('[aria-label="Map frame"]');frameChoice.value = "inset";frameChoice.dispatchEvent(new harness.dom.window.Event("change"));
+    testCamera = null;await click("Edit selected map frame");await click("Capture map frame");
+    await click("Save layout");assert.equal(writes, 1);assert.equal(root.hasUnsavedChanges(), false);
+    const saved = projectPrintLayouts(map);assert.equal(saved.layouts[0].frames.length, 2);
+    assert.equal(saved.layouts[0].frames[1].parentId, "main");assert.notEqual(saved.layouts[0].frames[0].view.zoom, saved.layouts[0].frames[1].view.zoom);
+    assert.doesNotMatch(JSON.stringify(saved), /data:image|base64|https:/);
+    for (const [label, value] of [["Page width (mm)", "320"], ["Page height (mm)", "240"], ["Orientation", "portrait"]]) {
+      const input = root.querySelector(`[aria-label="${label}"]`);input.value = value;input.dispatchEvent(new harness.dom.window.Event("change"));
+    }
+    assert.equal(root.querySelector('[aria-label="Paper size"]').value, "Custom");
+    assert.equal(root.querySelector('[aria-label="Page width (mm)"]').value, "240");
+    assert.equal(root.querySelector('[aria-label="Page height (mm)"]').value, "320");
+    const title = root.querySelector('[aria-label="Layout title"]');title.value = "Retained layout draft";title.dispatchEvent(new harness.dom.window.Event("change"));
+    adapter.updateMap = async () => {throw Object.assign(Error("conflict"), {status: 409});};await click("Save layout");
+    assert.equal(root.hasUnsavedChanges(), true);assert.match(root.textContent, /Project changed/);assert.equal(root.querySelector('[aria-label="Layout title"]').value, "Retained layout draft");
+    let opened;
+    const reopened = ProjectPrintEditor({state: {adapter, project: {id: IDS.project}, organization: {id: IDS.organization}, selectedMap: map},
+      workbench: makeWorkbench(saved.layouts[0].frames[0]), editFrame: frame => {opened = frame;return makeWorkbench(frame);}, canSave: true});document.body.append(reopened);
+    assert.equal(reopened.querySelector('[aria-label="Layout title"]').value, saved.layouts[0].title);
+    await [...reopened.querySelectorAll("button")].find(node => node.textContent === "Edit selected map frame").onclick();
+    assert.deepEqual(opened, saved.layouts[0].frames[0]);root.dispose();reopened.dispose();
+  });
+
+  it("uses one rendered state for pixels/camera and a local scale sample at world zoom", async () => {
+    const mapRecord = printProjectFixture();let render, camera = [0, 0], calls = 0;
+    mapRecord.definition.layers[0].style = {circleColor: "#06b6d4"};
+    mapRecord.definition.layers[0].attribution = "Original survey credit";
+    mapRecord.definition.layers[0].metadata = {curated: {attribution: "Reviewed survey credit"}};
+    const map = {isStyleLoaded: () => true, areTilesLoaded: () => true, isMoving: () => false,
+      getCanvas: () => ({width: 512, height: 256, clientWidth: 128, clientHeight: 64, toDataURL: () => "data:image/png;base64,aW1hZ2U="}),
+      getCenter: () => ({lng: camera[0], lat: camera[1]}), getZoom: () => -2, getPitch: () => 0, getBearing: () => 0,
+      getProjection: () => ({type: "mercator"}), getBounds: () => ({toArray: () => [[-180, -80], [180, 80]]}),
+      getStyle: () => ({layers: [{id: "wetland-paint", type: "circle", paint: {"circle-color": ["case", ["has", "hover"], "#fff", "#06b6d4"]}}]}),
+      project: ([lng, lat]) => ({x: (lng + 180) / 360 * 128, y: (80 - lat) / 160 * 64}),
+      unproject: ([x]) => ({lng: ((x / 128 * 360 + 180) % 360) - 180, lat: 0}),
+      once: (_event, callback) => {render = callback;}, triggerRepaint: () => {camera = [5, 0];calls++;render();}};
+    const captured = await capturePrintMap({map, renderer: "maplibre", ready: true, project: mapRecord.definition,
+      layers: mapRecord.definition.layers, handles: new Map([["wetlands", {layerIds: ["wetland-paint"]}]]), basemap: {attribution: "Basemap credit"}}, mapRecord);
+    assert.deepEqual(captured.view.center, [5, 0]);assert.equal(calls, 1);
+    assert.ok(Math.abs(captured.metresPerPixel - 2 * Math.PI * 6371008.8 / 128) < 0.1);
+    assert.match(captured.imageSha256, /^[a-f0-9]{64}$/);
+    assert.equal(captured.legend[0].color, "#06b6d4");
+    assert(captured.attribution.includes("Original survey credit"));assert(captured.attribution.includes("Reviewed survey credit"));
+    const layout = newProjectPrintLayout(mapRecord, "layout-one");layout.graticule = true;layout.sourceNotes = false;
+    const svg = printPageSvg(layout, new Map([["layout-one:main", captured]]), "layout-one");
+    assert.match(svg.textContent, /Basemap credit/);assert.equal(svg.getAttribute("width"), "297mm");
+    assert.ok(svg.getElementsByTagNameNS("http://www.w3.org/2000/svg", "clipPath").length);assert.ok(svg.querySelector('g[clip-path] polyline'));
+    assert.equal(svg.querySelector("image").getAttribute("width"), "215");
+  });
+
+  it("keeps the legacy Print URL useful through deliberate exact-map choices", async () => {
+    const map = printProjectFixture();let requests = 0;
+    const studio = ProjectPrintStudio({state: {project: {id: IDS.project}, organization: {id: IDS.organization}, maps: [], sites: [],
+      adapter: {organizationProvider: async () => IDS.organization, listMaps: async (id, page) => {requests++;assert.equal(id, IDS.project);assert.equal(page.limit, 50);return [map];}}}});
+    document.body.append(studio);assert.equal(requests, 0);assert.doesNotMatch(studio.textContent, /Open Publishing/);
+    await [...studio.querySelectorAll("button")].find(button => button.textContent === "Load map Projects").onclick();
+    const link = [...studio.querySelectorAll("a")].find(node => node.textContent === map.name);
+    assert.equal(new URL(link.href).searchParams.get("composition"), map.id);assert.equal(new URL(link.href).searchParams.get("manage"), "print");
+    assert.equal(requests, 1);studio.dispose();
+  });
   it("links a zero-map publication project to its publication workspace", async () => {
     const calls = [];
     const adapter = publicationAdapter(calls);
@@ -123,7 +232,7 @@ describe("publication project surfaces", () => {
     }});
     const cards = [...studio.querySelectorAll(".project-print-card")];
     const direct = [...cards[0].querySelectorAll(".project-site-actions > a")]
-      .filter((link) => !link.closest("details"));
+      .filter((link) => !link.closest(".project-site-downloads"));
     assert.deepEqual(direct.map(({textContent}) => textContent), ["Open print PDF", "Open published site"]);
     const downloads = cards[0].querySelector("details");
     assert.equal(downloads.open, false);
@@ -1197,6 +1306,21 @@ function publicationAdapter(calls) {
     listProjectDatasetConnectionBindings: record("dataset-connections", []),
     listProjectBasemapConnectionBindings: record("basemap-connections", [])
   };
+}
+
+function printProjectFixture() {
+  return {id: "70000000-0000-4000-8000-000000000001", projectId: IDS.project, name: "Regional wetland comparison", version: 3,
+    definition: {schemaVersion: "opengeo.map-definition.1.3.0", projection: "mercator", spatialBody: {id: "earth"},
+      extensions: {kept: {answer: 42}}, mapViews: [{center: [84, 27], zoom: 5, pitch: 0, bearing: 0}],
+      layers: [{layerId: "wetlands", datasetId: "80000000-0000-4000-8000-000000000001", title: "Wetlands", sourceType: "imageserver-raster", sourceVersion: 2,
+        sourceUrl: "https://example.org/ImageServer", sourceConfiguration: {}, visible: true, opacity: 1, style: {fill: "#123456"}, labels: {enabled: false}}]}};
+}
+
+function printCaptureFixture(map) {
+  const view = {center: [84, 27], zoom: 5, pitch: 0, bearing: 0}, presentation = map.definition.layers.map(printLayerPresentation);
+  return {dataUrl: "data:image/png;base64,aW1hZ2U=", width: 1024, height: 640, cssWidth: 512, cssHeight: 320, view, presentation,
+    signature: canonicalJson({view, presentation}), legend: [{label: "Wetlands", color: "#123456"}], attribution: ["Provider credit"],
+    lines: [], metresPerPixel: 100, flat: true, projectId: map.id, projectVersion: map.version, imageSha256: "a".repeat(64)};
 }
 
 function printSite(slug, title, themeOptions) {

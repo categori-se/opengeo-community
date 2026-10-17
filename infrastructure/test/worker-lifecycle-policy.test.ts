@@ -7,6 +7,14 @@ const scope: WorkerLifecycleScope = {vpcId: "vpc-abc123", subnetIds: ["subnet-ab
 const cluster = "arn:aws:ecs:us-east-1:111111111111:cluster/existing";
 const policy = () => workerLifecyclePolicy("111111111111", "us-east-1", "dev", cluster, scope).toJSON();
 
+test("v2 lifecycle binds only the isolated PMTiles service", () => {
+  const json = workerLifecyclePolicy("111111111111", "us-east-1", "dev", cluster,
+    {...scope, taskFamily: "opengeo-dev-pmtiles-v2"}, "pmtiles-v2").toJSON();
+  const service = json.Statement.find((s: any) => [s.Action].flat().includes("ecs:UpdateService"));
+  assert.equal(service.Resource, "arn:aws:ecs:us-east-1:111111111111:service/existing/opengeo-dev-pmtiles-v2-worker");
+  assert.doesNotMatch(JSON.stringify(json), /opengeo-dev-gis-worker/);
+});
+
 test("lifecycle permissions exclude data access, IAM mutation and unrelated compute", () => {
   const json = policy();
   const statements = json.Statement;

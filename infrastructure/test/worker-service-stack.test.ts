@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {spawnSync} from "node:child_process";
 import {describe, it} from "node:test";
 import {App} from "aws-cdk-lib";
 import {Match, Template} from "aws-cdk-lib/assertions";
@@ -6,8 +7,9 @@ import {environmentConfig, parseWorkerMaxTasks, type Stage} from "../lib/config.
 import {PlatformFoundationStack} from "../lib/platform-foundation-stack.js";
 import {PrivateRuntimeEndpointsStack} from "../lib/private-runtime-endpoints-stack.js";
 import {WorkerServiceStack} from "../lib/worker-service-stack.js";
+import {PmtilesQueueStack} from "../lib/pmtiles-queue-stack.js";
 
-function workerTemplateFor(stage: Stage, maximum?: unknown): Template {
+function workerTemplateFor(stage: Stage, maximum?: unknown, pmtilesOnly = false): Template {
   const app = new App();
   const env = {account: "111111111111", region: "us-east-1"};
   const config = environmentConfig(
@@ -38,12 +40,54 @@ function workerTemplateFor(stage: Stage, maximum?: unknown): Template {
     foundation,
     runtimeEndpoints,
     imageDigest: `sha256:${"c".repeat(64)}`,
+    ...(pmtilesOnly ? (() => {
+      const queues = new PmtilesQueueStack(app, `PmtilesQueue-${stage}`, {config, env});
+      return {workload: "pmtiles-v2" as const,
+        processingQueue: queues.queue, processingDeadLetterQueue: queues.deadLetterQueue};
+    })() : {}),
     env
   });
   return Template.fromStack(worker);
 }
 
 describe("GIS worker service stack", () => {
+  it("rejects different API and task image pins before synthesizing PMTiles runtime", () => {
+    const result = spawnSync(process.execPath,
+      ["--import", "tsx", new URL("../bin/opengeo.ts", import.meta.url).pathname], {
+        cwd: new URL("../", import.meta.url), encoding: "utf8", timeout: 30000,
+        env: {...process.env, OPEN_GEO_STAGE: "dev",
+          OPEN_GEO_BUDGET_ALERT_EMAIL: "opengeo-ci@example.invalid",
+          OPEN_GEO_WEB_ORIGIN: "http://localhost:3000", OPEN_GEO_PMTILES_ONLY: "true",
+          OPEN_GEO_WORKER_IMAGE: `sha256:${"c".repeat(64)}`,
+          OPEN_GEO_PMTILES_WORKER_IMAGE_DIGEST: `sha256:${"d".repeat(64)}`}
+      });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /PMTiles API and worker must use the same immutable image digest/);
+  });
+  it("isolates the v2 converter queue, immutable image and single task capacity", () => {
+    const template = workerTemplateFor("production", undefined, true);
+    template.hasResourceProperties("AWS::ApplicationAutoScaling::ScalableTarget", {
+      MinCapacity: 0, MaxCapacity: 1
+    });
+    template.hasResourceProperties("AWS::ECS::Service", {
+      ServiceName: "opengeo-production-pmtiles-v2-worker", DesiredCount: 0,
+      DeploymentConfiguration: Match.objectLike({MaximumPercent: 100, MinimumHealthyPercent: 0})
+    });
+    template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+      Family: "opengeo-production-pmtiles-v2",
+      ContainerDefinitions: Match.arrayWith([Match.objectLike({
+        Command: ["python3", "-m", "opengeo_worker.pmtiles_main"],
+        Environment: Match.arrayWith([{
+          Name: "OPEN_GEO_PMTILES_WORKER_IMAGE_DIGEST", Value: `sha256:${"c".repeat(64)}`
+        }])
+      })])
+    });
+    const serialized = JSON.stringify(template.toJSON());
+    assert.match(serialized, /PmtilesQueue-production/);
+    assert.doesNotMatch(serialized, /s3:DeleteObjectVersion/);
+    assert.match(serialized, /derivatives\/tiles\/custom\/\*/);
+    assert.match(serialized, /derivatives\/working\/\*/);
+  });
   it("caps a bounded production processing window at one task without changing stage defaults", () => {
     const template = workerTemplateFor("production", "1");
     template.hasResourceProperties("AWS::ApplicationAutoScaling::ScalableTarget", {

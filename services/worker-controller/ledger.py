@@ -72,8 +72,14 @@ class RdsLedger:
         if accepted is not True:
             raise WindowUnsafe("worker_window_lease_lost")
 
-    def unfinished(self) -> dict[str, int]:
-        result = self._call("SELECT app.worker_runtime_unfinished()", [])
+    def unfinished(self, workload: str = "shared") -> dict[str, int]:
+        if workload not in {"shared", "pmtiles-v2"}:
+            raise WindowUnsafe("unsupported_worker_workload")
+        function = (
+            "worker_runtime_unfinished_pmtiles_v2"
+            if workload == "pmtiles-v2" else "worker_runtime_unfinished"
+        )
+        result = self._call(f"SELECT app.{function}()", [])
         if not isinstance(result, dict) or any(
             type(v) is not int or v < 0 for v in result.values()
         ):

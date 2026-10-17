@@ -103,7 +103,82 @@ describe("recoverable GeoLibre project import", () => {
     );
     assert.equal(storage.size, 1);
   });
+
+  it("renews the same upload after a failed body transfer without creating another dataset", async () => {
+    const calls = [];
+    const storage = memoryStorage();
+    const adapter = importAdapter(calls);
+    const upload = adapter.uploadFile;
+    const complete = adapter.completeUpload;
+    let attempted = false;
+    let uploaded = false;
+    adapter.uploadFile = async (...args) => {
+      if (!attempted) {attempted = true; calls.push(["failed-upload"]); throw codedFailure("upload_network_unavailable");}
+      await upload(...args); uploaded = true;
+    };
+    adapter.completeUpload = async (...args) => {
+      if (!uploaded) {calls.push(["missing-readback"]); throw codedFailure("upload_object_missing");}
+      return complete(...args);
+    };
+    adapter.renewUpload = async (projectId, uploadId) => {
+      calls.push(["renew", projectId, uploadId]);
+      return {uploadId, dataset: {id: EMBEDDED_DATASET_ID}, upload: {url: "fixture://renewed", method: "POST", fields: {}}};
+    };
+    await assert.rejects(runImport(adapter, storage), {code: "upload_network_unavailable"});
+    assert.equal(storage.size, 1);
+    const result = await runImport(adapter, storage);
+    assert.equal(result.operation.state, "completed");
+    assert.equal(calls.filter(([name]) => name === "request").length, 1);
+    assert.equal(calls.filter(([name]) => name === "renew").length, 1);
+    assert.equal(calls.filter(([name]) => name === "upload").length, 1);
+    assert.equal(calls.filter(([name]) => name === "bind").length, 1);
+    assert.equal(storage.size, 0);
+  });
+
+  it("reads back a lost successful completion and binds without repeating the body", async () => {
+    const calls = [];
+    const storage = memoryStorage();
+    const adapter = importAdapter(calls);
+    const complete = adapter.completeUpload;
+    let responseLost = true;
+    adapter.completeUpload = async (...args) => {
+      const result = await complete(...args);
+      if (responseLost) {responseLost = false; throw codedFailure("ingestion_store_unavailable");}
+      return result;
+    };
+    adapter.renewUpload = async () => assert.fail("Stored bytes need readback only");
+    await assert.rejects(runImport(adapter, storage), {code: "ingestion_store_unavailable"});
+    await runImport(adapter, storage);
+    assert.equal(calls.filter(([name]) => name === "request").length, 1);
+    assert.equal(calls.filter(([name]) => name === "upload").length, 1);
+    assert.equal(calls.filter(([name]) => name === "complete").length, 2);
+    assert.equal(calls.filter(([name]) => name === "bind").length, 1);
+    assert.equal(storage.size, 0);
+  });
+
+  it("retains the checkpoint after denied or unavailable readback without replacing the upload", async () => {
+    for (const code of ["action_forbidden", "ingestion_store_unavailable"]) {
+      const calls = [];
+      const storage = memoryStorage();
+      const adapter = importAdapter(calls);
+      adapter.uploadFile = async () => {throw codedFailure("upload_network_unavailable");};
+      adapter.completeUpload = async () => {calls.push(["readback"]); throw codedFailure(code);};
+      adapter.renewUpload = async () => assert.fail("Only known missing bytes permit another body transfer");
+      await assert.rejects(runImport(adapter, storage), {code: "upload_network_unavailable"});
+      await assert.rejects(runImport(adapter, storage), {code});
+      assert.equal(calls.filter(([name]) => name === "request").length, 1);
+      assert.equal(calls.filter(([name]) => name === "bind").length, 0);
+      assert.equal(storage.size, 1);
+    }
+  });
 });
+
+function runImport(adapter, storage) {
+  return executeGeoLibreImport({adapter, storage, projectId: PROJECT_ID, mapId: MAP_ID,
+    expectedMapVersion: 3, conversion: conversion(), sourceText: '{"version":"0.2.0"}'});
+}
+
+function codedFailure(code) {return Object.assign(new Error(code), {code});}
 
 function conversion() {
   return {

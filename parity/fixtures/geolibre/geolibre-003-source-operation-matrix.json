@@ -64,7 +64,7 @@
       "id": "gpx",
       "section": "files",
       "tier": "intermediate",
-      "disposition": "preserve-only"
+      "disposition": "bounded-current"
     },
     {
       "id": "mbtiles",
@@ -283,6 +283,9 @@
     "Nineteen exact GeoLibre families are preserve-only: their safe project definitions and explicit losses survive conversion, but OpenGeo does not register or execute those adapters.",
     "A preserve-only disposition records compatibility state and loss; it does not read source bytes, open a database, fetch a service, load executable JavaScript, or render 3D content.",
     "STAC support is one bounded Collection metadata document and does not search items or read assets; PostGIS support verifies one TLS read-only capability query and does not discover or stream tables.",
-    "This operation matrix validates the exact advertised source catalog and OpenGeo's finite registry; it does not execute GeoLibre UI flows or every bounded OpenGeo adapter against a live external system."
+    "This operation matrix validates the exact advertised source catalog and OpenGeo's finite registry; it does not execute GeoLibre UI flows or every bounded OpenGeo adapter against a live external system.",
+    "Local GPX1.0/1.1 opening now preserves original bytes, waypoints/routes/track segments, source fields, elevation and time. Browser Catalog/Project saves and scoped account-map temporary preview are distinct; imported remote GPX definitions remain inert. Managed/device conversion and edited GPX writing remain unavailable. Configured Studio/Demo software delivery is verified; independent community deployment and broader source acceptance remain separate.",
+    "Local delimited coordinates now use explicit column/CRS/height/label mapping with preserved source strings/original bytes and reviewed omission reports. Actual browser map/export/personal save/fresh reopen passes locally; configured Studio/Demo delivery passes. Managed CSV table upload stays nonspatial; this does not establish remote streams, arbitrary CRS or geocoding.",
+    "Local NMEA RMC/GGA observation Points now require explicit WGS84 and rejected-record review; original bytes/fields/time/date/MSL height survive compiled export/personal save/fresh reopen. Configured Studio/Demo CSV/NMEA delivery passes, with independent community acceptance separate. Device/stream/Garmin/Ozi and track reconstruction remain unavailable."
   ]
 }

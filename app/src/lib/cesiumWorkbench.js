@@ -16,7 +16,7 @@ export function cesiumWorkbenchContent(context) {
       .map(part=>({...part,layout:{...part.layout,visibility:'visible'}}))}));
   const report=cesiumLayerCompatibility(entries);
   const add=(code,message)=>report.issues.push({code,message});
-  for(const issue of mapboxCompatibility({state,layers}).issues.filter(issue=>['active-edit','planet','terrain-scene','archive-protocol'].includes(issue.code)))report.issues.push(issue);
+  for(const issue of mapboxCompatibility({state,layers}).issues.filter(issue=>['active-edit','planet','terrain-scene','archive-protocol','point-clustering'].includes(issue.code)))report.issues.push(issue);
   if(context.loadingDatasetLayerIds.size || context.liveFeatureRequests.size) add('loading','Wait for Layers to finish loading before switching.');
   if(layers.some(layer=>layer.sourceType==='external-feature-reference')) add('live-source','Live feature-service queries need a Cesium view adapter; keep the current renderer.');
   if(layers.some(layer=>layer.sourceType==='kml-places')) add('kml','KML Places and overlays currently need MapLibre.');

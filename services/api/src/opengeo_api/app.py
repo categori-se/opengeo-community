@@ -111,6 +111,18 @@ from opengeo_api.organizations import (
     UnavailableOrganizationRepository,
 )
 from opengeo_api.portable_artifact_cleanup_aws import AwsPortableCleanupStorage
+from opengeo_api.postgis_catalog_routes import router as connection_catalog_router
+from opengeo_api.postgis_catalog_store import (
+    CatalogDiscoveryRepository,
+    PostgresCatalogDiscoveryRepository,
+)
+from opengeo_api.postgis_layer_routes import router as postgis_layer_router
+from opengeo_api.postgis_layers import (
+    PostgisLayerRepository,
+    PostgisPreviewClient,
+    PostgresPostgisLayerRepository,
+    create_postgis_preview_client,
+)
 from opengeo_api.principals import (
     PostgresPrincipalRepository,
     PrincipalRepository,
@@ -266,6 +278,9 @@ def create_app(
     observable_build_dispatcher: ObservableBuildDispatcher | None = None,
     observable_preview_cookie_signer: PreviewCookieSigner | None = None,
     connection_repository: ExternalConnectionRepository | None = None,
+    connection_catalog_repository: CatalogDiscoveryRepository | None = None,
+    postgis_layer_repository: PostgisLayerRepository | None = None,
+    postgis_preview_client: PostgisPreviewClient | None = None,
     connection_verification_dispatcher: ConnectionVerificationDispatcher | None = None,
     user_dataset_verification_dispatcher: UserDatasetVerificationDispatcher | None = None,
     team_repository: TeamRepository | None = None,
@@ -418,7 +433,13 @@ def create_app(
     )
     app.state.data_preservation_repository = (
         data_preservation_repository
-        or PostgresDataPreservationRepository(tenant_executor, runtime_settings.geodata_bucket)
+        or PostgresDataPreservationRepository(
+            tenant_executor,
+            runtime_settings.geodata_bucket,
+            pmtiles_worker_image_digest=runtime_settings.pmtiles_worker_image_digest,
+            pmtiles_input_formats=frozenset(runtime_settings.pmtiles_input_formats.split(",")),
+            pmtiles_queue_url=runtime_settings.pmtiles_derivative_queue_url,
+        )
     )
     app.state.render_repository = render_repository or PostgresRenderRepository(
         tenant_executor,
@@ -468,7 +489,7 @@ def create_app(
     )
     app.state.pmtiles_derivative_dispatcher = pmtiles_derivative_dispatcher or (
         AwsSqsPmtilesDerivativeDispatcher(runtime_settings)
-        if runtime_settings.render_dispatch_configured
+        if runtime_settings.pmtiles_derivative_dispatch_configured
         else UnavailablePmtilesDerivativeDispatcher()
     )
     app.state.site_publication_repository = (
@@ -502,6 +523,15 @@ def create_app(
     )
     app.state.connection_repository = connection_repository or (
         PostgresExternalConnectionRepository(tenant_executor, connection_secret_store)
+    )
+    app.state.connection_catalog_repository = connection_catalog_repository or (
+        PostgresCatalogDiscoveryRepository(tenant_executor, app.state.connection_repository)
+    )
+    app.state.postgis_layer_repository = postgis_layer_repository or PostgresPostgisLayerRepository(
+        tenant_executor, app.state.connection_repository
+    )
+    app.state.postgis_preview_client = postgis_preview_client or create_postgis_preview_client(
+        runtime_settings
     )
     app.state.user_connection_repository = user_connection_repository or (
         PostgresUserDatasetConnectionRepository(tenant_executor, connection_secret_store)
@@ -555,6 +585,8 @@ def create_app(
     app.include_router(source_discovery_router)
     app.include_router(geonode_federation_router)
     app.include_router(connection_router)
+    app.include_router(connection_catalog_router)
+    app.include_router(postgis_layer_router)
     app.include_router(project_import_router)
     app.include_router(catalog_router)
     app.include_router(ckan_router)

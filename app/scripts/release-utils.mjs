@@ -112,7 +112,7 @@ export function assertPublicArtifactBoundary(
   const allowedDemoPatterns = allowWorkbenchDemo ? [
     /^public-demo(?:\.html)?$/,
     /^_import\/components\/(?:PublicDemoWorkbench|WorkbenchView)\.[A-Za-z0-9_-]+\.js$/,
-    /^_import\/lib\/(?:basemapActivation|basemapCatalog|basemapGovernance|basemapRuntimeHealth|basemapSource|featureQuery|geolibreProject|geomooseMapbook|governedIdentify|portalConfiguration|portalCatalog|layerOrder|mapDefinition|mapLayers|massgisDemo|processingRegistry|publicDemoProject|publicationPolicy|reviewedBasemapSources|spatialBody|thematicStyle|workbenchConfig|workbenchStorage)\.[A-Za-z0-9_-]+\.js$/,
+    /^_import\/lib\/(?:basemapActivation|basemapCatalog|basemapGovernance|basemapRuntimeHealth|basemapSource|featureQuery|geolibreProject|geomooseMapbook|governedIdentify|printLayouts|portalConfiguration|portalCatalog|layerOrder|mapDefinition|mapLayers|massgisDemo|processingRegistry|publicDemoProject|publicationPolicy|reviewedBasemapSources|spatialBody|thematicStyle|workbenchConfig|workbenchStorage)\.[A-Za-z0-9_-]+\.js$/,
     /^_file\/style\.[A-Za-z0-9_-]+\.css$/,
     /^_file\/data\/(?:massgis-enviroscreen|public-demo-catalog|sample-public-facilities)\.[A-Za-z0-9_-]+\.(?:json|geojson)$/
   ] : [];

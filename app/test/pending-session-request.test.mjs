@@ -50,13 +50,17 @@ const sessionBody = userId => ({user_id:userId,email:'test@example.test',display
 const unavailableSession = () => Response.json({detail:'identity_store_unavailable'},{status:503});
 function sessionRetryClock(t) {
  t.mock.timers.enable({apis:['setTimeout']});
- const scheduled=deferred(), setTimer=globalThis.setTimeout;
+ let now=0;
+ t.mock.method(performance,'now',()=>now);
+ const scheduled=deferred(), setTimer=globalThis.setTimeout, delays=[];
  t.mock.method(globalThis,'setTimeout',(callback,milliseconds,...args)=>{
+  delays.push(milliseconds);
   const timer=setTimer(callback,milliseconds,...args);
-  if(milliseconds===2000) scheduled.resolve();
+  scheduled.resolve();
   return timer;
  });
- return {scheduled:scheduled.promise,tick:milliseconds=>t.mock.timers.tick(milliseconds)};
+ return {scheduled:scheduled.promise,delays,elapse:milliseconds=>{now+=milliseconds;},
+  tick:milliseconds=>{now+=milliseconds;t.mock.timers.tick(milliseconds);}};
 }
 
 test('cold session retries once after two seconds with the same authentication and account',async t=>{
@@ -71,6 +75,39 @@ test('cold session retries once after two seconds with the same authentication a
  assert.equal((await result).userId,'10000000-0000-4000-8000-000000000001');
  assert.equal(tokenReads,1);assert.equal(calls.length,2);assert.deepEqual(calls[1],calls[0]);
  assert.equal(client.pendingSessions.size,0);
+});
+
+test('a twenty-second unavailable session response retries immediately without another timer',async t=>{
+ const {OpenGeoApiClient}=await import('../src/lib/apiClient.js'), clock=sessionRetryClock(t);let calls=0;
+ const client=new OpenGeoApiClient({tokenProvider:()=> 'existing-token',fetchImplementation:async()=>{
+  calls++;
+  if(calls===1){clock.elapse(20000);return unavailableSession();}
+  return Response.json(sessionBody('10000000-0000-4000-8000-000000000001'));
+ }});
+ assert.equal((await client.getSession()).userId,'10000000-0000-4000-8000-000000000001');
+ assert.equal(calls,2);assert.deepEqual(clock.delays,[]);assert.equal(client.pendingSessions.size,0);
+});
+
+test('a partial server wait counts toward the minimum retry interval',async t=>{
+ const {OpenGeoApiClient}=await import('../src/lib/apiClient.js'), clock=sessionRetryClock(t);let calls=0;
+ const client=new OpenGeoApiClient({tokenProvider:()=> 'existing-token',fetchImplementation:async()=>{
+  calls++;
+  if(calls===1){clock.elapse(750);return unavailableSession();}
+  return Response.json(sessionBody('10000000-0000-4000-8000-000000000001'));
+ }});
+ const result=client.getSession();await clock.scheduled;
+ assert.deepEqual(clock.delays,[1250]);clock.tick(1249);assert.equal(calls,1);clock.tick(1);
+ assert.equal((await result).userId,'10000000-0000-4000-8000-000000000001');assert.equal(calls,2);
+});
+
+test('canceling the last consumer before an immediate recovery prevents the retry',async t=>{
+ const {OpenGeoApiClient}=await import('../src/lib/apiClient.js'), clock=sessionRetryClock(t), controller=new AbortController();let calls=0,transportSignal;
+ const client=new OpenGeoApiClient({tokenProvider:()=> 'existing-token',fetchImplementation:async(url,options)=>{
+  calls++;transportSignal=options.signal;clock.elapse(20000);queueMicrotask(()=>controller.abort());return unavailableSession();
+ }});
+ await assert.rejects(client.getSession({signal:controller.signal}),{name:'AbortError'});
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(calls,1);assert.equal(transportSignal.aborted,true);assert.deepEqual(clock.delays,[]);assert.equal(client.pendingSessions.size,0);
 });
 
 test('a second unavailable session response ends the automatic recovery',async t=>{

@@ -1045,6 +1045,176 @@
         "title": "CaptureRefreshTarget",
         "type": "object"
       },
+      "CatalogDiscoveryListResponse": {
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogDiscoveryResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "available",
+          "items"
+        ],
+        "title": "CatalogDiscoveryListResponse",
+        "type": "object"
+      },
+      "CatalogDiscoveryResponse": {
+        "properties": {
+          "attempt_count": {
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "connection_revision_number": {
+            "title": "Connection Revision Number",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "discovery_id": {
+            "format": "uuid",
+            "title": "Discovery Id",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "relation_count": {
+            "title": "Relation Count",
+            "type": "integer"
+          },
+          "requested_by": {
+            "format": "uuid",
+            "title": "Requested By",
+            "type": "string"
+          },
+          "sanitized_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sanitized Error Code"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "discovery_id",
+          "connection_id",
+          "connection_revision_number",
+          "state",
+          "attempt_count",
+          "relation_count",
+          "truncated",
+          "sanitized_error_code",
+          "requested_by",
+          "created_at",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "CatalogDiscoveryResponse",
+        "type": "object"
+      },
+      "CatalogRelationPageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogRelationResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_ordinal": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Ordinal"
+          }
+        },
+        "required": [
+          "items",
+          "next_ordinal"
+        ],
+        "title": "CatalogRelationPageResponse",
+        "type": "object"
+      },
+      "CatalogRelationResponse": {
+        "properties": {
+          "descriptor": {
+            "additionalProperties": true,
+            "title": "Descriptor",
+            "type": "object"
+          },
+          "ordinal": {
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal",
+          "descriptor"
+        ],
+        "title": "CatalogRelationResponse",
+        "type": "object"
+      },
       "CatalogServiceReference": {
         "properties": {
           "kind": {
@@ -1732,6 +1902,325 @@
           "created_at"
         ],
         "title": "CompositionVersionSummaryResponse",
+        "type": "object"
+      },
+      "ConfigurableDatasetDerivativeLineageResponse": {
+        "properties": {
+          "bounds": {
+            "maxItems": 4,
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Bounds",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "kind": {
+            "const": "pmtiles",
+            "title": "Kind",
+            "type": "string"
+          },
+          "maximum_zoom": {
+            "maximum": 22.0,
+            "minimum": 0.0,
+            "title": "Maximum Zoom",
+            "type": "integer"
+          },
+          "minimum_zoom": {
+            "maximum": 22.0,
+            "minimum": 0.0,
+            "title": "Minimum Zoom",
+            "type": "integer"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "options": {
+            "additionalProperties": true,
+            "title": "Options",
+            "type": "object"
+          },
+          "output_object_id": {
+            "format": "uuid",
+            "title": "Output Object Id",
+            "type": "string"
+          },
+          "recipe": {
+            "const": "gdal-pmtiles-v2",
+            "title": "Recipe",
+            "type": "string"
+          },
+          "request_checksum_sha256": {
+            "title": "Request Checksum Sha256",
+            "type": "string"
+          },
+          "software": {
+            "additionalProperties": true,
+            "title": "Software",
+            "type": "object"
+          },
+          "source_layer": {
+            "title": "Source Layer",
+            "type": "string"
+          },
+          "source_object_id": {
+            "format": "uuid",
+            "title": "Source Object Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "operation_id",
+          "recipe",
+          "source_object_id",
+          "output_object_id",
+          "bounds",
+          "minimum_zoom",
+          "maximum_zoom",
+          "source_layer",
+          "request_checksum_sha256",
+          "created_at",
+          "options",
+          "software"
+        ],
+        "title": "ConfigurableDatasetDerivativeLineageResponse",
+        "type": "object"
+      },
+      "ConfigurablePmtilesDerivativeResponse": {
+        "properties": {
+          "attempt_count": {
+            "title": "Attempt Count",
+            "type": "integer"
+          },
+          "bounds": {
+            "maxItems": 4,
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Bounds",
+            "type": "array"
+          },
+          "cancellable": {
+            "title": "Cancellable",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "format": "uuid",
+            "title": "Created By",
+            "type": "string"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "format": "uuid",
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "idempotency_key": {
+            "format": "uuid",
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "max_zoom": {
+            "title": "Max Zoom",
+            "type": "integer"
+          },
+          "min_zoom": {
+            "title": "Min Zoom",
+            "type": "integer"
+          },
+          "options": {
+            "additionalProperties": true,
+            "title": "Options",
+            "type": "object"
+          },
+          "output_checksum_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Checksum Sha256"
+          },
+          "output_object_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Object Id"
+          },
+          "output_size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Size Bytes"
+          },
+          "project_id": {
+            "format": "uuid",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "recipe": {
+            "const": "gdal-pmtiles-v2",
+            "default": "gdal-pmtiles-v2",
+            "title": "Recipe",
+            "type": "string"
+          },
+          "request_checksum_sha256": {
+            "title": "Request Checksum Sha256",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "opengeo.pmtiles-derivative-job.1.1.0",
+            "default": "opengeo.pmtiles-derivative-job.1.1.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "source_layer": {
+            "title": "Source Layer",
+            "type": "string"
+          },
+          "source_object_id": {
+            "format": "uuid",
+            "title": "Source Object Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "enum": [
+              "queued",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "worker_image_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Worker Image Digest",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "project_id",
+          "dataset_id",
+          "dataset_version_id",
+          "source_object_id",
+          "bounds",
+          "min_zoom",
+          "max_zoom",
+          "source_layer",
+          "request_checksum_sha256",
+          "idempotency_key",
+          "state",
+          "output_object_id",
+          "output_size_bytes",
+          "output_checksum_sha256",
+          "error_code",
+          "attempt_count",
+          "created_by",
+          "created_at",
+          "started_at",
+          "finished_at",
+          "cancellable",
+          "options",
+          "worker_image_digest"
+        ],
+        "title": "ConfigurablePmtilesDerivativeResponse",
         "type": "object"
       },
       "ConfigureSitePublicationDestinationRequest": {
@@ -4053,6 +4542,18 @@
             "title": "Min Zoom",
             "type": "integer"
           },
+          "options": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options"
+          },
           "source_layer": {
             "maxLength": 200,
             "minLength": 1,
@@ -6065,7 +6566,8 @@
                   "queued",
                   "processing",
                   "active",
-                  "failed"
+                  "failed",
+                  "preserved"
                 ],
                 "type": "string"
               },
@@ -6130,7 +6632,8 @@
               "arcgis",
               "wfs",
               "imageserver",
-              "mapserver"
+              "mapserver",
+              "postgis"
             ],
             "title": "Format",
             "type": "string"
@@ -6235,7 +6738,8 @@
               "repository",
               "imageserver",
               "mapserver",
-              "cog"
+              "cog",
+              "postgis"
             ],
             "title": "Source Type",
             "type": "string"
@@ -6312,7 +6816,14 @@
           },
           "derivatives": {
             "items": {
-              "$ref": "#/components/schemas/DatasetDerivativeLineageResponse"
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/DatasetDerivativeLineageResponse"
+                },
+                {
+                  "$ref": "#/components/schemas/ConfigurableDatasetDerivativeLineageResponse"
+                }
+              ]
             },
             "title": "Derivatives",
             "type": "array"
@@ -15321,36 +15832,6 @@
         "title": "PreviewPageVersionRequest",
         "type": "object"
       },
-      "PreviewRequest": {
-        "additionalProperties": false,
-        "properties": {
-          "dataset_id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Dataset Id",
-            "type": "string"
-          },
-          "resource_id": {
-            "maxLength": 100,
-            "minLength": 1,
-            "title": "Resource Id",
-            "type": "string"
-          },
-          "source_url": {
-            "maxLength": 2048,
-            "minLength": 9,
-            "title": "Source Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "source_url",
-          "dataset_id",
-          "resource_id"
-        ],
-        "title": "PreviewRequest",
-        "type": "object"
-      },
       "ProcessingOutput": {
         "properties": {
           "durable": {
@@ -15469,8 +15950,15 @@
             "type": "string"
           },
           "tippecanoe": {
-            "title": "Tippecanoe",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tippecanoe"
           },
           "worker_base_image": {
             "title": "Worker Base Image",
@@ -18682,6 +19170,97 @@
         "title": "RegisterRepositoryObjectRequest",
         "type": "object"
       },
+      "RegistrationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "expected_connection_revision": {
+            "minimum": 1.0,
+            "title": "Expected Connection Revision",
+            "type": "integer"
+          },
+          "expected_source_version": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Source Version"
+          },
+          "geometry_column": {
+            "maxLength": 63,
+            "minLength": 1,
+            "title": "Geometry Column",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "request_key": {
+            "format": "uuid",
+            "title": "Request Key",
+            "type": "string"
+          },
+          "schema_fingerprint_sha256": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Schema Fingerprint Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_connection_revision",
+          "schema_fingerprint_sha256",
+          "geometry_column",
+          "name",
+          "request_key"
+        ],
+        "title": "RegistrationRequest",
+        "type": "object"
+      },
+      "RegistrationResponse": {
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "source_version": {
+            "title": "Source Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "source_version",
+          "created"
+        ],
+        "title": "RegistrationResponse",
+        "type": "object"
+      },
       "RelationshipResponse": {
         "properties": {
           "created_at": {
@@ -19632,6 +20211,27 @@
         "title": "RepositoryProtectedCopyResponse",
         "type": "object"
       },
+      "RequestCatalogDiscovery": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "request_key": {
+            "format": "uuid",
+            "title": "Request Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "request_key"
+        ],
+        "title": "RequestCatalogDiscovery",
+        "type": "object"
+      },
       "RequestPageSourceUpload": {
         "additionalProperties": false,
         "properties": {
@@ -19750,6 +20350,15 @@
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
+            "type": "string"
+          },
+          "purpose": {
+            "default": "ingest",
+            "enum": [
+              "ingest",
+              "pmtiles_original"
+            ],
+            "title": "Purpose",
             "type": "string"
           },
           "size_bytes": {
@@ -20981,6 +21590,48 @@
           "result_checksum_sha256"
         ],
         "title": "ReviewFrameworkPublicationRequest",
+        "type": "object"
+      },
+      "ReviewPmtilesDisplayRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledge_conversion_limits": {
+            "const": true,
+            "title": "Acknowledge Conversion Limits",
+            "type": "boolean"
+          },
+          "attribution": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Attribution",
+            "type": "string"
+          },
+          "expected_review_sha256": {
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Review Sha256",
+            "type": "string"
+          },
+          "rights_basis": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Rights Basis",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_review_sha256",
+          "title",
+          "rights_basis",
+          "attribution",
+          "acknowledge_conversion_limits"
+        ],
+        "title": "ReviewPmtilesDisplayRequest",
         "type": "object"
       },
       "RevokeDistributionApprovalRequest": {
@@ -25469,12 +26120,42 @@
             "type": "string"
           },
           "processing_job_id": {
-            "format": "uuid",
-            "title": "Processing Job Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Job Id"
           },
           "processing_job_state": {
-            "title": "Processing Job State",
+            "anyOf": [
+              {
+                "enum": [
+                  "queued",
+                  "running",
+                  "completed",
+                  "failed",
+                  "cancelled"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processing Job State"
+          },
+          "purpose": {
+            "default": "ingest",
+            "enum": [
+              "ingest",
+              "pmtiles_original"
+            ],
+            "title": "Purpose",
             "type": "string"
           },
           "version_number": {
@@ -25500,6 +26181,15 @@
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
+            "type": "string"
+          },
+          "purpose": {
+            "default": "ingest",
+            "enum": [
+              "ingest",
+              "pmtiles_original"
+            ],
+            "title": "Purpose",
             "type": "string"
           },
           "upload": {
@@ -26594,6 +27284,36 @@
         "title": "XYZSourceDefinition",
         "type": "object"
       },
+      "opengeo_api__ckan_routes__PreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "resource_id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "source_url": {
+            "maxLength": 2048,
+            "minLength": 9,
+            "title": "Source Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_url",
+          "dataset_id",
+          "resource_id"
+        ],
+        "title": "PreviewRequest",
+        "type": "object"
+      },
       "opengeo_api__ckan_routes__SearchRequest": {
         "additionalProperties": false,
         "properties": {
@@ -26814,6 +27534,48 @@
           "fields"
         ],
         "title": "UploadInstructionsResponse",
+        "type": "object"
+      },
+      "opengeo_api__postgis_layer_routes__PreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "bbox": {
+            "maxItems": 4,
+            "minItems": 4,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "title": "Bbox",
+            "type": "array"
+          },
+          "expected_source_version": {
+            "minimum": 1.0,
+            "title": "Expected Source Version",
+            "type": "integer"
+          },
+          "request_key": {
+            "format": "uuid",
+            "title": "Request Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_source_version",
+          "request_key",
+          "bbox"
+        ],
+        "title": "PreviewRequest",
         "type": "object"
       },
       "opengeo_api__stac_routes__SearchRequest": {
@@ -29523,7 +30285,8 @@
                     "arcgis",
                     "wfs",
                     "imageserver",
-                    "mapserver"
+                    "mapserver",
+                    "postgis"
                   ],
                   "type": "string"
                 },
@@ -29574,7 +30337,8 @@
                     "repository",
                     "imageserver",
                     "mapserver",
-                    "cog"
+                    "cog",
+                    "postgis"
                   ],
                   "type": "string"
                 },
@@ -30504,6 +31268,82 @@
         "summary": "Search Place Names",
         "tags": [
           "managed ingestion"
+        ]
+      }
+    },
+    "/datasets/{dataset_id}/postgis-preview": {
+      "post": {
+        "operationId": "preview_postgis_layer_datasets__dataset_id__postgis_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/opengeo_api__postgis_layer_routes__PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Preview Postgis Layer Datasets  Dataset Id  Postgis Preview Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Postgis Layer",
+        "tags": [
+          "external database layers"
         ]
       }
     },
@@ -36091,7 +36931,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PreviewRequest"
+                "$ref": "#/components/schemas/opengeo_api__ckan_routes__PreviewRequest"
               }
             }
           },
@@ -36419,6 +37259,529 @@
         "summary": "Get Connection",
         "tags": [
           "external database connections"
+        ]
+      }
+    },
+    "/projects/{project_id}/connections/{connection_id}/catalog-discoveries": {
+      "get": {
+        "operationId": "list_catalog_discoveries_projects__project_id__connections__connection_id__catalog_discoveries_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogDiscoveryListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Catalog Discoveries",
+        "tags": [
+          "external database catalog"
+        ]
+      },
+      "post": {
+        "operationId": "request_catalog_discovery_projects__project_id__connections__connection_id__catalog_discoveries_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestCatalogDiscovery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogDiscoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request Catalog Discovery",
+        "tags": [
+          "external database catalog"
+        ]
+      }
+    },
+    "/projects/{project_id}/connections/{connection_id}/catalog-discoveries/{discovery_id}": {
+      "delete": {
+        "operationId": "cancel_catalog_discovery_projects__project_id__connections__connection_id__catalog_discoveries__discovery_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "discovery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Discovery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogDiscoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Catalog Discovery",
+        "tags": [
+          "external database catalog"
+        ]
+      },
+      "get": {
+        "operationId": "get_catalog_discovery_projects__project_id__connections__connection_id__catalog_discoveries__discovery_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "discovery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Discovery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogDiscoveryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Catalog Discovery",
+        "tags": [
+          "external database catalog"
+        ]
+      }
+    },
+    "/projects/{project_id}/connections/{connection_id}/catalog-discoveries/{discovery_id}/relations": {
+      "get": {
+        "operationId": "list_catalog_relations_projects__project_id__connections__connection_id__catalog_discoveries__discovery_id__relations_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "discovery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Discovery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogRelationPageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Catalog Relations",
+        "tags": [
+          "external database catalog"
+        ]
+      }
+    },
+    "/projects/{project_id}/connections/{connection_id}/catalog-discoveries/{discovery_id}/relations/{ordinal}/layers": {
+      "post": {
+        "operationId": "register_postgis_layer_projects__project_id__connections__connection_id__catalog_discoveries__discovery_id__relations__ordinal__layers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Connection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "discovery_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Discovery Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ordinal",
+            "required": true,
+            "schema": {
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Ordinal",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistrationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistrationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Register Postgis Layer",
+        "tags": [
+          "external database layers"
         ]
       }
     },
@@ -37110,7 +38473,8 @@
                     "arcgis",
                     "wfs",
                     "imageserver",
-                    "mapserver"
+                    "mapserver",
+                    "postgis"
                   ],
                   "type": "string"
                 },
@@ -37161,7 +38525,8 @@
                     "repository",
                     "imageserver",
                     "mapserver",
-                    "cog"
+                    "cog",
+                    "postgis"
                   ],
                   "type": "string"
                 },
@@ -41163,7 +42528,14 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                    "anyOf": [
+                      {
+                        "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                      },
+                      {
+                        "$ref": "#/components/schemas/ConfigurablePmtilesDerivativeResponse"
+                      }
+                    ]
                   },
                   "title": "Response List Pmtiles Derivatives Projects  Project Id  Datasets  Dataset Id  Versions  Dataset Version Id  Pmtiles Derivatives Get",
                   "type": "array"
@@ -41258,7 +42630,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ConfigurablePmtilesDerivativeResponse"
+                    }
+                  ],
+                  "title": "Response Create Pmtiles Derivative Projects  Project Id  Datasets  Dataset Id  Versions  Dataset Version Id  Pmtiles Derivatives Post"
                 }
               }
             },
@@ -41352,7 +42732,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ConfigurablePmtilesDerivativeResponse"
+                    }
+                  ],
+                  "title": "Response Get Pmtiles Derivative Projects  Project Id  Datasets  Dataset Id  Versions  Dataset Version Id  Pmtiles Derivatives  Job Id  Get"
                 }
               }
             },
@@ -41446,7 +42834,15 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/PmtilesDerivativeResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ConfigurablePmtilesDerivativeResponse"
+                    }
+                  ],
+                  "title": "Response Cancel Pmtiles Derivative Projects  Project Id  Datasets  Dataset Id  Versions  Dataset Version Id  Pmtiles Derivatives  Job Id  Cancel Post"
                 }
               }
             },
@@ -41936,6 +43332,206 @@
         "summary": "Download",
         "tags": [
           "dataset catalog"
+        ]
+      }
+    },
+    "/projects/{project_id}/datasets/{dataset_id}/versions/{version_id}/pmtiles-derivatives/{job_id}/display-review": {
+      "get": {
+        "operationId": "review_pmtiles_display_projects__project_id__datasets__dataset_id__versions__version_id__pmtiles_derivatives__job_id__display_review_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Review Pmtiles Display Projects  Project Id  Datasets  Dataset Id  Versions  Version Id  Pmtiles Derivatives  Job Id  Display Review Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Review Pmtiles Display",
+        "tags": [
+          "managed layer displays"
+        ]
+      },
+      "post": {
+        "operationId": "admit_pmtiles_display_projects__project_id__datasets__dataset_id__versions__version_id__pmtiles_derivatives__job_id__display_review_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Version Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewPmtilesDisplayRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Admit Pmtiles Display Projects  Project Id  Datasets  Dataset Id  Versions  Version Id  Pmtiles Derivatives  Job Id  Display Review Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Admit Pmtiles Display",
+        "tags": [
+          "managed layer displays"
         ]
       }
     },
@@ -63915,6 +65511,57 @@
         ]
       }
     },
+    "/public/organizations/{organization_id}/artifact-releases/{release_id}/descriptor": {
+      "get": {
+        "operationId": "public_release_descriptor_public_organizations__organization_id__artifact_releases__release_id__descriptor_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Organization Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "release_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Release Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Release Descriptor",
+        "tags": [
+          "artifact-releases"
+        ]
+      }
+    },
     "/public/organizations/{organization_id}/artifact-releases/{release_id}/image": {
       "get": {
         "operationId": "public_release_image_public_organizations__organization_id__artifact_releases__release_id__image_get",
@@ -64059,6 +65706,20 @@
               "default": false,
               "title": "Download",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mode",
+            "required": false,
+            "schema": {
+              "default": "iframe",
+              "enum": [
+                "iframe",
+                "native"
+              ],
+              "title": "Mode",
+              "type": "string"
             }
           }
         ],
@@ -64287,6 +65948,57 @@
           }
         },
         "summary": "Public Collection",
+        "tags": [
+          "collections"
+        ]
+      }
+    },
+    "/public/organizations/{organization_id}/collections/{collection_id}/module.mjs": {
+      "get": {
+        "operationId": "public_collection_module_public_organizations__organization_id__collections__collection_id__module_mjs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Organization Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Public Collection Module",
         "tags": [
           "collections"
         ]

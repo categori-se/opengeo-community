@@ -4,6 +4,27 @@ import {JSDOM} from "jsdom";
 import {createStaticItemClient, STATIC_ITEM_CATALOG, STATIC_ITEM_COLLECTION, normalizeStaticAssets} from "../src/lib/staticItemSearch.js";
 import {StaticItemSearch} from "../src/components/StaticItemSearch.js";
 
+for (const departure of ["filter", "search", "dispose"]) it(`disposes referenced Layer previews on ${departure}`, async () => {
+  const dom = new JSDOM("<!doctype html>"); const old = globalThis.document; globalThis.document = dom.window.document;
+  try {
+    let releases = 0;
+    const root = StaticItemSearch({client: {
+      search: async () => ({items: [{id: "scene", datetime: "2026-10-14"}], complete: true, issues: [], inventory: {readAt: "2026-10-14", license: "Fixture"}}),
+      select: async () => ({assets: [], license: "Fixture"})
+    }, onReference: () => {const panel = document.createElement("section"); panel.className = "static-item-registration"; panel.dispose = () => releases++; return panel;}});
+    document.body.append(root);
+    const submit = () => root.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
+    const click = name => [...root.querySelectorAll("button")].find(button => button.textContent === name).click();
+    const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+    submit(); await flush(); click("View asset references"); await flush(); click("Review Catalog registration");
+    assert.equal(releases, 0);
+    if (departure === "filter") root.querySelector("input").dispatchEvent(new dom.window.Event("input"));
+    else if (departure === "search") {submit(); await flush();}
+    else root.dispose();
+    assert.equal(releases, 1);
+  } finally {globalThis.document = old; dom.window.close();}
+});
+
 const collectionUrl = STATIC_ITEM_CATALOG.replace("catalog.json", `${STATIC_ITEM_COLLECTION}/collection.json`);
 const itemUrl = collectionUrl.replace("collection.json", "year=2015/2015.json");
 const query = {year: 2015, start: "2015-10-22T00:00:00Z", end: "2015-10-22T23:59:59Z", bbox: [1, 40, 16, 51], maxCloud: 30};

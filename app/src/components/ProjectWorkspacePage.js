@@ -6,10 +6,12 @@ import {retainedProjectScope, retainedPublicationScope, retainedPublicationIdent
 import {mapServerTileUrl} from "../lib/mapServer.js";
 import {imageServerTileUrl} from "../lib/imageServer.js";
 import {executeGeoLibreImport} from "../lib/geolibreImport.js";
+import {createGeoLibreHandoff, reviewGeoLibreReturn} from "../lib/geolibreHandoff.js";
 import {loadManagedVectorData} from "../lib/managedVectorRead.js";
 import {ingestManagedFile} from "../lib/managedUpload.js";
 import {createManagedAnalysisRegistration} from "../lib/managedAnalysisRegistration.js";
 import {emptyMapDefinition} from "../lib/mapDefinition.js";
+import {definitionForPrintFrame, projectPrintLayouts} from "../lib/printLayouts.js";
 import {
   loadWithWakeRetry,
   platformStartupMessage
@@ -38,7 +40,8 @@ function loadProjectSurfaceModule(surface) {
     case "resources": return import("./ProjectResources.js");
     case "services": return import("./ProjectServices.js");
     case "publishing": return import("./ProjectSites.js");
-    case "print": return import("./ProjectPrintStudio.js");
+    case "print": return Promise.all([import("./ProjectPrintStudio.js"), import("./WorkbenchView.js")])
+      .then(([print, workbench]) => ({...print, ...workbench}));
     case "settings": return import("./ProjectLifecycleSettings.js");
     default: return import("./WorkbenchView.js");
   }
@@ -66,7 +69,7 @@ export function ProjectWorkspacePage({
 }) {
   const root = document.createElement("section");
   root.className = "platform-workspace";
-  root.ariaLive = "polite";
+  // Narrow status regions announce progress without reading the entire editor.
   const metadataGuard = guardAuthoredMetadata(root);
   const projectMetadata = new Map();
   const activeProjectSurface = publicationId ? "publishing" : PROJECT_SURFACES.includes(managementTarget)
@@ -91,6 +94,8 @@ export function ProjectWorkspacePage({
     startup?.abort();
     clearTimeout(startupNotice);
     clearTimeout(startupDeadline);
+    root.querySelector(".project-print-studio")?.dispose?.();
+    root.querySelector(".project-lifecycle-settings")?.dispose?.();
     workbench?.dispose?.();
     metadataGuard.dispose();
   };
@@ -220,6 +225,33 @@ export function ProjectWorkspacePage({
         platformStatePanel({status: "error", code: "workspace_interface_unavailable", retryable: true, adapter}, refresh, {auth}));
       return;
     }
+    if (activeProjectSurface === "print" && (compositionId || mapId) && state.selectedMap) {
+      readyState = state;workbenchModule = module;
+      const makeWorkbench = frame => {
+        workbench?.dispose?.();
+        const definition = frame ? definitionForPrintFrame(state.selectedMap, frame) : structuredClone(state.selectedMap.definition);
+        definition.extensions = {...definition.extensions, opengeoRenderer: {id: "maplibre"}};
+        const printState = {...state, selectedMap: {...state.selectedMap, definition}};
+        const input = prepareWorkbenchInput(printState);
+        input.savedProjectOrigin = {id: state.selectedMap.id, version: state.selectedMap.version, definition: structuredClone(state.selectedMap.definition)};
+        // A new layout starts with the saved Layers' current browser presentation.
+        // Keep Print edits in their own draft; saved frame settings stay authoritative.
+        input.restoreDraftScopeId = input.draftScopeId;
+        input.restoreBrowserDraft = frame ? false : "presentation";input.draftScopeId += ":print";
+        workbench = buildWorkbench(printState, input, true);
+        workbench.style.height = "100%";workbench.style.minHeight = "0";
+        return workbench;
+      };
+      let initialFrame = null;
+      try {initialFrame = projectPrintLayouts(state.selectedMap).layouts[0]?.frames[0] ?? null;} catch { /* The editor retains and reports unsupported saved layout metadata. */ }
+      const print = module.ProjectPrintStudio({state, workbench: makeWorkbench(initialFrame), editFrame: makeWorkbench,
+        canSave: canEdit(state) && typeof adapter.updateMap === "function", onSaved: saved => {
+          state.selectedMap = saved;
+          const index = state.maps.findIndex(map => map.id === saved.id);if (index >= 0) state.maps.splice(index, 1, saved);
+        }});
+      root.replaceChildren(projectRouteBar(adapter.kind), ...[adapter.kind === "fixture" ? modeBanner(adapter) : null].filter(Boolean), projectSections(state, "print"), print);
+      revealProjectTarget();return;
+    }
     if (activeProjectSurface) {
       readyState = state;
       workbench = null;
@@ -303,6 +335,11 @@ export function ProjectWorkspacePage({
       const id = state.selectedMap.id;
       if (!projectMetadata.has(id)) projectMetadata.set(id, AuthoredResourceMetadata({adapter, kind:"project", id}));
       metadataPanel = projectMetadata.get(id);
+      const savedLayers = state.selectedMap.definition?.layers;
+      const referenced = new Set((Array.isArray(savedLayers) ? savedLayers : []).map(layer => layer.datasetId));
+      metadataPanel.updateProjectContext({map: state.selectedMap,
+        datasets: state.datasets.filter(dataset => referenced.has(dataset.id)),
+        sources: state.sources.filter(source => referenced.has(source.datasetId))});
     }
     if (preserveWorkbench) {
       for (const child of [...root.children]) {
@@ -382,7 +419,14 @@ export function ProjectWorkspacePage({
     const loading = document.createElement("section");
     loading.className = "platform-state platform-state-loading";
     loading.dataset.state = "loading";
-    loading.append(text("h2", publicationId ? "Loading publication" : "Loading project"), text("p", message));
+    loading.setAttribute("aria-busy", "true");
+    const title = text("h2", publicationId ? "Loading publication" : "Loading project");
+    const progress = document.createElement("progress");
+    progress.setAttribute("aria-label", title.textContent);
+    progress.style.width = "100%";
+    const status = text("p", message);
+    status.setAttribute("role", "status");
+    loading.append(title, progress, status);
     root.replaceChildren(projectRouteBar(adapter?.kind, activeProjectSurface === "publishing" ? "publishing" : "projects"), loading);
   }
 
@@ -407,7 +451,7 @@ export function ProjectWorkspacePage({
     return input;
   }
 
-  function buildWorkbench(state, input = prepareWorkbenchInput(state)) {
+  function buildWorkbench(state, input = prepareWorkbenchInput(state), printPreview = false) {
     const {WorkbenchView} = workbenchModule;
     if (onPublicationMapExport) return WorkbenchView({
       ...input, role: "viewer", persistenceMode: adapter.kind, styleAdapter: adapter,
@@ -440,6 +484,79 @@ export function ProjectWorkspacePage({
       await assertArchiveScope();
     };
     const archiveCall = async task => {await authorizeArchive(); const value = await task(); await authorizeArchive(); return value;};
+    // Metadata endpoints authorize each request. Check editor scope around them
+    // and revalidate the session at action boundaries instead of twice per row.
+    const geoLibreCall = async task => {await assertArchiveScope(); const value = await task(); await assertArchiveScope(); return value;};
+    const managedDatasetMetadataReads = new Map();
+    const readDatasetMetadata = async (datasetId, signal) => {
+      let dataset = state.datasets.find(item => item.id === datasetId);
+      if (!dataset) {
+        let pending = managedDatasetMetadataReads.get(datasetId);
+        if (!pending) {
+          pending = geoLibreCall(() => adapter.getDataset(state.project.id, datasetId, {signal: AbortSignal.timeout(20_000)}))
+            .then(value => {
+              if (disposed || value.id !== datasetId || value.projectId !== state.project.id)
+                throw Error("The selected Layer's dataset metadata changed.");
+              if (!state.datasets.some(item => item.id === datasetId)) state.datasets.push(value);
+              return value;
+            });
+          managedDatasetMetadataReads.set(datasetId, pending);
+          pending.catch(() => managedDatasetMetadataReads.delete(datasetId));
+        }
+        dataset = await pending;
+      }
+      signal?.throwIfAborted();
+      return dataset;
+    };
+    // Reuse complete exact-version reads already made by this editor. Preview
+    // subsets never qualify as analysis inputs for a round trip.
+    const completeVectorReads = new Map();
+    const readVector = async (datasetId, versionId, geometryType, signal) => {
+      const key = `${datasetId}:${versionId}`;
+      await assertArchiveScope();
+      let dataset = state.datasets.find(item => item.id === datasetId);
+      if (!dataset && typeof adapter.getDataset === "function") dataset = await readDatasetMetadata(datasetId, signal);
+      if (!dataset) throw Error("Dataset metadata is required before loading its raw map preview.");
+      if (dataset?.currentVersionState === "preserved" && dataset.currentVersionId === versionId)
+        throw Error("This original is preserved without a raw map preview. Use its reviewed tiled display.");
+      if (completeVectorReads.has(key)) {
+        // Current metadata authorization also covers withdrawn historical pins;
+        // never reread encrypted bytes merely to refresh this decision.
+        let version;
+        for (let offset = 0; offset < 1000; offset += 100) {
+          const versions = await geoLibreCall(() => adapter.listDatasetVersions(state.project.id, datasetId, {limit: 100, offset}));
+          version = versions.find(candidate => candidate.id === versionId);
+          if (version || versions.length < 100) break;
+        }
+        if (version?.state !== "active") throw Error("The selected dataset version is unavailable.");
+        return completeVectorReads.get(key);
+      }
+      const value = await loadManagedVectorData({adapter, projectId: state.project.id,
+        datasetId, versionId, geometryType, signal,
+        assertScope: assertArchiveScope, authorize: authorizeArchive});
+      if (value.datasetVersionId === versionId && value.mayBeTruncated === false
+        && value.numberReturned === value.numberMatched) completeVectorReads.set(key, value);
+      return value;
+    };
+    const handoffInputs = async map => {
+      const inputs = new Map();
+      const layers = map.definition.layers.filter(layer => ["governed-dataset", "geojson-object"].includes(layer.sourceType));
+      if (layers.length > 20) throw Error("Choose a Project with at most 20 managed vector Layers for this GeoLibre workflow.");
+      const signal = AbortSignal.timeout(60_000);
+      for (const layer of layers) {
+        signal.throwIfAborted();
+        if (!layer.datasetVersionId) throw Error("Save an exact dataset version for each managed vector Layer before opening GeoLibre.");
+        const dataset = await geoLibreCall(() => adapter.getDataset(state.project.id, layer.datasetId));
+        if (dataset.capabilities?.download !== true) throw Error("Download access is required for each managed vector input opened in GeoLibre.");
+        const value = await readVector(layer.datasetId, layer.datasetVersionId, layer.geometryType, signal);
+        if (value.datasetVersionId !== layer.datasetVersionId || value.mayBeTruncated !== false
+          || value.numberReturned !== value.numberMatched) throw Error("GeoLibre requires the complete selected vector version; a preview cannot be used.");
+        inputs.set(layer.layerId, {data: value.geojson, complete: true});
+      }
+      return inputs;
+    };
+    let geoLibreReview = null;
+    let geoLibreReviewGeneration = 0;
     return WorkbenchView({
       ...input,
       canResumeRenderer: () => checkRetainedAccess({signal: AbortSignal.timeout(20_000)}),
@@ -448,7 +565,7 @@ export function ProjectWorkspacePage({
         load: () => adapter.listCompositions({limit: 100, signal: AbortSignal.timeout(20_000)})
       },
       styleAdapter: adapter,
-      layerArchiveAccess: typeof adapter.listLayerArchives === "function" ? {
+      layerArchiveAccess: typeof adapter.listLayerArchives === "function" || typeof adapter.listManagedDisplays === "function" ? {
         assertScope: assertArchiveScope, authorize: authorizeArchive,
         list: (layer, signal) => archiveCall(() => layer.sourceType === "governed-dataset"
           ? adapter.listManagedDisplays(archiveScope[2], layer.datasetId, layer.datasetVersionId, {signal})
@@ -519,15 +636,26 @@ export function ProjectWorkspacePage({
           )
         : null,
       listPmtilesDerivatives: durableRoutes.listPmtilesDerivatives,
+      getPmtilesConversionCapabilities: typeof adapter.getPmtilesConversionCapabilities==='function'
+        ? ()=>adapter.getPmtilesConversionCapabilities() : null,
       cancelPmtilesDerivative: durableRoutes.cancelPmtilesDerivative,
+      reviewPmtilesDisplay: canEdit(state) && typeof adapter.getPmtilesDisplayReview === "function"
+        ? job => archiveCall(() => adapter.getPmtilesDisplayReview(state.project.id, job.datasetId, job.datasetVersionId, job.jobId)) : null,
+      admitPmtilesDisplay: canEdit(state) && typeof adapter.admitPmtilesDisplayReview === "function"
+        ? (job, request) => archiveCall(() => adapter.admitPmtilesDisplayReview(state.project.id, job.datasetId, job.datasetVersionId, job.jobId, request)) : null,
+      loadManagedDatasetMetadata: typeof adapter.getDataset === "function"
+        ? async (datasetId, signal) => {
+          const dataset = await readDatasetMetadata(datasetId, signal);
+          signal.throwIfAborted();
+          if (disposed || dataset.id !== datasetId || dataset.projectId !== state.project.id) throw Error("The selected Layer's dataset metadata changed.");
+          if (!state.datasets.some(item => item.id === dataset.id)) state.datasets.push(dataset);
+          return managedWorkbenchDataset(dataset);
+        } : null,
       loadDatasetFeatures: typeof adapter.listFeatures === "function"
         ? (datasetId) => adapter.listFeatures(state.project.id, datasetId, {limit: 100})
         : null,
       loadDatasetVersionPreview: typeof adapter.getDatasetSpatialPreview === "function"
-        ? (datasetId, versionId, geometryType) => loadManagedVectorData({
-            adapter, projectId: state.project.id, datasetId, versionId, geometryType,
-            assertScope: assertArchiveScope, authorize: authorizeArchive
-          })
+        ? (datasetId, versionId, geometryType) => readVector(datasetId, versionId, geometryType)
         : null,
       queryDatasetFeatures: typeof adapter.queryFeatures === "function"
         ? (datasetId, query, options) => adapter.queryFeatures(state.project.id, datasetId, query, options)
@@ -560,16 +688,68 @@ export function ProjectWorkspacePage({
       refreshKmlNetworkLink: typeof adapter.refreshKmlNetworkLink === "function"
         ? (request, options) => adapter.refreshKmlNetworkLink(state.project.id, request, options)
         : null,
+      prepareGeoLibreHandoff: adapter.kind === "api" && typeof adapter.getCompositionVersion === "function"
+        ? async ({map}) => {
+            await authorizeArchive();
+            const retained = await geoLibreCall(() => adapter.getCompositionVersion(map.id, map.version));
+            const baseMap = {...map, definition: retained.definition};
+            const result = await createGeoLibreHandoff({projectId: state.project.id, map: baseMap,
+              embeddedDataByLayerId: await handoffInputs(baseMap)});
+            await authorizeArchive();
+            return result;
+          }
+        : null,
+      reviewGeoLibreReturn: adapter.kind === "api" && typeof adapter.getCompositionVersion === "function"
+        ? async ({conversion}) => {
+            await authorizeArchive();
+            const generation = ++geoLibreReviewGeneration;
+            const handoff = conversion.map.definition.extensions?.geolibre?.project?.metadata?.opengeo?.handoff;
+            if (handoff?.projectId !== state.project.id || handoff.mapId !== currentMap.id
+              || !Number.isSafeInteger(handoff.mapVersion) || handoff.mapVersion < 1) {
+              throw Error("Open the originating OpenGeo Project to review these GeoLibre results.");
+            }
+            const [retained, latest] = await geoLibreCall(() => Promise.all([
+              adapter.getCompositionVersion(handoff.mapId, handoff.mapVersion),
+              adapter.getMap(state.project.id, currentMap.id)
+            ]));
+            const baseMap = {...latest, version: retained.version, definition: retained.definition};
+            const result = await reviewGeoLibreReturn({conversion, projectId: state.project.id,
+              baseMap, currentMap: latest, embeddedDataByLayerId: await handoffInputs(baseMap)});
+            await authorizeArchive();
+            if (generation !== geoLibreReviewGeneration) throw Error("A newer GeoLibre file is being reviewed.");
+            geoLibreReview = {...result, baseMap, creationKey: crypto.randomUUID(), newMap: null};
+            return result;
+          }
+        : null,
       applyGeoLibreImport: adapter.kind === "api"
-        ? async ({conversion, sourceText}) => {
+        ? async ({conversion, sourceText, review = null, asNewMapName = null}) => {
+            await authorizeArchive();
+            let targetMap = currentMap;
+            if (review) {
+              if (!geoLibreReview || geoLibreReview.conversion !== conversion || geoLibreReview.review !== review) {
+                throw Error("Review this return file again before saving its results.");
+              }
+              const latest = await geoLibreCall(() => adapter.getMap(state.project.id, currentMap.id));
+              if (latest.version !== review.current.mapVersion || review.conflict && !asNewMapName) {
+                throw Object.assign(Error("The Project has changed. Review the return file again or save the reviewed results as a new map."), {code: "map_version_conflict"});
+              }
+              if (asNewMapName) {
+                geoLibreReview.newMap ??= await geoLibreCall(() => adapter.createMap(state.project.id, {
+                  name: asNewMapName, definition: geoLibreReview.baseMap.definition,
+                  creationKey: geoLibreReview.creationKey
+                }));
+                targetMap = geoLibreReview.newMap;
+              } else targetMap = latest;
+            }
             const result = await executeGeoLibreImport({
               adapter,
               projectId: state.project.id,
-              mapId: currentMap.id,
-              expectedMapVersion: currentMap.version,
+              mapId: targetMap.id,
+              expectedMapVersion: targetMap.version,
               conversion,
               sourceText
             });
+            if (targetMap.id !== currentMap.id) return {...result, mapId: targetMap.id};
             currentMap = await adapter.getMap(state.project.id, currentMap.id);
             await refresh();
             return result;
@@ -603,7 +783,12 @@ export function ProjectWorkspacePage({
             await refresh();
             return completion;
           }
-        : null
+        : null,
+      ...(printPreview ? {restoreBrowserDraft: input.restoreBrowserDraft, saveProject: null, saveProjectAs: null, importLocalFile: null,
+        registerSource: null, startSourceDiscovery: null, requestProtectedCopy: null, requestPmtilesDerivative: null,
+        createAnalysisRegistration: null, applyGeoLibreImport: null, prepareGeoLibreHandoff: null,
+        reviewGeoLibreReturn: null, projectSwitcher: null, onPublicationMapExport: null,
+        canRequestProjectCompute: false} : {})
     });
   }
 
@@ -725,6 +910,10 @@ function projectApplicationSurface(
   const content = document.createElement("div");
   content.className = "project-application-content";
   content.id = `project-${activeSurface}`;
+  content.dataset.studioSkipTarget = "";
+  content.tabIndex = -1;
+  content.setAttribute("role", "region");
+  content.setAttribute("aria-label", activeSurface === "publishing" ? "Publication content" : "Project content");
   if (activeSurface === "data") {
     content.append(module.ProjectDatasets({state, refresh, featureTarget}));
   } else if (activeSurface === "discussions") {
@@ -916,7 +1105,7 @@ function canEdit(state) {
     || ["owner", "editor"].includes(state.project.callerRole);
 }
 
-function activeDurableJobSelection(input, sources, {isProtectedCopySourceEligible, isPmtilesDerivativeSourceEligible}) {
+function activeDurableJobSelection(input, sources, {isProtectedCopySourceEligible, pmtilesJobDatasetForLayer}) {
   const activeLayer = input.layers.find(({layerId}) => layerId === input.project.activeLayerId)
     ?? input.layers[0]
     ?? null;
@@ -924,7 +1113,7 @@ function activeDurableJobSelection(input, sources, {isProtectedCopySourceEligibl
   const dataset = input.datasets.find(({datasetId}) => datasetId === activeLayer?.datasetId);
   return {
     source: isProtectedCopySourceEligible(source) ? source : null,
-    dataset: isPmtilesDerivativeSourceEligible(dataset, activeLayer) ? dataset : null
+    dataset: pmtilesJobDatasetForLayer(dataset, activeLayer)
   };
 }
 

@@ -789,6 +789,7 @@ def test_explicit_publisher_transition_updates_state_and_appends_both_audits(
         None,
         None,
         None,
+        RESOURCE_VERSION_ID,
     )
     transaction = ScriptedTransaction(
         one=[

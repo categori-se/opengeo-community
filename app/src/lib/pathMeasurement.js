@@ -1,8 +1,10 @@
 import {
   EARTH_SPATIAL_BODY,
+  meanRadiusMeters,
   spatialBodyDistanceMeters,
   spatialBodyDefinition
 } from "./spatialBody.js";
+import {sightLineModel} from "./sightLineModel.js";
 
 export const PATH_MEASUREMENT_SCHEMA_VERSION = "opengeo.path-measurement.1.0.0";
 
@@ -13,6 +15,117 @@ export const PATH_MEASUREMENT_LIMITS = Object.freeze({
   targetSampleSpacingMeters: 250,
   maximumAbsoluteElevationMeters: 100_000
 });
+
+export const LINE_OF_SIGHT_LIMITS = Object.freeze({
+  maximumDistanceMeters: 100_000,
+  maximumHeightMeters: 1_000,
+  maximumUncertaintyMeters: 1_000,
+  maximumAxisDeviationMeters: 1,
+  toleranceMeters: 0.01,
+  maximumExportBytes: 128 * 1024
+});
+
+/** Inspect saved samples only. A clear result applies to these samples, never
+ * to unsampled terrain or a whole viewshed. Elevations use their recorded datum.
+ * The curved model intersects a chord with radial directions on the mean sphere;
+ * it does not apply refraction, vegetation, buildings or an ellipsoid correction.
+ */
+export function analyzeProfileLineOfSight(measurement, {
+  observerHeightMeters = 1.75,
+  targetHeightMeters = 0,
+  uncertaintyMeters = null,
+  curvature = true
+} = {}) {
+  for (const height of [observerHeightMeters, targetHeightMeters]) {
+    if (!Number.isFinite(height) || height < 0 || height > LINE_OF_SIGHT_LIMITS.maximumHeightMeters) {
+      throw measurementError("line_of_sight_height_invalid");
+    }
+  }
+  if (typeof curvature !== "boolean" || uncertaintyMeters !== null
+    && (!Number.isFinite(uncertaintyMeters) || uncertaintyMeters < 0
+      || uncertaintyMeters > LINE_OF_SIGHT_LIMITS.maximumUncertaintyMeters)) {
+    throw measurementError("line_of_sight_options_invalid");
+  }
+  const body = spatialBodyDefinition(measurement?.spatialBodyId);
+  const [input] = normalizePathMeasurements([measurement], {spatialBody: body});
+  if (!input || input.coordinates.length !== 2) throw measurementError("line_of_sight_straight_profile_required");
+  const length = input.horizontalDistanceMeters, radius = meanRadiusMeters(body);
+  if (length < 1 || length > LINE_OF_SIGHT_LIMITS.maximumDistanceMeters) throw measurementError("line_of_sight_distance_limit");
+  const sourceSamples = input.terrainProfile.samples;
+  const result = {
+    schemaVersion: "opengeo.profile-line-of-sight.1.0.0",
+    status: "incomplete",
+    reason: null,
+    input,
+    options: {observerHeightMeters, targetHeightMeters, uncertaintyMeters, curvature},
+    model: {geometry: curvature ? "spherical-chord" : "planar-profile", radiusMeters: radius,
+      refraction: false, elevationDatum: "retained-provider-datum", verticalAccuracy: "provider-not-declared",
+      toleranceMeters: LINE_OF_SIGHT_LIMITS.toleranceMeters, betweenSamples: "not-evaluated"},
+    maximumSampleSpacingMeters: Math.max(...sourceSamples.slice(1).map((s,i) => s.distanceMeters-sourceSamples[i].distanceMeters)),
+    maximumAxisDeviationMeters: axisDeviation(input.coordinates, sourceSamples, radius),
+    minimumClearanceMeters: null,
+    uncertaintyResult: "not-evaluated",
+    samples: []
+  };
+  if (input.terrainProfile.status !== "complete") {result.reason = "missing-elevation-samples";return result;}
+  if (sourceSamples.length < 3) {result.reason = "no-interior-samples";return result;}
+  if (result.maximumAxisDeviationMeters > LINE_OF_SIGHT_LIMITS.maximumAxisDeviationMeters) {
+    result.reason = "samples-outside-sight-axis";return result;
+  }
+  const first = sourceSamples[0].elevationMeters + observerHeightMeters;
+  const last = sourceSamples.at(-1).elevationMeters + targetHeightMeters;
+  const {heightAt: rayAt} = sightLineModel({distanceMeters:length,radiusMeters:radius,
+    observerElevationMeters:first,targetElevationMeters:last,curvature});
+  result.samples = sourceSamples.map((sample,index) => {
+    const rayElevationMeters = rayAt(sample.distanceMeters);
+    const clearanceMeters = rayElevationMeters - sample.elevationMeters;
+    const interior = index > 0 && index < sourceSamples.length-1;
+    return {...sample, rayElevationMeters, clearanceMeters, interior,
+      minimumClearanceMeters: uncertaintyMeters === null || !interior ? null
+        : rayAt(sample.distanceMeters,-uncertaintyMeters) - sample.elevationMeters - uncertaintyMeters,
+      maximumClearanceMeters: uncertaintyMeters === null || !interior ? null
+        : rayAt(sample.distanceMeters,uncertaintyMeters) - sample.elevationMeters + uncertaintyMeters};
+  });
+  const interior = result.samples.filter(s => s.interior), tolerance = LINE_OF_SIGHT_LIMITS.toleranceMeters;
+  result.minimumClearanceMeters = Math.min(...interior.map(s => s.clearanceMeters));
+  result.status = result.minimumClearanceMeters < -tolerance ? "sampled-obstruction"
+    : result.minimumClearanceMeters > tolerance ? "sampled-clear" : "grazing";
+  if (uncertaintyMeters !== null) {
+    result.uncertaintyResult = interior.some(s => s.maximumClearanceMeters < -tolerance) ? "obstructed-within-bound"
+      : interior.every(s => s.minimumClearanceMeters > tolerance) ? "clear-within-bound" : "uncertain";
+  }
+  return result;
+}
+
+function axisDeviation(coordinates, samples, radius) {
+  const unit = ([lon,lat]) => {
+    const a=lon*Math.PI/180,b=lat*Math.PI/180;
+    return [Math.cos(b)*Math.cos(a),Math.cos(b)*Math.sin(a),Math.sin(b)];
+  };
+  const [a,b]=coordinates.map(unit), normal=[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+  const norm=Math.hypot(...normal);
+  return Math.max(...samples.map(sample => {
+    const p=unit(sample.coordinate);
+    return radius*Math.asin(Math.min(1,Math.abs(p.reduce((sum,v,i)=>sum+v*normal[i],0))/norm));
+  }));
+}
+
+export function profileLineOfSightJSON(result) {
+  // Recompute from closed, validated inputs rather than exporting caller-added
+  // properties or trusting a modified numerical result.
+  const record = analyzeProfileLineOfSight(result?.input, result?.options);
+  const terms = record.input.terrainProfile.source?.termsUrl;
+  const credentials = /(?:token|key|secret|signature|credential|authorization|session)/i;
+  if (terms && (credentials.test(new URL(terms).search)
+    || [...new URL(terms).searchParams.keys()].some(name => credentials.test(name)))) {
+    throw measurementError("line_of_sight_private_source_url");
+  }
+  const body = JSON.stringify(record, null, 2) + "\n";
+  if (new TextEncoder().encode(body).length > LINE_OF_SIGHT_LIMITS.maximumExportBytes) {
+    throw measurementError("line_of_sight_export_limit");
+  }
+  return body;
+}
 
 const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
 

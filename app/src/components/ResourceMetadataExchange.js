@@ -19,7 +19,7 @@ const STATUS_LABELS = Object.freeze({
 });
 
 // Export projections stay inert. Documents and conversion reports are separate files.
-export function ResourceMetadataExchange({adapter, projectId, resource}) {
+export function ResourceMetadataExchange({adapter, projectId, resource, isCurrent = () => true, signal}) {
   const root = document.createElement("section");
   root.className = "resource-metadata-exchange";
   root.setAttribute("aria-label", "Metadata export");
@@ -44,6 +44,21 @@ export function ResourceMetadataExchange({adapter, projectId, resource}) {
   feedback.setAttribute("role", "status");
   feedback.textContent = "Export saved server metadata. Unsaved edits are not included; exporting does not publish the resource.";
   const result = document.createElement("div");
+  let disposed = false, busy = false;
+  root.dispose = () => {
+    disposed = true;
+    result.replaceChildren();
+    prepare.disabled = format.disabled = language.disabled = true;
+    signal?.removeEventListener("abort", root.dispose);
+  };
+  signal?.addEventListener("abort", root.dispose, {once: true});
+  if (signal?.aborted) root.dispose();
+  const current = async () => {
+    if (disposed) return false;
+    try {if (await isCurrent() && !disposed && !signal?.aborted) return true;} catch {}
+    root.dispose();
+    return false;
+  };
   const reset = () => {
     result.replaceChildren();
     feedback.textContent = "Prepare the selected format to inspect and download it.";
@@ -52,32 +67,36 @@ export function ResourceMetadataExchange({adapter, projectId, resource}) {
   format.addEventListener("change", reset);
   language.addEventListener("input", reset);
   prepare.addEventListener("click", async () => {
+    if (disposed || busy) return;
     const target = format.value;
     if (target === "ogc_records_1_0" && !language.reportValidity()) return;
+    busy = true;
     prepare.disabled = true;
     format.disabled = true;
     language.disabled = true;
     result.replaceChildren();
     feedback.textContent = "Preparing metadata and its conversion report…";
     try {
+      if (!await current()) return;
       const exported = await adapter.exportResourceMetadata(projectId, resource.id, target,
         target === "ogc_records_1_0" ? {language: language.value.trim().toLowerCase()} : undefined);
+      if (!await current()) return;
       const artifacts = await metadataExportArtifacts({exported, target, projectId, resourceId: resource.id});
+      if (!await current()) return;
       feedback.textContent = `${FORMATS[target][0]} · ${exported.targetVersion} · ${STATUS_LABELS[exported.status]}. ${artifacts.document
         ? "Review the conversion report for defaults, omissions and validation limits."
         : "No metadata document is available; review the report for missing fields or an unsupported resource type."}`;
       if (artifacts.document) {
-        result.append(downloadButton("Download metadata", artifacts.document, feedback),
+        result.append(downloadButton("Download metadata", artifacts.document, feedback, current),
           preview("Metadata document", artifacts.document.body));
       }
-      result.append(downloadButton("Download conversion report", artifacts.report, feedback),
+      result.append(downloadButton("Download conversion report", artifacts.report, feedback, current),
         preview("Conversion report", artifacts.report.body));
     } catch {
-      feedback.textContent = "Metadata export could not be prepared. Nothing was downloaded or changed; try again.";
+      if (await current()) feedback.textContent = "Metadata export could not be prepared. Nothing was downloaded or changed; try again.";
     } finally {
-      prepare.disabled = false;
-      format.disabled = false;
-      language.disabled = false;
+      busy = false;
+      if (!disposed) prepare.disabled = format.disabled = language.disabled = false;
     }
   });
   root.append(label("Metadata format", format), languageLabel, prepare, feedback, result);
@@ -148,9 +167,10 @@ function preview(caption, body) {
   disclosure.append(summary, source);
   return disclosure;
 }
-function downloadButton(caption, artifact, feedback) {
+function downloadButton(caption, artifact, feedback, current) {
   const control = button(caption);
-  control.addEventListener("click", () => {
+  control.addEventListener("click", async () => {
+    if (!await current()) return;
     let url;
     let anchor;
     try {

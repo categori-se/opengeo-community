@@ -129,7 +129,7 @@ try {
     throw new Error(`Chromium rejected the web application manifest: ${JSON.stringify(appManifest.errors)}`);
   }
   const manifest = JSON.parse(appManifest.data);
-  if (manifest.start_url !== "/workspaces"
+  if (manifest.start_url !== "/"
     || manifest.scope !== "/"
     || manifest.display !== "standalone") {
     throw new Error(`Chromium resolved unexpected install metadata: ${JSON.stringify({

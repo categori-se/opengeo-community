@@ -39,15 +39,15 @@ describe("authentication return navigation", () => {
     }
   });
 
-  it("falls back to Projects for invalid or missing requested destinations", () => {
+  it("falls back to Home for invalid or missing requested destinations", () => {
     assert.equal(
       requestedAuthReturnTo(location(`${ORIGIN}/login?returnTo=https%3A%2F%2Fattacker.example%2F`)),
-      "/workspaces"
+      "/"
     );
-    assert.equal(requestedAuthReturnTo(location(`${ORIGIN}/login`)), "/workspaces");
+    assert.equal(requestedAuthReturnTo(location(`${ORIGIN}/login`)), "/");
     assert.equal(
       currentProtectedReturnTo(location("https://attacker.example/workspaces")),
-      "/workspaces"
+      "/"
     );
   });
 });

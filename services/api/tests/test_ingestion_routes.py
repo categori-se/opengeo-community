@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -11,6 +12,7 @@ from opengeo_api.ingestion import (
     Dataset,
     DatasetCapabilities,
     IngestionConflict,
+    IngestionProcessingHeld,
     IngestionStoreUnavailable,
     RepositoryObjectSource,
     UploadCompletion,
@@ -85,6 +87,7 @@ def dataset(*, processing: bool = False) -> Dataset:
 class FakeIngestionRepository:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
+        self.allowed_purposes: list[frozenset[str]] = []
 
     async def search_layers(self, context, **filters):
         self.calls.append(("search_layers", context, filters))
@@ -155,8 +158,9 @@ class FakeIngestionRepository:
     async def detach_dataset(self, context, project_id, dataset_id, request_id):
         self.calls.append(("detach_dataset", context, project_id, dataset_id, request_id))
 
-    async def request_upload(self, context, project_id, draft, request_id):
+    async def request_upload(self, context, project_id, draft, request_id, *, allowed_purposes):
         self.calls.append(("request_upload", context, project_id, draft, request_id))
+        self.allowed_purposes.append(allowed_purposes)
         return UploadTicket(
             upload_id=UPLOAD_ID,
             dataset=dataset(),
@@ -166,10 +170,14 @@ class FakeIngestionRepository:
                 fields={"key": "exact-key", "policy": "opaque-signature"},
                 expires_at=NOW + timedelta(minutes=15),
             ),
+            purpose=draft.purpose if draft else "ingest",
         )
 
-    async def complete_upload(self, context, project_id, upload_id, request_id):
+    async def complete_upload(
+        self, context, project_id, upload_id, request_id, *, allowed_purposes
+    ):
         self.calls.append(("complete_upload", context, project_id, upload_id, request_id))
+        self.allowed_purposes.append(allowed_purposes)
         return UploadCompletion(dataset(processing=True), VERSION_ID, 1, JOB_ID, "queued")
 
 
@@ -224,6 +232,116 @@ def upload_payload(**changes):
         "tags": [" Roads ", "Transport"],
         **changes,
     }
+
+
+def test_pmtiles_only_mode_holds_new_ingestion_but_allows_committed_readback() -> None:
+    repository = FakeIngestionRepository()
+    client = api_client(repository)
+    client.app.state.settings = Settings(env="test", worker_processing_mode="pmtiles-v2")
+    response = client.post(
+        f"/projects/{PROJECT_ID}/uploads/request",
+        headers=headers(),
+        json=upload_payload(),
+    )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "shared_worker_processing_held"}
+    assert repository.calls == []
+    readback = client.post(
+        f"/projects/{PROJECT_ID}/uploads/{UPLOAD_ID}/complete", headers=headers()
+    )
+    assert readback.status_code == 200
+    assert readback.json()["purpose"] == "ingest"
+    assert repository.allowed_purposes == [frozenset({"pmtiles_original"})]
+
+
+def test_pmtiles_original_uses_private_upload_contract_and_honest_jobless_completion() -> None:
+    class PreservationRepository(FakeIngestionRepository):
+        async def complete_upload(self, *args, **kwargs):
+            completed = await super().complete_upload(*args, **kwargs)
+            return replace(
+                completed,
+                purpose="pmtiles_original",
+                processing_job_id=None,
+                processing_job_state=None,
+                dataset=replace(
+                    dataset(),
+                    format="geojson",
+                    current_version_id=VERSION_ID,
+                    current_version_number=1,
+                    current_version_state="preserved",
+                ),
+            )
+
+    repository = PreservationRepository()
+    client = api_client(repository)
+    client.app.state.settings = Settings(env="test", worker_processing_mode="pmtiles-v2")
+    ticket = client.post(
+        f"/projects/{PROJECT_ID}/uploads/request",
+        headers=headers(),
+        json=upload_payload(
+            purpose="pmtiles_original",
+            format="geojson",
+            filename="roads.geojson",
+            content_type="application/geo+json",
+        ),
+    )
+    assert ticket.status_code == 201
+    assert ticket.json()["purpose"] == "pmtiles_original"
+    assert repository.calls[0][3].purpose == "pmtiles_original"
+    assert repository.allowed_purposes == [frozenset({"pmtiles_original"})]
+    # Completed preservation remains readable after the runtime is disabled.
+    client.app.state.settings = Settings(env="test", worker_processing_mode="disabled")
+    completed = client.post(
+        f"/projects/{PROJECT_ID}/uploads/{UPLOAD_ID}/complete", headers=headers()
+    )
+    assert completed.status_code == 200
+    assert completed.json()["purpose"] == "pmtiles_original"
+    assert completed.json()["processing_job_id"] is None
+    assert completed.json()["processing_job_state"] is None
+    assert completed.json()["dataset"]["status"] == "draft"
+    assert completed.json()["dataset"]["current_version_state"] == "preserved"
+    assert repository.allowed_purposes[-1] == frozenset()
+    assert "bucket" not in completed.text
+
+
+def test_pmtiles_original_rejects_other_formats_mime_staging_and_oversize() -> None:
+    repository = FakeIngestionRepository()
+    client = api_client(repository)
+    payload = upload_payload(
+        purpose="pmtiles_original",
+        format="geojson",
+        filename="roads.geojson",
+        content_type="application/geo+json",
+    )
+    for change in (
+        {"format": "csv", "filename": "roads.csv", "content_type": "text/csv"},
+        {"content_type": "application/json"},
+        {"target_dataset_id": str(DATASET_ID), "expected_base_version_id": str(VERSION_ID)},
+        {"size_bytes": 512 * 1024 * 1024 + 1},
+        {"purpose": "arbitrary"},
+    ):
+        response = client.post(
+            f"/projects/{PROJECT_ID}/uploads/request",
+            headers=headers(),
+            json={**payload, **change},
+        )
+        assert response.status_code == 422
+    assert repository.calls == []
+
+
+def test_pending_completion_mode_gate_is_reported_from_repository() -> None:
+    class PendingRepository(FakeIngestionRepository):
+        async def complete_upload(self, *args, allowed_purposes, **kwargs):
+            assert allowed_purposes == frozenset({"pmtiles_original"})
+            raise IngestionProcessingHeld("ingest")
+
+    client = api_client(PendingRepository())
+    client.app.state.settings = Settings(env="test", worker_processing_mode="pmtiles-v2")
+    response = client.post(
+        f"/projects/{PROJECT_ID}/uploads/{UPLOAD_ID}/complete", headers=headers()
+    )
+    assert response.status_code == 503
+    assert response.json() == {"detail": "shared_worker_processing_held"}
 
 
 def test_request_contract_normalizes_metadata_and_returns_only_exact_upload_instructions() -> None:
@@ -715,9 +833,17 @@ def test_kml_upload_retains_exact_source_contract_and_matches_worker_size_limit(
 
 def test_renew_upload_scopes_identity_and_prevents_ticket_caching():
     class RenewalRepository(FakeIngestionRepository):
-        async def renew_upload(self, context, project_id, upload_id, request_id):
+        async def renew_upload(
+            self, context, project_id, upload_id, request_id, *, allowed_purposes
+        ):
             assert upload_id == UPLOAD_ID
-            return await self.request_upload(context, project_id, None, request_id)
+            return await self.request_upload(
+                context,
+                project_id,
+                None,
+                request_id,
+                allowed_purposes=allowed_purposes,
+            )
 
     repository = RenewalRepository()
     client = api_client(repository)

@@ -9,8 +9,6 @@ Artifacts.
 The community source includes the publishing components described here. The
 complete native build, preview and public-release workflow still needs independent
 installation testing; see the [release notes](../RELEASE_NOTES.md).
-The [local runtime readiness review](api/native-publication-readiness.md) identifies
-the missing connections for saved-source builds and authorized private previews.
 
 ## From saved source to one public address
 

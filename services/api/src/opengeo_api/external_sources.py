@@ -24,11 +24,12 @@ from opengeo_api.tenant_database import (
 )
 
 ExternalSourceType = Literal[
-    "xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog"
+    "xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog",
+    "postgis",
 ]
-ExternalSourceAccessMode = Literal["direct_browser"]
-ExternalSourceCredentialMode = Literal["none"]
-ExternalSourceVerificationState = Literal["syntax_only"]
+ExternalSourceAccessMode = Literal["direct_browser", "server_mediated"]
+ExternalSourceCredentialMode = Literal["none", "connection_reference"]
+ExternalSourceVerificationState = Literal["syntax_only", "catalog_described"]
 
 
 class ExternalSourceStoreUnavailable(RuntimeError):
@@ -360,6 +361,8 @@ class PostgresExternalSourceRepository:
         draft: ExternalSourceDraft,
         request_id: str,
     ) -> ExternalSource:
+        if draft.source_type == "postgis":
+            raise ExternalSourceConflict("postgis_source_requires_catalog_registration")
         dataset_id = uuid4()
 
         async def operation(transaction: TenantTransaction) -> ExternalSource:
@@ -508,6 +511,8 @@ class PostgresExternalSourceRepository:
                 raise ExternalSourceConflict(
                     "external_source_type_immutable", current_version=current.version_number
                 )
+            if current.source_type == "postgis" and update.classification is None:
+                raise ExternalSourceConflict("postgis_source_requires_catalog_registration")
             latest = await transaction.fetch_one(
                 """
                 SELECT max(version_number)

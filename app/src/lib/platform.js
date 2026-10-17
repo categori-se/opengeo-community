@@ -6,10 +6,9 @@ import {
   getSelectedOrganization,
   selectOrganization
 } from "./auth.js";
-import {FixturePlatformAdapter} from "./fixturePlatform.js";
 import {retainedEditorIdentityStatus} from './retainedProjectScope.js';
 
-export function createPlatformAdapter({
+export async function createPlatformAdapter({
   catalog = null,
   url = globalThis.location?.href ?? "http://localhost/",
   storage = safeSessionStorage(),
@@ -17,7 +16,10 @@ export function createPlatformAdapter({
   capabilities = null
 } = {}) {
   const mode = new URL(url).searchParams.get("adapter");
-  if (mode === "fixture") return new FixturePlatformAdapter(catalog);
+  if (mode === "fixture") {
+    const {FixturePlatformAdapter} = await import("./fixturePlatform.js");
+    return new FixturePlatformAdapter(catalog);
+  }
 
   let selectedOrganizationId = getSelectedOrganization(storage);
   const client = new OpenGeoApiClient({

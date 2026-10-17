@@ -8,10 +8,13 @@ from urllib.parse import parse_qsl, urlsplit
 from uuid import UUID
 
 from opengeo_api.map_filters import validate_map_filter
+from opengeo_api.polygon3d_measurements import validate_polygon3d_measurement
 from opengeo_api.render_fonts import validate_render_font_reference
 
 MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.3.0"
 STYLE_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.4.0"
+DISPLAY_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.5.0"
+SURFACE_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.6.0"
 PATH_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.2.0"
 PROCESSING_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.1.0"
 LEGACY_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.0.0"
@@ -120,6 +123,7 @@ class MapDatasetReference:
     dataset_id: UUID
     dataset_version_id: UUID | None = None
     dataset_version_number: int | None = None
+    managed_display_id: UUID | None = None
     source_type: str | None = None
     source_version: int | None = None
     source_url: str | None = None
@@ -151,6 +155,8 @@ def validate_map_definition(
         PATH_MAP_DEFINITION_SCHEMA_VERSION,
         MAP_DEFINITION_SCHEMA_VERSION,
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
+        DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+        SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         raise ValueError(
             "map definition schemaVersion must be "
@@ -162,10 +168,14 @@ def validate_map_definition(
     if require_current and schema_version not in {
         MAP_DEFINITION_SCHEMA_VERSION,
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
+        DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+        SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         raise ValueError(
             f"map definition schemaVersion must be {MAP_DEFINITION_SCHEMA_VERSION} "
-            f"or {STYLE_MAP_DEFINITION_SCHEMA_VERSION} for writes"
+            f"or {STYLE_MAP_DEFINITION_SCHEMA_VERSION} or "
+            f"{DISPLAY_MAP_DEFINITION_SCHEMA_VERSION} or "
+            f"{SURFACE_MAP_DEFINITION_SCHEMA_VERSION} for writes"
         )
 
     layers = definition.get("layers", [])
@@ -175,8 +185,31 @@ def validate_map_definition(
         raise ValueError(f"map definition exceeds {MAX_MAP_LAYERS} layers")
 
     for layer in layers:
+        if isinstance(layer, dict) and "managedDisplayId" in layer:
+            if schema_version not in {
+                DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+                SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+            }:
+                raise ValueError("managedDisplayId requires native map definition 1.5.0 or later")
+            if layer.get("sourceType") != "governed-dataset" or not layer.get("datasetVersionId"):
+                raise ValueError("managedDisplayId requires an exact governed dataset version")
+            if allow_import_references and (
+                "importRef" in layer or str(layer.get("datasetId", "")).startswith("import:")
+            ):
+                raise ValueError("managedDisplayId requires a resolved governed dataset")
+            try:
+                UUID(str(layer["managedDisplayId"]))
+            except (TypeError, ValueError, AttributeError) as error:
+                raise ValueError("managedDisplayId must be a governed UUID") from error
         if isinstance(layer, dict) and "styleReference" in layer:
-            if schema_version != STYLE_MAP_DEFINITION_SCHEMA_VERSION or allow_import_references:
+            if schema_version not in {
+                STYLE_MAP_DEFINITION_SCHEMA_VERSION,
+                DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+                SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+            } or (
+                allow_import_references
+                and ("importRef" in layer or str(layer.get("datasetId", "")).startswith("import:"))
+            ):
                 raise ValueError("styleReference requires native map definition 1.4.0")
             validate_map_style_reference(layer["styleReference"])
             if layer.get("datasetId") == "kml-places":
@@ -205,6 +238,8 @@ def validate_map_definition(
         PATH_MAP_DEFINITION_SCHEMA_VERSION,
         MAP_DEFINITION_SCHEMA_VERSION,
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
+        DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+        SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         processing_fields = ("activeProcessingModelId", "models", "processingHistory")
         missing_processing_fields = [
@@ -233,14 +268,22 @@ def validate_map_definition(
         PATH_MAP_DEFINITION_SCHEMA_VERSION,
         MAP_DEFINITION_SCHEMA_VERSION,
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
+        DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+        SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         if "measurements" not in definition:
             raise ValueError("map definition is missing required field measurements")
         _validate_path_measurements(
             definition.get("measurements"),
             spatial_body,
+            allow_surface=schema_version == SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
             allow_area=schema_version
-            in {MAP_DEFINITION_SCHEMA_VERSION, STYLE_MAP_DEFINITION_SCHEMA_VERSION},
+            in {
+                MAP_DEFINITION_SCHEMA_VERSION,
+                STYLE_MAP_DEFINITION_SCHEMA_VERSION,
+                DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+                SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+            },
         )
     _validate_basemaps(definition.get("basemaps", []), spatial_body)
     if definition.get("portal") is not None:
@@ -305,6 +348,11 @@ def map_dataset_references(definition: dict[str, Any]) -> tuple[MapDatasetRefere
                     dataset_id=dataset_id,
                     dataset_version_id=dataset_version_id,
                     dataset_version_number=dataset_version_number,
+                    managed_display_id=(
+                        UUID(str(record["managedDisplayId"]))
+                        if "managedDisplayId" in record
+                        else None
+                    ),
                 )
             )
             continue
@@ -326,6 +374,8 @@ def _validate_basemaps(value: Any, spatial_body: dict[str, Any]) -> None:
     visible_planetary_ids: list[str] = []
     visible_non_planetary = False
     for index, basemap in enumerate(value):
+        if "managedDisplayId" in basemap:
+            raise ValueError("managedDisplayId is supported only on governed dataset Layers")
         if basemap.get("kind") == "planetary-blank":
             body_id = _validate_planetary_blank_basemap(basemap, index)
             planetary_ids.append(body_id)
@@ -570,7 +620,8 @@ def _reject_unbound_basemap_credentials(basemap: dict[str, Any], index: int) -> 
 def external_map_configuration(source_type: str, configuration: dict[str, Any]) -> dict[str, Any]:
     if source_type == "cog":
         return {
-            "serviceKind": "cog", "bands": configuration.get("bands"),
+            "serviceKind": "cog",
+            "bands": configuration.get("bands"),
             "bounds": configuration.get("bounds"),
             "sizeBytes": configuration.get("size_bytes"),
             "attribution": configuration.get("attribution"),
@@ -881,7 +932,11 @@ def _validate_bounded_object_array(value: Any, field: str, maximum: int) -> list
 
 
 def _validate_path_measurements(
-    value: Any, spatial_body: dict[str, Any], *, allow_area: bool = False
+    value: Any,
+    spatial_body: dict[str, Any],
+    *,
+    allow_area: bool = False,
+    allow_surface: bool = False,
 ) -> None:
     measurements = _validate_bounded_object_array(value, "path measurements", MAX_PATH_MEASUREMENTS)
     measurement_ids: set[str] = set()
@@ -895,6 +950,16 @@ def _validate_path_measurements(
         ):
             raise ValueError(f"{label} id is invalid or duplicated")
         measurement_ids.add(measurement_id)
+        if measurement.get("kind") == "polygon-3d":
+            if not allow_surface:
+                raise ValueError(f"{label} requires map definition 1.6.0")
+            validate_polygon3d_measurement(
+                measurement,
+                spatial_body["id"],
+                _spatial_body_mean_radius_meters(spatial_body),
+                lambda a, b: _spatial_body_distance_meters(a, b, spatial_body),
+            )
+            continue
         if measurement.get("kind") in {"polygon-area", "circle-area"}:
             if not allow_area:
                 raise ValueError(f"{label} kind is not available in this schema version")

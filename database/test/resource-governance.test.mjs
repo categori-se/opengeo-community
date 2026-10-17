@@ -49,7 +49,8 @@ describe("0010 resource governance migration", () => {
       "0007_governed_pmtiles_sources.sql",
       "0008_recoverable_project_imports.sql",
       "0009_governed_resources.sql",
-      "0010_resource_governance.sql"
+      "0010_resource_governance.sql",
+      "0168_draft_resource_archival.sql"
     ]) {
       const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       await db.exec(sql.replace(/^CREATE EXTENSION IF NOT EXISTS (?:pgcrypto|postgis);\n/gm, ""));
@@ -206,6 +207,57 @@ describe("0010 resource governance migration", () => {
       );
     });
     assert.deepEqual(workflow.rows.map((row) => row.target_state), ["review", "published"]);
+  });
+
+  it("archives a draft with attributed history while preserving its version and denying reverse transitions", async () => {
+    const resource = "a0000000-0000-4000-8000-0000000000a2";
+    const version = "b0000000-0000-4000-8000-0000000000a2";
+    const archived = await inTenant(IDS.organization, IDS.owner, async () => {
+      await db.query(
+        `INSERT INTO app.governed_resources
+           (id, organization_id, project_id, kind, slug, current_version_id,
+            owner_user_id, created_by, updated_by)
+         VALUES ($1, $2, $3, 'service', 'archived-draft', $4, $5, $5, $5)`,
+        [resource, IDS.organization, IDS.project, version, IDS.owner]
+      );
+      await db.query(
+        `INSERT INTO app.governed_resource_versions
+           (id, organization_id, resource_id, version_number, title, created_by)
+         VALUES ($1, $2, $3, 1, 'Draft service', $4)`,
+        [version, IDS.organization, resource, IDS.owner]
+      );
+      await db.query("UPDATE app.governed_resources SET state = 'archived' WHERE id = $1", [resource]);
+      await db.query(
+        `INSERT INTO app.governed_resource_workflow_events
+           (organization_id, project_id, resource_id, source_state, target_state,
+            reason, actor_user_id)
+         VALUES ($1, $2, $3, 'draft', 'archived', 'Acceptance complete', $4)`,
+        [IDS.organization, IDS.project, resource, IDS.owner]
+      );
+      return db.query(
+        `SELECT r.state::text, r.visibility::text, r.current_version_id,
+                e.source_state::text, e.target_state::text, e.actor_user_id
+         FROM app.governed_resources r
+         JOIN app.governed_resource_workflow_events e ON e.resource_id = r.id
+         WHERE r.id = $1`, [resource]
+      );
+    });
+    assert.deepEqual(archived.rows, [{state: "archived", visibility: "restricted",
+      current_version_id: version, source_state: "draft", target_state: "archived",
+      actor_user_id: IDS.owner}]);
+    await assert.rejects(
+      inTenant(IDS.organization, IDS.owner, () => db.query(
+        "UPDATE app.governed_resources SET state = 'draft' WHERE id = $1", [resource]
+      )), /invalid governed resource state transition/
+    );
+    await assert.rejects(
+      inTenant(IDS.organization, IDS.owner, () => db.query(
+        `INSERT INTO app.governed_resource_workflow_events
+           (organization_id, project_id, resource_id, source_state, target_state, actor_user_id)
+         VALUES ($1, $2, $3, 'archived', 'draft', $4)`,
+        [IDS.organization, IDS.project, resource, IDS.owner]
+      )), /governed_resource_workflow_transition_valid/
+    );
   });
 
   it("keeps new governance rows tenant-isolated and unavailable to the worker", async () => {

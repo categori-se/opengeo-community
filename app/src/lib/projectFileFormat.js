@@ -42,7 +42,7 @@ export function identifyProjectFileFormat(source, {Parser = globalThis.DOMParser
       && Number.isSafeInteger(value.version) && value.version > 0 && value.definition && !Array.isArray(value.definition)
       && typeof value.definition === "object" && value.content === "saved-definition"
       && value.dependenciesBundled === false && value.accessIncluded === false) return "opengeo-managed";
-    if (value.persistence?.mode === "browser-only-demo") return "opengeo-browser";
+    if (["browser-only-demo", "browser-draft", "browser-personal"].includes(value.persistence?.mode)) return "opengeo-browser";
     if (value.persistence?.provider || value.persistence?.mode) return "opengeo-managed";
     if (["0.1.0", "0.2.0"].includes(value.version) && Array.isArray(value.layers) && value.mapView) return "geolibre";
     throw new TypeError("Unsupported Project JSON. Choose a supported OpenGeo Studio or GeoLibre Project file.");

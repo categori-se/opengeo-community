@@ -17,12 +17,12 @@
     "check:studio-pwa": "node scripts/check-studio-pwa.mjs",
     "check:studio-release": "node scripts/check-studio-release.mjs",
     "check:public": "npm run build:public && node scripts/check-public-bundle.mjs",
+    "deploy:studio": "node scripts/deploy-studio-site.mjs",
+    "rollback:studio": "node scripts/rollback-studio-site.mjs",
     "test": "node --test test/**/*.test.mjs",
     "check:pages": "npm test && npm run build:studio && node scripts/check-pages.mjs --without-ux-002 && node scripts/check-pages.mjs --ux-002",
     "check:demo:massgis": "node scripts/check-demo-massgis.mjs",
-    "check:open-3d-source": "node scripts/check-open-3d-scene-source.mjs",
-    "deploy:studio": "node scripts/deploy-studio-site.mjs",
-    "rollback:studio": "node scripts/rollback-studio-site.mjs"
+    "check:open-3d-source": "node scripts/check-open-3d-scene-source.mjs"
   },
   "dependencies": {
     "@categori/workspace-contracts": "file:vendor/workspace-contracts",
@@ -46,7 +46,8 @@
     "path-browserify": "1.0.1",
     "pmtiles": "^4.4.1",
     "proj4": "2.22.0",
-    "rbush": "4.0.1"
+    "rbush": "4.0.1",
+    "earcut": "3.2.3"
   },
   "devDependencies": {
     "@mapbox/vector-tile": "2.0.5",

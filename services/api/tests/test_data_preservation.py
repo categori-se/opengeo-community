@@ -1,5 +1,6 @@
 import asyncio
 from collections import deque
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -11,6 +12,7 @@ from opengeo_api.data_preservation import (
     CopyEstimateSpec,
     DataPreservationAccessDenied,
     DataPreservationConflict,
+    DataPreservationStoreUnavailable,
     ExactObjectScope,
     FeatureCollectionScope,
     PmtilesDerivativeRequest,
@@ -493,18 +495,37 @@ def test_dataset_only_edit_grant_cannot_create_project_scoped_pmtiles_job() -> N
     assert len(transaction.calls) == 1
 
 
-def test_pmtiles_request_pins_original_object_and_server_checksum() -> None:
+@pytest.mark.parametrize(
+    ("options", "preserved"),
+    [
+        (None, False),
+        ({"extent": 8192, "attribute_names": ["name"]}, False),
+        ({"extent": 8192, "attribute_names": ["name"]}, True),
+    ],
+)
+def test_pmtiles_request_pins_original_object_and_server_checksum(options, preserved) -> None:
     transaction = FakeTransaction(
         [
-            access_row(project_role="owner"),
-            ("active", SOURCE_OBJECT_ID, "application/geo+json", 4096),
+            (*access_row(project_role="owner")[:-1], "draft" if preserved else "active"),
+            (
+                "preserved" if preserved else "active",
+                SOURCE_OBJECT_ID,
+                "application/geo+json",
+                4096,
+            ),
+            *([(True,)] if preserved else []),
             (None,),
             (None,),
             None,
+            *([({"ready": True, "reason": "ready"},)] if options is not None else []),
         ]
     )
     repository = PostgresDataPreservationRepository(
-        FakeExecutor(transaction), "opengeo-geodata", now=lambda: NOW
+        FakeExecutor(transaction),
+        "opengeo-geodata",
+        now=lambda: NOW,
+        pmtiles_worker_image_digest="sha256:" + "d" * 64,
+        pmtiles_queue_url="https://sqs.us-east-1.amazonaws.com/111111111111/pmtiles-v2",
     )
     request = PmtilesDerivativeRequest(
         bounds=(-73.6, 41.1, -69.8, 42.9),
@@ -512,6 +533,7 @@ def test_pmtiles_request_pins_original_object_and_server_checksum() -> None:
         maximum_zoom=14,
         source_layer="environmental_screening",
         idempotency_key=IDEMPOTENCY_KEY,
+        options=options,
     )
 
     submission = asyncio.run(
@@ -534,6 +556,226 @@ def test_pmtiles_request_pins_original_object_and_server_checksum() -> None:
     )
     assert SOURCE_OBJECT_ID in job_insert[2]
     assert request.idempotency_key in job_insert[2]
+    eligibility = [
+        call for call in transaction.calls if "pmtiles_preserved_original_eligible" in call[1]
+    ]
+    if preserved:
+        assert eligibility[0][2] == (
+            ORG_ID,
+            PROJECT_ID,
+            SOURCE_DATASET_ID,
+            DATASET_VERSION_ID,
+            SOURCE_OBJECT_ID,
+        )
+    else:
+        assert eligibility == []
+    if options is not None:
+        from opengeo_api.pmtiles_options import normalize_pmtiles_options
+
+        assert submission.job.options == normalize_pmtiles_options(options)
+        assert submission.job.worker_image_digest == "sha256:" + "d" * 64
+        assert job_insert[2][-1] == submission.job.worker_image_digest
+        assert submission.job.request_checksum_sha256 == pmtiles_derivative_request_checksum(
+            project_id=PROJECT_ID,
+            dataset_id=SOURCE_DATASET_ID,
+            dataset_version_id=DATASET_VERSION_ID,
+            source_object_id=SOURCE_OBJECT_ID,
+            request=replace(request, worker_image_digest=submission.job.worker_image_digest),
+        )
+    else:
+        assert submission.job.worker_image_digest is None
+        assert job_insert[2][-2:] == (None, None)
+
+
+@pytest.mark.parametrize("options", [None, {}])
+def test_preserved_original_requires_v2_and_database_preservation_seal(options) -> None:
+    transaction = FakeTransaction(
+        [
+            (*access_row(project_role="owner")[:-1], "draft"),
+            ("preserved", SOURCE_OBJECT_ID, "application/geo+json", 4096),
+            *([(False,)] if options is not None else []),
+        ]
+    )
+    repository = PostgresDataPreservationRepository(
+        FakeExecutor(transaction),
+        "opengeo-geodata",
+        pmtiles_worker_image_digest="sha256:" + "d" * 64,
+    )
+    request = PmtilesDerivativeRequest(
+        (-73.6, 41.1, -69.8, 42.9), 4, 14, "features", IDEMPOTENCY_KEY, options=options
+    )
+    with pytest.raises(DataPreservationConflict, match="source_ineligible"):
+        asyncio.run(
+            repository.request_pmtiles_derivative(
+                context(), PROJECT_ID, SOURCE_DATASET_ID, DATASET_VERSION_ID, request, "unsealed"
+            )
+        )
+    assert not any(call[0] == "execute" for call in transaction.calls)
+    assert len(transaction.calls) == (3 if options is not None else 2)
+
+
+def test_unconfigured_v2_runtime_rejects_before_any_database_mutation() -> None:
+    transaction = FakeTransaction([])
+    repository = PostgresDataPreservationRepository(FakeExecutor(transaction), "opengeo-geodata")
+    request = PmtilesDerivativeRequest(
+        (-73.6, 41.1, -69.8, 42.9), 4, 14, "features", IDEMPOTENCY_KEY, options={}
+    )
+    with pytest.raises(DataPreservationStoreUnavailable, match="runtime image is not configured"):
+        asyncio.run(
+            repository.request_pmtiles_derivative(
+                context(),
+                PROJECT_ID,
+                SOURCE_DATASET_ID,
+                DATASET_VERSION_ID,
+                request,
+                "unconfigured-v2",
+            )
+        )
+    assert transaction.calls == []
+
+
+def test_unprobed_input_driver_rejects_before_a_job_insert() -> None:
+    transaction = FakeTransaction([(*access_row(project_role="owner")[:5], "geoparquet", "active")])
+    repository = PostgresDataPreservationRepository(
+        FakeExecutor(transaction),
+        "opengeo-geodata",
+        pmtiles_worker_image_digest="sha256:" + "d" * 64,
+    )
+    request = PmtilesDerivativeRequest(
+        (-73.6, 41.1, -69.8, 42.9), 4, 14, "features", IDEMPOTENCY_KEY, options={}
+    )
+    with pytest.raises(DataPreservationConflict, match="source_format_unavailable"):
+        asyncio.run(
+            repository.request_pmtiles_derivative(
+                context(),
+                PROJECT_ID,
+                SOURCE_DATASET_ID,
+                DATASET_VERSION_ID,
+                request,
+                "unprobed-driver",
+            )
+        )
+    assert len(transaction.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["runtime_disabled", "runtime_not_ready", "runtime_budget_exhausted", "runtime_job_pending"],
+)
+def test_pmtiles_admission_rejects_before_new_job_insert(reason) -> None:
+    transaction = FakeTransaction(
+        [
+            access_row(project_role="owner"),
+            ("active", SOURCE_OBJECT_ID, "application/geo+json", 4096),
+            (None,),
+            (None,),
+            None,
+            ({"ready": False, "reason": reason},),
+        ]
+    )
+    repository = PostgresDataPreservationRepository(
+        FakeExecutor(transaction),
+        "opengeo-geodata",
+        pmtiles_worker_image_digest="sha256:" + "d" * 64,
+        pmtiles_queue_url="https://sqs.us-east-1.amazonaws.com/111111111111/pmtiles-v2",
+    )
+    request = PmtilesDerivativeRequest(
+        (-73.6, 41.1, -69.8, 42.9), 4, 14, "features", IDEMPOTENCY_KEY, options={}
+    )
+    with pytest.raises(DataPreservationConflict, match=reason):
+        asyncio.run(
+            repository.request_pmtiles_derivative(
+                context(), PROJECT_ID, SOURCE_DATASET_ID, DATASET_VERSION_ID, request, "not-ready"
+            )
+        )
+    assert not any(call[0] == "execute" for call in transaction.calls)
+    assert transaction.calls[-1][1] == "SELECT app.pmtiles_v2_admission(%s, %s, %s)"
+    assert transaction.calls[-1][2][-1] is True
+
+
+def test_pmtiles_existing_same_key_job_returns_without_requiring_another_window() -> None:
+    from opengeo_api.pmtiles_options import normalize_pmtiles_options
+
+    digest = "sha256:" + "d" * 64
+    request = PmtilesDerivativeRequest(
+        (-73.6, 41.1, -69.8, 42.9),
+        4,
+        14,
+        "features",
+        IDEMPOTENCY_KEY,
+        options={},
+        worker_image_digest=digest,
+    )
+    checksum = pmtiles_derivative_request_checksum(
+        project_id=PROJECT_ID,
+        dataset_id=SOURCE_DATASET_ID,
+        dataset_version_id=DATASET_VERSION_ID,
+        source_object_id=SOURCE_OBJECT_ID,
+        request=request,
+    )
+    row = (
+        UUID("87000000-0000-4000-8000-000000000001"),
+        PROJECT_ID,
+        SOURCE_DATASET_ID,
+        DATASET_VERSION_ID,
+        SOURCE_OBJECT_ID,
+        list(request.bounds),
+        4,
+        14,
+        "features",
+        checksum,
+        IDEMPOTENCY_KEY,
+        "queued",
+        None,
+        None,
+        None,
+        None,
+        0,
+        USER_ID,
+        NOW,
+        None,
+        None,
+        normalize_pmtiles_options({}),
+        digest,
+    )
+    transaction = FakeTransaction(
+        [
+            access_row(project_role="owner"),
+            ("active", SOURCE_OBJECT_ID, "application/geo+json", 4096),
+            (None,),
+            (None,),
+            row,
+        ]
+    )
+    repository = PostgresDataPreservationRepository(
+        FakeExecutor(transaction), "opengeo-geodata", pmtiles_worker_image_digest=digest
+    )
+    result = asyncio.run(
+        repository.request_pmtiles_derivative(
+            context(), PROJECT_ID, SOURCE_DATASET_ID, DATASET_VERSION_ID, request, "existing-job"
+        )
+    )
+    assert result.job.job_id == row[0]
+    assert result.dispatch_required is True
+    assert not any(
+        "pmtiles_v2_admission" in call[1] or call[0] == "execute" for call in transaction.calls
+    )
+
+
+def test_pmtiles_capability_read_is_read_only_and_uses_the_same_server_binding() -> None:
+    transaction = FakeTransaction([({"ready": False, "reason": "runtime_budget_exhausted"},)])
+    repository = PostgresDataPreservationRepository(
+        FakeExecutor(transaction),
+        "opengeo-geodata",
+        pmtiles_worker_image_digest="sha256:" + "d" * 64,
+        pmtiles_queue_url="https://sqs.us-east-1.amazonaws.com/111111111111/pmtiles-v2",
+    )
+    assert asyncio.run(repository.pmtiles_admission_status(context())) == {
+        "ready": False,
+        "reason": "runtime_budget_exhausted",
+    }
+    assert len(transaction.calls) == 1
+    assert transaction.calls[0][2][-1] is False
 
 
 def test_capture_refresh_reuses_target_without_rewriting_layer_metadata():

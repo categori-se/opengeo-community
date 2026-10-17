@@ -147,7 +147,7 @@ export function communityDemoPresentation({catalog, geojson}) {
     publication,
     source,
     noticeTitle: "Public OpenGeo Studio workbench",
-    noticeSummary: "Explore, style, measure, process, and open local GIS files. Your local changes stay in this browser and reset daily."
+    noticeSummary: "Explore, style, measure, process, and open local GIS files. Save personal Projects on this device and download backups for your work."
   });
 }
 

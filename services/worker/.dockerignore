@@ -3,3 +3,5 @@
 .ruff_cache
 tests
 *.cdx.json
+__pycache__
+*.py[cod]

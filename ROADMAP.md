@@ -1,13 +1,12 @@
 # OpenGeo Studio roadmap
 
-We are building a workspace where researchers, planners and environmental and
-social practitioners can retain spatial inputs, explain their methods and share
-work others can inspect. The rollout prioritizes connecting real data, reusing
-maps, collaborating and publishing useful results. Low idle infrastructure cost
-is a design goal; workload costs depend on storage, processing, traffic and
+Build maps you can reuse. Publish analysis others can inspect. We are building
+OpenGeo Studio for recurring spatial studies, so useful sources, maps and methods
+carry forward into the next report, notebook or website. Low idle infrastructure
+cost is a design goal; workload costs depend on storage, processing, traffic and
 deployment choices.
 
-## Current release
+## Current release boundary
 
 The community source edition includes the full suite of tools. The
 [built Studio workflow](docs/community-development.md#browser-save-and-reopen-check)
@@ -39,15 +38,30 @@ We weight public benefit by how widely a workflow is used, how much work it lets
 people reuse, and how much installation or operating effort it removes. Community
 issues, contributions and practical GIS examples help refine that order.
 
+## Selected source updates
+
+Point clustering is included as local source work for supported Point Layers,
+with per-Layer controls and saved preferences. Source inclusion and focused local
+checks do not establish a delivered build or acceptance in an independent community
+installation. Compiled rendering and publication/export limits must be reviewed
+for the selected release; unsupported outputs must disclose clustering.
+
+The configurable PMTiles-v2 conversion lane remains disabled pending current
+security scanning, native ARM64 execution and hosted owner acceptance. Its source
+and local GeoJSON conversion evidence do not authorize worker activation. The
+shared worker security hold remains in effect. A preserved original is not a
+validated map display, and a local conversion does not establish completion for
+large datasets.
+
 ## Rollout priorities
 
-| Stage | Community outcome | Public benefit | Open comparison families |
-| --- | --- | --- | --- |
-| 1 | Connect data and carry maps between projects | Highest: everyday GIS work and reusable source libraries | GeoLibre projects/authoring; GeoLens composition; GeoNode catalog/resource editing |
-| 2 | Publish maps, reports and interactive analysis | High: useful outputs for everyone who consumes GIS work | GeoLibre layouts/stories/print; GeoNode publishing; GeoMoose print/delivery |
-| 3 | Curate and collaborate across teams | High: shared data stewardship and reproducible work | GeoNode resources, metadata, discovery and community |
-| 4 | Exchange services with the wider GIS ecosystem | Broad: existing desktop tools, portals and data infrastructure | GeoServer services; MapServer OGC publication; GeoMoose distributed services; OpenLayers sources |
-| 5 | Extend specialist mapping and exploration | Focused: advanced editing, globe, terrain and time workflows | OpenLayers interactions; GeoLibre authoring breadth; Google Earth Pro comparison families |
+| Work area | Recurring user task | Completion target |
+| --- | --- | --- |
+| 1. Connect and reuse | Stop preparing the same sources for every study | Inspect a Layer, use it in two Projects, save and reopen without duplicating managed data. |
+| 2. Publish and revise | Carry a map into reports, print and other websites | Preview and approve a build, deliver it through supported paths, then revise one output while preserving its earlier edition. |
+| 3. Curate and collaborate | Let a colleague continue the work | Find the source, terms, method, version and responsible people under explicit permissions. |
+| 4. Exchange services | Use the same work in existing GIS clients and publications | Provide working access examples, version choices and independently checked service operations. |
+| 5. Extend exploration | Answer a demonstrated specialist question | Add a focused workflow that preserves reusable resources and useful outputs. |
 
 Each stage extends the current platform. The
 [reference application comparison](docs/reference-applications.md) records the
@@ -67,6 +81,8 @@ practitioners and web developers.
   selected GeoLibre and GeoNode workflows.
 - Provide a dependable connected development environment and an independent
   AWS installation using the maintained infrastructure and deployment scripts.
+- Keep the Demo useful for inspecting, modifying and exporting a small study;
+  distinguish personal device saves from resettable sample drafts and account storage.
 
 **Outcome:** connect a supported source, inspect its Layer, compose a Project,
 save it, reopen it and reuse its data and Styles in another composition.
@@ -84,6 +100,11 @@ read, explore and cite.
   preserving attribution, citations and selected resource versions.
 - Reuse compiled Project Artifacts across Publications and preserve publication
   paths and release history through updates.
+- Bring available figures, print, services, embeds and native JavaScript access
+  into an understandable delivery workflow, with actual access and version choices.
+  Verify external-site and Observable Framework examples on a separate origin.
+- Make methods examples adaptable: question, permitted inputs, method, expected
+  observations and a route into a compatible Studio workflow.
 
 **Outcome:** publish an interactive analysis and a useful static or printable
 edition from the same curated sources, then revise and republish it.
@@ -101,6 +122,8 @@ as people, sources and analyses change.
   preserving each resource's ownership and permissions.
 - Keep source, normalized and curated knowledge distinct across import, editing
   and export.
+- Show changed inputs, affected work and pinned outputs so authors can choose
+  which results to rebuild while retaining prior editions.
 
 **Outcome:** a team can discover, review, reuse and publish shared work while
 retaining the evidence and responsibility behind it.

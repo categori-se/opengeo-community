@@ -359,20 +359,29 @@ def test_dispatches_only_a_geonode_harvest_id_to_the_outbound_queue() -> None:
     }
 
 
-def test_dispatches_only_a_pmtiles_job_id_to_the_private_processing_queue() -> None:
+def test_dispatches_only_a_pmtiles_job_id_to_the_isolated_v2_queue() -> None:
     transport = Transport()
+    configured = settings().model_copy(update={
+        "worker_processing_mode": "pmtiles-v2",
+        "pmtiles_derivative_queue_url": (
+            "https://sqs.us-east-1.amazonaws.com/111111111111/opengeo-pmtiles-v2"
+        ),
+        "pmtiles_worker_image_digest": "sha256:" + "d" * 64,
+    })
     dispatcher = AwsSqsPmtilesDerivativeDispatcher(
-        settings(),
+        configured,
         credentials=Credentials(),
         transport=transport,
         now=lambda: datetime(2026, 8, 28, 12, tzinfo=UTC),
     )
 
     assert dispatcher.available is True
+    assert dispatcher.supports_recipe("gdal-pmtiles-v2")
+    assert not dispatcher.supports_recipe("gdal-pmtiles-v1")
     asyncio.run(dispatcher.dispatch_pmtiles_derivative(JOB_ID))
 
     url, _, body, _ = transport.calls[0]
-    assert url.endswith("/111111111111/opengeo-processing")
+    assert url.endswith("/111111111111/opengeo-pmtiles-v2")
     assert parse_qs(body.decode()) == {
         "Action": ["SendMessage"],
         "MessageBody": [

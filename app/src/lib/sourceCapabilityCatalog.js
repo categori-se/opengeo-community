@@ -134,16 +134,16 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
     section: "files",
     tier: "basic",
     disposition: "bounded-current",
-    summary: "CSV is inspected as a bounded nonspatial table.",
+    summary: "Managed CSV tables and explicitly mapped local delimited coordinates.",
     operations: operations({
-      register: bounded("Managed CSV upload under the ordinary ingest byte limits."),
-      read: bounded("Authorized exact-version CSV download and Parquet working artifact."),
-      preview: bounded("Tabular schema and thumbnail only; no geometry is inferred."),
-      write: bounded("A bounded Parquet working representation is generated."),
-      preserve: available("The exact versioned CSV object and checksum are retained.")
-    }, "Delimited-text geometry, geocoding, streaming, and in-place editing are unavailable."),
-    losses: ["Coordinate columns, WKT-like text, and addresses are not assigned spatial meaning without a future governed mapping."],
-    evidence: ["services/worker/src/opengeo_worker/inspector.py"]
+      register: bounded("Managed CSV table upload; local reviewed Catalog Layer. Account-map coordinate opening is temporary without upload."),
+      read: bounded("Exact managed CSV/Parquet reads; UTF-8 local CSV/TSV/TXT up to256KiB/5000records/30000values."),
+      preview: bounded("Table preview or explicit coordinate columns/CRS/height mapping with reviewed rejection reports; no geocoding."),
+      write: bounded("Managed Parquet; local original/working GeoJSON/browserProject/personal saves."),
+      preserve: available("Exact original bytes/checksum and source strings, explicit mapping and omitted-record report are retained.")
+    }, "No addresses, WKT fields, arbitrary CRS, remote streams or managed spatial conversion."),
+    losses: ["Managed table uploads remain nonspatial. Local mapping supports EPSG4326/3857 and supplied elevations; other CRS, address geocoding and WKT interpretation remain unavailable."],
+    evidence: ["services/worker/src/opengeo_worker/inspector.py", "app/src/lib/delimitedTextImport.js", "app/src/components/DelimitedTextImport.js"]
   }),
   preserveOnlySource({
     id: "cad", label: "CAD", section: "files", tier: "intermediate",
@@ -174,11 +174,33 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
     losses: ["EXIF location, orientation metadata, captions, and photo-to-point conversion are not imported."],
     evidence: ["services/worker/src/opengeo_worker/inspector.py"]
   }),
-  preserveOnlySource({
+  source({
     id: "gpx", label: "GPX", section: "files", tier: "intermediate",
-    summary: "GPX references are retained for an explicit future import.",
-    loss: "Tracks, routes, waypoints, timestamps, elevation, and extensions are not converted.",
-    evidence: ["app/src/lib/geolibreProject.js"]
+    disposition: "bounded-current",
+    summary: "Open local GPX waypoints, routes and separated track segments with original-file preservation.",
+    operations: operations({
+      register: bounded("A reviewed browser Catalog Layer; account maps use scoped temporary data without a server upload."),
+      read: bounded("GPX1.0/1.1 UTF-8,256KiB/5000positions/1000workingfeatures; WGS84 and supplied elevations, times and source fields."),
+      preview: bounded("Point and path display in the ordinary map; track segment gaps are never joined."),
+      write: bounded("Original checksum-verified GPX, working GeoJSON, browser Project and personal device saves."),
+      preserve: bounded("Exact original file bytes/checksum, source metadata, per-point fields and explicit omitted-empty-record report.")
+    }, "No live device connection, remote GPX streaming, managed GPX conversion or edited GPX writer."),
+    losses: ["GeoLibre GPX URL definitions remain inert until a local file is selected.", "Working geometry edits do not rewrite the original GPX; timestamps retain their original text without timezone inference.", "Device transfer, Garmin/Ozi, hosted conversion and edited GPX writing remain unavailable. NMEA has a separate bounded local-file reader."],
+    evidence: ["app/src/lib/gpxImport.js", "app/src/components/WorkbenchView.js", "app/test/gpx-import.test.mjs"]
+  }),
+  source({
+    id: "nmea", label: "NMEA observations", section: "files", tier: "intermediate",
+    disposition: "bounded-current",
+    summary: "Open local RMC/GGA observations as Points after confirming WGS 84 and reviewing rejected records.",
+    operations: operations({
+      register: bounded("A reviewed browser Catalog Layer; account maps use scoped temporary data without a server upload."),
+      read: bounded("ASCII NMEA RMC/GGA,256KiB/2000records/1000Points; mapped observations require valid checksums and active supported fixes."),
+      preview: bounded("One XY Point per valid observation; no track joining or talker/time merging."),
+      write: bounded("Checksum-verified original NMEA, working GeoJSON, browser Project and personal device saves."),
+      preserve: bounded("Exact original bytes, sentence/field strings, source time/date/MSL heights, and explicit rejected/preserved-record reports.")
+    }, "No live device, stream, server conversion or edited NMEA writing."),
+    losses: ["WGS 84 needs explicit confirmation; conflicting/unsupported datum declarations reject the file.", "GGA heights remain mean-sea-level properties, not ellipsoidal geometry Z; two-digit dates receive no century inference.", "Unsupported sentences remain in the original and report; valid RMC/GGA observations are separate, including coincident fixes."],
+    evidence: ["app/src/lib/nmeaImport.js", "app/src/components/WorkbenchView.js", "app/test/nmea-import.test.mjs"]
   }),
   preserveOnlySource({
     id: "mbtiles", label: "MBTiles", section: "files", tier: "basic",

@@ -3,7 +3,7 @@ from uuid import UUID
 
 import pytest
 
-from opengeo_worker.models import TransientFailure
+from opengeo_worker.models import StoredArtifact, TransientFailure
 from opengeo_worker.repository import WorkerRepository
 
 
@@ -52,11 +52,17 @@ class ReclamationStubRepository(WorkerRepository):
 
 
 class PmtilesStubRepository(WorkerRepository):
-    def __init__(self, row: tuple[Any, ...]) -> None:
+    def __init__(self, row: tuple[Any, ...], *, profile: str = "v1") -> None:
         self.row = row
+        self._pmtiles_profile = profile
 
     def _fetch_one(self, statement: str, parameters: tuple[object, ...]):
-        assert statement == "SELECT * FROM app.claim_pmtiles_derivative(%s, %s, %s)"
+        function = (
+            "claim_pmtiles_derivative_v2"
+            if self._pmtiles_profile == "v2"
+            else "claim_pmtiles_derivative"
+        )
+        assert statement == f"SELECT * FROM app.{function}(%s, %s, %s)"
         assert parameters[2] == 900
         return self.row
 
@@ -329,6 +335,21 @@ def test_pmtiles_claim_preserves_exact_source_bounds_zoom_and_output_key() -> No
     )
 
 
+def test_pmtiles_v2_claim_returns_immutable_conversion_options_and_runtime_pin() -> None:
+    from opengeo_worker.pmtiles_options import normalize_pmtiles_options
+
+    options = normalize_pmtiles_options({"attribute_names": ["name"]})
+    digest = "sha256:" + "d" * 64
+    repository = PmtilesStubRepository((*pmtiles_claim_row(), options, digest), profile="v2")
+    claim = repository.claim_pmtiles_derivative(
+        UUID("b9000000-0000-4000-8000-000000000001"),
+        UUID("ba000000-0000-4000-8000-000000000001"),
+        900,
+    )
+    assert claim.options == options
+    assert claim.worker_image_digest == digest
+
+
 @pytest.mark.parametrize("bounds", [[-72, 41, -70], [-72, True, -70, 43], "-72,41,-70,43"])
 def test_pmtiles_claim_rejects_malformed_database_bounds(bounds: object) -> None:
     repository = PmtilesStubRepository(pmtiles_claim_row(bounds))
@@ -339,3 +360,41 @@ def test_pmtiles_claim_rejects_malformed_database_bounds(bounds: object) -> None
             UUID("ba000000-0000-4000-8000-000000000001"),
             900,
         )
+
+
+@pytest.mark.parametrize("validation", [None, {"schema_version": "retained-validation"}])
+def test_pmtiles_completion_preserves_legacy_call_and_passes_validation_atomically(
+    validation: dict[str, object] | None,
+) -> None:
+    class CompletionRepository(WorkerRepository):
+        def __init__(self):
+            self.calls = []
+
+        def _fetch_one(self, statement, parameters):
+            self.calls.append((statement, parameters))
+            return (True,)
+
+    repository = CompletionRepository()
+    job = UUID("b9000000-0000-4000-8000-000000000001")
+    token = UUID("ba000000-0000-4000-8000-000000000001")
+    artifact = StoredArtifact(
+        job,
+        "tile",
+        "opengeo-test-geodata",
+        "exact-output-key",
+        "version",
+        "fedcba9876543210",
+        "application/vnd.pmtiles",
+        128,
+        "a" * 64,
+    )
+    assert repository.complete_pmtiles_derivative(job, token, artifact, validation)
+    statement, parameters = repository.calls[0]
+    assert parameters[:2] == (job, token)
+    assert parameters[2].obj == artifact.as_record()
+    if validation is None:
+        assert statement == "SELECT app.complete_pmtiles_derivative(%s, %s, %s)"
+        assert len(parameters) == 3
+    else:
+        assert statement == "SELECT app.complete_pmtiles_derivative(%s, %s, %s, %s)"
+        assert parameters[3].obj == validation

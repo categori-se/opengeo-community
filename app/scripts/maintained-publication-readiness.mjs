@@ -1,6 +1,6 @@
 import {readFile} from "node:fs/promises";
 import {resolve} from "node:path";
-import {readJson, sha256, verifyManifestSeal} from "./release-utils.mjs";
+import {readJson, safeJoin, sha256, verifyManifestSeal} from "./release-utils.mjs";
 
 // This editorial/directory increment keeps the already accepted login, API and
 // grants. Reuse exact artifact-bound account acceptance for a host-shell change;
@@ -81,6 +81,49 @@ export async function assertMaintainedPublicationReadiness(workspaceRoot, {fetch
       || !["normalAccount","anonymousDenied","authUnchanged","edgeSecurity","anonymousDemo","signedInStudio"].every(k=>accepted.checks?.[k]==="passed")) throw Error("Public-entry Studio continuation acceptance is incomplete");
     currentManifest = next; currentDeployment = deployed;
   }
+  let catalogPreviewContinuation;
+  try {catalogPreviewContinuation = await readJson(resolve(work,"studio-entry/catalog-preview-continuation.json"));}
+  catch(error) {if(error.code !== "ENOENT") throw error;}
+  if (catalogPreviewContinuation) {
+    // Reuse the account/security journey only for this reviewed frontend delta.
+    // Retained software delivery is not a new owner/provider rendering claim.
+    const accepted = catalogPreviewContinuation, evidence = {};
+    const required = ["release","deployment","predecessor","delivery","scope","preservation","owning","releaseChecks","execution"];
+    if (JSON.stringify(Object.keys(accepted.evidence ?? {}).sort()) !== JSON.stringify([...required].sort())) throw Error("Catalog preview continuation evidence is incomplete");
+    for (const name of required) {
+      const pin = accepted.evidence[name];
+      if (!pin.path?.startsWith(".local-archives/")) throw Error("Catalog preview continuation evidence must be retained locally");
+      const bytes = await readFile(safeJoin(workspaceRoot, pin.path));
+      if (sha256(bytes) !== pin.sha256) throw Error("Catalog preview continuation evidence changed");
+      evidence[name] = JSON.parse(bytes);
+    }
+    const next = verifyManifestSeal(evidence.release,"Catalog preview Studio release");
+    const deployed = verifyManifestSeal(evidence.deployment,"Catalog preview Studio deployment");
+    const predecessor = verifyManifestSeal(evidence.predecessor,"Preserved Studio predecessor");
+    const releaseDigest = (value, fileSHA) => sha256(JSON.stringify({artifactTree:value.artifactTree,aliases:value.aliases,manifestSha256:fileSHA}));
+    const expectedScope = ["app/package.json","app/package-lock.json","app/observablehq.config.js","app/scripts/deploy-studio-site.mjs","app/scripts/static-release-aws.mjs","app/src/components/PlatformDirectory.js","app/src/components/CatalogResourceMapAction.js","app/src/lib/catalogLayerPreview.js","app/src/components/CatalogLayerPreview.js","app/src/components/LayerResourcePage.js","app/src/components/LayerCatalogResults.js","app/src/components/StaticItemCatalogRegistration.js","app/src/components/StaticItemSearch.js"];
+    const {scope,preservation,delivery,owning,releaseChecks,execution} = evidence;
+    if (accepted.status !== "deployed with unchanged account acceptance reused" || accepted.baselineTree !== currentManifest.artifactTree.digest
+      || accepted.studioTree !== next.artifactTree.digest || accepted.releaseOriginPath !== deployed.releaseOriginPath
+      || accepted.ownerRenderingRerun !== false || next.authConfig.sha256 !== currentManifest.authConfig.sha256 || predecessor.authConfig.sha256 !== currentManifest.authConfig.sha256
+      || deployed.alias !== currentDeployment.alias || deployed.originPathOwner !== currentDeployment.originPathOwner
+      || deployed.previousOriginPath !== accepted.previousOriginPath || predecessor.artifactTree.digest !== accepted.predecessorTree
+      || !deployed.previousOriginPath.endsWith(releaseDigest(predecessor,accepted.evidence.predecessor.sha256).slice(0,12)) || deployed.releaseDigest !== releaseDigest(next,accepted.evidence.release.sha256)
+      || scope.passed !== true || scope.authSHA !== next.authConfig.sha256 || scope.backend !== "unchanged"
+      || !["API","SRP","providers","IAM","migrations"].every(k=>scope[k]===0)
+      || JSON.stringify(scope.checks?.map(c=>c.path)) !== JSON.stringify(expectedScope)
+      || scope.checks.some(c=>!Object.entries(c).some(([k,v])=>k!=="path"&&v===true))
+      || preservation.allPreserved !== true || preservation.checks?.length !== 17 || preservation.checks.some(c=>c.preserved!==true)
+      || owning.exitCode !== 0 || releaseChecks.length !== 3 || releaseChecks.some(c=>c.exitCode!==0)
+      || execution.status !== "publisher-completed" || execution.exitCode !== 0 || execution.treeDigest !== next.artifactTree.digest
+      || execution.releaseOriginPath !== deployed.releaseOriginPath || execution.invalidationId !== deployed.invalidationId
+      || delivery.pass !== true || delivery.checks?.length !== 5 || delivery.checks.some(c=>c.status!==200||c.exact!==true||c.bytes!==c.expectedBytes)
+      || !delivery.checks.some(c=>c.path==="opengeo-studio-release-manifest.json")) throw Error("Catalog preview Studio continuation acceptance is incomplete");
+    for (const check of delivery.checks.filter(c=>c.path!=="opengeo-studio-release-manifest.json")) {
+      if (next.artifactTree.files.find(f=>f.path===check.path)?.bytes !== check.expectedBytes) throw Error("Catalog preview delivery does not match the accepted release");
+    }
+    currentManifest = next; currentDeployment = deployed;
+  }
   const index = currentManifest.artifactTree.files.find(f => f.path === "index.html");
   for (const [path, expected] of [["index.html", index.sha256], ["auth-config.json", currentManifest.authConfig.sha256]]) {
     const response = await fetchImplementation(`https://studio.opengeo.tools/${path}`, {cache: "no-store", signal: AbortSignal.timeout(20000)});
@@ -88,5 +131,5 @@ export async function assertMaintainedPublicationReadiness(workspaceRoot, {fetch
   }
   const oldAuth = await readFile(resolve(work, "studio/retained-auth-config.json"));
   if (sha256(oldAuth) !== manifest.authConfig.sha256) throw Error("Authentication configuration changed");
-  return {workflow: "publication-directory-and-source", Studio: currentDeployment.releaseOriginPath, ...(continuation ? {CatalogContinuation: continuation.studioTree} : {}), ...(entryContinuation ? {PublicEntryContinuation: entryContinuation.studioTree} : {}), sourceRevisionsSaved: 4, ...(shell ? {unchangedStudioAcceptanceReused: receipt.finishedAt, hostedReaderAcceptance: shell.finishedAt} : {})};
+  return {workflow: "publication-directory-and-source", Studio: currentDeployment.releaseOriginPath, ...(continuation ? {CatalogContinuation: continuation.studioTree} : {}), ...(entryContinuation ? {PublicEntryContinuation: entryContinuation.studioTree} : {}), ...(catalogPreviewContinuation ? {CatalogPreviewContinuation: catalogPreviewContinuation.studioTree} : {}), sourceRevisionsSaved: 4, ...(shell ? {unchangedStudioAcceptanceReused: receipt.finishedAt, hostedReaderAcceptance: shell.finishedAt} : {})};
 }

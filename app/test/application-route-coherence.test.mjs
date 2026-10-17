@@ -4,6 +4,7 @@ import {describe, it} from "node:test";
 
 import config from "../observablehq.config.js";
 import {
+  compositionHref,
   directoryHref,
   featureRouteTarget,
   fixtureAdapterKind,
@@ -19,6 +20,15 @@ import {
 } from "../scripts/application-route-inventory.mjs";
 
 describe("application route coherence", () => {
+  it("opens Print Studio for the selected authored Project without a publication route", async () => {
+    const id = "3b7de5e2-27d4-418a-8fbf-712a28052e93";
+    assert.equal(compositionHref(id, {management: "print"}), `/workspaces?composition=${id}&manage=print#project-print`);
+    assert.equal(compositionHref(id, {adapterKind: "fixture", management: "print"}), `/workspaces?composition=${id}&adapter=fixture&manage=print#project-print`);
+    assert.equal(compositionHref(id, {management: "publishing"}), `/workspaces?composition=${id}`);
+    assert.throws(() => compositionHref("invalid", {management: "print"}), /identity/);
+    const entry = await readFile(new URL("../src/workspaces.md", import.meta.url), "utf8");
+    assert.match(entry, /query\.get\("manage"\) === "print" \? "print" : null/);
+  });
   it("leaves navigation to application components instead of fixture records", () => {
     assert.equal(config.sidebar, false);
     assert.equal(config.search, false);

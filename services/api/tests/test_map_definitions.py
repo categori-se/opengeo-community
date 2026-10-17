@@ -840,8 +840,88 @@ def test_style_reference_requires_versioned_identity_and_native_binding_contract
         invalid["layers"][0]["styleReference"][field] = value
         with pytest.raises(ValueError, match="styleReference"):
             validate_map_definition(invalid)
+    validate_map_definition(document, allow_import_references=True)
+    imported = deepcopy(document)
+    imported["layers"][0]["importRef"] = "geolibre:derived"
     with pytest.raises(ValueError, match="native"):
-        validate_map_definition(document, allow_import_references=True)
+        validate_map_definition(imported, allow_import_references=True)
     document["schemaVersion"] = MAP_DEFINITION_SCHEMA_VERSION
     with pytest.raises(ValueError, match=r"1\.4\.0"):
         validate_map_definition(document)
+
+
+MANAGED_DISPLAY_ID = UUID("72000000-0000-4000-8000-000000000001")
+
+
+def managed_display_definition():
+    document = definition()
+    document["schemaVersion"] = "opengeo.map-definition.1.5.0"
+    layer = document["layers"][0]
+    layer.update(
+        sourceType="governed-dataset",
+        datasetVersionId=str(DATASET_VERSION_ID),
+        sourceVersion=3,
+        managedDisplayId=str(MANAGED_DISPLAY_ID),
+    )
+    layer.pop("sourceUrl")
+    layer.pop("sourceConfiguration")
+    return document
+
+
+def test_native15_preserves_exact_managed_display_reference_and_prior_style_contract():
+    document = managed_display_definition()
+    document["layers"][0]["styleReference"] = {
+        "projectId": "50000000-0000-4000-8000-000000000002",
+        "resourceId": "a0000000-0000-4000-8000-000000000002",
+        "styleId": "d0000000-0000-4000-8000-000000000002",
+        "versionNumber": 2,
+        "checksumSha256": "a" * 64,
+        "format": "maplibre",
+    }
+    before = deepcopy(document)
+    assert validate_map_definition(document, require_current=True) == before
+    reference = map_dataset_references(document)[0]
+    assert reference.dataset_id == DATASET_ID
+    assert reference.dataset_version_id == DATASET_VERSION_ID
+    assert reference.dataset_version_number == 3
+    assert reference.managed_display_id == MANAGED_DISPLAY_ID
+    assert "ticket" not in document["layers"][0]
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"managedDisplayId": None},
+        {"managedDisplayId": "not-a-uuid"},
+        {"managedDisplayId": {"id": str(MANAGED_DISPLAY_ID), "ticket": "must-not-persist"}},
+        {"datasetVersionId": None},
+        {"sourceType": "geojson-object"},
+        {"sourceVersion": 0},
+        {"sourceVersion": True},
+        {"sourceVersion": None},
+    ],
+)
+def test_saved_display_requires_uuid_and_exact_governed_source_version(changes):
+    document = managed_display_definition()
+    document["layers"][0].update(changes)
+    with pytest.raises(ValueError):
+        validate_map_definition(document, require_current=True)
+
+
+def test_managed_display_is_native15_layer_only_and_not_unresolved_import():
+    document = managed_display_definition()
+    document["schemaVersion"] = "opengeo.map-definition.1.4.0"
+    with pytest.raises(ValueError, match=r"1\.5\.0"):
+        validate_map_definition(document, require_current=True)
+    document = managed_display_definition()
+    document["layers"][0]["importRef"] = "geolibre:derived"
+    with pytest.raises(ValueError, match="resolved governed"):
+        validate_map_definition(document, allow_import_references=True)
+    document = managed_display_definition()
+    document["basemaps"] = [{"basemapId": "plain", "managedDisplayId": str(MANAGED_DISPLAY_ID)}]
+    with pytest.raises(ValueError, match="only on governed dataset Layers"):
+        validate_map_definition(document, require_current=True)
+    document = managed_display_definition()
+    document.pop("models")
+    with pytest.raises(ValueError, match="models"):
+        validate_map_definition(document, require_current=True)

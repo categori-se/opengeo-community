@@ -65,7 +65,14 @@ class Settings(BaseSettings):
     geodata_bucket: str | None = None
     geodata_kms_key_arn: str | None = None
     processing_queue_url: str | None = None
+    pmtiles_derivative_queue_url: str | None = None
+    pmtiles_worker_image_digest: str | None = None
+    pmtiles_input_formats: str = "geojson"
+    worker_processing_mode: Literal["shared", "pmtiles-v2", "disabled"] = "shared"
     connection_verification_queue_url: str | None = None
+    connection_catalog_discovery_enabled: bool = False
+    connection_postgis_preview_enabled: bool = False
+    connection_verification_function_name: str | None = None
     user_dataset_verification_queue_url: str | None = None
     user_dataset_repository_browser_function_name: str | None = None
     observable_build_queue_url: str | None = None
@@ -338,8 +345,20 @@ class Settings(BaseSettings):
         ):
             raise ValueError("production Observable preview signing must be configured")
 
+        if self.pmtiles_worker_image_digest is not None and re.fullmatch(
+            r"sha256:[0-9a-f]{64}", self.pmtiles_worker_image_digest
+        ) is None:
+            raise ValueError("pmtiles_worker_image_digest must be an immutable sha256 digest")
+        pmtiles_formats = self.pmtiles_input_formats.split(",")
+        if (not pmtiles_formats or len(set(pmtiles_formats)) != len(pmtiles_formats)
+            or not set(pmtiles_formats) <= {
+                "geojson", "csv", "shapefile", "geopackage", "geoparquet"
+            }):
+            raise ValueError("pmtiles_input_formats must list distinct supported vector formats")
+
         for queue_name, queue_url in (
             ("processing_queue_url", self.processing_queue_url),
+            ("pmtiles_derivative_queue_url", self.pmtiles_derivative_queue_url),
             ("connection_verification_queue_url", self.connection_verification_queue_url),
             (
                 "user_dataset_verification_queue_url",
@@ -365,19 +384,23 @@ class Settings(BaseSettings):
             ):
                 raise ValueError(f"{queue_name} must be an SQS URL in aws_region")
 
-        if self.user_dataset_repository_browser_function_name is not None:
-            if self.aws_region is None:
-                raise ValueError(
-                    "user_dataset_repository_browser_function_name requires aws_region"
-                )
-            if (
-                re.fullmatch(
-                    r"[A-Za-z0-9_-]{1,64}",
-                    self.user_dataset_repository_browser_function_name,
-                )
-                is None
-            ):
-                raise ValueError("user_dataset_repository_browser_function_name is invalid")
+        for function_setting, function_name in (
+            (
+                "user_dataset_repository_browser_function_name",
+                self.user_dataset_repository_browser_function_name,
+            ),
+            ("connection_verification_function_name", self.connection_verification_function_name),
+        ):
+            if function_name is not None:
+                if self.aws_region is None:
+                    raise ValueError(f"{function_setting} requires aws_region")
+                if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", function_name) is None:
+                    raise ValueError(f"{function_setting} is invalid")
+        if (
+            self.connection_postgis_preview_enabled
+            and self.connection_verification_function_name is None
+        ):
+            raise ValueError("PostGIS preview requires connection_verification_function_name")
 
         if self.wms_sync_poll_seconds > self.wms_sync_wait_seconds:
             raise ValueError("wms_sync_poll_seconds cannot exceed wms_sync_wait_seconds")
@@ -476,7 +499,21 @@ class Settings(BaseSettings):
 
     @property
     def render_dispatch_configured(self) -> bool:
-        return self.processing_queue_url is not None and self.aws_region is not None
+        return (
+            self.worker_processing_mode == "shared"
+            and self.processing_queue_url is not None
+            and self.aws_region is not None
+        )
+
+    @property
+    def pmtiles_derivative_dispatch_configured(self) -> bool:
+        return (
+            self.worker_processing_mode == "pmtiles-v2"
+            and self.pmtiles_derivative_queue_url is not None
+            and self.pmtiles_derivative_queue_url != self.processing_queue_url
+            and self.pmtiles_worker_image_digest is not None
+            and self.aws_region is not None
+        )
 
     @property
     def connection_verification_dispatch_configured(self) -> bool:

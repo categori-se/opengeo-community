@@ -1,3 +1,4 @@
+import hashlib
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -7,18 +8,27 @@ import pytest
 
 from opengeo_worker.command_runner import CommandResult
 from opengeo_worker.config import Settings
-from opengeo_worker.models import ObjectReference, PmtilesDerivativeClaim, ValidationFailure
+from opengeo_worker.models import (
+    ObjectReference,
+    PmtilesDerivativeClaim,
+    PmtilesDerivativeMetadata,
+    StoredArtifact,
+    ValidationFailure,
+)
 from opengeo_worker.pmtiles_derivatives import (
     MAX_PMTILES_BYTES,
     PmtilesDerivativeGenerator,
     pmtiles_derivative_request_checksum,
+    pmtiles_display_validation,
 )
+from opengeo_worker.pmtiles_options import normalize_pmtiles_options
 
 JOB_ID = UUID("b9000000-0000-4000-8000-000000000001")
 ORGANIZATION_ID = UUID("10000000-0000-4000-8000-000000000001")
 PROJECT_ID = UUID("20000000-0000-4000-8000-000000000002")
 DATASET_ID = UUID("30000000-0000-4000-8000-000000000003")
 VERSION_ID = UUID("60000000-0000-4000-8000-000000000006")
+WORKER_IMAGE = "sha256:" + "d" * 64
 
 
 def settings(tmp_path: Path) -> Settings:
@@ -38,6 +48,7 @@ def settings(tmp_path: Path) -> Settings:
         db_password="secret",
         db_sslrootcert="/root.pem",
         workspace_root=tmp_path,
+        pmtiles_worker_image_digest=WORKER_IMAGE,
     )
 
 
@@ -96,11 +107,12 @@ def metadata(
                 "featureCount": 5,
                 "geometryFields": [
                     {
+                        "type": "MultiLineString",
                         "coordinateSystem": {
                             "projjson": {
                                 "id": {"authority": "EPSG", "code": crs},
                             }
-                        }
+                        },
                     }
                 ],
             }
@@ -139,6 +151,136 @@ class Runner:
         return CommandResult(json.dumps(self.document), "")
 
 
+class ConfigurableRunner(Runner):
+    def __init__(self, *, layers=None, version="GDAL 3.13.1, released 2026/09/01"):
+        super().__init__()
+        self.layers = (
+            layers
+            if layers is not None
+            else [{"name": "actual_input", "fields": [{"name": "name"}, {"name": "class"}]}]
+        )
+        self.version = version
+
+    def run(self, program, arguments, **kwargs):
+        if program == "ogrinfo" and arguments == ["--version"]:
+            self.calls.append(
+                (program, list(arguments), kwargs["cwd"], kwargs["maximum_file_bytes"])
+            )
+            return CommandResult(self.version, "")
+        if program == "ogrinfo" and Path(arguments[-1]).name in {
+            "source.parquet",
+            "source.geojson",
+        }:
+            self.calls.append(
+                (program, list(arguments), kwargs["cwd"], kwargs["maximum_file_bytes"])
+            )
+            return CommandResult(json.dumps({"layers": self.layers}), "")
+        return super().run(program, arguments, **kwargs)
+
+
+def configurable_claim(options=None):
+    initial = replace(
+        claim(), options=normalize_pmtiles_options(options or {}), worker_image_digest=WORKER_IMAGE
+    )
+    return replace(initial, request_checksum_sha256=pmtiles_derivative_request_checksum(initial))
+
+
+def test_configurable_recipe_autoselects_actual_input_and_binds_typed_options_and_runtime(tmp_path):
+    source = tmp_path / "source.parquet"
+    source.write_bytes(b"PAR1sourcePAR1")
+    runner = ConfigurableRunner()
+    job = configurable_claim(
+        {"extent": 8192, "simplification": 0.5, "attribute_names": ["class", "name"]}
+    )
+    result = PmtilesDerivativeGenerator(settings(tmp_path), runner).generate(
+        source, job, tmp_path / "output.pmtiles", tmp_path
+    )
+    args = next(call[1] for call in runner.calls if call[0] == "ogr2ogr")
+    assert args[-1] == "actual_input"
+    assert args[args.index("-nln") + 1] == job.source_layer
+    assert args[args.index("-select") + 1] == "class,name"
+    for setting in [
+        "EXTENT=8192",
+        "SIMPLIFICATION=0.5",
+        "SIMPLIFICATION_MAX_ZOOM=1",
+        "BUFFER=80",
+        "MAX_SIZE=500000",
+        "MAX_FEATURES=200000",
+    ]:
+        assert setting in args
+    assert result.input_layer == "actual_input"
+    assert result.software["gdal"] == "3.13.1"
+    assert result.software["runtimeImageDigest"] == WORKER_IMAGE
+    assert result.software["versionOutput"] == runner.version
+
+
+@pytest.mark.parametrize("configurable", [False, True])
+def test_v2_geojson_forces_declared_parser_without_changing_v1(tmp_path, configurable):
+    source = tmp_path / "source.geojson"
+    source.write_text('{"type":"FeatureCollection","features":[]}', encoding="utf-8")
+    job = configurable_claim() if configurable else claim()
+    job = replace(job, source=replace(job.source, content_type="application/geo+json"))
+    job = replace(job, request_checksum_sha256=pmtiles_derivative_request_checksum(job))
+    runner = ConfigurableRunner() if configurable else Runner()
+    PmtilesDerivativeGenerator(settings(tmp_path), runner).generate(
+        source, job, tmp_path / "output.pmtiles", tmp_path
+    )
+    parsed_source_calls = [
+        arguments
+        for program, arguments, _, _ in runner.calls
+        if program == "ogr2ogr" or arguments[-1] == str(source)
+    ]
+    assert len(parsed_source_calls) == (2 if configurable else 1)
+    for arguments in parsed_source_calls:
+        if configurable:
+            assert arguments[arguments.index("-if") + 1] == "GeoJSON"
+        else:
+            assert "-if" not in arguments
+
+
+@pytest.mark.parametrize(
+    ("options", "layers", "version", "code"),
+    [
+        ({}, [{"name": "one"}, {"name": "two"}], "GDAL 3.13.1", "input_layer_required"),
+        (
+            {"input_layer": "missing"},
+            [{"name": "actual_input"}],
+            "GDAL 3.13.1",
+            "input_layer_invalid",
+        ),
+        (
+            {"attribute_names": ["missing"]},
+            [{"name": "actual_input", "fields": []}],
+            "GDAL 3.13.1",
+            "attribute_missing",
+        ),
+        ({}, [{"name": "actual_input"}], "GDAL 3.13.0", "runtime_version_mismatch"),
+    ],
+)
+def test_configurable_recipe_rejects_ambiguous_source_missing_attributes_and_wrong_binary(
+    tmp_path, options, layers, version, code
+):
+    source = tmp_path / "source.parquet"
+    source.write_bytes(b"PAR1sourcePAR1")
+    runner = ConfigurableRunner(layers=layers, version=version)
+    with pytest.raises(ValidationFailure, match="pmtiles_derivative_" + code):
+        PmtilesDerivativeGenerator(settings(tmp_path), runner).generate(
+            source, configurable_claim(options), tmp_path / "output.pmtiles", tmp_path
+        )
+    assert not any(call[0] == "ogr2ogr" for call in runner.calls)
+
+
+def test_configurable_recipe_rejects_another_runtime_image_before_conversion(tmp_path):
+    source = tmp_path / "source.parquet"
+    source.write_bytes(b"PAR1sourcePAR1")
+    runner = ConfigurableRunner()
+    with pytest.raises(ValidationFailure, match="runtime_image_mismatch"):
+        PmtilesDerivativeGenerator(
+            replace(settings(tmp_path), pmtiles_worker_image_digest="sha256:" + "e" * 64), runner
+        ).generate(source, configurable_claim(), tmp_path / "output.pmtiles", tmp_path)
+    assert runner.calls == []
+
+
 def test_generates_one_fixed_no_network_pmtiles_archive_from_wgs84_bounds(
     tmp_path: Path,
 ) -> None:
@@ -153,6 +295,7 @@ def test_generates_one_fixed_no_network_pmtiles_archive_from_wgs84_bounds(
 
     assert result.layer_name == "environmental_screening"
     assert result.feature_count == 5
+    assert result.geometry_type == "MultiLineString"
     assert (result.minimum_zoom, result.maximum_zoom, result.crs) == (2, 12, "EPSG:3857")
     program, arguments, _, maximum = runner.calls[0]
     assert program == "ogr2ogr"
@@ -229,3 +372,89 @@ def test_rejects_an_output_without_pmtiles_v3_magic(tmp_path: Path) -> None:
         PmtilesDerivativeGenerator(settings(tmp_path), Runner(magic=b"not-pmti")).generate(
             source, claim(), tmp_path / "output.pmtiles", tmp_path
         )
+
+
+@pytest.mark.parametrize("feature_count", [54, 100_001])
+def test_display_validation_binds_local_blocks_and_discloses_fragment_counts(
+    tmp_path: Path, feature_count: int
+) -> None:
+    content = b"PMTiles\x03" + b"a" * 65536 + b"b" * 65536
+    output = tmp_path / "output.pmtiles"
+    output.write_bytes(content)
+    job = claim()
+    assert job.output_object_key is not None
+    assert job.source is not None
+    artifact = StoredArtifact(
+        JOB_ID,
+        "tile",
+        job.source.bucket,
+        job.output_object_key,
+        "exact-output-version",
+        "fedcba9876543210",
+        "application/vnd.pmtiles",
+        len(content),
+        hashlib.sha256(content).hexdigest(),
+    )
+    output_metadata = PmtilesDerivativeMetadata(
+        "environmental_screening", feature_count, 2, 12, geometry_type="MultiLineString"
+    )
+
+    validation, index = pmtiles_display_validation(
+        output, output_metadata, job, artifact, "222222222222"
+    )
+
+    expected = [
+        hashlib.sha256(content[i : i + 65536]).hexdigest() for i in range(0, len(content), 65536)
+    ]
+    assert validation["source_object_id"] == str(job.source.object_id)
+    assert validation["source_checksum_sha256"] == job.source.checksum_sha256
+    assert validation["source_s3_version_id"] == "source-version"
+    assert validation["request_checksum_sha256"] == job.request_checksum_sha256
+    assert validation["output_checksum_sha256"] == artifact.checksum_sha256
+    assert validation["expected_owner"] == "222222222222"
+    assert validation["count_semantics"] == "gdal-reported-tile-fragments-not-source-records"
+    assert validation["losses"]["preservation_verified"] is False
+    assert validation["losses"]["source_record_count"] is None
+    assert validation["tile_layers"][0]["feature_count"] == feature_count
+    if feature_count <= 100_000:
+        assert validation["block_sha256"] == expected
+        assert index is None
+    else:
+        assert "block_sha256" not in validation
+        assert index == bytes.fromhex("".join(expected))
+
+    output.write_bytes(content[:-1] + b"x")
+    with pytest.raises(ValidationFailure, match="pmtiles_display_output_facts_mismatch"):
+        pmtiles_display_validation(output, output_metadata, job, artifact, "222222222222")
+
+
+def test_unknown_geometry_remains_completed_metadata_without_admissible_tile_layers(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.parquet"
+    source.write_bytes(b"PAR1sourcePAR1")
+    document = metadata()
+    document["layers"][0]["geometryFields"][0]["type"] = "Unknown"
+    output = tmp_path / "output.pmtiles"
+    job = claim()
+    result = PmtilesDerivativeGenerator(settings(tmp_path), Runner(document)).generate(
+        source, job, output, tmp_path
+    )
+    assert result.geometry_type is None
+    assert job.output_object_key is not None and job.source is not None
+    content = output.read_bytes()
+    artifact = StoredArtifact(
+        JOB_ID,
+        "tile",
+        job.source.bucket,
+        job.output_object_key,
+        "exact-output-version",
+        "fedcba9876543210",
+        "application/vnd.pmtiles",
+        len(content),
+        hashlib.sha256(content).hexdigest(),
+    )
+    validation, _ = pmtiles_display_validation(output, result, job, artifact, "222222222222")
+    assert validation["tile_layers"] == []
+    assert validation["output_layer"]["geometry_type"] is None
+    assert validation["output_layer"]["reported_fragment_count"] == 5

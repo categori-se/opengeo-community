@@ -2,31 +2,78 @@ import {registeredPreviewLayer} from "./catalogProjectSave.js";
 import {readSourceMetadata, sourceLinks} from "../components/SourceDetails.js";
 import {readProviderJson} from "./providerJson.js";
 import {loadLiveFeaturePage} from "./liveFeatureSource.js";
+import {captureExternalDatabaseScope} from "./externalDatabaseCatalog.js";
+import {postgisBounds} from "./postgisLayers.js";
+import {loadArchivedGeojson} from "./archivedGeojson.js";
 
 // Session-memory only. Nothing is requested until the reader opens a preview.
 export function createCatalogPreviewLoader({adapter, fetchImplementation = globalThis.fetch}) {
   const maps = new Map(), sources = new Map(), connections = new Map();
-  function retained(cache, key, operation) {
-    if (cache.has(key)) return cache.get(key);
-    if (cache.size >= 8) cache.delete(cache.keys().next().value);
-    const result = operation().catch(error => {cache.delete(key); throw error;});
-    cache.set(key, result);
+  let privateScope = null;
+  const lifetime = new AbortController();
+  async function retained(cache, key, operation) {
+    lifetime.signal.throwIfAborted();
+    if (!cache.has(key)) {
+      if (cache.size >= 8) cache.delete(cache.keys().next().value);
+      const result = operation().catch(error => {cache.delete(key); throw error;});
+      cache.set(key, result);
+    }
+    const result = await cache.get(key);
+    lifetime.signal.throwIfAborted();
     return result;
   }
-  return async record => {
+  async function bounded(milliseconds, operation) {
+    lifetime.signal.throwIfAborted();
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), milliseconds);
+    const signal = AbortSignal.any([lifetime.signal, controller.signal]);
+    try {
+      const result = await operation(signal);
+      signal.throwIfAborted();
+      return result;
+    } finally {clearTimeout(timer);}
+  }
+  const loadRecord = async record => {
+    lifetime.signal.throwIfAborted();
     if (!record.mapId) {
       if ((!record.service && !record.resourcePreview) || typeof adapter.getSource !== "function") throw new Error("No registered live preview is available. Open metadata and access.");
       const expectedVersion = record.service?.sourceVersion ?? record.sourceVersion;
-      const source = await retained(connections, `${record.projectId}/${record.datasetId}/${expectedVersion ?? "current"}`, async () => {
-        const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
-        try {return await adapter.getSource(record.projectId, record.datasetId, {signal: controller.signal});}
-        finally {clearTimeout(timer);}
-      });
+      const isPrivate = record.sourceType === "postgis";
+      if (isPrivate) privateScope ??= await captureExternalDatabaseScope(adapter);
+      if (isPrivate) await adapter.assertCollectionContext(privateScope);
+      const source = await retained(connections, `${record.projectId}/${record.datasetId}/${expectedVersion ?? "current"}`, () =>
+        bounded(20_000, signal => adapter.getSource(record.projectId, record.datasetId, {signal, ...(isPrivate ? {context: privateScope} : {})})));
+      lifetime.signal.throwIfAborted();
+      if (isPrivate || source.sourceType === "postgis") {
+        if (!isPrivate || source.sourceType !== "postgis" || source.datasetId !== record.datasetId || source.projectId !== record.projectId
+          || expectedVersion != null && source.versionNumber !== expectedVersion || source.status !== "active" || !source.capabilities?.read
+          || source.accessMode !== "server_mediated" || source.credentialMode !== "connection_reference" || typeof adapter.postgisLayers !== "function") {
+          throw new Error("The registered Layer changed or is unavailable. Reload its Catalog record.");
+        }
+        await adapter.assertCollectionContext(privateScope);
+        const bounds = postgisBounds(record.bbox ?? [-180, -90, 180, 90]), configuration = source.configuration;
+        // Feature bytes live only in this open panel. Never reuse a completed
+        // lease or cached feature response for a later permission state.
+        const result = await bounded(15_000, signal => adapter.postgisLayers().preview(source.datasetId, source.versionNumber, bounds,
+          {signal, context: privateScope, connectionRevision: configuration.connectionRevision, schemaFingerprint: configuration.fingerprint}));
+        await adapter.assertCollectionContext(privateScope); lifetime.signal.throwIfAborted();
+        return {kind: "features", geojson: result.geojson, metadata: {}, privateSource: true, source,
+          preview: result, complete: false, attribution: source.name,
+          geometryNote: `Live PostGIS view at ${result.observedAt}, source revision ${result.sourceVersion}. Bounds: ${result.bbox.join(", ")}. ${result.truncated ? "More matching features were omitted." : "Results are limited to this requested area."}`};
+      }
       if (source.datasetId !== record.datasetId || source.projectId !== record.projectId
         || expectedVersion != null && source.versionNumber !== expectedVersion || source.status !== "active"
         || source.credentialMode !== "none" || source.accessMode !== "direct_browser" || !source.capabilities?.read
-        || !["arcgis", "wfs", "imageserver", "mapserver", "cog", "xyz"].includes(source.sourceType)) {
+        || source.sourceType === "geojson" && record.sourceType !== "geojson"
+        || !["arcgis", "wfs", "imageserver", "mapserver", "cog", "xyz", "geojson"].includes(source.sourceType)) {
         throw new Error("The connection changed or is unavailable. Search the catalog again before previewing it.");
+      }
+      if (source.sourceType === "geojson") {
+        const geojson = await retained(sources, JSON.stringify(["geojson", source.sourceUrl, source.versionNumber, source.configuration]), () =>
+          bounded(30_000, signal => loadArchivedGeojson({url: source.sourceUrl, configuration: source.configuration,
+            fetchImpl: fetchImplementation, signal})));
+        return {kind: "features", geojson, metadata: {}, endpoint: source.sourceUrl, complete: true,
+          referencedArchive: source, attribution: source.configuration.attribution,
+          geometryNote: `${source.configuration.geometryType} · GeoJSON archive · Source revision ${source.versionNumber}.`};
       }
       if (source.sourceType === "cog") return {kind: "cog", endpoint: source.sourceUrl, metadata: {},
         attribution: source.configuration.attribution, cog: source, layer: registeredPreviewLayer(source, record.title)};
@@ -38,11 +85,9 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
       const fields = source.sourceType === "arcgis" ? source.configuration.fields : [];
       return {...await preview(endpoint, fields, source.configuration.attribution, source.configuration), layer: registeredPreviewLayer(source, record.title)};
     }
-    const map = await retained(maps, `${record.projectId}/${record.mapId}/${record.mapVersion}`, async () => {
-      const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 20_000);
-      try {return await adapter.getMap(record.projectId, record.mapId, {signal: controller.signal});}
-      finally {clearTimeout(timer);}
-    });
+    const map = await retained(maps, `${record.projectId}/${record.mapId}/${record.mapVersion}`, () =>
+      bounded(20_000, signal => adapter.getMap(record.projectId, record.mapId, {signal})));
+    lifetime.signal.throwIfAborted();
     if (map.id !== record.mapId || map.projectId !== record.projectId || map.version !== record.mapVersion) {
       throw new Error("The map changed. Search the catalog again before previewing it.");
     }
@@ -60,21 +105,31 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
       .filter(field => typeof field === "string" && /^[a-zA-Z_][a-zA-Z_0-9]*$/.test(field)))].sort();
     return {...await preview(endpoint, fields, layer.sourceConfiguration?.attribution || layer.attribution, layer.sourceConfiguration), layer: structuredClone(layer)};
   };
+  const load = async record => {
+    const result = await loadRecord(record);
+    lifetime.signal.throwIfAborted();
+    return result;
+  };
+  load.dispose = () => {
+    lifetime.abort();
+    maps.clear(); sources.clear(); connections.clear();
+    privateScope = null;
+  };
+  return load;
 
   async function previewWfs(endpoint, configuration, bounds = [-180, -90, 180, 90]) {
     const geojson = await retained(sources, JSON.stringify(["wfs", endpoint, configuration, bounds]), () =>
-      loadLiveFeaturePage({sourceType: "wfs", url: endpoint, configuration, bounds, fetchImpl: fetchImplementation}));
+      loadLiveFeaturePage({sourceType: "wfs", url: endpoint, configuration, bounds, fetchImpl: fetchImplementation, signal: lifetime.signal}));
+    lifetime.signal.throwIfAborted();
     return {kind: "features", metadata: {}, endpoint, geojson, complete: false,
       attribution: configuration.attribution || "Source credit not recorded",
       geometryNote: "One bounded WFS display page in CRS84. Features outside this page may be omitted; this is not an original-data export."};
   }
 
   async function preview(endpoint, fields, attribution, configuration) {
-    const result = await retained(sources, JSON.stringify([endpoint, fields, configuration]), async () => {
-      const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 25_000);
-      try {return await loadProviderPreview(endpoint, {fetchImplementation, signal: controller.signal, fields, configuration});}
-      finally {clearTimeout(timer);}
-    });
+    const result = await retained(sources, JSON.stringify([endpoint, fields, configuration]), () =>
+      bounded(25_000, signal => loadProviderPreview(endpoint, {fetchImplementation, signal, fields, configuration})));
+    lifetime.signal.throwIfAborted();
     return {...result, endpoint, attribution: result.metadata.copyrightText || attribution || "Source credit not recorded"};
   }
 }

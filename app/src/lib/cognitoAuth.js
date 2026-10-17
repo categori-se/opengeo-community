@@ -7,7 +7,7 @@ import {
   storeOAuthTransaction
 } from "./auth.js";
 import {loadBrowserAuthConfig} from "./authConfig.js";
-import {normalizeAuthReturnTo} from "./authNavigation.js";
+import {DEFAULT_AUTH_RETURN_TO, normalizeAuthReturnTo} from "./authNavigation.js";
 
 const TRANSACTION_LIFETIME_MS = 10 * 60 * 1000;
 const TOKEN_RESPONSE_MAX_BYTES = 65_536;
@@ -71,7 +71,7 @@ export class CognitoBrowserAuth {
     return {...browserSessionState(this.storage, this.now()), config};
   }
 
-  async beginSignIn(returnTo = "/workspaces") {
+  async beginSignIn(returnTo = DEFAULT_AUTH_RETURN_TO) {
     const config = await this.getConfig();
     let safeReturnTo;
     try {

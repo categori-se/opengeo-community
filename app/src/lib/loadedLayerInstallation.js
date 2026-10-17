@@ -18,7 +18,7 @@ export function installLoadedMapLayers({getMap, layers, dataByLayerId, layerHand
 
 export function persistedLayerSourceIdentity(layer) {
   return JSON.stringify([layer.sourceType, layer.datasetId, layer.datasetVersionId ?? null,
-    layer.sourceVersion ?? null, layer.sourceUrl ?? null, layer.sourceConfiguration ?? null]);
+    layer.sourceVersion ?? null, layer.sourceUrl ?? null, layer.sourceConfiguration ?? null, layer.managedDisplayId ?? null]);
 }
 
 export function isCurrentPersistedLayer(context, layer, identity) {

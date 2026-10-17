@@ -32,6 +32,17 @@ describe("Cognito authorization code with PKCE", () => {
     assert.equal(browserSessionState(storage, NOW).status, "signed_out");
   });
 
+  it("returns generic sign-in to Home through its PKCE callback", async () => {
+    const storage = memoryStorage();
+    const auth = controller({storage, location: browserLocation(`${ORIGIN}/login`), fetchImplementation: async () => tokenResponse()});
+    await auth.beginSignIn();
+    const transaction = readOAuthTransaction(storage);
+    assert.equal(transaction.returnTo, "/");
+    const result = await auth.initialize(`${ORIGIN}/login?code=home-code&state=${transaction.state}`);
+    assert.equal(result.status, "callback_complete");
+    assert.equal(result.returnTo, "/");
+  });
+
   it("starts a code-only PKCE request and stores no token or client secret", async () => {
     const storage = memoryStorage();
     const location = browserLocation(`${ORIGIN}/login`);

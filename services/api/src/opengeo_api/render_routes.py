@@ -357,6 +357,9 @@ def repository_from_request(request: Request) -> RenderRepository:
 
 
 def dispatcher_from_request(request: Request) -> RenderDispatcher:
+    if (request.app.state.settings.worker_processing_mode != "shared"
+        and request.method not in {"GET", "HEAD"}):
+        raise HTTPException(status_code=503, detail="shared_worker_processing_held")
     return cast(RenderDispatcher, request.app.state.render_dispatcher)
 
 
@@ -1331,7 +1334,10 @@ async def get_map(
         )
     )
     existing = await execute_render(existing_read)
+    shared_worker_available = http_request.app.state.settings.worker_processing_mode == "shared"
     if existing is None:
+        if not shared_worker_available:
+            raise HTTPException(status_code=503, detail="shared_worker_processing_held")
         submit = (
             repository.request_composite_render(
                 context,
@@ -1355,7 +1361,7 @@ async def get_map(
         )
         submission = await execute_render(submit)
         current_job = submission.job
-    elif existing.state == "queued":
+    elif existing.state == "queued" and shared_worker_available:
         try:
             resubmit = (
                 repository.request_composite_render(

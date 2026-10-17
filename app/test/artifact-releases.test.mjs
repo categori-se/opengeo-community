@@ -169,3 +169,33 @@ it('clears password drafts on discard, target replacement, removal and a changed
   assert.equal(fixture.dom.window.sessionStorage.length,0);
  }finally{fixture.close();}
 });
+
+
+it('offers a native website example without loading the release or its descriptor', async () => {
+ const dom=new JSDOM('<main></main>',{url:'https://studio.example/workspaces'}), prior=globalThis.document;
+ globalThis.document=dom.window.document;
+ try {
+  let lists=0,links=0;
+  const adapter={listArtifactReleases:async()=>{lists++;return{can_publish:false,has_more:false,records:[
+   {id:'release',title:'Survey',version_number:1,license:'CC0',revoked_at:null,representation:'portable-map-html'},
+   {id:'image',title:'Image',version_number:1,license:'CC0',revoked_at:null,representation:'saved-map-image'},
+   {id:'old',title:'Revoked',version_number:1,license:'CC0',revoked_at:'2026-10-15',representation:'portable-map-html'}]};},
+   publicArtifactReleaseUrl:async id=>{links++;return `https://api.example/public/organizations/account/artifact-releases/${id}/view`;}};
+  const root=ArtifactReleases({adapter});document.querySelector('main').append(root);root.setTarget({id:'artifact',version_number:1});
+  assert.equal(lists,0);assert.equal(root.querySelector('textarea[aria-label^="Native map import"]'),null);
+  [...root.querySelectorAll('button')].find(node=>node.textContent==='Load public releases').click();
+  for(let i=0;i<8;i++)await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(lists,1);assert.equal(links,2);assert.equal(root.querySelector('iframe'),null);
+  assert.equal(root.querySelectorAll('textarea[aria-label^="Native map import"]').length,1);
+  const example=root.querySelector('[aria-label="Native map import for Survey"]');
+  assert.equal(example.readOnly,true);assert.match(example.value,/module\.mjs\?mode=native/);
+  assert.match(example.value,/createView\(\{maplibre, height: 600, signal: lifetime.signal\}\)/);
+  assert.match(example.value,/selectionchange/);assert.match(example.value,/lifetime.abort\(\)/);assert.match(example.value,/view.dispose\(\)/);
+  assert.match(root.textContent,/MapLibre runtime and CSS/);assert.match(root.textContent,/Native Notebook HTML and PMTiles are not currently supported/);
+  assert.equal([...root.querySelectorAll('a')].find(link=>link.textContent==='Open release descriptor').href,
+   'https://studio.example/api/public/organizations/account/artifact-releases/release/descriptor');
+  assert.match(root.querySelector('[aria-label="JavaScript import for Survey"]').value,
+   /module\.mjs";\n\ndisplay\(createView\(\{height: 600, invalidation\}\)\);/);
+  root.remove();
+ }finally{globalThis.document=prior;dom.window.close();}
+});

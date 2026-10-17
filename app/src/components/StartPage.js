@@ -71,7 +71,7 @@ export function StartPage({catalog, library = null, adapter = null, mapFontAttac
 
 function startWorkbench(projects, defaultRoute, library, adapterKind, state, mapFontAttachments, account, adapter) {
   const startup = browserStartupPreference();
-  const showWelcome = startup.shouldShow();
+  const showWelcome = startup.shouldShow() && !new URLSearchParams(globalThis.location?.search ?? "").has("localProject");
   const frame = document.createElement("section");
   frame.className = "start-workbench-frame";
   const workspace = {

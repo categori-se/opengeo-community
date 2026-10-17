@@ -1,8 +1,11 @@
 import hashlib
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID
+
+import pytest
 
 from opengeo_api.data_preservation import (
     PMTILES_DERIVATIVE_RECIPE,
@@ -19,7 +22,19 @@ ORGANIZATION_ID = UUID("10000000-0000-4000-8000-000000000001")
 IDEMPOTENCY_KEY = UUID("84000000-0000-4000-8000-000000000258")
 
 
-def test_api_and_worker_share_the_versioned_pmtiles_checksum_vectors() -> None:
+@pytest.mark.parametrize(
+    "options",
+    [
+        None,
+        {
+            "extent": 8192,
+            "simplification": 0.5,
+            "input_layer": "actual_source",
+            "attribute_names": ["name", "source:id"],
+        },
+    ],
+)
+def test_api_and_worker_share_the_versioned_pmtiles_checksum_vectors(options) -> None:
     worker_source = str(ROOT / "services" / "worker" / "src")
     sys.path.insert(0, worker_source)
     try:
@@ -56,6 +71,8 @@ def test_api_and_worker_share_the_versioned_pmtiles_checksum_vectors() -> None:
             maximum_zoom=vector["maximumZoom"],
             source_layer=vector["sourceLayer"],
             idempotency_key=IDEMPOTENCY_KEY,
+            options=options,
+            worker_image_digest="sha256:" + "d" * 64 if options is not None else None,
         )
         claim = PmtilesDerivativeClaim(
             status="claimed",
@@ -82,6 +99,14 @@ def test_api_and_worker_share_the_versioned_pmtiles_checksum_vectors() -> None:
             attempt_count=1,
             output_object_key="sealed/output.pmtiles",
         )
+        if options is not None:
+            from opengeo_api.pmtiles_options import normalize_pmtiles_options
+
+            claim = replace(
+                claim,
+                options=normalize_pmtiles_options(options),
+                worker_image_digest=request.worker_image_digest,
+            )
 
         api_bytes = pmtiles_derivative_request_canonical_bytes(
             project_id=project_id,
@@ -91,8 +116,35 @@ def test_api_and_worker_share_the_versioned_pmtiles_checksum_vectors() -> None:
             request=request,
         )
         worker_bytes = worker_canonical_bytes(claim)
-        expected_bytes = vector["expectedCanonicalJson"].encode("utf-8")
-        expected_checksum = vector["expectedSha256"]
+        if options is None:
+            expected_bytes = vector["expectedCanonicalJson"].encode("utf-8")
+            expected_checksum = vector["expectedSha256"]
+        else:
+            expected_bytes = api_bytes
+            expected_checksum = hashlib.sha256(api_bytes).hexdigest()
+            document = json.loads(api_bytes)
+            assert document["schema"] == "opengeo.pmtiles-derivative-request.1.1.0"
+            assert document["recipe"] == "gdal-pmtiles-v2"
+            assert document["options"] == claim.options
+            assert document["worker_image_digest"] == request.worker_image_digest
+            assert (
+                worker_checksum(replace(claim, worker_image_digest="sha256:" + "e" * 64))
+                != expected_checksum
+            )
+            for key, value in {
+                "extent": 2048,
+                "buffer": 12,
+                "max_size": 100000,
+                "max_features": 5000,
+                "simplification": 2,
+                "simplification_max_zoom": 2,
+                "input_layer": None,
+                "attribute_names": None,
+            }.items():
+                assert (
+                    worker_checksum(replace(claim, options={**claim.options, key: value}))
+                    != expected_checksum
+                )
 
         assert api_bytes == worker_bytes == expected_bytes, vector["name"]
         assert hashlib.sha256(expected_bytes).hexdigest() == expected_checksum

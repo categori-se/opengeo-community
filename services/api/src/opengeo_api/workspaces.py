@@ -9,7 +9,14 @@ from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 
 from opengeo_api.auth_models import OrganizationRole
-from opengeo_api.authorization import Action, AuthorizationDenied, Roles, authorize, is_allowed
+from opengeo_api.authorization import (
+    Action,
+    AuthorizationDenied,
+    DatasetPermissionRole,
+    Roles,
+    authorize,
+    is_allowed,
+)
 from opengeo_api.features import _like_pattern
 from opengeo_api.map_definitions import (
     external_map_configuration,
@@ -1292,9 +1299,31 @@ class PostgresWorkspaceRepository:
             return
 
         dataset_ids = sorted({str(reference.dataset_id) for reference in references})
+        unversioned_raw_ids = {
+            str(reference.dataset_id)
+            for reference in references
+            if reference.dataset_version_id is None
+            and reference.managed_display_id is None
+            and reference.source_type is None
+        }
+        current_version_selection = (
+            """,
+                   EXISTS (
+                     SELECT 1 FROM app.datasets dataset
+                     JOIN app.dataset_versions current_version
+                       ON current_version.organization_id = dataset.organization_id
+                      AND current_version.dataset_id = dataset.id
+                      AND current_version.id = dataset.current_version_id
+                     WHERE dataset.organization_id = project_dataset.organization_id
+                       AND dataset.id = project_dataset.dataset_id
+                       AND current_version.state::text = 'preserved'
+                   ) AS current_version_preserved"""
+            if unversioned_raw_ids
+            else ""
+        )
         linked_rows = await transaction.fetch_all(
-            """
-            SELECT project_dataset.dataset_id
+            f"""
+            SELECT project_dataset.dataset_id{current_version_selection}
             FROM jsonb_array_elements_text(%s::jsonb) requested(dataset_id)
             JOIN app.project_datasets project_dataset
               ON project_dataset.organization_id = %s
@@ -1308,9 +1337,16 @@ class PostgresWorkspaceRepository:
         linked_ids = {str(row[0]) for row in linked_rows}
         if linked_ids != set(dataset_ids):
             raise WorkspaceConflict("map_dataset_not_linked")
+        if unversioned_raw_ids and any(
+            str(row[0]) in unversioned_raw_ids and row[1] for row in linked_rows
+        ):
+            raise WorkspaceConflict("map_dataset_version_invalid")
 
+        # A display cannot authorize a second, raw reference to its source version.
         version_references = [
-            reference for reference in references if reference.dataset_version_id is not None
+            reference
+            for reference in references
+            if reference.dataset_version_id is not None and reference.managed_display_id is None
         ]
         if version_references:
             requested_versions = sorted(
@@ -1361,6 +1397,144 @@ class PostgresWorkspaceRepository:
             found_versions = {(str(row[0]), str(row[1]), int(row[2])) for row in version_rows}
             if found_versions != set(requested_versions):
                 raise WorkspaceConflict("map_dataset_version_invalid")
+
+        requested_displays = sorted(
+            {
+                (
+                    str(reference.dataset_id),
+                    str(reference.dataset_version_id),
+                    cast(int, reference.dataset_version_number),
+                    str(reference.managed_display_id),
+                )
+                for reference in references
+                if reference.managed_display_id is not None
+            }
+        )
+        if requested_displays:
+            # One bounded metadata read for every unique display reference. It
+            # issues no storage tickets and carries no consent into the map.
+            # Legacy active displays retain their admission behavior. An
+            # uninspected original requires its exact reviewed v2 derivative.
+            display_rows = await transaction.fetch_all(
+                """
+                SELECT requested.dataset_id, requested.dataset_version_id,
+                       requested.dataset_version_number, requested.managed_display_id,
+                       membership.role::text,
+                       app.effective_project_role(project.id, membership.user_id)::text,
+                       permission.role::text, dataset.owner_user_id = membership.user_id
+                FROM jsonb_to_recordset(%s::jsonb)
+                  AS requested(dataset_id uuid, dataset_version_id uuid,
+                               dataset_version_number bigint, managed_display_id uuid)
+                JOIN app.layer_archive_distributions display
+                  ON display.organization_id = %s AND display.project_id = %s
+                 AND display.dataset_id = requested.dataset_id
+                 AND display.dataset_version_id = requested.dataset_version_id
+                 AND display.id = requested.managed_display_id
+                 AND display.source_version IS NULL AND display.enabled
+                 AND display.descriptor->>'format' = 'pmtiles'
+                JOIN app.datasets dataset ON dataset.organization_id = display.organization_id
+                 AND dataset.id = display.dataset_id
+                JOIN app.projects project ON project.organization_id = display.organization_id
+                 AND project.id = display.project_id AND project.status = 'active'
+                JOIN app.dataset_versions version
+                  ON version.organization_id = display.organization_id
+                 AND version.dataset_id = display.dataset_id
+                 AND version.id = requested.dataset_version_id
+                 AND version.version_number = requested.dataset_version_number
+                JOIN app.organization_memberships membership
+                  ON membership.organization_id = display.organization_id
+                 AND membership.user_id = %s
+                LEFT JOIN app.dataset_permissions permission
+                  ON permission.organization_id = dataset.organization_id
+                 AND permission.dataset_id = dataset.id AND permission.user_id = membership.user_id
+                WHERE (dataset.status = 'active' AND version.state = 'active')
+                   OR EXISTS (
+                    SELECT 1 FROM app.pmtiles_derivative_jobs job
+                    JOIN app.dataset_version_derivative_lineage lineage
+                      ON lineage.organization_id = job.organization_id
+                     AND lineage.dataset_id = job.dataset_id
+                     AND lineage.dataset_version_id = job.dataset_version_id
+                     AND lineage.pmtiles_job_id = job.id
+                     AND lineage.source_object_id = job.source_object_id
+                     AND lineage.output_object_id = job.output_object_id
+                     AND lineage.recipe = 'gdal-pmtiles-v2'
+                    JOIN app.pmtiles_display_validations validation
+                      ON validation.organization_id = job.organization_id
+                     AND validation.project_id = job.project_id
+                     AND validation.dataset_id = job.dataset_id
+                     AND validation.dataset_version_id = job.dataset_version_id
+                     AND validation.pmtiles_job_id = job.id
+                     AND validation.output_object_id = job.output_object_id
+                    JOIN app.data_objects original
+                      ON original.organization_id = job.organization_id
+                     AND original.dataset_id = job.dataset_id
+                     AND original.id = job.source_object_id
+                     AND original.checksum_sha256 = validation.validation->>'source_checksum_sha256'
+                     AND original.s3_version_id = validation.validation->>'source_s3_version_id'
+                    JOIN app.data_objects output
+                      ON output.organization_id = job.organization_id
+                     AND output.dataset_id = job.dataset_id AND output.id = job.output_object_id
+                     AND output.checksum_sha256 = job.output_checksum_sha256
+                     AND output.size_bytes = job.output_size_bytes
+                    WHERE job.organization_id = display.organization_id
+                      AND job.project_id = display.project_id
+                      AND job.dataset_id = display.dataset_id
+                      AND job.dataset_version_id = version.id AND job.id = display.pmtiles_job_id
+                      AND display.id = job.id AND job.state = 'completed'
+                      AND job.conversion_options IS NOT NULL
+                      AND app.pmtiles_preserved_original_eligible(job.organization_id,
+                        job.project_id, job.dataset_id,
+                        job.dataset_version_id, job.source_object_id)
+                      AND display.descriptor->'provenance' @> jsonb_build_object(
+                        'pmtiles_job_id', job.id, 'recipe', 'gdal-pmtiles-v2',
+                        'source_object_id', job.source_object_id,
+                        'output_object_id', job.output_object_id,
+                        'request_checksum_sha256', job.request_checksum_sha256,
+                        'review_sha256', validation.review_sha256)
+                      AND jsonb_array_length(display.descriptor->'objects') = 1
+                      AND display.descriptor->'objects'->0 @> jsonb_build_object(
+                        'bucket', output.bucket, 'key', output.object_key,
+                        'version_id', output.s3_version_id, 'size_bytes', output.size_bytes,
+                        'sha256', output.checksum_sha256)
+                      AND display.descriptor->'tile_layers' = validation.validation->'tile_layers'
+                      AND display.descriptor->'min_zoom' = validation.validation->'min_zoom'
+                      AND display.descriptor->'max_zoom' = validation.validation->'max_zoom'
+                   )
+                ORDER BY requested.dataset_id, requested.dataset_version_id,
+                         requested.managed_display_id
+                """,
+                (
+                    Jsonb(
+                        [
+                            {
+                                "dataset_id": dataset_id,
+                                "dataset_version_id": version_id,
+                                "dataset_version_number": version_number,
+                                "managed_display_id": display_id,
+                            }
+                            for dataset_id, version_id, version_number, display_id in (
+                                requested_displays
+                            )
+                        ]
+                    ),
+                    context.organization_id,
+                    project_id,
+                    context.user_id,
+                ),
+            )
+            found_displays = set()
+            for row in display_rows:
+                roles = Roles(
+                    organization=cast(OrganizationRole, row[4]),
+                    project=cast(ProjectRole | None, row[5]),
+                    dataset=cast(DatasetPermissionRole | None, row[6]),
+                    dataset_owner=cast(bool, row[7]),
+                )
+                if not is_allowed(Action.DATASET_VERSION_READ, roles):
+                    raise WorkspaceConflict("map_managed_display_unavailable")
+                found_displays.add((str(row[0]), str(row[1]), int(row[2]), str(row[3])))
+            if found_displays != set(requested_displays):
+                raise WorkspaceConflict("map_managed_display_unavailable")
 
         snapshots = [reference for reference in references if reference.source_type is not None]
         if not snapshots:

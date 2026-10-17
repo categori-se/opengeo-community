@@ -62,8 +62,9 @@ export function PublicDemoWorkbench({
     return massgisLoadPromise;
   };
 
-  const browserCatalog = [{id: COMMUNITY_DEMO_PAGE_ID, title: community.layers[0].title, load: async () => ({layer: community.layers[0], geojson: community.geojsonByLayerId.get(community.layers[0].layerId), source: {...community.source, description: community.noticeSummary}})},
-    ...massgis.indicatorGroups.flatMap(group => group.maps.map(map => ({id: `massgis-${map.slug}`, title: map.title, load: async () => {
+  const massgisSource = catalog.entries.find(entry => entry.id === "massgis-massenviroscreen")?.sourceFiles?.[0];
+  const browserCatalog = [{id: COMMUNITY_DEMO_PAGE_ID, title: community.layers[0].title, description: community.noticeSummary, source: community.source, load: async () => ({layer: community.layers[0], geojson: community.geojsonByLayerId.get(community.layers[0].layerId), source: {...community.source, description: community.noticeSummary}})},
+    ...massgis.indicatorGroups.flatMap(group => group.maps.map(map => ({id: `massgis-${map.slug}`, title: map.title, description: map.summary, source: massgisSource, load: async () => {
       const data = await loadMassgis();
       const presentation = massgisDemoPresentation({catalog, massgis, geojson: data, pageId: `massgis-${map.slug}`});
       const layer = presentation.layers.find(layer => layer.visible);
@@ -71,6 +72,16 @@ export function PublicDemoWorkbench({
     }})))];
 
   const showDirectory = () => renderPublishedExamples(root, catalog, massgis, selectPage, browserCatalog, selectLayer);
+  const showPersonalProjects = async () => {
+    const revision = ++selectionRevision;
+    replaceDemoContent(root, directoryActions(), text("p", "Opening Projects on this device…"));
+    try {
+      const [{LocalProjectLibrary}, {LocalProjectStore}] = await Promise.all([import("./LocalProjectLibrary.js"), import("../lib/localProjectStore.js")]);
+      if (disposed || revision !== selectionRevision) return;
+      const dialog = LocalProjectLibrary({store: new LocalProjectStore({catalog: browserCatalog}), onClose: () => {writeDemoUrl({view: "examples"});showDirectory();}});
+      root.append(dialog);dialog.showModal?.();if (!dialog.open) dialog.open = true;
+    } catch (error) {if (!disposed && revision === selectionRevision) root.append(text("p", error.message));}
+  };
   const selectLayer = async (entry, {updateUrl = true} = {}) => {
     const revision = ++selectionRevision;
     if (updateUrl) writeDemoUrl({layer: entry.id});
@@ -149,6 +160,8 @@ export function PublicDemoWorkbench({
 
   const handleHistory = () => {
     const params = new URLSearchParams(globalThis.location?.search ?? "");
+    if (params.has("localProject")) {selectionRevision++;renderPresentation(root, community, massgis, selectPage, mapFontAttachments, browserCatalog, openCapture);return;}
+    if (params.get("view") === "local-projects") {void showPersonalProjects();return;}
     if (params.has("publication")) { showPublication(params.get("publication")); return; }
     if (params.has("layer")) {
       const entry = browserCatalog.find(item => item.id === params.get("layer"));
@@ -337,9 +350,9 @@ function studioWorkflowsCard() {
   actions.className = "public-demo-directory-actions";
   actions.setAttribute("aria-label", "Saved Studio workflows");
   actions.append(
-    directoryLink("Catalog and satellite Layers ↗", `${MANAGED_STUDIO_URL}?view=data`),
-    directoryLink("Projects and sharing ↗", MANAGED_STUDIO_URL),
-    directoryLink("Publishing workbench ↗", `${MANAGED_STUDIO_URL}?view=publishing`)
+    directoryLink("Catalog and satellite Layers ↗", `${MANAGED_STUDIO_URL}workspaces?view=data`),
+    directoryLink("Projects and sharing ↗", `${MANAGED_STUDIO_URL}workspaces`),
+    directoryLink("Publishing workbench ↗", `${MANAGED_STUDIO_URL}workspaces?view=publishing`)
   );
   const card = document.createElement("article");
   card.className = "public-demo-project-card";
@@ -369,6 +382,7 @@ function directoryActions() {
     directoryLink("Overview", "/"),
     directoryLink("Catalog", "/?view=catalog"),
     directoryLink("Publications", "/?view=publications"),
+    directoryLink("On this device", "/?view=local-projects"),
     directoryLink("Open starter workbench", "/?map=community-facilities"),
     directoryLink("Open Studio ↗", MANAGED_STUDIO_URL)
   );
@@ -491,6 +505,14 @@ function createDemoWorkbench(presentation, massgis, selectPage, mapFontAttachmen
         notice.querySelector(".public-demo-facts")?.replaceChildren(text("small", "Browser draft · daily reset"));
       }
     },
+    onLocalProjectLoaded: record => {
+      const notice = root.querySelector(".public-demo-notice");
+      if (notice) {
+        notice.querySelector("strong").textContent = record.title;
+        notice.querySelector("small").textContent = "Personal Project saved on this device. Download a backup for another device or browser.";
+        notice.querySelector(".public-demo-facts")?.replaceChildren(text("small", `Local revision ${record.revision} · no account upload`));
+      }
+    },
     objects: [],
     allObjects: [],
     layouts: [],
@@ -507,6 +529,7 @@ function createDemoWorkbench(presentation, massgis, selectPage, mapFontAttachmen
     sources: [],
     persistenceMode: "demo",
     publicDemo: true,
+    demoSurface: true,
     projectNavigation: navigation,
     draftScopeId: presentation.draftScopeId
   });
@@ -571,13 +594,12 @@ function initialPageId(massgis) {
 
 function examplesDirectoryRequested() {
   const params = new URLSearchParams(globalThis.location?.search ?? "");
-  return ["examples", "catalog", "publications"].includes(params.get("view"))
-    || (!params.has("map") && !params.has("layer") && !params.has("publication"));
+  return ["examples", "catalog", "publications"].includes(params.get("view"));
 }
 
 function writeDemoUrl(values) {
   const url = new URL(globalThis.location.href);
-  for (const key of ["view", "map", "layer", "publication"]) url.searchParams.delete(key);
+  for (const key of ["view", "map", "layer", "publication", "localProject"]) url.searchParams.delete(key);
   for (const [key, value] of Object.entries(values)) url.searchParams.set(key, value);
   globalThis.history?.pushState(null, "", `${url.pathname}${url.search}`);
 }
@@ -593,6 +615,7 @@ function writePageUrl(pageId, historyMode) {
   url.searchParams.delete("view");
   url.searchParams.delete("layer");
   url.searchParams.delete("publication");
+  url.searchParams.delete("localProject");
   url.searchParams.set("map", pageId);
   const method = historyMode === "replace" ? "replaceState" : "pushState";
   try {

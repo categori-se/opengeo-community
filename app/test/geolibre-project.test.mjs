@@ -81,6 +81,22 @@ describe("GeoLibre 2.6 project interoperability", () => {
     assert.equal(exported.project.layers[0].metadata.opengeo.layer.datasetVersionId, "saved-version");
   });
 
+  it("exports complete governed GeoJSON without requiring a prior GeoLibre import", () => {
+    const data = {type: "FeatureCollection", features: [{type: "Feature", geometry: {type: "Point", coordinates: [2, 3]}, properties: {name: "Governed site"}}]};
+    const map = {name: "Native saved project", definition: {...emptyMapDefinition(), layers: [{
+      layerId: "native-sites", datasetId: "saved-dataset", datasetVersionId: "saved-version",
+      sourceType: "governed-dataset", title: "Native sites", visible: true, opacity: 1, style: {}, labels: {}
+    }]}};
+    const exported = exportGeoLibreProject(map, {embeddedDataByLayerId: {"native-sites": {data, complete: true}}});
+    assert.deepEqual(exported.project.layers[0].geojson, data);
+    assert.equal(exported.project.layers[0].visible, true);
+    assert.equal(exported.report.losses.length, 0);
+    assert.throws(() => exportGeoLibreProject(map, {embeddedDataByLayerId: {"native-sites": {data, complete: false}}}), /complete data/);
+    const invalid = structuredClone(data);
+    invalid.features[0].properties.invalid = NaN;
+    assert.throws(() => exportGeoLibreProject(map, {embeddedDataByLayerId: {"native-sites": {data: invalid, complete: true}}}), /non-finite/);
+  });
+
   it("does not activate an unknown renderer or retain credentials in its source extension", () => {
     const imported = importGeoLibreProject({...JSON.parse(fixtureText), primaryRenderer: {id: "custom", token: "renderer-secret"}});
     assert.equal(imported.map.definition.extensions.opengeoRenderer, undefined);

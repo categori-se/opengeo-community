@@ -1,6 +1,9 @@
 import asyncio
 import ipaddress
 import socket
+import sys
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any, Literal, Protocol, cast
@@ -130,42 +133,44 @@ class PsycopgPostgreSqlProbe:
         credentials: PostgreSqlCredentials,
         pinned_address: str,
     ) -> None:
-        import psycopg
+        async with verified_postgresql_connection(target, credentials, pinned_address):
+            pass
 
-        connection: psycopg.AsyncConnection[Any] | None = None
-        try:
-            connection = await psycopg.AsyncConnection.connect(
-                host=target.host,
-                hostaddr=pinned_address,
-                port=target.port,
-                dbname=target.database_name,
-                user=credentials.username,
-                password=credentials.password,
-                sslmode="verify-full",
-                sslrootcert="system",
-                connect_timeout=4,
-                target_session_attrs="read-only",
-                application_name="opengeo-connection-verifier",
-                options=(
-                    "-c default_transaction_read_only=on "
-                    "-c statement_timeout=4000 "
-                    "-c lock_timeout=1000 "
-                    "-c idle_in_transaction_session_timeout=4000"
-                ),
-                autocommit=False,
-            )
-            async with connection.cursor() as cursor:
-                await cursor.execute(_FIXED_PROBE_SQL)
-                row = await cursor.fetchone()
-            await connection.rollback()
-        except asyncio.CancelledError:
-            raise
-        except Exception as error:
-            raise _classify_driver_failure(error) from error
-        finally:
-            if connection is not None:
-                await connection.close()
 
+@asynccontextmanager
+async def verified_postgresql_connection(
+    target: PostgreSqlVerificationTarget,
+    credentials: PostgreSqlCredentials,
+    pinned_address: str,
+) -> AsyncIterator[Any]:
+    """Share the verifier's fixed connection policy with isolated catalog reads."""
+    import psycopg
+
+    connection: psycopg.AsyncConnection[Any] | None = None
+    try:
+        connection = await psycopg.AsyncConnection.connect(
+            host=target.host,
+            hostaddr=pinned_address,
+            port=target.port,
+            dbname=target.database_name,
+            user=credentials.username,
+            password=credentials.password,
+            sslmode="verify-full",
+            sslrootcert="system",
+            connect_timeout=4,
+            target_session_attrs="read-only",
+            application_name="opengeo-connection-verifier",
+            options=(
+                "-c default_transaction_read_only=on "
+                "-c statement_timeout=4000 "
+                "-c lock_timeout=1000 "
+                "-c idle_in_transaction_session_timeout=4000"
+            ),
+            autocommit=False,
+        )
+        async with connection.cursor() as cursor:
+            await cursor.execute(_FIXED_PROBE_SQL)
+            row = await cursor.fetchone()
         if row is None or len(row) != 3:
             raise VerificationFailure("verification_failed", network_reachable=True)
         read_only, tls_active, postgis_installed = (bool(value) for value in row)
@@ -189,6 +194,25 @@ class PsycopgPostgreSqlProbe:
                 tls_verified=True,
                 credentials_verified=True,
             )
+    except (asyncio.CancelledError, VerificationFailure):
+        raise
+    except Exception as error:
+        raise _classify_driver_failure(error) from None
+    else:
+        yield connection
+    finally:
+        if connection is not None:
+            pending_error = sys.exception()
+            try:
+                try:
+                    await connection.rollback()
+                finally:
+                    await connection.close()
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                if pending_error is None:
+                    raise _classify_driver_failure(error) from None
 
 
 class PostgreSqlConnectionVerifier:

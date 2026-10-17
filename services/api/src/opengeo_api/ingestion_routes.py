@@ -29,6 +29,7 @@ from opengeo_api.ingestion import (
     IngestionAccessDenied,
     IngestionConflict,
     IngestionNotFound,
+    IngestionProcessingHeld,
     IngestionRepository,
     IngestionStoreUnavailable,
     Page,
@@ -38,6 +39,7 @@ from opengeo_api.ingestion import (
     UploadCompletion,
     UploadDatasetFormat,
     UploadDraft,
+    UploadPurpose,
     UploadTicket,
 )
 from opengeo_api.logging import get_request_id
@@ -184,6 +186,7 @@ class RequestUploadRequest(RequestModel):
     size_bytes: int = Field(ge=1, le=5_368_709_120)
     checksum_sha256: Checksum
     tags: list[Tag] = Field(default_factory=list, max_length=12)
+    purpose: UploadPurpose = "ingest"
     target_dataset_id: UUID | None = None
     expected_base_version_id: UUID | None = None
 
@@ -213,6 +216,13 @@ class RequestUploadRequest(RequestModel):
             raise ValueError("filename extension does not match format")
         if self.content_type not in media_types:
             raise ValueError("content_type does not match format")
+        if self.purpose == "pmtiles_original" and (
+            self.format != "geojson"
+            or self.content_type != "application/geo+json"
+            or self.target_dataset_id is not None
+            or self.size_bytes > 512 * 1024 * 1024
+        ):
+            raise ValueError("PMTiles original preservation requires a new GeoJSON up to 512 MiB")
         return self
 
 
@@ -227,14 +237,25 @@ class UploadTicketResponse(BaseModel):
     dataset: DatasetResponse
     expires_at: datetime
     upload: UploadInstructionsResponse
+    purpose: UploadPurpose = "ingest"
 
 
 class UploadCompletionResponse(BaseModel):
     dataset: DatasetResponse
     dataset_version_id: UUID
     version_number: int
-    processing_job_id: UUID
-    processing_job_state: str
+    processing_job_id: UUID | None
+    processing_job_state: ProcessingJobState | None
+    purpose: UploadPurpose = "ingest"
+
+    @model_validator(mode="after")
+    def validate_processing_job(self) -> "UploadCompletionResponse":
+        if self.purpose == "pmtiles_original":
+            if self.processing_job_id is not None or self.processing_job_state is not None:
+                raise ValueError("Preserved originals have no ingestion job")
+        elif self.processing_job_id is None or self.processing_job_state is None:
+            raise ValueError("Ingestion completion requires a processing job")
+        return self
 
 
 class RepositoryObjectSourceResponse(BaseModel):
@@ -344,6 +365,8 @@ async def execute_ingestion[ResponseT](operation: Awaitable[ResponseT]) -> Respo
     except IngestionConflict as error:
         response_status = 410 if error.code == "upload_expired" else 409
         raise HTTPException(status_code=response_status, detail={"code": error.code}) from error
+    except IngestionProcessingHeld as error:
+        raise HTTPException(status_code=503, detail=error.code) from error
     except UploadObjectNotFound as error:
         raise HTTPException(status_code=409, detail={"code": "upload_object_missing"}) from error
     except UploadStorageUnavailable as error:
@@ -401,6 +424,7 @@ def ticket_response(ticket: UploadTicket) -> UploadTicketResponse:
             method=ticket.upload.method,
             fields=dict(ticket.upload.fields),
         ),
+        purpose=ticket.purpose,
     )
 
 
@@ -411,6 +435,7 @@ def completion_response(completion: UploadCompletion) -> UploadCompletionRespons
         version_number=completion.version_number,
         processing_job_id=completion.processing_job_id,
         processing_job_state=completion.processing_job_state,
+        purpose=completion.purpose,
     )
 
 
@@ -770,6 +795,15 @@ async def detach_dataset(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def allowed_upload_purposes(request: Request) -> frozenset[UploadPurpose]:
+    mode = request.app.state.settings.worker_processing_mode
+    if mode == "shared":
+        return frozenset({"ingest", "pmtiles_original"})
+    if mode == "pmtiles-v2":
+        return frozenset({"pmtiles_original"})
+    return frozenset()
+
+
 @router.post(
     "/projects/{project_id}/uploads/request",
     response_model=UploadTicketResponse,
@@ -782,6 +816,9 @@ async def request_upload(
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[IngestionRepository, Depends(repository_from_request)],
 ) -> UploadTicketResponse:
+    allowed_purposes = allowed_upload_purposes(request)
+    if payload.purpose not in allowed_purposes:
+        raise HTTPException(status_code=503, detail=IngestionProcessingHeld(payload.purpose).code)
     deployment_limit = request.app.state.settings.upload_max_bytes
     if payload.format in _MEDIA_UPLOAD_FORMATS:
         upload_limit = min(deployment_limit, _MAX_MEDIA_SOURCE_BYTES)
@@ -813,8 +850,10 @@ async def request_upload(
                 size_bytes=payload.size_bytes,
                 checksum_sha256=payload.checksum_sha256,
                 tags=tuple(payload.tags),
+                purpose=payload.purpose,
             ),
             get_request_id(),
+            allowed_purposes=allowed_purposes,
             **(
                 {"staged_target": (payload.target_dataset_id, payload.expected_base_version_id)}
                 if payload.target_dataset_id is not None
@@ -834,11 +873,18 @@ async def renew_upload(
     project_id: UUID,
     upload_id: UUID,
     response: Response,
+    request: Request,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[IngestionRepository, Depends(repository_from_request)],
 ) -> UploadTicketResponse:
     ticket = await execute_ingestion(
-        repository.renew_upload(tenant_context(session), project_id, upload_id, get_request_id())
+        repository.renew_upload(
+            tenant_context(session),
+            project_id,
+            upload_id,
+            get_request_id(),
+            allowed_purposes=allowed_upload_purposes(request),
+        )
     )
     response.headers["Cache-Control"] = "private, no-store"
     return ticket_response(ticket)
@@ -851,10 +897,17 @@ async def renew_upload(
 async def complete_upload(
     project_id: UUID,
     upload_id: UUID,
+    request: Request,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[IngestionRepository, Depends(repository_from_request)],
 ) -> UploadCompletionResponse:
     completion = await execute_ingestion(
-        repository.complete_upload(tenant_context(session), project_id, upload_id, get_request_id())
+        repository.complete_upload(
+            tenant_context(session),
+            project_id,
+            upload_id,
+            get_request_id(),
+            allowed_purposes=allowed_upload_purposes(request),
+        )
     )
     return completion_response(completion)

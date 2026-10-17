@@ -29,7 +29,7 @@ class ProcessingSoftware(BaseModel):
 
     worker_base_image: str
     gdal: str
-    tippecanoe: str
+    tippecanoe: str | None
     proj_network: Literal["disabled"]
 
 
@@ -67,15 +67,24 @@ _SOFTWARE = ProcessingSoftware(
     proj_network="disabled",
 )
 _OUTPUT = ProcessingOutput(kind="immutable-object", durable=True, lineage="database-record")
+_PMTILES_V2_SOFTWARE = ProcessingSoftware(
+    worker_base_image=(
+        "ghcr.io/osgeo/gdal:ubuntu-small-3.13.1@"
+        "sha256:836d1646ff9ab30d7db947c7b9690de55f34c2fd7cc5af6086a0854ccb378f59"
+    ),
+    gdal="3.13.1",
+    tippecanoe=None,
+    proj_network="disabled",
+)
 
 SERVER_PROCESSING_TOOLS = (
     ServerProcessingTool(
         id="vector-to-pmtiles",
-        version="1.0.0",
+        version="1.1.0",
         title="Vector to PMTiles",
         execution_mode="activation-only-server-job",
         deterministic=True,
-        request_schema_version="opengeo.pmtiles-derivative-request.1.0.0",
+        request_schema_version="opengeo.pmtiles-derivative-request.1.1.0",
         endpoint=(
             "/projects/{project_id}/datasets/{dataset_id}/versions/"
             "{dataset_version_id}/pmtiles-derivatives"
@@ -86,6 +95,7 @@ SERVER_PROCESSING_TOOLS = (
             ProcessingParameter(id="minZoom", type="integer", required=True, minimum=0, maximum=22),
             ProcessingParameter(id="maxZoom", type="integer", required=True, minimum=0, maximum=22),
             ProcessingParameter(id="sourceLayer", type="identifier", required=True),
+            ProcessingParameter(id="options", type="closed-pmtiles-v2-options", required=True),
         ),
         output=_OUTPUT,
         limits={
@@ -93,8 +103,11 @@ SERVER_PROCESSING_TOOLS = (
             "maximumRetainedJobs": 64,
             "maximumActiveJobs": 4,
             "networkAccess": "disabled",
+            "recipe": "gdal-pmtiles-v2",
+            "adaptiveGeneralization": True,
+            "runtimeImagePin": "immutable-per-job",
         },
-        software=_SOFTWARE,
+        software=_PMTILES_V2_SOFTWARE,
         ordinary_reads_create_work=False,
     ),
     ServerProcessingTool(
@@ -138,8 +151,27 @@ SERVER_PROCESSING_TOOLS = (
 )
 
 
-def processing_registry() -> ProcessingRegistryResponse:
+def processing_registry(
+    *,
+    pmtiles_input_formats: frozenset[str] = frozenset({"geojson"}),
+    pmtiles_admission: dict[str, bool | str] | None = None,
+) -> ProcessingRegistryResponse:
+    admission = pmtiles_admission or {"ready": False, "reason": "runtime_not_configured"}
     return ProcessingRegistryResponse(
         schema_version=PROCESSING_REGISTRY_SCHEMA_VERSION,
-        tools=SERVER_PROCESSING_TOOLS,
+        tools=tuple(
+            tool.model_copy(
+                update={
+                    "limits": {
+                        **tool.limits,
+                        "inputFormats": ",".join(sorted(pmtiles_input_formats)),
+                        "admissionReady": admission["ready"],
+                        "admissionReason": admission["reason"],
+                    }
+                }
+            )
+            if tool.id == "vector-to-pmtiles"
+            else tool
+            for tool in SERVER_PROCESSING_TOOLS
+        ),
     )

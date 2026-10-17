@@ -18,6 +18,8 @@ export function StaticItemSearch({client = createStaticItemClient(), onReference
   const status = element("p", "Search reads public metadata only. Selecting a result loads asset references; imagery stays with its provider.");
   status.setAttribute("role", "status"); status.ariaLive = "polite";
   const results = document.createElement("div");
+  const disposeRegistrations = container => {for (const panel of container.querySelectorAll(".static-item-registration")) panel.dispose?.();};
+  const clearResults = () => {disposeRegistrations(results); results.replaceChildren();};
   root.append(form, status, results);
   let controller = null, generation = 0;
   year.addEventListener("change", () => {start.value = `${year.value}-01-01`; end.value = `${year.value}-12-31`;});
@@ -30,11 +32,11 @@ export function StaticItemSearch({client = createStaticItemClient(), onReference
   function finish(number) {if (number !== generation) return; search.disabled = false; cancel.disabled = true; form.removeAttribute("aria-busy");}
   cancel.addEventListener("click", () => {controller?.abort(); generation++; search.disabled = false; cancel.disabled = true; form.removeAttribute("aria-busy"); status.textContent = "Search cancelled. Your Catalog and Projects are unchanged.";});
   for (const control of [year, start, end, bbox, tile, cloud]) control.addEventListener("input", () => {
-    controller?.abort(); generation++; results.replaceChildren(); search.disabled = false; cancel.disabled = true;
+    controller?.abort(); generation++; clearResults(); search.disabled = false; cancel.disabled = true;
     form.removeAttribute("aria-busy"); status.textContent = "Search to apply these filters.";
   });
   form.addEventListener("submit", async event => {
-    event.preventDefault(); const request = begin(); results.replaceChildren();
+    event.preventDefault(); const request = begin(); clearResults();
     try {
       const result = await client.search({year: year.value, start: `${start.value}T00:00:00Z`, end: `${end.value}T23:59:59.999Z`,
         bbox: bbox.value.split(",").map(value => value.trim() ? Number(value) : NaN), tile: tile.value, maxCloud: cloud.value},
@@ -54,6 +56,7 @@ export function StaticItemSearch({client = createStaticItemClient(), onReference
             const reference = await client.select(item, {signal: selection.signal,
               onStatus: message => {if (current(selection.number)) status.textContent = message;}});
             if (!current(selection.number)) return;
+            disposeRegistrations(detail);
             detail.replaceChildren(element("p", `Referenced scene · ${reference.assets.length} assets · terms ${reference.license ?? "not supplied"}.`));
             for (const asset of reference.assets) {
               const link = element("a", `${asset.key} · ${asset.type ?? "type not supplied"}`);
@@ -83,7 +86,7 @@ export function StaticItemSearch({client = createStaticItemClient(), onReference
     } catch (error) {if (current(request.number)) status.textContent = error.message || "The public index could not be searched.";}
     finally {finish(request.number);}
   });
-  root.dispose = () => {controller?.abort(); generation++; for (const panel of root.querySelectorAll(".static-item-registration")) panel.dispose?.();};
+  root.dispose = () => {controller?.abort(); generation++; disposeRegistrations(results);};
   return root;
 }
 function element(tag, value) {const node = document.createElement(tag); node.textContent = value; return node;}

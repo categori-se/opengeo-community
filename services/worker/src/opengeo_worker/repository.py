@@ -28,7 +28,10 @@ from opengeo_worker.models import (
 class WorkerRepository:
     """Function-only database adapter for the opengeo_worker role."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, pmtiles_profile: str = "v1") -> None:
+        if pmtiles_profile not in {"v1", "v2"}:
+            raise ValueError("Unknown PMTiles worker profile")
+        self._pmtiles_profile = pmtiles_profile
         self._connection_options = settings.database_connection_kwargs()
         self._statement_timeout_ms = settings.statement_timeout_seconds * 1000
 
@@ -410,13 +413,19 @@ class WorkerRepository:
         worker_token: UUID,
         lease_seconds: int,
     ) -> PmtilesDerivativeClaim:
+        configurable = getattr(self, "_pmtiles_profile", "v1") == "v2"
+        statement = (
+            "SELECT * FROM app.claim_pmtiles_derivative_v2(%s, %s, %s)"
+            if configurable
+            else "SELECT * FROM app.claim_pmtiles_derivative(%s, %s, %s)"
+        )
         row = self._fetch_one(
-            "SELECT * FROM app.claim_pmtiles_derivative(%s, %s, %s)",
+            statement,
             (job_id, worker_token, lease_seconds),
         )
         if row is None:
             raise TransientFailure("database_pmtiles_derivative_claim_empty")
-        if len(row) != 21:
+        if len(row) != (23 if configurable else 21):
             raise TransientFailure("database_pmtiles_derivative_claim_invalid")
         source = None
         if row[6] is not None:
@@ -460,6 +469,8 @@ class WorkerRepository:
             request_checksum_sha256=row[18],
             attempt_count=row[19],
             output_object_key=row[20],
+            options=row[21] if configurable else None,
+            worker_image_digest=row[22] if configurable else None,
         )
 
     @staticmethod
@@ -491,8 +502,18 @@ class WorkerRepository:
         return bool(row and row[0])
 
     def complete_pmtiles_derivative(
-        self, job_id: UUID, worker_token: UUID, artifact: StoredArtifact
+        self,
+        job_id: UUID,
+        worker_token: UUID,
+        artifact: StoredArtifact,
+        validation: dict[str, object] | None = None,
     ) -> bool:
+        if validation is not None:
+            row = self._fetch_one(
+                "SELECT app.complete_pmtiles_derivative(%s, %s, %s, %s)",
+                (job_id, worker_token, Jsonb(artifact.as_record()), Jsonb(validation)),
+            )
+            return bool(row and row[0])
         row = self._fetch_one(
             "SELECT app.complete_pmtiles_derivative(%s, %s, %s)",
             (job_id, worker_token, Jsonb(artifact.as_record())),

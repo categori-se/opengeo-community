@@ -1,5 +1,6 @@
 import asyncio
 from collections import deque
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -11,6 +12,7 @@ from opengeo_api.ingestion import (
     IngestionAccessDenied,
     IngestionConflict,
     IngestionNotFound,
+    IngestionProcessingHeld,
     Page,
     PostgresIngestionRepository,
     RepositoryObjectDraft,
@@ -36,6 +38,7 @@ OBJECT_KEY = (
     f"organizations/{ORG_ID}/projects/{PROJECT_ID}/datasets/{DATASET_ID}/"
     f"uploads/{UPLOAD_ID}/original/roads.gpkg"
 )
+GEOJSON_OBJECT_KEY = OBJECT_KEY.removesuffix("roads.gpkg") + "roads.geojson"
 
 
 class FakeTransaction:
@@ -130,6 +133,8 @@ def dataset_row(
     permission: str | None = None,
     owner: bool = True,
     project_role: str | None = "editor",
+    geojson: bool = False,
+    preserved: bool = False,
 ) -> tuple[Any, ...]:
     return (
         DATASET_ID,
@@ -138,12 +143,12 @@ def dataset_row(
         "Authoritative roads",
         "restricted",
         "upload",
-        "geopackage",
+        "geojson" if geojson or preserved else "geopackage",
         "processing" if processing else "draft",
         USER_ID,
-        VERSION_ID if processing else None,
-        1 if processing else None,
-        "queued" if processing else None,
+        VERSION_ID if processing or preserved else None,
+        1 if processing or preserved else None,
+        "preserved" if preserved else "queued" if processing else None,
         None,
         None,
         None,
@@ -160,20 +165,23 @@ def dataset_row(
     )
 
 
-def upload_row(*, completed: bool = False) -> tuple[Any, ...]:
+def upload_row(*, completed: bool = False, purpose: str = "ingest") -> tuple[Any, ...]:
     return (
         UPLOAD_ID,
         DATASET_ID,
         PROJECT_ID,
-        OBJECT_KEY,
+        GEOJSON_OBJECT_KEY if purpose == "pmtiles_original" else OBJECT_KEY,
         "geodata-test",
-        "roads.gpkg",
-        "application/geopackage+sqlite3",
+        "roads.geojson" if purpose == "pmtiles_original" else "roads.gpkg",
+        "application/geo+json"
+        if purpose == "pmtiles_original"
+        else "application/geopackage+sqlite3",
         1234,
         SHA256,
         "completed" if completed else "pending",
         UNEXPIRED_UPLOAD,
         OBJECT_ID if completed else None,
+        purpose,
         None,
     )
 
@@ -499,7 +507,11 @@ def test_completed_upload_retry_is_idempotent_without_rechecking_s3() -> None:
     storage = FakeStorage()
     repository = PostgresIngestionRepository(FakeExecutor([initial, existing]), storage)
 
-    result = asyncio.run(repository.complete_upload(context(), PROJECT_ID, UPLOAD_ID, "retry"))
+    result = asyncio.run(
+        repository.complete_upload(
+            context(), PROJECT_ID, UPLOAD_ID, "retry", allowed_purposes=frozenset()
+        )
+    )
 
     assert result.dataset_version_id == VERSION_ID
     assert result.processing_job_id == JOB_ID
@@ -508,6 +520,206 @@ def test_completed_upload_retry_is_idempotent_without_rechecking_s3() -> None:
     assert existing.calls[-1][2] == (ORG_ID, DATASET_ID, OBJECT_ID)
     assert "version.original_object_id = %s" in existing.calls[-1][1]
     assert all(call[0] != "execute" for call in existing.calls)
+
+
+def test_pmtiles_original_request_freezes_purpose_and_rejects_staging_before_signing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("opengeo_api.ingestion.uuid4", deque([DATASET_ID, UPLOAD_ID]).popleft)
+    original = replace(
+        draft(),
+        purpose="pmtiles_original",
+        format="geojson",
+        original_filename="roads.geojson",
+        content_type="application/geo+json",
+    )
+    preauthorization = FakeTransaction(one=project_access())
+    creation = FakeTransaction(one=[*project_access(), (TAG_ID,), dataset_row(geojson=True)])
+    storage = FakeStorage()
+    repository = PostgresIngestionRepository(FakeExecutor([preauthorization, creation]), storage)
+    with pytest.raises(IngestionConflict, match="pmtiles_original_upload_unsupported"):
+        asyncio.run(
+            repository.request_upload(
+                context(),
+                PROJECT_ID,
+                original,
+                "staged",
+                staged_target=(DATASET_ID, VERSION_ID),
+                allowed_purposes=frozenset({"pmtiles_original"}),
+            )
+        )
+    assert storage.form_specs == []
+
+    ticket = asyncio.run(
+        repository.request_upload(
+            context(),
+            PROJECT_ID,
+            original,
+            "preserve",
+            allowed_purposes=frozenset({"pmtiles_original"}),
+        )
+    )
+    assert ticket.purpose == "pmtiles_original"
+    assert ticket.dataset.status == "draft"
+    intent_insert = next(
+        call for call in creation.calls if "INSERT INTO app.upload_intents" in call[1]
+    )
+    assert intent_insert[2][-2:] == (None, "pmtiles_original")
+    assert storage.form_specs[0].key.endswith(f"uploads/{UPLOAD_ID}/original/roads.geojson")
+    assert not any("INSERT INTO app.processing_jobs" in call[1] for call in creation.calls)
+
+
+def test_pmtiles_original_completion_preserves_pins_without_inspection_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("opengeo_api.ingestion.uuid4", deque([OBJECT_ID, VERSION_ID]).popleft)
+    intent = upload_row(purpose="pmtiles_original")
+    initial = FakeTransaction(one=[*project_access(), intent, dataset_row(geojson=True)])
+    completion = FakeTransaction(
+        one=[
+            *project_access(),
+            intent,
+            (True,),
+            (DATASET_ID,),
+            dataset_row(geojson=True),
+            (1,),
+            dataset_row(preserved=True),
+        ]
+    )
+    storage = FakeStorage(
+        stored=stored_object(
+            key=GEOJSON_OBJECT_KEY,
+            content_type="application/geo+json",
+        )
+    )
+    repository = PostgresIngestionRepository(FakeExecutor([initial, completion]), storage)
+    result = asyncio.run(
+        repository.complete_upload(
+            context(),
+            PROJECT_ID,
+            UPLOAD_ID,
+            "preserve",
+            allowed_purposes=frozenset({"pmtiles_original"}),
+        )
+    )
+
+    assert result.purpose == "pmtiles_original"
+    assert result.processing_job_id is None
+    assert result.processing_job_state is None
+    assert result.dataset.status == "draft"
+    assert result.dataset.current_version_id == VERSION_ID
+    assert result.dataset.current_version_state == "preserved"
+    assert result.dataset.feature_count is None
+    assert result.dataset.quality_results == {}
+    assert storage.inspected_keys == [GEOJSON_OBJECT_KEY]
+    writes = [call for call in completion.calls if call[0] == "execute"]
+    original = next(call for call in writes if "INSERT INTO app.data_objects" in call[1])
+    assert original[2][3:10] == (
+        "geodata-test",
+        GEOJSON_OBJECT_KEY,
+        "s3-version-1",
+        "etag-1",
+        "application/geo+json",
+        1234,
+        SHA256,
+    )
+    version = next(call for call in writes if "INSERT INTO app.dataset_versions" in call[1])
+    assert version[2][4:6] == (OBJECT_ID, "preserved")
+    assert version[2][-1] is None
+    assert not any("processing_jobs" in call[1] for call in writes)
+    assert not any("spatial_metadata" in call[1] or "feature_count" in call[1] for call in writes)
+    intent_index = next(
+        i for i, call in enumerate(writes) if "UPDATE app.upload_intents" in call[1]
+    )
+    pointer_index = next(i for i, call in enumerate(writes) if "UPDATE app.datasets" in call[1])
+    assert intent_index < pointer_index
+    assert "status = 'processing'" not in writes[pointer_index][1]
+
+
+def test_preserved_completion_readback_survives_disabled_mode_without_object_access() -> None:
+    initial = FakeTransaction(
+        one=[
+            *project_access(),
+            upload_row(completed=True, purpose="pmtiles_original"),
+        ]
+    )
+    existing = FakeTransaction(
+        one=[
+            *project_access(),
+            dataset_row(preserved=True),
+            (VERSION_ID, 1, None, None),
+        ]
+    )
+    storage = FakeStorage()
+    repository = PostgresIngestionRepository(FakeExecutor([initial, existing]), storage)
+    result = asyncio.run(
+        repository.complete_upload(
+            context(),
+            PROJECT_ID,
+            UPLOAD_ID,
+            "readback",
+            allowed_purposes=frozenset(),
+        )
+    )
+    assert result.purpose == "pmtiles_original"
+    assert result.processing_job_id is None
+    assert result.dataset_version_id == VERSION_ID
+    assert storage.inspected_keys == []
+    assert not any(call[0] == "execute" for call in existing.calls)
+    assert "version.state::text = 'preserved'" in existing.calls[-1][1]
+
+
+@pytest.mark.parametrize("operation", ["renew_upload", "complete_upload"])
+def test_pending_ingest_purpose_is_held_before_signing_or_object_access(operation) -> None:
+    transaction = FakeTransaction(one=[*project_access(), upload_row()])
+    storage = FakeStorage()
+    repository = PostgresIngestionRepository(FakeExecutor([transaction]), storage)
+    with pytest.raises(IngestionProcessingHeld, match="shared_worker_processing_held"):
+        asyncio.run(
+            getattr(repository, operation)(
+                context(),
+                PROJECT_ID,
+                UPLOAD_ID,
+                "held",
+                allowed_purposes=frozenset({"pmtiles_original"}),
+            )
+        )
+    assert storage.form_specs == []
+    assert storage.inspected_keys == []
+    assert not any(call[0] == "execute" for call in transaction.calls)
+
+
+def test_preservation_rechecks_draft_current_pointer_after_object_head() -> None:
+    intent = upload_row(purpose="pmtiles_original")
+    initial = FakeTransaction(one=[*project_access(), intent, dataset_row(geojson=True)])
+    completion = FakeTransaction(
+        one=[
+            *project_access(),
+            intent,
+            (True,),
+            (DATASET_ID,),
+            dataset_row(preserved=True),
+        ]
+    )
+    storage = FakeStorage(
+        stored=stored_object(
+            key=GEOJSON_OBJECT_KEY,
+            content_type="application/geo+json",
+        )
+    )
+    repository = PostgresIngestionRepository(FakeExecutor([initial, completion]), storage)
+    with pytest.raises(IngestionConflict, match="upload_dataset_changed"):
+        asyncio.run(
+            repository.complete_upload(
+                context(),
+                PROJECT_ID,
+                UPLOAD_ID,
+                "concurrent",
+                allowed_purposes=frozenset({"pmtiles_original"}),
+            )
+        )
+    assert storage.inspected_keys == [GEOJSON_OBJECT_KEY]
+    assert not any(call[0] == "execute" for call in completion.calls)
 
 
 def test_catalog_list_requires_project_access_and_returns_logical_version_metadata() -> None:
@@ -944,7 +1156,7 @@ def test_staged_upload_registration_reuses_layer_without_catalog_mutation():
         ]
     )
     intent = next(call for call in writes if "INSERT INTO app.upload_intents" in call[1])
-    assert intent[2][-1] == VERSION_ID
+    assert intent[2][-2:] == (VERSION_ID, "ingest")
 
 
 def test_staged_upload_rejects_stale_base_before_storage():
@@ -1090,19 +1302,34 @@ def test_capture_acceptance_rechecks_source_revision_before_promotion(latest):
     assert any("FOR SHARE" in call[1] for call in transaction.calls)
 
 
-def test_renew_upload_preserves_identity_and_reauthorizes():
-    expired = list(upload_row())
+@pytest.mark.parametrize("purpose", ["ingest", "pmtiles_original"])
+def test_renew_upload_preserves_identity_and_reauthorizes(purpose):
+    expired = list(upload_row(purpose=purpose))
     expired[10] = NOW
-    before = FakeTransaction(one=[*project_access(), tuple(expired), dataset_row()])
-    after = FakeTransaction(one=[*project_access(), tuple(expired), dataset_row()])
+    target = dataset_row(geojson=purpose == "pmtiles_original")
+    before = FakeTransaction(one=[*project_access(), tuple(expired), target])
+    after = FakeTransaction(one=[*project_access(), tuple(expired), target])
     storage = FakeStorage()
     repository = PostgresIngestionRepository(FakeExecutor([before, after]), storage)
-    ticket = asyncio.run(repository.renew_upload(context(), PROJECT_ID, UPLOAD_ID, "renew"))
+    ticket = asyncio.run(
+        repository.renew_upload(
+            context(),
+            PROJECT_ID,
+            UPLOAD_ID,
+            "renew",
+            allowed_purposes=frozenset({purpose}),
+        )
+    )
     assert ticket.upload_id == UPLOAD_ID
+    assert ticket.purpose == purpose
     assert ticket.dataset.dataset_id == DATASET_ID
     assert len(storage.form_specs) == 1
     spec = storage.form_specs[0]
-    assert (spec.key, spec.size_bytes, spec.checksum_sha256) == (OBJECT_KEY, 1234, SHA256)
+    assert (spec.key, spec.size_bytes, spec.checksum_sha256) == (
+        GEOJSON_OBJECT_KEY if purpose == "pmtiles_original" else OBJECT_KEY,
+        1234,
+        SHA256,
+    )
     writes = [call for call in after.calls if call[0] == "execute"]
     assert any("UPDATE app.upload_intents" in call[1] for call in writes)
     assert not any("INSERT INTO app.datasets" in call[1] for call in writes)

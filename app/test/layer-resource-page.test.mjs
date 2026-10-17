@@ -7,6 +7,74 @@ const id = "80000000-0000-4000-8000-000000000001";
 const projectId = "50000000-0000-4000-8000-000000000001";
 const dataset = {id, projectId, name: "Remote boundaries", sourceType: "arcgis", format: "arcgis", featureCount: 0};
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
+it("manages Catalog Layer grants without Project membership changes or guest directory access",async()=>{
+  const dom=new JSDOM("<!doctype html><body></body>"),old=globalThis.document;globalThis.document=dom.window.document;
+  try {
+    const accountId="account-a",userId="20000000-0000-4000-8000-000000000001";
+    const otherId="20000000-0000-7000-8000-000000000002";
+    let grants=[{userId,displayName:"Guest colleague",email:"guest@example.invalid",role:"view"}],reads=0;const writes=[];
+    const adapter={kind:"api",selectedOrganizationId:accountId,
+      async listDatasetPermissions(p,d) {assert.deepEqual([p,d],[projectId,id]);reads++;return grants;},
+      async putDatasetPermission(...args) {writes.push(args);grants=[{userId:args[2],displayName:"Colleague",email:"member@example.invalid",role:args[3]}];return grants[0];},
+      async deleteDatasetPermission(...args) {writes.push(args);grants=[];},
+      async listOrganizationMembers() {assert.fail("Guest managers must not browse the account directory");},
+      async getSession() {assert.fail("No session polling");},async createProjectMember() {assert.fail("No membership expansion");}};
+    const click=async(root,name)=>{[...root.querySelectorAll("button")].find(item=>item.textContent===name).click();await flush();};
+    const settle=async(check)=>{for(let i=0;i<100&&!check();i++)await flush();assert.ok(check());};
+    const reader=renderLayerResource({dataset:{...dataset,capabilities:{managePermissions:false}},adapter,accountId,accountRole:"guest"});
+    assert.equal(reader.querySelector(".dataset-access-editor"),null);assert.equal(reads,0);reader.dispose();
+    const root=renderLayerResource({dataset:{...dataset,capabilities:{managePermissions:true}},adapter,accountId,accountRole:"guest"});document.body.append(root);
+    const access=root.querySelector(".dataset-access-editor");assert.ok(access);assert.equal(reads,0);
+    await click(access,"Inspect Layer access");await settle(()=>access.textContent.includes("Current grants loaded"));
+    assert.equal([...access.querySelectorAll("button")].find(item=>item.textContent==="Load account members").hidden,true);
+    await click(access,"Change access");access.querySelector('[aria-label="Dataset access role"]').value="edit";
+    await click(access,"Grant access");await settle(()=>reads===2);assert.deepEqual(writes[0],[projectId,id,userId,"edit"]);
+    // The previously authorized known-member-ID workflow remains available without listing identities.
+    const known=access.querySelector('[aria-label="Dataset access user ID"]');known.value=otherId;
+    known.dispatchEvent(new dom.window.Event("input"));access.querySelector('[aria-label="Dataset access role"]').value="manage";
+    await click(access,"Grant access");await settle(()=>reads===3);assert.deepEqual(writes[1],[projectId,id,otherId,"manage"]);
+    await click(access,"Revoke");await settle(()=>reads===4);assert.deepEqual(writes[2],[projectId,id,otherId]);
+    assert.match(access.textContent,/Project roles remain the baseline/);root.dispose();
+  }finally{globalThis.document=old;dom.window.close();}
+});
+
+it("requires grant readback after an unknown write outcome and blocks stale Catalog access actions",async()=>{
+  const dom=new JSDOM("<!doctype html><body></body>"),old=globalThis.document;globalThis.document=dom.window.document;
+  try {
+    const accountId="account-a",userId="20000000-0000-4000-8000-000000000001";let selected=accountId;
+    let grants=[],writes=0,reads=0,memberReads=0,resolveMembers;
+    const adapter={kind:"api",organizationProvider:async()=>selected,
+      async listDatasetPermissions(){reads++;return grants;},
+      async putDatasetPermission(_p,_d,target,role){writes++;grants=[{userId:target,role,displayName:"Colleague",email:"colleague@example.invalid"}];throw Error("interrupted response");},
+      async deleteDatasetPermission(){writes++;},
+      listOrganizationMembers(){memberReads++;return new Promise(resolve=>{resolveMembers=resolve;});}};
+    const click=async(root,name)=>{[...root.querySelectorAll("button")].find(item=>item.textContent===name).click();await flush();};
+    const open=async(role="member",boundAccount=accountId)=>{
+      const root=renderLayerResource({dataset:{...dataset,capabilities:{managePermissions:true}},adapter,accountId:boundAccount,accountRole:role});
+      document.body.append(root);const access=root.querySelector(".dataset-access-editor");await click(access,"Inspect Layer access");return {root,access};
+    };
+    const {root,access}=await open();access.querySelector('[aria-label="Dataset access user ID"]').value=userId;
+    await click(access,"Grant access");assert.equal(writes,1);assert.equal(reads,1);
+    assert.match(access.textContent,/could not be confirmed.*Reload access/);
+    await click(access,"Grant access");assert.equal(writes,1,"An uncertain write is not replayed");
+    await click(access,"Reload access");assert.equal(reads,2);assert.equal(writes,1);assert.match(access.querySelector("ul").textContent,/Colleague.*view/);
+    selected="account-b";await click(access,"Grant access");assert.equal(writes,1);assert.match(access.textContent,/selected account changed/);
+    root.dispose();selected=accountId;
+    // A pending member page is discarded after the account changes.
+    const pending=await open();await click(pending.access,"Load account members");selected="account-b";
+    resolveMembers([{userId,displayName:"Late other account",email:"late@example.invalid"}]);await flush();await flush();
+    assert.equal(pending.access.querySelector('[aria-label="Account member"]').options.length,0);
+    assert.doesNotMatch(pending.access.textContent,/Late other account/);pending.root.dispose();selected=accountId;
+    // Missing mounted organization context cannot trigger the directory, even with a claimed role.
+    const unknown=await open("admin",null);await click(unknown.access,"Load account members");assert.equal(memberReads,1);unknown.root.dispose();
+    // Disposing the page blocks retained controls and suppresses a late grant read.
+    let resolveGrants;adapter.listDatasetPermissions=()=>new Promise(resolve=>{resolveGrants=resolve;});
+    const closing=await open();closing.root.dispose();resolveGrants([{userId,role:"manage",displayName:"Late grant",email:"late@example.invalid"}]);await flush();await flush();
+    assert.doesNotMatch(closing.access.textContent,/Late grant/);
+    await click(closing.access,"Grant access");assert.equal(writes,1);
+  }finally{globalThis.document=old;dom.window.close();}
+});
+
 it("retrieves canonical connection metadata deliberately and hands exact text to one pending editor",async()=>{
   const dom=new JSDOM("<!doctype html>");const old=globalThis.document,oldFetch=globalThis.fetch;globalThis.document=dom.window.document;
   const text=' {"name":"Protected areas 2010","nested":{"name":"保护区","values":[1,null]}}\n';let providerReads=0,knowledgeReads=0,writes=0;
@@ -70,21 +138,36 @@ it("inspects without writing or fetching providers and keeps nested schema and u
   } finally {globalThis.document=previous;dom.window.close();}
 });
 it("offers a direct temporary map on eligible Layer details without loading its source on display", async () => {
+  for (const sourceType of ["arcgis", "xyz"]) {
+    const dom = new JSDOM("<!doctype html>"); const old = globalThis.document; globalThis.document = dom.window.document;
+    try {
+      let reads = 0;
+      const adapter = {kind: "api", getSource: async () => {reads++; throw Object.assign(new Error("Source unavailable"), {status: 403});}};
+      const resource = renderLayerResource({dataset: {...dataset, sourceType, status: "active", capabilities: {read: true},
+        preservationSummary: {sourceVersion: 1}}, adapter});
+      dom.window.document.body.append(resource);
+      const open = resource.querySelector(":scope > .platform-catalog-open-map");
+      assert.equal(open?.textContent, "Open map");
+      assert.equal(reads, 0);
+      open.click(); await flush();
+      assert.equal(reads, 1);
+      assert.match(resource.querySelector(".platform-catalog-map-container").textContent, /Source unavailable.*No archived copy was used/);
+      const denied = renderLayerResource({dataset: {...dataset, sourceType, status: "active", capabilities: {read: false}}, adapter});
+      assert.equal(denied.querySelector(".platform-catalog-open-map"), null);
+    } finally {globalThis.document = old; dom.window.close();}
+  }
+});
+it("cancels a live preview source read when leaving Layer details", async () => {
   const dom = new JSDOM("<!doctype html>"); const old = globalThis.document; globalThis.document = dom.window.document;
   try {
-    let reads = 0;
-    const adapter = {kind: "api", getSource: async () => {reads++; throw Object.assign(new Error("Source unavailable"), {status: 403});}};
-    const resource = renderLayerResource({dataset: {...dataset, status: "active", capabilities: {read: true},
-      preservationSummary: {sourceVersion: 1}}, adapter});
-    dom.window.document.body.append(resource);
-    const open = resource.querySelector(":scope > .platform-catalog-open-map");
-    assert.equal(open?.textContent, "Open map");
-    assert.equal(reads, 0);
-    open.click(); await flush();
-    assert.equal(reads, 1);
-    assert.match(resource.querySelector(".platform-catalog-map-container").textContent, /Source unavailable.*No archived copy was used/);
-    const denied = renderLayerResource({dataset: {...dataset, status: "active", capabilities: {read: false}}, adapter});
-    assert.equal(denied.querySelector(".platform-catalog-open-map"), null);
+    let signal, finish;
+    const root = renderLayerResource({dataset: {...dataset, status: "active", capabilities: {read: true}},
+      adapter: {kind: "api", getSource: (_project, _dataset, options) => {
+        signal = options.signal; return new Promise(resolve => {finish = resolve;});
+      }}});
+    document.body.append(root); root.querySelector(".platform-catalog-open-map").click();
+    assert.equal(signal.aborted, false); root.dispose(); assert.equal(signal.aborted, true);
+    finish({}); await flush(); assert.equal(root.querySelector(".catalog-layer-preview"), null);
   } finally {globalThis.document = old; dom.window.close();}
 });
 it("does not load a dataset without account access or replace a disposed page", async () => {

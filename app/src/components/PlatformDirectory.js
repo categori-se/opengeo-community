@@ -57,7 +57,7 @@ export function PlatformDirectory({
 }) {
   const root = document.createElement("section");
   root.className = "platform-surface platform-directory";
-  root.ariaLive = "polite";
+  // Announce concise status regions rather than the entire interactive workspace.
   let activeView = directoryView(view);
   let refreshGeneration = 0;
   let pendingLoading = null;
@@ -2667,6 +2667,8 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
   feedback.ariaLive = "polite";
   const results = document.createElement("div");
   results.style.minWidth = "0";
+  const disposeResults = () => {for (const child of results.children) child.dispose?.();};
+  const replaceResults = (...children) => {disposeResults(); results.replaceChildren(...children);};
   const discoveryNote = text("small", "Search covers all accessible records. Load more browses the next page.", "platform-note");
   const filters = document.createElement("details");
   filters.className = "catalog-directory-filters";
@@ -2749,7 +2751,7 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
         if (generation !== searchGeneration) return;
         offset = requestedOffset;
         nextOffset = page.nextOffset ?? null;
-        results.replaceChildren(publicCatalogTable(page, state.adapter));
+        replaceResults(publicCatalogTable(page, state.adapter));
         feedback.textContent = `${page.numberMatched} published resource${page.numberMatched === 1 ? "" : "s"} found. Page ${Math.floor(offset / pageSize) + 1}.`;
       } else if (entries.value === "layers") {
         const records = await state.adapter.searchLayers({query: query.value.trim() || null,
@@ -2767,7 +2769,7 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
             group.querySelector("summary").append(text("span", `${group.querySelectorAll(".layer-catalog-entry").length} loaded layers`));
           }
         }
-        results.replaceChildren(layerResults);
+        replaceResults(layerResults);
         feedback.textContent = displayedLayers.length
           ? `${offset + 1}–${offset + displayedLayers.length} layers and datasets${nextOffset !== null ? " · more available" : ""}.`
           : "No matching layers or datasets.";
@@ -2795,7 +2797,7 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
         const current = results.querySelector(".platform-catalog-grouped-results");
         if (requestedOffset > 0 && current) {
           current.appendRecords(added);
-        } else results.replaceChildren(catalogTable(added, state.projects, state.adapter?.kind,
+        } else replaceResults(catalogTable(added, state.projects, state.adapter?.kind,
           {adapter:state.adapter,placeUri,groupState:currentGroupState()}));
         const total = records[0]?.catalogMatchCount;
         feedback.textContent = loadedDatasets.length
@@ -2812,7 +2814,7 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
         feedback.textContent = `Current results retained. ${requestedOffset > 0 ? "More results could not load; use Load more to retry" : "Search could not complete; try Search again"} (${error?.code ?? "unexpected_error"}).`;
       } else {
         nextOffset = null;
-        results.replaceChildren();
+        replaceResults();
         feedback.textContent = `Catalog search failed safely (${error?.code ?? "unexpected_error"}).`;
       }
     } finally {
@@ -2866,7 +2868,7 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
     adapter: state.adapter, projects: state.projects, organization: state.organization
   }) : null;
   if (ckan) section.append(ckan);
-  section.dispose = () => {searchGeneration++; staticSearch?.dispose(); ckan?.dispose();};
+  section.dispose = () => {searchGeneration++; loadPreview?.dispose?.(); disposeResults(); staticSearch?.dispose(); ckan?.dispose();};
   section.shouldBlockNavigation = options => Boolean(ckan?.shouldBlockNavigation(options));
   if(state.directoryDetailsLoading) {
     form.inert=true;
@@ -3720,7 +3722,11 @@ export function catalogTable(datasets, projects, adapterKind = null, {adapter=nu
   root.style.minWidth = "0";
   root.append(text("small", "Grouped by data library · counts show loaded records", "platform-note"));
   const groups = new Map(), retainedIds = new Set();
+  const previews = new Set();
+  let disposed = false;
+  root.dispose = () => {disposed = true; for (const preview of previews) preview.dispose(); previews.clear();};
   const appendRecords = records => {for (const dataset of records) {
+    if (disposed) return;
     if (retainedIds.has(dataset.id)) continue;
     retainedIds.add(dataset.id);
     // Only the recorded library identity defines a relationship. Similar names,
@@ -3767,7 +3773,7 @@ export function catalogTable(datasets, projects, adapterKind = null, {adapter=nu
       previewRow.append(previewCell);
       row.after(previewRow);
     }});
-    if (mapAction) identity.append(mapAction.button);
+    if (mapAction) {previews.add(mapAction); identity.append(mapAction.button);}
     if(placeUri && typeof adapter?.getDatasetKnowledge === "function") identity.append(CatalogPlaceMatch({adapter,datasetId:dataset.id,placeUri}));
     const preservation = document.createElement("td");
     preservation.append(CatalogPreservationStatus({dataset, detailsHref: layerHref(dataset.id, {adapterKind}), compact:true}));

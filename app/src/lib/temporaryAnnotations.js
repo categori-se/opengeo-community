@@ -63,16 +63,17 @@ export function createTemporaryUpload({
   format,
   geojson,
   byteLength,
+  metadata = null,
   now = Date.now(),
   id = temporaryId("upload")
 }) {
   const normalizedFormat = String(format ?? "").toLowerCase();
-  if (!["geojson", "json", "kml"].includes(normalizedFormat)) throw temporaryError("temporary_upload_format_not_supported");
+  if (!["geojson", "json", "kml", "gpx", "nmea", "ozi", "delimited-text"].includes(normalizedFormat)) throw temporaryError("temporary_upload_format_not_supported");
   if (!Number.isInteger(byteLength) || byteLength < 0 || byteLength > TEMPORARY_WORK_LIMITS.maximumUploadBytes) {
     throw temporaryError("temporary_upload_too_large");
   }
   const safeName = boundedText(fileName, 240, "temporary_upload_name_required");
-  return createTemporaryEntry({
+  const entry = createTemporaryEntry({
     id,
     title: safeName.replace(/\.[^.]+$/, "") || "Temporary upload",
     geojson,
@@ -82,6 +83,8 @@ export function createTemporaryUpload({
     byteLength,
     now
   });
+  if (["gpx", "nmea", "ozi", "delimited-text"].includes(normalizedFormat) && metadata?.source?.format === normalizedFormat) entry.layer.metadata = structuredClone(metadata);
+  return entry;
 }
 
 export function serializeTemporaryWork({workspaceId, scopeId = null, layers, dataByLayerId, now = Date.now()}) {
@@ -268,19 +271,20 @@ function normalizeTemporaryLayer(value) {
   const layerId = storageSegment(value.layerId, null);
   if (!layerId) throw temporaryError("temporary_layer_id_required");
   const format = String(value.temporaryWork.format ?? "");
-  if (!["map-drawing", "geojson", "kml"].includes(format)) throw temporaryError("temporary_upload_format_not_supported");
+  if (!["map-drawing", "geojson", "kml", "gpx", "nmea", "ozi", "delimited-text"].includes(format)) throw temporaryError("temporary_upload_format_not_supported");
   return {
     layerId,
     datasetId: layerId,
     title: boundedText(value.title, 240, "temporary_title_required"),
     sourceType: "geojson-object",
-    geometryType: GEOMETRY_TYPES.has(value.geometryType) ? value.geometryType : "Geometry",
+    geometryType: GEOMETRY_TYPES.has(value.geometryType) || ["gpx", "ozi"].includes(format) && value.geometryType === "GeometryCollection" ? value.geometryType : "Geometry",
     visible: value.visible !== false,
     opacity: Number.isFinite(value.opacity) ? Math.max(0, Math.min(1, value.opacity)) : 0.9,
     order: Number.isFinite(value.order) ? value.order : 0,
     style: value.style && typeof value.style === "object" ? structuredClone(value.style) : temporaryStyle(value.geometryType),
-    labels: {enabled: false, field: null},
+    labels: format === "delimited-text" && value.labels?.enabled === true && value.metadata?.source?.columns?.includes(value.labels.field) ? {enabled: true, field: value.labels.field} : {enabled: false, field: null},
     browserDraftData: false,
+    ...(["gpx", "nmea", "ozi", "delimited-text"].includes(format) && value.metadata?.source?.format === format ? {metadata: structuredClone(value.metadata)} : {}),
     temporaryWork: {
       schemaVersion: TEMPORARY_WORK_SCHEMA_VERSION,
       kind: value.temporaryWork.kind,

@@ -84,3 +84,131 @@ it("shows lifecycle actions only to owners and administrators and preserves fixt
     }
   }
 });
+
+function sharedAccessState(role = "owner") {
+  const current = state();
+  current.organization.id = "selected-account";
+  current.project.callerRole = role;
+  current.adapter.selectedOrganizationId = current.organization.id;
+  const calls = [], writes = [];
+  const records = [
+    {projectId: current.project.id, teamId: "team-a", teamName: "Regional <research>", role: "editor"},
+    {projectId: current.project.id, teamId: "team-b", teamName: "Cartography", role: "viewer"}
+  ];
+  const members = [{userId: "owner", displayName: "Existing owner", email: "owner@example.test", role: "owner"}];
+  current.adapter.listProjectTeamGrants = async id => {calls.push(["grants", id]); return structuredClone(records);};
+  current.adapter.listProjectMembers = async id => {calls.push(["members", id]); return structuredClone(members);};
+  current.adapter.listTeams = async () => [
+    {id: "team-a", name: "Regional <research>", status: "active"},
+    {id: "team-b", name: "Cartography", status: "active"},
+    {id: "team-c", name: "Reviewers", status: "active"},
+    {id: "team-old", name: "Archived", status: "archived"}
+  ];
+  current.adapter.createProjectTeamGrant = async (projectId, teamId, role) => {
+    writes.push(["create", projectId, teamId, role]);
+    records.push({projectId, teamId, teamName: "Reviewers", role});
+    return structuredClone(records.at(-1));
+  };
+  current.adapter.updateProjectTeamGrant = async (projectId, teamId, role) => {
+    writes.push(["update", projectId, teamId, role]);
+    const grant = records.find(item => item.teamId === teamId); grant.role = role;
+    return structuredClone(grant);
+  };
+  current.adapter.revokeProjectTeamGrant = async (projectId, teamId) => {
+    writes.push(["revoke", projectId, teamId]);
+    records.splice(records.findIndex(item => item.teamId === teamId), 1);
+  };
+  return {current, calls, writes, records, members};
+}
+
+it("reviews and changes several workspace team grants with their full access scope", async () => {
+  const {current, calls, writes, records, members} = sharedAccessState();
+  const root = ProjectLifecycleSettings({state: current, refresh: () => {}});
+  document.body.append(root);
+  const access = root.querySelector(".project-access-settings");
+  assert.match(access.textContent, /Access workspace: Field <survey>/);
+  assert.match(access.textContent, /other Projects, Publications and linked Layers/);
+  assert.match(access.textContent, /Geographic tags record place context separately/);
+  assert.equal(calls.length, 0);
+  button(access, "Load current workspace access").click(); await tick();
+  assert.equal(access.querySelectorAll(".platform-compact-record").length, 2);
+  assert.equal(access.querySelector("research"), null);
+  assert.match(access.textContent, /Existing owner/);
+  const team = access.querySelector('[aria-label="Team to share this workspace with"]');
+  assert.deepEqual([...team.options].map(item => item.value), ["", "team-c"]);
+  team.value = "team-c"; team.dispatchEvent(new dom.window.Event("change"));
+  access.querySelector('[aria-label="New team role"]').value = "viewer";
+  button(access, "Grant team access").click(); await tick();
+  assert.equal(records.length, 3);
+  let row = access.querySelector(".platform-compact-record");
+  row.querySelector("select").value = "reviewer";
+  button(row, "Save team role").click(); await tick();
+  row = access.querySelectorAll(".platform-compact-record")[1];
+  button(row, "Revoke team access").click();
+  assert.match(row.textContent, /entire “Field <survey>” access workspace/);
+  button(row, "Cancel").click(); assert.equal(writes.length, 2);
+  button(row, "Revoke team access").click(); button(row, "Confirm revoke").click(); await tick();
+  assert.deepEqual(writes, [
+    ["create", "test-project", "team-c", "viewer"],
+    ["update", "test-project", "team-a", "reviewer"],
+    ["revoke", "test-project", "team-b"]
+  ]);
+  assert.equal(members[0].role, "owner");
+  assert.equal(records.length, 2);
+  assert.match(access.querySelector('[role="status"]').textContent, /saved; current grants reloaded/);
+});
+
+it("requires current workspace access readback after an uncertain grant result", async () => {
+  const {current, writes, records} = sharedAccessState();
+  current.adapter.createProjectTeamGrant = async (projectId, teamId, role) => {
+    writes.push([projectId, teamId, role]);
+    records.push({projectId, teamId, teamName: "Reviewers", role});
+    throw Error("private transport details");
+  };
+  const root = ProjectLifecycleSettings({state: current, refresh: () => {}});
+  document.body.append(root);
+  const access = root.querySelector(".project-access-settings");
+  button(access, "Load current workspace access").click(); await tick();
+  const team = access.querySelector('[aria-label="Team to share this workspace with"]');
+  team.value = "team-c"; team.dispatchEvent(new dom.window.Event("change"));
+  button(access, "Grant team access").click(); await tick();
+  assert.equal(writes.length, 1);
+  assert.equal(button(access, "Grant team access").disabled, true);
+  assert.equal(button(access, "Save team role").disabled, true);
+  assert.doesNotMatch(access.textContent, /private transport details/);
+  button(access, "Grant team access").click(); await tick();
+  assert.equal(writes.length, 1);
+  button(access, "Reload current workspace access").click(); await tick();
+  assert.equal(access.querySelectorAll(".platform-compact-record").length, 3);
+  assert.equal(button(access, "Save team role").disabled, false);
+  assert.equal(writes.length, 1);
+});
+
+it("keeps workspace access read only for viewers and withholds late account or closed-view results", async () => {
+  const viewer = sharedAccessState("viewer");
+  const root = ProjectLifecycleSettings({state: viewer.current, refresh: () => {}});
+  document.body.append(root);
+  const access = root.querySelector(".project-access-settings");
+  button(access, "Load current workspace access").click(); await tick();
+  assert.equal(access.querySelectorAll("select").length, 0);
+  assert.equal(button(access, "Save team role"), undefined);
+  assert.match(access.textContent, /owner or account administrator/);
+  assert.equal(viewer.writes.length, 0);
+  for (const reason of ["account-change", "closed-view"]) {
+    const {current, writes} = sharedAccessState();
+    let finish;
+    current.adapter.listProjectTeamGrants = () => new Promise(resolve => {finish = resolve;});
+    const parent = ProjectLifecycleSettings({state: current, refresh: () => {}});
+    document.body.append(parent);
+    const panel = parent.querySelector(".project-access-settings");
+    button(panel, "Load current workspace access").click(); await tick();
+    if (reason === "account-change") current.adapter.selectedOrganizationId = "another-account";
+    else parent.remove();
+    finish([{projectId: "test-project", teamId: "secret", teamName: "Late private team", role: "owner"}]);
+    await tick();
+    assert.doesNotMatch(panel.textContent, /Late private team/);
+    assert(panel.querySelectorAll("button").length > 0);
+    assert([...panel.querySelectorAll("button")].every(item => item.disabled));
+    assert.equal(writes.length, 0);
+  }
+});

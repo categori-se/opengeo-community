@@ -16,6 +16,24 @@
   "packages": [
     {
       "ecosystem": "npm",
+      "name": "earcut",
+      "version": "3.2.3",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Explicit lazy projected topology for bounded3Dpolygonmeasurement;metricarea and topology checked independently. Reuses installedMapLibre dependency.",
+      "licenseExpression": "ISC",
+      "sourceUrl": "https://github.com/mapbox/earcut",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      }
+    },
+    {
+      "ecosystem": "npm",
       "name": "geotiff",
       "version": "3.1.0-beta.0",
       "dependencyKind": "runtime",
@@ -1200,6 +1218,47 @@
       "sourceUrl": "https://src.fedoraproject.org/rpms/open-sans-fonts",
       "licenseEvidenceUrl": "https://www.apache.org/licenses/LICENSE-2.0",
       "notes": "The installed open-sans-fonts-1.10-24.fc43.noarch RPM and source font name table identify Open Sans 1.10 under Apache-2.0; source RPM is open-sans-fonts-1.10-24.fc43.src.rpm. No upstream commit or newer font release is asserted. Frozen glyph manifest SHA-256 19aa88722c18ee3005c64d95cded9eda8337d5772939a92e44c53defc930508a records exact source font, license, coverage, generator and PBF checksums. The complete license is vendored; the separate NOTICE.txt retains the embedded source copyright and generated-glyph notice and is deliberately outside the frozen glyph manifest. Ship both companions with the assets. TinySDF 2.2.0 (BSD-2-Clause) is an existing app lockfile transitive generation dependency, not a new runtime package; retain its attribution in build-tool SBOMs. The native font bytes match the frozen manifest source SHA-256; Cesium fetches and verifies them only for labeled content."
+    },
+    {
+      "name": "Maki symbol assets",
+      "version": "8.2.0",
+      "usedBy": [
+        "app/src/data/symbology-sources.json",
+        "app/scripts/build-point-symbols.mjs",
+        "app/src/lib/pointSymbolRegistry.js",
+        "app/src/lib/pointSymbolPixels.js",
+        "app/src/lib/pointSymbols.js"
+      ],
+      "purpose": "Complete 215-icon Point library with version-pinned identities, local generated pixels and on-demand loading.",
+      "licenseExpression": "CC0-1.0",
+      "sourceUrl": "https://github.com/mapbox/maki/tree/6ab50f392294aeb20b3af83e8a10067151876eb9",
+      "sourceCommit": "6ab50f392294aeb20b3af83e8a10067151876eb9",
+      "sourceArchiveUrl": "https://registry.npmjs.org/@mapbox/maki/-/maki-8.2.0.tgz",
+      "sourceArchiveSha256": "f6e59156521117c311c0e73a6aeef8d5039daea9c7fbe1ff9264e18a3ebec87f",
+      "licenseEvidenceUrl": "https://raw.githubusercontent.com/mapbox/maki/6ab50f392294aeb20b3af83e8a10067151876eb9/LICENSE.txt",
+      "licenseEvidencePath": "app/src/data/symbology-sources.json",
+      "notes": "The canonical source metadata retains the complete upstream license and Mapbox/Maki contributor credit. The offline compiler verifies retained original hashes and derives white glyphs with a dark halo; the original six OpenGeo symbol identities and pixels remain unchanged. Generated raster data loads only when an imported symbol is selected. No new npm dependency or runtime icon service is introduced."
+    },
+    {
+      "name": "OpenStreetMap Carto symbol assets",
+      "version": "commit 1cc4b89c48e4385b607d63156d6f8f1eea8b35a2",
+      "usedBy": [
+        "app/src/data/symbology-sources.json",
+        "app/scripts/build-point-symbols.mjs",
+        "app/src/lib/pointSymbolRegistry.js",
+        "app/src/lib/pointSymbolPixels.js",
+        "app/src/lib/referenceSymbolPixels.js",
+        "app/src/lib/pointSymbols.js"
+      ],
+      "purpose": "Complete pinned 998-image source collection: 261 thematic Point glyphs, 660 route shields and 77 separate line/pattern reference previews.",
+      "licenseExpression": "CC0-1.0",
+      "sourceUrl": "https://github.com/openstreetmap-carto/openstreetmap-carto/commit/1cc4b89c48e4385b607d63156d6f8f1eea8b35a2",
+      "sourceCommit": "1cc4b89c48e4385b607d63156d6f8f1eea8b35a2",
+      "sourceArchiveUrl": "https://codeload.github.com/openstreetmap-carto/openstreetmap-carto/tar.gz/1cc4b89c48e4385b607d63156d6f8f1eea8b35a2",
+      "sourceArchiveSha256": "851f1322e613c8fc11145c74cbc00e3f2c15fc39b7ee492d2ad1f945a2b4dc5e",
+      "licenseEvidenceUrl": "https://raw.githubusercontent.com/openstreetmap-carto/openstreetmap-carto/1cc4b89c48e4385b607d63156d6f8f1eea8b35a2/LICENSE.txt",
+      "licenseEvidencePath": "app/src/data/symbology-sources.json",
+      "notes": "This exact commit follows v6.1.0 and is not labelled as that release. The canonical source metadata retains the complete root license and credit to Andy Allan and contributors, with original cartography by Steve Chilton and others. The offline compiler verifies retained original hashes and preserves rendered source colors and alpha. Point and reference raster payloads load separately on demand. Four generator motifs lacking source viewports use disclosed geometry bounds with padding; originals remain intact. Reference previews and source links do not establish geometry-specific line or pattern application, software interchange conformance, or native/server render support."
     }
   ],
   "referenceProducts": [

@@ -77,6 +77,51 @@ describe("governed local-file ingestion", () => {
     assert.throws(() => normalizeManagedTags(Array.from({length: 13}, (_, index) => `tag-${index}`)), /http_422/);
   });
 
+  it("preserves a GeoJSON original without reporting an inspection job", async () => {
+    const calls = [], stages = [];
+    const file = namedBlob('{"type":"FeatureCollection","features":[]}', "original.geojson", "application/geo+json");
+    const completion = await ingestManagedFile({projectId: "project", file, purpose: "pmtiles_original",
+      onStage: (stage, message) => stages.push({stage, message}), adapter: {
+        async requestUpload(_project, metadata) {
+          calls.push("request"); assert.equal(metadata.purpose, "pmtiles_original");
+          return {purpose: "pmtiles_original", uploadId: "upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};
+        },
+        async uploadFile(_upload, source) {calls.push("upload"); assert.equal(source, file);},
+        async completeUpload() {calls.push("complete"); return {purpose: "pmtiles_original", dataset: {name: "Original"}, versionNumber: 1, processingJobId: null, processingJobState: null};}
+      }});
+    assert.equal(completion.processingJobId, null);
+    assert.deepEqual(calls, ["request", "upload", "complete"]);
+    assert.deepEqual(stages.map(({stage}) => stage), ["hashing", "requesting", "uploading", "verifying", "preserved"]);
+    assert.doesNotMatch(stages.map(({message}) => message).join(" "), /queued|queuing|inspection/);
+  });
+
+  it("rejects unsupported original preservation before registering or uploading", async () => {
+    const file = namedBlob("{}", "original.geojson", "application/geo+json");
+    const oversized = namedBlob("{}", "large.geojson", "application/geo+json");
+    Object.defineProperty(oversized, "size", {value: 512 * 1024 * 1024 + 1});
+    for (const options of [{file: namedBlob("a,b", "table.csv", "text/csv"), format: "csv"},
+      {file: oversized, format: "geojson"}, {file, format: "geojson", stagedTarget: {datasetId: "existing", baseVersionId: "base"}}]) {
+      let calls = 0;
+      await assert.rejects(ingestManagedFile({projectId: "project", name: "Original", purpose: "pmtiles_original", ...options,
+        adapter: {requestUpload: async () => {calls++;}, uploadFile: async () => {calls++;}, completeUpload: async () => {calls++;}}}),
+      error => ["http_422", "upload_size_exceeds_limit"].includes(error.code));
+      assert.equal(calls, 0);
+    }
+  });
+
+  it("requires the preservation purpose to match before sending bytes and on completion", async () => {
+    for (const mismatch of ["ticket", "completion"]) {
+      let uploads = 0;
+      await assert.rejects(ingestManagedFile({projectId: "project", purpose: "pmtiles_original",
+        file: namedBlob("{}", "original.geojson", "application/geo+json"), adapter: {
+          async requestUpload() {return {purpose: mismatch === "ticket" ? "ingest" : "pmtiles_original", uploadId: "upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};},
+          async uploadFile() {uploads++;},
+          async completeUpload() {return {purpose: "ingest", dataset: {name: "Original"}, versionNumber: 1};}
+        }}), error => error.code === "upload_verification_failed");
+      assert.equal(uploads, mismatch === "ticket" ? 0 : 1);
+    }
+  });
+
   it("fails before any upload when the signed ticket is expired", async () => {
     let uploaded = false;
     const adapter = {

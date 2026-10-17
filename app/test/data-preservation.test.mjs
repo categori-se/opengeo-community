@@ -7,6 +7,7 @@ import {
   createProtectedCopyRequest,
   preservationPrompt
 } from "../src/lib/dataPreservation.js";
+import {PMTILES_OPTIONS_DEFAULTS,createPmtilesConversionDraft,pmtilesRequestIntent,normalizePmtilesOptions,pmtilesConversionAvailability,pmtilesUnconfirmedRetry} from '../src/lib/pmtilesOptions.js';
 
 const PROJECT_ID = "50000000-0000-4000-8000-000000000091";
 const DATASET_ID = "80000000-0000-4000-8000-000000000091";
@@ -139,6 +140,21 @@ describe("persistent source custody", () => {
 });
 
 describe("PMTiles derivative custody", () => {
+  it('seals explicit v2 options while preserving legacy defaults and stable unconfirmed intents',()=>{
+    const base={idempotencyKey:IDEMPOTENCY_KEY,projectId:PROJECT_ID,datasetId:DATASET_ID,datasetVersionId:VERSION_ID,bounds:[-180,-80,180,80],minZoom:0,maxZoom:10,sourceLayer:'world_tiles'};
+    const legacy=createPmtilesDerivativeRequest(base);assert.equal(legacy.schemaVersion,'opengeo.pmtiles-derivative-request.1.0.0');assert.equal(Object.hasOwn(legacy.parameters,'options'),false);
+    const request=createPmtilesDerivativeRequest({...base,options:{attributeNames:['name','class']}});
+    assert.equal(request.schemaVersion,'opengeo.pmtiles-derivative-request.1.1.0');assert.deepEqual(request.parameters.options,{...PMTILES_OPTIONS_DEFAULTS,attributeNames:['name','class']});assert.ok(Object.isFrozen(request.parameters.options));
+    const draft=createPmtilesConversionDraft({datasetVersionId:VERSION_ID,bounds:base.bounds});assert.equal(draft.maxZoom,10);
+    const first=pmtilesRequestIntent(draft).request,second=pmtilesRequestIntent(draft).request;assert.deepEqual(second,first);
+    assert.equal(pmtilesUnconfirmedRetry(draft),true);assert.equal(pmtilesUnconfirmedRetry(draft,[{...first,state:'failed'}]),false);
+    const capabilities={inputFormats:['geojson'],admissionReady:false,admissionReason:'runtime_budget_exhausted'};assert.equal(pmtilesConversionAvailability('geojson',capabilities).allowed,false);assert.match(pmtilesConversionAvailability('geojson',capabilities).message,/workspace operator/);assert.match(pmtilesConversionAvailability('geojson',{...capabilities,admissionReason:'runtime_job_pending'}).message,/Wait for the current conversion/);
+    const job={...first,datasetVersionId:VERSION_ID,state:'queued',recipe:'gdal-pmtiles-v2'};
+    assert.equal(pmtilesRequestIntent(draft,[job]).existing,job);
+    const retried=pmtilesRequestIntent(draft,[{...job,state:'failed'}]).request;assert.notEqual(retried.idempotencyKey,first.idempotencyKey);
+    draft.maxZoom=11;assert.notEqual(pmtilesRequestIntent(draft).request.idempotencyKey,retried.idempotencyKey);
+    for(const patch of [{extent:6144},{maxSize:49999},{maxFeatures:500001},{simplification:-1},{inputLayer:'-sql'},{attributeNames:['name','name']},{attributeNames:[]},{unreviewedFlag:true}])assert.throws(()=>normalizePmtilesOptions(patch));
+  });
   it("pins an immutable input version and reserves archive naming for the server", () => {
     const request = createPmtilesDerivativeRequest({
       idempotencyKey: IDEMPOTENCY_KEY,

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 DatasetFormat = Literal[
@@ -336,6 +336,8 @@ class PmtilesDerivativeClaim:
     request_checksum_sha256: str | None = None
     attempt_count: int | None = None
     output_object_key: str | None = None
+    options: dict[str, Any] | None = None
+    worker_image_digest: str | None = None
 
     def require_claimed(self) -> "PmtilesDerivativeClaim":
         if self.status != "claimed" or any(
@@ -367,6 +369,9 @@ class PmtilesDerivativeMetadata:
     minimum_zoom: int
     maximum_zoom: int
     crs: str = "EPSG:3857"
+    geometry_type: str | None = None
+    software: dict[str, Any] | None = None
+    input_layer: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

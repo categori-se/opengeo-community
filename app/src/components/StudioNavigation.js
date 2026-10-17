@@ -1,11 +1,11 @@
 import {directoryHref} from "../lib/applicationRoutes.js";
 
-export const MANAGED_STUDIO_URL = "https://studio.opengeo.tools/workspaces";
+export const MANAGED_STUDIO_URL = "https://studio.opengeo.tools/";
 
 export function demoNavigationItems() {
   return [
     {id: "home", label: "Demo", href: "/"},
-    {id: "samples", label: "Sample datasets", href: "/?view=examples"},
+    {id: "samples", label: "Catalog", href: "https://demo.studio.opengeo.tools/?view=catalog"},
     {id: "studio", label: "Open Studio ↗", href: MANAGED_STUDIO_URL}
   ];
 }

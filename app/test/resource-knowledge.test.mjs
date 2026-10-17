@@ -11,6 +11,28 @@ const empty=()=>({schemaVersion:"1.0.0",distributions:[],metadata:{source:[],nor
 const flush=()=>new Promise(resolve=>setTimeout(resolve,0));
 const retrieved=()=>({sourceUrl:"https://provider.example/FeatureServer/0?f=json",retrievedAt:"2026-10-06T12:00:00Z",mediaType:"application/json",content:' {"name":"保护区 🗺","nested":{"unknown":null}}\n'});
 
+it("distinguishes empty Project-specific revisions and presents recorded places before collapsed missing fields",async()=>{
+ const dom=new JSDOM("<!doctype html>"),old=globalThis.document;globalThis.document=dom.window.document;
+ try {
+  let record={version:0,canEdit:false,document:empty()};
+  const root=ResourceKnowledge({adapter:{getAuthoredKnowledge:async()=>structuredClone(record)},resourceKind:"project",resourceId:id});
+  root.querySelector("button").click();await flush();
+  assert.match(root.querySelector('[role="status"]').textContent,/No Project-specific metadata revision yet/);
+  const missing=[...root.querySelectorAll("details")].find(node=>node.querySelector("summary")?.textContent==="Unrecorded Project-specific fields");
+  assert.equal(missing.open,false);assert.match(missing.textContent,/No Project-specific distributions recorded/);
+  assert.doesNotMatch(root.textContent,/Unknown rights remain unknown|Custody is unknown|Place references do not establish/);
+  const document=empty();document.metadata.curated.push({subject:"resource",property:"http://purl.org/dc/terms/subject",
+   value:{"@id":"http://www.wikidata.org/entity/Q837","http://www.w3.org/2000/01/rdf-schema#label":"Nepal"},provenance:"curator_asserted"});
+  record={version:1,canEdit:false,document};root.querySelector("button").click();await flush();
+  const places=[...root.querySelectorAll("section")].find(section=>section.querySelector(":scope > h3")?.textContent==="Geographic tags");
+  assert.match(places.querySelector("p").textContent,/Nepal · Project context/);assert.equal(places.closest("details"),null);
+  const tagDetails = [...places.querySelectorAll("details")].find(node=>node.querySelector("summary")?.textContent==="Tag sources and relationships");
+  assert.equal(tagDetails.open,false);assert.match(tagDetails.textContent,/curator_asserted/);
+  assert.equal(places.querySelector("a").href,"http://www.wikidata.org/entity/Q837");
+  assert.equal(root.querySelector('[aria-label="Metadata JSON"]'),null);
+ }finally{globalThis.document=old;dom.window.close();}
+});
+
 it("explicitly views and downloads accepted retained responses without fetching on load or changing a metadata draft",async()=>{
  const dom=new JSDOM("<!doctype html>");const old=globalThis.document;globalThis.document=dom.window.document;
  const createUrl=URL.createObjectURL,revokeUrl=URL.revokeObjectURL;

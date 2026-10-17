@@ -1,6 +1,7 @@
 import {validateMapFilter, combineMapFilters} from "./mapFilter.js";
 import {validateLayerStyleReference, referencedStylePaint} from "./layerStyleReference.js";
 import {canonicalJson} from "./artifactCanonicalJson.js";
+import {POINT_SYMBOLS, pointSymbolImageId, pointSymbolImages, pointSymbolStyleParts} from "./pointSymbols.js";
 // A publication is data + style + a viewer, never a serialized Studio session.
 const paintTypes = new Set(["fill", "line", "circle", "raster", "heatmap", "fill-extrusion"]);
 const sourceKeys = ["type", "data", "tiles", "tileSize", "scheme", "minzoom", "maxzoom", "bounds", "attribution", "cluster", "clusterRadius", "clusterMaxZoom", "generateId", "promoteId", "lineMetrics", "tolerance", "buffer"];
@@ -9,6 +10,42 @@ const json = value => JSON.stringify(value).replace(/</g, "\\u003c").replace(/\u
 const localTextSymbol = item => item.type === "symbol" && item.layout?.["text-field"] !== undefined
   && item.layout?.["icon-image"] === undefined
   && !JSON.stringify(item.layout["text-field"]).includes('"image"');
+const builtInPointImageIds = new Set(POINT_SYMBOLS.map(({id}) => pointSymbolImageId(id)));
+const symbolLayout = part => Object.fromEntries(Object.entries(part.layout ?? {}).filter(([key]) => key !== "visibility"));
+
+function packagedPointSymbols(layer, paints, boundStyle) {
+  const displayed = paints.filter(part => part.type === "symbol" && part.layout?.["icon-image"] !== undefined);
+  if (!displayed.length) return {ids: new Set(), images: []};
+  if (!["Point", "MultiPoint"].includes(layer.geometryType)
+    || (layer.styleReference && !boundStyle?.pointSymbolStyle)) {
+    throw Error("This layer needs viewer features or symbol assets not yet packaged.");
+  }
+  const style = boundStyle?.pointSymbolStyle ?? layer.style;
+  const expected = boundStyle
+    ? referencedStylePaint(boundStyle, layer).filter(part => part.type === "symbol")
+    : pointSymbolStyleParts(layer).map(part => ({...part, id: `${layer.layerId}-${part.id}`,
+      paint: {...part.paint, "icon-opacity": (part.paint?.["icon-opacity"] ?? 1) * (layer.opacity ?? 1)}}));
+  if (expected.length !== displayed.length || expected.some(part => {
+    const actual = displayed.find(item => item.id === part.id);
+    return !actual || canonicalJson(symbolLayout(actual)) !== canonicalJson(symbolLayout(part))
+      || canonicalJson(actual.paint ?? {}) !== canonicalJson(part.paint ?? {});
+  })) throw Error("Displayed point symbols differ from the Project. Reapply the symbols before exporting.");
+  const neededImages = new Set(expected.flatMap(part => {
+    const image = part.layout["icon-image"];
+    return typeof image === "string" ? [image]
+      : [...image.slice(3, -1).filter((_, index) => index % 2 === 0), image.at(-1)];
+  }));
+  const images = pointSymbolImages(style).filter(image => neededImages.has(image.id)).map(image => {
+    const {pixels} = image;
+    if (!builtInPointImageIds.has(image.id) || pixels?.width !== 64 || pixels?.height !== 64
+      || pixels.data?.length !== 16384 || image.pixelRatio !== 2) throw Error("Built-in point symbol image is invalid.");
+    const data = Array.from(pixels.data);
+    if (!data.every(value => Number.isInteger(value) && value >= 0 && value <= 255)) throw Error("Built-in point symbol pixels are invalid.");
+    return {id: image.id, width: 64, height: 64, data, pixelRatio: 2};
+  });
+  if (images.length !== neededImages.size) throw Error("Built-in point symbol image is unavailable.");
+  return {ids: new Set(expected.map(part => part.id)), images};
+}
 
 function packagedPatternImages(paints, boundStyle) {
   const ids = new Set();
@@ -49,15 +86,19 @@ export function inspectStaticMapLayers({style, layers, handles, mode = "offline"
     const omittedLabels = includeLabels ? [] : displayed.filter(item => localTextSymbol(item) && item.source === handle?.sourceId);
     const paints = displayed.filter(item => !omittedLabels.includes(item));
     let reason = null;
+    let pointSymbols = {ids: new Set(), images: []}, pointSymbolError = null;
+    try { pointSymbols = packagedPointSymbols(layer, paints, layer.styleReference ? handle?.boundStyle : null); }
+    catch (error) { pointSymbolError = error.message; }
     if (!source || !paints.length) reason = "Layer is not loaded in this view.";
-    else if (paints.some(item => (!paintTypes.has(item.type) && !localTextSymbol(item)) || item.source !== handle.sourceId)) reason = "This layer needs viewer features or label assets not yet packaged.";
+    else if (pointSymbolError) reason = pointSymbolError;
+    else if (paints.some(item => (!paintTypes.has(item.type) && !localTextSymbol(item) && !pointSymbols.ids.has(item.id)) || item.source !== handle.sourceId)) reason = "This layer needs viewer features or label assets not yet packaged.";
     else if (source.type === "geojson" && source.data && typeof source.data === "object") {
       if (!["FeatureCollection", "Feature"].includes(source.data.type)) reason = "Inline GeoJSON is required.";
     } else if (mode === "live" && source.type === "raster" && source.tiles?.length) {
       try { source.tiles.forEach(publicTileOrigin); } catch (error) { reason = error.message; }
     } else reason = mode === "offline" ? "Requires network data; not an offline layer." : "Only inline GeoJSON and public raster tile layers are supported in this export.";
     let images = [];
-    try { images = packagedPatternImages(paints, layer.styleReference ? handle?.boundStyle : null); }
+    try { images = [...packagedPatternImages(paints, layer.styleReference ? handle?.boundStyle : null), ...pointSymbols.images]; }
     catch (error) { reason = error.message; }
     if (layer.filter != null || handle?.baseFilters) {
       try {
@@ -79,11 +120,19 @@ export function inspectStaticMapLayers({style, layers, handles, mode = "offline"
         const expected = referencedStylePaint(handle.boundStyle, layer).filter(item => includeLabels || !localTextSymbol(item));
         if (expected.length !== paints.length || expected.some(part => {
           const displayed = paints.find(item => item.id === part.id);
-          return !displayed || displayed.type !== part.type || canonicalJson(displayed.paint) !== canonicalJson(part.paint);
+          return !displayed || displayed.type !== part.type || canonicalJson(displayed.paint) !== canonicalJson(part.paint)
+            || canonicalJson(symbolLayout(displayed)) !== canonicalJson(symbolLayout(part));
         })) throw Error("Displayed styling differs from the pinned Style. Reload it before exporting.");
       } catch (error) { reason = error.message; }
     }
-    return {...(layer.styleReference ? {styleReference: structuredClone(layer.styleReference)} : {}), id: layer.layerId, title: layer.title ?? layer.layerId, visible: layer.visible !== false, reason, source,
+    if (layer.pointClustering?.enabled) reason = "Point clustering is not supported in interactive HTML exports. Disable clustering for this Layer or capture it in Print Studio.";
+    const plain = value => typeof value === "string" ? value.replace(/<[^>]*>/g, "") : null;
+    const recordedMetadata = {datasetId: plain(layer.datasetId), datasetVersionId: plain(layer.datasetVersionId),
+      sourceType: plain(layer.sourceType), geometryType: plain(layer.geometryType),
+      sourceVersion: ["string", "number"].includes(typeof layer.sourceVersion) ? String(layer.sourceVersion) : null,
+      license: plain(layer.license), sourceAttribution: plain(layer.attribution ?? source?.attribution),
+      curatedAttribution: plain(layer.metadata?.curated?.attribution ?? layer.curatedAttribution)};
+    return {recordedMetadata, ...(layer.styleReference ? {styleReference: structuredClone(layer.styleReference)} : {}), id: layer.layerId, title: layer.title ?? layer.layerId, visible: layer.visible !== false, reason, source,
       attribution: source?.attribution ?? layer.attribution ?? "", paints, images, omittedLabelCount: omittedLabels.length,
       paintOrder: Object.fromEntries((style.layers ?? []).map((item, index) => [item.id, index])), sourceId: handle?.sourceId};
   });
@@ -119,8 +168,15 @@ export function compileStaticMapDocument({title, view, candidates, selectedIds, 
   style.layers.sort((a, b) => (a.id === "export-background" ? -1 : order[a.id]) - (b.id === "export-background" ? -1 : order[b.id]));
   const camera = {center: view?.center ?? [0, 0], zoom: view?.zoom ?? 2, pitch: view?.pitch ?? 0, bearing: view?.bearing ?? 0};
   if (!Array.isArray(camera.center) || camera.center.length !== 2 || ![...camera.center, camera.zoom, camera.pitch, camera.bearing].every(Number.isFinite)) throw Error("Map view is invalid.");
-  const images = selected.flatMap(item => item.images ?? []);
-  if (new Set(images.map(image => image.id)).size !== images.length) throw Error("Pattern image identities conflict.");
+  const images = [], imageIds = new Map();
+  for (const image of selected.flatMap(item => item.images ?? [])) {
+    const previous = imageIds.get(image.id);
+    if (previous) {
+      if (builtInPointImageIds.has(image.id) && canonicalJson(previous) === canonicalJson(image)) continue;
+      throw Error("Map image identities conflict.");
+    }
+    imageIds.set(image.id, image);images.push(image);
+  }
   const payload = {title: String(title), mode, view: camera, style, controls, images};
   if (JSON.stringify(payload).length > 20 * 1024 * 1024) throw Error("Selected map exceeds the 20 MB export limit.");
   const inlineRuntime = runtimeJs.replace(/<\/script/gi, match => match.replace('/', '\\/'));

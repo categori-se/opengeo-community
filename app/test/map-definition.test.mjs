@@ -7,10 +7,14 @@ import {
   MAP_DEFINITION_SCHEMA_VERSION,
   PATH_MAP_DEFINITION_SCHEMA_VERSION,
   emptyMapDefinition,
+  DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+  validateManagedDisplayReference,
   upgradeMapDefinition
 } from "../src/lib/mapDefinition.js";
 import {spatialBodyDefinition} from "../src/lib/spatialBody.js";
 import {createPathMeasurement} from "../src/lib/pathMeasurement.js";
+import {definitionForPrintFrame, definitionWithPrintLayouts, newProjectPrintLayout, printLayerPresentation, projectPrintLayouts} from "../src/lib/printLayouts.js";
+import {mapboxCompatibility} from "../src/lib/mapboxAdapter.js";
 import {PINNED_MAP_FONT} from "../src/lib/mapFonts.js";
 
 describe("versioned map definition", () => {
@@ -355,4 +359,32 @@ describe("versioned map definition", () => {
     assert.equal(saved.measurements[0].terrainProfile.status, "complete");
     assert.equal(saved.measurements[0].terrainProfile.source.queryMode, "renderer-unexaggerated-point-sample");
   });
+});
+
+
+it("retains exact managed display preferences in native1.5 without ticket or consent state", () => {
+  const layer = {layerId:"saved", datasetId:"70000000-0000-4000-8000-000000000001", datasetVersionId:"70000000-0000-4000-8000-000000000002", managedDisplayId:"70000000-0000-4000-8000-000000000003", sourceVersion:4, sourceType:"governed-dataset", title:"Tiled data", style:{}, labels:{}, visible:true, ticket:{url:"never persist"}, acknowledgeStorageCost:true};
+  const saved = currentProjectDefinition({project:emptyMapDefinition(),layers:[layer],state:{map:null,activeLayerId:"saved",spatialBody:spatialBodyDefinition(),kmlNetworkLinkState:{schemaVersion:"1.0.0",receipts:[]}}});
+  assert.equal(saved.schemaVersion,DISPLAY_MAP_DEFINITION_SCHEMA_VERSION);assert.equal(saved.layers[0].managedDisplayId,layer.managedDisplayId);
+  assert.doesNotMatch(JSON.stringify(saved),/ticket|never persist|acknowledgeStorageCost/);
+  assert.deepEqual(upgradeMapDefinition(saved).layers,saved.layers);
+  for (const changed of [{managedDisplayId:null},{managedDisplayId:"bad"},{datasetVersionId:null},{sourceVersion:0},{sourceType:"external-feature-reference"}]) {
+    assert.throws(()=>validateManagedDisplayReference({...layer,...changed}),/map_managed_display_reference_invalid/);
+  }
+  assert.throws(()=>upgradeMapDefinition({...saved,schemaVersion:"opengeo.map-definition.1.4.0"}),/map_managed_display_reference_invalid/);
+});
+
+
+it("binds tiled display identity to Print frames and retains the existing renderer boundary", () => {
+  const layer={layerId:"tiled",datasetId:"70000000-0000-4000-8000-000000000001",datasetVersionId:"70000000-0000-4000-8000-000000000002",managedDisplayId:"70000000-0000-4000-8000-000000000003",sourceVersion:4,sourceType:"governed-dataset",title:"Tiled map",style:{},labels:{},visible:true};
+  const map={id:"70000000-0000-4000-8000-000000000004",name:"Tiled map",definition:emptyMapDefinition({schemaVersion:DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,layers:[layer]})};
+  const layout=newProjectPrintLayout(map,"layout"),collection={schemaVersion:"opengeo.project-print-layouts.1",projectId:map.id,layouts:[layout]};
+  const saved=definitionWithPrintLayouts(map,collection),frame=projectPrintLayouts({...map,definition:saved}).layouts[0].frames[0];
+  assert.equal(frame.presentation[0].managedDisplayId,layer.managedDisplayId);
+  const reopened=definitionForPrintFrame(map,frame);assert.equal(reopened.layers[0].managedDisplayId,layer.managedDisplayId);assert.equal(reopened.schemaVersion,DISPLAY_MAP_DEFINITION_SCHEMA_VERSION);
+  const changed={...layer,managedDisplayId:"70000000-0000-4000-8000-000000000005"};
+  assert.notDeepEqual(printLayerPresentation(changed),printLayerPresentation(layer));
+  assert.throws(()=>projectPrintLayouts({...map,definition:{...saved,layers:[changed]}}),/saved print Layer source changed/);
+  assert.ok(mapboxCompatibility({layers:[layer],state:{}}).issues.some(issue=>issue.code==="archive-protocol"));
+  assert.equal(structuredClone(layer).managedDisplayId,layer.managedDisplayId);
 });

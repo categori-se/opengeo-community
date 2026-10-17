@@ -47,7 +47,7 @@ if (!studioHome.includes('manifest.href="/manifest.webmanifest"')
 const pwaManifest = JSON.parse(pwaManifestBody);
 if (pwaManifest.id !== "/"
   || pwaManifest.scope !== "/"
-  || pwaManifest.start_url !== "/workspaces"
+  || pwaManifest.start_url !== "/"
   || pwaManifest.display !== "standalone"
   || JSON.stringify(pwaManifest.icons?.map(({sizes}) => sizes)) !== JSON.stringify(["192x192", "512x512"])) {
   throw new Error("Studio web application manifest is incomplete");

@@ -60,7 +60,7 @@ export async function compilePortableMapArtifact(options) {
   };
   const result = {...manifest, manifestChecksumSha256: await digest(canonicalJson(manifest))};
   if (encoder.encode(JSON.stringify(result)).byteLength > 49_152) throw Error("The Artifact manifest exceeds 48 KiB.");
-  return {html, manifest: result};
+  return {html, manifest: result, payload};
 }
 
 /** A sidecar is provenance, never authorization. Validate its byte binding before draft insertion. */

@@ -38,36 +38,43 @@ export function EsriBasemapOptions({session, selectBasemap, enabled = true}) {
   status.role = "status";
   const use = document.createElement("button");
   use.type = "button";
-  use.className = "gis-button";
+  use.className = "gis-button gis-esri-apply";
   use.textContent = "Use Esri basemap";
   const clear = document.createElement("button");
   clear.type = "button";
   clear.className = "gis-button";
   clear.textContent = "Clear Esri key";
+  let applying = false;
+  let outcome = null;
   const update = () => {
     const option = ESRI_BASEMAP_OPTIONS.find(({id}) => id === select.value);
     keyLabel.hidden = !option.requiresKey;
     privacy.hidden = !option.requiresKey;
     clear.hidden = !session.configured;
-    use.disabled = !enabled || !accepted.checked || (option.requiresKey && !session.configured && !key.value.trim());
-    status.textContent = !enabled ? "Esri basemaps require an Earth map." : option.requiresKey
+    use.disabled = applying || !enabled || !accepted.checked || (option.requiresKey && !session.configured && !key.value.trim());
+    select.disabled = accepted.disabled = key.disabled = clear.disabled = applying;
+    section.setAttribute("aria-busy", String(applying));
+    status.textContent = applying ? `Loading ${option.title}. Your current background stays visible until imagery is ready…` : outcome ?? (!enabled ? "Esri basemaps require an Earth map." : option.requiresKey
       ? session.configured ? "Browser key configured for this page." : "API key required."
-      : "No key is sent to the public endpoint. Service availability and usage terms still apply.";
+      : "No key is sent to the public endpoint. Select Use Esri basemap to apply this background.");
   };
-  select.addEventListener("change", update);
-  accepted.addEventListener("change", update);
-  key.addEventListener("input", update);
-  clear.addEventListener("click", () => { session.clear(); key.value = ""; update(); });
-  use.addEventListener("click", () => {
+  const changed = () => {outcome = null;update();};
+  select.addEventListener("change", changed);
+  accepted.addEventListener("change", changed);
+  key.addEventListener("input", changed);
+  clear.addEventListener("click", () => { session.clear(); key.value = ""; changed(); });
+  use.addEventListener("click", async () => {
     if (use.disabled) return;
     try {
       const option = ESRI_BASEMAP_OPTIONS.find(({id}) => id === select.value);
       if (option.requiresKey && key.value.trim()) session.configure(key.value);
       key.value = "";
-      update();
-      Promise.resolve(selectBasemap(esriBasemapDefinition(select.value, `custom-${crypto.randomUUID()}`)))
-        .catch(() => { status.textContent = "Esri imagery could not be applied. Your previous background remains; try again or choose another basemap."; });
-    } catch (error) { status.textContent = error.message; }
+      applying = true;outcome = null;update();
+      const applied = await selectBasemap(esriBasemapDefinition(select.value, `custom-${crypto.randomUUID()}`));
+      outcome = applied === true ? `${option.title} is active.`
+        : "Esri imagery could not be loaded. Your previous background is still shown. Try again or choose another basemap.";
+    } catch (error) {outcome = applying ? "Esri imagery could not be loaded. Your previous background is still shown. Try again or choose another basemap." : error.message;}
+    finally {applying = false;update();}
   });
   const instructions = document.createElement("p");
   instructions.textContent = "Choose access, confirm permission, then select Use Esri basemap. Your current background stays until you apply the selection.";

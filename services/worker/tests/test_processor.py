@@ -6,6 +6,8 @@ from pathlib import Path
 from urllib.parse import quote_plus
 from uuid import UUID, uuid5
 
+import pytest
+
 from opengeo_worker.config import Settings
 from opengeo_worker.models import (
     ArtifactFile,
@@ -720,6 +722,7 @@ class PmtilesGenerator:
     def __init__(self) -> None:
         self.failure: ValidationFailure | None = None
         self.calls: list[PmtilesDerivativeClaim] = []
+        self.feature_count = 5
 
     def generate(
         self,
@@ -737,7 +740,7 @@ class PmtilesGenerator:
         target.write_bytes(b"PMTiles\x03derived-vector-tiles")
         return PmtilesDerivativeMetadata(
             layer_name="layer-001",
-            feature_count=5,
+            feature_count=self.feature_count,
             minimum_zoom=2,
             maximum_zoom=12,
         )
@@ -1058,6 +1061,57 @@ def test_pmtiles_derivative_uses_exact_source_and_server_built_output_key(
     assert isinstance(artifact, StoredArtifact)
     assert artifact.object_key == repository.pmtiles_job_claim.output_object_key
     assert artifact.content_type == "application/vnd.pmtiles"
+    assert len(repository.pmtiles_completed[0]) == 3
+
+
+@pytest.mark.parametrize("feature_count", [5, 100_001])
+def test_pmtiles_completion_retains_validation_and_exact_versioned_index_when_needed(
+    tmp_path: Path, feature_count: int
+) -> None:
+    queue = Queue(pmtiles_body())
+    repository = Repository(claim())
+    storage = Storage()
+    generator = PmtilesGenerator()
+    generator.feature_count = feature_count
+    worker = WorkerProcessor(
+        replace(settings(tmp_path), geodata_expected_owner="222222222222"),
+        queue,
+        repository,
+        storage,
+        Inspector(),
+        Renderer(),
+        CoverageGenerator(),
+        generator,
+    )
+
+    assert worker.process_once() == "completed"
+    assert queue.deleted == ["receipt-1"]
+    completion = repository.pmtiles_completed[0]
+    assert len(completion) == 4
+    validation = completion[3]
+    assert validation["expected_owner"] == "222222222222"
+    assert validation["output_checksum_sha256"] == completion[2].checksum_sha256
+    assert validation["output_layer"]["reported_fragment_count"] == feature_count
+    body = b"PMTiles\x03derived-vector-tiles"
+    block_digest = hashlib.sha256(body).digest()
+    if feature_count <= 100_000:
+        assert storage.artifact_ids == [uuid5(PMTILES_JOB_ID, "output.pmtiles")]
+        assert validation["block_sha256"] == [block_digest.hex()]
+        assert "block_index_artifact" not in validation
+    else:
+        assert storage.artifact_ids == [
+            uuid5(PMTILES_JOB_ID, "output.pmtiles"),
+            uuid5(PMTILES_JOB_ID, "output.blocks.sha256"),
+        ]
+        index = validation["block_index_artifact"]
+        assert index["object_key"] == repository.pmtiles_job_claim.output_object_key.replace(
+            ".pmtiles", ".blocks.sha256"
+        )
+        assert index["role"] == "derived"
+        assert index["s3_version_id"] == "artifact-version"
+        assert index["size_bytes"] == 32
+        assert index["checksum_sha256"] == hashlib.sha256(block_digest).hexdigest()
+        assert "block_sha256" not in validation
 
 
 def test_pmtiles_derivative_defers_early_claim_and_finalizes_invalid_output(

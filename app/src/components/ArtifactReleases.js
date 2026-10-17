@@ -251,6 +251,20 @@ export function ArtifactReleases({adapter}) {
               + "Revocation blocks future endpoint reads; downloaded copies remain available."),
             example, html, document.createTextNode(" · "), module);
           row.append(consume);
+          const native = node("details"), nativeExample = node("textarea");
+          const nativeUrl = new URL(moduleUrl); nativeUrl.searchParams.set("mode", "native");
+          const descriptor = node("a", "Open release descriptor");
+          descriptor.href = new URL("descriptor", moduleUrl).href;
+          descriptor.target = "_blank"; descriptor.rel = "noopener noreferrer";
+          nativeExample.value = `import {createView} from ${JSON.stringify(nativeUrl.href)};\n\nconst lifetime = new AbortController();\nconst view = createView({maplibre, height: 600, signal: lifetime.signal});\ndocument.querySelector("#map").append(view);\nview.addEventListener("selectionchange", ({detail}) => {\n  console.log(detail.features);\n});\n// When removing this view: lifetime.abort();\n// Or call view.dispose().`;
+          nativeExample.readOnly = true; nativeExample.rows = 10;
+          nativeExample.setAttribute("aria-label", `Native map import for ${record.title}`);
+          native.append(node("summary", "Use a native map in a website"),
+            node("p", "Supply your page's MapLibre runtime and CSS, and an element with id map. The map inherits your page's fonts and colors. Use getLayers() for layer IDs, then setFilter() or setLayerVisibility() to connect article controls."),
+            nativeExample,
+            node("p", "This adapter supports portable GeoJSON maps and recorded public rasters. Native Notebook HTML and PMTiles are not currently supported; other outputs retain their isolated viewer. Removing a view requires dispose() or aborting its signal. The descriptor identifies this exact release without loading its map."),
+            descriptor);
+          row.append(native);
         }
         if (page.can_publish) row.append(button("Revoke public release", () => act(async () => {
           await adapter.revokeArtifactRelease(record.id);

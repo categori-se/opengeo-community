@@ -49,7 +49,7 @@ const pwa = await writeStudioPwaAssets({
   outputRoot,
   applicationId: "opengeo-browser-demo",
   name: "OpenGeo Studio GIS Workbench Demo",
-  description: "An anonymous browser-only geospatial workbench with nonpersistent local editing.",
+  description: "A browser GIS with personal device Projects, print layouts and portable exports.",
   routes: ["/"]
 });
 
@@ -57,6 +57,8 @@ await writeMaplibreExportAssets(outputRoot);
 await prepareMapboxRuntime(outputRoot);
 await prepareCesiumRuntime(outputRoot);
 await writeFile(resolve(outputRoot, "third-party-notices.txt"), [
+  "earcut · ISC",
+  await readFile(resolve(appRoot, "node_modules/earcut/LICENSE"), "utf8"),
   "@categori/workspace-contracts · Apache-2.0",
   await readFile(resolve(appRoot, "vendor/workspace-contracts/LICENSE"), "utf8"),
   await readFile(resolve(appRoot, "vendor/workspace-contracts/NOTICE"), "utf8")
@@ -173,17 +175,25 @@ async function stageDemoSource() {
     ["lib/providerJson.js", "lib/providerJson.js"],
     ["lib/cogMapLayer.js", "lib/cogMapLayer.js"],
     ["lib/cogPreview.js", "lib/cogPreview.js"],
+    ["lib/cogDisplay.js", "lib/cogDisplay.js"],
     ["lib/cogReaderAsset.js", "lib/cogReaderAsset.js"],
     ["assets/cog-reader-3.1.0-beta.0.js.js", "assets/cog-reader-3.1.0-beta.0.js.js"],
     ["assets/licenses/geotiff-3.1.0-beta.0.LICENSE.txt", "assets/licenses/geotiff-3.1.0-beta.0.LICENSE.txt"],
     ["lib/projectFileFormat.js", "lib/projectFileFormat.js"],
     ["components/ProjectVersionExport.js", "components/ProjectVersionExport.js"],
     ["components/WorkbenchView.js", "components/WorkbenchView.js"],
+    ["components/LocalProjectLibrary.js", "components/LocalProjectLibrary.js"],
+    ["components/BrowserPrintStudio.js", "components/BrowserPrintStudio.js"],
+    ["components/ProjectPrintEditor.js", "components/ProjectPrintEditor.js"],
+    ["lib/localProjectStore.js", "lib/localProjectStore.js"],
+    ["lib/printLayouts.js", "lib/printLayouts.js"],
+    ["lib/figurePrintPack.js", "lib/figurePrintPack.js"],
     ["components/RendererPanel.js", "components/RendererPanel.js"],
     ["components/LayerFolders.js", "components/LayerFolders.js"],
     ["components/LayerInfo.js", "components/LayerInfo.js"],
     ["components/PatternLegend.js", "components/PatternLegend.js"],
     ["lib/cartographicPatterns.js", "lib/cartographicPatterns.js"],
+    ["lib/pointSymbols.js", "lib/pointSymbols.js"],
     ["lib/featureHalo.js", "lib/featureHalo.js"],
     ["lib/cesiumAdapter.js", "lib/cesiumAdapter.js"],
     ["lib/cesiumBasemap.js", "lib/cesiumBasemap.js"],
@@ -219,8 +229,14 @@ async function stageDemoSource() {
     ["lib/artifactCanonicalJson.js", "lib/artifactCanonicalJson.js"],
     ["lib/legacyCanonicalJson.js", "lib/legacyCanonicalJson.js"],
     ["lib/portableMapArtifact.js", "lib/portableMapArtifact.js"],
+    ["lib/developerMapBundle.js", "lib/developerMapBundle.js"],
+    ["lib/publicationMapHandoff.js", "lib/publicationMapHandoff.js"],
     ["components/StudioNavigation.js", "components/StudioNavigation.js"],
     ["components/StaticMapExport.js", "components/StaticMapExport.js"],
+    ["components/CogIdentifyResult.js", "components/CogIdentifyResult.js"],
+    ["components/ProfileLineOfSight.js", "components/ProfileLineOfSight.js"],
+    ["components/RasterViewshed.js", "components/RasterViewshed.js"],
+    ["components/Polygon3DMeasurementEditor.js", "components/Polygon3DMeasurementEditor.js"],
     ["components/StudioAccountControls.js", "components/StudioAccountControls.js"],
     ["lib/staticMapExport.js", "lib/staticMapExport.js"],
     ["lib/imageServer.js", "lib/imageServer.js"],
@@ -289,6 +305,9 @@ async function stageDemoSource() {
     ["lib/cameraTour.js", "lib/cameraTour.js"],
     ["lib/flightSimulation.js", "lib/flightSimulation.js"],
     ["lib/pathMeasurement.js", "lib/pathMeasurement.js"],
+    ["lib/sightLineModel.js", "lib/sightLineModel.js"],
+    ["lib/gridViewshed.js", "lib/gridViewshed.js"],
+    ["lib/polygon3dMeasurement.js", "lib/polygon3dMeasurement.js"],
     ["lib/areaMeasurement.js", "lib/areaMeasurement.js"],
     ["lib/savedMeasurement.js", "lib/savedMeasurement.js"],
     ["lib/globeTelemetry.js", "lib/globeTelemetry.js"],
@@ -296,6 +315,11 @@ async function stageDemoSource() {
     ["lib/kmlPlaces.js", "lib/kmlPlaces.js"],
     ["lib/kmlNetworkLink.js", "lib/kmlNetworkLink.js"],
     ["lib/spatialInterchange.js", "lib/spatialInterchange.js"],
+    ["lib/gpxImport.js", "lib/gpxImport.js"],
+    ["lib/nmeaImport.js", "lib/nmeaImport.js"],
+    ["lib/oziImport.js", "lib/oziImport.js"],
+    ["lib/delimitedTextImport.js", "lib/delimitedTextImport.js"],
+    ["components/DelimitedTextImport.js", "components/DelimitedTextImport.js"],
     ["lib/archiveLayerExport.js", "lib/archiveLayerExport.js"],
     ["data/massgis-enviroscreen.json", "data/massgis-enviroscreen.json"],
     ["data/public-demo-catalog.json", "data/public-demo-catalog.json"],
@@ -307,6 +331,16 @@ async function stageDemoSource() {
     await mkdir(dirname(destination), {recursive: true});
     await copyPreservingTimes(source, destination);
   }
+  // Reuse the source-package validators without exposing the account API client.
+  // This follows the existing capture bundling path; fflate remains shared.
+  const archive = await build({absWorkingDir: appRoot,
+    entryPoints: [resolve(appRoot, "src/lib/publicationSourceArchive.js")], bundle: true,
+    format: "esm", platform: "browser", write: false, treeShaking: true, external: ["fflate"]});
+  const archiveCode = archive.outputFiles[0].text;
+  if (Buffer.byteLength(archiveCode) > 65536 || /class OpenGeoApiClient|class CognitoBrowserAuth|\/oauth2\/token|\bfetch\(/.test(archiveCode)) {
+    throw new Error("Public source-package bundle exceeds its local-only boundary");
+  }
+  await writeFile(resolve(sourceRoot, "lib/publicationSourceArchive.js"), archiveCode);
   // Package the shared capture form's reachable code behind the anonymous entry.
   // Do not copy authenticated directory/routes into the public surface. Existing
   // staged map modules remain shared rather than bundling another renderer.

@@ -15,7 +15,8 @@ export interface WorkerLifecycleScope {
  * See processing-plane-runbook.md for remaining permission boundaries.
  */
 export function workerLifecyclePolicy(account: string, region: string, stage: string,
-  clusterArn: string, scope: WorkerLifecycleScope): iam.PolicyDocument {
+  clusterArn: string, scope: WorkerLifecycleScope,
+  workload: "shared" | "pmtiles-v2" = "shared"): iam.PolicyDocument {
   assert.match(account, /^[0-9]{12}$/);
   assert.match(region, /^[a-z]{2}-[a-z]+-[0-9]+$/);
   assert.match(stage, /^(dev|staging|demo|production)$/);
@@ -25,6 +26,7 @@ export function workerLifecyclePolicy(account: string, region: string, stage: st
   scope.subnetIds.forEach(id => assert.match(id, /^subnet-[0-9a-f]+$/));
   scope.routeTableIds.forEach(id => assert.match(id, /^rtb-[0-9a-f]+$/));
   assert.match(scope.taskFamily, /^[A-Za-z0-9_-]+$/);
+  assert.ok(workload === "shared" || workload === "pmtiles-v2", "Reviewed workload required");
   const arn = (service: string, resource: string) => `arn:aws:${service}:${region}:${account}:${resource}`;
   const clusterPrefix = arn("ecs", "cluster/");
   assert.ok(clusterArn.startsWith(clusterPrefix) && /^[A-Za-z0-9_-]+$/.test(clusterArn.slice(clusterPrefix.length)), "Exact existing ECS cluster required");
@@ -61,7 +63,7 @@ export function workerLifecyclePolicy(account: string, region: string, stage: st
   }});
   allow(["ec2:CreateTags", "ec2:DeleteTags"], [sg, endpoint], owned);
 
-  const service = arn("ecs", `service/${cluster}/opengeo-${stage}-gis-worker`);
+  const service = arn("ecs", `service/${cluster}/opengeo-${stage}-${workload === "pmtiles-v2" ? "pmtiles-v2" : "gis"}-worker`);
   const task = arn("ecs", `task-definition/${scope.taskFamily}:*`);
   allow(["ecs:CreateService", "ecs:UpdateService", "ecs:DeleteService", "ecs:DescribeServices"], [service],
     {ArnEquals: {"ecs:cluster": clusterArn}});

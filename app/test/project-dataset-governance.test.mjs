@@ -47,6 +47,74 @@ afterEach(() => {
 });
 
 describe("dataset governance handoff", () => {
+  it('opens shared PMTiles controls without a Map and retains an unconfirmed submission key',async()=>{
+    const calls=[],serverJobs=[];let reads=0,formats=['geojson'],admissionReady=true;
+    const adapter={kind:'api',createMap:async()=>assert.fail('Conversion must not create a Map'),
+      getPmtilesConversionCapabilities:async()=>({inputFormats:formats,recipe:'gdal-pmtiles-v2',adaptiveGeneralization:true,admissionReady,admissionReason:admissionReady?'ready':'runtime_job_pending'}),
+      listPmtilesDerivatives:async(...args)=>{assert.deepEqual(args.slice(0,3),[IDS.project,IDS.dataset,IDS.version]);reads++;if(reads===2)throw Error('Metadata temporarily unavailable');return structuredClone(serverJobs);},
+      createPmtilesDerivative:async(...args)=>{
+        calls.push(structuredClone(args));const request=args[3];
+        if(calls.length===1){admissionReady=false;serverJobs.push({jobId:IDS.resource,projectId:IDS.project,datasetId:IDS.dataset,datasetVersionId:IDS.version,...request,state:'queued',recipe:'gdal-pmtiles-v2',outputSizeBytes:null,errorCode:null});throw Object.assign(Error('Response lost'),{code:'unavailable'});}
+        return structuredClone(serverJobs[0]);
+      }};
+    const current=state(adapter);current.datasets[0].extent=[-180,-80,180,80];
+    const root=ProjectDatasets({state:current,refresh:async()=>{}});document.body.append(root);
+    assert.equal(reads,0);assert.equal(calls.length,0);assert.equal(current.maps.length,0);
+    click(root,'Create PMTiles');await waitFor(()=>reads===1&&!findButton(root,'Refresh saved PMTiles jobs').disabled);
+    const form=root.querySelector('.pmtiles-conversion-editor');assert.ok(form);
+    for(let node=form;node&&node!==root;node=node.parentElement)assert.equal(node.hidden,false,'Conversion controls must be visible');
+    const input=(name,value)=>{const field=form.querySelector(`[aria-label="${name}"]`);field.value=value;field.dispatchEvent(new harness.dom.window.Event(field.tagName==='SELECT'?'change':'input',{bubbles:true}));};
+    assert.equal(form.querySelector('[aria-label="Maximum zoom"]').value,'10');
+    assert.equal(form.querySelector('[aria-label="Input layer · blank auto-detects a single layer"]').value,'');
+    input('Output tile layer','world_tiles');input('Tile coordinate extent','8192');input('Simplification below maximum zoom','0');input('Attributes','include');input('Included attribute fields · comma-separated','name, name');
+    assert.equal(findButton(form,'Queue on-demand conversion').disabled,true);input('Included attribute fields · comma-separated','name, class');
+    click(root,'Queue on-demand conversion');await waitFor(()=>calls.length===1&&findButton(root,'Queue on-demand conversion')?.disabled===false);
+    harness.dom.window.confirm=()=>true;
+    click(root.querySelector('.pmtiles-conversion-editor').closest('.project-dataset-inspection-view'),'Reload view');
+    await waitFor(()=>reads===2&&findButton(root,'Retry unchanged request')?.disabled===false);
+    assert.equal(root.querySelector('[aria-label="Output tile layer"]').value,'world_tiles');
+    click(root,'Retry unchanged request');await waitFor(()=>calls.length===2&&findButton(root,'Queue on-demand conversion')?.disabled===true);
+    assert.deepEqual(calls[1],calls[0]);assert.equal(calls[0][3].options.inputLayer,null);assert.equal(calls[0][3].options.extent,8192);assert.deepEqual(calls[0][3].options.attributeNames,['name','class']);
+    assert.match(root.querySelector('.project-pmtiles-job-list').textContent,/queued.*detail 8192/s);
+    serverJobs[0].state='completed';serverJobs[0].outputSizeBytes=1024;
+    click(root,'Refresh saved PMTiles jobs');await waitFor(()=>reads===3&&root.querySelector('.project-pmtiles-job-list').textContent.includes('completed'));
+    assert.equal(calls.length,2);assert.equal(current.maps.length,0);assert.match(root.textContent,/matching conversion is completed/);
+    const viewer=state(adapter);viewer.project.callerRole='viewer';const readOnly=ProjectDatasets({state:viewer,refresh:async()=>{}});assert.equal(findButton(readOnly,'Create PMTiles'),null);assert.equal(reads,3);
+    admissionReady=true;formats=['geojson'];const unsupported=state(adapter);unsupported.datasets[0].format='geopackage';const gated=ProjectDatasets({state:unsupported,refresh:async()=>{}});document.body.append(gated);click(gated,'Create PMTiles');await waitFor(()=>!findButton(gated,'Refresh saved PMTiles jobs').disabled);assert.equal(findButton(gated,'Queue on-demand conversion').disabled,true);assert.match(gated.textContent,/does not currently support geopackage/);assert.equal(calls.length,2);
+    admissionReady=false;const held=ProjectDatasets({state:state(adapter),refresh:async()=>{}});document.body.append(held);click(held,'Create PMTiles');await waitFor(()=>!findButton(held,'Refresh saved PMTiles jobs').disabled);assert.equal(findButton(held,'Queue on-demand conversion').disabled,true);assert.match(held.textContent,/Wait for the current conversion/);assert.equal(calls.length,2);
+  });
+  it("uses the returned Layer context and named account members for shared access controls", async () => {
+    const memberId = index => `20000000-0000-4000-8000-${String(index).padStart(12,"0")}`;
+    const calls=[],pages=[];let grants=[],reads=0;
+    const canonicalProject="50000000-0000-4000-8000-000000000082";
+    const adapter={kind:"api",selectedOrganizationId:IDS.organization,
+      async listDatasetPermissions(projectId,datasetId) {assert.deepEqual([projectId,datasetId],[canonicalProject,IDS.dataset]);reads++;return grants;},
+      async listOrganizationMembers(page) {pages.push(page);return page.offset===0
+        ? Array.from({length:50},(_,i)=>({userId:memberId(i+1),displayName:`Researcher ${i+1}`,email:`person${i+1}@example.invalid`}))
+        : [{userId:memberId(51),displayName:"Last researcher",email:"last@example.invalid"}];},
+      async putDatasetPermission(...args) {calls.push(args);grants=[{userId:args[2],role:args[3],displayName:"Last researcher",email:"last@example.invalid"}];return grants[0];},
+      async deleteDatasetPermission(...args) {calls.push(args);grants=[];},
+      async getSession() {assert.fail("Access controls must reuse their mounted organization context");}};
+    const current=state(adapter);current.datasets[0].projectId=canonicalProject;
+    const root=ProjectDatasets({state:current,refresh:async()=>{}});document.body.append(root);
+    assert.equal(reads,0);click(root,"Dataset access");
+    const access=await waitFor(()=>root.querySelector(".dataset-access-editor"));
+    await waitFor(()=>access.textContent.includes("Current grants loaded"));assert.equal(pages.length,0);
+    click(access,"Load account members");await waitFor(()=>access.querySelector('[aria-label="Account member"]').options.length===51);
+    assert.deepEqual(pages,[{limit:50,offset:0}]);
+    click(access,"Load more account members");await waitFor(()=>access.querySelector('[aria-label="Account member"]').options.length===52);
+    assert.deepEqual(pages,[{limit:50,offset:0},{limit:50,offset:50}]);
+    const people=access.querySelector('[aria-label="Account member"]');people.value=memberId(51);
+    const role=access.querySelector('[aria-label="Dataset access role"]');
+    assert.deepEqual([...role.options].map(item=>item.value),["view","download","edit","manage"]);role.value="download";
+    click(access,"Grant access");await waitFor(()=>reads===2&&!findButton(access,"Grant access").disabled);
+    assert.deepEqual(calls[0],[canonicalProject,IDS.dataset,memberId(51),"download"]);
+    assert.match(access.querySelector("ul").textContent,/Last researcher.*download/);
+    click(access,"Revoke");await waitFor(()=>reads===3&&!findButton(access,"Grant access").disabled);
+    assert.deepEqual(calls[1],[canonicalProject,IDS.dataset,memberId(51)]);
+    assert.match(access.querySelector("ul").textContent,/No explicit Layer grants/);
+  });
+
   it("shows source details and access controls through reopen and reload without reading provider data", async () => {
     let calls = 0;
     const current = state({kind: "api", updateSource: async () => {calls++;}, getSession: async () => {calls++;}});

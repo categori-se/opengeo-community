@@ -6,12 +6,15 @@ import {ArchiveFolderUpload} from "./ArchiveFolderUpload.js";
 import {FeatureCanvas, canvasEditingSupported} from "./FeatureCanvas.js";
 import {MapView} from "./MapView.js";
 import {DatasetInspectionPanels} from "./DatasetInspectionPanels.js";
+import {DatasetAccess} from "./DatasetAccess.js";
 import {ProjectFederations} from "./ProjectFederations.js";
 import {SourceArchivePanel} from "./SourceArchivePanel.js";
 import {SourceDetails} from "./SourceDetails.js";
 import {SourceEditor} from "./SourceEditor.js";
 import {hasSourceArchiveWorkflow} from "../lib/sourceArchival.js";
 import {directoryHref, projectHref} from "../lib/applicationRoutes.js";
+import {pmtilesOptionsSummary,createPmtilesConversionDraft,pmtilesRequestIntent,pmtilesConversionAvailability,pmtilesUnconfirmedRetry} from '../lib/pmtilesOptions.js';
+import {PmtilesConversionEditor} from './PmtilesConversionEditor.js';
 import {
   OfflineCaptureQueue,
   OfflineAttachmentFiles,
@@ -350,6 +353,7 @@ function datasetCatalog(datasets, state, refresh, featureTarget = null) {
   }
 
   for (const dataset of datasets) {
+    const preservedOriginal = dataset.currentVersionState === "preserved";
     const externalSource = state.sources?.find((source) => source.datasetId === dataset.id) ?? null;
     const repositorySource = dataset.sourceType === "repository";
     const card = document.createElement("article");
@@ -381,17 +385,17 @@ function datasetCatalog(datasets, state, refresh, featureTarget = null) {
         ? "browser-direct reference"
         : repositorySource
         ? "provider reference · not imported"
-        : dataset.currentVersionState ?? "not queued"),
+        : preservedOriginal ? "original preserved" : dataset.currentVersionState ?? "not queued"),
       fact("Features", externalSource
         ? "not server-inspected"
         : repositorySource
         ? "not imported"
         : dataset.featureCount === null
-        ? "pending inspection"
+        ? preservedOriginal ? "not inspected" : "pending inspection"
         : dataset.featureCount.toLocaleString()),
       fact("CRS", externalSource?.configuration?.crs
         ?? dataset.crs
-        ?? (externalSource ? "Web Mercator tiles" : repositorySource ? "not inspected" : "pending inspection"))
+        ?? (externalSource ? "Web Mercator tiles" : repositorySource || preservedOriginal ? "not inspected" : "pending inspection"))
     );
     const tags = document.createElement("p");
     tags.className = "project-dataset-tags";
@@ -448,6 +452,19 @@ function datasetCatalog(datasets, state, refresh, featureTarget = null) {
     }
     const mapHandoff = datasetMapHandoff({state, dataset, externalSource});
     if (mapHandoff) actions.append(mapHandoff);
+    if(canUpload(state)&&dataset.capabilities.edit&&dataset.sourceType==='upload'&&dataset.currentVersionId
+      &&((dataset.status==='active'&&dataset.currentVersionState==='active'&&SPATIAL_PREVIEW_FORMATS.has(dataset.format))
+        ||(dataset.status==='draft'&&preservedOriginal&&dataset.format==='geojson'&&dataset.processingJobState==null))
+      &&[state.adapter.createPmtilesDerivative,state.adapter.listPmtilesDerivatives].every(method=>typeof method==='function')){
+      const convert=text('button','Create PMTiles','platform-button secondary');convert.type='button';
+      let conversionDraft;
+      panels.bind('pmtiles-conversion',convert,details=>{
+        conversionDraft??=createPmtilesConversionDraft({datasetVersionId:dataset.currentVersionId,bounds:dataset.extent});
+        details.replaceChildren(datasetPmtilesConversion({state,dataset,draft:conversionDraft}));
+        details.hidden=false;
+      },{editable:true});
+      actions.append(convert);
+    }
     if (
       repositorySource
       && canUpload(state)
@@ -543,8 +560,129 @@ function datasetCatalog(datasets, state, refresh, featureTarget = null) {
   return container;
 }
 
-function datasetMapHandoff({state, dataset, externalSource}) {
-  if (!canUpload(state) || !spatialPreviewAllowed(state, dataset, externalSource)) return null;
+function datasetPmtilesConversion({state,dataset,draft}){
+  const panel=document.createElement('section');panel.className='project-dataset-pmtiles';
+  const version=dataset.currentVersionId;
+  let jobs=[],busy=false,message='',capabilities,displayReview;
+  const hasCapabilities=typeof state.adapter.getPmtilesConversionCapabilities==='function';
+  const availability=()=>hasCapabilities?pmtilesConversionAvailability(dataset.format,capabilities):{allowed:true,message:''};
+  const current=()=>{
+    const latest=state.datasets.find(row=>row.id===dataset.id);
+    return latest?.currentVersionId===version&&latest.status!=='archived'&&canUpload(state)&&latest.capabilities.edit;
+  };
+  const render=()=>{
+    const editor=PmtilesConversionEditor({draft,versionLabel:`v${dataset.currentVersionNumber}`,busy,jobs,availability:availability(),onSubmit:()=>void submit()});
+    const refresh=text('button','Refresh saved PMTiles jobs','platform-button secondary');refresh.type='button';refresh.disabled=busy;refresh.addEventListener('click',()=>void readJobs());
+    const status=text('p',message);status.setAttribute('role','status');
+    const history=document.createElement('div');history.className='project-pmtiles-job-list';
+    for(const job of jobs){
+      const row=document.createElement('article');row.dataset.jobId=job.jobId;
+      row.append(text('strong',`${job.state} · ${job.jobId}`),text('p',job.options?pmtilesOptionsSummary(job.options):'GDAL default conversion'));
+      if(Number.isFinite(job.outputSizeBytes))row.append(text('p',`Stored PMTiles: ${formatBytes(job.outputSizeBytes)}`));
+      if(job.errorCode)row.append(text('p',`Conversion stopped: ${job.errorCode}. Review settings before deliberately retrying.`));
+      if(job.state==='completed'&&typeof state.adapter.getPmtilesDisplayReview==='function'){
+        const review=text('button','Review tiled display','platform-button secondary');review.type='button';review.disabled=busy;
+        review.addEventListener('click',()=>void readDisplayReview(job));row.append(review);
+        if(displayReview?.job.jobId===job.jobId)row.append(displayReviewForm());
+      }
+      history.append(row);
+    }
+    if(!jobs.length)history.append(text('p','No saved PMTiles conversion is listed for this version.'));
+    panel.replaceChildren(editor,refresh,status,history);
+  };
+  const checkJob=job=>{if(job.projectId!==state.project.id||job.datasetId!==dataset.id||job.datasetVersionId!==version)throw Error('The saved conversion identity changed');return job;};
+  async function readJobs(){
+    if(busy)return;busy=true;message='Loading saved conversion metadata…';render();
+    try{if(!current())throw Error('Dataset version changed');
+      const results=await Promise.allSettled([state.adapter.listPmtilesDerivatives(state.project.id,dataset.id,version,{limit:100}),hasCapabilities?state.adapter.getPmtilesConversionCapabilities():Promise.resolve(null)]);
+      if(results[1].status==='fulfilled')capabilities=results[1].value;else capabilities=null;
+      if(results[0].status==='rejected')throw results[0].reason;
+      if(!current())throw Error('Dataset version or access changed');
+      jobs=results[0].value.map(checkJob);message='Saved jobs refreshed. No stored tile data was downloaded.';}
+    catch(error){message=`Saved conversion jobs could not load (${error?.code??'unavailable'}). Existing records and your settings are retained.`;}
+    finally{busy=false;render();}
+  }
+  async function submit(){
+    if(busy)return;
+    let intent;try{if(!current())throw Error('Dataset version changed');if(!availability().allowed&&!pmtilesUnconfirmedRetry(draft,jobs))throw Error(availability().message);intent=pmtilesRequestIntent(draft,jobs);}catch(error){message=error.message;render();return;}
+    if(intent.existing){message=`A matching conversion is ${intent.existing.state}. Review its saved job below.`;render();return;}
+    busy=true;message='Queuing conversion…';render();
+    try{const job=checkJob(await state.adapter.createPmtilesDerivative(state.project.id,dataset.id,version,intent.request));jobs=[job,...jobs.filter(row=>row.jobId!==job.jobId)];message=`PMTiles conversion ${job.state}. Refresh saved jobs to check its progress.`;}
+    catch(error){message=`Submission could not be confirmed (${error?.code??'unavailable'}). Refresh saved jobs or retry unchanged settings with the same request key.`;}
+    finally{busy=false;render();}
+  }
+  async function readDisplayReview(job){
+    if(busy)return;
+    busy=true;message='Loading tiled display metadata…';
+    displayReview={job,title:dataset.name,rightsBasis:'',attribution:'',acknowledged:false};render();
+    const model=displayReview;
+    try{
+      if(!current())throw Error('Dataset version or access changed');
+      checkJob(job);
+      const review=await state.adapter.getPmtilesDisplayReview(state.project.id,dataset.id,version,job.jobId);
+      if(!current()||displayReview!==model)throw Error('Dataset version or access changed');
+      if(review.jobId!==job.jobId||review.datasetId!==dataset.id||review.datasetVersionId!==version
+        ||!/^[a-f0-9]{64}$/.test(review.reviewSha256))throw Error('The display review identity changed');
+      model.review=review;
+      if(review.displayId===job.jobId)model.admitted={displayId:review.displayId,datasetId:dataset.id,datasetVersionId:version};
+      message='Display metadata loaded. No map data was downloaded.';
+    }catch(error){model.error=error.message;message='The tiled display could not be reviewed.';}
+    finally{busy=false;render();}
+  }
+  function displayReviewForm(){
+    const model=displayReview,section=document.createElement('section');section.className='project-pmtiles-display-review';
+    section.append(text('h4','Tiled display review'));
+    if(model.error)section.append(text('p',model.error,'project-catalog-error'));
+    const review=model.review;if(!review)return section;
+    section.append(text('p',`${formatBytes(review.downloadBytes)} · zoom ${review.minZoom}–${review.maxZoom} · ${review.reportedFragmentCount.toLocaleString()} reported tile fragments`));
+    if(!review.eligible){section.append(text('p','This output cannot be added to a map. The completed conversion and original remain available.'));return section;}
+    if(model.admitted){
+      section.append(text('p','Tiled display is available. Choose a map, then confirm Add and Save. Tile downloads require separate consent.'));
+      const handoff=datasetMapHandoff({state,dataset,externalSource:null,reviewedDisplay:model.admitted});
+      if(handoff)section.append(handoff);
+      return section;
+    }
+    section.append(text('p','Display geometry is clipped, quantized and may be simplified. Tile fragments are not source records; properties and feature IDs may differ from the original.'));
+    const title=input('text','Tiled display title'),rights=textarea('Display rights basis'),attribution=textarea('Display attribution');
+    title.value=model.title;title.maxLength=200;rights.value=model.rightsBasis;rights.maxLength=2000;attribution.value=model.attribution;attribution.maxLength=2000;
+    for(const [control,key] of [[title,'title'],[rights,'rightsBasis'],[attribution,'attribution']]){
+      control.disabled=busy;control.addEventListener('input',()=>{model[key]=control.value;});
+    }
+    const acknowledge=input('checkbox','I reviewed the conversion limits');acknowledge.checked=model.acknowledged;acknowledge.disabled=busy;
+    acknowledge.addEventListener('change',()=>{model.acknowledged=acknowledge.checked;});
+    const admit=text('button',busy?'Admitting tiled display…':'Admit tiled display','platform-button secondary');admit.type='button';
+    admit.disabled=busy||typeof state.adapter.admitPmtilesDisplayReview!=='function';
+    admit.addEventListener('click',()=>void admitDisplay(model));
+    section.append(field('Title',title),field('Rights basis',rights),field('Attribution',attribution),field('I reviewed the conversion limits',acknowledge),admit);
+    return section;
+  }
+  async function admitDisplay(model){
+    if(busy||displayReview!==model)return;
+    if(!model.title.trim()||!model.rightsBasis.trim()||!model.attribution.trim()||!model.acknowledged){
+      model.error='Enter a title, rights basis and attribution, and acknowledge the conversion limits.';render();return;
+    }
+    busy=true;delete model.error;render();
+    try{
+      if(!current())throw Error('Dataset version or access changed');
+      const admitted=await state.adapter.admitPmtilesDisplayReview(state.project.id,dataset.id,version,model.job.jobId,{
+        expectedReviewSha256:model.review.reviewSha256,title:model.title.trim(),rightsBasis:model.rightsBasis.trim(),
+        attribution:model.attribution.trim(),acknowledgeConversionLimits:true
+      });
+      if(!current()||displayReview!==model)throw Error('Dataset version or access changed');
+      if(admitted.jobId!==model.job.jobId||admitted.displayId!==model.job.jobId||admitted.datasetId!==dataset.id
+        ||admitted.datasetVersionId!==version||admitted.reviewSha256!==model.review.reviewSha256)throw Error('The admitted display identity changed');
+      model.admitted=admitted;message='Tiled display admitted. No map data was downloaded.';
+    }catch(error){model.error=error.message;message='The display admission could not be confirmed. Review it again before retrying.';}
+    finally{busy=false;render();}
+  }
+  render();void readJobs();return panel;
+}
+
+function datasetMapHandoff({state, dataset, externalSource, reviewedDisplay = null}) {
+  const displayAllowed=reviewedDisplay?.displayId&&reviewedDisplay.datasetId===dataset.id
+    &&reviewedDisplay.datasetVersionId===dataset.currentVersionId&&dataset.capabilities.edit
+    &&dataset.sourceType==='upload'&&['active','draft'].includes(dataset.status);
+  if (!canUpload(state) || (!displayAllowed && !spatialPreviewAllowed(state, dataset, externalSource))) return null;
   const disclosure = document.createElement("details");
   disclosure.className = "project-dataset-map-handoff";
   const summary = text("summary", "Add to map…", "platform-button secondary");
@@ -3874,6 +4012,7 @@ function renderDatasetLineage(region, lineage) {
         ["Request checksum", derivative.requestChecksumSha256]
       ])
     );
+    if(derivative.options)item.append(text('p',pmtilesOptionsSummary(derivative.options)));
     derivatives.append(item);
   }
   region.replaceChildren(heading, originsHeading, origins, derivativesHeading, derivatives);
@@ -3957,60 +4096,18 @@ async function loadDatasetPermissions({state, dataset, details, permissions}) {
   permissions.disabled = true;
   details.hidden = false;
   details.dataset.mode = "permissions";
-  details.replaceChildren(text("p", "Loading explicit dataset grants…", "project-catalog-feedback"));
+  details.datasetAccess?.dispose();
+  const editor = DatasetAccess({adapter: state.adapter, dataset,
+    accountId: state.organization?.id, accountRole: state.organization?.callerRole});
+  details.datasetAccess = editor;
+  details.replaceChildren(editor);
   try {
-    const records = await state.adapter.listDatasetPermissions(state.project.id, dataset.id);
-    details.replaceChildren(permissionEditor(state, dataset, records));
+    await editor.load();
   } catch (error) {
     details.replaceChildren(text("p", `Dataset access is unavailable (${error?.code ?? "unexpected_error"}).`, "project-catalog-error"));
   } finally {
     permissions.disabled = false;
   }
-}
-
-function permissionEditor(state, dataset, records) {
-  const content = document.createElement("div");
-  content.className = "project-permission-editor";
-  content.append(text("h4", "Explicit dataset grants"));
-  const list = document.createElement("ul");
-  for (const record of records) {
-    const item = document.createElement("li");
-    const revoke = text("button", "Revoke", "platform-button secondary");
-    revoke.type = "button";
-    revoke.addEventListener("click", async () => {
-      revoke.disabled = true;
-      try {
-        await state.adapter.deleteDatasetPermission(state.project.id, dataset.id, record.userId);
-        item.remove();
-      } catch (error) {
-        revoke.textContent = `Failed (${error?.code ?? "error"})`;
-      }
-    });
-    item.append(text("span", `${record.displayName} · ${record.email} · ${record.role}`), revoke);
-    list.append(item);
-  }
-  const form = document.createElement("form");
-  const userId = input("text", "Dataset access user ID");
-  userId.placeholder = "Organization member UUID";
-  const role = select("Dataset access role", ["view", "download", "edit", "manage"]);
-  const save = text("button", "Grant access", "platform-button");
-  save.type = "submit";
-  const feedback = text("p", "Project roles remain the baseline; explicit grants only elevate.", "project-catalog-feedback");
-  form.append(userId, role, save, feedback);
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    save.disabled = true;
-    try {
-      const granted = await state.adapter.putDatasetPermission(state.project.id, dataset.id, userId.value.trim(), role.value);
-      feedback.textContent = `${granted.displayName} now has ${granted.role} access.`;
-    } catch (error) {
-      feedback.textContent = `Grant failed safely (${error?.code ?? "unexpected_error"}).`;
-    } finally {
-      save.disabled = false;
-    }
-  });
-  content.append(list, form);
-  return content;
 }
 
 function formatBytes(value) {
@@ -4092,7 +4189,7 @@ function uploadForm(state, refresh, section) {
     text("h3", "Register a dataset, image, or PDF"),
     text(
       "p",
-      "The browser hashes the file, uploads it directly with a short-lived exact S3 policy, then asks OpenGeo Studio to verify and queue it. Private originals are malware-scanned; images are normalized and PDFs receive an isolated first-page preview before activation.",
+      "Choose normal inspection or preserve a GeoJSON original for a separate PMTiles conversion. The browser hashes the file and uploads it to encrypted managed storage.",
       "note"
     )
   );
@@ -4109,6 +4206,8 @@ function uploadForm(state, refresh, section) {
     "Dataset, image, or document format",
     Object.entries(MANAGED_FORMATS).map(([value, definition]) => [value, definition.label])
   );
+  const purpose = select("Upload purpose", [["ingest", "Import and inspect"], ["pmtiles_original", "Preserve GeoJSON for PMTiles"]]);
+  const purposeNote = text("p", "Import and inspect queues validation and spatial preparation.", "note");
   const tags = input("text", "Dataset tags");
   tags.placeholder = "transport, planning";
   const file = input("file", "Dataset, image, or document file");
@@ -4118,8 +4217,16 @@ function uploadForm(state, refresh, section) {
     const selectedFile = file.files?.[0];
     if (!selectedFile) return;
     const inferred = inferManagedFormat(selectedFile.name);
-    if (inferred) format.value = inferred;
+    if (inferred && purpose.value === "ingest") format.value = inferred;
     if (!name.value.trim()) name.value = selectedFile.name.replace(/\.[^.]+$/, "");
+  });
+  purpose.addEventListener("change", () => {
+    const preserve = purpose.value === "pmtiles_original";
+    if (preserve) format.value = "geojson";
+    else {const inferred = inferManagedFormat(file.files?.[0]?.name); if (inferred) format.value = inferred;}
+    format.disabled = preserve;
+    file.accept = preserve ? MANAGED_FORMATS.geojson.extensions.join(",") : MANAGED_FILE_ACCEPT;
+    purposeNote.textContent = preserve ? "GeoJSON up to 512 MiB. Preserve the original, then create PMTiles separately." : "Import and inspect queues validation and spatial preparation.";
   });
 
   const fields = document.createElement("div");
@@ -4128,6 +4235,8 @@ function uploadForm(state, refresh, section) {
     field("Dataset, image, or document name", name),
     field("Description", description),
     field("Classification", classification),
+    field("Upload purpose", purpose),
+    purposeNote,
     field("Format", format),
     field("Tags (comma-separated)", tags),
     field("Source file", file)
@@ -4151,10 +4260,12 @@ function uploadForm(state, refresh, section) {
         description: description.value.trim() || null,
         classification: classification.value,
         format: format.value,
+        purpose: purpose.value,
         tags: tags.value,
         onStage: setStage
       });
-      setStage("queued", `${completion.dataset.name} is queued as version ${completion.versionNumber}.`);
+      if (completion.purpose === "pmtiles_original") setStage("preserved", `${completion.dataset.name} is preserved as version ${completion.versionNumber}. Create PMTiles to make a map display.`);
+      else setStage("queued", `${completion.dataset.name} is queued as version ${completion.versionNumber}.`);
       await refresh();
     } catch (error) {
       setStage("error", MANAGED_UPLOAD_ERROR_MESSAGES[error?.code] ?? "The dataset could not be uploaded. Check the file and try again.");
@@ -4166,7 +4277,7 @@ function uploadForm(state, refresh, section) {
     section.dataset.state = stage;
     feedback.dataset.state = stage;
     feedback.textContent = message;
-    submit.disabled = !["idle", "error", "queued"].includes(stage);
+    submit.disabled = !["idle", "error", "queued", "preserved"].includes(stage);
   }
 }
 
@@ -4178,6 +4289,7 @@ function canUpload(state) {
 
 function featureEditingAllowed(dataset, externalSource) {
   return !externalSource
+    && dataset.currentVersionState !== "preserved"
     && dataset.sourceType !== "repository"
     && dataset.capabilities.edit
     && ["draft", "active"].includes(dataset.status)
@@ -4200,6 +4312,7 @@ function spatialPreviewAllowed(state, dataset, externalSource) {
 
 function fieldCaptureAllowed(dataset, externalSource) {
   return !externalSource
+    && dataset.currentVersionState !== "preserved"
     && dataset.sourceType !== "repository"
     && dataset.capabilities.read
     && ["draft", "active"].includes(dataset.status)

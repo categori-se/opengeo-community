@@ -460,14 +460,14 @@ describe("platform state loader", () => {
         body_text: "<kml/>"
       }), {status: 200, headers: {"content-type": "application/json"}});
     };
-    const disabled = createPlatformAdapter({
+    const disabled = await createPlatformAdapter({
       url: "https://studio.opengeo.tools/workspaces",
       storage,
       fetchImplementation
     });
     assert.equal(typeof disabled.refreshKmlNetworkLink, "undefined");
 
-    const enabled = createPlatformAdapter({
+    const enabled = await createPlatformAdapter({
       url: "https://studio.opengeo.tools/workspaces",
       storage,
       fetchImplementation,
@@ -724,7 +724,7 @@ describe("platform state loader", () => {
   });
 
   it("keeps fixture use explicit and fixture saves memory-only", async () => {
-    const adapter = new FixturePlatformAdapter(catalog);
+    const adapter = await createPlatformAdapter({catalog, url: "https://studio.opengeo.tools/workspaces?adapter=fixture"});
     const binding = FIXTURE_PROJECTS[0];
 
     const state = await loadProjectContext(adapter, binding.projectId);

@@ -6,6 +6,32 @@ from opengeo_api.cognito_provisioning import UnavailableIdentityProvisioner
 from opengeo_api.config import Settings
 
 
+def test_pmtiles_v2_requires_separate_queue_mode_and_final_image_pin() -> None:
+    shared = "https://sqs.us-east-1.amazonaws.com/111111111111/shared"
+    configured = dict(
+        env="test", aws_region="us-east-1", processing_queue_url=shared,
+        geodata_bucket="opengeo-pmtiles-test",
+        geodata_kms_key_arn="arn:aws:kms:us-east-1:111111111111:key/test-key",
+        pmtiles_derivative_queue_url=(
+            "https://sqs.us-east-1.amazonaws.com/111111111111/pmtiles-v2"
+        ),
+        worker_processing_mode="pmtiles-v2",
+        pmtiles_worker_image_digest="sha256:" + "d" * 64,
+    )
+    settings = Settings(**configured)
+    assert settings.pmtiles_derivative_dispatch_configured
+    assert not settings.render_dispatch_configured
+    for override in (
+        {"pmtiles_worker_image_digest": None},
+        {"pmtiles_derivative_queue_url": shared},
+        {"worker_processing_mode": "shared"},
+        {"worker_processing_mode": "disabled"},
+    ):
+        assert not Settings(**(configured | override)).pmtiles_derivative_dispatch_configured
+    with pytest.raises(ValidationError, match="pmtiles_worker_image_digest"):
+        Settings(**(configured | {"pmtiles_worker_image_digest": "latest"}))
+
+
 def test_artifact_view_origin_is_optional_and_keeps_the_configured_https_origin() -> None:
     assert Settings(env="test").artifact_view_origin is None
     assert Settings(

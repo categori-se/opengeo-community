@@ -8,7 +8,7 @@
     "test": "node --import tsx --test test/**/*.test.ts",
     "synth": "cdk synth",
     "synth:dev": "cdk synth -c stage=dev -c budgetAlertEmail=opengeo-ci@example.invalid -c webOrigin=http://localhost:3000",
-    "synth:community": "node --import tsx bin/opengeo-community.ts"
+    "synth:community": "cdk synth --app 'node --import tsx bin/opengeo-community.ts'"
   },
   "dependencies": {
     "aws-cdk-lib": "2.265.0",

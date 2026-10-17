@@ -49,7 +49,7 @@ describe("versioned processing registry", () => {
     assert.equal(BROWSER_PROCESSING_LIMITS.networkAccess, "disabled");
     assert.equal(
       PROCESSING_TOOLS.find((tool) => tool.id === "vector-to-pmtiles").requestSchemaVersion,
-      "opengeo.pmtiles-derivative-request.1.0.0"
+      "opengeo.pmtiles-derivative-request.1.1.0"
     );
     assert.equal(
       PROCESSING_TOOLS.find((tool) => tool.id === "raster-to-cog").requestSchemaVersion,

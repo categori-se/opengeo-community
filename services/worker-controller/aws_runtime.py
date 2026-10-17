@@ -32,8 +32,21 @@ class RuntimeScope:
     worker_template: dict[str, Any]
     endpoint_template: dict[str, Any]
     shared_endpoint_template: dict[str, Any] | None = None
+    workload: str = "shared"
 
     def __post_init__(self):
+        if self.workload not in {"shared", "pmtiles-v2"}:
+            raise WindowUnsafe("unsupported_worker_workload")
+        if self.workload == "pmtiles-v2":
+            resources = self.worker_template.get("Resources", {}).values()
+            tasks = [item for item in resources if item.get("Type") == "AWS::ECS::TaskDefinition"]
+            if len(tasks) != 1:
+                raise WindowUnsafe("pmtiles_task_definition_invalid")
+            containers = tasks[0].get("Properties", {}).get("ContainerDefinitions", [])
+            if len(containers) != 1 or containers[0].get("Command") != [
+                "python3", "-m", "opengeo_worker.pmtiles_main"
+            ]:
+                raise WindowUnsafe("pmtiles_entrypoint_invalid")
         if not re.fullmatch(r"[0-9]{12}", self.account) or not re.fullmatch(
             r"[a-z]{2}-[a-z]+-[0-9]+", self.region
         ):

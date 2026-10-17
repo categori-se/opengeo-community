@@ -40,7 +40,10 @@ from opengeo_worker.models import (
     TransientFailure,
     ValidationFailure,
 )
-from opengeo_worker.pmtiles_derivatives import PmtilesDerivativeGenerator
+from opengeo_worker.pmtiles_derivatives import (
+    PmtilesDerivativeGenerator,
+    pmtiles_display_validation,
+)
 
 logger = logging.getLogger(__name__)
 ProcessOutcome = Literal["empty", "completed", "discarded", "retry"]
@@ -167,7 +170,11 @@ class Repository(Protocol):
     ) -> bool: ...
 
     def complete_pmtiles_derivative(
-        self, job_id: UUID, worker_token: UUID, artifact: StoredArtifact
+        self,
+        job_id: UUID,
+        worker_token: UUID,
+        artifact: StoredArtifact,
+        validation: dict[str, object] | None = None,
     ) -> bool: ...
 
     def fail_pmtiles_derivative(
@@ -680,6 +687,8 @@ class WorkerProcessor:
         assert claim.output_object_key is not None
         self._prepare_workspace_root()
         try:
+            if claim.options is not None and self._settings.geodata_expected_owner is None:
+                raise ValidationFailure("pmtiles_derivative_owner_configuration_missing")
             source_filename = _pmtiles_source_filename(claim.source)
             if source_filename is None:
                 raise ValidationFailure("pmtiles_derivative_source_facts_mismatch")
@@ -703,7 +712,9 @@ class WorkerProcessor:
                 output = workdir / "output.pmtiles"
                 self._storage.download_pmtiles_source(claim.source, source)
                 lease.assert_active()
-                self._pmtiles_derivative_generator.generate(source, claim, output, workdir)
+                metadata = self._pmtiles_derivative_generator.generate(
+                    source, claim, output, workdir
+                )
                 lease.assert_active()
                 artifact = self._storage.upload_pmtiles_derivative(
                     ArtifactFile(
@@ -715,10 +726,38 @@ class WorkerProcessor:
                     object_key=claim.output_object_key,
                     artifact_id=uuid5(claim.job_id, "output.pmtiles"),
                 )
+                validation = None
+                if self._settings.geodata_expected_owner is not None:
+                    validation, index = pmtiles_display_validation(
+                        output, metadata, claim, artifact, self._settings.geodata_expected_owner
+                    )
+                    if index is not None:
+                        lease.assert_active()
+                        index_path = workdir / "output.blocks.sha256"
+                        index_path.write_bytes(index)
+                        index_artifact = self._storage.upload(
+                            ArtifactFile(
+                                "derived",
+                                f"tiles/custom/{claim.job_id}.blocks.sha256",
+                                "application/octet-stream",
+                                index_path,
+                            ),
+                            output_prefix=claim.output_object_key.removesuffix(
+                                f"tiles/custom/{claim.job_id}.pmtiles"
+                            ),
+                            artifact_id=uuid5(claim.job_id, "output.blocks.sha256"),
+                        )
+                        validation["block_index_artifact"] = index_artifact.as_record()
                 lease.renew_now()
-                if not self._repository.complete_pmtiles_derivative(
-                    claim.job_id, worker_token, artifact
-                ):
+                if validation is None:
+                    completed = self._repository.complete_pmtiles_derivative(
+                        claim.job_id, worker_token, artifact
+                    )
+                else:
+                    completed = self._repository.complete_pmtiles_derivative(
+                        claim.job_id, worker_token, artifact, validation
+                    )
+                if not completed:
                     raise LeaseLost
         except ValidationFailure as error:
             if not self._repository.fail_pmtiles_derivative(claim.job_id, worker_token, error.code):

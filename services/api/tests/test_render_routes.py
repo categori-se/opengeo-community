@@ -939,6 +939,22 @@ def test_map_endpoint_redirects_only_to_an_exact_completed_signed_output() -> No
     ]
 
 
+@pytest.mark.parametrize(("state", "expected"), [("completed", 200), ("queued", 202), (None, 503)])
+def test_pmtiles_only_mode_preserves_map_reads_without_shared_job_mutation(state, expected) -> None:
+    repository = FakeRepository()
+    repository.map_job = job(state) if state is not None else None
+    dispatcher = Dispatcher()
+    api = client(repository, dispatcher, Settings(env="test", worker_processing_mode="pmtiles-v2"))
+    response = api.get(
+        f"/projects/{PROJECT_ID}/resources/{RESOURCE_ID}/render-profiles/{PROFILE_ID}/map",
+        headers={**headers(), "Accept": "image/svg+xml"},
+        params={"bbox": "84,27,86,29", "width": 800, "height": 600},
+    )
+    assert response.status_code == expected
+    assert not any(call[0] == "request" for call in repository.calls)
+    assert dispatcher.jobs == []
+
+
 def test_map_endpoint_returns_a_bounded_exact_svg_with_ogc_georeferencing_headers() -> None:
     repository = FakeRepository()
     repository.map_job = job("completed")

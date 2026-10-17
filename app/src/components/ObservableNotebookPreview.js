@@ -1,7 +1,7 @@
 let compiler;
 async function loadCompiler() {
   compiler ??= (async () => {
-    const response = await fetch('/editor-assets/manifest.json', {credentials: 'omit'});
+    const response = await fetch('/editor-assets/manifest.json', {credentials: 'omit', cache: 'no-store'});
     if (!response.ok) throw Error('Notebook preview assets are unavailable.');
     const {notebookPreview} = await response.json();
     if (!/^notebook-preview-[\w-]+\.js$/.test(notebookPreview ?? '')) throw Error('Notebook preview is unavailable in this release.');

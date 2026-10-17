@@ -50,6 +50,7 @@ class Observation:
     unfinished: dict[str, int] | None = None
     unfiltered: bool = False
     worker_tasks: int | None = None
+    lanes: frozenset[str] = LANES
 
     def drained(self) -> bool:
         return (
@@ -57,7 +58,8 @@ class Observation:
             and self.dead_letters == (0, 0, 0)
             and self.unfiltered is True
             and isinstance(self.unfinished, dict)
-            and self.unfinished.keys() == LANES
+            and self.lanes in {LANES, frozenset({"pmtiles"})}
+            and self.unfinished.keys() == self.lanes
             and all(
                 type(count) is int and count == 0 for count in self.unfinished.values()
             )

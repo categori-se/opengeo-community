@@ -1,4 +1,5 @@
 import {
+  Aws,
   CfnOutput,
   Duration,
   Stack,
@@ -9,7 +10,8 @@ import {
   aws_ecs as ecs,
   aws_iam as iam,
   aws_logs as logs,
-  aws_secretsmanager as secretsmanager
+  aws_secretsmanager as secretsmanager,
+  aws_sqs as sqs
 } from "aws-cdk-lib";
 import type {Construct} from "constructs";
 import type {EnvironmentConfig} from "./config.js";
@@ -21,6 +23,9 @@ export interface WorkerServiceStackProps extends StackProps {
   readonly foundation: PlatformFoundationStack;
   readonly runtimeEndpoints: PrivateRuntimeEndpointsStack;
   readonly imageDigest: string;
+  readonly workload?: "shared" | "pmtiles-v2";
+  readonly processingQueue?: sqs.IQueue;
+  readonly processingDeadLetterQueue?: sqs.IQueue;
 }
 
 export class WorkerServiceStack extends Stack {
@@ -31,6 +36,17 @@ export class WorkerServiceStack extends Stack {
     super(scope, id, props);
 
     const {config, foundation, runtimeEndpoints, imageDigest} = props;
+    const pmtilesOnly = props.workload === "pmtiles-v2";
+    if (pmtilesOnly && !/^sha256:[0-9a-f]{64}$/.test(imageDigest)) {
+      throw new Error("PMTiles v2 requires an immutable worker image digest");
+    }
+    if (pmtilesOnly && (!props.processingQueue || !props.processingDeadLetterQueue
+      || props.processingQueue.queueArn === foundation.processingQueue.queueArn
+      || props.processingDeadLetterQueue.queueArn === foundation.processingDeadLetterQueue.queueArn)) {
+      throw new Error("PMTiles v2 requires an isolated durable queue and dead-letter queue");
+    }
+    const processingQueue = props.processingQueue ?? foundation.processingQueue;
+    const processingDeadLetterQueue = props.processingDeadLetterQueue ?? foundation.processingDeadLetterQueue;
     const workerSecret = secretsmanager.Secret.fromSecretCompleteArn(
       this,
       "ImportedWorkerDatabaseSecret",
@@ -106,6 +122,7 @@ export class WorkerServiceStack extends Stack {
     });
 
     this.taskDefinition = new ecs.FargateTaskDefinition(this, "TaskDefinition", {
+      ...(pmtilesOnly ? {family: `opengeo-${config.stage}-pmtiles-v2`} : {}),
       cpu: 2048,
       memoryLimitMiB: 4096,
       ephemeralStorageGiB: 50,
@@ -122,6 +139,7 @@ export class WorkerServiceStack extends Stack {
     const container = this.taskDefinition.addContainer("WorkerContainer", {
       containerName: "opengeo-gis-worker",
       image: ecs.ContainerImage.fromEcrRepository(workerRepository, imageDigest),
+      ...(pmtilesOnly ? {command: ["python3", "-m", "opengeo_worker.pmtiles_main"]} : {}),
       essential: true,
       user: "10001:10001",
       readonlyRootFilesystem: true,
@@ -130,8 +148,10 @@ export class WorkerServiceStack extends Stack {
       environment: {
         OPEN_GEO_AWS_REGION: this.region,
         OPEN_GEO_GEODATA_BUCKET: foundation.geodataBucket.bucketName,
+        OPEN_GEO_GEODATA_EXPECTED_OWNER: Aws.ACCOUNT_ID,
         OPEN_GEO_GEODATA_KMS_KEY_ARN: foundation.dataKey.keyArn,
-        OPEN_GEO_PROCESSING_QUEUE_URL: foundation.processingQueue.queueUrl,
+        OPEN_GEO_PROCESSING_QUEUE_URL: processingQueue.queueUrl,
+        ...(pmtilesOnly ? {OPEN_GEO_PMTILES_WORKER_IMAGE_DIGEST: imageDigest} : {}),
         OPEN_GEO_DB_SSLROOTCERT: "/etc/ssl/certs/aws-rds-global-bundle.pem",
         OPEN_GEO_MAX_ATTEMPTS: "3",
         OPEN_GEO_WORKSPACE_ROOT: "/tmp/opengeo-worker"
@@ -166,7 +186,7 @@ export class WorkerServiceStack extends Stack {
           "sqs:ChangeMessageVisibility",
           "sqs:GetQueueAttributes"
         ],
-        resources: [foundation.processingQueue.queueArn]
+        resources: [processingQueue.queueArn]
       })
     );
     this.taskDefinition.addToTaskRolePolicy(
@@ -177,7 +197,9 @@ export class WorkerServiceStack extends Stack {
             "organizations/*/projects/*/datasets/*/uploads/*/original/*"
           ),
           foundation.geodataBucket.arnForObjects(
-            "organizations/*/projects/*/datasets/*/versions/*/derivatives/*"
+            pmtilesOnly
+              ? "organizations/*/projects/*/datasets/*/versions/*/derivatives/working/*"
+              : "organizations/*/projects/*/datasets/*/versions/*/derivatives/*"
           )
         ]
       })
@@ -187,12 +209,14 @@ export class WorkerServiceStack extends Stack {
         actions: ["s3:PutObject"],
         resources: [
           foundation.geodataBucket.arnForObjects(
-            "organizations/*/projects/*/datasets/*/versions/*/derivatives/*"
+            pmtilesOnly
+              ? "organizations/*/projects/*/datasets/*/versions/*/derivatives/tiles/custom/*"
+              : "organizations/*/projects/*/datasets/*/versions/*/derivatives/*"
           )
         ]
       })
     );
-    this.taskDefinition.addToTaskRolePolicy(
+    if (!pmtilesOnly) this.taskDefinition.addToTaskRolePolicy(
       new iam.PolicyStatement({
         actions: ["s3:DeleteObjectVersion"],
         resources: [
@@ -223,7 +247,7 @@ export class WorkerServiceStack extends Stack {
     );
 
     this.service = new ecs.FargateService(this, "Service", {
-      serviceName: `opengeo-${config.stage}-gis-worker`,
+      serviceName: `opengeo-${config.stage}-${pmtilesOnly ? "pmtiles-v2" : "gis"}-worker`,
       cluster: foundation.cluster,
       taskDefinition: this.taskDefinition,
       desiredCount: 0,
@@ -233,17 +257,17 @@ export class WorkerServiceStack extends Stack {
       circuitBreaker: {enable: true, rollback: true},
       deploymentController: {type: ecs.DeploymentControllerType.ECS},
       minHealthyPercent: 0,
-      maxHealthyPercent: 200,
+      maxHealthyPercent: pmtilesOnly ? 100 : 200,
       platformVersion: ecs.FargatePlatformVersion.LATEST,
       enableExecuteCommand: false,
       propagateTags: ecs.PropagatedTagSource.SERVICE
     });
     const scaling = this.service.autoScaleTaskCount({
       minCapacity: 0,
-      maxCapacity: config.workerMaxTasks
+      maxCapacity: pmtilesOnly ? 1 : config.workerMaxTasks
     });
     scaling.scaleToTrackCustomMetric("QueueBacklogTarget", {
-      metric: foundation.processingQueue.metricApproximateNumberOfMessagesVisible(),
+      metric: processingQueue.metricApproximateNumberOfMessagesVisible(),
       // Target tracking uses a strict greater-than scale-out alarm. A target
       // of one strands a single queued job when desired capacity is zero.
       targetValue: 0.5,
@@ -252,14 +276,14 @@ export class WorkerServiceStack extends Stack {
     });
 
     new cloudwatch.Alarm(this, "OldestMessageAlarm", {
-      metric: foundation.processingQueue.metricApproximateAgeOfOldestMessage(),
+      metric: processingQueue.metricApproximateAgeOfOldestMessage(),
       threshold: 900,
       evaluationPeriods: 2,
       datapointsToAlarm: 2,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING
     });
     new cloudwatch.Alarm(this, "DeadLetterQueueAlarm", {
-      metric: foundation.processingDeadLetterQueue.metricApproximateNumberOfMessagesVisible(),
+      metric: processingDeadLetterQueue.metricApproximateNumberOfMessagesVisible(),
       threshold: 1,
       evaluationPeriods: 1,
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING

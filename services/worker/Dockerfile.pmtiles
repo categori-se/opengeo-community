@@ -1,0 +1,54 @@
+FROM ghcr.io/osgeo/gdal:ubuntu-small-3.13.1@sha256:836d1646ff9ab30d7db947c7b9690de55f34c2fd7cc5af6086a0854ccb378f59 AS builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update \
+    && apt-get install --assume-yes --no-install-recommends ca-certificates curl python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements-pmtiles.lock /build/requirements-pmtiles.lock
+RUN python3 -m pip install --break-system-packages --no-cache-dir --require-hashes \
+      --only-binary=:all: --target /opt/opengeo-python \
+      --requirement /build/requirements-pmtiles.lock
+COPY certs/aws-rds-global-bundle.pem /tmp/aws-rds-global-bundle.pem
+RUN echo 'e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3  /tmp/aws-rds-global-bundle.pem' \
+      | sha256sum --check --strict
+
+FROM ghcr.io/osgeo/gdal:ubuntu-small-3.13.1@sha256:836d1646ff9ab30d7db947c7b9690de55f34c2fd7cc5af6086a0854ccb378f59
+
+ARG DEBIAN_FRONTEND=noninteractive
+# The v2 worker converts eligible managed vectors, including preserved GeoJSON
+# through its forced GeoJSON parser. It contains no document/OCR tools, malware
+# database, EXR replacement, or ingestion entry point; preservation is not inspection.
+# Apply public distro security updates before the exact image is scanned.
+RUN apt-get update \
+    && apt-get upgrade --assume-yes --no-install-recommends \
+    && apt-get install --assume-yes --no-install-recommends ca-certificates util-linux \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /usr/bin/pebble \
+    && ! grep -Eq '(^|:)10001:' /etc/passwd \
+    && ! grep -Eq '(^|:)10001:' /etc/group \
+    && printf 'opengeo:x:10001:\n' >> /etc/group \
+    && printf 'opengeo:x:10001:10001::/nonexistent:/bin/false\n' >> /etc/passwd \
+    && install --directory --owner=10001 --group=10001 --mode=0700 /tmp/opengeo-worker
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/opengeo-python:/srv/opengeo/src \
+    PATH=/usr/local/gdal-internal/bin:/usr/local/bin:/usr/bin:/bin \
+    PROJ_NETWORK=OFF \
+    GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR \
+    OPEN_GEO_WORKSPACE_ROOT=/tmp/opengeo-worker
+
+COPY --from=builder /opt/opengeo-python /opt/opengeo-python
+COPY src /srv/opengeo/src
+COPY scripts/verify-pmtiles-toolchain.py /srv/opengeo/scripts/verify-pmtiles-toolchain.py
+# Reuse the same checksum-bound AWS database CA bundle as the full worker.
+COPY --from=builder /tmp/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global-bundle.pem
+RUN echo 'e5bb2084ccf45087bda1c9bffdea0eb15ee67f0b91646106e466714f9de3c7e3  /etc/ssl/certs/aws-rds-global-bundle.pem' | sha256sum --check --strict \
+    && chmod 0444 /etc/ssl/certs/aws-rds-global-bundle.pem \
+    && chown --recursive 10001:10001 /srv/opengeo
+
+WORKDIR /srv/opengeo
+USER 10001:10001
+VOLUME ["/tmp/opengeo-worker"]
+ENTRYPOINT []
+CMD ["python3", "-m", "opengeo_worker.pmtiles_main"]

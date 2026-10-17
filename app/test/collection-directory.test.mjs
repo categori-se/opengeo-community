@@ -392,3 +392,30 @@ it('keeps a former owner view hidden when sign-in or account changes during a co
   }finally{release();root.dispose();globalThis.document=previous;dom.window.close();}
  }
 });
+
+
+it('offers a public Collection gallery example without loading member content', async()=>{
+ const dom=new JSDOM('<body></body>',{url:'https://studio.example/workspaces?view=collections'}),prior=globalThis.document;
+ globalThis.document=dom.window.document;
+ const record={id:id(1),title:'Public studies',description:'Saved grouping',revision:2,role:'viewer',visibility:'public',members:[]};
+ const privateRecord={...record,id:id(2),title:'Private studies',visibility:'private'};
+ let lists=0,reads=0,urls=0;
+ const adapter={kind:'api',listCollections:async()=>{lists++;return[record,privateRecord];},
+  getCollection:async key=>{reads++;return key===record.id?record:privateRecord;},
+  publicCollectionUrl:async key=>{urls++;return `/api/public/organizations/${id(3)}/collections/${key}/view`;}};
+ const root=CollectionDirectory({adapter});document.body.append(root);
+ const click=label=>{const button=[...root.querySelectorAll('button')].find(node=>node.textContent===label);assert.ok(button,label);button.click();};
+ try{
+  await settle(()=>root.querySelector('.collection-card')&&!root.querySelector('fieldset').disabled);
+  assert.equal(root.querySelector('[aria-label="JavaScript gallery import for this Collection"]'),null);
+  click('Public studies');await settle(()=>root.querySelector('[aria-label="JavaScript gallery import for this Collection"]'));
+  const example=root.querySelector('[aria-label="JavaScript gallery import for this Collection"]');
+  assert.equal(example.readOnly,true);assert.match(example.value,new RegExp(`https://studio.example/api/public/organizations/${id(3)}/collections/${id(1)}/module\\.mjs`));
+  assert.match(example.value,/import \{createGallery\}/);assert.match(example.value,/gallery.dispose\(\)/);
+  assert.match(root.textContent,/without loading their maps or images/);assert.match(root.textContent,/Each member keeps its own access/);
+  assert.equal(root.querySelector('iframe,img'),null);assert.deepEqual([lists,reads,urls],[1,1,1]);
+  click('Private studies');await settle(()=>root.querySelector('[aria-label="Collection title"]')?.value==='Private studies');
+  assert.equal(root.querySelector('[aria-label="JavaScript gallery import for this Collection"]'),null);
+  assert.deepEqual([lists,reads,urls],[1,2,1]);
+ }finally{root.dispose();root.remove();globalThis.document=prior;dom.window.close();}
+});

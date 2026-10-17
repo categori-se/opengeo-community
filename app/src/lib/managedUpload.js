@@ -64,6 +64,7 @@ export async function resumeManagedUpload({adapter, projectId, uploadId, file, c
 export function createManagedUploadSession({
   adapter, projectId, file, name = fileBaseName(file?.name), description = null,
   classification = "internal", format = inferManagedFormat(file?.name), tags = ["opened-locally"],
+  purpose = "ingest",
   onStage = () => {}, assertCurrentScope = async () => {}, stagedTarget = null,
   beforeRequest = async () => {}, onTicket = async () => {}
 }) {
@@ -71,10 +72,11 @@ export function createManagedUploadSession({
     || typeof adapter.uploadFile !== "function" || typeof adapter.completeUpload !== "function") {
     throw codedError("managed_upload_unavailable");
   }
-  const definition = validateManagedUpload({file, name, format});
+  const definition = validateManagedUpload({file, name, format, purpose, stagedTarget});
   const normalized = normalizeManagedTags(tags);
   const metadata = {name: name.trim(), description: description?.trim() || null, classification,
     format, filename: file.name, contentType: definition.contentType, sizeBytes: file.size, tags: normalized,
+    ...(purpose !== "ingest" ? {purpose} : {}),
     ...(stagedTarget ? {targetDatasetId: stagedTarget.datasetId, expectedBaseVersionId: stagedTarget.baseVersionId} : {})};
   let checksumSha256, ticket, completion, inFlight;
   let requestStarted = false, uploadAttempted = false, uploaded = false;
@@ -90,11 +92,12 @@ export function createManagedUploadSession({
       requestStarted = true;
       ticket = await adapter.requestUpload(projectId, {...metadata, checksumSha256});
     }
+    if ((ticket.purpose ?? "ingest") !== purpose) throw codedError("upload_verification_failed");
     await onTicket({uploadId: ticket.uploadId});
     await assertCurrentScope();
     // An upload response can be lost after S3 accepted the file. Verify before any repeat POST.
     if (uploadAttempted && !uploaded) {
-      try {completion = await adapter.completeUpload(projectId, ticket.uploadId); return completion;}
+      try {return finish(await adapter.completeUpload(projectId, ticket.uploadId));}
       catch (error) {
         if (error?.code !== "upload_object_missing") throw error;
         uploadAttempted = false;
@@ -110,11 +113,16 @@ export function createManagedUploadSession({
       uploaded = true;
     }
     await assertCurrentScope();
-    onStage("verifying", "Verifying the immutable object and queuing inspection…");
-    completion = await adapter.completeUpload(projectId, ticket.uploadId);
-    onStage("queued", `${completion.dataset.name} is queued as version ${completion.versionNumber}.`);
-    return completion;
+    onStage("verifying", purpose === "pmtiles_original" ? "Verifying the preserved original…" : "Verifying the immutable object and queuing inspection…");
+    return finish(await adapter.completeUpload(projectId, ticket.uploadId));
   };
+  function finish(result) {
+    if ((result.purpose ?? "ingest") !== purpose) throw codedError("upload_verification_failed");
+    completion = result;
+    if (result.purpose === "pmtiles_original") onStage("preserved", `${result.dataset.name} is preserved as version ${result.versionNumber}. Create PMTiles to make a map display.`);
+    else onStage("queued", `${result.dataset.name} is queued as version ${result.versionNumber}.`);
+    return completion;
+  }
   return {
     run() {
       if (!inFlight) inFlight = execute().finally(() => {inFlight = null;});
@@ -125,11 +133,16 @@ export function createManagedUploadSession({
   };
 }
 
-export function validateManagedUpload({file, name, format}) {
+export function validateManagedUpload({file, name, format, purpose = "ingest", stagedTarget = null}) {
   if (!(file instanceof Blob) || file.size < 1 || typeof file.name !== "string") {
     throw codedError("http_422");
   }
   if (typeof name !== "string" || !name.trim()) throw codedError("http_422");
+  if (!["ingest", "pmtiles_original"].includes(purpose)) throw codedError("http_422");
+  if (purpose === "pmtiles_original") {
+    if (format !== "geojson" || stagedTarget != null) throw codedError("http_422");
+    if (file.size > 512 * 1024 * 1024) throw codedError("upload_size_exceeds_limit");
+  }
   if (!/^[A-Za-z0-9][A-Za-z0-9._ -]{2,254}$/.test(file.name)) throw codedError("http_422");
   if (format === "kml" && file.size > 4 * 1024 * 1024) throw codedError("upload_size_exceeds_limit");
   const definition = MANAGED_FORMATS[format];

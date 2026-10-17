@@ -40,8 +40,9 @@ export function mapboxCompatibility({layers = [], style = null, state = {}, allo
   const add = (code, message, layer = null) => issues.push({code, message,
     ...(layer ? {layerId: layer.layerId, title: layer.title ?? layer.layerId} : {})});
   for (const layer of layers) {
+    if (layer.pointClustering?.enabled) add("point-clustering", "Point clustering currently uses MapLibre. Disable clustering before switching engines.", layer);
     if (["pmtiles-vector", "pmtiles-raster"].includes(layer.sourceType)
-      || state.archiveTileSessions?.has(layer.layerId)) {
+      || layer.managedDisplayId || state.archiveTileSessions?.has(layer.layerId)) {
       add("archive-protocol", "This archive needs the MapLibre protocol adapter.", layer);
     }
     if (layer.labels?.enabled && (!isRegisteredMapFont(layer.labels.fontRef)

@@ -8,6 +8,8 @@ export function LayerCatalogResults({records, adapter = null, adapterKind = null
   const root = document.createElement("div");
   const directoryId = `catalog-directory-${++directorySequence}`;
   const rowCache = new Map(), groupState = new Map();
+  const controller = new AbortController(), previews = new Set();
+  root.dispose = () => {controller.abort(); for (const preview of previews) preview.dispose?.(); previews.clear();};
   root.className = "layer-catalog-results layer-catalog-directory";
   if (!records.length) {root.append(text("p", "No matching layers or datasets.")); return root;}
   const tools = document.createElement("div"); tools.className = "catalog-directory-tools";
@@ -144,6 +146,7 @@ export function LayerCatalogResults({records, adapter = null, adapterKind = null
         preview.setAttribute("aria-controls", target.id);
         let loaded = false;
         preview.addEventListener("click", async () => {
+          if (controller.signal.aborted) return;
           if (detailRow.hidden) {
             detailRow.hidden = false;
             toggle.setAttribute("aria-expanded", "true");
@@ -155,9 +158,13 @@ export function LayerCatalogResults({records, adapter = null, adapterKind = null
           preview.disabled = true;
           const status = text("p", "Loading live source preview…"); status.setAttribute("role", "status");
           target.replaceChildren(status);
-          try {target.replaceChildren(await CatalogLayerPreview({record, adapter, load: loadPreview, interactive: true})); loaded = true;}
-          catch (error) {status.textContent = `${error?.message || "Preview unavailable"} No archived copy was used.`;}
-          finally {preview.disabled = false;}
+          try {
+            const content = await CatalogLayerPreview({record, adapter, load: loadPreview, interactive: true, signal: controller.signal});
+            if (controller.signal.aborted) {content.dispose?.(); return;}
+            previews.add(content); target.replaceChildren(content); loaded = true;
+          }
+          catch (error) {if (!controller.signal.aborted) status.textContent = `${error?.message || "Preview unavailable"} No archived copy was used.`;}
+          finally {if (!controller.signal.aborted) preview.disabled = false;}
         });
         name.append(preview); detail.append(target);
       }

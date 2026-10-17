@@ -1,4 +1,5 @@
 import {emptyMapDefinition} from "./mapDefinition.js";
+import {normalizePmtilesOptions,PMTILES_OUTPUT_LAYER} from './pmtilesOptions.js';
 import {parseSitePrintLayout} from "./apiClient.js";
 import {
   applyFeatureQuery,
@@ -3867,7 +3868,12 @@ export class FixturePlatformAdapter {
     }];
   }
 
+  async getPmtilesConversionCapabilities() {
+    return {inputFormats:['geojson'],recipe:'gdal-pmtiles-v2',adaptiveGeneralization:true,admissionReady:true,admissionReason:'ready'};
+  }
+
   async createPmtilesDerivative(projectId, datasetId, datasetVersionId, request) {
+    const options=normalizePmtilesOptions(request?.options);
     const dataset = await this.getDataset(projectId, datasetId);
     if (dataset.currentVersionId !== datasetVersionId
       || dataset.currentVersionState !== "active") {
@@ -3878,7 +3884,10 @@ export class FixturePlatformAdapter {
       candidate.datasetVersionId === datasetVersionId
       && candidate.idempotencyKey === idempotencyKey
     ));
-    if (existing) return structuredClone(existing);
+    if (existing) {
+      if(JSON.stringify(existing.options??null)!==JSON.stringify(options))throw fixtureConflict('pmtiles_derivative_idempotency_conflict');
+      return structuredClone(existing);
+    }
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(idempotencyKey)) {
       throw new TypeError("PMTiles idempotency key is invalid");
     }
@@ -3892,6 +3901,7 @@ export class FixturePlatformAdapter {
     if (!sourceLayer || sourceLayer.length > 200) {
       throw new TypeError("PMTiles source layer is invalid");
     }
+    if(options&&!PMTILES_OUTPUT_LAYER.test(sourceLayer))throw TypeError('PMTiles output layer is invalid');
     const now = new Date().toISOString();
     const sourceObject = (this.datasetVersionObjects.get(datasetVersionId) ?? [])[0]
       ?? {id: fixtureDatasetObjectId(dataset)};
@@ -3902,12 +3912,12 @@ export class FixturePlatformAdapter {
       contentType: "application/vnd.pmtiles",
       sizeBytes: Math.max(4096, dataset.featureCount * 256),
       checksumSha256: await fixtureSha256(JSON.stringify({
-        datasetVersionId, bounds, minZoom, maxZoom, sourceLayer
+        datasetVersionId, bounds, minZoom, maxZoom, sourceLayer,...(options?{options}:{})
       })),
       createdAt: now
     };
     const requestChecksumSha256 = await fixtureSha256(JSON.stringify({
-      idempotencyKey, bounds, minZoom, maxZoom, sourceLayer
+      idempotencyKey, bounds, minZoom, maxZoom, sourceLayer,...(options?{options}:{})
     }));
     const job = {
       jobId: crypto.randomUUID(),
@@ -3919,6 +3929,7 @@ export class FixturePlatformAdapter {
       minZoom,
       maxZoom,
       sourceLayer,
+      ...(options?{recipe:'gdal-pmtiles-v2',options,workerImageDigest:'sha256:'+'0'.repeat(64)}:{}),
       requestChecksumSha256,
       idempotencyKey,
       state: "completed",
@@ -3940,7 +3951,8 @@ export class FixturePlatformAdapter {
     this.datasetVersionLineages.get(datasetVersionId)?.derivatives.push({
       kind: "pmtiles",
       operationId: job.jobId,
-      recipe: "gdal-pmtiles-v1",
+      recipe: options?'gdal-pmtiles-v2':"gdal-pmtiles-v1",
+      ...(options?{options,software:{runtimeImageDigest:'sha256:'+'0'.repeat(64),implementation:'local-fixture'}}:{}),
       sourceObjectId: sourceObject.id,
       outputObjectId: outputObject.id,
       bounds,

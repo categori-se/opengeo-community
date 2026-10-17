@@ -7,10 +7,7 @@ const STARTUP_MESSAGES = Object.freeze({
   account: (
     "Loading your account tools. The service has not finished responding yet."
   ),
-  project: (
-    "Waiting for the project's essential records and source connections. "
-    + "This message does not mean your session was idle."
-  )
+  project: "Waiting for the project's essential records and source connections."
 });
 
 export function platformStartupMessage(scope) {

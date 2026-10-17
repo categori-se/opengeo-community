@@ -8,8 +8,11 @@ export function ResourceKnowledge({adapter, datasetId, resourceKind="layer", res
   const readKnowledge = options=>resourceKind==="layer" ? adapter.getDatasetKnowledge(resourceId,options) : adapter.getAuthoredKnowledge(resourceKind,resourceId,options);
   const saveKnowledge = payload=>resourceKind==="layer" ? adapter.saveDatasetKnowledge(resourceId,payload) : adapter.saveAuthoredKnowledge(resourceKind,resourceId,payload);
   const root = element("section", "", "resource-knowledge");
-  root.append(element("h2", "Resource knowledge"));
-  const status = element("p", "Load recorded source documents, rights and metadata assertions.");
+  const projectSpecific = resourceKind === "project";
+  root.append(element("h2", projectSpecific ? "Project-specific metadata" : "Resource knowledge"));
+  const status = element("p", projectSpecific
+    ? "Load this Project's separate metadata revisions to inspect or curate its recorded assertions."
+    : "Load recorded source documents, rights and metadata assertions.");
   status.setAttribute("role", "status");
   const load = button("Load metadata record", refresh);
   const content = element("div");
@@ -36,6 +39,7 @@ export function ResourceKnowledge({adapter, datasetId, resourceKind="layer", res
     }
   };
   const notify=()=>onStateChange({dirty:edited,busy});
+  root.load = refresh;
   root.addEventListener("input",()=>notify());root.addEventListener("change",()=>notify());
   function setBusy(value) {
     busy = value;
@@ -53,7 +57,9 @@ export function ResourceKnowledge({adapter, datasetId, resourceKind="layer", res
       record = loaded;
       edited = false;
       render();
-      status.textContent = record.version ? `Metadata revision ${record.version}.` : "No metadata assertions recorded yet. Unknown rights remain unknown.";
+      status.textContent = record.version ? `Metadata revision ${record.version}.` : projectSpecific
+        ? "No Project-specific metadata revision yet."
+        : "No metadata assertions recorded yet. Unknown rights remain unknown.";
       load.textContent = "Reload metadata record";
       return true;
     } catch {if (!disposed) status.textContent = "Metadata could not load. Your role or this server may not yet support resource metadata."; return false;}
@@ -63,22 +69,46 @@ export function ResourceKnowledge({adapter, datasetId, resourceKind="layer", res
     guidedEditor=null;
     content.replaceChildren();
     const document = record.document;
+    const unrecorded = projectSpecific ? element("details") : null;
+    if (unrecorded) unrecorded.append(element("summary", "Unrecorded Project-specific fields"));
     const places=element("section");places.append(element("h3","Geographic tags"));
-    for(const ref of placeReferences(document)) {
+    const references = placeReferences(document);
+    const tagDetails = projectSpecific && references.length ? element("details") : null;
+    if (tagDetails) tagDetails.append(element("summary", "Tag sources and relationships"));
+    for(const ref of references) {
+      if (projectSpecific) {
+        const row = element("p");
+        const label = element(ref.identity ? "a" : "span", ref.name);
+        if (ref.identity) { label.href=ref.identity; label.target="_blank"; label.rel="noopener noreferrer"; label.referrerPolicy="no-referrer"; }
+        row.append(label, element("span", ` · ${ref.relationship === "Discusses this place" ? "Project context" : ref.relationship}`));
+        places.append(row);
+        tagDetails.append(json(`${ref.name} · ${ref.relationship}`, document.metadata[ref.level][ref.index]));
+        continue;
+      }
       const row=element("p",`${ref.name} · ${ref.relationship} · ${ref.level} · ${ref.provenance.replaceAll("_"," ")} · `);
       if(ref.identity) {const link=element("a",ref.identity);link.href=ref.identity;link.target="_blank";link.rel="noopener noreferrer";link.referrerPolicy="no-referrer";row.append(link);}
       else row.append(element("span","Unresolved place name"));
       places.append(row);
     }
-    places.append(element("p","Place references do not establish verified country or continent membership. Recorded metadata retains their evidence and method."));
-    content.append(places, SavedPlaceContexts(document));
+    if (tagDetails) places.append(tagDetails);
+    if (projectSpecific) {
+      if (references.length) content.append(places);
+      else {places.append(element("p", "No Project-specific place references recorded."));unrecorded.append(places);}
+      const contexts = SavedPlaceContexts(document);
+      if (contexts.childElementCount) content.append(contexts);
+    } else {
+      places.append(element("p","Place references do not establish verified country or continent membership. Recorded metadata retains their evidence and method."));
+      content.append(places, SavedPlaceContexts(document));
+    }
     const distributions = element("section");
     distributions.append(element("h3", "Representations and custody"));
-    if (!document.distributions.length) distributions.append(element("p", "No distributions recorded. Custody is unknown."));
+    if (!document.distributions.length) distributions.append(element("p", projectSpecific
+      ? "No Project-specific distributions recorded. Layer source records are available from their Catalog links."
+      : "No distributions recorded. Custody is unknown."));
     for (const distribution of document.distributions) {
       distributions.append(element("h4", distribution.id), element("p", `Custody: ${distribution.custody ?? "Unknown"}`), json("Distribution", distribution));
     }
-    content.append(distributions);
+    (projectSpecific && !document.distributions.length ? unrecorded : content).append(distributions);
     for (const [key,label] of [["source","Source documents"],["normalized","Normalized metadata"],["curated","Curated metadata"],["inferred","Inferred metadata"]]) {
       const section = element("section"); section.append(element("h3",label));
       if (!document.metadata[key].length) section.append(element("p","Not recorded."));
@@ -133,10 +163,18 @@ export function ResourceKnowledge({adapter, datasetId, resourceKind="layer", res
           section.append(fact);
         }
       }
-      content.append(section);
+      (projectSpecific && !document.metadata[key].length ? unrecorded : content).append(section);
     }
-    content.append(json("Related contextual resources", document.context),
-      element("p", "Rights apply to the named resource or distribution. They are not automatically inherited by other representations. Context links do not copy provider data."));
+    const related = json("Related contextual resources", document.context);
+    if (projectSpecific && !document.context.length) unrecorded.append(related);
+    else content.append(related);
+    const rightsScope = element("p", "Rights apply to the named resource or distribution. They are not automatically inherited by other representations. Context links do not copy provider data.");
+    if (projectSpecific) {
+      if (unrecorded.childElementCount > 1) content.append(unrecorded);
+      const scope = element("details");scope.append(element("summary", "About this metadata"), rightsScope,
+        element("p", "Place relationships retain their recorded evidence and method. A contextual place reference does not assert verified geographic coverage."));
+      content.append(scope);
+    } else content.append(rightsScope);
     if (record.version > 1) {
       const history = element("div");
       const comparison = element("section"); comparison.setAttribute("aria-label", "Metadata revision comparison");

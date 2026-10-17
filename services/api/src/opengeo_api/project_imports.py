@@ -1,7 +1,11 @@
 import json
+import math
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
+from decimal import Decimal
+from hashlib import sha256
 from typing import Any, Literal, Protocol, TypeVar, cast
 from uuid import UUID, uuid4
 
@@ -23,6 +27,12 @@ from opengeo_api.tenant_database import (
     TenantDatabaseUnavailable,
     TenantTransaction,
     TenantTransactionExecutor,
+)
+from opengeo_api.workspaces import (
+    _MAP_DEFINITION_CHUNK_BYTES,
+    PostgresWorkspaceRepository,
+    WorkspaceConflict,
+    WorkspaceStoreUnavailable,
 )
 
 ProjectImportState = Literal["open", "completed"]
@@ -223,6 +233,16 @@ class PostgresProjectImportRepository:
             current_version = cast(int, map_row[0])
             if current_version != draft.expected_map_version:
                 raise ProjectImportConflict("map_version_conflict", current_version=current_version)
+            await self._require_geolibre_return(
+                transaction,
+                context,
+                project_id,
+                draft.map_id,
+                draft.expected_map_version,
+                draft.map_definition,
+                {candidate.import_ref for candidate in draft.external_sources}
+                | {candidate.import_ref for candidate in draft.embedded_datasets},
+            )
             await transaction.execute(
                 """
                 INSERT INTO app.project_import_operations
@@ -409,24 +429,83 @@ class PostgresProjectImportRepository:
                 return imported
             if not imported.ready:
                 raise ProjectImportConflict("project_import_incomplete")
-            operation_row = await transaction.fetch_one(
+            definition_rows = await transaction.fetch_all(
                 """
-                SELECT map_definition FROM app.project_import_operations
-                WHERE organization_id = %s AND id = %s
+                SELECT chunk.chunk_index,
+                       substring(convert_to(operation.map_definition::text, 'UTF8')
+                         FROM chunk.chunk_index * %s::integer + 1 FOR %s::integer),
+                       octet_length(operation.map_definition::text)
+                FROM app.project_import_operations operation
+                CROSS JOIN LATERAL generate_series(
+                  0, (octet_length(operation.map_definition::text) - 1) / %s::integer
+                ) AS chunk(chunk_index)
+                WHERE operation.organization_id = %s AND operation.id = %s
+                ORDER BY chunk.chunk_index
                 """,
-                (context.organization_id, import_id),
+                (
+                    _MAP_DEFINITION_CHUNK_BYTES,
+                    _MAP_DEFINITION_CHUNK_BYTES,
+                    _MAP_DEFINITION_CHUNK_BYTES,
+                    context.organization_id,
+                    import_id,
+                ),
             )
-            if operation_row is None:
+            if not definition_rows:
                 raise ProjectImportNotFound("project_import")
-            replacements = await self._replacement_records(transaction, context, imported)
-            definition = rewrite_import_definition(
-                cast(dict[str, Any], operation_row[0]), replacements
+            try:
+                return_definition = PostgresWorkspaceRepository._decode_map_definition_chunks(
+                    [(row[0], row[1]) for row in definition_rows], int(definition_rows[0][2])
+                )
+            except (WorkspaceStoreUnavailable, ValueError, TypeError, IndexError) as error:
+                raise ProjectImportStoreUnavailable("invalid project import definition") from error
+            reviewed_return = await self._require_geolibre_return(
+                transaction,
+                context,
+                project_id,
+                imported.map_id,
+                imported.expected_map_version,
+                return_definition,
+                {item.import_ref for item in imported.items},
             )
+            replacements = await self._replacement_records(transaction, context, imported)
+            definition = rewrite_import_definition(return_definition, replacements)
             definition = upgrade_import_map_definition(definition)
             try:
                 validate_map_definition(definition, require_current=True)
             except ValueError as error:
                 raise ProjectImportConflict("project_import_definition_invalid") from error
+            # A completed upload can still be queued for conversion. Its exact
+            # current binding is checked by _replacement_records; ordinary saved
+            # references keep requiring active versions. Do not exclude retained
+            # Layers, external sources, Styles or basemap connections.
+            embedded_refs = {
+                item.import_ref for item in imported.items if item.kind == "embedded_dataset"
+            }
+            bound_output_ids = {
+                layer["layerId"]
+                for layer in return_definition["layers"]
+                if layer.get("importRef") in embedded_refs
+            }
+            governed_definition = {
+                **definition,
+                "layers": [
+                    layer
+                    for layer in definition["layers"]
+                    if layer["layerId"] not in bound_output_ids
+                ],
+            }
+            if governed_definition.get("activeLayerId") in bound_output_ids:
+                governed_definition["activeLayerId"] = None
+            try:
+                await PostgresWorkspaceRepository(
+                    self._executor
+                )._require_map_definition_references(
+                    transaction, context, project_id, governed_definition
+                )
+            except WorkspaceConflict as error:
+                raise ProjectImportConflict(
+                    error.code, current_version=error.current_version
+                ) from error
             encoded = json.dumps(
                 definition, allow_nan=False, ensure_ascii=False, separators=(",", ":")
             ).encode("utf-8")
@@ -467,13 +546,14 @@ class PostgresProjectImportRepository:
                 """
                 INSERT INTO app.map_versions
                   (organization_id, map_id, version, definition, change_message, created_by)
-                VALUES (%s, %s, %s, %s, 'GeoLibre governed import', %s)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
                 (
                     context.organization_id,
                     imported.map_id,
                     next_version,
                     Jsonb(definition),
+                    "GeoLibre reviewed return" if reviewed_return else "GeoLibre governed import",
                     context.user_id,
                 ),
             )
@@ -502,6 +582,69 @@ class PostgresProjectImportRepository:
             return replace(completed, final_map_version=next_version)
 
         return await self._run(context, operation)
+
+    async def _require_geolibre_return(
+        self,
+        transaction: TenantTransaction,
+        context: TenantContext,
+        project_id: UUID,
+        map_id: UUID,
+        expected_map_version: int,
+        definition: dict[str, Any],
+        import_refs: set[str],
+    ) -> bool:
+        metadata = geolibre_return_metadata(definition)
+        if metadata is None:
+            return False
+        base = metadata["base"]
+        # Scope history through its original map and access container. Returning
+        # into another map never permits borrowing history from another project.
+        rows = await transaction.fetch_all(
+            """
+            SELECT chunk.chunk_index,
+                   substring(convert_to(history.definition::text, 'UTF8')
+                     FROM chunk.chunk_index * %s::integer + 1 FOR %s::integer),
+                   octet_length(history.definition::text)
+            FROM app.map_versions history
+            JOIN app.maps map ON map.organization_id = history.organization_id
+              AND map.id = history.map_id AND map.project_id = %s
+            CROSS JOIN LATERAL generate_series(
+              0, (octet_length(history.definition::text) - 1) / %s::integer
+            ) AS chunk(chunk_index)
+            WHERE history.organization_id = %s AND history.map_id = %s
+              AND history.version = %s
+            ORDER BY chunk.chunk_index
+            """,
+            (
+                _MAP_DEFINITION_CHUNK_BYTES,
+                _MAP_DEFINITION_CHUNK_BYTES,
+                project_id,
+                _MAP_DEFINITION_CHUNK_BYTES,
+                context.organization_id,
+                UUID(base["mapId"]),
+                base["mapVersion"],
+            ),
+        )
+        if not rows:
+            raise ProjectImportConflict("geolibre_return_base_unavailable")
+        try:
+            base_definition = PostgresWorkspaceRepository._decode_map_definition_chunks(
+                [(row[0], row[1]) for row in rows], int(rows[0][2])
+            )
+        except (WorkspaceStoreUnavailable, ValueError, TypeError, IndexError) as error:
+            raise ProjectImportStoreUnavailable("invalid GeoLibre return base history") from error
+        validate_geolibre_return(
+            definition, base_definition, map_id, expected_map_version, import_refs
+        )
+        try:
+            await PostgresWorkspaceRepository(self._executor)._require_map_definition_references(
+                transaction, context, project_id, upgrade_import_map_definition(base_definition)
+            )
+        except WorkspaceConflict as error:
+            raise ProjectImportConflict(
+                error.code, current_version=error.current_version
+            ) from error
+        return True
 
     async def _create_external_source(
         self,
@@ -595,6 +738,9 @@ class PostgresProjectImportRepository:
                     SELECT source.source_type::text, revision.version_number,
                            revision.source_url, revision.configuration
                     FROM app.external_sources source
+                    JOIN app.project_datasets project_dataset
+                      ON project_dataset.organization_id = source.organization_id
+                     AND project_dataset.dataset_id = source.dataset_id
                     JOIN LATERAL (
                       SELECT version_number, source_url, configuration
                       FROM app.external_source_revisions
@@ -603,8 +749,10 @@ class PostgresProjectImportRepository:
                       ORDER BY version_number DESC LIMIT 1
                     ) revision ON true
                     WHERE source.organization_id = %s AND source.dataset_id = %s
+                      AND project_dataset.project_id = %s
+                    FOR KEY SHARE OF project_dataset
                     """,
-                    (context.organization_id, item.dataset_id),
+                    (context.organization_id, item.dataset_id, imported.project_id),
                 )
                 if row is None:
                     raise ProjectImportConflict("project_import_source_missing")
@@ -622,13 +770,26 @@ class PostgresProjectImportRepository:
                     """
                     SELECT version.original_object_id, version.id, version.version_number
                     FROM app.datasets dataset
+                    JOIN app.project_datasets project_dataset
+                      ON project_dataset.organization_id = dataset.organization_id
+                     AND project_dataset.dataset_id = dataset.id
                     JOIN app.dataset_versions version
                       ON version.organization_id = dataset.organization_id
                      AND version.dataset_id = dataset.id
                      AND version.id = dataset.current_version_id
                     WHERE dataset.organization_id = %s AND dataset.id = %s
+                      AND project_dataset.project_id = %s
+                      AND dataset.source_type::text = %s AND dataset.format::text = %s
+                      AND version.state IN ('queued', 'processing', 'active')
+                    FOR KEY SHARE OF project_dataset
                     """,
-                    (context.organization_id, item.dataset_id),
+                    (
+                        context.organization_id,
+                        item.dataset_id,
+                        imported.project_id,
+                        item.expected_source_type,
+                        item.expected_format,
+                    ),
                 )
                 if row is None:
                     raise ProjectImportConflict("project_import_dataset_not_ready")
@@ -836,6 +997,202 @@ class PostgresProjectImportRepository:
         }
 
 
+def geolibre_return_metadata(definition: dict[str, Any]) -> dict[str, Any] | None:
+    extensions = definition.get("extensions", {})
+    if not isinstance(extensions, dict) or "opengeoGeoLibreReturn" not in extensions:
+        return None
+    metadata = extensions["opengeoGeoLibreReturn"]
+    code = "geolibre_return_metadata_invalid"
+    if not isinstance(metadata, dict) or set(metadata) != {
+        "schemaVersion",
+        "base",
+        "inputs",
+        "outputs",
+    }:
+        raise ProjectImportConflict(code)
+    if metadata["schemaVersion"] != "opengeo.geolibre-return.1.0.0":
+        raise ProjectImportConflict(code)
+    base = metadata["base"]
+    if not isinstance(base, dict) or set(base) != {"mapId", "mapVersion", "definitionSha256"}:
+        raise ProjectImportConflict(code)
+    try:
+        if str(UUID(base["mapId"])) != base["mapId"]:
+            raise ValueError("noncanonical map ID")
+    except (ValueError, TypeError, AttributeError) as error:
+        raise ProjectImportConflict(code) from error
+    if (
+        isinstance(base["mapVersion"], bool)
+        or not isinstance(base["mapVersion"], int)
+        or base["mapVersion"] < 1
+        or not isinstance(base["definitionSha256"], str)
+        or re.fullmatch(r"[a-f0-9]{64}", base["definitionSha256"]) is None
+    ):
+        raise ProjectImportConflict(code)
+    for key in ("inputs", "outputs"):
+        if not isinstance(metadata[key], list) or len(metadata[key]) > 200:
+            raise ProjectImportConflict(code)
+    for entry in metadata["inputs"]:
+        if (
+            not isinstance(entry, dict)
+            or set(entry)
+            not in ({"layerId", "datasetId"}, {"layerId", "datasetId", "datasetVersionId"})
+            or any(not isinstance(value, str) or not value for value in entry.values())
+        ):
+            raise ProjectImportConflict(code)
+    for entry in metadata["outputs"]:
+        if (
+            not isinstance(entry, dict)
+            or set(entry)
+            not in (
+                {"layerId", "importRef", "inputLayerIds", "retention", "reproducible"},
+                {
+                    "layerId",
+                    "importRef",
+                    "inputLayerIds",
+                    "retention",
+                    "reproducible",
+                    "inputLinkMethod",
+                },
+            )
+            or not isinstance(entry["layerId"], str)
+            or not isinstance(entry["importRef"], str)
+            or entry["retention"] != "retained-output"
+            or entry["reproducible"] is not False
+            or ("inputLinkMethod" in entry and entry["inputLinkMethod"] != "user-declared")
+            or not isinstance(entry["inputLayerIds"], list)
+            or any(not isinstance(value, str) for value in entry["inputLayerIds"])
+            or len(set(entry["inputLayerIds"])) != len(entry["inputLayerIds"])
+        ):
+            raise ProjectImportConflict(code)
+    return cast(dict[str, Any], metadata)
+
+
+def validate_geolibre_return(
+    definition: dict[str, Any],
+    base_definition: dict[str, Any],
+    target_map_id: UUID,
+    expected_map_version: int,
+    import_refs: set[str],
+) -> None:
+    """Validate declarations against authorized immutable history, never the return file."""
+    metadata = geolibre_return_metadata(definition)
+    if metadata is None:
+        raise ProjectImportConflict("geolibre_return_metadata_invalid")
+    base = metadata["base"]
+    if (
+        sha256(_legacy_geolibre_json(base_definition).encode()).hexdigest()
+        != base["definitionSha256"]
+    ):
+        raise ProjectImportConflict("geolibre_return_base_mismatch")
+    if UUID(base["mapId"]) == target_map_id and base["mapVersion"] != expected_map_version:
+        raise ProjectImportConflict("geolibre_return_base_version_conflict")
+    base_layers = {layer["layerId"]: layer for layer in base_definition.get("layers", [])}
+    expected_inputs = {
+        layer_id: {
+            "layerId": layer_id,
+            "datasetId": layer["datasetId"],
+            **(
+                {"datasetVersionId": layer["datasetVersionId"]}
+                if layer.get("datasetVersionId") is not None
+                else {}
+            ),
+        }
+        for layer_id, layer in base_layers.items()
+    }
+    inputs = {entry["layerId"]: entry for entry in metadata["inputs"]}
+    if len(inputs) != len(metadata["inputs"]) or inputs != expected_inputs:
+        raise ProjectImportConflict("geolibre_return_inputs_invalid")
+    outputs = {entry["layerId"]: entry for entry in metadata["outputs"]}
+    if (
+        len(outputs) != len(metadata["outputs"])
+        or {entry["importRef"] for entry in outputs.values()} != import_refs
+    ):
+        raise ProjectImportConflict("geolibre_return_outputs_invalid")
+    if len(outputs) != len(import_refs):
+        raise ProjectImportConflict("geolibre_return_outputs_invalid")
+    imported_layers = {
+        layer["layerId"]: layer for layer in definition.get("layers", []) if "importRef" in layer
+    }
+    if set(imported_layers) != set(outputs):
+        raise ProjectImportConflict("geolibre_return_outputs_invalid")
+    for layer_id, output in outputs.items():
+        if (
+            layer_id in base_layers
+            or imported_layers[layer_id]["importRef"] != output["importRef"]
+            or not set(output["inputLayerIds"]).issubset(base_layers)
+        ):
+            raise ProjectImportConflict("geolibre_return_outputs_invalid")
+    # Only presentation can change on a retained Layer. Comparing the remainder
+    # preserves unknown future identity fields and source generation/configuration.
+    presentation = {"title", "visible", "opacity", "opacityMode", "order", "style", "labels"}
+    for layer in definition.get("layers", []):
+        if "importRef" in layer:
+            continue
+        original = base_layers.get(layer["layerId"])
+        if original is not None and "styleReference" not in layer:
+            # A local style edit can deliberately detach the governed binding;
+            # it cannot substitute a different Style identity in a return file.
+            original = {key: value for key, value in original.items() if key != "styleReference"}
+        if original is None or _legacy_geolibre_json(
+            {key: value for key, value in layer.items() if key not in presentation}
+        ) != _legacy_geolibre_json(
+            {key: value for key, value in original.items() if key not in presentation}
+        ):
+            raise ProjectImportConflict("geolibre_return_layer_identity_invalid")
+
+
+def _legacy_geolibre_json(value: Any) -> str:
+    """Serialize the legacy sorted-object/JSON.stringify GeoLibre hash format.
+
+    JSON.stringify uses ECMAScript decimal/exponent thresholds and enumerates
+    integer-index keys first, even after the legacy code-point key sort.
+    """
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+    if isinstance(value, (int, float)):
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError("GeoLibre return base must contain finite numbers")
+        if number == 0:
+            return "0"
+        decimal = Decimal(repr(number))
+        if 1e-6 <= abs(number) < 1e21:
+            rendered = format(decimal, "f")
+            return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
+        coefficient, exponent = format(decimal.normalize(), "e").split("e")
+        exponent_number = int(exponent)
+        return f"{coefficient}e{'+' if exponent_number >= 0 else '-'}{abs(exponent_number)}"
+    if isinstance(value, list):
+        return "[" + ",".join(_legacy_geolibre_json(item) for item in value) + "]"
+    if isinstance(value, dict):
+        indexes = sorted(
+            (
+                key
+                for key in value
+                if key.isascii()
+                and key.isdecimal()
+                and str(int(key)) == key
+                and int(key) < 4_294_967_295
+            ),
+            key=int,
+        )
+        keys = [*indexes, *(key for key in sorted(value) if key not in indexes)]
+        return (
+            "{"
+            + ",".join(
+                f"{_legacy_geolibre_json(key)}:{_legacy_geolibre_json(value[key])}" for key in keys
+            )
+            + "}"
+        )
+    raise ValueError("GeoLibre return base must be JSON")
+
+
 def upgrade_import_map_definition(definition: dict[str, Any]) -> dict[str, Any]:
     upgraded = dict(definition)
     if upgraded.get("schemaVersion") in {
@@ -893,14 +1250,28 @@ def rewrite_import_definition(
     if used != set(replacements):
         raise ProjectImportConflict("project_import_reference_invalid")
     basemaps = rewritten.get("basemaps", [])
-    if isinstance(basemaps, list) and any(
-        isinstance(basemap, dict) and basemap.get("kind") in {"provider-style", "provider-raster"}
-        for basemap in basemaps
+    if (
+        geolibre_return_metadata(rewritten) is None
+        and isinstance(basemaps, list)
+        and any(
+            isinstance(basemap, dict)
+            and basemap.get("kind") in {"provider-style", "provider-raster"}
+            for basemap in basemaps
+        )
     ):
         raise ProjectImportConflict("project_import_basemap_connection_required")
     serialized = json.dumps(rewritten, allow_nan=False)
     if '"datasetId": "import:' in serialized or '"objectId": "pending-import:' in serialized:
         raise ProjectImportConflict("project_import_placeholder_remaining")
+    return_metadata = geolibre_return_metadata(rewritten)
+    if return_metadata is not None:
+        # Durable output identity comes only from the governed registration and
+        # upload binding, never a client-provided provenance assertion.
+        for output in return_metadata["outputs"]:
+            replacement = replacements[output["importRef"]]
+            output["datasetId"] = replacement["datasetId"]
+            if "datasetVersionId" in replacement:
+                output["datasetVersionId"] = replacement["datasetVersionId"]
     return cast(dict[str, Any], rewritten)
 
 

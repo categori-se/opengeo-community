@@ -64,6 +64,18 @@ export async function writeMaplibreExportAssets(outputRoot, {packageRoot = insta
   for (const [source, target] of [['dist/maplibre-gl.css', 'maplibre-gl.css'], ['LICENSE.txt', 'LICENSE.txt']]) {
     await writeFile(resolve(destination, target), await readFile(resolve(packageRoot, source)));
   }
+  await writeFile(resolve(destination, 'native-map-view.txt'), await nativeProjectViewRuntime());
+}
+
+// Reuse the delivered native viewer, including its controls, events and disposal.
+// Read its static body without evaluating Python or introducing another renderer.
+export async function nativeProjectViewRuntime() {
+  const source = await readFile(new URL('../../services/api/src/opengeo_api/project_module.py', import.meta.url), 'utf8');
+  const native = source.slice(source.indexOf('def native_project_module('));
+  const bodies = [...native.matchAll(/\+ r"""([\s\S]*?)"""/g)];
+  if (bodies.length !== 1 || !bodies[0][1].includes('function createView({')
+    || !bodies[0][1].endsWith('export {\n  createView\n};\n')) throw Error('The canonical native map viewer needs build review.');
+  return bodies[0][1];
 }
 
 // Both package creation and source-binding verification use this exact wrapper.

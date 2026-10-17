@@ -1289,3 +1289,246 @@ def test_composition_get_reads_exact_governed_owner_after_current_permission(own
     assert query[2] == (ORG_ID, PROJECT_ID, MAP_ID)
     assert "created_by" not in query[1]
     assert all(call[0] != "execute" for call in transaction.calls)
+
+
+MANAGED_DISPLAY_ID = UUID("72000000-0000-4000-8000-000000000001")
+
+
+def managed_display_map_definition():
+    document = governed_dataset_definition()
+    document["schemaVersion"] = "opengeo.map-definition.1.5.0"
+    document["layers"][0]["managedDisplayId"] = str(MANAGED_DISPLAY_ID)
+    return document
+
+
+def display_reference_row(display=MANAGED_DISPLAY_ID, roles=("member", "viewer", None, False)):
+    return (DATASET_ID, DATASET_VERSION_ID, 3, display, *roles)
+
+
+def test_map_create_saves_only_exact_enabled_managed_display_reference():
+    document = managed_display_map_definition()
+    transaction = FakeTransaction(
+        one=[("member",), ("editor",), map_row(definition=document), (1,), (True,)],
+        all_rows=[
+            [(DATASET_ID,)],
+            [display_reference_row()],
+            definition_rows(document),
+        ],
+    )
+    result = asyncio.run(
+        PostgresWorkspaceRepository(FakeExecutor(transaction)).create_map(
+            context(),
+            PROJECT_ID,
+            MapDraft(name="Tiled map", description=None, definition=document),
+            "request-exact-display",
+        )
+    )
+    assert result.definition == document
+    layer = result.definition["layers"][0]
+    assert layer["datasetVersionId"] == str(DATASET_VERSION_ID)
+    assert layer["sourceVersion"] == 3 and layer["managedDisplayId"] == str(MANAGED_DISPLAY_ID)
+    assert set(layer) == set(governed_dataset_definition()["layers"][0]) | {"managedDisplayId"}
+    query = next(
+        call for call in transaction.calls if "JOIN app.layer_archive_distributions" in call[1]
+    )
+    assert query[2][1:] == (ORG_ID, PROJECT_ID, USER_ID)
+    assert "display.source_version IS NULL AND display.enabled" in query[1]
+    assert "display.descriptor->>'format' = 'pmtiles'" in query[1]
+    assert "version.version_number = requested.dataset_version_number" in query[1]
+    assert "membership.user_id = %s" in query[1]
+    assert "FOR KEY SHARE" not in query[1]
+    assert "app.pmtiles_preserved_original_eligible(" in query[1]
+    assert "job.state = 'completed'" in query[1]
+    assert "lineage.recipe = 'gdal-pmtiles-v2'" in query[1]
+    assert "'review_sha256', validation.review_sha256" in query[1]
+    assert not any("AND version.state = 'active'::" in call[1] for call in transaction.calls)
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [],
+        [display_reference_row(roles=("member", None, None, False))],
+        [(DATASET_ID, UUID(int=42), 3, MANAGED_DISPLAY_ID, "member", "viewer", None, False)],
+        [display_reference_row(display=UUID(int=43))],
+    ],
+)
+def test_map_create_fails_closed_for_missing_disabled_mismatched_or_revoked_display(rows):
+    document = managed_display_map_definition()
+    transaction = FakeTransaction(
+        one=[("member",), ("editor",)],
+        all_rows=[[(DATASET_ID,)], rows],
+    )
+    with pytest.raises(WorkspaceConflict) as error:
+        asyncio.run(
+            PostgresWorkspaceRepository(FakeExecutor(transaction)).create_map(
+                context(),
+                PROJECT_ID,
+                MapDraft(name="Unavailable display", description=None, definition=document),
+                "request-unavailable-display",
+            )
+        )
+    assert error.value.code == "map_managed_display_unavailable"
+    assert not any(
+        "INSERT INTO app.maps" in call[1] or call[0] == "execute" for call in transaction.calls
+    )
+
+
+@pytest.mark.parametrize(
+    "roles",
+    [
+        ("admin", None, None, False),
+        ("member", "viewer", None, False),
+        ("member", None, "view", False),
+        ("guest", None, None, True),
+    ],
+)
+def test_managed_display_save_uses_current_dataset_read_authority(roles):
+    transaction = FakeTransaction(
+        all_rows=[
+            [(DATASET_ID,)],
+            [display_reference_row(roles=roles)],
+        ]
+    )
+    asyncio.run(
+        PostgresWorkspaceRepository(FakeExecutor(transaction))._require_map_definition_references(
+            transaction,
+            context(),
+            PROJECT_ID,
+            managed_display_map_definition(),
+        )
+    )
+    assert len(transaction.calls) == 2
+    assert all(call[0] == "all" for call in transaction.calls)
+
+
+def test_managed_display_references_are_deduplicated_and_validated_in_one_metadata_batch():
+    document = managed_display_map_definition()
+    first = document["layers"][0]
+    other_display = UUID("72000000-0000-4000-8000-000000000002")
+    document["layers"] = [
+        first,
+        {**first, "layerId": "same_display"},
+        {**first, "layerId": "other_display", "managedDisplayId": str(other_display)},
+    ]
+    transaction = FakeTransaction(
+        all_rows=[
+            [(DATASET_ID,)],
+            [display_reference_row(), display_reference_row(display=other_display)],
+        ]
+    )
+    asyncio.run(
+        PostgresWorkspaceRepository(FakeExecutor(transaction))._require_map_definition_references(
+            transaction,
+            context(),
+            PROJECT_ID,
+            document,
+        )
+    )
+    assert len(transaction.calls) == 2
+    display_calls = [
+        call for call in transaction.calls if "JOIN app.layer_archive_distributions" in call[1]
+    ]
+    assert len(display_calls) == 1
+    requested = display_calls[0][2][0].obj
+    assert len(requested) == 2
+    assert {record["managed_display_id"] for record in requested} == {
+        str(MANAGED_DISPLAY_ID),
+        str(other_display),
+    }
+
+
+@pytest.mark.parametrize("include_display", [False, True])
+def test_raw_preserved_version_is_rejected_even_when_same_version_has_a_display(include_display):
+    document = managed_display_map_definition()
+    raw_layer = {**document["layers"][0], "layerId": "raw_original"}
+    del raw_layer["managedDisplayId"]
+    document["layers"] = ([document["layers"][0]] if include_display else []) + [raw_layer]
+    if not include_display:
+        document["activeLayerId"] = raw_layer["layerId"]
+    transaction = FakeTransaction(all_rows=[[(DATASET_ID,)], []])
+
+    with pytest.raises(WorkspaceConflict) as error:
+        asyncio.run(
+            PostgresWorkspaceRepository(FakeExecutor(transaction))._require_map_definition_references(
+                transaction, context(), PROJECT_ID, document
+            )
+        )
+
+    assert error.value.code == "map_dataset_version_invalid"
+    assert "AND version.state = 'active'::app.dataset_version_state" in transaction.calls[-1][1]
+    assert transaction.calls[-1][2][0].obj == [{
+        "dataset_id": str(DATASET_ID),
+        "dataset_version_id": str(DATASET_VERSION_ID),
+        "dataset_version_number": 3,
+    }]
+    assert not any("JOIN app.layer_archive_distributions" in call[1] for call in transaction.calls)
+
+
+@pytest.mark.parametrize("preserved", [False, True])
+def test_unversioned_raw_reference_rejects_only_a_preserved_current_version(preserved):
+    document = governed_dataset_definition()
+    del document["layers"][0]["datasetVersionId"]
+    transaction = FakeTransaction(all_rows=[[(DATASET_ID, preserved)]])
+    repository = PostgresWorkspaceRepository(FakeExecutor(transaction))
+    operation = repository._require_map_definition_references(
+        transaction, context(), PROJECT_ID, document
+    )
+
+    if preserved:
+        with pytest.raises(WorkspaceConflict) as error:
+            asyncio.run(operation)
+        assert error.value.code == "map_dataset_version_invalid"
+    else:
+        asyncio.run(operation)
+
+    assert len(transaction.calls) == 1
+    query = transaction.calls[0]
+    assert "current_version.id = dataset.current_version_id" in query[1]
+    assert "current_version.state::text = 'preserved'" in query[1]
+    assert "FOR KEY SHARE OF project_dataset" in query[1]
+    assert query[2][0].obj == [str(DATASET_ID)]
+    assert query[2][1:] == (ORG_ID, PROJECT_ID)
+
+
+def test_mixed_raw_and_display_references_keep_the_raw_active_version_gate():
+    document = managed_display_map_definition()
+    raw_version = UUID(int=94)
+    raw_layer = {
+        **document["layers"][0], "layerId": "active_raw", "datasetVersionId": str(raw_version)
+    }
+    del raw_layer["managedDisplayId"]
+    document["layers"].append(raw_layer)
+    transaction = FakeTransaction(all_rows=[
+        [(DATASET_ID,)], [(DATASET_ID, raw_version, 3)], [display_reference_row()]
+    ])
+
+    asyncio.run(
+        PostgresWorkspaceRepository(FakeExecutor(transaction))._require_map_definition_references(
+            transaction, context(), PROJECT_ID, document
+        )
+    )
+
+    assert transaction.calls[1][2][0].obj[0]["dataset_version_id"] == str(raw_version)
+    assert len(transaction.calls[1][2][0].obj) == 1
+
+
+def test_managed_display_reopen_preserves_exact_pins_without_storage_or_reference_writes():
+    document = managed_display_map_definition()
+    transaction = FakeTransaction(
+        one=[("member",), ("viewer",), map_row(definition=document)],
+        all_rows=[definition_rows(document)],
+    )
+
+    result = asyncio.run(
+        PostgresWorkspaceRepository(FakeExecutor(transaction)).get_map(
+            context(), PROJECT_ID, MAP_ID
+        )
+    )
+
+    assert result.definition == document
+    assert result.definition["layers"][0]["managedDisplayId"] == str(MANAGED_DISPLAY_ID)
+    assert all(call[0] != "execute" for call in transaction.calls)
+    # Reading a definition remains possible if a source is later unavailable;
+    # the managed-display read endpoint reauthorizes actual data access.
+    assert len(transaction.calls) == 4

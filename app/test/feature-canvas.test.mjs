@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {describe, it} from "node:test";
+import {JSDOM} from "jsdom";
 
 import {
   addGeometryPart,
   addPolygonHole,
+  FeatureCanvas,
   canvasEditingSupported,
   commitVertexDragHistory,
   commitDraftHistory,
@@ -762,3 +764,78 @@ describe("governed feature canvas geometry", () => {
     assert.throws(() => createVertexDragSession(polygon, 99, 1), /outside the geometry/);
   });
 });
+
+// Exercise the real canvas event handler and existing geometry validator/finish path.
+describe("polygon origin click completion", () => {
+  it("closes once from the actual screen hit without appending another point", () => withCanvas("Polygon", ({map, button, changes}) => {
+    button("Draw new").click();
+    map.click([0, 0]);map.click([20, 0]);map.click([20, 20]);
+    map.click([80, 80], {x: 108, y: 100});
+    assert.deepEqual(changes, [{type: "Polygon", coordinates: [[[0, 0], [20, 0], [20, 20], [0, 0]]]}]);
+    map.click([0, 0]);
+    assert.equal(changes.length, 1);
+    assert.equal(map.cameraChanges, 0);
+  }));
+
+  it("retains invalid drafts for undo and keeps other-vertex clicks, cancel and paths distinct", () => {
+    withCanvas("Polygon", ({map, button, changes, root}) => {
+      button("Draw new").click();
+      map.click([0, 0]);map.click([20, 0]);map.click([20, 20]);
+      map.click([20, 0]);
+      assert.equal(changes.length, 0, "a later vertex is not the closing control");
+      button("Cancel canvas edit").click();
+      button("Draw new").click();
+      map.click([0, 0]);map.click([20, 0]);map.click([20, 0]);map.click([0, 0]);
+      assert.equal(changes.length, 0, "three distinct vertices are required");
+      button("Cancel canvas edit").click();button("Draw new").click();
+      map.click([0, 0]);map.click([20, 20]);map.click([0, 20]);map.click([20, 0]);
+      map.click([0, 0]);
+      assert.equal(changes.length, 0);
+      assert.match(root.textContent, /geometry is not valid/);
+      button("Undo").click();map.click([0, 0]);
+      assert.equal(changes.length, 1, "undo repairs the retained draft before the same finish path runs");
+      assert.equal(changes[0].coordinates[0].length, 4);
+    });
+    withCanvas("LineString", ({map, button, changes}) => {
+      button("Draw new").click();map.click([0, 0]);map.click([20, 0]);map.click([20, 20]);map.click([0, 0]);
+      assert.equal(changes.length, 0);
+      button("Finish geometry").click();assert.equal(changes[0].type, "LineString");
+      assert.equal(changes[0].coordinates.length, 4);
+    });
+  });
+});
+
+function withCanvas(geometryType, run) {
+  const dom = new JSDOM("<!doctype html><body></body>");
+  const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
+  let map;
+  class CanvasMap {
+    constructor({container}) {
+      map = this;this.handlers = new Map();this.sources = new Map();this.cameraChanges = 0;
+      this.canvas = {style: {}};
+      Object.defineProperties(container, {clientWidth: {value: 800}, clientHeight: {value: 600}});
+    }
+    on(type, ...args) {if (args.length === 1) this.handlers.set(type, args[0]);return this;}
+    addControl() {}
+    addSource(id, source) {this.sources.set(id, {...source, setData(data) {this.data = data;}});}
+    addLayer() {}
+    getSource(id) {return this.sources.get(id);}
+    getCanvas() {return this.canvas;}
+    project([x, y]) {return {x: x * 10 + 100, y: y * 10 + 100};}
+    fitBounds() {this.cameraChanges++;}
+    remove() {}
+    click([lng, lat], point = this.project([lng, lat])) {this.handlers.get("click")({lngLat: {lng, lat}, point});}
+  }
+  try {
+    Object.defineProperty(globalThis, "document", {configurable: true, value: dom.window.document});
+    const changes = [], root = FeatureCanvas({collection: {geometryType}, features: [], initialGeometry: null,
+      onGeometryChange: geometry => changes.push(geometry), onSelectFeature() {},
+      mapEngine: {Map: CanvasMap, NavigationControl: class {}}});
+    dom.window.document.body.append(root);map.handlers.get("load")();
+    const button = label => {const control = [...root.querySelectorAll("button")].find(button => button.textContent === label);assert(control, label);return control;};
+    run({root, map, button, changes});root.__destroy();
+  } finally {
+    if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);else delete globalThis.document;
+    dom.window.close();
+  }
+}

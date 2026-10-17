@@ -8,6 +8,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from opengeo_api.auth_models import AuthSession
 from opengeo_api.auth_routes import current_session
+from opengeo_api.collection_module import (
+    PUBLIC_COLLECTION_HEADERS,
+    collection_module,
+    public_collection_projection,
+)
 from opengeo_api.logging import get_request_id
 from opengeo_api.tenant_database import TenantDatabaseConflict, TenantDatabaseUnavailable
 from opengeo_api.workspace_collections import (
@@ -265,7 +270,7 @@ async def public_collection(
 ) -> JSONResponse:
     from fastapi.responses import JSONResponse
 
-    headers = {"Cache-Control": "no-store", "X-Robots-Tag": "noindex"}
+    headers = PUBLIC_COLLECTION_HEADERS
     try:
         record = await cast(
             PostgresCollectionRepository, request.app.state.collection_repository
@@ -275,11 +280,39 @@ async def public_collection(
             render_repository=request.app.state.render_repository,
             site_repository=request.app.state.site_publication_repository,
         )
-    except CollectionNotFound as error:
+    except (CollectionNotFound, CollectionAccessDenied) as error:
         raise HTTPException(404, "collection_not_found", headers=headers) from error
     except TenantDatabaseUnavailable as error:
         raise HTTPException(503, "collection_store_unavailable", headers=headers) from error
-    return JSONResponse(record, headers=headers)
+    try:
+        # Existing JSON and HTML views retain their established capacity. Only
+        # the new native module and its refresh client impose gallery limits.
+        public = public_collection_projection(record, enforce_limits=False)
+    except ValueError as error:
+        raise HTTPException(413, "collection_projection_too_large", headers=headers) from error
+    return JSONResponse(public, headers=headers)
+
+
+@router.get("/public/organizations/{organization_id}/collections/{collection_id}/module.mjs")
+async def public_collection_module(
+    organization_id: UUID, collection_id: UUID, request: Request
+) -> Response:
+    import json
+
+    # One existing authorization/projection read supplies the initial gallery.
+    # Importing/mounting never requests member bytes or changes member access.
+    response = await public_collection(organization_id, collection_id, request)
+    try:
+        body = collection_module(json.loads(bytes(response.body)))
+    except ValueError as error:
+        raise HTTPException(
+            413, "collection_projection_too_large", headers=PUBLIC_COLLECTION_HEADERS
+        ) from error
+    return Response(
+        body,
+        media_type="text/javascript",
+        headers=PUBLIC_COLLECTION_HEADERS,
+    )
 
 
 @router.get("/public/organizations/{organization_id}/collections/{collection_id}/view")

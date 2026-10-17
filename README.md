@@ -1,39 +1,99 @@
 # OpenGeo Studio
 
-**An open workspace for geospatial analysis and publishing.**
+**Build maps you can reuse. Publish analysis others can inspect.**
 
-OpenGeo Studio, the geospatial workspace from OpenGeo.Tools, brings data, maps
-and analytical writing together. Discover sources, build reusable maps, explain
-your methods and publish the results—with the inputs and revisions attached.
+OpenGeo Studio is an open workspace for geospatial analysis and publishing from
+OpenGeo.Tools. Curate spatial sources, compose reusable maps and carry them into
+reports, notebooks and websites, keeping methods, versions, attribution and reuse
+terms connected. Start the next study with useful work from the last one.
 
-It is designed for GIS practitioners, researchers, environmental and social
-specialists, planners, consultants, NGOs and small project teams.
+It is designed for people who repeatedly publish spatial analysis: researchers,
+consultants, planners, environmental and social practitioners, and small teams.
 
-**Community source edition.** The full suite of tools is included under
+**Early community source edition.** The full suite of tools is included under
 [Apache-2.0](LICENSE). See the [release status](RELEASE_NOTES.md) for current
 installation and publishing limits.
 
 [Try the demo](https://demo.studio.opengeo.tools/) ·
+[Open hosted Studio](https://studio.opengeo.tools/) ·
+[Request hosted Studio access](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20Studio%20access) ·
 [Explore published work](https://opengeo.tools/projects/) ·
-[Run locally](docs/community-development.md) ·
+[Choose an installation](docs/community-deployments.md) ·
 [API documentation](docs/api/README.md)
 
-## Work from source to publication
+## Choose how to use it
+
+| Path | What to expect |
+| --- | --- |
+| [Try the browser Demo](https://demo.studio.opengeo.tools/) | Inspect, modify and export a small study without installing the stack. Personal saves stay on your device, separate from samples and account storage. |
+| [Use hosted Studio](https://studio.opengeo.tools/) | Existing users sign in to the installation we operate. [Request hosted Studio access](mailto:2301690+aaronkyle@users.noreply.github.com?subject=OpenGeo%20Studio%20access) with your workflow and team size; access, availability and services are arranged with the maintainer. |
+| [Run the community stack](docs/community-development.md) | Operate the browser application and its supporting services locally or in [your own AWS account](docs/community-aws.md). Configure your domains, styles, connections, permissions and usage limits. |
+| [Commission a company deployment](SUPPORT.md#hosting-and-enterprise-support) | Agree a scope for installation, configuration, integration, training and handover into your environment. |
+| [Arrange managed operation](SUPPORT.md#hosting-and-enterprise-support) | Use an organizational installation with agreed responsibilities for maintenance, recovery, upgrades and support. |
+
+Our public Demo is one configured example; our managed `studio.opengeo.tools`
+service is another, with its own account services and private connections. Demo
+limits and sample controls describe that public deployment, not the limits of the
+community software. Private data, credentials and installation settings stay
+outside the shared source. The [deployment guide](docs/community-deployments.md)
+compares operators, data, accounts, prerequisites and update responsibilities.
+
+## What the repository contains
+
+The community edition contains the connected application stack, including its
+deployment source. Starting the frontend alone starts the browser interface;
+durable accounts, shared resources, processing and publication need their
+configured services.
+
+| Component | Responsibility |
+| --- | --- |
+| Studio browser application | Inspect sources, compose and style maps, save Projects and author analytical Publications. |
+| Resource and account API | Check access and maintain identities, versions, metadata and permissions. |
+| PostgreSQL/PostGIS and file storage | Retain spatial records, original files, derivatives and resource relationships. |
+| Spatial processing services | Run supported validation, transformation, analysis and rendering jobs deliberately. |
+| Publication build system | Compile supported authored sources and selected inputs into inspectable web outputs. |
+| Deployment and release infrastructure | Connect identity, storage, processing, previews and delivery in the operator's environment. |
+
+See the [architecture](docs/community-architecture.md) and
+[capability matrix](docs/community-capabilities.md) for implemented components
+and their current limits.
+
+## Keep useful work for the next study
 
 | Activity | What you can do |
 | --- | --- |
-| Discover and connect | Inspect datasets, catalogs and services, including their metadata and reuse rights. |
-| Compose and analyze | Reuse Layers and Styles across Projects, choose a renderer and run supported spatial operations. |
-| Explain and author | Combine maps, charts, methods, code and narrative in analytical Publications. |
-| Publish and maintain | Review saved builds, publish to configured web destinations, and manage updates or rollback. |
+| Curate a source | Inspect a Layer's origin, version, coverage and reuse rights; distinguish a live reference from preserved data. |
+| Compose and reuse | Reference the same Layer in several Projects, reuse Styles and run supported spatial operations. |
+| Explain and deliver | Combine maps, charts, methods, code and narrative; choose supported print, download or web delivery. |
+| Return and revise | Reopen saved work, review a changed input and deliberately publish a new edition while retaining earlier releases. |
 
-Layers, Projects and Publications have their own identities and versions. A map
-can support several studies, and a published explanation stays connected to its
-sources. Account and resource permissions control access throughout the workflow.
+Layers, Projects and Publications have their own identities and versions. Two
+maps can reference one Layer without duplicating its managed data. Reusing a live
+reference does not preserve the remote data; use an eligible capture when a study
+requires retained inputs. Resource permissions and data terms still apply to
+every use.
 
-The [workflow guide](docs/community-workflow.md) explains how the steps fit
-together. The demo saves drafts in your browser; connected Studio saves work to
-your account.
+The [workflow guide](docs/community-workflow.md) follows a source through two maps,
+external publication, print and a later revision, and identifies the steps still
+awaiting complete acceptance. Start with the [small Demo study](docs/community-examples.md#try-it-community-facilities)
+to inspect, modify and export a useful result. The Demo keeps personal saves on
+your device; connected Studio provides account-backed saving.
+
+## What you can make
+
+| Deliverable | Workflow and examples | Access and limits |
+| --- | --- | --- |
+| Shared geographic library | [Curate sources and reuse Layers](docs/community-workflow.md#work-through-the-steps); start with the [facilities exercise](docs/community-examples.md#try-it-community-facilities). | [Supported data interfaces](docs/community-interoperability.md); [capabilities and limits](docs/community-capabilities.md). |
+| Saved map Projects | [Compose, save and reopen](docs/community-workflow.md#work-through-the-steps); [inspect and modify a sample](docs/community-examples.md#try-it-community-facilities). | [Project exchange and services](docs/community-interoperability.md); [persistence boundaries](docs/community-workflow.md#choose-a-workspace). |
+| Reusable map outputs | [Print or reuse a selected map](docs/community-workflow.md#a-recurring-study-to-verify); explore [Map Folio](https://opengeo.tools/map-folio/). | [Export and access interfaces](docs/community-interoperability.md); [current acceptance limits](RELEASE_NOTES.md). |
+| Analytical Publications | [Prepare, review and revise](docs/community-workflow.md#work-through-the-steps); examine [NOAA imagery analysis](https://opengeo.tools/noaa-coastal-imagery/reading-beyond-visible/). | [Build profiles and delivery](docs/community-publication-destinations.md); [current acceptance limits](RELEASE_NOTES.md). |
+| Project websites and publication Collections | [Configure a publishing destination](docs/community-publication-destinations.md); explore [published work](https://opengeo.tools/projects/). | [Delivery configuration](docs/community-publication-destinations.md) and [supported resource relationships](docs/community-capabilities.md); [release limits](RELEASE_NOTES.md). |
+
+Publication components include Framework, HTML/map, Observable Notebook and
+bounded Jupyter output profiles. Their implementation does not establish the
+complete workflow in a fresh installation. Configured cloud delivery uses
+S3/CloudFront; other hosts need an adapter or a supported exported-output workflow.
+Collections organize references and do not grant access to their members.
 
 ## Explore published work
 
@@ -44,6 +104,8 @@ your account.
 
 These are published on OpenGeo.Tools. The [examples guide](docs/community-examples.md)
 includes a small downloadable exercise and instructions for contributing a study.
+These examples illustrate outputs and methods; each does not yet provide a
+complete redistributable Studio workspace and installation reproduction.
 
 ## Inside Studio
 
@@ -60,14 +122,20 @@ includes all of these components and the deployment infrastructure.
 - [Capabilities](docs/community-capabilities.md): supported operations and current limits.
 - [Interoperability](docs/community-interoperability.md): metadata, feature and raster access, map services and project exchange.
 - [Data lifecycle](docs/community-data-lifecycle.md): originals, versions, derivatives, rights and provenance.
-- [Metadata exchange](docs/api/stac-ckan.md): prepare CKAN dataset metadata from a STAC Collection, with provenance and an explicit conversion report.
 - [Publishing](docs/community-publication-destinations.md): configured destinations, previews, release review and recovery.
 
-## Get started
+## Run and contribute
 
-Use the [local development guide](docs/community-development.md) to run Studio,
-the API, PostGIS and worker together. Upload the sample facilities, compose and
-style a map, save it, and reopen the same map after restarting the local stack.
+Start with the [connected local development guide](docs/community-development.md)
+to run Studio, API, PostGIS and the worker together, then exercise upload, save,
+database restart and reopening. The [AWS guide](docs/community-aws.md) covers
+an installation in your own account.
+
+Connected local checks cover selected upload, styling, save/reopen, access,
+processing and static publication paths using documented local substitutes.
+Clean installation, independent AWS deployment and the complete native
+Notebook/Framework build, preview and publication journey remain acceptance work.
+Read the [release notes](RELEASE_NOTES.md) before committing to a workflow.
 
 For frontend development, install Node.js 24 and npm, then run:
 
@@ -76,9 +144,7 @@ npm ci --prefix app
 npm run dev -- --host 127.0.0.1
 ```
 
-The [AWS guide](docs/community-aws.md) covers an installation in your own account;
-[our deployment guide](docs/community-deployments.md)
-explains the public site, hosted Studio and demo.
+This frontend command does not start the connected platform.
 
 Follow the [roadmap](ROADMAP.md), [make a first contribution](CONTRIBUTING.md#make-a-first-contribution)
 or ask a question through [community support](SUPPORT.md#community-help).

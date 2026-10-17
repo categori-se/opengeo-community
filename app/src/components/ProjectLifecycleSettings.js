@@ -1,4 +1,5 @@
 import {directoryHref} from "../lib/applicationRoutes.js";
+import {ProjectAccessSettings} from "./ProjectAccessSettings.js";
 
 export function ProjectLifecycleSettings({state, refresh}) {
   const section = document.createElement("section");
@@ -18,6 +19,11 @@ export function ProjectLifecycleSettings({state, refresh}) {
   projects.className = "platform-button platform-button-secondary";
   projects.href = directoryHref({adapterKind: state.adapter?.kind, view: "access"});
   section.append(title, description, recovery, projects);
+  if (typeof state.adapter.listProjectTeamGrants === "function") {
+    const access = ProjectAccessSettings({state});
+    section.append(access);
+    section.dispose = () => access.dispose();
+  }
   if (state.organization.callerRole !== "admin" && state.project.callerRole !== "owner") return section;
 
   const controls = document.createElement("div");

@@ -26,7 +26,7 @@ test("connection is selected explicitly and recovered without exporting or build
     assert.match(root.textContent, /trusted build service without a GitHub source link/);
     assert.match(root.textContent, /Connecting only saves this project's repository selection/);
     assert.match(root.textContent, /Future draft saves do not export source/);
-    [...root.querySelectorAll("button")].find(b => b.textContent === "Connect this Framework project").click();
+    [...root.querySelectorAll("button")].find(b => b.textContent === "Connect this publication").click();
     await tick(); assert.equal(writes, 1);
     assert.match(root.textContent, /No GitHub revision receipt yet/);
     const reopened = FrameworkGitHubConnection({adapter, projectId: "project", sourceProjectId: "source", canManage: true});

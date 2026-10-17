@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -21,6 +22,7 @@ from opengeo_api.data_preservation import (
     RepositoryProtectedCopySubmission,
     WmsBoundedImageScope,
 )
+from opengeo_api.pmtiles_options import normalize_pmtiles_options
 from opengeo_api.processing_dispatch import ProcessingDispatchUnavailable
 from opengeo_api.tenant_database import TenantContext
 
@@ -410,6 +412,9 @@ class PmtilesDispatcher:
         self.fail = fail
         self.job_ids: list[UUID] = []
 
+    def supports_recipe(self, recipe: str) -> bool:
+        return recipe in {"gdal-pmtiles-v1", "gdal-pmtiles-v2"}
+
     async def dispatch_pmtiles_derivative(self, job_id: UUID) -> None:
         self.job_ids.append(job_id)
         if self.fail:
@@ -795,10 +800,53 @@ def test_pmtiles_validation_rejects_bad_bounds_zoom_and_unknown_fields() -> None
         pmtiles_payload(bounds=[-70.8, 42.1, -71.2, 42.5]),
         pmtiles_payload(min_zoom=15, max_zoom=14),
         pmtiles_payload(destination_bucket="attacker-controlled"),
+        pmtiles_payload(options={"unknown_flag": "-sql"}),
+        pmtiles_payload(options={"buffer": True}),
+        pmtiles_payload(options={"simplification": False}),
+        pmtiles_payload(options={"attribute_names": ["name", "name"]}),
+        pmtiles_payload(options={"input_layer": "-sql"}),
+        pmtiles_payload(options={}, source_layer="invalid-output-layer"),
     ):
         assert client.post(pmtiles_url(), headers=headers(), json=payload).status_code == 422
 
     assert repository.calls == []
+
+
+def test_pmtiles_v2_normalizes_options_and_preserves_versioned_readback() -> None:
+    repository = MemoryRepository()
+    options = normalize_pmtiles_options({"extent": 8192, "attribute_names": ["name"]})
+    repository.pmtiles = replace(
+        repository.pmtiles, options=options, worker_image_digest="sha256:" + "d" * 64
+    )
+    client = api_client(repository)
+    created = client.post(
+        pmtiles_url(),
+        headers=headers(),
+        json=pmtiles_payload(options={"extent": 8192, "attribute_names": ["name"]}),
+    )
+    fetched = client.get(pmtiles_url(f"/{PMTILES_JOB_ID}"), headers=headers())
+    listed = client.get(pmtiles_url(), headers=headers())
+    assert created.status_code == 202
+    assert created.json()["schema_version"] == "opengeo.pmtiles-derivative-job.1.1.0"
+    assert created.json()["recipe"] == "gdal-pmtiles-v2"
+    assert created.json()["options"] == options
+    assert fetched.json() == listed.json()[0] == created.json()
+    assert repository.calls[0][5].options == options
+
+
+def test_pmtiles_unsupported_recipe_rejects_before_creating_a_job() -> None:
+    class V2OnlyDispatcher(PmtilesDispatcher):
+        def supports_recipe(self, recipe: str) -> bool:
+            return recipe == "gdal-pmtiles-v2"
+
+    repository = MemoryRepository()
+    dispatcher = V2OnlyDispatcher()
+    response = api_client(repository, pmtiles_dispatcher=dispatcher).post(
+        pmtiles_url(), headers=headers(), json=pmtiles_payload()
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "pmtiles_derivative_recipe_unavailable"
+    assert repository.calls == dispatcher.job_ids == []
 
 
 def test_durable_queued_job_survives_dispatch_unavailability() -> None:

@@ -4,6 +4,10 @@ Contributions should improve a concrete user workflow or fix a demonstrated
 problem. Start with the [roadmap](ROADMAP.md), the affected source and its existing
 checks. Discuss large changes in an issue before building another subsystem.
 
+For a proposed feature, answer: **Which recurring user task becomes materially
+easier?** Prefer completing discovery, preview, reuse and refresh for one supported
+connector over adding source types that users cannot carry through a study.
+
 ## Make a first contribution
 
 GIS practitioners can help with cartographic review, sample projects, workflow
@@ -12,6 +16,11 @@ code. Start with the [workflow guide](docs/community-workflow.md) and
 [example gallery](docs/community-examples.md), then report what helped, what was
 unclear and what result you expected. Share only inputs you have permission to
 redistribute; synthetic examples are welcome.
+
+Useful feedback includes how long it took to reach a first useful output, whether
+you could reopen it, what you reused in a second study, the effort to update it,
+and whether a colleague could continue the work. Describe your reporting cycle;
+a quarterly study needs a different return pattern from daily mapping.
 
 Choose one small task below and open an issue before starting so another
 contributor can avoid duplicating the work. These are invitations, not claims

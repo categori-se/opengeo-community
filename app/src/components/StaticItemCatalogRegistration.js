@@ -19,9 +19,9 @@ export function StaticItemCatalogRegistration({adapter, reference, projects, org
   asset.addEventListener("change", updateTerms); updateTerms();
   const submit = element("button", "Register Layer"); submit.type = "submit";
   const status = element("p", "The new Layer will use internal visibility in the chosen workspace."); status.setAttribute("role", "status");
-  const result = document.createElement("div"); let busy = false, disposed = false;
+  const result = document.createElement("div"); let busy = false, disposed = false, mapAction = null;
   form.append(label("Access workspace", workspace), label("Raster asset", asset), label("Layer title", title), label("Attribution", attribution), terms, submit, status, result);
-  root.append(form); root.dispose = () => {disposed = true; result.replaceChildren();};
+  root.append(form); root.dispose = () => {disposed = true; mapAction?.dispose(); result.replaceChildren();};
   form.addEventListener("submit", async event => {
     event.preventDefault(); if (busy || disposed) return; busy = true;
     for (const control of [workspace, asset, title, attribution, submit]) control.disabled = true;
@@ -37,6 +37,7 @@ export function StaticItemCatalogRegistration({adapter, reference, projects, org
       const details = element("a", "Metadata and access"); details.href = layerHref(source.datasetId, {adapterKind: adapter.kind}); result.append(details);
       const action = CatalogResourceMapAction({dataset: {id: source.datasetId, projectId: source.projectId, name: source.name,
         sourceType: "cog", status: source.status, capabilities: source.capabilities}, adapter});
+      mapAction?.dispose(); mapAction = action;
       if (action) result.append(action.button, action.panel);
       root.dataset.registered = source.datasetId;
     } catch (error) {

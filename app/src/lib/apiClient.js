@@ -1,8 +1,11 @@
 import {pendingSessionRequest} from "./pendingSessionRequest.js";
+import {normalizePmtilesOptions,pmtilesOptionsToWire,pmtilesOptionsFromWire,PMTILES_OUTPUT_LAYER,PMTILES_ADMISSION_REASONS} from './pmtilesOptions.js';
 import {ckanUrl, ckanId, parseCkanSearch, parseCkanInspection, parseCkanPreview} from "./ckan.js";
 import {validateCalculation, evaluateCalculation} from "./fieldCalculations.js";
 import {featureFieldVisible} from "./featureFieldVisibility.js";
 import {archiveUploadApi} from "./archiveUploadApi.js";
+import {externalDatabaseCatalogApi} from "./externalDatabaseCatalog.js";
+import {postgisLayerApi, parsePostgisConfiguration, postgisSourceIdentity} from "./postgisLayers.js";
 import {emptyMapDefinition} from "./mapDefinition.js";
 import {collectionDefinitionFromApi, collectionOwnerFromApi} from "./collectionReferences.js";
 import {staticHtmlPublishingEnabled, jupyterPublishingEnabled, observableNotebookPublishingEnabled} from "./publicationDrafts.js";
@@ -24,13 +27,13 @@ import {
  * @typedef {{code: string, status: string | null}} QualityFinding
  * @typedef {{valid: boolean | null, checks: QualityFinding[], warnings: QualityFinding[], errors: QualityFinding[]}} QualityResults
  * @typedef {{read: boolean, edit: boolean, download: boolean, managePermissions: boolean}} DatasetCapabilities
- * @typedef {{id: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", sourceType: "upload" | "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", format: "geojson" | "csv" | "shapefile" | "geopackage" | "geoparquet" | "cog" | "pmtiles" | "png" | "jpeg" | "pdf" | "odt" | "kml" | "xyz" | "wms" | "arcgis" | "wfs", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, currentVersionId: string | null, currentVersionNumber: number | null, currentVersionState: "queued" | "processing" | "active" | "failed" | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, qualityResults: QualityResults, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled" | null, processingErrorCode: string | null, tags: string[], createdAt: string, updatedAt: string, capabilities: DatasetCapabilities}} Dataset
+ * @typedef {{id: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", sourceType: "upload" | "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", format: "geojson" | "csv" | "shapefile" | "geopackage" | "geoparquet" | "cog" | "pmtiles" | "png" | "jpeg" | "pdf" | "odt" | "kml" | "xyz" | "wms" | "arcgis" | "wfs", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, currentVersionId: string | null, currentVersionNumber: number | null, currentVersionState: "queued" | "processing" | "active" | "failed" | "preserved" | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, qualityResults: QualityResults, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled" | null, processingErrorCode: string | null, tags: string[], createdAt: string, updatedAt: string, capabilities: DatasetCapabilities}} Dataset
  * @typedef {{datasetId: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, sourceType: "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", accessMode: "direct_browser", credentialMode: "none", versionNumber: number, sourceUrl: string, configuration: Record<string, unknown>, verificationState: "syntax_only", createdAt: string, updatedAt: string, capabilities: {read: boolean, edit: boolean}}} ExternalSource
  * @typedef {{estimateId: string, projectId: string, sourceDatasetId: string, sourceRevisionNumber: number, sourceType: "wms" | "pmtiles" | "arcgis" | "wfs", copyMethod: "bounded_map_capture" | "exact_object_copy" | "bounded_feature_capture", captureScope: Record<string, unknown>, outputFormat: "png" | "pmtiles" | "geojson", outputContentType: "image/png" | "application/vnd.pmtiles" | "application/geo+json", maximumRequests: number, maximumOutputBytes: number, estimatedCostUsd: number, estimateChecksumSha256: string, createdAt: string, expiresAt: string}} ExternalSourceCopyEstimate
  * @typedef {{jobId: string, projectId: string, estimateId: string, sourceDatasetId: string, sourceRevisionNumber: number, destinationDatasetId: string, destinationName: string, destinationClassification: "public" | "internal" | "confidential" | "restricted", copyMethod: "bounded_map_capture" | "exact_object_copy" | "bounded_feature_capture", captureScope: Record<string, unknown>, outputFormat: "png" | "pmtiles" | "geojson", outputContentType: "image/png" | "application/vnd.pmtiles" | "application/geo+json", maximumRequests: number, maximumOutputBytes: number, estimatedCostUsd: number, estimateChecksumSha256: string, estimateExpiresAt: string, rightsBasis: string, attribution: string, requestChecksumSha256: string, idempotencyKey: string, state: "queued" | "running" | "completed" | "failed" | "cancelled", outputObjectId: string | null, outputDatasetVersionId: string | null, errorCode: string | null, attemptCount: number, createdBy: string, createdAt: string, startedAt: string | null, finishedAt: string | null, cancellable: boolean}} ProtectedCopyJob
  * @typedef {{jobId: string, projectId: string, datasetId: string, datasetVersionId: string, sourceObjectId: string, bounds: [number, number, number, number], minZoom: number, maxZoom: number, sourceLayer: string, requestChecksumSha256: string, idempotencyKey: string, state: "queued" | "running" | "completed" | "failed" | "cancelled", outputObjectId: string | null, outputSizeBytes: number | null, outputChecksumSha256: string | null, errorCode: string | null, attemptCount: number, createdBy: string, createdAt: string, startedAt: string | null, finishedAt: string | null, cancellable: boolean}} PmtilesDerivativeJob
  * @typedef {{id: string, role: "original" | "working" | "published" | "tile" | "derived" | "thumbnail", filename: string, contentType: string, sizeBytes: number, checksumSha256: string, createdAt: string}} DatasetObject
- * @typedef {{id: string, versionNumber: number, parentVersionId: string | null, state: "queued" | "processing" | "active" | "failed", changeMessage: string | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, schemaDefinition: Record<string, unknown>, qualityResults: QualityResults, createdBy: string, createdAt: string, current: boolean, objects: DatasetObject[]}} DatasetVersion
+ * @typedef {{id: string, versionNumber: number, parentVersionId: string | null, state: "queued" | "processing" | "active" | "failed" | "preserved", changeMessage: string | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, schemaDefinition: Record<string, unknown>, qualityResults: QualityResults, createdBy: string, createdAt: string, current: boolean, objects: DatasetObject[]}} DatasetVersion
  * @typedef {{kind: "managed_upload" | "external_source_archive" | "repository_object_copy", operationId: string, sourceDatasetId: string | null, sourceDatasetName: string | null, sourceRevisionNumber: number | null, inputObjectId: string, acquiredAt: string}} DatasetLineageOrigin
  * @typedef {{kind: "pmtiles", operationId: string, recipe: "gdal-pmtiles-v1", sourceObjectId: string, outputObjectId: string, bounds: [number, number, number, number], minimumZoom: number, maximumZoom: number, sourceLayer: string, requestChecksumSha256: string, createdAt: string}} DatasetDerivativeLineage
  * @typedef {{schemaVersion: "opengeo.dataset-version-lineage.1.0.0", datasetId: string, versionId: string, versionNumber: number, origins: DatasetLineageOrigin[], derivatives: DatasetDerivativeLineage[], derivativesTruncated: boolean}} DatasetVersionLineage
@@ -47,8 +50,8 @@ import {
  * @typedef {{id: string, datasetId: string, formId: string, formVersion: number, supersedesSubmissionId: string | null, operation: "create" | "update", targetFeatureId: string | null, targetFeatureVersion: number | null, payloadSha256: string, feature: {type: "Feature", id: string, geometry: Record<string, unknown>, properties: Record<string, unknown>}, state: "submitted" | "in_review" | "changes_requested" | "rejected" | "accepted", reviewVersion: number, submittedBy: string, submittedAt: string, reviewedBy: string | null, reviewedAt: string | null, reviewMessage: string | null, promotedFeatureId: string | null}} FieldSubmission
  * @typedef {{url: string, method: "GET", expiresAt: string}} DownloadTicket
  * @typedef {{url: string, method: "POST", fields: Record<string, string>}} UploadInstructions
- * @typedef {{uploadId: string, dataset: Dataset, expiresAt: string, upload: UploadInstructions}} UploadTicket
- * @typedef {{dataset: Dataset, datasetVersionId: string, versionNumber: number, processingJobId: string, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled"}} UploadCompletion
+ * @typedef {{uploadId: string, purpose: "ingest" | "pmtiles_original", dataset: Dataset, expiresAt: string, upload: UploadInstructions}} UploadTicket
+ * @typedef {{dataset: Dataset, datasetVersionId: string, versionNumber: number, purpose: "ingest" | "pmtiles_original", processingJobId: string | null, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled" | null}} UploadCompletion
  * @typedef {{importRef: string, kind: "external_source" | "embedded_dataset", expectedSourceType: string, expectedFormat: string, candidate: Record<string, unknown>, state: "pending" | "bound", datasetId: string | null, boundAt: string | null}} ProjectImportItem
  * @typedef {{importId: string, projectId: string, mapId: string, idempotencyKey: string, sourceProduct: "geolibre", sourceVersion: string, sourceSha256: string, planDigest: string, expectedMapVersion: number, state: "open" | "completed", ready: boolean, unresolvedImportRefs: string[], items: ProjectImportItem[], createdBy: string, createdAt: string, updatedAt: string, completedAt: string | null, finalMapVersion: number | null}} ProjectImport
  * @typedef {{id: string, projectId: string, kind: "dataset" | "map" | "document" | "story" | "dashboard" | "service", slug: string, datasetId: string | null, mapId: string | null, visibility: "restricted" | "organization" | "public", state: "draft" | "review" | "published" | "archived", versionNumber: number, title: string, abstract: string | null, language: string, license: string | null, attribution: string | null, keywords: string[], spatialExtent: number[] | null, temporalStart: string | null, temporalEnd: string | null, ownerUserId: string, originNamespace: string | null, originIdentifier: string | null, relationshipCount: number, createdAt: string, updatedAt: string}} ResourceSummary
@@ -156,6 +159,14 @@ export class OpenGeoApiClient {
     this.pendingSessions = new Map();
     this.publicArtifactUrls = new Map();
     this.protectedArtifactUrls = new Map();
+  }
+
+  externalDatabaseCatalog(projectId) {
+    return externalDatabaseCatalogApi(this, projectId);
+  }
+
+  postgisLayers() {
+    return postgisLayerApi(this);
   }
 
   /** @returns {Promise<Session>} */
@@ -398,6 +409,20 @@ export class OpenGeoApiClient {
       `/projects/${pathUuid(projectId, "project id")}/team-grants`,
       {method: "POST", body: {team_id: teamId, role}}
     ));
+  }
+
+  async updateProjectTeamGrant(projectId, teamId, role) {
+    return parseProjectTeamGrant(await this.request(
+      `/projects/${pathUuid(projectId, "project id")}/team-grants/${pathUuid(teamId, "team id")}`,
+      {method: "PATCH", body: {role}}
+    ));
+  }
+
+  async revokeProjectTeamGrant(projectId, teamId) {
+    await this.request(
+      `/projects/${pathUuid(projectId, "project id")}/team-grants/${pathUuid(teamId, "team id")}`,
+      {method: "DELETE"}
+    );
   }
 
   /** @returns {Promise<ProjectDiscussion[]>} */
@@ -1599,12 +1624,14 @@ export class OpenGeoApiClient {
   }
 
   /** @returns {Promise<ExternalSource>} */
-  async getSource(projectId, datasetId, {signal} = {}) {
-    return parseExternalSource(
-      await this.request(
-        `/projects/${pathUuid(projectId, "project id")}/datasets/${pathUuid(datasetId, "dataset id")}/source`, {signal}
-      )
-    );
+  async getSource(projectId, datasetId, {signal, context = null} = {}) {
+    await this.assertCollectionContext(context);
+    const result = parseExternalSource(await this.request(
+      `/projects/${pathUuid(projectId, "project id")}/datasets/${pathUuid(datasetId, "dataset id")}/source`,
+      {signal, ...(context ? this.collectionRequestOptions(context.organization, context) : {})}
+    ));
+    await this.assertCollectionContext(context);
+    return result;
   }
 
   /** @returns {Promise<ExternalSource>} */
@@ -1896,9 +1923,28 @@ export class OpenGeoApiClient {
     ));
   }
 
+  /** Read deployed, server-probed formats; this never starts conversion work. */
+  async getPmtilesConversionCapabilities() {
+    const registry=object(await this.request('/processing/tools'),'server processing registry');
+    if(registry.schema_version!=='opengeo.server-processing-registry.1.0.0'||!Array.isArray(registry.tools))contract('Server processing registry is unsupported');
+    const tool=registry.tools.find(row=>row?.id==='vector-to-pmtiles');
+    if(tool?.version!=='1.1.0'||tool.request_schema_version!=='opengeo.pmtiles-derivative-request.1.1.0'
+      ||tool.limits?.recipe!=='gdal-pmtiles-v2'||tool.limits.adaptiveGeneralization!==true
+      ||typeof tool.limits.inputFormats!=='string')contract('PMTiles conversion capabilities are unsupported');
+    const inputFormats=tool.limits.inputFormats.split(',');
+    if(!inputFormats.length||new Set(inputFormats).size!==inputFormats.length||inputFormats.some(format=>!['geojson','csv','shapefile','geopackage','geoparquet'].includes(format)))contract('PMTiles conversion input formats are invalid');
+    const {admissionReady,admissionReason}=tool.limits;
+    if(typeof admissionReady!=='boolean'||!PMTILES_ADMISSION_REASONS.includes(admissionReason)
+      ||admissionReady!==(admissionReason==='ready'))contract('PMTiles conversion admission status is invalid');
+    return {inputFormats,recipe:tool.limits.recipe,adaptiveGeneralization:true,admissionReady,admissionReason};
+  }
+
   /** @returns {Promise<PmtilesDerivativeJob>} */
   async createPmtilesDerivative(projectId, datasetId, datasetVersionId, request) {
     const record = object(request, "PMTiles derivative request");
+    const conversionOptions=normalizePmtilesOptions(record.options);
+    const sourceLayer=boundedQuery(record.sourceLayer,200,'PMTiles source layer');
+    if(conversionOptions&&!PMTILES_OUTPUT_LAYER.test(sourceLayer))throw TypeError('PMTiles output layer must start with a letter and contain at most 63 letters, digits or underscores');
     const bounds = orderedGeographicBounds(record.bounds, "PMTiles derivative bounds", TypeError);
     const minZoom = inputIntegerBetween(record.minZoom, 0, 22, "PMTiles minimum zoom");
     const maxZoom = inputIntegerBetween(record.maxZoom, 0, 22, "PMTiles maximum zoom");
@@ -1912,7 +1958,8 @@ export class OpenGeoApiClient {
           bounds,
           min_zoom: minZoom,
           max_zoom: maxZoom,
-          source_layer: boundedQuery(record.sourceLayer, 200, "PMTiles source layer")
+          source_layer: sourceLayer,
+          ...(conversionOptions?{options:pmtilesOptionsToWire(conversionOptions)}:{})
         }
       }
     ));
@@ -1930,6 +1977,36 @@ export class OpenGeoApiClient {
     return parsePmtilesDerivativeJob(await this.request(
       `/projects/${pathUuid(projectId, "project id")}/datasets/${pathUuid(datasetId, "dataset id")}/versions/${pathUuid(datasetVersionId, "dataset version id")}/pmtiles-derivatives/${pathUuid(jobId, "PMTiles derivative job id")}`
     ));
+  }
+
+  /** Read conversion facts only; this does not request storage tickets or bytes. */
+  async getPmtilesDisplayReview(projectId, datasetId, datasetVersionId, jobId, {signal} = {}) {
+    return parsePmtilesDisplayReview(await this.request(
+      `/projects/${pathUuid(projectId, "project id")}/datasets/${pathUuid(datasetId, "dataset id")}/versions/${pathUuid(datasetVersionId, "dataset version id")}/pmtiles-derivatives/${pathUuid(jobId, "PMTiles derivative job id")}/display-review`,
+      {signal}
+    ), {datasetId, datasetVersionId, jobId});
+  }
+
+  /** Admit one reviewed display deliberately; viewing it still needs separate consent. */
+  async admitPmtilesDisplayReview(projectId, datasetId, datasetVersionId, jobId, request, {signal} = {}) {
+    if (!isObject(request) || Object.keys(request).sort().join(",") !== [
+      "expectedReviewSha256", "title", "rightsBasis", "attribution", "acknowledgeConversionLimits"
+    ].sort().join(",")) throw new TypeError("PMTiles display admission fields are invalid");
+    if (request.acknowledgeConversionLimits !== true) {
+      throw new TypeError("PMTiles conversion limits must be explicitly acknowledged");
+    }
+    const body = {
+      expected_review_sha256: sha256Checksum(request.expectedReviewSha256, "PMTiles review checksum"),
+      title: pmtilesReviewedText(request.title, 200, "PMTiles display title", true),
+      rights_basis: pmtilesReviewedText(request.rightsBasis, 2000, "PMTiles rights basis"),
+      attribution: pmtilesReviewedText(request.attribution, 2000, "PMTiles attribution"),
+      acknowledge_conversion_limits: true
+    };
+    return parsePmtilesDisplayAdmission(await this.request(
+      `/projects/${pathUuid(projectId, "project id")}/datasets/${pathUuid(datasetId, "dataset id")}/versions/${pathUuid(datasetVersionId, "dataset version id")}/pmtiles-derivatives/${pathUuid(jobId, "PMTiles derivative job id")}/display-review`,
+      {method: "POST", body, signal}
+    ), {datasetId, datasetVersionId, jobId, reviewSha256: body.expected_review_sha256,
+      title: body.title, rightsBasis: body.rights_basis, attribution: body.attribution});
   }
 
   /** @returns {Promise<PmtilesDerivativeJob>} */
@@ -5322,6 +5399,11 @@ export class OpenGeoApiClient {
   /** @returns {Promise<UploadTicket>} */
   async requestUpload(projectId, metadata) {
     const record = object(metadata, "upload metadata");
+    const purpose = oneOf(record.purpose ?? "ingest", ["ingest", "pmtiles_original"], "upload purpose");
+    if (purpose === "pmtiles_original") {
+      if (record.format !== "geojson" || record.targetDatasetId != null || record.expectedBaseVersionId != null) contract("Preserved PMTiles originals require a new GeoJSON Layer");
+      integerBetween(record.sizeBytes, 1, 512 * 1024 * 1024, "preserved original size");
+    }
     return parseUploadTicket(
       await this.request(`/projects/${pathUuid(projectId, "project id")}/uploads/request`, {
         method: "POST",
@@ -5335,6 +5417,7 @@ export class OpenGeoApiClient {
           size_bytes: record.sizeBytes,
           checksum_sha256: record.checksumSha256,
           tags: record.tags ?? [],
+          ...(purpose !== "ingest" ? {purpose} : {}),
           ...(record.targetDatasetId ? {
             target_dataset_id: pathUuid(record.targetDatasetId, "target Layer"),
             expected_base_version_id: pathUuid(record.expectedBaseVersionId, "base version")
@@ -5463,6 +5546,7 @@ export class OpenGeoApiClient {
       if (path === "/auth/session" && method === "GET" && body === undefined && !anonymous) {
         const scope = JSON.stringify([requestBaseUrl, [...headers]]);
         const loadSession = async (requestSignal) => {
+          const started = performance.now();
           const first = await fetchResponse(requestSignal);
           if (first.status !== 503) return first;
           let detail;
@@ -5470,8 +5554,9 @@ export class OpenGeoApiClient {
           catch { return first; }
           if (detail !== "identity_store_unavailable") return first;
           // A paused metadata store can recover while the existing login stays valid.
-          // Keep one retry inside this shared, cancellable session read.
-          await new Promise((resolve, reject) => {
+          // Keep one shared retry, without adding delay after a slow server response.
+          const delay = Math.max(0, 2000 - (performance.now() - started));
+          if (delay > 0) await new Promise((resolve, reject) => {
             requestSignal.throwIfAborted();
             const abort = () => {
               clearTimeout(timer);
@@ -5481,7 +5566,7 @@ export class OpenGeoApiClient {
             const timer = setTimeout(() => {
               requestSignal.removeEventListener("abort", abort);
               resolve();
-            }, 2000);
+            }, delay);
             requestSignal.addEventListener("abort", abort, {once: true});
           });
           requestSignal.throwIfAborted();
@@ -6989,15 +7074,15 @@ export function parseDataset(value) {
     name: string(record.name, "dataset.name"),
     description: nullableString(record.description, "dataset.description"),
     classification: oneOf(record.classification, ["public", "internal", "confidential", "restricted"], "dataset.classification"),
-    sourceType: oneOf(record.source_type, ["upload", "repository", "xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog"], "dataset.source_type"),
-    format: oneOf(record.format, ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver"], "dataset.format"),
+    sourceType: oneOf(record.source_type, ["upload", "repository", "xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog", "postgis"], "dataset.source_type"),
+    format: oneOf(record.format, ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver", "postgis"], "dataset.format"),
     status: oneOf(record.status, ["draft", "processing", "active", "failed", "archived"], "dataset.status"),
     ownerUserId: uuid(record.owner_user_id, "dataset.owner_user_id"),
     currentVersionId: nullableUuid(record.current_version_id, "dataset.current_version_id"),
     currentVersionNumber,
     currentVersionState: record.current_version_state === null
       ? null
-      : oneOf(record.current_version_state, ["queued", "processing", "active", "failed"], "dataset.current_version_state"),
+      : oneOf(record.current_version_state, ["queued", "processing", "active", "failed", "preserved"], "dataset.current_version_state"),
     featureCount: nullableNonNegativeInteger(record.feature_count, "dataset.feature_count"),
     extent,
     spatialSearchAvailable: record.spatial_search_available == null ? null : boolean(record.spatial_search_available, "dataset.spatial_search_available"),
@@ -7500,10 +7585,11 @@ export function parseExternalSource(value) {
   const record = object(value, "external source");
   const sourceType = oneOf(
     record.source_type,
-    ["xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog"],
+    ["xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog", "postgis"],
     "external source.source_type"
   );
-  const sourceUrl = publicSourceUrl(record.source_url, sourceType);
+  const configuration = parseExternalSourceConfiguration(record.configuration, sourceType);
+  const sourceUrl = sourceType === "postgis" ? postgisSourceIdentity(record.source_url, configuration) : publicSourceUrl(record.source_url, sourceType);
   return {
     datasetId: uuid(record.dataset_id, "external source.dataset_id"),
     projectId: uuid(record.project_id, "external source.project_id"),
@@ -7513,12 +7599,12 @@ export function parseExternalSource(value) {
     status: oneOf(record.status, ["draft", "processing", "active", "failed", "archived"], "external source.status"),
     ownerUserId: uuid(record.owner_user_id, "external source.owner_user_id"),
     sourceType,
-    accessMode: oneOf(record.access_mode, ["direct_browser"], "external source.access_mode"),
-    credentialMode: oneOf(record.credential_mode, ["none"], "external source.credential_mode"),
+    accessMode: oneOf(record.access_mode, sourceType === "postgis" ? ["server_mediated"] : ["direct_browser"], "external source.access_mode"),
+    credentialMode: oneOf(record.credential_mode, sourceType === "postgis" ? ["connection_reference"] : ["none"], "external source.credential_mode"),
     versionNumber: positiveInteger(record.version_number, "external source.version_number"),
     sourceUrl,
-    configuration: parseExternalSourceConfiguration(record.configuration, sourceType),
-    verificationState: oneOf(record.verification_state, ["syntax_only"], "external source.verification_state"),
+    configuration,
+    verificationState: oneOf(record.verification_state, sourceType === "postgis" ? ["catalog_described"] : ["syntax_only"], "external source.verification_state"),
     createdAt: timestamp(record.created_at, "external source.created_at"),
     updatedAt: timestamp(record.updated_at, "external source.updated_at"),
     capabilities: parseSourceCapabilities(record.capabilities)
@@ -7528,7 +7614,7 @@ export function parseExternalSource(value) {
 export function parseExternalSourceRevision(value) {
   const record = object(value, "external source revision");
   const configuration = object(record.configuration, "external source revision.configuration");
-  const sourceType = configuration.service_kind === "cog" ? "cog"
+  const sourceType = configuration.service_kind === "postgis" ? "postgis" : configuration.service_kind === "cog" ? "cog"
     : configuration.service_kind === "mapserver" ? "mapserver"
     : configuration.service_kind === "imageserver"
     ? "imageserver"
@@ -7544,9 +7630,9 @@ export function parseExternalSourceRevision(value) {
   return {
     datasetId: uuid(record.dataset_id, "external source revision.dataset_id"),
     versionNumber: positiveInteger(record.version_number, "external source revision.version_number"),
-    sourceUrl: publicSourceUrl(record.source_url, sourceType),
+    sourceUrl: sourceType === "postgis" ? postgisSourceIdentity(record.source_url, configuration) : publicSourceUrl(record.source_url, sourceType),
     configuration: parseExternalSourceConfiguration(configuration, sourceType),
-    verificationState: oneOf(record.verification_state, ["syntax_only"], "external source revision.verification_state"),
+    verificationState: oneOf(record.verification_state, sourceType === "postgis" ? ["catalog_described"] : ["syntax_only"], "external source revision.verification_state"),
     changeMessage: nullableString(record.change_message, "external source revision.change_message"),
     createdBy: uuid(record.created_by, "external source revision.created_by"),
     createdAt: timestamp(record.created_at, "external source revision.created_at")
@@ -8028,17 +8114,159 @@ function repositoryCopyFormat(value, label) {
   ], label);
 }
 
+const PMTILES_COUNT_SEMANTICS = "gdal-reported-tile-fragments-not-source-records";
+
+function pmtilesReviewedText(value, maximum, label, plain = false) {
+  if (typeof value !== "string" || !value || value !== value.trim() || value.length > maximum
+    || (plain && /[\u0000-\u001f\u007f]/.test(value))) throw new TypeError(`${label} is invalid`);
+  return value;
+}
+
+function parsePmtilesConversionLimits(value, {configurable = false} = {}) {
+  const record = object(value, "PMTiles conversion limits");
+  exactKeys(record, ["geometry", "attributes", "feature_ids", "source_record_count", "preservation_verified",
+    ...(configurable ? ["adaptive_tile_limits", "attribute_selection"] : [])], "PMTiles conversion limits");
+  if (record.geometry !== "quantized-clipped-simplified-display-not-analysis"
+    || record.attributes !== "not-independently-verified-null-values-may-be-omitted"
+    || record.feature_ids !== "not-guaranteed-to-retain-source-fids"
+    || record.source_record_count !== null || record.preservation_verified !== false) {
+    contract("PMTiles conversion limits are unsupported");
+  }
+  if (configurable) {
+    if (record.adaptive_tile_limits !== "Tile byte and feature limits may reduce precision or omit display features; source data remains preserved.") contract("PMTiles adaptive limits are unsupported");
+    try {normalizePmtilesOptions({attributeNames: record.attribute_selection});}
+    catch {contract("PMTiles attribute selection is invalid");}
+  }
+  return {geometry: record.geometry, attributes: record.attributes, featureIds: record.feature_ids,
+    sourceRecordCount: null, preservationVerified: false};
+}
+
+function parsePmtilesReviewTileLayer(value) {
+  const record = object(value, "PMTiles review tile layer");
+  exactKeys(record, ["source_layer", "title", "geometry_type", "feature_count", "geometry_method"], "PMTiles review tile layer");
+  if (typeof record.source_layer !== "string" || !/^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(record.source_layer)) {
+    contract("PMTiles review source layer is invalid");
+  }
+  return {
+    sourceLayer: record.source_layer,
+    title: boundedString(record.title, 200, "PMTiles review tile title"),
+    geometryType: oneOf(record.geometry_type, ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"], "PMTiles review geometry type"),
+    featureCount: integerBetween(record.feature_count, 0, 10_000_000, "PMTiles review fragment count"),
+    geometryMethod: boundedString(record.geometry_method, 2000, "PMTiles review geometry method")
+  };
+}
+
+function assertPmtilesReviewTarget(record, target) {
+  for (const [field, key] of [["job_id", "jobId"], ["dataset_id", "datasetId"], ["dataset_version_id", "datasetVersionId"]]) {
+    uuid(record[field], `PMTiles display review.${field}`);
+    if (target[key] !== undefined && record[field] !== target[key]) contract("PMTiles display review target changed");
+  }
+}
+
+function parsePmtilesDisplayFacts(record, {configurable = false} = {}) {
+  if (!Array.isArray(record.tile_layers) || record.tile_layers.length > 1) contract("PMTiles display review layers are invalid");
+  const tileLayers = record.tile_layers.map(parsePmtilesReviewTileLayer);
+  const reportedFragmentCount = integerBetween(record.reported_fragment_count, 0, Number.MAX_SAFE_INTEGER, "PMTiles reported fragment count");
+  const minZoom = integerBetween(record.min_zoom, 0, 22, "PMTiles review minimum zoom");
+  const maxZoom = integerBetween(record.max_zoom, 0, 22, "PMTiles review maximum zoom");
+  const eligible = boolean(record.eligible, "PMTiles display eligibility");
+  const displayId = nullableUuid(record.display_id, "PMTiles display id");
+  if (minZoom > maxZoom || eligible !== (tileLayers.length === 1)
+    || (eligible && tileLayers[0].featureCount !== reportedFragmentCount)
+    || (displayId !== null && (displayId !== record.job_id || !eligible))) {
+    contract("PMTiles display review facts are inconsistent");
+  }
+  return {
+    countSemantics: oneOf(record.count_semantics, [PMTILES_COUNT_SEMANTICS], "PMTiles count semantics"),
+    conversionLimits: parsePmtilesConversionLimits(record.conversion_limits, {configurable}), reportedFragmentCount,
+    bounds: orderedGeographicBounds(record.bounds, "PMTiles review bounds", ApiContractError),
+    tileLayers, minZoom, maxZoom, eligible, displayId
+  };
+}
+
+export function parsePmtilesDisplayReview(value, target = {}) {
+  const record = object(value, "PMTiles display review");
+  exactKeys(record, ["job_id", "dataset_id", "dataset_version_id", "review_sha256", "source_object_id",
+    "output_object_id", "output_finished_at", "request_checksum_sha256", "download_bytes", "output_sha256",
+    "count_semantics", "conversion_limits", "reported_fragment_count", "bounds", "tile_layers",
+    "min_zoom", "max_zoom", "eligible", "display_id"], "PMTiles display review");
+  assertPmtilesReviewTarget(record, target);
+  return {
+    jobId: record.job_id, datasetId: record.dataset_id, datasetVersionId: record.dataset_version_id,
+    reviewSha256: sha256(record.review_sha256, "PMTiles review checksum"),
+    sourceObjectId: uuid(record.source_object_id, "PMTiles source object id"),
+    outputObjectId: uuid(record.output_object_id, "PMTiles output object id"),
+    outputFinishedAt: timestamp(record.output_finished_at, "PMTiles output completion time"),
+    requestChecksumSha256: sha256(record.request_checksum_sha256, "PMTiles request checksum"),
+    downloadBytes: integerBetween(record.download_bytes, 1, 2_147_483_648, "PMTiles output bytes"),
+    outputSha256: sha256(record.output_sha256, "PMTiles output checksum"),
+    ...parsePmtilesDisplayFacts(record)
+  };
+}
+
+function parsePmtilesDisplayAdmission(value, target) {
+  const record = object(value, "PMTiles display admission");
+  exactKeys(record, ["job_id", "dataset_id", "dataset_version_id", "review_sha256", "display_id", "display"], "PMTiles display admission");
+  assertPmtilesReviewTarget(record, target);
+  const reviewSha256 = sha256(record.review_sha256, "PMTiles admission review checksum");
+  const displayId = uuid(record.display_id, "PMTiles admitted display id");
+  if (reviewSha256 !== target.reviewSha256 || displayId !== record.job_id) contract("PMTiles display admission changed");
+  const display = object(record.display, "PMTiles admitted display metadata");
+  exactKeys(display, ["id", "title", "captured_at", "format", "attribution", "rights", "provenance", "download_bytes",
+    "decoded_bytes", "feature_count", "object_count", "tile_layers", "min_zoom", "max_zoom", "range_block_bytes",
+    "verification_index_bytes", "range_limits"], "PMTiles admitted display metadata");
+  const provenance = object(display.provenance, "PMTiles display provenance");
+  const configurable = provenance.recipe === "gdal-pmtiles-v2";
+  exactKeys(provenance, ["pmtiles_job_id", "recipe", "source_object_id", "output_object_id", "request_checksum_sha256",
+    "review_sha256", "output_finished_at", "bounds", "count_semantics", "losses"], "PMTiles display provenance");
+  if (display.id !== displayId || display.format !== "pmtiles" || display.object_count !== 1
+    || provenance.pmtiles_job_id !== record.job_id || (!configurable && provenance.recipe !== "gdal-pmtiles-v1")
+    || provenance.review_sha256 !== reviewSha256 || display.decoded_bytes !== display.download_bytes
+    || display.title !== target.title || display.attribution !== target.attribution) {
+    contract("PMTiles admitted display identity is inconsistent");
+  }
+  uuid(provenance.source_object_id, "PMTiles admitted source object id");
+  uuid(provenance.output_object_id, "PMTiles admitted output object id");
+  timestamp(provenance.output_finished_at, "PMTiles admitted output completion time");
+  sha256(provenance.request_checksum_sha256, "PMTiles admitted request checksum");
+  integerBetween(display.download_bytes, 1, 2_147_483_648, "PMTiles admitted output bytes");
+  parsePmtilesDisplayFacts({job_id: record.job_id, count_semantics: provenance.count_semantics,
+    conversion_limits: provenance.losses, reported_fragment_count: display.feature_count, bounds: provenance.bounds,
+    tile_layers: display.tile_layers, min_zoom: display.min_zoom, max_zoom: display.max_zoom, eligible: true, display_id: displayId}, {configurable});
+  boundedString(display.title, 200, "PMTiles admitted display title");
+  nullableTimestamp(display.captured_at, "PMTiles admitted capture time");
+  boundedString(display.attribution, 2000, "PMTiles admitted attribution");
+  const rights = object(display.rights, "PMTiles display rights");
+  exactKeys(rights, ["rights_basis"], "PMTiles display rights");
+  boundedString(rights.rights_basis, 2000, "PMTiles display rights basis");
+  if (rights.rights_basis !== target.rightsBasis) contract("PMTiles admitted rights basis changed");
+  const limits = object(display.range_limits, "PMTiles display range limits");
+  exactKeys(limits, ["requests", "bytes", "seconds", "response_bytes"], "PMTiles display range limits");
+  if (display.range_block_bytes !== 65536 || limits.requests !== 256 || limits.bytes !== 64 * 1024 ** 2
+    || limits.seconds !== 300 || limits.response_bytes !== 8 * 1024 ** 2) contract("PMTiles display range limits are unsupported");
+  integerBetween(display.verification_index_bytes, 0, 1024 ** 2, "PMTiles display verification index bytes");
+  return {jobId: record.job_id, datasetId: record.dataset_id, datasetVersionId: record.dataset_version_id,
+    reviewSha256, displayId, display: structuredClone(display)};
+}
+
 export function parsePmtilesDerivativeJob(value) {
   const record = object(value, "PMTiles derivative job");
+  const configurable=record.schema_version==='opengeo.pmtiles-derivative-job.1.1.0';
   exactKeys(record, [
     "schema_version", "job_id", "project_id", "dataset_id", "dataset_version_id",
     "source_object_id", "bounds", "min_zoom", "max_zoom", "source_layer",
     "request_checksum_sha256", "idempotency_key", "state", "output_object_id",
     "output_size_bytes", "output_checksum_sha256", "error_code", "attempt_count",
-    "created_by", "created_at", "started_at", "finished_at", "cancellable"
+    "created_by", "created_at", "started_at", "finished_at", "cancellable",
+    ...(configurable?['recipe','options','worker_image_digest']:[])
   ], "PMTiles derivative job");
-  if (record.schema_version !== "opengeo.pmtiles-derivative-job.1.0.0") {
+  if (record.schema_version !== "opengeo.pmtiles-derivative-job.1.0.0"&&!configurable) {
     contract("PMTiles derivative job schema is unsupported");
+  }
+  let conversionOptions;
+  if(configurable){
+    if(record.recipe!=='gdal-pmtiles-v2'||!PMTILES_OUTPUT_LAYER.test(record.source_layer)||!/^sha256:[a-f0-9]{64}$/.test(record.worker_image_digest))contract('PMTiles conversion profile is unsupported');
+    try{conversionOptions=pmtilesOptionsFromWire(record.options);}catch{contract('PMTiles conversion options are invalid');}
   }
   const state = processingState(record.state, "PMTiles derivative job.state");
   const outputObjectId = nullableUuid(record.output_object_id, "PMTiles derivative job.output_object_id");
@@ -8069,6 +8297,7 @@ export function parsePmtilesDerivativeJob(value) {
     minZoom,
     maxZoom,
     sourceLayer: boundedString(record.source_layer, 200, "PMTiles derivative job.source_layer"),
+    ...(configurable?{recipe:record.recipe,options:conversionOptions,workerImageDigest:record.worker_image_digest}:{}),
     requestChecksumSha256: sha256Checksum(record.request_checksum_sha256, "PMTiles derivative job.request_checksum_sha256"),
     idempotencyKey: uuid(record.idempotency_key, "PMTiles derivative job.idempotency_key"),
     state,
@@ -13078,6 +13307,7 @@ function boundedSourceFields(value, label) {
 }
 
 function parseExternalSourceConfiguration(value, sourceType) {
+  if (sourceType === "postgis") return parsePostgisConfiguration(value);
   if (sourceType === "cog") {
     const record = object(value, "COG configuration");
     exactKeys(record, ["service_kind", "bands", "bounds", "size_bytes", "attribution", "license", "reference_metadata"], "COG configuration");
@@ -13794,7 +14024,7 @@ export function parseDatasetVersion(value) {
     id: uuid(record.id, "dataset version.id"),
     versionNumber: positiveInteger(record.version_number, "dataset version.version_number"),
     parentVersionId: nullableUuid(record.parent_version_id, "dataset version.parent_version_id"),
-    state: oneOf(record.state, ["queued", "processing", "active", "failed"], "dataset version.state"),
+    state: oneOf(record.state, ["queued", "processing", "active", "failed", "preserved"], "dataset version.state"),
     changeMessage: nullableString(record.change_message, "dataset version.change_message"),
     featureCount: nullableNonNegativeInteger(record.feature_count, "dataset version.feature_count"),
     extent,
@@ -13888,14 +14118,18 @@ function parseDatasetLineageOrigin(value) {
 
 function parseDatasetDerivativeLineage(value) {
   const record = object(value, "dataset derivative lineage");
+  const configurable=record.recipe==='gdal-pmtiles-v2';
   exactKeys(record, [
     "kind", "operation_id", "recipe", "source_object_id", "output_object_id",
     "bounds", "minimum_zoom", "maximum_zoom", "source_layer",
-    "request_checksum_sha256", "created_at"
+    "request_checksum_sha256", "created_at",
+    ...(configurable?['options','software']:[])
   ], "dataset derivative lineage");
-  if (record.kind !== "pmtiles" || record.recipe !== "gdal-pmtiles-v1") {
+  if (record.kind !== "pmtiles" || (record.recipe !== "gdal-pmtiles-v1"&&!configurable)) {
     contract("dataset derivative lineage kind or recipe is unsupported");
   }
+  let conversionOptions;
+  if(configurable){try{conversionOptions=pmtilesOptionsFromWire(record.options);}catch{contract('PMTiles lineage options are invalid');}}
   const bounds = parseArray(
     record.bounds,
     (coordinate) => finiteNumber(coordinate, "dataset derivative lineage.bounds"),
@@ -13922,6 +14156,7 @@ function parseDatasetDerivativeLineage(value) {
     kind: record.kind,
     operationId: uuid(record.operation_id, "dataset derivative lineage.operation_id"),
     recipe: record.recipe,
+    ...(configurable?{options:conversionOptions,software:boundedObject(record.software,4096,'PMTiles software provenance')}:{}),
     sourceObjectId: uuid(
       record.source_object_id, "dataset derivative lineage.source_object_id"
     ),
@@ -14604,6 +14839,7 @@ export function parseUploadTicket(value) {
   const record = object(value, "upload ticket");
   return {
     uploadId: uuid(record.upload_id, "upload ticket.upload_id"),
+    purpose: oneOf(record.purpose ?? "ingest", ["ingest", "pmtiles_original"], "upload ticket.purpose"),
     dataset: parseDataset(record.dataset),
     expiresAt: timestamp(record.expires_at, "upload ticket.expires_at"),
     upload: parseUploadInstructions(record.upload)
@@ -14906,13 +15142,22 @@ export function parseUploadInstructions(value) {
 export function parseUploadCompletion(value) {
   const record = object(value, "upload completion");
   const versionNumber = positiveInteger(record.version_number, "upload completion.version_number");
-  return {
+  const purpose = oneOf(record.purpose ?? "ingest", ["ingest", "pmtiles_original"], "upload completion.purpose");
+  const completion = {
     dataset: parseDataset(record.dataset),
     datasetVersionId: uuid(record.dataset_version_id, "upload completion.dataset_version_id"),
     versionNumber,
-    processingJobId: uuid(record.processing_job_id, "upload completion.processing_job_id"),
-    processingJobState: oneOf(record.processing_job_state, ["queued", "running", "completed", "failed", "cancelled"], "upload completion.processing_job_state")
+    purpose,
+    processingJobId: record.processing_job_id === null ? null : uuid(record.processing_job_id, "upload completion.processing_job_id"),
+    processingJobState: record.processing_job_state === null ? null : oneOf(record.processing_job_state, ["queued", "running", "completed", "failed", "cancelled"], "upload completion.processing_job_state")
   };
+  if (purpose === "pmtiles_original") {
+    if (completion.processingJobId !== null || completion.processingJobState !== null
+      || completion.dataset.sourceType !== "upload" || completion.dataset.format !== "geojson"
+      || !["draft", "archived"].includes(completion.dataset.status) || completion.dataset.currentVersionState !== "preserved"
+      || completion.dataset.currentVersionId !== completion.datasetVersionId) contract("Preserved original completion is inconsistent");
+  } else if (completion.processingJobId === null || completion.processingJobState === null) contract("Ingest completion requires its processing job");
+  return completion;
 }
 
 export function parseOrganizationMember(value) {

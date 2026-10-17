@@ -16,7 +16,7 @@ const library = await FileAttachment("./data/public-library.json").json();
 ```
 
 ```js
-const platform = createPlatformAdapter({catalog});
+const platform = await createPlatformAdapter({catalog});
 ```
 
 ```js

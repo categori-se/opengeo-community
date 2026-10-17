@@ -31,6 +31,7 @@ import {ServerlessApiStack} from "../lib/serverless-api-stack.js";
 import {SourceArchiverStack} from "../lib/source-archiver-stack.js";
 import {UserDatasetVerifierStack} from "../lib/user-dataset-verifier-stack.js";
 import {WorkerServiceStack} from "../lib/worker-service-stack.js";
+import {PmtilesQueueStack} from "../lib/pmtiles-queue-stack.js";
 
 interface ObservablePreviewDeployment {
   readonly edge: ObservablePreviewEdgeConfiguration;
@@ -115,6 +116,13 @@ Tags.of(stack).add("Application", "OpenGeo");
 Tags.of(stack).add("Environment", stage);
 Tags.of(stack).add("ManagedBy", "aws-cdk");
 Tags.of(stack).add("CostCenter", "opengeo-platform");
+
+const pmtilesOnly = optionalTrue(
+  process.env.OPEN_GEO_PMTILES_ONLY ?? app.node.tryGetContext("pmtilesOnly"), "PMTiles v2 worker"
+);
+const pmtilesQueues = pmtilesOnly
+  ? new PmtilesQueueStack(app, `OpenGeo-${stage}-PmtilesQueue`, {config, ...(env ? {env} : {})})
+  : undefined;
 
 // Optional, concrete existing-resource manifest. Absent means no controller stack.
 const workerControllerManifest = process.env.OPEN_GEO_WORKER_CONTROLLER_MANIFEST
@@ -215,6 +223,12 @@ const observableCoordinatorRunnerAmiId = boundedOptional(
   21
 );
 const workerImage = process.env.OPEN_GEO_WORKER_IMAGE ?? app.node.tryGetContext("workerImage");
+const pmtilesWorkerImageDigest = process.env.OPEN_GEO_PMTILES_WORKER_IMAGE_DIGEST
+  ?? app.node.tryGetContext("pmtilesWorkerImageDigest") ?? workerImage;
+if (pmtilesOnly && workerImage !== undefined && pmtilesWorkerImageDigest !== undefined
+  && parseImageTagOrDigest(workerImage) !== parseImageTagOrDigest(pmtilesWorkerImageDigest)) {
+  throw new Error("PMTiles API and worker must use the same immutable image digest");
+}
 const githubControllerImage = process.env.OPEN_GEO_GITHUB_CONTROLLER_IMAGE ?? app.node.tryGetContext("githubControllerImage");
 const githubAppSecretArn = process.env.OPEN_GEO_GITHUB_APP_SECRET_ARN ?? app.node.tryGetContext("githubAppSecretArn");
 const githubAppSecretKeyArn = process.env.OPEN_GEO_GITHUB_APP_SECRET_KEY_ARN ?? app.node.tryGetContext("githubAppSecretKeyArn");
@@ -384,6 +398,11 @@ if (apiImage !== undefined) {
     foundation: stack,
     imageDigest: parseImageTagOrDigest(apiImage),
     observableBuilderImageDigest,
+    ...(pmtilesQueues ? {pmtilesOnly: true, pmtilesDerivativeQueue: pmtilesQueues.queue,
+      pmtilesWorkerImageDigest: pmtilesWorkerImageDigest === undefined
+        ? undefined : parseImageTagOrDigest(pmtilesWorkerImageDigest),
+      pmtilesInputFormats: process.env.OPEN_GEO_PMTILES_INPUT_FORMATS
+        ?? app.node.tryGetContext("pmtilesInputFormats") ?? "geojson"} : {}),
     ...(additionalCognitoClientIds ? {additionalCognitoClientIds} : {}),
     enableKmlNetworkLinkFetch: kmlNetworkLinkFetchEnabled,
     enablePortableArtifacts: portableArtifactsEnabled,
@@ -476,6 +495,8 @@ if (transitionalApiImage !== undefined) {
 
 if (workerImage !== undefined) {
   const workerStack = new WorkerServiceStack(app, `OpenGeo-${stage}-Worker`, {
+    ...(pmtilesQueues ? {workload: "pmtiles-v2" as const,
+      processingQueue: pmtilesQueues.queue, processingDeadLetterQueue: pmtilesQueues.deadLetterQueue} : {}),
     config: {
       ...config,
       workerMaxTasks: parseWorkerMaxTasks(

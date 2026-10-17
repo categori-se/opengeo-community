@@ -14,7 +14,7 @@ const catalog = await FileAttachment("./data/catalog.json").json();
 ```
 
 ```js
-const platform = createPlatformAdapter({catalog});
+const platform = await createPlatformAdapter({catalog});
 const browserAuth = platform.kind === "api" ? createCognitoBrowserAuth() : null;
 ```
 

@@ -6,6 +6,9 @@
 </section>
 
 ```js
+import {installStudioSkipLink} from "./lib/studioSkipLink.js";
+const disposeSkipLink = installStudioSkipLink(document);
+invalidation.then(disposeSkipLink);
 import {loadBrowserAuthConfig} from "./lib/authConfig.js";
 import {createCognitoBrowserAuth} from "./lib/cognitoAuth.js";
 import {createPlatformAdapter} from "./lib/platform.js";
@@ -27,14 +30,16 @@ const query = new URL(location.href).searchParams;
 const runtimeAuthConfig = query.get("adapter") === "fixture"
   ? null
   : await loadBrowserAuthConfig().catch(() => null);
-const platform = createPlatformAdapter({catalog, capabilities: runtimeAuthConfig?.capabilities});
+const platform = await createPlatformAdapter({catalog, capabilities: runtimeAuthConfig?.capabilities});
 const auth = createCognitoBrowserAuth({
   configLoader: runtimeAuthConfig ? async () => runtimeAuthConfig : null
 });
 const compositionId = query.get("composition");
 const publicationId = query.get("publication");
 const projectId = compositionId || publicationId ? null : query.get("project");
-const managementTarget = publicationId ? "publishing" : compositionId ? null : query.get("manage");
+const managementTarget = publicationId ? "publishing" : compositionId
+  ? (query.get("manage") === "print" ? "print" : null)
+  : query.get("manage");
 const featureTarget = featureRouteTarget(query);
 const mapDatasetTarget = mapDatasetRouteTarget(query);
 const publicResourceTarget = publicResourceRouteTarget(query);

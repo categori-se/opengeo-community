@@ -577,7 +577,20 @@ export function CollectionDirectory({adapter, initialCollectionId = null, update
       publicLink.target = "_blank"; publicLink.rel = "noopener noreferrer";
       editor.append(publicLink);
       Promise.resolve(adapter.publicCollectionUrl(selected)).then(href => {
-        if (!disposed && publicLink.isConnected) publicLink.href = href;
+        if (disposed || !publicLink.isConnected) return;
+        publicLink.href = href;
+        const moduleUrl = new URL(href, root.ownerDocument.location.href);
+        moduleUrl.pathname = moduleUrl.pathname.replace(/\/view$/, "/module.mjs");
+        moduleUrl.search = ""; moduleUrl.hash = "";
+        const consume = node("details"), example = node("textarea");
+        example.value = `import {createGallery} from ${JSON.stringify(moduleUrl.href)};\n\nconst gallery = createGallery();\ndocument.querySelector("#gallery").append(gallery);\n// When removing this view: gallery.dispose();`;
+        example.readOnly = true; example.rows = 6;
+        example.setAttribute("aria-label", "JavaScript gallery import for this Collection");
+        consume.append(node("summary", "Use this Collection in a website"),
+          node("p", "Add an element with id gallery to your page. The gallery inherits your page's styles and shows public members in their saved order without loading their maps or images. Each member keeps its own access."),
+          example,
+          node("p", "Pass onSelect to handle member selections, or listen for opengeo:collection-select. Call refresh() to update the list and dispose() when removing the gallery."));
+        publicLink.after(consume);
       }).catch(() => {publicLink.textContent = "Public link unavailable.";});
     }
     if (draft.role === "owner" && typeof adapter.setCollectionVisibility === "function") {

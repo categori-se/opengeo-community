@@ -8,11 +8,13 @@ import {
   normalizePathMeasurements,
   PATH_MEASUREMENT_LIMITS
 } from "./pathMeasurement.js";
+import {normalizePolygon3DMeasurement} from "./polygon3dMeasurement.js";
 
 export function normalizeSavedMeasurements(value, options = {}) {
   if (!Array.isArray(value) || value.length > PATH_MEASUREMENT_LIMITS.maximumMeasurements) return [];
   try {
     return value.map((measurement) => {
+      if (measurement?.kind === "polygon-3d") return normalizePolygon3DMeasurement(measurement, options);
       if (measurement?.kind === "path-profile") {
         const normalized = normalizePathMeasurements([measurement], options);
         if (normalized.length !== 1) throw new Error("path_measurement_invalid");
@@ -30,7 +32,7 @@ export function savedMeasurementGeojson(measurements, draftCoordinates = [], dra
   const draftPath = ["path", "line"].includes(draftKind) ? draftCoordinates : [];
   const features = pathMeasurementGeojson(pathMeasurements, draftPath).features;
   for (const measurement of measurements ?? []) {
-    if (measurement.kind === "polygon-area") {
+    if (["polygon-area", "polygon-3d"].includes(measurement.kind)) {
       features.push(areaFeature(measurement, [...measurement.coordinates, measurement.coordinates[0]], "saved"));
     } else if (measurement.kind === "circle-area") {
       features.push(areaFeature(measurement, circlePolygonCoordinates(measurement), "saved"));

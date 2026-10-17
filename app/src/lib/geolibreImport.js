@@ -169,7 +169,7 @@ async function bindEmbeddedCandidate({
   storage
 }) {
   const previous = checkpoint.steps[item.importRef] ?? {};
-  if (previous.datasetId) {
+  if (previous.datasetId && previous.stage === "completed") {
     return adapter.bindProjectImportDataset(
       projectId,
       operation.importId,
@@ -178,23 +178,37 @@ async function bindEmbeddedCandidate({
     );
   }
   if (previous.uploadId) {
+    let completion;
     try {
-      const completion = await adapter.completeUpload(projectId, previous.uploadId);
-      checkpoint.steps[item.importRef] = {
-        ...previous,
-        datasetId: completion.dataset.id,
-        stage: "completed"
-      };
+      completion = await adapter.completeUpload(projectId, previous.uploadId);
+    } catch (error) {
+      if (error?.code !== "upload_object_missing") throw error;
+      if (typeof adapter.renewUpload !== "function") {
+        throw codedError("project_import_upload_resume_unavailable", "This connection cannot renew the existing upload. Keep the import checkpoint and retry with upload recovery support.");
+      }
+      const renewed = await adapter.renewUpload(projectId, previous.uploadId);
+      if (renewed.uploadId !== previous.uploadId || renewed.dataset?.id !== previous.datasetId) {
+        throw codedError("upload_verification_failed", "The renewed upload does not match the retained dataset.");
+      }
+      checkpoint.steps[item.importRef] = {...previous, stage: "requested"};
       saveCheckpoint(storage, checkpoint);
-      return await adapter.bindProjectImportDataset(
-        projectId,
-        operation.importId,
-        item.importRef,
-        completion.dataset.id
-      );
-    } catch {
-      if (previous.datasetId) checkpoint.orphanedDatasetIds.push(previous.datasetId);
+      await adapter.uploadFile(renewed.upload, candidate.blob);
+      checkpoint.steps[item.importRef].stage = "uploaded";
+      saveCheckpoint(storage, checkpoint);
+      completion = await adapter.completeUpload(projectId, previous.uploadId);
     }
+    checkpoint.steps[item.importRef] = {
+      ...previous,
+      datasetId: completion.dataset.id,
+      stage: "completed"
+    };
+    saveCheckpoint(storage, checkpoint);
+    return adapter.bindProjectImportDataset(
+      projectId,
+      operation.importId,
+      item.importRef,
+      completion.dataset.id
+    );
   }
   const ticket = await adapter.requestUpload(projectId, {
     name: candidate.name,

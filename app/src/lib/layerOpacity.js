@@ -11,6 +11,14 @@ export function supportsCompositeOpacity(layer) {
 
 export function opacityPaint(type, paint, opacity, mode = "feature") {
   const result = structuredClone(paint);
+  if (type === "symbol") {
+    for (const prefix of ["icon", "text"]) {
+      if (Object.keys(paint).some(key => key.startsWith(`${prefix}-`))) {
+        result[`${prefix}-opacity`] = (paint[`${prefix}-opacity`] ?? 1) * opacity;
+      }
+    }
+    return result;
+  }
   const property = `${type}-opacity`;
   if (mode === "composite" && ["fill", "line"].includes(type)) {
     result[property] = paint[property] ?? 1;

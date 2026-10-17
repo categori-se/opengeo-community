@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {describe, it} from "node:test";
+import {normalizePmtilesOptions,pmtilesOptionsToWire} from '../src/lib/pmtilesOptions.js';
 
 import {
   ApiClientError,
@@ -61,6 +62,7 @@ import {
   parseProjectTeamGrant,
   parseProtectedCopyJob,
   parsePmtilesDerivativeJob,
+  parsePmtilesDisplayReview,
   parsePublicCatalogPage,
   parsePublicCatalogRecord,
   parsePublicDatasetDocumentPreview,
@@ -91,6 +93,8 @@ import {
   parseCoverageDerivativeReclamationPreview,
   parseCoverageProcessingPolicy,
   parseUploadInstructions
+  ,parseUploadCompletion
+  ,parseDatasetVersion
   ,parseTeam
   ,parseResolvedBasemapStyle
   ,parseUserBasemapConnection
@@ -360,6 +364,31 @@ describe("OpenGeo API client", () => {
       connection_id: IDS.connection,
       display_name: "Shared geospatial data"
     });
+  });
+
+  it("updates and revokes exact workspace team grants without replaying writes", async () => {
+    const calls = [];
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token",
+      organizationProvider: () => IDS.organization,
+      fetchImplementation: async (url, options) => {
+        calls.push({url, options});
+        return options.method === "DELETE" ? new Response(null, {status: 204})
+          : jsonResponse({...projectTeamGrantPayload(), role: "reviewer"});
+      }
+    });
+    const result = await client.updateProjectTeamGrant(IDS.project, IDS.team, "reviewer");
+    assert.equal(result.projectId, IDS.project);
+    assert.equal(result.teamId, IDS.team);
+    assert.equal(result.role, "reviewer");
+    await client.revokeProjectTeamGrant(IDS.project, IDS.team);
+    assert.equal(calls.length, 2);
+    assert(calls.every(call => call.url.endsWith(`/projects/${IDS.project}/team-grants/${IDS.team}`)));
+    assert.deepEqual(calls.map(call => call.options.method), ["PATCH", "DELETE"]);
+    assert.deepEqual(JSON.parse(calls[0].options.body), {role: "reviewer"});
+    assert.equal(calls[1].options.body, undefined);
+    await assert.rejects(() => client.revokeProjectTeamGrant("wrong-project", IDS.team));
+    assert.equal(calls.length, 2);
   });
 
   it("keeps project discussions explicit, attributed, and versioned", async () => {
@@ -3477,6 +3506,38 @@ describe("OpenGeo API client", () => {
     assert.equal(calls[2].url, `/api/projects/${IDS.project}/uploads/${IDS.upload}/complete`);
   });
 
+  it("requests preserved GeoJSON originals and accepts nullable processing jobs honestly", async () => {
+    const calls = [];
+    const preserved = {...uploadCompletionPayload(), purpose: "pmtiles_original", processing_job_id: null, processing_job_state: null,
+      dataset: datasetPayload({status: "draft", current_version_state: "preserved", feature_count: null, extent: null,
+        crs: null, geometry_type: null, quality_results: {}, processing_job_state: null})};
+    const client = new OpenGeoApiClient({tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async (url, options) => {
+        calls.push({url, options});
+        return jsonResponse(url.endsWith("/request") ? {...uploadTicketPayload(), purpose: "pmtiles_original"} : preserved);
+      }});
+    const metadata = {name: "Original", format: "geojson", filename: "original.geojson", contentType: "application/geo+json",
+      sizeBytes: 512 * 1024 * 1024, checksumSha256: "a".repeat(64), purpose: "pmtiles_original"};
+    const ticket = await client.requestUpload(IDS.project, metadata);
+    const completion = await client.completeUpload(IDS.project, ticket.uploadId);
+    assert.equal(JSON.parse(calls[0].options.body).purpose, "pmtiles_original");
+    assert.equal(ticket.purpose, "pmtiles_original");
+    assert.equal(completion.purpose, "pmtiles_original");
+    assert.equal(completion.dataset.currentVersionState, "preserved");
+    assert.equal(completion.processingJobId, null); assert.equal(completion.processingJobState, null);
+    assert.equal(parseUploadCompletion({...preserved, dataset: {...preserved.dataset, status: "archived"}}).dataset.status, "archived");
+    assert.equal(parseDatasetVersion({...versionPayload(), state: "preserved"}).state, "preserved");
+    for (const override of [{format: "csv"}, {sizeBytes: metadata.sizeBytes + 1}, {targetDatasetId: IDS.dataset, expectedBaseVersionId: IDS.version}]) {
+      await assert.rejects(client.requestUpload(IDS.project, {...metadata, ...override}), ApiContractError);
+    }
+    assert.equal(calls.length, 2);
+    for (const inconsistent of [{processing_job_id: IDS.job}, {processing_job_state: "queued"},
+      {dataset: {...preserved.dataset, current_version_state: "active"}}, {dataset: {...preserved.dataset, status: "active"}}]) {
+      assert.throws(() => parseUploadCompletion({...preserved, ...inconsistent}), ApiContractError);
+    }
+    assert.throws(() => parseUploadCompletion({...uploadCompletionPayload(), processing_job_id: null, processing_job_state: null}), ApiContractError);
+  });
+
   it("loads strict dataset records and rejects attacker-controlled upload destinations", async () => {
     const client = new OpenGeoApiClient({
       tokenProvider: () => "test-token",
@@ -4463,6 +4524,171 @@ describe("OpenGeo API client", () => {
       max_zoom: 14,
       source_layer: "massgis"
     });
+  });
+
+  it('reads server-probed PMTiles input formats with nullable unused software',async()=>{
+    let formats='geojson',admissionReady=true,admissionReason='ready',url;
+    const client=new OpenGeoApiClient({tokenProvider:()=> 'test-token',organizationProvider:()=>IDS.organization,fetchImplementation:async request=>{
+      url=request;return jsonResponse({schema_version:'opengeo.server-processing-registry.1.0.0',tools:[{id:'vector-to-pmtiles',version:'1.1.0',request_schema_version:'opengeo.pmtiles-derivative-request.1.1.0',limits:{recipe:'gdal-pmtiles-v2',adaptiveGeneralization:true,inputFormats:formats,admissionReady,admissionReason},software:{gdal:'3.13.1',tippecanoe:null}}]});
+    }});
+    assert.deepEqual(await client.getPmtilesConversionCapabilities(),{inputFormats:['geojson'],recipe:'gdal-pmtiles-v2',adaptiveGeneralization:true,admissionReady:true,admissionReason:'ready'});assert.equal(url,'/api/processing/tools');
+    admissionReady=false;admissionReason='runtime_budget_exhausted';assert.equal((await client.getPmtilesConversionCapabilities()).admissionReady,false);
+    admissionReason='unreviewed';await assert.rejects(client.getPmtilesConversionCapabilities(),/admission status/);admissionReady=true;admissionReason='ready';
+    formats='geopackage,unverified';await assert.rejects(client.getPmtilesConversionCapabilities(),/input formats/);
+  });
+
+  it('round-trips v2 PMTiles options and rejects incomplete saved profiles',async()=>{
+    const options=normalizePmtilesOptions({inputLayer:'roads',extent:8192,simplification:.5,simplificationMaxZoom:0,maxSize:1000000,maxFeatures:400000,attributeNames:['name','class']});
+    let payload=pmtilesDerivativePayload({schema_version:'opengeo.pmtiles-derivative-job.1.1.0',recipe:'gdal-pmtiles-v2',options:pmtilesOptionsToWire(options),source_layer:'roads_tiles',worker_image_digest:'sha256:'+'a'.repeat(64)}),call;
+    const client=new OpenGeoApiClient({tokenProvider:()=> 'test-token',organizationProvider:()=>IDS.organization,fetchImplementation:async(url,value)=>{call={url,...value};return jsonResponse(payload);}});
+    const input={idempotencyKey:IDS.idempotency,bounds:[-73.6,42,-69.8,42.9],minZoom:4,maxZoom:14,sourceLayer:'roads_tiles',options};
+    const job=await client.createPmtilesDerivative(IDS.project,IDS.dataset,IDS.version,input);
+    assert.deepEqual(job.options,options);assert.equal(job.recipe,'gdal-pmtiles-v2');assert.deepEqual(JSON.parse(call.body).options,pmtilesOptionsToWire(options));
+    await assert.rejects(client.createPmtilesDerivative(IDS.project,IDS.dataset,IDS.version,{...input,options:{maxSize:0}}),/supported range/);
+    payload={...payload,options:{extent:4096}};
+    await assert.rejects(client.createPmtilesDerivative(IDS.project,IDS.dataset,IDS.version,input),/conversion options/);
+  });
+
+  it("reads PMTiles review facts without storage access and retains ineligible fragment counts", async () => {
+    const calls = [], controller = new AbortController();
+    let payload = pmtilesDisplayReviewPayload();
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async (url, options) => {calls.push({url, options}); return jsonResponse(payload);}
+    });
+    const review = await client.getPmtilesDisplayReview(IDS.project, IDS.dataset, IDS.version, IDS.job, {signal: controller.signal});
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, new RegExp(`/projects/${IDS.project}/datasets/${IDS.dataset}/versions/${IDS.version}/pmtiles-derivatives/${IDS.job}/display-review$`));
+    assert.equal(calls[0].options.method, "GET");
+    assert.equal(calls[0].options.body, undefined);
+    assert.equal(calls[0].options.signal, controller.signal);
+    assert.equal(review.datasetVersionId, IDS.version);
+    assert.equal(review.reviewSha256, "a".repeat(64));
+    assert.equal(review.countSemantics, "gdal-reported-tile-fragments-not-source-records");
+    assert.equal(review.reportedFragmentCount, 10);
+    assert.deepEqual(review.conversionLimits, {geometry: "quantized-clipped-simplified-display-not-analysis",
+      attributes: "not-independently-verified-null-values-may-be-omitted", featureIds: "not-guaranteed-to-retain-source-fids",
+      sourceRecordCount: null, preservationVerified: false});
+    assert.deepEqual(review.tileLayers[0], {sourceLayer: "massgis", title: "MassGIS display", geometryType: "Polygon",
+      featureCount: 10, geometryMethod: "Quantized tile fragments; source records remain separate."});
+    assert.equal(review.eligible, true);
+    assert.equal(review.displayId, null);
+    payload = pmtilesDisplayReviewPayload({tile_layers: [], reported_fragment_count: 10_000_001, eligible: false});
+    const incompatible = await client.getPmtilesDisplayReview(IDS.project, IDS.dataset, IDS.version, IDS.job);
+    assert.equal(incompatible.eligible, false);
+    assert.equal(incompatible.reportedFragmentCount, 10_000_001);
+    assert.deepEqual(incompatible.tileLayers, []);
+    assert.equal(calls.length, 2);
+  });
+
+  it("rejects PMTiles review target changes, storage fields and incompatible facts", async () => {
+    let payload;
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async () => jsonResponse(payload)
+    });
+    for (const changes of [
+      {dataset_id: IDS.resource}, {dataset_version_id: IDS.resource}, {job_id: IDS.resource},
+      {bucket: "private"}, {ticket: {url: "https://storage.example.test/object"}},
+      {download_bytes: 2_147_483_649}, {reported_fragment_count: Number.MAX_SAFE_INTEGER + 1},
+      {count_semantics: "source-records"}, {min_zoom: 15, max_zoom: 14}, {bounds: [1, 1, -1, -1]},
+      {eligible: false}, {display_id: IDS.resource}, {review_sha256: "invalid"},
+      {conversion_limits: {...pmtilesDisplayReviewPayload().conversion_limits, preservation_verified: true}},
+      {conversion_limits: {...pmtilesDisplayReviewPayload().conversion_limits, source_record_count: 10}},
+      {tile_layers: [{...pmtilesDisplayReviewPayload().tile_layers[0], key: "private/output.pmtiles"}]},
+      {tile_layers: [{...pmtilesDisplayReviewPayload().tile_layers[0], feature_count: 11}]}
+    ]) {
+      payload = pmtilesDisplayReviewPayload(changes);
+      await assert.rejects(() => client.getPmtilesDisplayReview(IDS.project, IDS.dataset, IDS.version, IDS.job), ApiContractError);
+    }
+    assert.throws(() => parsePmtilesDisplayReview({...pmtilesDisplayReviewPayload(), output_finished_at: null}), ApiContractError);
+  });
+
+  it("admits PMTiles display with exactly five reviewed fields and returns metadata only", async () => {
+    const calls = [], controller = new AbortController();
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async (url, options) => {calls.push({url, options}); return jsonResponse(pmtilesDisplayAdmissionPayload());}
+    });
+    const admission = await client.admitPmtilesDisplayReview(IDS.project, IDS.dataset, IDS.version, IDS.job,
+      pmtilesDisplayAdmissionRequest(), {signal: controller.signal});
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, new RegExp(`/versions/${IDS.version}/pmtiles-derivatives/${IDS.job}/display-review$`));
+    assert.equal(calls[0].options.method, "POST");
+    assert.equal(calls[0].options.signal, controller.signal);
+    assert.deepEqual(JSON.parse(calls[0].options.body), {expected_review_sha256: "a".repeat(64), title: "Reviewed display",
+      rights_basis: "Reviewed source terms", attribution: "Source agency", acknowledge_conversion_limits: true});
+    assert.equal(admission.displayId, IDS.job);
+    assert.equal(admission.datasetVersionId, IDS.version);
+    assert.equal(admission.reviewSha256, "a".repeat(64));
+    assert.deepEqual(admission.display, pmtilesDisplayAdmissionPayload().display);
+    assert.equal(Object.hasOwn(admission.display, "objects"), false);
+  });
+
+  it("accepts closed v2 display provenance while retaining strict legacy and conversion-limit checks", async () => {
+    let payload=pmtilesDisplayAdmissionPayload();
+    payload.display.provenance.recipe='gdal-pmtiles-v2';
+    Object.assign(payload.display.provenance.losses,{
+      adaptive_tile_limits:'Tile byte and feature limits may reduce precision or omit display features; source data remains preserved.',
+      attribute_selection:['name','class']
+    });
+    const valid=structuredClone(payload);
+    const client=new OpenGeoApiClient({tokenProvider:()=> 'test-token',organizationProvider:()=>IDS.organization,
+      fetchImplementation:async()=>jsonResponse(payload)});
+    const request={expectedReviewSha256:'a'.repeat(64),title:'Reviewed display',rightsBasis:'Reviewed source terms',attribution:'Source agency',acknowledgeConversionLimits:true};
+    const admit=()=>client.admitPmtilesDisplayReview(IDS.project,IDS.dataset,IDS.version,IDS.job,request);
+    assert.deepEqual((await admit()).display,valid.display);
+    payload=structuredClone(valid);payload.display.provenance.losses.attribute_selection=null;await admit();
+    for(const change of [
+      value=>{value.display.provenance.recipe='gdal-pmtiles-v1';},
+      value=>{value.display.provenance.recipe='gdal-pmtiles-v3';},
+      value=>{value.display.provenance.losses.adaptive_tile_limits='no losses';},
+      value=>{value.display.provenance.losses.attribute_selection=['name','name'];},
+      value=>{value.display.provenance.losses.unreviewed=true;},
+      value=>{value.display.provenance.losses.preservation_verified=true;}
+    ]){
+      payload=structuredClone(valid);change(payload);await assert.rejects(admit);
+    }
+  });
+
+  it("refuses PMTiles admission without explicit bounded review input before sending", async () => {
+    let calls = 0;
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async () => {calls++; return jsonResponse(pmtilesDisplayAdmissionPayload());}
+    });
+    for (const changes of [{acknowledgeConversionLimits: false}, {acknowledgeConversionLimits: "true"},
+      {acknowledgeConversionLimits: 1}, {title: " Display"}, {title: "Display\nname"}, {title: ""},
+      {rightsBasis: "x".repeat(2001)}, {attribution: "Source "}, {expectedReviewSha256: "invalid"},
+      {objects: [{key: "private/output.pmtiles"}]}]) {
+      await assert.rejects(() => client.admitPmtilesDisplayReview(IDS.project, IDS.dataset, IDS.version, IDS.job,
+        {...pmtilesDisplayAdmissionRequest(), ...changes}), TypeError);
+    }
+    assert.equal(calls, 0);
+  });
+
+  it("rejects PMTiles admission identity, digest, storage and range-cap changes", async () => {
+    let payload;
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async () => jsonResponse(payload)
+    });
+    const valid = pmtilesDisplayAdmissionPayload();
+    for (const changes of [{dataset_id: IDS.resource}, {dataset_version_id: IDS.resource}, {job_id: IDS.resource},
+      {display_id: IDS.resource}, {review_sha256: "b".repeat(64)}, {ticket: {url: "https://storage.example.test"}},
+      {display: {...valid.display, id: IDS.resource}}, {display: {...valid.display, title: "Changed title"}},
+      {display: {...valid.display, rights: {rights_basis: "Changed terms"}}},
+      {display: {...valid.display, objects: [{key: "private/output.pmtiles"}]}},
+      {display: {...valid.display, provenance: {...valid.display.provenance, block_sha256: ["b".repeat(64)]}}},
+      {display: {...valid.display, provenance: {...valid.display.provenance, review_sha256: "b".repeat(64)}}},
+      {display: {...valid.display, range_limits: {...valid.display.range_limits, bytes: 128 * 1024 ** 2}}},
+      {display: {...valid.display, verification_index_bytes: 1024 ** 2 + 1}},
+      {display: {...valid.display, decoded_bytes: valid.display.download_bytes + 1}}
+    ]) {
+      payload = {...valid, ...changes};
+      await assert.rejects(() => client.admitPmtilesDisplayReview(IDS.project, IDS.dataset, IDS.version, IDS.job,
+        pmtilesDisplayAdmissionRequest()), ApiContractError);
+    }
   });
 
   it("rejects inconsistent preservation job responses", () => {
@@ -8401,6 +8627,44 @@ function repositoryProtectedCopyPayload(overrides = {}) {
     cancellable: true,
     ...overrides
   };
+}
+
+function pmtilesDisplayReviewPayload(overrides = {}) {
+  return {
+    job_id: IDS.job, dataset_id: IDS.dataset, dataset_version_id: IDS.version,
+    review_sha256: "a".repeat(64), source_object_id: IDS.upload, output_object_id: IDS.feature,
+    output_finished_at: "2026-10-15T12:00:00Z", request_checksum_sha256: "c".repeat(64),
+    download_bytes: 12345, output_sha256: "d".repeat(64), count_semantics: "gdal-reported-tile-fragments-not-source-records",
+    conversion_limits: {geometry: "quantized-clipped-simplified-display-not-analysis",
+      attributes: "not-independently-verified-null-values-may-be-omitted", feature_ids: "not-guaranteed-to-retain-source-fids",
+      source_record_count: null, preservation_verified: false},
+    reported_fragment_count: 10, bounds: [-73.6, 42, -69.8, 42.9],
+    tile_layers: [{source_layer: "massgis", title: "MassGIS display", geometry_type: "Polygon", feature_count: 10,
+      geometry_method: "Quantized tile fragments; source records remain separate."}],
+    min_zoom: 4, max_zoom: 14, eligible: true, display_id: null, ...overrides
+  };
+}
+
+function pmtilesDisplayAdmissionRequest() {
+  return {expectedReviewSha256: "a".repeat(64), title: "Reviewed display", rightsBasis: "Reviewed source terms",
+    attribution: "Source agency", acknowledgeConversionLimits: true};
+}
+
+function pmtilesDisplayAdmissionPayload() {
+  const review = pmtilesDisplayReviewPayload();
+  return {job_id: IDS.job, dataset_id: IDS.dataset, dataset_version_id: IDS.version,
+    review_sha256: review.review_sha256, display_id: IDS.job, display: {
+      id: IDS.job, title: "Reviewed display", captured_at: null, format: "pmtiles", attribution: "Source agency",
+      rights: {rights_basis: "Reviewed source terms"},
+      provenance: {pmtiles_job_id: IDS.job, recipe: "gdal-pmtiles-v1", source_object_id: review.source_object_id,
+        output_object_id: review.output_object_id, request_checksum_sha256: review.request_checksum_sha256,
+        review_sha256: review.review_sha256, output_finished_at: review.output_finished_at, bounds: review.bounds,
+        count_semantics: review.count_semantics, losses: review.conversion_limits},
+      download_bytes: review.download_bytes, decoded_bytes: review.download_bytes, feature_count: review.reported_fragment_count,
+      object_count: 1, tile_layers: review.tile_layers, min_zoom: review.min_zoom, max_zoom: review.max_zoom,
+      range_block_bytes: 65536, verification_index_bytes: 0,
+      range_limits: {requests: 256, bytes: 64 * 1024 ** 2, seconds: 300, response_bytes: 8 * 1024 ** 2}
+    }};
 }
 
 function pmtilesDerivativePayload(overrides = {}) {

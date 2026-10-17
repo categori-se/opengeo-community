@@ -1,11 +1,11 @@
 import {CatalogLayerPreview} from "./CatalogLayerPreview.js";
 import {createCatalogPreviewLoader} from "../lib/catalogLayerPreview.js";
 
-const PREVIEW_SOURCES = new Set(["arcgis", "wfs", "imageserver", "mapserver", "cog"]);
+const PREVIEW_SOURCES = new Set(["arcgis", "wfs", "imageserver", "mapserver", "cog", "xyz", "geojson", "postgis"]);
 let previewSequence = 0;
 
 // Catalog listing is metadata-only. The source and provider are read after a deliberate click.
-export function CatalogResourceMapAction({dataset, adapter, load = null, beforeOpen = null}) {
+export function CatalogResourceMapAction({dataset, adapter, load = null, beforeOpen = null, renderMap}) {
   if (dataset.status !== "active" || !dataset.capabilities?.read || !dataset.projectId
     || !PREVIEW_SOURCES.has(dataset.sourceType) || typeof adapter?.getSource !== "function") return null;
 
@@ -22,11 +22,24 @@ export function CatalogResourceMapAction({dataset, adapter, load = null, beforeO
   const record = {
     datasetId: dataset.id, projectId: dataset.projectId, title: dataset.name,
     geometryType: dataset.geometryType, resourcePreview: true,
+    sourceType: dataset.sourceType, bbox: dataset.extent ?? null,
     sourceVersion: dataset.preservationSummary?.sourceVersion ?? null
   };
   const loadPreview = load ?? createCatalogPreviewLoader({adapter});
-  let loaded = false;
+  const controller = new AbortController();
+  let loaded = false, preview = null;
+  const dispose = () => {
+    controller.abort();
+    if (!load) loadPreview.dispose?.();
+    preview?.dispose?.();
+    preview = null;
+    panel.replaceChildren();
+    panel.hidden = true;
+    button.disabled = true;
+    button.setAttribute("aria-expanded", "false");
+  };
   button.addEventListener("click", async () => {
+    if (controller.signal.aborted) return;
     if (panel.hidden) beforeOpen?.();
     panel.hidden = !panel.hidden;
     button.setAttribute("aria-expanded", String(!panel.hidden));
@@ -38,13 +51,15 @@ export function CatalogResourceMapAction({dataset, adapter, load = null, beforeO
     status.setAttribute("role", "status");
     panel.replaceChildren(status);
     try {
-      panel.replaceChildren(await CatalogLayerPreview({record, adapter, load: loadPreview, interactive: true}));
+      preview = await CatalogLayerPreview({record, adapter, load: loadPreview, interactive: true, renderMap, signal: controller.signal});
+      if (controller.signal.aborted) {preview.dispose?.(); preview = null; return;}
+      panel.replaceChildren(preview);
       loaded = true;
     } catch (error) {
-      status.textContent = `${error?.message || "Map preview unavailable"} No archived copy was used.`;
+      if (!controller.signal.aborted) status.textContent = `${error?.message || "Map preview unavailable"} ${dataset.sourceType === "geojson" ? "No other copy was used." : "No archived copy was used."}`;
     } finally {
-      button.disabled = false;
+      if (!controller.signal.aborted) button.disabled = false;
     }
   });
-  return {button, panel};
+  return {button, panel, dispose};
 }

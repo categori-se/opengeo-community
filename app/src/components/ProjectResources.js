@@ -3312,6 +3312,16 @@ function savedMapRenderEditor(state, resource) {
         || dimensions[0] * dimensions[1] > 4_194_304) {
         throw new TypeError("Choose whole-number dimensions from 64 to 2048 pixels per side.");
       }
+      if (typeof state.adapter.getCompositionVersion !== "function") {
+        throw Error("The saved map revision cannot be checked in this adapter. Capture the map in Print Studio instead.");
+      }
+      const version = await state.adapter.getCompositionVersion(snapshot.mapId, snapshot.mapVersion);
+      if (version.version !== snapshot.mapVersion || !Array.isArray(version.definition?.layers)) {
+        throw Error("The saved map revision could not be verified. Reopen this resource and try again.");
+      }
+      if (version.definition.layers.some(layer => layer.pointClustering?.enabled)) {
+        throw Error("Point clustering is not supported in saved map images. Capture the grouped display in Print Studio, or disable clustering and save a new map revision.");
+      }
       const signature = JSON.stringify([state.organization.id, state.session?.userId, state.project.id,
         resource.id, resource.versionNumber, snapshot.mapVersion, ...dimensions, "png"]);
       const idempotencyKey = attempts.get(signature) ?? crypto.randomUUID();

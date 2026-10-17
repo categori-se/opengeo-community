@@ -433,6 +433,10 @@ function exportLayer(layer, index, original, embedded, report) {
   output.metadata = cloneJson(output.metadata ?? {});
   output.metadata.opengeo = {schemaVersion: "1.0.0", layer: cloneJson(layer)};
   const sourceType = layer.sourceType;
+  const embeddedData = embedded?.complete === true ? embedded.data : embedded;
+  if (isRecord(embedded) && Object.hasOwn(embedded, "complete") && embedded.complete !== true) {
+    throw new Error(`Layer ${id} requires complete data for GeoLibre export.`);
+  }
   if (sourceType === "xyz-raster" || sourceType === "xyz-url") {
     output.type = "xyz";
     output.source = {type: "raster", tiles: [layer.sourceUrl], url: layer.sourceUrl, ...sourceOptions(layer)};
@@ -454,10 +458,11 @@ function exportLayer(layer, index, original, embedded, report) {
       ...(typeof config.attribution === "string" ? {attribution: config.attribution} : {})
     };
   } else if ((sourceType === "geojson-object"
-    || (sourceType === "governed-dataset" && original?.type === "geojson")) && isFeatureCollection(embedded)) {
+    || (sourceType === "governed-dataset" && (embedded?.complete === true || original?.type === "geojson"))) && isFeatureCollection(embeddedData)) {
+    assertJsonValue(embeddedData);
     output.type = "geojson";
     output.source = {type: "geojson"};
-    output.geojson = cloneJson(embedded);
+    output.geojson = cloneJson(embeddedData);
   } else if (sourceType === "geojson-url") {
     output.type = "geojson";
     output.source = {type: "geojson", url: layer.sourceUrl};

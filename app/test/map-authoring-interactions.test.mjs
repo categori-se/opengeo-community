@@ -16,10 +16,27 @@ test("drawing previews use individual vertices and a live pointer edge without c
 test("polygon closure requires three vertices and uses screen pixels at any zoom", () => {
   const draft = {kind: "Polygon", coordinates: [[0, 0], [10, 0], [10, 10]], canClose: true};
   const project = ([x, y]) => ({x: x + 100, y: y + 100});
-  assert.equal(canClosePolygon(draft, {x: 108, y: 100}, project), true);
+  assert.equal(canClosePolygon(draft, {x: 102, y: 100}, project), true);
+  assert.equal(canClosePolygon(draft, {x: 108, y: 100}, project), false, "a closer later vertex must not close the ring");
   assert.equal(canClosePolygon(draft, {x: 120, y: 100}, project), false);
   assert.equal(canClosePolygon({...draft, coordinates: draft.coordinates.slice(0, 2)}, {x: 100, y: 100}, project), false);
   assert.equal(mapAuthoringPreview(draft).features[0].properties.close, true);
+});
+
+test("polygon origin hits require three distinct finite vertices and a visible origin", () => {
+  const draft = {kind: "Polygon", coordinates: [[0, 0], [20, 0], [20, 20]]};
+  const project = ([x, y]) => ({x: x * 10 + 100, y: y * 10 + 100});
+  const viewport = {width: 800, height: 600};
+  assert.equal(canClosePolygon(draft, {x: 112, y: 100}, project, 12, viewport), true);
+  assert.equal(canClosePolygon(draft, {x: 113, y: 100}, project, 12, viewport), false);
+  assert.equal(canClosePolygon({...draft, coordinates: [[0, 0], [20, 0], [20, 0]]}, {x: 100, y: 100}, project), false);
+  assert.equal(canClosePolygon({...draft, coordinates: [[0, 0], [20, 0], [NaN, 20]]}, {x: 100, y: 100}, project), false);
+  assert.equal(canClosePolygon(draft, {x: 100, y: 100}, () => ({x: Infinity, y: 100})), false);
+  assert.equal(canClosePolygon(draft, {x: 0, y: 100}, ([x, y]) => ({x: x - 8, y: y + 100}), 12, viewport), false);
+  assert.equal(canClosePolygon({...draft, kind: "LineString"}, {x: 100, y: 100}, project), false);
+  const zoomed = ([x, y]) => ({x: x * 0.1 + 400, y: y * 0.1 + 300});
+  assert.equal(canClosePolygon(draft, {x: 400, y: 300}, zoomed, 12, viewport), true);
+  assert.equal(canClosePolygon(draft, {x: 402, y: 300}, zoomed, 12, viewport), false);
 });
 
 test("vertex editing preserves altitude, polygon closure, holes and the original geometry", () => {

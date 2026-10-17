@@ -45,7 +45,7 @@ from opengeo_api.tenant_database import (
     TenantTransactionExecutor,
 )
 
-DatasetVersionState = Literal["queued", "processing", "active", "failed"]
+DatasetVersionState = Literal["queued", "processing", "active", "failed", "preserved"]
 DataObjectRole = Literal["original", "working", "published", "tile", "derived", "thumbnail"]
 DatasetLineageOriginKind = Literal[
     "managed_upload", "external_source_archive", "repository_object_copy"
@@ -120,7 +120,7 @@ class DatasetLineageOrigin:
 class DatasetDerivativeLineage:
     kind: Literal["pmtiles"]
     operation_id: UUID
-    recipe: Literal["gdal-pmtiles-v1"]
+    recipe: Literal["gdal-pmtiles-v1", "gdal-pmtiles-v2"]
     source_object_id: UUID
     output_object_id: UUID
     bounds: tuple[float, float, float, float]
@@ -129,6 +129,8 @@ class DatasetDerivativeLineage:
     source_layer: str
     request_checksum_sha256: str
     created_at: datetime
+    options: dict[str, Any] | None = None
+    software: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -438,11 +440,14 @@ class PostgresCatalogRepository:
                        lineage.source_object_id, lineage.output_object_id,
                        job.bounds, job.minimum_zoom, job.maximum_zoom,
                        job.source_layer, job.request_checksum_sha256,
-                       lineage.created_at
+                       lineage.created_at, job.conversion_options, receipt.software
                 FROM app.dataset_version_derivative_lineage lineage
                 JOIN app.pmtiles_derivative_jobs job
                   ON job.organization_id = lineage.organization_id
                  AND job.id = lineage.pmtiles_job_id
+                LEFT JOIN app.processing_execution_receipts receipt
+                  ON receipt.organization_id = lineage.organization_id
+                 AND receipt.pmtiles_job_id = lineage.pmtiles_job_id
                 WHERE lineage.organization_id = %s
                   AND lineage.dataset_id = %s
                   AND lineage.dataset_version_id = %s
@@ -1008,7 +1013,7 @@ class PostgresCatalogRepository:
         return DatasetDerivativeLineage(
             kind="pmtiles",
             operation_id=cast(UUID, row[0]),
-            recipe=cast(Literal["gdal-pmtiles-v1"], row[1]),
+            recipe=cast(Literal["gdal-pmtiles-v1", "gdal-pmtiles-v2"], row[1]),
             source_object_id=cast(UUID, row[2]),
             output_object_id=cast(UUID, row[3]),
             bounds=cast(tuple[float, float, float, float], bounds),
@@ -1017,6 +1022,8 @@ class PostgresCatalogRepository:
             source_layer=cast(str, row[7]),
             request_checksum_sha256=cast(str, row[8]),
             created_at=cast(datetime, row[9]),
+            options=cast(dict[str, Any] | None, row[10]) if len(row) > 10 else None,
+            software=cast(dict[str, Any] | None, row[11]) if len(row) > 11 else None,
         )
 
     @staticmethod

@@ -8,7 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from aws_runtime import AwsRuntime, RuntimeScope
-from controller import Observation, Window, WindowUnsafe, advance
+from controller import LANES, Observation, Window, WindowUnsafe, advance
 from ledger import RdsLedger
 
 ATTRIBUTE_NAMES = [
@@ -153,7 +153,7 @@ def tick(
         window.phase in {"processing", "remove-worker"}
         and int(clock()) < window.deadline
     ):
-        unfinished = ledger.unfinished()
+        unfinished = ledger.unfinished(scope.workload)
     tasks = None
     if worker is None or worker.status == "DELETE_COMPLETE":
         if window.worker_service_name and window.worker_requested:
@@ -185,6 +185,7 @@ def tick(
         unfinished,
         unfinished is not None,
         tasks,
+        lanes=frozenset({"pmtiles"}) if scope.workload == "pmtiles-v2" else LANES,
     )
     # Pure phase changes can share this observation. Never issue more than one
     # CloudFormation mutation per tick or wait inside the billed invocation.

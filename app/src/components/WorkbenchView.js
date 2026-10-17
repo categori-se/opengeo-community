@@ -1,4 +1,5 @@
 import {cesiumWorkbenchContent, prepareCesiumWorkbench, cesiumWorkbenchAdapter, rendererTitle} from "../lib/cesiumWorkbench.js";
+import {cogDisplayOptions} from "../lib/cogDisplay.js";
 import {RendererPanel} from "./RendererPanel.js";
 import {createMapboxSession} from "../lib/mapboxSession.js";
 import {createMapboxLoader} from "../lib/mapboxLoader.js";
@@ -7,23 +8,29 @@ import {prepareRendererMap, rendererStyle, sameRendererCamera} from "../lib/rend
 import {FeatureHaloControls, syncFeatureHalo, clearFeatureHalo} from "../lib/featureHalo.js";
 import {LayerInfo} from "./LayerInfo.js";
 import {PatternLegend} from "./PatternLegend.js";
+import {createPmtilesConversionDraft,pmtilesRequestIntent,pmtilesOptionsSummary,pmtilesConversionAvailability,pmtilesUnconfirmedRetry} from '../lib/pmtilesOptions.js';
+import {PmtilesConversionEditor} from './PmtilesConversionEditor.js';
 import {LayerFolders} from "./LayerFolders.js";
 import {opacityPaint, supportsCompositeOpacity, validateOpacityMode} from "../lib/layerOpacity.js";
 import {orderedRenderLayerIds} from "../lib/layerOrder.js";
 import {validateMapFilter,combineMapFilters,mapFilterOptions} from "../lib/mapFilter.js";
+import {validatePointClustering, pointClusteringOptions, pointClusteringIssue, pointClusterData, pointClusterParts, unclusteredPointFilter, installPointClusterCountImages} from "../lib/pointClustering.js";
 import {MapFilterEditor} from "./MapFilterEditor.js";
 import {LayerVersionPicker} from "./LayerVersionPicker.js";
 import {whenConnected} from "../lib/whenConnected.js";
 import {archiveLayerExport} from "../lib/archiveLayerExport.js";
 import {archivePaintLayers} from "../lib/reviewedArchivePresentation.js";
 import {LayerArchiveControl} from "./LayerArchiveControl.js";
+import {matchesReviewedDisplay} from "../lib/reviewedDisplayIdentity.js";
 import {readBrowserProjectFile, BROWSER_PROJECT_FILE_BYTES} from "../lib/browserProjectFile.js";
+import {projectPrintLayouts} from "../lib/printLayouts.js";
 import {identifyProjectFileFormat, readSavedProjectVersionFile} from "../lib/projectFileFormat.js";
 import {ProjectVersionExport, savedProjectVersionFile} from "./ProjectVersionExport.js";
 import {readBrowserLayerCatalog, writeBrowserLayerCatalog, clearBrowserLayerCatalog} from "../lib/browserLayerCatalogStore.js";
 import {restoreBrowserCatalogLayers} from "../lib/browserCatalogRestore.js";
 import {browserLayerReviewForProject} from "./BrowserLayerRegistration.js";
 import {LayerStylePicker} from "./LayerStylePicker.js";
+import {POINT_SYMBOLS, hasPointSymbolStyle, normalizePointSymbolStyle, pointSymbolImages, pointSymbolStyleParts, pointSymbolPreviewSvg, ensurePointSymbolAssets} from "../lib/pointSymbols.js";
 import {resolveLayerStyle, referencedStylePaint, validateLayerStyleReference} from "../lib/layerStyleReference.js";
 import {maplibreAdapter, workbenchRenderer, registerArchiveProtocols} from "../lib/maplibreAdapter.js";
 import {openStaticMapExport} from "./StaticMapExport.js";
@@ -31,6 +38,10 @@ import {studioNavigationItems, demoNavigationItems, MANAGED_STUDIO_URL} from "./
 import {mapServerTileUrl} from "../lib/mapServer.js";
 import {imageServerTileUrl, normalizeImageServerTileUrl} from "../lib/imageServer.js";
 import {installCogMapLayer} from "../lib/cogMapLayer.js";
+import {CogIdentifyResult} from "./CogIdentifyResult.js";
+import {ProfileLineOfSight} from "./ProfileLineOfSight.js";
+import {RasterViewshed} from "./RasterViewshed.js";
+import {polygon3DGeojson} from "../lib/polygon3dMeasurement.js";
 import {geojsonBounds} from "../lib/mapLayers.js";
 import {mapGraticule} from "../lib/mapGraticule.js";
 import {installLoadedMapLayers, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../lib/loadedLayerInstallation.js";
@@ -142,7 +153,8 @@ import {
   temporaryWorkStorageKey
 } from "../lib/temporaryAnnotations.js";
 import {
-  MAP_DEFINITION_SCHEMA_VERSION,
+  mapDefinitionVersionForLayers,
+  validateManagedDisplayReference,
   upgradeMapDefinition,
   validateRendererPreference
 } from "../lib/mapDefinition.js";
@@ -263,6 +275,9 @@ import {
 } from "../lib/featureQuery.js";
 import {
   GOVERNED_IDENTIFY_LIMITS,
+  captureManagedPreviewIdentify,
+  identifyReportSummary,
+  identifyUnavailableMessage,
   identifyVisibleGovernedLayers,
   isGovernedDatasetLayer,
   loadedFeatureIndex,
@@ -330,7 +345,29 @@ const MAXIMUM_CONCURRENT_LIVE_FEATURE_REQUESTS = 4;
 
 export const DEFAULT_WORKBENCH_COLOR_MODE = "dark";
 
-export function WorkbenchView({
+export function WorkbenchView(options = {}) {
+  const id = options.publicDemo && !options.printFrame && !options.localProjectRecord
+    ? new URLSearchParams(globalThis.location?.search ?? "").get("localProject") : null;
+  if (!id) return createWorkbenchView(options);
+  const root = document.createElement("section");root.className = "browser-project-restoring";
+  const status = textElement("p", "Opening your saved Project…");status.setAttribute("role", "status");root.append(status);
+  let disposed = false, workbench;
+  let observer;
+  const stopWaiting = whenConnected(root, () => {observer = observeDisconnection(root, root.dispose);});
+  root.dispose = () => {disposed = true;stopWaiting();observer?.disconnect();workbench?.dispose();};
+  for (const name of ["getPrintContext", "saveDraftForNavigation", "openPublicationMapExport", "releaseRendererCredentials", "resumeRenderer"]) root[name] = (...args) => workbench?.[name]?.(...args);
+  void import("../lib/localProjectStore.js").then(async ({LocalProjectStore}) => {
+    const record = await new LocalProjectStore({catalog: options.browserCatalog}).load(id);
+    if (disposed) return;
+    workbench = createWorkbenchView({...options, project: {...record.definition, title: record.title},
+      layers: record.definition.layers, geojsonByLayerId: record.geojsonByLayerId,
+      startBlank: false, restoreBrowserDraft: false, localProjectRecord: record, draftScopeId: `personal-${record.id}`});
+    root.replaceChildren(workbench);options.onLocalProjectLoaded?.(record);
+  }).catch(error => {if (!disposed) status.textContent = error.message;});
+  return root;
+}
+
+function createWorkbenchView({
   workspace,
   role,
   project,
@@ -340,6 +377,8 @@ export function WorkbenchView({
   allDatasets = datasets,
   browserCatalog = [],
   onBrowserProjectCreated = null,
+  onLocalProjectLoaded = null,
+  localProjectRecord = null,
   onDemoCapture = null,
   objects = [],
   allObjects = objects,
@@ -367,8 +406,12 @@ export function WorkbenchView({
   listProtectedCopies = null,
   cancelProtectedCopy = null,
   requestPmtilesDerivative = null,
+  getPmtilesConversionCapabilities = null,
   listPmtilesDerivatives = null,
   cancelPmtilesDerivative = null,
+  reviewPmtilesDisplay = null,
+  admitPmtilesDisplay = null,
+  loadManagedDatasetMetadata = null,
   protectedCopyJobs = [],
   pmtilesDerivativeJobs = [],
   refreshDurableJobs = null,
@@ -385,6 +428,8 @@ export function WorkbenchView({
   onProjectSaved = null,
   refreshKmlNetworkLink = null,
   applyGeoLibreImport = null,
+  prepareGeoLibreHandoff = null,
+  reviewGeoLibreReturn = null,
   resolveBasemapStyle = null,
   sources = [],
   persistenceMode = "api",
@@ -394,10 +439,13 @@ export function WorkbenchView({
   initialDatasetTarget = null,
   startBlank = false,
   publicDemo = false,
+  demoSurface = false,
   landingMode = false,
+  printFrame = false,
   projectNavigation = null,
   projectSwitcher = null,
   draftScopeId = null,
+  restoreDraftScopeId = draftScopeId,
   restoreBrowserDraft = true,
   account = null,
   canResumeRenderer = null,
@@ -411,6 +459,7 @@ export function WorkbenchView({
     .map(cloneLayer)
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   const dataByLayerId = new Map(geojsonByLayerId);
+  for (const layer of workingLayers) if (layer.managedDisplayId) dataByLayerId.delete(layer.layerId);
   const initialKmlPlaces = placesForProject(project);
   if (initialKmlPlaces) {
     const initialKmlLayer = workingLayers.find(({layerId}) => layerId === "kml-places")
@@ -456,6 +505,8 @@ export function WorkbenchView({
     processingRunSequence: 0,
     pmtilesDerivativeDraft: null,
     pmtilesDerivativeBusy: false,
+    pmtilesDisplayReview: null,
+    managedDatasetMetadataRequest: null,
     sourceRegistrationPending: null,
     sourceDiscoveryPending: false,
     sourceDiscoveryDrafts: {
@@ -664,7 +715,8 @@ export function WorkbenchView({
     state,
     publicDemo,
     landingMode,
-    draftScopeId,
+    draftScopeId: restoreDraftScopeId,
+    presentationOnly: restoreBrowserDraft === "presentation",
     dataByLayerId
   });
   replaceLayerOrder(workingLayers, normalizeProjectLayerOrder(workingLayers, project?.layerTree));
@@ -672,6 +724,7 @@ export function WorkbenchView({
   const context = {
     canResumeRenderer,
     rendererAdapter,
+    mapFontAttachments,
     mapboxSession: createMapboxSession(),
     mapboxLoader: createMapboxLoader(),
     rendererSwitchStatus: {},
@@ -688,6 +741,8 @@ export function WorkbenchView({
     allDatasets,
     browserCatalog,
     onBrowserProjectCreated,
+    onLocalProjectLoaded,
+    localProjectRecord,
     onDemoCapture,
     browserRegistrations: publicDemo ? readBrowserLayerCatalog(browserLocalStorage()) : new Map(),
     objects,
@@ -712,8 +767,12 @@ export function WorkbenchView({
     listProtectedCopies,
     cancelProtectedCopy,
     requestPmtilesDerivative,
+    getPmtilesConversionCapabilities,
     listPmtilesDerivatives,
     cancelPmtilesDerivative,
+    reviewPmtilesDisplay,
+    admitPmtilesDisplay,
+    loadManagedDatasetMetadata,
     protectedCopyJobs,
     pmtilesDerivativeJobs,
     refreshDurableJobs,
@@ -729,11 +788,15 @@ export function WorkbenchView({
     onProjectSaved,
     refreshKmlNetworkLink,
     applyGeoLibreImport,
+    prepareGeoLibreHandoff,
+    reviewGeoLibreReturn,
     resolveBasemapStyle,
     sources,
     persistenceMode,
     publicDemo,
+    demoSurface: publicDemo && demoSurface,
     landingMode,
+    printFrame,
     projectNavigation,
     projectSwitcher,
     initialDatasetTarget,
@@ -749,6 +812,8 @@ export function WorkbenchView({
     layerToolsOpen: new Set(),
     layerArchiveModes: new Map(),
     layerArchiveControls: new Map(),
+    preservedDatasetDisplays: new Map(),
+    pendingPointSymbolLayers: new Map(),
     liveFeatureRequests: new Map(),
     liveFeatureQueue: [],
     liveFeatureActive: 0,
@@ -757,6 +822,10 @@ export function WorkbenchView({
     render: null,
     addLayer: null
   };
+  for (const layer of workingLayers) {
+    if (layer.sourceType === "governed-dataset" && isPreservedDatasetLayer(context, layer)) dataByLayerId.delete(layer.layerId);
+  }
+  state.preparePointSymbols = layer => loadInlinePointSymbolAssets(context, layer);
   if (restoreBrowserDraft) restoreTemporaryLayers(context);
   const restoredBasemap = activeBasemap(context);
   if (["retired", "disabled"].includes(restoredBasemap?.governance?.lifecycle)) {
@@ -790,11 +859,26 @@ export function WorkbenchView({
   shell.__opengeoLayers = workingLayers;
   shell.__opengeoData = dataByLayerId;
   shell.openPublicationMapExport = () => exportInteractiveMap(context, "offline");
+  shell.getPrintContext = () => context.disposed ? null : ({
+    map: state.map,
+    renderer: context.rendererAdapter.id,
+    layers: context.layers,
+    handles: state.layerHandles,
+    basemap: activeBasemap(context),
+    project: currentProjectDefinition(context),
+    savedProjectOrigin: context.savedProjectOrigin,
+    ready: !context.loadingDatasetLayerIds.size && !context.liveFeatureRequests.size && !context.pendingPointSymbolLayers.size
+      && context.layers.every(layer => layer.visible === false || (
+        !context.failedDatasetLayerIds.has(layer.layerId)
+        && !state.layerStyleErrors.has(layer.layerId)
+        && !state.rendererLayerIssues?.has(layer.layerId)
+      ))
+  });
   shell.isPublicationMapExportReady = () => {
     const map = state.map;
     if (context.disposed || context.rendererAdapter.id !== "maplibre" || !map?.isStyleLoaded?.()
       || context.publicationLayersInstalledMap !== map
-      || context.loadingDatasetLayerIds.size || context.liveFeatureRequests.size) return false;
+      || context.loadingDatasetLayerIds.size || context.liveFeatureRequests.size || context.pendingPointSymbolLayers.size) return false;
     return context.layers.every(layer => {
       // Hidden, failed and unsupported content stays disclosed in the review.
       if (layer.visible === false || context.failedDatasetLayerIds.has(layer.layerId)
@@ -808,6 +892,7 @@ export function WorkbenchView({
   };
   shell.saveDraftForNavigation = () => {
     if (state.mapAuthoring || state.authoringCoordinateDraft) return false;
+    if (context.localProjectRecord) return !context.localSaveBusy && localDraftSignature(context) === context.localDraftBaseline;
     return saveLocalDraft(context) === true;
   };
   shell.releaseRendererCredentials = () => releaseRendererCredentials(context);
@@ -819,6 +904,7 @@ export function WorkbenchView({
   };
   const accountNavigation = () => {
     context.queryLocationScopeInvalid = true;
+    cancelDrillDownIdentify(context);
     cancelQueryLocationRequest(context);
     releaseRendererCredentials(context);
   };
@@ -827,6 +913,14 @@ export function WorkbenchView({
   shell.dispose = () => {
     if (context.disposed) return;
     context.disposed = true;
+    context.browserPrintStudio?.dispose?.();
+    context.localProjectDialog?.dispose?.();
+    context.pointSymbolDialog?.dispose?.();
+    context.rasterViewshed?.view.dispose();
+    context.polygon3dDialog?.dispose();
+    state.managedDatasetMetadataRequest?.controller.abort();
+    for (const choice of context.preservedDatasetDisplays.values()) choice.controller?.abort();
+    cancelDrillDownIdentify(context);
     cancelQueryLocationRequest(context);
     browser.removeEventListener("opengeo:account-navigation", accountNavigation);
     context.cancelRendererSwitch?.();
@@ -835,6 +929,11 @@ export function WorkbenchView({
     context.disconnectionObserver?.disconnect();
     context.disposeResizablePanels?.();
     context.disposeCompactPanelTransitions?.();
+    // Selection dialogs can exist before a renderer has initialized.
+    if (!context.disposeResources) {
+      for (const control of context.layerArchiveControls.values()) control.dispose();
+      context.layerArchiveControls.clear();
+    }
     context.disposeResources?.();
     context.rendererSuspended = null;
   };
@@ -882,6 +981,7 @@ export function WorkbenchView({
     panelAfterAdd
   });
   context.render = () => {
+    if(context.rasterObserverPick&&state.activePanel!=="style")context.rasterViewshed?.view.cancelPick();
     const area = state.queryLocationState;
     if (area && (area.layer !== activeLayer(context) || area.draft !== state.queryDraft
       || state.activePanel !== "query")) cancelQueryLocationRequest(context);
@@ -934,7 +1034,7 @@ export function WorkbenchView({
   context.disposeCompactPanelTransitions = bindCompactPanelTransitions(context);
   context.localDraftBaseline = localDraftSignature(context);
   if (account) context.accountControls = StudioAccountControls({...account,
-    saveDraft: () => saveLocalDraft(context),
+    saveDraft: async () => context.localProjectRecord ? Boolean(await savePersonalProject(context)) : saveLocalDraft(context),
     hasUnsavedChanges: () => Boolean(state.mapAuthoring || state.authoringCoordinateDraft)
       || localDraftSignature(context) !== context.localDraftBaseline
   });
@@ -1019,7 +1119,9 @@ function cloneLayer(layer) {
     ...(layer.kmlDocument ? {kmlDocument: structuredClone(layer.kmlDocument)} : {}),
     tileUrl: layer.tileUrl ?? (["xyz-raster", "wms-raster"].includes(layer.sourceType) ? layer.sourceUrl : undefined),
     ...(Object.hasOwn(layer,"filter")?{filter:structuredClone(validateMapFilter(layer.filter))}:{}),
-    style: {...layer.style},
+    style: ["Point", "MultiPoint"].includes(layer.geometryType) && hasPointSymbolStyle(layer.style)
+      ? normalizePointSymbolStyle(layer.style) : {...layer.style},
+    ...(layer.pointClustering ? {pointClustering: {...validatePointClustering(layer.pointClustering)}} : {}),
     labels: {...layer.labels}
   };
 }
@@ -1544,10 +1646,12 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
     }
   });
 
+  on("pointcluster", event => setStatus(context, event.message));
+
   on("mousemove", (event) => {
     if (state.mapAuthoring) {
       const draft = state.mapAuthoring;
-      draft.canClose = canClosePolygon(draft, event.point, (point) => state.map.project(point));
+      draft.canClose = polygonOriginHit(state, draft, event.point);
       draft.hover = draft.canClose ? draft.coordinates[0] : [event.lngLat.lng, event.lngLat.lat];
       state.map.getCanvas().style.cursor = draft.canClose ? "pointer" : "crosshair";
       context.shell.dataset.polygonCanClose = String(draft.canClose);
@@ -1560,25 +1664,31 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   });
 
   on("click", (event) => {
+    if(context.rasterObserverPick){const pick=context.rasterObserverPick;context.rasterObserverPick=null;
+      if(pick.root.isConnected&&pick.root.open&&!state.temporaryEdit&&!state.queryDrawing&&!state.mapAuthoring&&!state.measureMode){
+        const point=event.lngLat.wrap?.()??event.lngLat;pick.callback([point.lng,point.lat]);return;}
+      context.rasterViewshed?.view.cancelPick();}
     if (state.temporaryEdit) {
       handleTemporaryEditMapClick(context, event);
       return;
     }
     if (state.queryDrawing) {
-      addQueryDrawingPoint(context, event.lngLat);
+      addQueryDrawingPoint(context, event.lngLat, event.point);
       return;
     }
     if (state.mapAuthoring) {
-      addMapAuthoringPoint(context, event.lngLat);
+      addMapAuthoringPoint(context, event.lngLat, event.point);
       return;
     }
     if (state.measureMode) {
       addMeasurePoint(context, event.lngLat);
       return;
     }
+    const clusterLayers = [...state.layerHandles.values()].flatMap(handle => handle.clusterLayerIds ?? []).filter(id => state.map.getLayer(id));
+    if (clusterLayers.length && state.map.queryRenderedFeatures(event.point, {layers: clusterLayers}).length) return;
     if (selectImageOverlayAt(context, event.point)) return;
-    if (state.identify && !mapClickUsesLocalInteraction(context, event)) {
-      void runDrillDownIdentify(context, event.lngLat);
+    if (state.identify && (visibleCogLayers(context).length || !mapClickUsesLocalInteraction(context, event))) {
+      void runDrillDownIdentify(context, event.lngLat, event.point);
     }
   });
   return () => {
@@ -1638,14 +1748,14 @@ function renderTopbar(topbar, context) {
   const appNav = document.createElement("nav");
   appNav.className = "gis-app-nav";
   appNav.ariaLabel = "Application navigation";
-  appNav.append(...(publicDemo && !context.projectSwitcher ? demoNavigationItems() : studioNavigationItems(context.persistenceMode === "fixture" ? "fixture" : null))
-    .filter(item => !context.projectSwitcher || ["projects", "data", "collections", "publishing"].includes(item.id))
+  appNav.append(...(context.demoSurface ? demoNavigationItems() : studioNavigationItems(context.persistenceMode === "fixture" ? "fixture" : null))
+    .filter(item => !context.projectSwitcher || ["projects", "data", "styles", "collections", "publishing"].includes(item.id))
     .map(item => navLink(item.label, item.href)));
 
-  const publicWorkspaceOptions = publicDemo && Array.isArray(context.projectNavigation?.workspaceOptions)
+  const publicWorkspaceOptions = context.demoSurface && Array.isArray(context.projectNavigation?.workspaceOptions)
     ? context.projectNavigation.workspaceOptions
     : [];
-  const publicMapOptions = publicDemo && Array.isArray(context.projectNavigation?.mapOptions)
+  const publicMapOptions = context.demoSurface && Array.isArray(context.projectNavigation?.mapOptions)
     ? context.projectNavigation.mapOptions
     : [];
   const workspaceChoices = publicWorkspaceOptions.length
@@ -1655,7 +1765,7 @@ function renderTopbar(topbar, context) {
       : [workspace].filter(Boolean);
   const workspaceSelect = document.createElement("select");
   workspaceSelect.className = "gis-workspace-select";
-  workspaceSelect.ariaLabel = publicDemo ? "Switch public project or map" : "Switch access workspace";
+  workspaceSelect.ariaLabel = context.demoSurface ? "Switch public project or map" : landingMode ? "Current Project" : "Switch access workspace";
   workspaceSelect.disabled = landingMode || (publicDemo && publicWorkspaceOptions.length < 2);
   if (landingMode) workspaceSelect.title = "Create or open a project to use the workspace switcher";
   else if (publicDemo) workspaceSelect.title = "Switch between public demonstration projects and reviewed map presets";
@@ -1733,11 +1843,11 @@ function renderTopbar(topbar, context) {
   controls.classList.add("gis-controls-command");
   controls.setAttribute("aria-pressed", String(controlsVisible));
   menus.append(controls);
-  toolstrip.append(quickTools, menus);
+  toolstrip.append(menus, quickTools);
 
   const right = document.createElement("div");
   right.className = "gis-top-actions";
-  const roleBadge = textElement("span", landingMode ? "Browser draft" : publicDemo ? "public demo" : role ?? "viewer");
+  const roleBadge = textElement("span", context.localProjectRecord ? "Saved on this device" : landingMode ? "Browser draft" : publicDemo ? "public demo" : role ?? "viewer");
   if (landingMode) roleBadge.title = "Saved in this browser only, not in your OpenGeo Studio account. Signing in does not upload this map.";
   roleBadge.className = `badge ${publicDemo || landingMode ? "demo" : role ?? "viewer"}`;
   roleBadge.classList.add("gis-role-badge");
@@ -1769,6 +1879,7 @@ function renderTopbar(topbar, context) {
   });
   mode.classList.add("gis-theme-command");
   right.append(roleBadge, save, saveAs, mode);
+  if (publicDemo && !context.printFrame) right.append(actionButton("On this device", () => void openPersonalProjects(context)));
   const mapOnly = actionButton(state.mapOnly ? "Show tools" : "Map only", () => {
     setMapOnly(context, !state.mapOnly);
     topbar.querySelector(".gis-map-only-command")?.focus();
@@ -1904,7 +2015,7 @@ function workbenchCommandRegistry(context) {
       id: "new-project", label: "New project", symbol: "new-project", group: "project", sheet: true,
       title: publicDemo && !landingMode ? "Start a new browser-only demo map" : "Start a new durable project",
       active: false, disabled: false, action: () => {
-        if (publicDemo && !landingMode) newWorkspaceProject(context);
+        if (publicDemo) newWorkspaceProject(context);
         else location.href = "/workspaces?new=1";
       }
     },
@@ -1936,11 +2047,10 @@ function workbenchCommandRegistry(context) {
     },
     {
       id: "save", label: context.landingMode ? "Save in browser" : publicDemo ? "Save locally" : "Save", symbol: "save", sheet: true,
-      title: context.landingMode ? "Save this browser draft on this device, not to your OpenGeo Studio account. Browser data can be cleared; export a backup for important work." : publicDemo
-        ? "Save this demo draft in this browser until the daily reset"
+      title: publicDemo ? "Save this Project on this device without an account. Download a backup for important work."
         : canPersist(context) ? "Save the authoritative map record" : "Your current role cannot update this map",
-      active: false, disabled: !publicDemo && !canPersist(context),
-      action: () => publicDemo ? saveLocalDraft(context) : void saveAuthoritativeProject(context)
+      active: false, disabled: context.printFrame || context.localSaveBusy || (!publicDemo && !canPersist(context)),
+      action: () => publicDemo ? void savePersonalProject(context) : void saveAuthoritativeProject(context)
     },
     {
       id: "save-as", label: "Save as", symbol: "save-as", sheet: true,
@@ -2224,10 +2334,18 @@ function beginMapAuthoring(context, kind, {target = "places"} = {}) {
   context.render();
 }
 
-function addMapAuthoringPoint(context, lngLat) {
+function polygonOriginHit(state, draft, point) {
+  const map = state.map;
+  if (!map || map.isMoving?.()) return false;
+  const canvas = map.getCanvas();
+  return canClosePolygon(draft, point, coordinate => map.project(coordinate), 12,
+    {width: canvas.clientWidth, height: canvas.clientHeight});
+}
+
+function addMapAuthoringPoint(context, lngLat, point) {
   const {state} = context;
   if (!state.mapAuthoring) return;
-  if (canClosePolygon(state.mapAuthoring, state.map.project(lngLat), (point) => state.map.project(point))) {
+  if (polygonOriginHit(state, state.mapAuthoring, point)) {
     finishMapAuthoring(context);
     return;
   }
@@ -2364,7 +2482,7 @@ function mapAuthoringInstruction(draft) {
   const temporary = draft?.target === "temporary" ? "Temporary " : "";
   if (draft?.kind === "Point") return `${temporary}point tool active · click the map to place a point.`;
   if (draft?.kind === "LineString") return `${temporary}path tool active · ${count ? `${count} ${count === 1 ? "vertex" : "vertices"} · ` : ""}click to add vertices, then Finish path.`;
-  if (draft?.kind === "Polygon") return `${temporary}polygon tool active · ${count ? `${count} ${count === 1 ? "vertex" : "vertices"} · ` : ""}click at least three corners, then Finish polygon.`;
+  if (draft?.kind === "Polygon") return `${temporary}polygon tool active · ${count ? `${count} ${count === 1 ? "vertex" : "vertices"} · ` : ""}click at least three corners, then click the first point or Finish polygon.`;
   return `Image overlay tool active · ${count ? "click the opposite corner" : "click the first extent corner"}.`;
 }
 
@@ -2402,9 +2520,13 @@ function beginQueryDrawing(context, kind, replaceIndex = null) {
   context.render();
 }
 
-function addQueryDrawingPoint(context, lngLat) {
+function addQueryDrawingPoint(context, lngLat, point) {
   const {state} = context;
   if (!state.queryDrawing) return;
+  if (polygonOriginHit(state, state.queryDrawing, point)) {
+    finishQueryDrawing(context);
+    return;
+  }
   state.queryDrawing.coordinates.push([
     boundedCoordinate(lngLat?.lng, 0),
     boundedCoordinate(lngLat?.lat, 0)
@@ -2546,7 +2668,7 @@ function queryDrawingInstruction(drawing) {
   if (drawing?.kind === "LineString") return `Line query active · ${count} ${count === 1 ? "vertex" : "vertices"} · add at least two, then finish.`;
   if (drawing?.kind === "MultiPoint") return `Multiple-point query active · ${count} ${count === 1 ? "point" : "points"} · add locations, then finish.`;
   if (drawing?.kind === "Box") return `Box query active · ${count ? "click the opposite corner, then finish" : "click the first corner"}.`;
-  return `Polygon query active · ${count} ${count === 1 ? "vertex" : "vertices"} · add at least three, then finish.`;
+  return `Polygon query active · ${count} ${count === 1 ? "vertex" : "vertices"} · add at least three, then click the first point or finish.`;
 }
 
 function syncQueryGeometryLayer(state) {
@@ -2806,9 +2928,9 @@ function toolbarMenus(context) {
           ...(context.landingMode ? [menuAction("Welcome screen and startup", () => {
             context.shell.dispatchEvent(new Event("workbench:welcome"));
           })] : []),
-          menuAction(context.landingMode ? "Browser draft and account storage" : context.publicDemo ? "Demo privacy and storage" : "Project storage settings", () => {
+          menuAction(context.landingMode ? "Browser draft and account storage" : context.demoSurface ? "Demo privacy and storage" : "Project storage settings", () => {
             state.activePanel = "settings";
-            setStatus(context, context.publicDemo ? "Demo privacy and browser-only storage opened." : "Project storage settings opened.");
+            setStatus(context, context.demoSurface ? "Demo privacy and browser-only storage opened." : "Project storage settings opened.");
           })
         ]
       ]
@@ -2824,7 +2946,7 @@ function toolbarMenus(context) {
           }),
           menuAction("About OpenGeo Studio", () => {
             state.activePanel = "help";
-            setStatus(context, context.publicDemo
+            setStatus(context, context.demoSurface
               ? "This public workbench demonstrates browser-native OpenGeo Studio GIS workflows without private data or credentials."
               : "OpenGeo Studio keeps desktop GIS-style workflows in a browser-native AWS workspace.");
           })
@@ -2852,16 +2974,21 @@ function projectManagementActions(context, layer = null) {
       context.render();
       return;
     }
-    location.href = projectHref(context.workspace.workspaceId, {
+    location.href = management === "print" && context.savedProjectOrigin?.id
+      ? compositionHref(context.savedProjectOrigin.id, {
+        adapterKind: fixtureAdapterKind(context.persistenceMode), management: "print"
+      })
+      : projectHref(context.workspace.workspaceId, {
       adapterKind: fixtureAdapterKind(context.persistenceMode),
       management,
       datasetId: layer?.datasetId
     });
-  }, {title: "Open the project's management workspace. Save the map first to publish its latest changes."}));
+  }, {title: management === "print" ? "Open Print Studio for this saved Project." : "Open the project's management workspace."}));
 }
 
 function projectMenuSections(context) {
   const {state, layouts, publicDemo} = context;
+  if (context.printFrame) return [[menuAction("Export interactive map…", () => exportInteractiveMap(context, "offline"))]];
   const openCatalog = () => {
     if (publicDemo) { state.activePanel = "catalog"; state.rightOpen = true; context.render(); }
     else location.href = directoryHref({view: "data", adapterKind: fixtureAdapterKind(context.persistenceMode)});
@@ -2869,25 +2996,33 @@ function projectMenuSections(context) {
   if (publicDemo) {
     return [
       [
-        menuAction("Demo home", () => location.href = "/", {shortcut: "Home"}),
-        menuAction("Sample datasets", () => location.href = "/?view=examples", {shortcut: "Ctrl+O"}),
-        menuAction(context.landingMode ? "Open catalog" : "Open demo data catalog", openCatalog, {shortcut: "Ctrl+L"})
+        ...(context.demoSurface ? [
+          menuAction("Demo home", () => location.href = "/", {shortcut: "Home"}),
+          menuAction("Sample datasets", () => location.href = "/?view=examples", {shortcut: "Ctrl+O"})
+        ] : [
+          menuAction("Open application home", () => location.href = "/", {shortcut: "Home"}),
+          menuAction("Browse projects", () => location.href = "/workspaces", {shortcut: "Ctrl+O"})
+        ]),
+        menuAction(context.demoSurface ? "Open demo data catalog" : "Open data catalog", openCatalog, {shortcut: "Ctrl+L"})
       ],
       [
-        menuAction("New empty demo map", () => newWorkspaceProject(context)),
-        menuAction("Save demo in this browser", () => saveLocalDraft(context), {shortcut: "Ctrl+S"}),
-        menuAction("Reset public demo", () => resetPublicDemo(context)),
+        menuAction(context.demoSurface ? "New empty demo map" : "New empty map", () => newWorkspaceProject(context)),
+        menuAction("Save on this device", () => void savePersonalProject(context), {shortcut: "Ctrl+S"}),
+        menuAction("Save a personal copy…", () => void savePersonalProject(context, {copy: true})),
+        menuAction("Projects on this device", () => void openPersonalProjects(context)),
+        ...(context.demoSurface ? [menuAction("Reset public demo", () => resetPublicDemo(context), {disabled: Boolean(context.localProjectRecord)})] : []),
         menuAction("Open Project file…", () => openProjectFile(context), {shortcut: "Ctrl+O"}),
         menuAction("Save as / export…", () => openProjectExportDialog(context)),
-        menuAction("Share current link", () => shareCurrentLink(context))
+        menuAction("Publish with OpenGeo…", () => exportInteractiveMap(context, "offline", "publication")),
+        menuAction(context.localProjectRecord ? "Export or publish Project…" : "Share current link", () => context.localProjectRecord ? openProjectExportDialog(context) : shareCurrentLink(context))
       ],
       [
-        menuAction("Print current view", () => window.print()),
-        menuAction("About demo privacy", () => {
+        menuAction("Open Print Studio", () => void openBrowserPrintStudio(context), {disabled: context.printFrame}),
+        ...(context.demoSurface ? [menuAction("About demo privacy", () => {
           state.activePanel = "settings";
           state.rightOpen = true;
           setStatus(context, "Demo privacy and browser-only storage opened.");
-        })
+        })] : [])
       ]
     ];
   }
@@ -2908,18 +3043,133 @@ function projectMenuSections(context) {
     ],
     [
       menuAction(layouts[0] ? "Open print layout" : "Print current view", () => {
+        if (context.savedProjectOrigin?.id) {
+          if (saveLocalDraft(context) !== true) { context.render(); return; }
+          location.href = compositionHref(context.savedProjectOrigin.id, {
+            adapterKind: fixtureAdapterKind(context.persistenceMode), management: "print"
+          });
+          return;
+        }
         if (layouts[0]) {
           location.href = `/print/${layouts[0].layoutId}`;
           return;
         }
         window.print();
-        setStatus(context, "Printing the current map view. Fixed layouts are managed from project publishing.");
+        setStatus(context, "Printing the current map view.");
       }),
       menuAction("Export offline vector map…", () => exportInteractiveMap(context, "offline")),
       menuAction("Workspace records and data", openCatalog),
       ...projectManagementActions(context)
     ]
   ];
+}
+
+async function savePersonalProject(context, {copy = false, quiet = false} = {}) {
+  if (!context.publicDemo || context.printFrame || context.disposed || context.localSaveBusy) return false;
+  const origin = context.project;context.localSaveBusy = true;context.render();
+  try {
+    let title = context.localProjectRecord?.title;
+    if (!title || copy) title = await personalProjectTitle(context, context.project.title ?? "My map");
+    if (!title || context.disposed || context.project !== origin) return false;
+    const snapshot = {...createLocalDraft(context), title};
+    const data = structuredClone(context.dataByLayerId);
+    const {LocalProjectStore} = await import("../lib/localProjectStore.js");
+    if (context.disposed || context.project !== origin) return false;
+    const current = copy ? null : context.localProjectRecord;
+    const record = await new LocalProjectStore({catalog: context.browserCatalog}).save({
+      ...(current ? {id: current.id, expectedRevision: current.revision} : {}), title, definition: snapshot, geojsonByLayerId: data});
+    if (context.disposed || context.project !== origin) return record;
+    context.project.title = title;context.localProjectRecord = record;
+    context.localDraftBaseline = localDraftSignature(context, snapshot);
+    const url = new URL(location.href);url.searchParams.set("localProject", record.id);history.replaceState(null, "", url);
+    context.onLocalProjectLoaded?.(record);
+    if (!quiet) setStatus(context, localDraftSignature(context) === context.localDraftBaseline
+      ? `Saved on this device · revision ${record.revision}. Download a backup from On this device.`
+      : "Project snapshot saved on this device. Newer map edits remain unsaved.");
+    return record;
+  } catch (error) {if (!context.disposed) setStatus(context, `${error.message} Export the current map to keep a backup.`);return false;}
+  finally {context.localSaveBusy = false;if (!context.disposed) context.render();}
+}
+
+function personalProjectTitle(context, initial) {
+  return new Promise(resolve => {
+    const dialog = document.createElement("dialog");dialog.className = "browser-print-studio local-project-title";
+    dialog.dataset.colorMode = context.state.colorMode;dialog.setAttribute("aria-label", "Save personal Project");
+    const input = document.createElement("input");input.type = "text";input.maxLength = 200;input.value = initial;input.setAttribute("aria-label", "Personal Project title");
+    const finish = value => {dialog.close?.();dialog.remove();context.localProjectDialog = null;resolve(value);};
+    dialog.dispose = () => finish(null);
+    dialog.append(textElement("h2", "Save on this device"), textElement("p", "Keep a personal Project separate from samples. No account or upload is needed. Browser data can be cleared; download a backup for important work."), input,
+      actionButton("Cancel", () => finish(null)), actionButton("Save Project", () => {if (input.value.trim()) finish(input.value.trim());else input.focus();}));
+    dialog.addEventListener("cancel", event => {event.preventDefault();finish(null);});
+    context.localProjectDialog = dialog;document.body.append(dialog);dialog.showModal?.();if (!dialog.open) dialog.open = true;input.focus();input.select();
+  });
+}
+
+async function openPersonalProjects(context) {
+  if (context.disposed || context.localSaveBusy || context.printFrame) return;
+  if (context.localProjectDialog?.isConnected) {context.localProjectDialog.focus();return;}
+  try {
+    const [{LocalProjectLibrary}, {LocalProjectStore}] = await Promise.all([import("./LocalProjectLibrary.js"), import("../lib/localProjectStore.js")]);
+    if (context.disposed || !context.shell.isConnected) return;
+    const dialog = LocalProjectLibrary({store: new LocalProjectStore({catalog: context.browserCatalog}),
+      beforeOpen: () => !context.localSaveBusy && localDraftSignature(context) === context.localDraftBaseline,
+      onClose: () => {context.localProjectDialog = null;}});
+    dialog.dataset.colorMode = context.state.colorMode;context.localProjectDialog = dialog;
+    document.body.append(dialog);dialog.showModal?.();if (!dialog.open) dialog.open = true;
+  } catch (error) {if (!context.disposed) setStatus(context, error.message);}
+}
+
+async function openBrowserPrintStudio(context) {
+  if (!context.publicDemo || context.printFrame || context.disposed || context.browserPrintOpening) return;
+  if (context.browserPrintStudio?.isConnected) {context.browserPrintStudio.focus();return;}
+  if (context.state.mapAuthoring || context.state.authoringCoordinateDraft) {
+    setStatus(context, "Finish or cancel the current drawing before opening Print Studio.");return;
+  }
+  const sourceProject = context.project;
+  context.browserPrintOpening = true;
+  try {
+    const {BrowserPrintStudio} = await import("./BrowserPrintStudio.js");
+    if (context.disposed || !context.shell.isConnected || context.project !== sourceProject) return;
+    const definition = createLocalDraft(context);
+    const projectId = definition.extensions?.opengeoPrintLayouts?.projectId ?? `browser-${crypto.randomUUID()}`;
+    const data = structuredClone(context.dataByLayerId);
+    const dialog = BrowserPrintStudio({definition, projectId, name: definition.title ?? "Local map",
+      createWorkbench: snapshot => WorkbenchView({
+        workspace: context.workspace, workspaces: [context.workspace], role: "local", project: snapshot,
+        layers: snapshot.layers, geojsonByLayerId: structuredClone(data),
+        mapFontAttachments: context.mapFontAttachments, rendererAdapter: context.rendererAdapter,
+        browserCatalog: context.browserCatalog, registerSource: context.registerSource,
+        publicDemo: true, demoSurface: context.demoSurface, landingMode: context.landingMode, printFrame: true,
+        persistenceMode: "local", restoreBrowserDraft: false,
+        draftScopeId: `print-${projectId}`
+      }),
+      saveDefinition: async saved => {
+        if (context.disposed || !context.shell.isConnected || context.project !== sourceProject) {
+          throw Object.assign(Error("The browser Project changed."), {status: 409});
+        }
+        const layouts = projectPrintLayouts({id: projectId, definition: saved});
+        // Only layout metadata returns to the map; Print edits cannot replace its Layers or data.
+        projectPrintLayouts({id: projectId, definition: {...currentProjectDefinition(context),
+          extensions: {opengeoPrintLayouts: layouts}}});
+        const previous = context.project.extensions;
+        context.project.extensions = {...previous, opengeoPrintLayouts: layouts};
+        if (context.localProjectRecord ? !await savePersonalProject(context, {quiet: true}) : saveLocalDraft(context) !== true) {
+          context.project.extensions = previous;
+          throw Error("The browser could not save the layout. Download its JSON before leaving Print Studio.");
+        }
+      },
+      onClose: () => {context.browserPrintStudio = null;context.shell.querySelector('.gis-menu-wrap[data-menu="project"] > button')?.focus();}
+    });
+    dialog.dataset.colorMode = context.state.colorMode;
+    context.browserPrintStudio = dialog;
+    document.body.append(dialog);
+    if (typeof dialog.showModal === "function") dialog.showModal();else dialog.open = true;
+    setStatus(context, "Local Print Studio opened. Layouts and exports use this browser; no hosted Project is required.");
+    context.render();
+  } catch (error) {
+    context.browserPrintStudio?.dispose?.();context.browserPrintStudio = null;
+    setStatus(context, `Print Studio could not open: ${error.message}`);
+  } finally {context.browserPrintOpening = false;}
 }
 
 function menuButton(menu, context) {
@@ -4232,7 +4482,8 @@ function portalToolHandler(name, context) {
     setStatus(context, "Configured identify tool active.");
     context.render();
   };
-  if (name === "print") return () => window.print();
+  if (name === "print") return context.publicDemo
+    ? () => void openBrowserPrintStudio(context) : () => window.print();
   return null;
 }
 
@@ -4732,8 +4983,13 @@ function layerRow({context, layer, dataset}) {
   });
 
   const swatch = document.createElement("span");
-  swatch.className = "gis-swatch";
-  swatch.style.background = layerColor(layer);
+  swatch.className = "gis-style-swatch-slot";
+  const styleButton = iconButton(`Style ${layer.title}`, "", () => openLayerSymbology(context, layer));
+  styleButton.className = "gis-swatch gis-style-swatch";
+  styleButton.title = `Change symbols, colors and sizes for ${layer.title}`;
+  styleButton.style.background = layerColor(layer);
+  if (["Point", "MultiPoint"].includes(layer.geometryType)) styleButton.append(pointSymbolPreview(layer.style, ""));
+  swatch.append(styleButton);
 
   const title = document.createElement("button");
   title.type = "button";
@@ -4744,7 +5000,7 @@ function layerRow({context, layer, dataset}) {
     dataset?.featureCount ? `${dataset.featureCount} features` : null,
     liveFeatureLayerStatus(layer)
   ].filter(Boolean).join(" / ");
-  title.setAttribute("aria-label", `Open layer properties for ${layer.title}`);
+  title.setAttribute("aria-label", `Select layer ${layer.title}`);
   title.title = `Select ${layer.title}; ${metadata}; use layer actions to style or inspect it`;
   title.setAttribute("aria-pressed", String(layer.layerId === state.activeLayerId));
   title.addEventListener("click", () => {
@@ -4787,6 +5043,10 @@ function layerRow({context, layer, dataset}) {
     toolsMoveDown,
     iconButton("Zoom to layer", "Zoom", () => fitLayer(state.map, layer, context.dataByLayerId))
   );
+  if (layer.geometryType === "Point") tools.append(iconButton("Point clustering display settings", "Clustering", () => {
+    state.activeLayerId = layer.layerId;state.activePanel = "style";state.rightOpen = true;context.render();
+    context.shell.querySelector(".gis-point-clustering")?.scrollIntoView?.({block: "nearest"});
+  }));
   if (layer.sourceType === "external-feature-reference") {
     const refresh = iconButton("Refresh visible features from the current map view", "Refresh view", () => {
       void loadLiveExternalFeatureLayer(context, layer, {force: true, announce: true});
@@ -4804,6 +5064,8 @@ function layerRow({context, layer, dataset}) {
           layer.liveFeaturePage = null; layer.liveFeatureState = null;
         };
         context.layerArchiveControls.set(layer.layerId, LayerArchiveControl({layer, access: context.layerArchiveAccess,
+          returnLabel: managedDisplay && (isPreservedDatasetLayer(context, layer)
+            || !context.datasets.some(dataset => dataset.datasetId === layer.datasetId)) ? "Pause tiled display" : null,
           onStart: () => {
             context.state.archiveTileSessions.get(layer.layerId)?.dispose();
             context.state.archiveTileSessions.delete(layer.layerId);
@@ -4813,8 +5075,9 @@ function layerRow({context, layer, dataset}) {
             context.layerArchiveModes.set(layer.layerId, "loading");
             context.loadingDatasetLayerIds.add(layer.layerId); context.render();
           },
-          onLoaded: (geojson) => {
+          onLoaded: (geojson, record) => {
             if (context.disposed || !context.layers.includes(layer)) return;
+            if (managedDisplay) {layer.managedDisplayId = record.id; validateManagedDisplayReference(layer);}
             context.loadingDatasetLayerIds.delete(layer.layerId);
             context.layerArchiveModes.set(layer.layerId, "ready");
             if (geojson.kind === "reviewed-archive-tiles") {
@@ -4841,10 +5104,18 @@ function layerRow({context, layer, dataset}) {
             clearData(); context.loadingDatasetLayerIds.delete(layer.layerId); context.layerArchiveModes.set(layer.layerId, "error"); setStatus(context, `${layer.title}: archive loading stopped. Review the display selection or return to ${managedDisplay ? "saved data" : "live"}.`); context.render();
           },
           onReturn: () => {
+            const preserved = managedDisplay && isPreservedDatasetLayer(context, layer);
+            const tiledOnly = managedDisplay && (preserved || !context.datasets.some(dataset => dataset.datasetId === layer.datasetId));
+            if (managedDisplay && !tiledOnly) delete layer.managedDisplayId;
             removeMapLayer(context.state, layer.layerId);
             context.state.archiveTileSessions.get(layer.layerId)?.dispose();
             context.state.archiveTileSessions.delete(layer.layerId);
             clearData(); context.loadingDatasetLayerIds.delete(layer.layerId); context.layerArchiveModes.delete(layer.layerId);
+            if (tiledOnly) {
+              const message = `${layer.title}: tiled display paused. ${preserved ? "The original is preserved without a raw map preview. " : "Dataset preview availability has not been established. "}Choose a reviewed tiled display and acknowledge download costs to resume.`;
+              setStatus(context, message); context.render();
+              return {retainDisplayId: layer.managedDisplayId, message};
+            }
             if (context.state.map?.isStyleLoaded?.()) addMapLayer(context.state, layer, null, context.datasets);
             setStatus(context, `${layer.title}: ${managedDisplay ? "saved data" : "live connection"} selected.`);
             if (managedDisplay) void loadPersistedDatasetLayers(context);
@@ -5364,16 +5635,28 @@ function stylePanel(context) {
     panel.append(textElement("p", "Select a layer to edit its style."));
     return panel;
   }
+  const libraryLink = textElement("a", context.demoSurface ? "Styles library in Studio ↗" : "Styles library ↗");
+  libraryLink.className = "gis-style-library-link";
+  libraryLink.href = context.demoSurface
+    ? new URL(directoryHref({view: "styles"}), MANAGED_STUDIO_URL).href
+    : directoryHref({view: "styles", adapterKind: fixtureAdapterKind(context.persistenceMode)});
+  // Keep the map and unsaved edits available while inspecting reusable Styles.
+  libraryLink.target = "_blank"; libraryLink.rel = "noopener";
+  panel.append(libraryLink);
 
   if (layer.sourceType === "cog-raster") {
     panel.append(layerNameEditor(context, layer),
       textElement("p", layer.sourceConfiguration?.license ? `Distribution terms: ${layer.sourceConfiguration.license}` : "Distribution terms were not supplied."),
       textElement("p", "The map reads a bounded image window from the original raster. Pan or zoom, then refresh to read another window."),
-      actionButton("Refresh raster window", () => refreshCogWindow(context, layer)),
+      cogDisplayEditor(context, layer),
       opacityEditor(context, layer));
     if (layer.styleReference) panel.append(textElement("p", "The saved Style reference is preserved; this raster preview does not apply vector Styles."));
     return panel;
   }
+
+  if (layer.geometryType === "Point" || layer.pointClustering) panel.append(pointClusteringEditor(context, layer));
+  const pointInlineSymbology = !layer.styleReference && isPointSymbolLayer(layer);
+  if (pointInlineSymbology) panel.append(symbologyEditor(context, layer, context.dataByLayerId.get(layer.layerId), "circleColor"));
 
   if(layer.sourceType==="governed-dataset" && layer.datasetVersionId
     && ["admin","owner","editor"].includes(context.role)
@@ -5493,12 +5776,22 @@ function stylePanel(context) {
   const fields = propertyFields(geojson);
   const colorKey = layer.geometryType?.includes("Point") ? "circleColor" : layer.geometryType?.includes("Polygon") ? "fill" : "stroke";
 
+  if (!pointInlineSymbology) panel.append(symbologyEditor(context, layer, geojson, colorKey));
   panel.append(
     layerNameEditor(context, layer, geojson),
-    symbologyEditor(context, layer, geojson, colorKey),
     labelEditor(context, layer, fields),
     layerActionEditor(context, layer, geojson)
   );
+
+  if (!canEditInlineStyle(context, layer)) {
+    panel.classList.add("gis-style-readonly");
+    panel.prepend(textElement("p", "View-only Project. An editor can change its symbology."));
+    for (const control of panel.querySelectorAll("button,input,select,textarea")) control.disabled = true;
+    for (const type of ["input", "change", "click"]) panel.addEventListener(type, event => {
+      if (event.target.closest("a")) return;
+      if (!canEditInlineStyle(context, layer)) {event.preventDefault(); event.stopImmediatePropagation();}
+    }, true);
+  }
 
   return panel;
 }
@@ -5529,6 +5822,7 @@ function symbologyEditor(context, layer, geojson, colorKey) {
   const fields = propertyFields(geojson);
   const numericFields = safeNumericPropertyFields(geojson);
   const section = editorSection("Symbology", "Use a single symbol for simple context layers, or classify features by a meaningful attribute.");
+  if (isPointSymbolLayer(layer)) section.append(pointSymbolEditor(context, layer, geojson));
   const rendererOptions = [
     ["single", "Single symbol"],
     ...(hasStatusField(geojson) ? [["status", "Status categories"]] : []),
@@ -5622,9 +5916,231 @@ function symbologyEditor(context, layer, geojson, colorKey) {
   }
 
   section.append(opacityEditor(context, layer));
+  if (isPointSymbolLayer(layer)) section.append(pointSymbolBatchEditor(context, layer));
   const legend = rendererLegend(layer, geojson, context.state.resolvedLayerStyles?.get(layer.layerId));
   if (legend) section.append(legend);
   return section;
+}
+
+function openLayerSymbology(context, layer) {
+  context.state.activeLayerId = layer.layerId;
+  context.state.activePanel = "style";
+  context.state.rightOpen = true;
+  context.render();
+}
+
+function isPointSymbolLayer(layer) {
+  return ["Point", "MultiPoint"].includes(layer?.geometryType) && layer.sourceType !== "kml-places";
+}
+
+function canEditInlineStyle(context, layer) {
+  return !context.disposed && context.layers.includes(layer) && !layer.styleReference
+    && (context.publicDemo || context.landingMode || context.role === "local"
+      || ["admin", "owner", "editor"].includes(context.role));
+}
+
+function pointSymbolPreview(style, label) {
+  const image = document.createElement("img"); image.width = 40; image.height = 40; image.alt = label;
+  const preview = {pointSymbol: style?.pointSymbol ?? "circle", circleColor: style?.circleColor};
+  void ensurePointSymbolAssets(preview).then(() => {
+    image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(pointSymbolPreviewSvg(preview))}`;
+  }).catch(() => {image.alt = `${label || "Symbol"} preview unavailable`;});
+  return image;
+}
+
+function loadInlinePointSymbolAssets(context, layer) {
+  if (context.disposed || context.pendingPointSymbolLayers.has(layer.layerId)) return;
+  const request = {layer, signature: JSON.stringify(layer.style)};
+  context.pendingPointSymbolLayers.set(layer.layerId, request);
+  setStatus(context, "Loading point symbols…");
+  void ensurePointSymbolAssets(layer.style).then(() => {
+    if (context.disposed || !context.layers.includes(layer)) return;
+    context.pendingPointSymbolLayers.delete(layer.layerId);
+    installCachedDatasetLayers(context);
+    setStatus(context, "Point symbols ready.");
+  }).catch(() => {
+    if (!context.disposed && context.layers.includes(layer) && JSON.stringify(layer.style) === request.signature) {
+      context.state.rendererLayerIssues ??= new Map();
+      context.state.rendererLayerIssues.set(layer.layerId, "Point symbols could not load. Reload to try again; the Layer is preserved.");
+      setStatus(context, "Point symbols could not load. Reload to try again.");
+    }
+  }).finally(() => {
+    if (context.pendingPointSymbolLayers.get(layer.layerId) === request) context.pendingPointSymbolLayers.delete(layer.layerId);
+    if (!context.disposed) {context.render();signalPublicationMapReadiness(context);}
+  });
+}
+
+async function openPointSymbolLibrary(context, layer, category = null) {
+  if (!canEditInlineStyle(context, layer)) return;
+  context.pointSymbolDialog?.dispose?.();
+  const dialog = document.createElement("dialog");
+  dialog.className = "browser-project-open-dialog browser-layer-registration";
+  dialog.setAttribute("aria-label", "Symbol library");dialog.dataset.colorMode = context.state.colorMode;
+  let gallery;
+  const close = () => {gallery?.dispose?.();dialog.close?.();dialog.remove();if (context.pointSymbolDialog === dialog) context.pointSymbolDialog = null;};
+  dialog.dispose = close;dialog.oncancel = event => {event.preventDefault();close();};
+  dialog.append(textElement("h2", category === null ? "Choose a point symbol" : `Symbol for ${category}`), actionButton("Close", close));
+  const progress = document.createElement("progress");progress.setAttribute("aria-label", "Loading symbol library");dialog.append(progress);
+  context.pointSymbolDialog = dialog;document.body.append(dialog);
+  if (dialog.showModal) dialog.showModal();else dialog.open = true;
+  try {
+    const [{SymbologyGallery}, {symbologyCatalog, symbologyPreview}] = await Promise.all([
+      import("./SymbologyGallery.js"), import("../lib/symbologyCatalog.js")]);
+    if (context.disposed || context.pointSymbolDialog !== dialog) return;
+    gallery = SymbologyGallery({entries: symbologyCatalog().filter(entry => entry.kind === "point"), preview: symbologyPreview,
+      selectedId: `point:${category === null ? layer.style.pointSymbol ?? "circle" : layer.style.categorySymbols?.[category] ?? layer.style.pointSymbol ?? "circle"}`,
+      onChoose: async entry => {
+        await ensurePointSymbolAssets(entry.recipe.style);
+        if (context.disposed || !context.layers.includes(layer) || !canEditInlineStyle(context, layer)) return false;
+        const radius = layer.style.circleRadius ?? 6;
+        layer.style = normalizePointSymbolStyle({...layer.style, circleRadius: Math.min(24,Math.max(2,Number.isFinite(radius)?radius:6)),
+          ...(category === null ? {pointSymbol: entry.recipe.style.pointSymbol}
+            : {categorySymbols: {...layer.style.categorySymbols,[category]:entry.recipe.style.pointSymbol}})});
+        if (context.state.layerHandles.has(layer.layerId)) repaintLayer(context,layer);else installCachedDatasetLayers(context);
+        setStatus(context, `${entry.title} selected. Save the Project to keep it.`);context.render();close();
+        return true;
+      }});
+    progress.replaceWith(gallery);
+  } catch {progress.replaceWith(textElement("p", "The symbol library could not load. Close and reopen it to try again."));}
+}
+
+function pointSymbolEditor(context, layer, geojson) {
+  const root = document.createElement("div"), grid = document.createElement("div");
+  grid.className = "gis-point-symbol-grid"; grid.setAttribute("role", "group"); grid.setAttribute("aria-label", "Point symbols");
+  root.append(textElement("h4", "Point symbol"), grid);
+  const selected = layer.style.pointSymbol ?? "circle";
+  for (const symbol of POINT_SYMBOLS.filter((symbol,index) => index < 6 || symbol.id === selected)) {
+    const button = actionButton(symbol.label, () => {
+      if (!canEditInlineStyle(context, layer)) return;
+      try {
+        const radius = layer.style.circleRadius ?? 6;
+        layer.style = normalizePointSymbolStyle({...layer.style, pointSymbol: symbol.id,
+          circleRadius: Math.min(24, Math.max(2, Number.isFinite(radius) ? radius : 6))});
+      } catch {
+        setStatus(context, "This Layer uses a category field outside the built-in symbol limits. Choose a supported field before adding a symbol."); return;
+      }
+      repaintLayer(context, layer); setStatus(context, `${symbol.label} symbol selected. Save the Project to keep it.`); context.render();
+    });
+    button.className = "gis-point-symbol-choice"; button.setAttribute("aria-label", `${symbol.label} point symbol`);
+    button.setAttribute("aria-pressed", String(symbol.id === selected)); button.disabled = !canEditInlineStyle(context, layer);
+    button.prepend(pointSymbolPreview({...layer.style, pointSymbol: symbol.id}, "")); grid.append(button);
+  }
+  const browse = actionButton("Browse symbol library…", () => {void openPointSymbolLibrary(context,layer);});
+  browse.className = "gis-point-symbol-library";browse.disabled = !canEditInlineStyle(context,layer);root.append(browse);
+  if (layer.style.renderer === "category" && layer.style.categoryField) {
+    const categories = document.createElement("div"); categories.className = "gis-point-category-symbols";
+    categories.append(textElement("h4", `Symbols by ${layer.style.categoryField}`));
+    for (const value of topFieldValues(geojson, layer.style.categoryField, 48)
+      .filter(value => value.length <= 128 && !["__proto__", "prototype", "constructor"].includes(value) && !/[\u0000-\u001f\u007f]/.test(value))) {
+      const control = selectField(`Symbol for ${value}`, layer.style.categorySymbols?.[value] ?? selected,
+        POINT_SYMBOLS.filter((item,index) => index < 6 || item.id === (layer.style.categorySymbols?.[value] ?? selected)).map(({id, label}) => [id, label]), symbol => {
+          if (!canEditInlineStyle(context, layer)) return;
+          layer.style = normalizePointSymbolStyle({...layer.style, categorySymbols: {...layer.style.categorySymbols, [value]: symbol}});
+          repaintLayer(context, layer); setStatus(context, `Symbol for ${value} updated. Save the Project to keep it.`); context.render();
+        });
+      control.querySelector("select").disabled = !canEditInlineStyle(context, layer); categories.append(control);
+      const browseCategory=actionButton(`Browse symbols for ${value}…`,()=>{void openPointSymbolLibrary(context,layer,value);});
+      browseCategory.disabled=!canEditInlineStyle(context,layer);categories.append(browseCategory);
+    }
+    categories.append(textElement("p", "Choose a symbol for each displayed category. Other values use the default point symbol; colors retain the selected palette."));
+    root.append(categories);
+  }
+  return root;
+}
+
+function pointClusteringEditor(context, layer) {
+  const section = editorSection("Point clustering", "Group nearby points on screen as you zoom. Each Layer groups independently; source records and symbols stay saved. This is a display preference, not a ground-distance analysis.");
+  section.classList.add("gis-point-clustering");
+  const current = pointClusteringOptions(layer), editable = ["admin", "owner", "editor"].includes(context.role);
+  const issueFor = candidate => pointClusteringIssue(candidate, context.dataByLayerId.get(candidate.layerId), {archive: context.state.archiveTileSessions?.has(candidate.layerId), renderer: context.rendererAdapter.id});
+  const issue = issueFor(layer);
+  const enabled = document.createElement("input");enabled.type = "checkbox";enabled.checked = current.enabled;
+  enabled.setAttribute("aria-label", "Cluster points as you zoom");enabled.disabled = !editable || Boolean(issue) && !current.enabled;
+  const label = document.createElement("label");label.append(enabled, " Cluster points as you zoom");section.append(label);
+  const radius = document.createElement("input"), maxZoom = document.createElement("input");
+  for (const [input, title, value, min, max] of [[radius, "Grouping radius (screen pixels)", current.radius, 16, 100], [maxZoom, "Last clustered zoom level", current.maxZoom, 0, 22]]) {
+    input.type = "number";input.min = String(min);input.max = String(max);input.step = "1";input.value = String(value);input.setAttribute("aria-label", title);input.disabled = !editable;
+    section.append(fieldWrap(title, input));
+  }
+  const preference = () => validatePointClustering({enabled: enabled.checked, radius: Number(radius.value), maxZoom: Number(maxZoom.value)});
+  const applyTo = targets => {
+    if (!editable) return;
+    try {
+      const value = preference();let count = 0;
+      for (const target of targets) {
+        if (value.enabled && issueFor(target)) continue;
+        target.pointClustering = {...value};
+        removeMapLayer(context.state, target.layerId);
+        if (context.state.map?.isStyleLoaded()) addMapLayer(context.state, target, context.dataByLayerId.get(target.layerId), context.datasets);
+        syncLayerOrder(context);count++;
+      }
+      setStatus(context, `Clustering ${value.enabled ? "enabled" : "disabled"} for ${count} point ${count === 1 ? "Layer" : "Layers"}. Save the Project to keep this view; Capture map frame and Save layout keeps a separate print view.`);context.render();
+    } catch (error) {feedback.textContent = error.message;}
+  };
+  enabled.addEventListener("change", () => applyTo([layer]));
+  const apply = actionButton("Apply clustering settings", () => applyTo([layer]));apply.disabled = !editable;
+  const feedback = textElement("p", issue ?? "Counts show matching loaded points. Labels from 100 upward use lower-bound abbreviations such as 100+ and 1k+; click a group for its exact count and zoom in.");feedback.setAttribute("role", "status");
+  section.append(apply, feedback, textElement("p", "Print Studio captures this display. Interactive HTML export and immutable server images require clustering off; the saved preference remains available."));
+  const batch = document.createElement("details");batch.append(textElement("summary", "Apply clustering to selected point Layers"));
+  context.pointClusteringSelection ??= new Set([layer.layerId]);const selected = context.pointClusteringSelection;
+  for (const target of context.layers.filter(candidate => candidate.geometryType === "Point")) {
+    const targetIssue = issueFor(target), row = document.createElement("label"), check = document.createElement("input");check.type = "checkbox";
+    check.setAttribute("aria-label", `Apply clustering to ${target.title}`);check.checked = selected.has(target.layerId);check.disabled = !editable;
+    check.addEventListener("change", () => {if (check.checked) selected.add(target.layerId);else selected.delete(target.layerId);});
+    row.className = "gis-point-style-target";row.append(check, textElement("span", `${target.title}${targetIssue ? ` · ${targetIssue}` : ""}`));batch.append(row);
+  }
+  const batchApply = actionButton("Apply clustering to selected Layers", () => applyTo(context.layers.filter(target => target.geometryType === "Point" && selected.has(target.layerId))));batchApply.disabled = !editable;
+  batch.append(batchApply);section.append(batch);return section;
+}
+
+function pointSymbolBatchEditor(context, layer) {
+  const section = document.createElement("details"); section.className = "gis-point-style-batch";
+  section.append(textElement("summary", "Apply to several point Layers"),
+    textElement("p", "Apply this default symbol, color and size as a single-symbol style. Category rules stay saved for later use. Visibility checkboxes in the Layer list are separate."));
+  context.pointSymbolBatchSelection ??= new Set([layer.layerId]);
+  const selected = context.pointSymbolBatchSelection;
+  const choices = document.createElement("div"), feedback = textElement("p", "");
+  feedback.className = "gis-point-style-feedback"; feedback.setAttribute("role", "status");
+  const eligible = candidate => {
+    if (!isPointSymbolLayer(candidate) || !canEditInlineStyle(context, candidate)) return false;
+    try {normalizePointSymbolStyle({...candidate.style, renderer: "single", pointSymbol: "circle", circleRadius: 6}); return true;}
+    catch {return false;}
+  };
+  const update = () => {
+    const count = context.layers.filter(candidate => selected.has(candidate.layerId) && eligible(candidate)).length;
+    feedback.textContent = `${count} compatible point ${count === 1 ? "Layer" : "Layers"} selected.`;
+    apply.disabled = !count || !canEditInlineStyle(context, layer);
+  };
+  for (const candidate of context.layers) {
+    const label = document.createElement("label"); label.className = "gis-point-style-target";
+    const check = document.createElement("input"); check.type = "checkbox";
+    check.setAttribute("aria-label", `Apply point style to ${candidate.title}`);
+    check.disabled = !eligible(candidate); check.checked = selected.has(candidate.layerId) && !check.disabled;
+    const reason = candidate.styleReference ? "saved Style pinned" : !isPointSymbolLayer(candidate) ? `${candidate.geometryType ?? "unsupported geometry"}`
+      : !canEditInlineStyle(context, candidate) ? "view-only" : !eligible(candidate) ? "symbol configuration outside supported limits" : null;
+    label.append(check, textElement("span", `${candidate.title}${reason ? ` · skipped: ${reason}` : ""}`));
+    check.addEventListener("change", () => {
+      if (!eligible(candidate) || !canEditInlineStyle(context, layer)) return;
+      if (check.checked) selected.add(candidate.layerId); else selected.delete(candidate.layerId); update();
+    });
+    choices.append(label);
+  }
+  const apply = actionButton("Apply single-symbol style to selected Layers", () => {
+    if (!canEditInlineStyle(context, layer)) return;
+    const source = normalizePointSymbolStyle({pointSymbol: layer.style.pointSymbol ?? "circle", circleColor: layer.style.circleColor,
+      circleRadius: Math.min(24, Math.max(2, Number.isFinite(layer.style.circleRadius) ? layer.style.circleRadius : 6))});
+    const targets = context.layers.filter(candidate => selected.has(candidate.layerId));
+    let count = 0; const skipped = [];
+    for (const candidate of targets) {
+      if (!eligible(candidate)) {skipped.push(candidate.title); continue;}
+      candidate.style = normalizePointSymbolStyle({...candidate.style, renderer: "single", pointSymbol: source.pointSymbol,
+        circleColor: source.circleColor ?? layerColor(layer), circleRadius: source.circleRadius ?? 6});
+      repaintLayer(context, candidate); count++;
+    }
+    setStatus(context, `Single-symbol style applied to ${count} point ${count === 1 ? "Layer" : "Layers"}.${skipped.length ? ` Skipped: ${skipped.join(", ")}.` : ""} Save the Project to keep these changes.`);
+    context.render();
+  });
+  section.append(choices, feedback, apply); update(); return section;
 }
 
 function opacityEditor(context, layer) {
@@ -5920,16 +6436,19 @@ function prepareBoundaryQuery(context, target, geometry, relation, source = null
 
 function identifyPanel(context) {
   const {state} = context;
+  const report = state.identifyReport ? {...state.identifyReport,
+    rasters: sampleVisibleCogLayers(context, state.identifyReport.location)} : null;
   const panel = panelShell();
   panel.classList.add("gis-identify-panel");
   panel.dataset.identifyState = state.identifyRunning
     ? "running"
-    : state.identifyReport
+    : report
       ? "ready"
       : "idle";
 
   const candidates = visibleQueryableLayers(context.layers);
-  if (!candidates.length || typeof context.queryDatasetFeatures !== "function") {
+  const rasters = visibleCogLayers(context);
+  if (!rasters.length && (!candidates.length || typeof context.queryDatasetFeatures !== "function")) {
     panel.append(
       textElement("p", "Identify checks every visible governed layer at the clicked location."),
       textElement("small", "Add a governed dataset layer to use permission-scoped drill-down identify. Local and external display layers continue to use their ordinary feature popup.")
@@ -5940,42 +6459,53 @@ function identifyPanel(context) {
   const live = textElement(
     "p",
     state.identifyRunning
-      ? `Checking ${Math.min(candidates.length, GOVERNED_IDENTIFY_LIMITS.maximumLayers)} visible governed layers…`
-      : state.identifyReport
-        ? identifyReportSummary(state.identifyReport)
-        : "Click the map to identify every visible governed layer."
+      ? "Checking visible layers…"
+      : report
+        ? workbenchIdentifySummary(report)
+        : "Click the map to inspect visible layers."
   );
   live.className = "gis-query-feedback";
   live.role = "status";
   live.ariaLive = "polite";
   panel.append(live);
 
-  if (!state.identifyReport) return panel;
+  if (!report) return panel;
   panel.append(textElement(
     "small",
-    `${state.identifyReport.location[0].toFixed(5)}, ${state.identifyReport.location[1].toFixed(5)} · ${state.identifyReport.bufferMeters} meter selection tolerance`
+    `${report.location[0].toFixed(5)}, ${report.location[1].toFixed(5)} · ${report.layers.length
+      ? report.layers.some(outcome => outcome.result?.source === "displayed-preview")
+        ? `displayed features use a ${GOVERNED_IDENTIFY_LIMITS.renderedPixelTolerance} pixel click tolerance`
+        : `${report.bufferMeters} meter selection tolerance`
+      : "raster cells from the loaded grid"}`
   ));
   const groups = document.createElement("div");
   groups.className = "gis-identify-groups";
-  for (const outcome of state.identifyReport.layers) {
+  for (const outcome of report.rasters ?? []) {
+    const group = document.createElement("section");group.className = "gis-identify-layer";group.dataset.identifyLayer = outcome.layerId;
+    group.append(textElement("h3", outcome.title), CogIdentifyResult(outcome.sample));groups.append(group);
+  }
+  for (const outcome of report.layers) {
     const group = document.createElement("section");
     group.className = "gis-identify-layer";
     group.dataset.identifyLayer = outcome.layerId;
     group.append(textElement("h3", outcome.title));
     if (outcome.status !== "ready") {
-      group.append(textElement("p", `Unavailable within your current project permissions (${outcome.errorCode}).`));
+      group.append(textElement("p", identifyUnavailableMessage(outcome.errorCode)));
       groups.append(group);
       continue;
     }
     if (!outcome.result.features.length) {
-      group.append(textElement("p", "No features at this location."));
+      group.append(textElement("p", outcome.result.source === "displayed-preview"
+        ? "No displayed features at this location." : "No features at this location."));
       groups.append(group);
       continue;
     }
     const layer = context.layers.find(({layerId}) => layerId === outcome.layerId);
     group.append(textElement(
       "p",
-      `${outcome.result.numberReturned} of ${outcome.result.numberMatched} matches · generation ${outcome.result.generation}`
+      outcome.result.source === "displayed-preview"
+        ? `${outcome.result.numberReturned} displayed features · saved data version ${layer?.sourceVersion ?? "selected"}. Hidden or unloaded features are not searched.`
+        : `${outcome.result.numberReturned} of ${outcome.result.numberMatched} matches · generation ${outcome.result.generation}`
     ));
     const results = document.createElement("div");
     results.className = "gis-identify-features";
@@ -5997,6 +6527,12 @@ function identifyPanel(context) {
         }
       );
       results.append(button);
+      const attributes = document.createElement("dl"); attributes.className = "gis-popup";
+      for (const [key, value] of Object.entries(feature.properties ?? {}).slice(0, 10)) {
+        attributes.append(textElement("dt", String(key).slice(0, 160)),
+          textElement("dd", (typeof value === "object" ? JSON.stringify(value) : String(value ?? "")).slice(0, 2000)));
+      }
+      results.append(attributes);
     });
     group.append(results);
     groups.append(group);
@@ -6005,11 +6541,37 @@ function identifyPanel(context) {
   return panel;
 }
 
-async function runDrillDownIdentify(context, lngLat) {
+function visibleCogLayers(context) {
+  return context.layers.filter(layer => layer.sourceType === "cog-raster" && layer.visible !== false
+    && context.state.layerHandles?.get(layer.layerId)?.cog);
+}
+
+function sampleVisibleCogLayers(context, location) {
+  return visibleCogLayers(context).map(layer => ({layerId: layer.layerId, title: layer.title,
+    sample: context.state.layerHandles.get(layer.layerId).cog.identify(location[0], location[1])}));
+}
+
+function workbenchIdentifySummary(report) {
+  return [report.layers.length ? identifyReportSummary(report) : null,
+    report.rasters?.length ? `Raster values · ${report.rasters.length} visible ${report.rasters.length === 1 ? "layer" : "layers"}.` : null]
+    .filter(Boolean).join(" ");
+}
+
+function cancelDrillDownIdentify(context) {
+  const {state} = context;
+  state.identifyRequestRevision++;
+  state.identifyAbortController?.abort();
+  state.identifyAbortController = null; state.identifyPendingLocation = null;
+  state.identifyRunning = false; state.identifyReport = null;
+}
+
+async function runDrillDownIdentify(context, lngLat, point) {
   const {state} = context;
   const candidates = visibleQueryableLayers(context.layers);
-  if (!candidates.length || typeof context.queryDatasetFeatures !== "function") return;
-  const location = {lng: Number(lngLat?.lng), lat: Number(lngLat?.lat)};
+  const hasVectorQuery = candidates.length && typeof context.queryDatasetFeatures === "function";
+  if (context.disposed || context.queryLocationScopeInvalid || !hasVectorQuery && !visibleCogLayers(context).length) return;
+  const wrapped = lngLat?.wrap?.() ?? lngLat;
+  const location = {lng: Number(wrapped?.lng), lat: Number(wrapped?.lat), point};
   if (state.identifyRunning) {
     state.identifyPendingLocation = location;
     state.identifyAbortController?.abort();
@@ -6025,27 +6587,30 @@ async function runDrillDownIdentify(context, lngLat) {
   state.activePanel = "identify";
   state.rightOpen = true;
   if (isMobileWorkbenchViewport()) state.leftOpen = false;
-  setStatus(context, `Identifying ${Math.min(candidates.length, GOVERNED_IDENTIFY_LIMITS.maximumLayers)} visible governed layers…`);
+  setStatus(context, "Inspecting visible layers…");
   context.render();
+  const renderedFeaturesForLayer = captureManagedPreviewIdentify(context, point);
   try {
-    const report = await identifyVisibleGovernedLayers({
+    const report = hasVectorQuery ? await identifyVisibleGovernedLayers({
       layers: context.layers,
-      longitude: Number(lngLat?.lng),
-      latitude: Number(lngLat?.lat),
+      longitude: location.lng,
+      latitude: location.lat,
       queryDatasetFeatures: context.queryDatasetFeatures,
+      renderedFeaturesForLayer,
       signal: controller.signal
-    });
+    }) : {location: [location.lng, location.lat], bufferMeters: 0, omittedLayerCount: 0, layers: []};
     if (revision !== state.identifyRequestRevision
       || controller.signal.aborted
       || state.identifyPendingLocation) return;
+    report.rasters = sampleVisibleCogLayers(context, report.location);
     state.identifyReport = report;
     for (const outcome of report.layers) {
-      if (outcome.status !== "ready") continue;
+      if (outcome.status !== "ready" || outcome.result.source === "displayed-preview") continue;
       for (const layer of context.layers) {
         if (layer.datasetId === outcome.datasetId) layer.featureGeneration = outcome.result.generation;
       }
     }
-    setStatus(context, identifyReportSummary(report));
+    setStatus(context, workbenchIdentifySummary(report));
   } catch (error) {
     if (revision !== state.identifyRequestRevision || controller.signal.aborted) return;
     setStatus(context, `Identify unavailable (${error?.code ?? "invalid_identify_request"}).`);
@@ -6056,24 +6621,12 @@ async function runDrillDownIdentify(context, lngLat) {
       const pendingLocation = state.identifyPendingLocation;
       state.identifyPendingLocation = null;
       if (pendingLocation) {
-        void runDrillDownIdentify(context, pendingLocation);
+        void runDrillDownIdentify(context, pendingLocation, pendingLocation.point);
       } else {
         context.render();
       }
     }
   }
-}
-
-function identifyReportSummary(report) {
-  const matches = report.layers.reduce((total, outcome) => (
-    total + (outcome.status === "ready" ? outcome.result.numberMatched : 0)
-  ), 0);
-  const unavailable = report.layers.filter(({status}) => status !== "ready").length;
-  const suffix = [
-    report.omittedLayerCount ? `${report.omittedLayerCount} layers omitted by the fan-out limit` : null,
-    unavailable ? `${unavailable} unavailable` : null
-  ].filter(Boolean).join(" · ");
-  return `${matches} matches across ${report.queriedLayerCount} visible governed layers${suffix ? ` · ${suffix}` : ""}.`;
 }
 
 function queryPanel(context) {
@@ -7092,13 +7645,15 @@ function addDataPanel(context) {
   const file = document.createElement("input");
   file.type = "file";
   file.accept = context.publicDemo
-    ? ".geojson,.json,.csv,.wkt,.wkb,.ewkb,.kml,.kmz,application/geo+json,application/json,text/csv,text/plain,application/octet-stream,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz"
-    : `${MANAGED_FILE_ACCEPT},.wkt,.wkb,.ewkb,.kml,.kmz,text/plain,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz`;
+    ? ".geojson,.json,.csv,.tsv,.txt,.wkt,.wkb,.ewkb,.kml,.kmz,.gpx,.nmea,.nme,.wpt,.plt,application/gpx+xml,application/geo+json,application/json,text/csv,text/plain,application/octet-stream,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz"
+    : `${MANAGED_FILE_ACCEPT},.tsv,.txt,.wkt,.wkb,.ewkb,.kml,.kmz,.gpx,.nmea,.nme,.wpt,.plt,application/gpx+xml,text/plain,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz`;
   file.addEventListener("change", async () => {
     const selected = file.files?.[0];
     if (!selected) return;
     const reviewBrowserLayer = browserLayerReviewForProject(context);
     try {
+      if (/\.(gpx|nmea|nme|wpt|plt|rte|pnt|evt)$/i.test(selected.name)) {await openGpsLayer(context, selected);return;}
+      if (/\.(csv|tsv|txt)$/i.test(selected.name) && (context.publicDemo || state.activeAddSource === "csv")) {await openDelimitedLayer(context, selected);return;}
       if (/\.(kml|kmz)$/i.test(selected.name)) {
         const parsed = await parseKmlFile(selected);
         if (context.publicDemo) {
@@ -7158,7 +7713,7 @@ function addDataPanel(context) {
     file,
     textElement("strong", "Choose local file"),
     textElement("span", context.publicDemo || context.persistenceMode === "fixture"
-      ? "GeoJSON, WKT, WKB/EWKB, coordinate CSV, KML, or KMZ · browser project"
+      ? "GeoJSON, WKT, WKB/EWKB, delimited coordinates, GPX, NMEA, OziExplorer WPT/PLT, KML, or KMZ · browser project"
       : "WKT/WKB normalize to governed GeoJSON; KML/KMZ attach to the map; other files hash, upload, verify, and queue")
   );
   panel.append(fileLabel);
@@ -7316,6 +7871,22 @@ function temporaryWorkPanel(context) {
     const remove = actionButton("Remove", () => removeLayer(context, layer));
     remove.classList.add("danger");
     actions.append(edit, promote, remove);
+    if (layer.metadata?.source?.format === "gpx") actions.append(actionButton("Download original GPX", async () => {
+      try {const {downloadOriginalGpx} = await import("../lib/gpxImport.js");await downloadOriginalGpx(layer.metadata.source);}
+      catch (error) {setStatus(context, error.message);}
+    }));
+    if (layer.metadata?.source?.format === "nmea") actions.append(actionButton("Download original NMEA", async () => {
+      try {const {downloadOriginalNmea} = await import("../lib/nmeaImport.js");await downloadOriginalNmea(layer.metadata.source);}
+      catch (error) {setStatus(context, error.message);}
+    }));
+    if (layer.metadata?.source?.format === "ozi") actions.append(actionButton("Download original OziExplorer file", async () => {
+      try {const {downloadOriginalOzi} = await import("../lib/oziImport.js");await downloadOriginalOzi(layer.metadata.source);}
+      catch (error) {setStatus(context, error.message);}
+    }));
+    if (layer.metadata?.source?.format === "delimited-text") actions.append(actionButton("Download original delimited file", async () => {
+      try {const {downloadOriginalDelimitedFile} = await import("../lib/delimitedTextImport.js");await downloadOriginalDelimitedFile(layer.metadata.source);}
+      catch (error) {setStatus(context, error.message);}
+    }));
     item.append(details, actions);
     current.append(item);
   }
@@ -7818,6 +8389,87 @@ function selectedProjectDatasetVersion(context, dataset) {
     : dataset.sourceType === "upload" ? dataset.currentVersionId ?? null : null;
 }
 
+function isPreservedManagedDataset(dataset) {
+  return dataset?.sourceType === "upload" && dataset.currentVersionState === "preserved";
+}
+
+function isPreservedDatasetLayer(context, layer) {
+  const dataset = context.datasets.find(item => item.datasetId === layer.datasetId);
+  return isPreservedManagedDataset(dataset)
+    && (!layer.datasetVersionId || layer.datasetVersionId === dataset.currentVersionId);
+}
+
+function preservedDatasetDisplayChoices(context, dataset, {versionId, canAdd}) {
+  const key = `${dataset.datasetId}:${versionId}:${dataset.currentVersionNumber}`;
+  let model = context.preservedDatasetDisplays.get(key);
+  if (!model) {
+    model = {rows: [], selectedId: "", busy: false, reviewed: false};
+    context.preservedDatasetDisplays.set(key, model);
+  }
+  const panel = document.createElement("div");
+  panel.className = "gis-preserved-dataset-displays";
+  panel.append(textElement("p", "The original GeoJSON is preserved and has no raw map preview. Choose an admitted tiled display of this exact version. Reviewing metadata does not download tiles."));
+  const current = () => !context.disposed && canAdd
+    && ["admin", "owner", "editor"].includes(context.role)
+    && isPreservedManagedDataset(dataset) && dataset.status === "draft" && dataset.format === "geojson"
+    && dataset.currentVersionId === versionId && Number.isSafeInteger(dataset.currentVersionNumber)
+    && `${dataset.datasetId}:${versionId}:${dataset.currentVersionNumber}` === key
+    && context.datasets.includes(dataset)
+    && !hasGovernedDatasetLayer(context.layers, dataset.datasetId, versionId);
+  const review = actionButton(model.busy ? "Reviewing tiled displays…" : "Review tiled displays", () => void (async () => {
+    if (model.busy || !current() || !context.layerArchiveAccess) return;
+    model.busy = true; model.message = null; model.rows = []; model.selectedId = "";
+    model.controller = new AbortController(); context.render();
+    try {
+      await context.layerArchiveAccess.assertScope();
+      const layer = layerFromGovernedDataset(dataset, "Point", versionId);
+      const result = await context.layerArchiveAccess.list(layer, model.controller.signal);
+      model.controller.signal.throwIfAborted();
+      if (!current()) throw Error("The dataset version changed. Review Project Data before adding it.");
+      if (!matchesReviewedDisplay(result, layer) || !Array.isArray(result.archives) || result.archives.length > 20)
+        throw Error("The tiled displays belong to another dataset version. Review Project Data before adding it.");
+      model.rows = result.archives.filter(row => row.format === "pmtiles" && typeof row.id === "string"
+        && Array.isArray(row.tile_layers) && row.tile_layers.length > 0
+        && row.tile_layers.every(part => ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"].includes(part.geometry_type)));
+      model.reviewed = true;
+      if (!model.rows.length) model.message = "No matching admitted tiled display is available. Review and admit a completed conversion in Project Data, then review the displays again.";
+    } catch (error) {model.message = error.message;}
+    finally {model.busy = false; if (!context.disposed) context.render();}
+  })());
+  review.disabled = model.busy || !current() || !context.layerArchiveAccess;
+  panel.append(review);
+  if (model.message) panel.append(textElement("p", model.message));
+  if (!model.reviewed || !model.rows.length) return panel;
+  const choice = document.createElement("select");
+  choice.setAttribute("aria-label", `Admitted tiled display for ${dataset.title}`);
+  for (const row of [{id: "", title: "Choose an admitted tiled display"}, ...model.rows]) {
+    const option = textElement("option", row.title); option.value = row.id; choice.append(option);
+  }
+  choice.value = model.selectedId;
+  choice.disabled = model.busy || !current();
+  choice.addEventListener("change", () => {model.selectedId = choice.value; context.render();});
+  const selected = model.rows.find(row => row.id === model.selectedId);
+  panel.append(choice);
+  if (selected) panel.append(textElement("p", `${formatBytes(selected.download_bytes)} stored output · ${selected.feature_count?.toLocaleString() ?? "Unknown"} reported tile fragments, not source records. Tile downloads require separate consent after Add.`));
+  const add = actionButton("Add selected tiled display", () => void (async () => {
+    if (!current() || !selected || model.busy) return;
+    model.busy = true; context.render();
+    try {
+      await context.layerArchiveAccess.assertScope();
+      if (!current() || !model.rows.includes(selected) || model.selectedId !== selected.id)
+        throw Error("The dataset or display selection changed. Review the tiled displays again.");
+      const layer = layerFromGovernedDataset(dataset, selected.tile_layers[0].geometry_type, versionId);
+      layer.managedDisplayId = selected.id; validateManagedDisplayReference(layer);
+      context.addLayer(layer, null);
+      setStatus(context, `${dataset.title} added with its reviewed tiled display. Save the Project to retain the selection; acknowledge download costs under Map display before loading tiles.`);
+    } catch (error) {model.message = error.message;}
+    finally {model.busy = false; if (!context.disposed) context.render();}
+  })());
+  add.disabled = model.busy || !current() || !selected;
+  panel.append(add);
+  return panel;
+}
+
 function hasGovernedDatasetLayer(layers, datasetId, datasetVersionId = null) {
   // Read legacy IDs unchanged: the persisted source binding, not the ID's
   // spelling, distinguishes an immutable upload from an editable collection.
@@ -7885,7 +8537,9 @@ function projectDatasetChoices(context) {
         textElement("strong", `Ready to add ${targetDataset.title}`),
         textElement(
           "p",
-          `Review exact dataset v${targetDataset.currentVersionNumber}, then confirm below. The map changes only after Add and Save.`
+          isPreservedManagedDataset(targetDataset)
+            ? `Review admitted tiled displays for exact dataset v${targetDataset.currentVersionNumber}, then choose one below. The map changes only after Add and Save.`
+            : `Review exact dataset v${targetDataset.currentVersionNumber}, then confirm below. The map changes only after Add and Save.`
         )
       );
     }
@@ -7951,6 +8605,14 @@ function projectDatasetChoices(context) {
       && hasGovernedDatasetLayer(context.layers, dataset.datasetId, selectedVersionId);
     const processingFailed = dataset.status === "failed" || dataset.currentVersionState === "failed";
     if (processingFailed) identity.append(textElement("small", "Review the processing error in Project Data."));
+    if (isPreservedManagedDataset(dataset)) {
+      record.append(identity, preservedDatasetDisplayChoices(context, dataset, {
+        versionId: selectedVersionId,
+        canAdd: !processingFailed && targetVersionMatches && targetCanEdit && !exactAlreadyLoaded
+      }));
+      list.append(record);
+      continue;
+    }
     const addLabel = processingFailed
       ? "Processing failed"
       : !targetCanEdit
@@ -8011,6 +8673,10 @@ async function addProjectDatasetToMap(
   button,
   {expectedVersionId = null, liveCollection = false} = {}
 ) {
+  if (isPreservedManagedDataset(dataset)) {
+    setStatus(context, `${dataset.title} has no raw map preview. Review and choose an admitted tiled display of its preserved version.`);
+    return;
+  }
   if (dataset.status === "failed" || dataset.currentVersionState === "failed") {
     setStatus(context, `${dataset.title} could not be processed. Review the error in Project Data before adding it to a map.`);
     return;
@@ -8126,7 +8792,7 @@ async function loadPersistedDatasetLayers(context) {
   for (const layer of [...context.layers]) {
     if (context.disposed) return;
     // Opening an all-off map must not read archived or managed data.
-    if (layer.visible === false || context.layerArchiveModes.has(layer.layerId)) continue;
+    if (layer.visible === false || context.layerArchiveModes.has(layer.layerId) || layer.managedDisplayId) continue;
     if (context.dataByLayerId.has(layer.layerId)
       || context.loadingDatasetLayerIds.has(layer.layerId)) continue;
     const sourceIdentity = persistedLayerSourceIdentity(layer);
@@ -8171,6 +8837,11 @@ async function loadPersistedDatasetLayers(context) {
       continue;
     }
     if (layer.sourceType !== "governed-dataset") continue;
+    if (isPreservedDatasetLayer(context, layer)) {
+      context.failedDatasetLayerIds.add(layer.layerId);
+      setStatus(context, `${layer.title} has a preserved original without a raw map preview. Choose an admitted tiled display under Map display.`);
+      continue;
+    }
     const exactVersion = layer.datasetVersionId ?? null;
     if (exactVersion && typeof context.loadDatasetVersionPreview !== "function") continue;
     if (!exactVersion && typeof context.loadDatasetFeatures !== "function") continue;
@@ -9206,6 +9877,13 @@ export async function cancelNativeAnalysisPreview(context) {
 function processingPanel(context) {
   const {state} = context;
   const panel = panelShell();
+  const metadata = ensureActiveManagedDatasetMetadata(context);
+  if (metadata) {
+    panel.append(textElement("p", metadata.error ?? "Loading the selected Layer's dataset metadata…"));
+    if (metadata.error) panel.append(actionButton("Retry selected Layer metadata", () => {
+      state.managedDatasetMetadataRequest = null;context.render();
+    }));
+  }
   panel.append(nativeAnalysisPanel(context));
   const tool = PROCESSING_TOOLS.find((candidate) => candidate.id === state.activeToolId) ?? PROCESSING_TOOLS[0];
   panel.dataset.processingRegistry = PROCESSING_REGISTRY_SCHEMA_VERSION;
@@ -9275,61 +9953,72 @@ function processingPanel(context) {
   return panel;
 }
 
-function pmtilesDerivativeEditor(context) {
+function ensureActiveManagedDatasetMetadata(context) {
   const layer = activeLayer(context);
-  const dataset = context.datasets.find(({datasetId}) => datasetId === layer?.datasetId);
-  const eligibility = pmtilesDerivativeEligibility(context, dataset, layer);
-  const section = editorSection(
-    "Create an archived PMTiles derivative",
-    "OpenGeo Studio starts isolated conversion capacity for this exact managed dataset version, writes the result under its immutable archive path, records lineage, and closes request compute when the queue drains."
-  );
-  section.classList.add("gis-pmtiles-derivative-editor");
-  section.dataset.pmtilesDerivativeEditor = "true";
-  section.tabIndex = -1;
-  section.role = "region";
-  section.setAttribute("aria-busy", String(context.state.pmtilesDerivativeBusy));
-  const heading = section.querySelector("h3");
-  if (heading) {
-    heading.id = "gis-pmtiles-derivative-title";
-    section.setAttribute("aria-labelledby", heading.id);
+  const identity = layer ? persistedLayerSourceIdentity(layer) : null;
+  let previous = context.state.managedDatasetMetadataRequest;
+  if (previous && (previous.layer !== layer || previous.identity !== identity)) {
+    previous.controller.abort();context.state.managedDatasetMetadataRequest = null;previous = null;
   }
-  if (!eligibility.allowed) {
-    section.append(textElement("p", eligibility.message));
-    return section;
-  }
+  if (layer?.sourceType !== "governed-dataset" || !layer.datasetId
+    || context.datasets.some(dataset => dataset.datasetId === layer.datasetId)
+    || typeof context.loadManagedDatasetMetadata !== "function") return null;
+  if (previous?.layer === layer && previous.identity === identity) return previous;
+  previous?.controller.abort();
+  const request = {layer, identity, controller: new AbortController(), error: null};
+  context.state.managedDatasetMetadataRequest = request;
+  void (async () => {
+    try {
+      const dataset = await context.loadManagedDatasetMetadata(layer.datasetId, request.controller.signal);
+      request.controller.signal.throwIfAborted();
+      if (context.disposed) return;
+      if (activeLayer(context) !== layer || persistedLayerSourceIdentity(layer) !== identity) {
+        if (context.state.managedDatasetMetadataRequest === request) context.state.managedDatasetMetadataRequest = null;
+        return;
+      }
+      if (dataset.datasetId !== layer.datasetId) throw Error("The selected Layer's dataset metadata changed. Reopen the Project.");
+      if (!context.datasets.some(item => item.datasetId === dataset.datasetId)) context.datasets.push(dataset);
+      if (!context.allDatasets.some(item => item.datasetId === dataset.datasetId)) context.allDatasets.push(dataset);
+      context.render();
+      if (context.state.activePanel === "processing") await refreshDurableJobLists(context);
+    } catch (error) {
+      if (context.disposed || request.controller.signal.aborted || activeLayer(context) !== layer) return;
+      request.error = "The selected Layer's dataset metadata is unavailable. Retry to review its processing options.";
+      context.render();
+    }
+  })();
+  return request;
+}
 
-  const draft = pmtilesDerivativeDraft(context, dataset, layer);
-  const bounds = textInput("WGS84 bounds · west, south, east, north", draft.bounds.join(", "));
-  const sourceLayer = textInput("Source layer in the managed object", draft.sourceLayer);
-  const minimumZoom = textInput("Minimum zoom", String(draft.minZoom));
-  const maximumZoom = textInput("Maximum zoom", String(draft.maxZoom));
-  const update = () => {
-    draft.bounds = bounds.input.value.split(",").map((value) => Number(value.trim()));
-    draft.sourceLayer = sourceLayer.input.value;
-    draft.minZoom = Number(minimumZoom.input.value);
-    draft.maxZoom = Number(maximumZoom.input.value);
-  };
-  for (const input of [bounds.input, sourceLayer.input, minimumZoom.input, maximumZoom.input]) {
-    input.addEventListener("input", update);
-  }
-  const submit = actionButton(
-    context.state.pmtilesDerivativeBusy ? "Queuing conversion…" : "Queue on-demand conversion",
-    () => void queuePmtilesDerivative(context, dataset, draft)
-  );
-  submit.disabled = context.state.pmtilesDerivativeBusy;
-  section.append(
-    compactKeyValues({
-      "Dataset version": dataset.currentVersion ?? dataset.currentVersionId,
-      "Storage": "Server-assigned immutable archive path",
-      "Compute": "On demand; queue drains before shutdown"
-    }),
-    bounds.wrapper,
-    sourceLayer.wrapper,
-    minimumZoom.wrapper,
-    maximumZoom.wrapper,
-    submit
-  );
+function pmtilesDerivativeEditor(context) {
+  const layer=activeLayer(context),dataset=context.datasets.find(({datasetId})=>datasetId===layer?.datasetId);
+  const eligibility=pmtilesDerivativeEligibility(context,dataset,layer);
+  const section=document.createElement('section');section.className='gis-editor-section gis-pmtiles-derivative-editor';
+  section.dataset.pmtilesDerivativeEditor='true';section.tabIndex=-1;section.role='region';
+  section.setAttribute('aria-busy',String(context.state.pmtilesDerivativeBusy));
+  if(!eligibility.allowed){section.append(textElement('h3','Convert vector to PMTiles'),textElement('p',eligibility.message));return section;}
+  const availability=workbenchPmtilesAvailability(context,dataset);
+  const draft=pmtilesDerivativeDraft(context,dataset,layer);
+  section.append(PmtilesConversionEditor({draft,versionLabel:dataset.currentVersion??dataset.currentVersionId,
+    busy:context.state.pmtilesDerivativeBusy,jobs:context.pmtilesDerivativeJobs,availability,
+    onSubmit:()=>void queuePmtilesDerivative(context,dataset,draft)}));
+  if(!availability.allowed&&context.state.pmtilesCapabilitiesRequest?.value!==undefined)section.append(actionButton('Refresh converter metadata',()=>{
+    context.state.pmtilesCapabilitiesRequest=null;context.render();
+  }));
+  const heading=section.querySelector('h3');heading.id='gis-pmtiles-derivative-title';section.setAttribute('aria-labelledby',heading.id);
   return section;
+}
+
+function workbenchPmtilesAvailability(context,dataset){
+  if(typeof context.getPmtilesConversionCapabilities!=='function')return{allowed:true,message:''};
+  let request=context.state.pmtilesCapabilitiesRequest;
+  if(!request){
+    request={value:undefined};context.state.pmtilesCapabilitiesRequest=request;
+    void Promise.resolve().then(()=>context.getPmtilesConversionCapabilities()).then(value=>{request.value=value;},()=>{request.value=null;}).finally(()=>{
+      if(!context.disposed)context.render();
+    });
+  }
+  return pmtilesConversionAvailability(dataset.format,request.value);
 }
 
 const PMTILES_DERIVATIVE_SOURCE_FORMATS = new Set([
@@ -9341,17 +10030,37 @@ function pmtilesDerivativeEligibility(context, dataset, layer) {
   if (!context.canRequestProjectCompute) {
     return {allowed: false, message: "Your current project and dataset role cannot create archived derivatives."};
   }
+  if (layer?.sourceType === "governed-dataset" && layer.datasetVersionId && dataset
+    && (layer.datasetVersionId !== dataset.currentVersionId || layer.sourceVersion !== dataset.currentVersionNumber)) {
+    return {allowed: false, message: "This Layer pins a different saved dataset version. Keep its existing display or deliberately select the current version before requesting a new conversion."};
+  }
   if (!isPmtilesDerivativeSourceEligible(dataset, layer)) return {allowed: false, message: generic};
   return {allowed: true, message: null};
 }
 
 export function isPmtilesDerivativeSourceEligible(dataset, layer) {
   return layer?.sourceType === "governed-dataset"
+    && (!layer.datasetVersionId || (layer.datasetVersionId === dataset?.currentVersionId
+      && layer.sourceVersion === dataset?.currentVersionNumber))
     && Boolean(dataset?.currentVersionId)
     && dataset.sourceType === "upload"
     && PMTILES_DERIVATIVE_SOURCE_FORMATS.has(dataset.format)
     && dataset.status === "active"
     && dataset.currentVersionState === "active";
+}
+
+/** Route job history/review to the saved pin without changing the mutable dataset head. */
+export function pmtilesJobDatasetForLayer(dataset, layer) {
+  if (layer?.sourceType !== "governed-dataset" || dataset?.datasetId !== layer.datasetId
+    || dataset.sourceType !== "upload") return null;
+  const preserved = dataset.status === "draft" && isPreservedManagedDataset(dataset) && dataset.format === "geojson";
+  if (dataset.status !== "active" && !preserved) return null;
+  if (layer.datasetVersionId) {
+    if (!Number.isSafeInteger(layer.sourceVersion) || layer.sourceVersion < 1) return null;
+    if (preserved && (layer.datasetVersionId !== dataset.currentVersionId || layer.sourceVersion !== dataset.currentVersionNumber)) return null;
+    return {...dataset, currentVersionId: layer.datasetVersionId, currentVersionNumber: layer.sourceVersion};
+  }
+  return isPmtilesDerivativeSourceEligible(dataset, layer) ? dataset : null;
 }
 
 function pmtilesDerivativeDraft(context, dataset, layer) {
@@ -9361,13 +10070,7 @@ function pmtilesDerivativeDraft(context, dataset, layer) {
   const bounds = validGeographicBounds(dataset.bbox)
     ? [...dataset.bbox]
     : authoringMapExtent(context);
-  context.state.pmtilesDerivativeDraft = {
-    datasetVersionId: dataset.currentVersionId,
-    bounds,
-    minZoom: 0,
-    maxZoom: 14,
-    sourceLayer: layer.sourceLayer || "source"
-  };
+  context.state.pmtilesDerivativeDraft=createPmtilesConversionDraft({datasetVersionId:dataset.currentVersionId,bounds,sourceLayer:layer.sourceLayer});
   return context.state.pmtilesDerivativeDraft;
 }
 
@@ -9381,6 +10084,11 @@ function validGeographicBounds(value) {
 
 async function queuePmtilesDerivative(context, dataset, draft) {
   if (context.state.pmtilesDerivativeBusy) return;
+  const availability=workbenchPmtilesAvailability(context,dataset);
+  if(!availability.allowed&&!pmtilesUnconfirmedRetry(draft,context.pmtilesDerivativeJobs)){setStatus(context,availability.message);return;}
+  let intent;
+  try{intent=pmtilesRequestIntent(draft,context.pmtilesDerivativeJobs);}catch(error){setStatus(context,error.message);return;}
+  if(intent.existing){setStatus(context,`A matching PMTiles conversion is ${intent.existing.state}; review its saved job instead of queuing a duplicate.`);return;}
   const restoreFocus = pmtilesDerivativeEditorHasFocus();
   if (typeof context.requestPmtilesDerivative !== "function") {
     context.state.processingLog.unshift("This deployment does not expose the durable PMTiles conversion route. No job was queued.");
@@ -9393,13 +10101,7 @@ async function queuePmtilesDerivative(context, dataset, draft) {
   context.render();
   if (restoreFocus) restorePmtilesDerivativeFocus(context, "editor");
   try {
-    const job = await context.requestPmtilesDerivative(dataset, {
-      idempotencyKey: crypto.randomUUID(),
-      bounds: [...draft.bounds],
-      minZoom: draft.minZoom,
-      maxZoom: draft.maxZoom,
-      sourceLayer: draft.sourceLayer.trim()
-    });
+    const job = await context.requestPmtilesDerivative(dataset,intent.request);
     replaceDurableJob(context.pmtilesDerivativeJobs, job);
     context.state.runtimeJobs.unshift({
       id: job.jobId,
@@ -9414,7 +10116,7 @@ async function queuePmtilesDerivative(context, dataset, draft) {
     setStatus(context, `PMTiles conversion queued for ${dataset.title}.`);
   } catch (error) {
     context.state.processingLog.unshift(
-      `PMTiles conversion was not queued (${error?.code ?? "invalid_request"}). Check the exact source layer, bounds, and zoom range.`
+      `PMTiles conversion was not queued (${error?.code ?? "invalid_request"}). The unchanged request keeps its retry key. Refresh saved jobs before trying again, or review the conversion settings.`
     );
   } finally {
     const returnToEditor = restoreFocus && pmtilesDerivativeEditorHasFocus();
@@ -10926,6 +11628,7 @@ function measurementPanel(context) {
     start.classList.toggle("active", state.measureMode && state.measurementKind === kind);
     startActions.append(start);
   }
+  startActions.append(actionButton("3D polygon", () => openPolygon3DMeasurementEditor(context)));
   if (state.measureMode) startActions.append(actionButton("Cancel", () => stopMeasurement(context)));
   intro.append(startActions);
   if (state.measurePoints.length) {
@@ -10960,12 +11663,40 @@ function measurementPanel(context) {
     if (measurement.kind === "path-profile") {
       actions.append(actionButton("CSV", () => downloadMeasurementCsv(measurement)));
     }
+    if (measurement.kind === "polygon-area") actions.append(actionButton("3D face…", () => openPolygon3DMeasurementEditor(context, null, measurement)));
+    if (measurement.kind === "polygon-3d") actions.append(actionButton("GeoJSON", () => downloadBlob(`${slug(measurement.title)}-3d.geojson`, polygon3DGeojson(measurement), "application/geo+json")));
     actions.append(actionButton("Remove", () => removeMeasurement(context, measurement.id)));
     actions.lastElementChild.classList.add("danger");
     section.append(actions);
     panel.append(section);
   }
   return panel;
+}
+
+async function openPolygon3DMeasurementEditor(context, measurement=null, polygon=null) {
+  if(!measurement&&context.state.measurements.length>=PATH_MEASUREMENT_LIMITS.maximumMeasurements)return setStatus(context,"Remove a measurement before adding another; this map holds at most 50.");
+  const request=context.polygon3dEditorRequest=(context.polygon3dEditorRequest??0)+1;
+  let Polygon3DMeasurementEditor;
+  try {({Polygon3DMeasurementEditor}=await import("./Polygon3DMeasurementEditor.js"));}
+  catch {if(!context.disposed&&request===context.polygon3dEditorRequest)setStatus(context,"The 3D polygon editor could not be loaded. Your map remains available.");return;}
+  if(context.disposed||request!==context.polygon3dEditorRequest)return;
+  context.polygon3dDialog?.dispose();let dialog;
+  dialog=Polygon3DMeasurementEditor({measurement,polygon,spatialBody:context.state.spatialBody,
+    onSave:record=>{
+      if(context.disposed)throw Error("workbench_disposed");
+      const index=measurement?context.state.measurements.findIndex(m=>m.id===measurement.id):-1;
+      if(measurement&&index<0)throw Error("measurement_changed");
+      if(index>=0)context.state.measurements.splice(index,1,record);else context.state.measurements.push(record);
+      context.state.selectedMeasurementId=record.id;context.state.activePanel="measure";context.state.rightOpen=true;
+      syncMeasureLayer(context.state);setStatus(context,`${record.title} saved with its 3D vertices and source. Save the Project to retain it.`);context.render();
+    },onDownload:body=>downloadBlob(`${slug(measurement?.title??polygon?.title??"3d-polygon")}-3d.geojson`,body,"application/geo+json"),
+    onClose:()=>{if(context.polygon3dDialog===dialog)context.polygon3dDialog=null;}});
+  const palette=context.shell.ownerDocument.defaultView.getComputedStyle(context.shell);
+  for(const [name,source] of [["--theme-foreground","--gis-ink"],["--theme-foreground-muted","--gis-muted"],["--theme-background","--gis-panel-bg"],["--theme-background-alt","--gis-elevated"],["--opengeo-line","--gis-line"]]){
+    const value=palette.getPropertyValue(source);if(value.trim())dialog.style.setProperty(name,value);
+  }
+  context.polygon3dDialog=dialog;document.body.append(dialog);if(dialog.showModal)dialog.showModal();else dialog.open=true;
+  dialog.querySelector('[aria-label="Measurement title"]')?.focus();
 }
 
 function appendPathMeasurementSummary(section, measurement) {
@@ -10998,9 +11729,21 @@ function appendPathMeasurementSummary(section, measurement) {
   }));
   const chart = elevationProfileChart(measurement);
   if (chart) section.append(chart);
+  if (measurement.coordinates.length === 2) section.append(ProfileLineOfSight(measurement, {
+    onDownload: body => downloadBlob(`${slug(measurement.title)}-line-of-sight.json`, body, "application/json")
+  }));
 }
 
 function appendAreaMeasurementSummary(section, measurement) {
+  if(measurement.kind==="polygon-3d") {
+    section.append(compactKeyValues({Geometry:"3D polygon face",Vertices:String(measurement.coordinates.length),
+      "3D perimeter":formatMeasurementDistance(measurement.summary.perimeterMeters),"Face area":formatMeasurementArea(measurement.summary.areaSquareMeters),
+      "Horizontal width":formatMeasurementDistance(measurement.summary.widthMeters),"Elevation range":formatElevation(measurement.summary.heightMeters),
+      "Elevation source":measurement.source.label,"Vertical datum":measurement.source.verticalDatum,
+      "Elevation uncertainty":measurement.uncertaintyMeters===null?"Not supplied":`± ${formatElevation(measurement.uncertaintyMeters)}`,
+      "Model":`${measurement.measurementModel} · ${measurement.spatialBodyId}`}));
+    return;
+  }
   const facts = measurement.kind === "polygon-area"
     ? {
         "Geometry": "Polygon",
@@ -11070,12 +11813,21 @@ function browserLayerCatalogPanel(context) {
   if (context.browserCatalogNotice) panel.append(textElement("p", context.browserCatalogNotice));
   const search = document.createElement("input"); search.type = "search"; search.placeholder = "Search Layers"; search.setAttribute("aria-label", "Search Layers");
   search.value = context.state.browserCatalogSearch ?? "";
+  const summary = textElement("p", ""); summary.setAttribute("role", "status");
+  const clear = actionButton("Clear search", () => {search.value = ""; context.state.browserCatalogSearch = ""; render();});
   const list = document.createElement("div"); list.className = "browser-layer-catalog";
   const entries = [...context.browserCatalog, ...[...context.browserRegistrations].map(([id, value]) => ({id, title: value.layer.title, load: async () => value}))];
   const render = () => {
     list.replaceChildren();
-    for (const entry of entries.filter(entry => entry.title.toLowerCase().includes(search.value.trim().toLowerCase()))) {
+    const matches = entries.filter(entry => entry.title.toLowerCase().includes(search.value.trim().toLowerCase()));
+    summary.textContent = `${matches.length} of ${entries.length} Layers · review a source to add it to this map.`;
+    clear.hidden = !search.value;
+    for (const entry of matches) {
       const row = document.createElement("article"); row.append(textElement("strong", entry.title));
+      row.dataset.browserCatalogLayer = entry.id;
+      if (entry.description) row.append(textElement("p", entry.description));
+      const facts = [entry.source?.license, entry.source?.attribution].filter(Boolean);
+      if (facts.length) row.append(textElement("small", facts.join(" · ")));
       const status = textElement("p", ""); status.setAttribute("role", "status");
       const add = actionButton("Review and add", async () => {
         const reviewBrowserLayer = browserLayerReviewForProject(context);
@@ -11098,11 +11850,13 @@ function browserLayerCatalogPanel(context) {
         } catch {status.textContent = "This source could not load. Try again; your Project is unchanged.";}
         finally {add.disabled = false;}
       });
+      add.setAttribute("aria-label", `Review and add ${entry.title}`);
       row.append(add, status); list.append(row);
     }
     if (!list.children.length) list.append(textElement("p", "No matching Layers. Add a local file or try another search."));
   };
-  search.oninput = () => {context.state.browserCatalogSearch = search.value; render();}; render(); panel.append(search, list);
+  search.oninput = () => {context.state.browserCatalogSearch = search.value; render();}; render(); panel.append(search, clear, summary, list);
+  if (!context.landingMode) panel.append(navLink("Browse example Catalog", "/?view=catalog"));
   panel.append(actionButton("Register a local source", () => {context.state.activePanel = "add"; context.render();}));
   context.browserCatalogPanel = panel;
   return panel;
@@ -11224,6 +11978,7 @@ function durableJobRow(context, {kind, job}) {
     textElement("strong", title),
     textElement("span", `${job.state} · ${job.jobId}`)
   );
+  if(kind==='pmtiles-derivative'&&job.options)row.append(textElement('p',`Zoom ${job.minZoom}–${job.maxZoom} · output ${job.sourceLayer} · ${pmtilesOptionsSummary(job.options)}`));
   if (durableJobCanCancel(context, kind, job)) {
     const cancel = actionButton(
       context.state.durableJobActionPending === job.jobId ? "Cancelling…" : "Cancel job",
@@ -11234,7 +11989,93 @@ function durableJobRow(context, {kind, job}) {
     cancel.setAttribute("aria-label", `Cancel ${title.toLowerCase()} ${job.jobId}`);
     row.append(cancel);
   }
+  if (kind === "pmtiles-derivative" && job.state === "completed"
+    && context.canRequestProjectCompute && typeof context.reviewPmtilesDisplay === "function") {
+    const review = actionButton("Review tiled display", () => void reviewCompletedPmtilesDisplay(context, job));
+    review.disabled = Boolean(context.state.pmtilesDisplayReview?.busy);
+    row.append(review);
+    if (context.state.pmtilesDisplayReview?.jobId === job.jobId) row.append(pmtilesDisplayReviewForm(context, job));
+  }
   return row;
+}
+
+function currentPmtilesReviewLayer(context, job, expected = null) {
+  const layer = activeLayer(context), dataset = pmtilesJobDatasetForLayer(context.datasets.find(item => item.datasetId === job.datasetId), layer);
+  if (context.disposed || !context.canRequestProjectCompute || !dataset
+    || layer.datasetId !== job.datasetId || dataset.currentVersionId !== job.datasetVersionId
+    || (layer.datasetVersionId && layer.datasetVersionId !== job.datasetVersionId)
+    || (expected && (expected.layer !== layer || expected.identity !== persistedLayerSourceIdentity(layer)))) {
+    throw Error("The selected Layer or saved dataset version changed. Review the completed job again.");
+  }
+  return {layer, dataset, identity: persistedLayerSourceIdentity(layer)};
+}
+
+async function reviewCompletedPmtilesDisplay(context, job) {
+  if (context.state.pmtilesDisplayReview?.busy) return;
+  const model = {jobId: job.jobId, busy: true, title: "", rightsBasis: "", attribution: "", acknowledgeConversionLimits: false};
+  context.state.pmtilesDisplayReview = model;
+  try {
+    const target = currentPmtilesReviewLayer(context, job);
+    model.target = target; model.title = target.layer.title;
+    context.render();
+    const review = await context.reviewPmtilesDisplay(job);
+    currentPmtilesReviewLayer(context, job, target);
+    if (context.state.pmtilesDisplayReview !== model) return;
+    if (review.jobId !== job.jobId || review.datasetId !== job.datasetId || review.datasetVersionId !== job.datasetVersionId) throw Error("The display review belongs to another saved dataset version.");
+    model.review = review;
+  } catch (error) {model.error = error.message;}
+  finally {model.busy = false;if (!context.disposed) context.render();}
+}
+
+function pmtilesDisplayReviewForm(context, job) {
+  const model = context.state.pmtilesDisplayReview;
+  const section = editorSection("Tiled display review", "Reviewing metadata reads no stored map bytes. Admission does not download tiles or change the original data.");
+  if (model.busy) section.append(textElement("p", "Loading display review…"));
+  if (model.error) section.append(textElement("p", model.error));
+  const review = model.review;
+  if (!review) return section;
+  section.append(compactKeyValues({"Stored output": formatBytes(review.downloadBytes),
+    "Zooms": `${review.minZoom}–${review.maxZoom}`, "Reported tile fragments": String(review.reportedFragmentCount ?? "Not established")}));
+  section.append(textElement("p", "Tile fragments are not source records. Geometry is clipped, quantized and may be simplified for display; do not use it for measurement. Properties may change or be omitted, and source feature IDs are not preserved. Source-record preservation has not been verified."));
+  if (!review.eligible) {section.append(textElement("p", "This output is not eligible for map display. The completed conversion and original data remain available."));return section;}
+  if (model.admitted) {
+    section.append(textElement("p", "Tiled display admitted. Choose it and acknowledge storage costs before downloading any tiles."));
+    section.append(actionButton("Choose admitted tiled display", () => {
+      try {
+        const {layer, dataset} = currentPmtilesReviewLayer(context, job, model.target);
+        layer.datasetVersionId = job.datasetVersionId; layer.sourceVersion = dataset.currentVersionNumber;
+        layer.managedDisplayId = model.admitted.displayId; validateManagedDisplayReference(layer);
+        context.state.archiveTileSessions.get(layer.layerId)?.dispose(); context.state.archiveTileSessions.delete(layer.layerId);
+        context.dataByLayerId.delete(layer.layerId); removeMapLayer(context.state, layer.layerId);
+        context.layerArchiveModes.delete(layer.layerId);
+        context.layerArchiveControls.get(layer.layerId)?.dispose(); context.layerArchiveControls.delete(layer.layerId);
+        setStatus(context, "Tiled display selected. Save the Project to retain this choice; acknowledge storage costs before downloading tiles.");
+        context.render(); context.layerArchiveControls.get(layer.layerId)?.openSelection(model.admitted.displayId);
+      } catch (error) {model.error = error.message;context.render();}
+    }));
+    return section;
+  }
+  const title = textInput("Tiled display title", model.title), rights = textAreaInput("Display rights basis", model.rightsBasis), attribution = textAreaInput("Display attribution", model.attribution);
+  title.input.maxLength = 200; rights.input.maxLength = attribution.input.maxLength = 2000;
+  for (const [field, key] of [[title, "title"], [rights, "rightsBasis"], [attribution, "attribution"]]) field.input.addEventListener("input", () => {model[key] = field.input.value;});
+  const acknowledge = checkField("I reviewed the conversion limits; tile counts and feature IDs do not establish source-record preservation.", model.acknowledgeConversionLimits,
+    checked => {model.acknowledgeConversionLimits = checked;});
+  const admit = actionButton(model.busy ? "Admitting tiled display…" : "Admit tiled display", () => void (async () => {
+    if (model.busy || typeof context.admitPmtilesDisplay !== "function") return;
+    try {
+      currentPmtilesReviewLayer(context, job, model.target);
+      if (!model.title.trim() || !model.rightsBasis.trim() || !model.attribution.trim() || !model.acknowledgeConversionLimits) throw Error("Enter a title, rights basis and attribution, and acknowledge the conversion limits.");
+      model.busy = true;model.error = null;context.render();
+      const admitted = await context.admitPmtilesDisplay(job, {expectedReviewSha256: review.reviewSha256, title: model.title.trim(), rightsBasis: model.rightsBasis.trim(), attribution: model.attribution.trim(), acknowledgeConversionLimits: true});
+      currentPmtilesReviewLayer(context, job, model.target);
+      if (admitted.displayId !== job.jobId || admitted.datasetId !== job.datasetId || admitted.datasetVersionId !== job.datasetVersionId || admitted.reviewSha256 !== review.reviewSha256) throw Error("The admitted display does not match the reviewed output.");
+      model.admitted = admitted;
+    } catch (error) {model.error = error.message;}
+    finally {model.busy = false;if (!context.disposed) context.render();}
+  })());
+  admit.disabled = model.busy || typeof context.admitPmtilesDisplay !== "function";
+  section.append(title.wrapper, rights.wrapper, attribution.wrapper, acknowledge, admit);
+  return section;
 }
 
 function durableJobCanCancel(context, kind, job) {
@@ -11247,13 +12088,10 @@ function durableJobCanCancel(context, kind, job) {
       ));
   }
   const dataset = context.datasets.find(({datasetId}) => datasetId === job.datasetId);
-  const layer = context.layers.find((candidate) => (
-    candidate.datasetId === job.datasetId && candidate.sourceType === "governed-dataset"
-  ));
+  const layer = activeLayer(context);
   return typeof context.cancelPmtilesDerivative === "function"
     && context.canRequestProjectCompute
-    && dataset?.currentVersionId === job.datasetVersionId
-    && isPmtilesDerivativeSourceEligible(dataset, layer);
+    && pmtilesJobDatasetForLayer(dataset, layer)?.currentVersionId === job.datasetVersionId;
 }
 
 async function refreshDurableJobLists(context) {
@@ -11291,7 +12129,7 @@ async function cancelDurableJob(context, kind, job) {
       cancelled = await context.cancelProtectedCopy(source, job.jobId);
       replaceDurableJob(context.protectedCopyJobs, cancelled);
     } else {
-      const dataset = context.datasets.find(({datasetId}) => datasetId === job.datasetId);
+      const dataset = activeDurableJobResources(context).dataset;
       cancelled = await context.cancelPmtilesDerivative(dataset, job.jobId);
       replaceDurableJob(context.pmtilesDerivativeJobs, cancelled);
     }
@@ -11311,7 +12149,7 @@ function activeDurableJobResources(context) {
   const dataset = context.datasets.find(({datasetId}) => datasetId === layer?.datasetId);
   return {
     source: isProtectedCopySourceEligible(source) ? source : null,
-    dataset: isPmtilesDerivativeSourceEligible(dataset, layer) ? dataset : null
+    dataset: pmtilesJobDatasetForLayer(dataset, layer)
   };
 }
 
@@ -11452,11 +12290,17 @@ function sqlPanel(context) {
 
 function settingsPanel(context) {
   const panel = panelShell();
+  if (context.localProjectRecord) {
+    panel.append(textElement("h3", "Saved on this device"), textElement("p", context.demoSurface ? "This personal Project is independent of sample resets. Browser data can still be cleared or evicted; download a backup for important work." : "This Project is saved on this device. Browser data can be cleared or evicted; download a backup for important work."),
+      compactKeyValues({"Project": context.localProjectRecord.title, "Saved revision": context.localProjectRecord.revision, "Account upload": "None"}),
+      actionButton("Projects and backups on this device", () => void openPersonalProjects(context)), navLink("Open managed Studio", MANAGED_STUDIO_URL));
+    return panel;
+  }
   if (context.landingMode) {
     panel.append(textElement("h3", "Browser draft"),
       textElement("p", "Save in browser keeps this map on this device and browser profile. It is not an account save, and signing in does not upload it."),
-      textElement("p", "Personal browser drafts do not reset daily. Browser storage can still be cleared or evicted; export important work as a backup. Open a managed project for account-level persistence and sharing."),
-      navLink("Open account projects", MANAGED_STUDIO_URL));
+      textElement("p", "Save keeps a personal Project in this device's library. Existing scratch drafts are retained until you deliberately save them as personal Projects. Browser storage can be cleared; download a backup for important work."),
+      navLink("Open account projects", `${MANAGED_STUDIO_URL}workspaces`));
     return panel;
   }
   if (context.publicDemo) {
@@ -11466,7 +12310,8 @@ function settingsPanel(context) {
       compactKeyValues({
         "Account": "None",
         "Server upload": "Disabled",
-        "Browser draft": "Local storage; daily reset",
+        "Save": "Personal Projects on this device; no daily reset",
+        "Older sample drafts": "Separate browser storage with daily expiry",
         "External sources": "Direct public HTTPS only",
         "Private workspaces": "Available after sign-in"
       }),
@@ -11475,6 +12320,11 @@ function settingsPanel(context) {
         location.href = MANAGED_STUDIO_URL;
       })
     );
+    const retained = readBrowserDraft(draftStorageKey(context.workspace, true, context.draftScopeId));
+    try {
+      if (retained && JSON.parse(retained).demoDate !== demoDateKey()) panel.append(textElement("h3", "Earlier sample draft"),
+        actionButton("Download earlier sample draft", () => downloadBlob("earlier-sample.opengeo-project.json", retained, "application/json")));
+    } catch { /* Preserve invalid retained bytes for recovery from browser storage. */ }
     return panel;
   }
   panel.append(textElement("h3", context.project?.name ?? "Project"),
@@ -12358,6 +13208,7 @@ export function addMapLayer(state, layer, geojson, datasets) {
       const id = `${layer.layerId}-cog`;
       const session = installCogMapLayer(map, {sourceId: sourceId(layer), layerId: id,
         source: {sourceUrl: layer.sourceUrl, configuration: layer.sourceConfiguration}, opacity: layer.opacity ?? 1, visible: layer.visible,
+        displayOptions: cogDisplayOptions(layer),
         onStatus: message => map.fire("cogstatus", {message: `${layer.title}: ${message}`}),
         onReady: () => map.fire("coglayerready")});
       state.layerHandles.set(layer.layerId, {sourceId: sourceId(layer), layerIds: [id], paintLayerIds: [id], cog: session});
@@ -12375,6 +13226,23 @@ export function addMapLayer(state, layer, geojson, datasets) {
     }
   }
   state.rendererLayerIssues?.delete(layer.layerId);
+  const clustering = pointClusteringOptions(layer);
+  if (clustering.enabled) {
+    const issue = pointClusteringIssue(layer, geojson, {archive: state.archiveTileSessions?.has(layer.layerId), renderer: workbenchRenderer(map).id});
+    if (issue) {state.rendererLayerIssues ??= new Map();state.rendererLayerIssues.set(layer.layerId, issue);return;}
+  }
+
+  let inlinePointImages = [];
+  try {
+    inlinePointImages = !layer.styleReference && pointSymbolStyleParts(layer).length ? pointSymbolImages(layer.style) : [];
+  } catch (error) {
+    if (error?.message !== "Point symbol assets have not been loaded" || typeof state.preparePointSymbols !== "function") throw error;
+    if (layer.visible !== false) state.preparePointSymbols(layer);
+    return;
+  }
+  for (const image of inlinePointImages) {
+    if (!map.hasImage(image.id)) map.addImage(image.id, image.pixels, {pixelRatio: image.pixelRatio});
+  }
 
   const archive = state.archiveTileSessions?.get(layer.layerId);
   if (archive) {
@@ -12413,11 +13281,12 @@ export function addMapLayer(state, layer, geojson, datasets) {
         baseFilters[paintLayer.id]=paintLayer.filter??null;
         map.addLayer({...paintLayer, ...mapFilterOptions(paintLayer.filter,layer.filter), source: sourcesByLayer.get(item.source_layer), "source-layer": item.source_layer,
           ...(archive.raster ? {minzoom: Math.max(paintLayer.minzoom ?? 0, archive.raster.review.vector_min_zoom)} : {}),
-          layout: {visibility: layer.visible ? "visible" : "none"}}, firstSymbolLayerId(map));
+          layout: {...paintLayer.layout, visibility: layer.visible ? "visible" : "none"}}, firstSymbolLayerId(map));
         layerIds.push(paintLayer.id);
       }
     }
-    state.layerHandles.set(layer.layerId, {sourceId: sourceId(layer), sourceIds, layerIds, paintLayerIds: layerIds, baseFilters, overviewFiltered:Boolean(layer.filter), rasterOverviewId: archive.raster ? `${sourceId(layer)}-overview` : null});
+    state.layerHandles.set(layer.layerId, {sourceId: sourceId(layer), sourceIds, layerIds, paintLayerIds: layerIds,
+      imageIds: inlinePointImages.map(image => image.id), baseFilters, overviewFiltered:Boolean(layer.filter), rasterOverviewId: archive.raster ? `${sourceId(layer)}-overview` : null});
     return;
   }
 
@@ -12433,7 +13302,7 @@ export function addMapLayer(state, layer, geojson, datasets) {
         ...mapFilterOptions(paintLayer.filter,layer.filter),
         source: sourceId(layer),
         "source-layer": layer.sourceLayer,
-        layout: {visibility: layer.visible ? "visible" : "none"}
+        layout: {...paintLayer.layout, visibility: layer.visible ? "visible" : "none"}
       }, firstSymbolLayerId(map));
       layerIds.push(paintLayer.id);
     }
@@ -12441,6 +13310,7 @@ export function addMapLayer(state, layer, geojson, datasets) {
       sourceId: sourceId(layer),
       layerIds,
       paintLayerIds: paintLayers.map((paintLayer) => paintLayer.id),
+      imageIds: inlinePointImages.map(image => image.id),
       baseFilters:Object.fromEntries(paintLayers.map(p=>[p.id,p.filter??null]))
     });
     return;
@@ -12480,7 +13350,9 @@ export function addMapLayer(state, layer, geojson, datasets) {
   if (!geojson) return;
   const dataSourceId = sourceId(layer);
   const boundStyle = state.resolvedLayerStyles?.get(layer.layerId);
-  const paintLayers = layer.styleReference ? referencedStylePaint(boundStyle, layer) : paintForLayer(layer, geojson);
+  const originalPaintLayers = layer.styleReference ? referencedStylePaint(boundStyle, layer) : paintForLayer(layer, geojson);
+  const clusterParts = clustering.enabled ? pointClusterParts(layer) : [];
+  const paintLayers = clustering.enabled ? [...originalPaintLayers.map(part => ({...part, filter: unclusteredPointFilter(part.filter)})), ...clusterParts] : originalPaintLayers;
   if (workbenchRenderer(map).id === "mapbox") {
     const report = mapboxCompatibility({style:{layers:paintLayers}});
     if (!report.ready) {
@@ -12489,25 +13361,47 @@ export function addMapLayer(state, layer, geojson, datasets) {
       return;
     }
   }
-  if (!map.getSource(dataSourceId)) map.addSource(dataSourceId, {type: "geojson", data: geojson});
+  if (!map.getSource(dataSourceId)) map.addSource(dataSourceId, {type: "geojson", data: clustering.enabled ? pointClusterData(layer, geojson) : geojson,
+    ...(clustering.enabled ? {cluster: true, clusterRadius: clustering.radius, clusterMaxZoom: clustering.maxZoom, maxzoom: Math.max(18, clustering.maxZoom + 1)} : {})});
   for (const image of boundStyle?.images ?? []) {
     if (!map.hasImage(image.id)) map.addImage(image.id, image.pixels, {pixelRatio: image.pixelRatio});
   }
-  const labelLayer = layer.styleReference ? null : labelForLayer(layer, state.mapFontSession, geojson);
+  let labelLayer = layer.styleReference ? null : labelForLayer(layer, state.mapFontSession, geojson);
+  if (labelLayer && clustering.enabled) labelLayer = {...labelLayer, filter: unclusteredPointFilter(labelLayer.filter)};
   const layerIds = [];
   const mapEventHandlers = [];
 
   for (const paintLayer of paintLayers) {
-    map.addLayer({...paintLayer, ...mapFilterOptions(paintLayer.filter,layer.filter), source: dataSourceId, layout: {visibility: layer.visible ? "visible" : "none"}});
+    map.addLayer({...paintLayer, ...mapFilterOptions(paintLayer.filter,clustering.enabled ? null : layer.filter), source: dataSourceId,
+      layout: {...paintLayer.layout, visibility: layer.visible ? "visible" : "none"}});
     layerIds.push(paintLayer.id);
-    mapEventHandlers.push(...bindLayerInteraction(state, map, layer, paintLayer.id, datasets));
+    if (!clusterParts.some(part => part.id === paintLayer.id)) mapEventHandlers.push(...bindLayerInteraction(state, map, layer, paintLayer.id, datasets));
   }
 
   if (labelLayer && layer.labels?.enabled) {
-    map.addLayer({...labelLayer, ...mapFilterOptions(labelLayer.filter,layer.filter), source: dataSourceId, layout: {...labelLayer.layout, visibility: layer.visible ? "visible" : "none"}});
+    map.addLayer({...labelLayer, ...mapFilterOptions(labelLayer.filter,clustering.enabled ? null : layer.filter), source: dataSourceId, layout: {...labelLayer.layout, visibility: layer.visible ? "visible" : "none"}});
     layerIds.push(labelLayer.id);
   }
 
+  const clusterImageIds = [];
+  const clusterCleanup = clustering.enabled ? installPointClusterCountImages(map, clusterImageIds) : null;
+  if (clustering.enabled) {
+    const click = async event => {
+      if (state.measureMode || state.mapAuthoring || state.queryDrawing || state.temporaryEdit) return;
+      const feature = event.features?.[0], count = feature?.properties?.point_count;
+      if (!Number.isSafeInteger(count) || !Number.isSafeInteger(feature.properties.cluster_id)) return;
+      state.activeLayerId = layer.layerId;
+      map.fire("pointcluster", {message: `${layer.title}: ${count.toLocaleString()} points grouped for display. Zooming in.`});
+      try {
+        const source = map.getSource(dataSourceId), zoom = await source.getClusterExpansionZoom(feature.properties.cluster_id);
+        if (state.map === map && map.getSource(dataSourceId) === source) map.easeTo({center: feature.geometry.coordinates, zoom: Math.min(24, zoom)});
+      } catch { /* A removed or replaced source must not move the new map. */ }
+    };
+    const enter = () => {map.getCanvas().style.cursor = "pointer";}, leave = () => {map.getCanvas().style.cursor = "";};
+    for (const [type, handler] of [["click", click], ["mouseenter", enter], ["mouseleave", leave]]) {
+      map.on(type, clusterParts[0].id, handler);mapEventHandlers.push({type, mapLayerId: clusterParts[0].id, handler});
+    }
+  }
   const overlays = layer.sourceType === "kml-places" ? addKmlImageOverlays(state, layer, geojson) : {layerIds: [], sourceIds: [], elements: [], presentations: []};
   state.layerHandles.set(layer.layerId, {
     sourceId: dataSourceId,
@@ -12516,7 +13410,9 @@ export function addMapLayer(state, layer, geojson, datasets) {
     paintLayerIds: paintLayers.map((paintLayer) => paintLayer.id),
     baseFilters:Object.fromEntries([...paintLayers,...(labelLayer?[labelLayer]:[])].map(p=>[p.id,p.filter??null])),
     boundStyle,
-    imageIds: (boundStyle?.images ?? []).map(image => image.id),
+    imageIds: clusterImageIds,
+    clusterLayerIds: clusterParts.map(part => part.id), clusterCleanup,
+    clustered: clustering.enabled,
     opacityMode: layer.opacityMode ?? "feature",
     compositePaint: layer.opacityMode === "composite" ? Object.fromEntries(paintLayers.map(part => [part.id, part.paint])) : null,
     fillOpacityFactor: layer.style?.fillOpacityFactor ?? 0.45,
@@ -12528,14 +13424,85 @@ export function addMapLayer(state, layer, geojson, datasets) {
     overlayPresentations: overlays.presentations,
     mapEventHandlers
   });
+  clusterImageIds.push(...[...(boundStyle?.images ?? []), ...inlinePointImages].map(image => image.id));
   if (layer.sourceType === "kml-places") refreshKmlRegionPresentation(state);
 }
 
-function refreshCogWindow(context, layer) {
+export function cogDisplayEditor(context, layer) {
+  const section = editorSection("Raster display", "Refresh reads the current map area. Apply a range, then save the Project to keep its appearance.");
+  const session = context.state.layerHandles.get(layer.layerId)?.cog;
+  const current = cogDisplayOptions(layer);
+  const message = textElement("p", ""); message.setAttribute("role", "status");
+  let apply, busy = false;
+  const refresh = actionButton("Refresh raster window", () => void read());
+  const cancel = actionButton("Cancel raster read", () => {
+    session?.cancel();
+    message.textContent = "Raster read cancelled. The previous view and display settings are preserved.";
+    setBusy(false);
+  });
+  cancel.disabled = !session?.loading;
+  function setBusy(value) {busy = value; refresh.disabled = value; cancel.disabled = !value; if (apply) apply.disabled = value;}
+  async function read(display = cogDisplayOptions(layer), persist = false) {
+    if (busy) return;
+    setBusy(true); message.textContent = "Reading raster window…";
+    try {
+      const result = await refreshCogWindow(context, layer, display);
+      if (result && session?.result === result && context.layers.includes(layer)) {
+        if (persist) {
+          layer.style = {...layer.style, cogDisplay: structuredClone(display)};
+          setStatus(context, "Raster display updated. Save the Project to keep these settings.");
+          context.render();
+        }
+        message.textContent = "Raster view ready.";
+      } else if (message.textContent === "Reading raster window…") {
+        message.textContent = layer.visible ? "Raster view unchanged. Review the map status and try again." : "Show this Layer before refreshing its raster window.";
+      }
+    } finally {setBusy(false);}
+  }
+  section.append(refresh, cancel);
+  if (layer.sourceConfiguration?.bands?.length === 1) {
+    const form = document.createElement("form");
+    const inputs = ["Display minimum", "Display maximum", "Transparent value (optional)"].map((name, index) => {
+      const input = document.createElement("input"); input.type = "number"; input.step = "any";
+      input.required = index < 2; input.setAttribute("aria-label", name);
+      input.value = [current.displayRange?.minimum, current.displayRange?.maximum, current.noDataValue][index] ?? "";
+      form.append(fieldWrap(name, input)); return input;
+    });
+    form.append(textElement("p", "Values outside the range use black or white. Missing values remain transparent."));
+    apply = actionButton("Apply display range", () => {}); apply.type = "submit"; form.append(apply);
+    form.addEventListener("submit", event => {
+      event.preventDefault(); if (!form.reportValidity()) return;
+      const display = {displayRange: {minimum: inputs[0].valueAsNumber, maximum: inputs[1].valueAsNumber},
+        noDataValue: inputs[2].value === "" ? null : inputs[2].valueAsNumber};
+      try {cogDisplayOptions({...layer, style: {...layer.style, cogDisplay: display}});}
+      catch (error) {message.textContent = error.message; return;}
+      void read(display, true);
+    });
+    section.append(form);
+  }
+  section.append(message);
+  if(context.state.spatialBody?.id==="earth"&&session) {
+    if(context.rasterViewshed?.session!==session){context.rasterViewshed?.view.dispose();let view;
+      view=RasterViewshed({getGrid:()=>session.grid,initialObserver:()=>context.state.map.getCenter().toArray(),
+        pickObserver:callback=>{if(context.state.temporaryEdit||context.state.queryDrawing||context.state.mapAuthoring||context.state.measureMode){setStatus(context,"Finish or cancel the current drawing before choosing an observer.");return false;}
+          context.rasterObserverPick={root:view,callback};return true;},clearPick:()=>{if(context.rasterObserverPick?.root===view)context.rasterObserverPick=null;},
+        onDownload:body=>downloadBlob(`${slug(layer.title)}-viewshed.geojson`,body,"application/geo+json"),
+        onAdd:data=>{addProcessingOutputLayer(context,layer,"viewshed",data,`${layer.title} viewshed`,{
+          renderer:"graduated",fill:"#16a34a",stroke:"#334155",strokeWidth:.5,
+          graduated:{field:"visibility_code",breaks:[.5,1.5,2.5,3.5],colors:data.opengeo.legend.map(row=>row.color),noDataColor:"#9ca3af",noDataLabel:"Unknown"}});
+          setStatus(context,"Viewshed added as a temporary processing Layer. Download its GeoJSON to retain the full analytical record.");}});
+      context.rasterViewshed={session,view};
+    }
+    context.rasterViewshed.view.updateSource();section.append(context.rasterViewshed.view);
+  }
+  return section;
+}
+
+async function refreshCogWindow(context, layer, display = cogDisplayOptions(layer)) {
   const {state} = context, session = state.layerHandles.get(layer?.layerId)?.cog;
   if (!session || !layer.visible) return setStatus(context, "Show the referenced COG in MapLibre before refreshing its raster window.");
   const bounds = state.map.getBounds();
-  void session.refresh([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]).catch(() => {});
+  return session.refresh([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()], display).catch(() => null);
 }
 
 function addKmlImageOverlays(state, layer, geojson) {
@@ -12700,6 +13667,11 @@ function paintForLayer(layer, geojson) {
 }
 
 function featurePaintForLayer(layer, geojson) {
+  if (layer.geometryType === "GeometryCollection" && ["gpx", "ozi"].includes(layer.metadata?.source?.format)) {
+    return ["Point", "LineString"].flatMap(type => featurePaintForLayer({...layer, geometryType: type}, geojson)
+      .map(part => ({...part, id: `${part.id}-${type}`, filter: part.filter
+        ? ["all", part.filter, ["==", ["geometry-type"], type]] : ["==", ["geometry-type"], type]})));
+  }
   if (layer.sourceType === "kml-places") {
     return [
       {
@@ -12757,7 +13729,8 @@ function featurePaintForLayer(layer, geojson) {
         "circle-stroke-color": "#ffffff",
         "circle-stroke-width": 1.25
       }
-    }];
+    }, ...pointSymbolStyleParts(layer).map(part => ({...part, id: `${layer.layerId}-${part.id}`,
+      paint: {"icon-opacity": (part.paint["icon-opacity"] ?? 1) * (layer.opacity ?? 1)}}))];
   }
 
   if (layer.geometryType === "Polygon" || layer.geometryType === "MultiPolygon") {
@@ -12850,6 +13823,7 @@ function setLayerVisible(context, layer, visible) {
       void loadLiveExternalFeatureLayer(context, layer, {announce: true});
     }
   }
+  if (visible && !context.state.layerHandles.has(layer.layerId) && context.dataByLayerId.has(layer.layerId)) installCachedDatasetLayers(context);
   const handle = context.state.layerHandles.get(layer.layerId);
   if (!context.state.map || !handle) return;
   handle.layerVisible = visible;
@@ -12876,14 +13850,29 @@ export function setLayerOpacity(state, layerId, opacity) {
       continue;
     }
     if (handle.boundStyle) {
+      if (handle.clusterLayerIds?.includes(mapLayerId)) {
+        state.map.setPaintProperty(mapLayerId, layer.type === "symbol" ? "icon-opacity" : "circle-opacity", opacity);
+        if (layer.type === "circle") state.map.setPaintProperty(mapLayerId, "circle-stroke-opacity", opacity);
+        continue;
+      }
       const index = handle.paintLayerIds.indexOf(mapLayerId);
       const original = handle.boundStyle.parts[index];
+      if (layer.type === "symbol") {
+        for (const property of ["icon-opacity", "text-opacity"]) if (Object.hasOwn(original.paint, property)) {
+          state.map.setPaintProperty(mapLayerId, property, (original.paint[property] ?? 1) * opacity);
+        }
+        continue;
+      }
       state.map.setPaintProperty(mapLayerId, `${layer.type}-opacity`, (original.paint[`${layer.type}-opacity`] ?? 1) * opacity);
       if (layer.type === "circle") state.map.setPaintProperty(mapLayerId, "circle-stroke-opacity", (original.paint["circle-stroke-opacity"] ?? 1) * opacity);
       continue;
     }
     if (layer.type === "line") state.map.setPaintProperty(mapLayerId, "line-opacity", opacity);
-    if (layer.type === "circle") state.map.setPaintProperty(mapLayerId, "circle-opacity", opacity);
+    if (layer.type === "circle") {
+      state.map.setPaintProperty(mapLayerId, "circle-opacity", opacity);
+      if (handle.clusterLayerIds?.includes(mapLayerId)) state.map.setPaintProperty(mapLayerId, "circle-stroke-opacity", opacity);
+    }
+    if (layer.type === "symbol" && layer.layout?.["icon-image"]) state.map.setPaintProperty(mapLayerId, "icon-opacity", opacity);
     if (layer.type === "fill") {
       state.map.setPaintProperty(mapLayerId, "fill-opacity", opacity * (handle.fillOpacityFactor ?? 0.45));
     }
@@ -13423,12 +14412,9 @@ function runTool(context, toolId) {
   }
 
   if (toolId === "vector-to-pmtiles") {
-    const dataset = context.datasets.find(({datasetId}) => datasetId === layer?.datasetId);
-    if (pmtilesDerivativeEligibility(context, dataset, layer).allowed) {
-      void queuePmtilesDerivative(context, dataset, pmtilesDerivativeDraft(context, dataset, layer));
-    } else {
-      state.processingLog.unshift("Vector to PMTiles requires permission to manage an active vector upload with an immutable active version. No job was queued.");
-    }
+    state.activePanel='processing';state.activeToolId=toolId;state.rightOpen=true;
+    setStatus(context,'Review the PMTiles conversion settings before queuing the job.');
+    context.render();
     return;
   }
 
@@ -13502,7 +14488,7 @@ function runProcessingModel(context, model) {
   }
 }
 
-function addProcessingOutputLayer(context, sourceLayer, toolId, geojson, explicitTitle = null) {
+function addProcessingOutputLayer(context, sourceLayer, toolId, geojson, explicitTitle = null, outputStyle = null) {
   context.state.processingRunSequence += 1;
   const centroid = ["centroids", "geometric-centroids"].includes(toolId) || geojson.features.every(({geometry}) => geometry?.type === "Point");
   const title = explicitTitle ?? `${sourceLayer.title} ${toolId === "bbox-layer" ? "bounds" : toolId === "geometric-centroids" ? "planar centroids" : "centroids"}`;
@@ -13515,9 +14501,9 @@ function addProcessingOutputLayer(context, sourceLayer, toolId, geojson, explici
     visible: true,
     opacity: centroid ? 0.9 : 0.5,
     order: 999,
-    style: centroid
+    style: outputStyle ?? (centroid
       ? {circleColor: "#ec4899", circleRadius: 6}
-      : {fill: "#a855f7", stroke: "#7e22ce", strokeWidth: 2},
+      : {fill: "#a855f7", stroke: "#7e22ce", strokeWidth: 2}),
     labels: {enabled: false, field: null}
   }, {...geojson, "opengeo:analysis": geojson["opengeo:analysis"] ?? {
     operation: toolId, sourceDatasetId: sourceLayer.datasetId ?? null,
@@ -13543,6 +14529,7 @@ function setLayerFilter(context, layer, filter, label) {
   layer.filter=structuredClone(filter);
   const handle = context.state.layerHandles.get(layer.layerId);
   if (!context.state.map || !handle) return;
+  if (handle.clustered) {repaintLayer(context, layer);context.state.processingLog.unshift(`${layer.title}: map filter ${label}; display counts recomputed from matching points.`);return;}
   for (const mapLayerId of handle.layerIds) {
     if (mapLayerId === handle.rasterOverviewId) {
       handle.overviewFiltered = Boolean(filter);
@@ -13608,11 +14595,15 @@ export function removeMapLayer(state, layerId) {
   const handle = state.layerHandles.get(layerId);
   if (!handle || !state.map) return;
   handle.cog?.dispose();
+  handle.clusterCleanup?.();
   for (const {type, mapLayerId, handler} of handle.mapEventHandlers ?? []) {
     state.map.off(type, mapLayerId, handler);
   }
   for (const id of [...handle.layerIds].reverse()) if (state.map.getLayer(id)) state.map.removeLayer(id);
-  for (const id of handle.imageIds ?? []) if (state.map.hasImage(id)) state.map.removeImage(id);
+  for (const id of handle.imageIds ?? []) {
+    const stillUsed = [...state.layerHandles.entries()].some(([otherId, other]) => otherId !== layerId && other.imageIds?.includes(id));
+    if (!stillUsed && state.map.hasImage(id)) state.map.removeImage(id);
+  }
   for (const id of handle.sourceIds ?? [handle.sourceId]) {
     const stillUsed = [...state.layerHandles.entries()].some(([otherLayerId, otherHandle]) => (
       otherLayerId !== layerId && (otherHandle.sourceIds ?? [otherHandle.sourceId]).includes(id)
@@ -13679,11 +14670,15 @@ function newWorkspaceProject(context) {
   context.dataByLayerId.clear();
   context.state.activeLayerId = null;
   if (context.publicDemo) {
+    context.localProjectRecord = null;
+    const url = new URL(location.href);url.searchParams.delete("localProject");history.replaceState(null, "", url);
     context.state.browserCatalogSearch = "";
     context.browserCatalogPanel = null;
     context.state.activePanel = "catalog";
     context.state.rightOpen = true;
     context.project = {...context.project, title: "New Project", layerTree: []};
+    context.project.extensions = {...context.project.extensions};
+    delete context.project.extensions.opengeoPrintLayouts;
     context.onBrowserProjectCreated?.();
   }
   context.state.kmlPlaces = null;
@@ -13861,6 +14856,7 @@ function beginMeasurement(context, kind = "path") {
 }
 
 function editSavedMeasurement(context, measurement) {
+  if(measurement.kind==="polygon-3d")return openPolygon3DMeasurementEditor(context, measurement);
   const {state} = context;
   if (!state.measurements.some(({id}) => id === measurement.id)) return;
   cancelMapAuthoring(context, {render: false, announce: false});
@@ -14043,7 +15039,7 @@ function measurementResultSummary(measurement) {
 
 function zoomToMeasurement(context, measurement) {
   context.state.selectedMeasurementId = measurement.id;
-  const geometry = measurement.kind === "polygon-area"
+  const geometry = ["polygon-area", "polygon-3d"].includes(measurement.kind)
     ? {type: "Polygon", coordinates: [[...measurement.coordinates, measurement.coordinates[0]]]}
     : measurement.kind === "circle-area"
       ? {type: "Polygon", coordinates: [circlePolygonCoordinates(measurement)]}
@@ -14180,9 +15176,19 @@ async function layerFromFile(file) {
   let geojson;
   let sourceFormat;
   let interchangeReport = null;
-  if (file.name.toLowerCase().endsWith(".csv")) {
-    geojson = csvToGeojson(await file.text());
-    sourceFormat = "csv";
+  let source = null;
+  if (/\.gpx$/i.test(file.name)) {
+    const {readGpxFile} = await import("../lib/gpxImport.js");
+    const parsed = await readGpxFile(file);geojson = parsed.geojson;source = parsed.source;
+    sourceFormat = "gpx";interchangeReport = parsed.report;
+  } else if (/\.(nmea|nme)$/i.test(file.name)) {
+    const {readNmeaFile} = await import("../lib/nmeaImport.js");
+    const parsed = await readNmeaFile(file);geojson = parsed.geojson;source = parsed.source;
+    sourceFormat = "nmea";interchangeReport = parsed.report;
+  } else if (/\.(wpt|plt|rte|pnt|evt)$/i.test(file.name)) {
+    const {readOziFile} = await import("../lib/oziImport.js");
+    const parsed = await readOziFile(file);geojson = parsed.geojson;source = parsed.source;
+    sourceFormat = "ozi";interchangeReport = parsed.report;
   } else {
     const parsed = await readSpatialInterchangeFile(file);
     geojson = parsed.geojson;
@@ -14190,23 +15196,77 @@ async function layerFromFile(file) {
     interchangeReport = parsed.report;
   }
   if (geojson?.type !== "FeatureCollection") throw new Error("Expected a GeoJSON FeatureCollection or coordinate CSV.");
-  const geometryType = geojson.features.find((feature) => feature.geometry)?.geometry?.type ?? "Point";
+  const geometryTypes = [...new Set(geojson.features.map(feature => feature.geometry?.type).filter(Boolean))];
+  const geometryType = geometryTypes.length > 1 ? "GeometryCollection" : geometryTypes[0] ?? "Point";
   return {
     geojson,
+    source,
     layer: {
       layerId: id,
       datasetId: id,
       title: file.name.replace(/\.[^.]+$/, ""),
-      sourceType: `${sourceFormat}-object`,
+      sourceType: ["gpx", "nmea", "ozi"].includes(sourceFormat) ? "geojson-object" : `${sourceFormat}-object`,
       geometryType,
       visible: true,
       opacity: 0.9,
       order: 900,
-      style: geometryType.includes("Point") ? {circleColor: "#06b6d4", circleRadius: 6} : {stroke: "#06b6d4", strokeWidth: 3, fill: "#06b6d4"},
+      style: {...(sourceFormat === "ozi" ? {renderer: "single"} : {}), circleColor: "#06b6d4", circleRadius: 6, stroke: "#06b6d4", strokeWidth: 3, fill: "#06b6d4"},
       labels: {enabled: false, field: null},
+      ...(source ? {metadata: {source: structuredClone(source), normalized: {crs: "OGC:CRS84", featureCount: geojson.features.length}, curated: {}, inferred: {}}} : {}),
       ...(interchangeReport ? {interchange: interchangeReport} : {})
     }
   };
+}
+
+async function openGpsLayer(context, file) {
+  const format = /\.gpx$/i.test(file.name) ? "gpx" : /\.(nmea|nme)$/i.test(file.name) ? "nmea" : "ozi";
+  const label = format === "ozi" ? "OziExplorer" : format.toUpperCase();
+  const review = browserLayerReviewForProject(context);
+  try {
+    if (context.state.spatialBody.id !== "earth") throw new Error(`${label} uses Earth coordinates. Switch this map to Earth before opening it.`);
+    const {layer, geojson, source} = await layerFromFile(file);
+    review({layer, geojson, source, onAdd: async (reviewed, data) => {
+      if (context.publicDemo) {
+        context.addLayer(reviewed, data);rememberBrowserLayer(context, {layer: reviewed, geojson: data});
+        fitLayer(context.state.map, reviewed, context.dataByLayerId);
+        setStatus(context, `${reviewed.title} added. Save on this device to retain the map and original ${label}.`);
+      } else {
+        const entry = createTemporaryUpload({fileName: file.name, format, geojson: data, byteLength: source.bytes, metadata: reviewed.metadata});
+        entry.layer.title = reviewed.title;entry.layer.geometryType = reviewed.geometryType;
+        entry.layer.style = structuredClone(reviewed.style);
+        context.addLayer(entry.layer, entry.geojson, {panelAfterAdd: "temporary"});
+        persistTemporaryWork(context);fitLayer(context.state.map, entry.layer, context.dataByLayerId);
+        setStatus(context, `${reviewed.title} opened as temporary browser data. The original ${label} is retained here; account Save excludes temporary data.`);
+      }
+    }});
+  } catch (error) {setStatus(context, `${label} could not open: ${error.message}`);}
+}
+
+async function openDelimitedLayer(context, file) {
+  const project = context.project;
+  const isCurrent = () => !context.disposed && context.shell.isConnected && context.project === project;
+  const review = browserLayerReviewForProject(context);
+  try {
+    if (context.state.spatialBody.id !== "earth") throw new Error("Delimited Earth coordinates require an Earth map.");
+    const {DelimitedTextImport} = await import("./DelimitedTextImport.js");
+    if (!isCurrent()) return;
+    await DelimitedTextImport({file, shell: context.shell, isCurrent, maximumFeatures: context.publicDemo ? 5000 : 1000, onReview: ({geojson, source, report, labelField, style, pointPresentation}) => {
+      const id = `local_${crypto.randomUUID()}`, layer = {layerId: id, datasetId: id, title: file.name.replace(/\.[^.]+$/, "").slice(0, 160) || "Imported points", sourceType: "geojson-object", geometryType: "Point", visible: true, opacity: 0.9, order: 900,
+        style, labels: {enabled: Boolean(labelField), field: labelField},
+        metadata: {source: structuredClone(source), normalized: {crs: "OGC:CRS84", featureCount: geojson.features.length, elevationUnit: report.elevations ? "meter" : null, verticalDatum: report.mapping.verticalDatum}, curated: {pointPresentation}, inferred: {}}, interchange: report};
+      review({layer, geojson, source, onAdd: async (reviewed, data) => {
+        if (context.publicDemo) {
+          context.addLayer(reviewed, data);rememberBrowserLayer(context, {layer: reviewed, geojson: data});fitLayer(context.state.map, reviewed, context.dataByLayerId);
+          setStatus(context, `${reviewed.title} added. Save on this device to retain the map, mapping and original file.`);
+        } else {
+          const entry = createTemporaryUpload({fileName: file.name, format: "delimited-text", geojson: data, byteLength: source.bytes, metadata: reviewed.metadata});
+          entry.layer.title = reviewed.title;entry.layer.style = structuredClone(reviewed.style);entry.layer.labels = structuredClone(reviewed.labels);
+          context.addLayer(entry.layer, entry.geojson, {panelAfterAdd: "temporary"});persistTemporaryWork(context);fitLayer(context.state.map, entry.layer, context.dataByLayerId);
+          setStatus(context, `${reviewed.title} opened as temporary browser data. Account Save excludes these points and their original file.`);
+        }
+      }});
+    }});
+  } catch (error) {setStatus(context, `Delimited file could not open: ${error.message}`);}
 }
 
 
@@ -14518,48 +15578,6 @@ function zoomToKmlPlace(context, place) {
   setStatus(context, `Flying to ${place.name}.`);
 }
 
-function csvToGeojson(text) {
-  const [headerLine, ...lines] = text.trim().split(/\r?\n/);
-  const headers = headerLine.split(",").map((header) => header.trim());
-  const lonKey = headers.find((header) => /^(lon|lng|longitude|x)$/i.test(header));
-  const latKey = headers.find((header) => /^(lat|latitude|y)$/i.test(header));
-  if (!lonKey || !latKey) throw new Error("CSV requires longitude and latitude columns.");
-  return {
-    type: "FeatureCollection",
-    features: lines.filter(Boolean).map((line) => {
-      const values = parseCsvLine(line);
-      const properties = Object.fromEntries(headers.map((header, index) => [header, coerce(values[index])]));
-      return {
-        type: "Feature",
-        properties,
-        geometry: {type: "Point", coordinates: [Number(properties[lonKey]), Number(properties[latKey])]}
-      };
-    }).filter((feature) => feature.geometry.coordinates.every(Number.isFinite))
-  };
-}
-
-function parseCsvLine(line) {
-  const values = [];
-  let current = "";
-  let quoted = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const character = line[i];
-    if (character === '"' && line[i + 1] === '"') {
-      current += '"';
-      i += 1;
-    } else if (character === '"') {
-      quoted = !quoted;
-    } else if (character === "," && !quoted) {
-      values.push(current);
-      current = "";
-    } else {
-      current += character;
-    }
-  }
-  values.push(current);
-  return values;
-}
-
 function showFeaturePopup(map, event, dataset) {
   const feature = event.features?.[0];
   if (!feature) return;
@@ -14599,6 +15617,7 @@ function applyLocalDraft({
   publicDemo = false,
   landingMode = false,
   draftScopeId = null,
+  presentationOnly = false,
   dataByLayerId = new Map()
 }) {
   if (!workspace?.workspaceId || typeof localStorage === "undefined") return;
@@ -14606,13 +15625,17 @@ function applyLocalDraft({
     const key = draftStorageKey(workspace, publicDemo, draftScopeId);
     const draft = upgradeMapDefinition(JSON.parse(localStorage.getItem(key) ?? "null"));
     if (publicDemo && !landingMode && draft?.demoDate !== demoDateKey()) {
-      localStorage.removeItem(key);
       return;
     }
     if (!Array.isArray(draft?.layers) || draft.layers.length > 64) return;
+    if (publicDemo && project && draft.extensions?.opengeoPrintLayouts) {
+      const layouts = draft.extensions.opengeoPrintLayouts;
+      project.extensions = {...project.extensions,
+        opengeoPrintLayouts: projectPrintLayouts({id: layouts.projectId, definition: draft})};
+    }
     // The upgraded draft has already validated this token-free preference.
     // Preserve server/Project extensions that are unrelated to renderer choice.
-    if (project && draft.extensions?.opengeoRenderer) {
+    if (!presentationOnly && project && draft.extensions?.opengeoRenderer) {
       project.extensions = {...project.extensions,
         opengeoRenderer: structuredClone(draft.extensions.opengeoRenderer)};
     }
@@ -14640,14 +15663,25 @@ function applyLocalDraft({
     for (const layer of layers) {
       const saved = draftById.get(layer.layerId);
       if (!saved) continue;
+      if (presentationOnly && (saved.datasetId !== layer.datasetId
+        || (saved.datasetVersionId ?? null) !== (layer.datasetVersionId ?? null)
+        || (saved.sourceVersion ?? null) !== (layer.sourceVersion ?? null))) continue;
       if (publicDemo && saved.metadata) layer.metadata = structuredClone(saved.metadata);
       if (publicDemo && saved.kmlDocument) Object.assign(layer, {kmlDocument: placesForProject({kmlPlaces: saved.kmlDocument}), kmlInterchangeReport: kmlReportForProject(saved), kmlNetworkLinkState: kmlNetworkLinkStateForProject(saved)});
       layer.visible = saved.visible;
       layer.opacity = saved.opacity;
-      layer.style = {...layer.style, ...saved.style};
+      const mergedStyle = {...layer.style, ...saved.style};
+      layer.style = ["Point", "MultiPoint"].includes(layer.geometryType) && hasPointSymbolStyle(mergedStyle)
+        ? normalizePointSymbolStyle(mergedStyle) : mergedStyle;
       layer.labels = {...layer.labels, ...saved.labels};
       if (saved.styleReference) layer.styleReference = structuredClone(saved.styleReference);
       else if (draft.styleBindingsRecorded === true) delete layer.styleReference;
+    }
+    if (presentationOnly) {
+      state.restoredMapViews = Array.isArray(draft.mapViews) && draft.mapViews.length <= 8
+        ? draft.mapViews.map(view => normalizeMapView(view)) : null;
+      replaceLayerOrder(layers, restoreSavedLayerOrder(layers, draft.layers));
+      return;
     }
     if (publicDemo) {
       const existingIds = new Set(layers.map(({layerId}) => layerId));
@@ -14823,9 +15857,14 @@ function browserLocalStorage() {
 function createLocalDraft(context) {
   const {workspace, layers, state} = context;
   const persistentLayers = layers.filter((layer) => !isTemporaryLayer(layer));
-  for (const layer of persistentLayers) if (Object.hasOwn(layer.labels ?? {}, "fontRef")) validateMapFontRef(layer.labels.fontRef);
+  for (const layer of persistentLayers) {
+    if (Object.hasOwn(layer.labels ?? {}, "fontRef")) validateMapFontRef(layer.labels.fontRef);
+    validateManagedDisplayReference(layer);
+  }
   const savedAt = new Date().toISOString();
-  const persistence = context.landingMode
+  const persistence = context.localProjectRecord
+    ? {mode: "browser-personal", uploaded: false, published: false}
+    : context.landingMode
     ? {mode: "browser-draft", uploaded: false, published: false}
     : context.publicDemo
     ? {mode: "browser-only-demo", resets: "daily", uploaded: false, published: false}
@@ -14835,12 +15874,12 @@ function createLocalDraft(context) {
         key: projectObjectKey(context)
       };
   const draft = {
-    schemaVersion: persistentLayers.some(layer => layer.styleReference) ? "opengeo.map-definition.1.4.0" : MAP_DEFINITION_SCHEMA_VERSION,
+    schemaVersion: mapDefinitionVersionForLayers(persistentLayers, state.measurements ?? []),
     ...(context.publicDemo ? {title: context.project?.title ?? "Browser Project"} : {}),
     styleBindingsRecorded: true,
     workspaceId: workspace.workspaceId,
     tenantId: workspace.tenantId,
-    ...(context.publicDemo && !context.landingMode ? {demoDate: demoDateKey()} : {}),
+    ...(context.publicDemo && !context.landingMode && !context.localProjectRecord ? {demoDate: demoDateKey()} : {}),
     colorMode: state.colorMode,
     spatialBody: structuredClone(state.spatialBody),
     projection: state.globe ? "globe" : "mercator",
@@ -14872,6 +15911,7 @@ function createLocalDraft(context) {
       sourceType: layer.sourceType,
       sourceVersion: layer.sourceVersion,
       datasetVersionId: layer.datasetVersionId,
+      ...(layer.managedDisplayId ? {managedDisplayId: layer.managedDisplayId} : {}),
       objectId: layer.objectId,
       sourceUrl: layer.sourceUrl ?? layer.tileUrl,
       ...(context.publicDemo && layer.tileUrl ? {tileUrl: layer.tileUrl} : {}),
@@ -14893,9 +15933,10 @@ function createLocalDraft(context) {
       visible: layer.visible,
       opacity: layer.opacity,
       ...(layer.opacityMode ? {opacityMode: validateOpacityMode(layer)} : {}),
+      ...(layer.pointClustering ? {pointClustering: {...validatePointClustering(layer.pointClustering)}} : {}),
       order: layer.order,
       ...(layer.filter?{filter:structuredClone(validateMapFilter(layer.filter))}:{}),
-      style: layer.style,
+      style: ["Point", "MultiPoint"].includes(layer.geometryType) && hasPointSymbolStyle(layer.style) ? normalizePointSymbolStyle(layer.style) : layer.style,
       ...(layer.styleReference ? {styleReference: structuredClone(validateLayerStyleReference(layer.styleReference))} : {}),
       labels: layer.labels,
       ...(context.publicDemo
@@ -14911,8 +15952,8 @@ function createLocalDraft(context) {
   return draft;
 }
 
-function localDraftSignature(context) {
-  const {updatedAt, updatedBy, activeLayerId, activeProcessingModelId, ...draft} = createLocalDraft(context);
+function localDraftSignature(context, definition = createLocalDraft(context)) {
+  const {updatedAt, updatedBy, activeLayerId, activeProcessingModelId, persistence, demoDate, ...draft} = definition;
   return JSON.stringify(draft, (key, value) => typeof value === "number" && Number.isFinite(value)
     ? Math.round(value * 1e6) / 1e6 : value);
 }
@@ -15014,6 +16055,7 @@ function restoreDemoLayer(value) {
     bbox: Array.isArray(value.bbox) ? [...value.bbox] : undefined,
     visible: value.visible !== false,
     ...(value.opacityMode ? {opacityMode: validateOpacityMode(value)} : {}),
+    ...(value.pointClustering ? {pointClustering: {...validatePointClustering(value.pointClustering)}} : {}),
     opacity: Number.isFinite(value.opacity) ? Math.max(0, Math.min(1, value.opacity)) : 1,
     order: Number.isFinite(value.order) ? value.order : 500,
     style: value.style && typeof value.style === "object" ? structuredClone(value.style) : {},
@@ -15026,10 +16068,14 @@ function restoreDemoLayer(value) {
 export function currentProjectDefinition(context) {
   const {layers, state} = context;
   const persistentLayers = layers.filter((layer) => !isTemporaryLayer(layer));
-  for (const layer of persistentLayers) if (Object.hasOwn(layer.labels ?? {}, "fontRef")) validateMapFontRef(layer.labels.fontRef);
+  for (const layer of persistentLayers) {
+    if (Object.hasOwn(layer.labels ?? {}, "fontRef")) validateMapFontRef(layer.labels.fontRef);
+    validateManagedDisplayReference(layer);
+  }
+  for (const layer of persistentLayers) cogDisplayOptions(layer);
   return {
     ...(context.publicDemo ? {title: context.project?.title ?? "Browser Project"} : {}),
-    schemaVersion: persistentLayers.some(layer => layer.styleReference) ? "opengeo.map-definition.1.4.0" : MAP_DEFINITION_SCHEMA_VERSION,
+    schemaVersion: mapDefinitionVersionForLayers(persistentLayers, state.measurements ?? []),
     mapViews: mapViewsForSave(state.map, context.project?.mapViews),
     basemaps: basemapsForSave(context),
     bookmarks: context.project?.bookmarks ?? [],
@@ -15061,6 +16107,7 @@ export function currentProjectDefinition(context) {
       sourceType: layer.sourceType,
       sourceVersion: layer.sourceVersion,
       datasetVersionId: layer.datasetVersionId,
+      ...(layer.managedDisplayId ? {managedDisplayId: layer.managedDisplayId} : {}),
       objectId: layer.objectId,
       sourceUrl: layer.sourceUrl ?? layer.tileUrl,
       sourceConfiguration: layer.sourceConfiguration,
@@ -15079,9 +16126,10 @@ export function currentProjectDefinition(context) {
       visible: layer.visible,
       opacity: layer.opacity,
       ...(layer.opacityMode ? {opacityMode: validateOpacityMode(layer)} : {}),
+      ...(layer.pointClustering ? {pointClustering: {...validatePointClustering(layer.pointClustering)}} : {}),
       order: layer.order,
       ...(layer.filter?{filter:structuredClone(validateMapFilter(layer.filter))}:{}),
-      style: layer.style,
+      style: ["Point", "MultiPoint"].includes(layer.geometryType) && hasPointSymbolStyle(layer.style) ? normalizePointSymbolStyle(layer.style) : layer.style,
       ...(layer.styleReference ? {styleReference: structuredClone(validateLayerStyleReference(layer.styleReference))} : {}),
       labels: layer.labels
     }))
@@ -15567,10 +16615,10 @@ async function selectBasemapChoice(context, choice) {
     ?? choice;
   if (["protomaps", "carto"].includes(choice.provider)) {
     const runtime = await resolveConnectedBasemap(context, choice);
-    if (attempt !== context.state.basemapActivationAttempt) return;
+    if (attempt !== context.state.basemapActivationAttempt) return false;
     if (!runtime) {
       failBasemapActivation(context, attempt, "connection");
-      return;
+      return false;
     }
     selected = runtime;
   } else if (choice.kind === "governed-raster") {
@@ -15579,20 +16627,20 @@ async function selectBasemapChoice(context, choice) {
     selected = planetaryBlankCandidate(context, choice);
     if (!selected) {
       failBasemapActivation(context, attempt, "render");
-      return;
+      return false;
     }
   }
   if (!canSwitchBasemap(context, selected)) {
     failBasemapActivation(context, attempt, "render");
-    return;
+    return false;
   }
   const staged = await stageBasemapCandidate(context, selected, attempt);
-  if (attempt !== context.state.basemapActivationAttempt || staged.code === "superseded") return;
+  if (attempt !== context.state.basemapActivationAttempt || staged.code === "superseded") return false;
   if (!staged.ok) {
     failBasemapActivation(context, attempt, staged.code);
-    return;
+    return false;
   }
-  commitBasemapActivation(context, attempt, selected, choice);
+  return commitBasemapActivation(context, attempt, selected, choice);
 }
 
 function governedBasemapCandidate(choice) {
@@ -15847,10 +16895,10 @@ function renderMobileCommandSheet(layer, context) {
   }
   essentials.append(essentialsTitle, essentialsGrid);
   categories.append(essentials);
-  const destinations = context.publicDemo && !context.projectSwitcher
+  const destinations = context.demoSurface
     ? demoNavigationItems()
     : studioNavigationItems(fixtureAdapterKind(context.persistenceMode))
-      .filter(item => ["home", "projects", "data", "collections", "publishing"].includes(item.id));
+      .filter(item => ["home", "projects", "data", "styles", "collections", "publishing"].includes(item.id));
   const browse = document.createElement("nav");
   browse.className = "gis-mobile-command-navigation";
   browse.ariaLabel = "Browse OpenGeo Studio";
@@ -16336,16 +17384,20 @@ function renderModalLayer(layer, context) {
 function openProjectFile(context) {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = ".json,.xml,.wmc,.cml,application/json,application/xml,text/xml";
+  input.accept = ".json,.xml,.wmc,.cml,.gpx,.nmea,.nme,.wpt,.plt,.csv,.tsv,.txt,application/gpx+xml,text/csv,text/tab-separated-values,text/plain,application/json,application/xml,text/xml";
   input.className = "opengeo-project-file-input";
   input.hidden = true;
   input.oncancel = () => input.remove();
   input.onchange = async () => {
     const file = input.files?.[0];
+    const reviewGeneration = context.projectFileReviewGeneration = (context.projectFileReviewGeneration ?? 0) + 1;
     try {
       if (!file) return;
+      if (/\.(gpx|nmea|nme|wpt|plt|rte|pnt|evt)$/i.test(file.name)) {await openGpsLayer(context, file);return;}
+      if (/\.(csv|tsv|txt)$/i.test(file.name)) {await openDelimitedLayer(context, file);return;}
       if (file.size > BROWSER_PROJECT_FILE_BYTES) throw new TypeError("Project file exceeds the 2 MB open limit.");
       const sourceText = await file.text();
+      if (context.disposed || context.projectFileReviewGeneration !== reviewGeneration) return;
       const format = identifyProjectFileFormat(sourceText);
       if (format === "opengeo-browser") {
         if (context.publicDemo) reviewBrowserProjectFile(context, file, sourceText);
@@ -16365,7 +17417,8 @@ function openProjectFile(context) {
           return;
         }
         const snapshot = readSavedProjectVersionFile(sourceText);
-        const supported = ["opengeo.map-definition.1.3.0", "opengeo.map-definition.1.4.0"].includes(snapshot.definition.schemaVersion);
+        if (snapshot.definition.schemaVersion === "opengeo.map-definition.1.6.0") upgradeMapDefinition(snapshot.definition);
+        const supported = ["opengeo.map-definition.1.3.0", "opengeo.map-definition.1.4.0", "opengeo.map-definition.1.6.0"].includes(snapshot.definition.schemaVersion);
         showProjectFileReview(context, {
           file, format: "OpenGeo Studio managed Project snapshot",
           inspected: `Saved version ${snapshot.version} · ${Array.isArray(snapshot.definition.layers) ? snapshot.definition.layers.length : 0} Layer references`,
@@ -16389,6 +17442,17 @@ function openProjectFile(context) {
       if (format === "geolibre") {
         context.pendingGeoLibreImport = conversion;
         context.pendingGeoLibreSource = {sourceText, filename: file.name};
+        if (conversion.map.definition.extensions?.geolibre?.project?.metadata?.opengeo?.handoff) {
+          if (typeof context.reviewGeoLibreReturn !== "function") throw Error("Open this return file in its saved OpenGeo Project to review the results.");
+          setStatus(context, "Checking the opened Project revision and comparing GeoLibre results…");
+          const result = await context.reviewGeoLibreReturn({conversion});
+          if (context.disposed || context.projectFileReviewGeneration !== reviewGeneration) return;
+          context.pendingGeoLibreImport = result.conversion;
+          context.lastConversionReport = result.conversion.report;
+          showGeoLibreReturnReview(context, file, result, sourceText);
+          setStatus(context, "GeoLibre results are ready for review. No results have been saved.");
+          return;
+        }
       } else if (format === "geomoose") {
         context.pendingGeoMooseImport = conversion;
         context.pendingGeoMooseSource = {sourceText, filename: file.name};
@@ -16506,6 +17570,9 @@ function openProjectExportDialog(context) {
   if (!context.publicDemo && canSaveAs(context)) {
     actions.append(actionButton("Save a new OpenGeo Studio map", () => {close(); openSaveAsDialog(context);}));
   }
+  if (!context.publicDemo && context.savedProjectOrigin && typeof context.prepareGeoLibreHandoff === "function") {
+    actions.append(actionButton("Open in GeoLibre…", () => {close(); openGeoLibreHandoff(context);}));
+  }
   const exportFile = actionButton("Export file", async () => {
     exportFile.disabled = true; format.disabled = true;
     feedback.textContent = format.value === "opengeo-saved" ? "Reading saved Project version…" : "Preparing export…";
@@ -16536,6 +17603,7 @@ function openProjectExportDialog(context) {
     } finally {exportFile.disabled = false; format.disabled = false;}
   });
   actions.append(exportFile);
+  if (context.publicDemo) actions.append(actionButton("Publish with OpenGeo…", () => {close();exportInteractiveMap(context, "offline", "publication");}));
   const report = actionButton("Download conversion report", () => downloadConversionReport(context));
   report.disabled = !context.lastConversionReport;
   actions.append(report);
@@ -16842,6 +17910,149 @@ async function applyInspectedGeoLibreProject(context) {
   }
 }
 
+function openGeoLibreHandoff(context) {
+  const origin = context.savedProjectOrigin;
+  if (!origin || typeof context.prepareGeoLibreHandoff !== "function") return;
+  const dialog = document.createElement("dialog");
+  dialog.className = "browser-project-open-dialog browser-layer-registration";
+  dialog.setAttribute("aria-label", "Open in GeoLibre");
+  dialog.append(textElement("h2", "Open in GeoLibre"),
+    textElement("p", `Open saved revision ${origin.version}. Save current edits first if you want to include them.`),
+    textElement("p", "Download this revision, open the GeoLibre workbench, and open the downloaded file there. Save your GeoLibre project file when finished, then use Open Project file here to review and save the results."),
+    textElement("p", "This workflow supports complete managed vector data and compatible source references. Raster outputs and processing notifications alone cannot be returned as saved data."));
+  const status = textElement("p", ""); status.setAttribute("role", "status");
+  const download = actionButton("Download saved revision", async () => {
+    download.disabled = true;
+    status.textContent = "Reading the saved revision and complete vector inputs…";
+    try {
+      const result = await context.prepareGeoLibreHandoff({
+        map: {...origin, name: context.project?.name ?? context.workspace?.title ?? "OpenGeo Studio project"},
+        embeddedDataByLayerId: context.dataByLayerId
+      });
+      if (context.disposed || !dialog.isConnected || !dialog.open) return;
+      context.lastConversionReport = result.report;
+      downloadBlob(`${slug(context.project?.name ?? "project")}-v${origin.version}.geolibre.json`, result.json, "application/json");
+      status.textContent = `Saved revision ${origin.version} downloaded. Open this file in GeoLibre. Review the conversion report for unsupported content.`;
+    } catch (error) {status.textContent = error?.message ?? "The saved revision could not be downloaded.";}
+    finally {download.disabled = false;}
+  });
+  const link = document.createElement("a");
+  link.textContent = "Open GeoLibre workbench";
+  link.href = "https://web.geolibre.app/";
+  link.target = "_blank"; link.rel = "noopener noreferrer";
+  const actions = document.createElement("div"); actions.className = "platform-actions";
+  actions.append(download, link, actionButton("Download conversion report", () => downloadConversionReport(context)),
+    actionButton("Close", () => closeProjectFileDialog(dialog)));
+  dialog.append(actions, status);
+  dialog.oncancel = () => dialog.remove();
+  document.body.append(dialog);
+  if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.open = true;
+}
+
+function showGeoLibreReturnReview(context, file, {conversion, review}, sourceText) {
+  const dialog = document.createElement("dialog");
+  dialog.className = "browser-project-open-dialog browser-layer-registration";
+  dialog.setAttribute("aria-label", "Review GeoLibre results");
+  dialog.append(textElement("h2", "Review GeoLibre results"), textElement("p", file.name),
+    textElement("p", `Opened revision ${review.base.mapVersion} · current saved revision ${review.current.mapVersion}.`),
+    textElement("p", review.conflict
+      ? "This Project changed after it was opened in GeoLibre. Save the reviewed results as a new map to keep both versions."
+      : "Saving creates a new saved revision and replaces this map’s working composition. Original data remains preserved; changed data becomes a separate derivative Layer."));
+  const changes = document.createElement("ul");
+  for (const message of [
+    `${review.unchanged.length} unchanged Layers reuse their existing identities.`,
+    `${review.added.length} added outputs: ${review.added.join(", ") || "none"}.`,
+    ...review.changed.map(change => `${change.layerId}: ${change.changes.join(", ")}${change.derivativeLayerId ? ` → ${change.derivativeLayerId}` : ""}.`),
+    `${review.styles.length} Layers with changed styles: ${review.styles.join(", ") || "none"}.`,
+    `${review.removed.length} removed from the returned composition: ${review.removed.join(", ") || "none"}.`,
+    ...review.limits
+  ]) changes.append(textElement("li", message));
+  dialog.append(changes,
+    textElement("p", "Saved outputs retain the reported processing history and conversion limits. They do not establish a reproducible analysis when exact parameters or execution details are missing. Publication review and access remain separate."));
+  const returnRecord = conversion.map.definition.extensions?.opengeoGeoLibreReturn;
+  const inputSelections = [];
+  if (returnRecord?.outputs?.length && returnRecord.inputs?.length) {
+    dialog.append(textElement("p", "Select the source Layers used for each output. These links record your review; they do not verify how GeoLibre ran the analysis. Leave independent new data unlinked."));
+    for (const output of returnRecord.outputs) {
+      const label = document.createElement("label"); label.textContent = `Input Layers for ${output.layerId}`;
+      const select = document.createElement("select"); select.multiple = true;
+      select.ariaLabel = `Input Layers for ${output.layerId}`;
+      select.size = Math.min(4, returnRecord.inputs.length);
+      for (const input of returnRecord.inputs) {
+        const option = textElement("option", input.layerId); option.value = input.layerId;
+        option.selected = output.inputLayerIds.includes(input.layerId); select.append(option);
+      }
+      label.append(select); dialog.append(label); inputSelections.push({output, select});
+    }
+  }
+  const newMapLabel = document.createElement("label"); newMapLabel.textContent = "New map name";
+  const newMapName = document.createElement("input"); newMapName.type = "text"; newMapName.maxLength = 200;
+  newMapName.ariaLabel = "New map name"; newMapName.value = `${context.project?.name ?? "GeoLibre results"} — results`.slice(0, 200);
+  newMapLabel.append(newMapName); newMapLabel.hidden = true;
+  const status = textElement("p", ""); status.setAttribute("role", "status");
+  const actions = document.createElement("div"); actions.className = "platform-actions";
+  const buttons = [];
+  let saving = false;
+  let submitted = false;
+  let submittedMapName = null;
+  const save = async asNewMapName => {
+    if (saving) return;
+    saving = true;
+    buttons.forEach(button => {button.disabled = true;});
+    cancel.disabled = true;
+    status.textContent = "Saving reviewed results to OpenGeo…";
+    context.shell.dataset.importState = "running";
+    try {
+      if (!submitted) {
+        for (const {output, select} of inputSelections) {
+          output.inputLayerIds = [...select.selectedOptions].map(option => option.value);
+          output.inputLinkMethod = "user-declared";
+          select.disabled = true;
+        }
+        newMapName.disabled = true;
+        submittedMapName = asNewMapName;
+        submitted = true;
+      }
+      const result = await context.applyGeoLibreImport({conversion,
+        sourceText,
+        filename: file.name, review, ...(submittedMapName ? {asNewMapName: submittedMapName} : {})});
+      context.shell.dataset.importState = "completed";
+      closeProjectFileDialog(dialog);
+      if (context.disposed) return;
+      setStatus(context, `GeoLibre results saved at revision ${result.operation.finalMapVersion}. Reopen the saved map to continue or publish its reviewed edition.`);
+      if (result.mapId) location.href = compositionHref(result.mapId, {adapterKind: context.persistenceMode});
+    } catch (error) {
+      saving = false;
+      cancel.disabled = false;
+      context.shell.dataset.importState = "recovery";
+      context.lastImportRecovery = error.importRecovery ?? null;
+      status.textContent = `${error?.message ?? "Results could not be saved."} Retry keeps the submitted inputs and map name. Reopen the file to change the review.`;
+      buttons.forEach(button => {button.disabled = !canPersist(context);});
+      apply.disabled = review.conflict || !canPersist(context);
+    }
+  };
+  const apply = actionButton("Save results to OpenGeo", () => void save(null));
+  apply.disabled = review.conflict || !canPersist(context) || typeof context.applyGeoLibreImport !== "function";
+  buttons.push(apply);
+  const cancel = actionButton("Cancel", () => {if (!saving) closeProjectFileDialog(dialog);});
+  actions.append(cancel,
+    actionButton("Download conversion report", () => downloadConversionReport(context)), apply);
+  if (review.conflict) {
+    const separate = actionButton("Save results as a new map…", () => {
+      if (newMapLabel.hidden) {newMapLabel.hidden = false; separate.textContent = "Save new map"; newMapName.focus(); return;}
+      const name = newMapName.value.trim();
+      if (!name) {status.textContent = "Enter a name for the new map."; newMapName.focus(); return;}
+      void save(name);
+    });
+    separate.disabled = !canPersist(context) || typeof context.applyGeoLibreImport !== "function";
+    buttons.push(separate); actions.append(separate);
+  }
+  dialog.append(newMapLabel, actions, status);
+  dialog.oncancel = event => {if (saving) event.preventDefault(); else dialog.remove();};
+  document.body.append(dialog);
+  if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.open = true;
+}
+
 function downloadGeoLibreProject(context) {
   try {
     const definition = {
@@ -16860,13 +18071,16 @@ function downloadGeoLibreProject(context) {
   }
 }
 
-function exportInteractiveMap(context, initialMode = "live") {
+function exportInteractiveMap(context, initialMode = "live", initialFormat = "html") {
   if (context.rendererAdapter.id !== "maplibre") {setStatus(context, "Switch to MapLibre for portable map export."); return false;}
   const map = context.state.map;
   if (!map || !map.isStyleLoaded()) {setStatus(context, "Wait for the map to load before exporting."); return false;}
   const title = context.project?.name ?? context.workspace?.title ?? "OpenGeo Studio map";
-  openStaticMapExport({map, title, savedProjectOrigin: context.savedProjectOrigin, layers: context.layers, handles: context.state.layerHandles, initialMode,
+  openStaticMapExport({map, title, savedProjectOrigin: context.savedProjectOrigin, layers: context.layers, handles: context.state.layerHandles, initialMode, initialFormat,
     onInsert: context.onPublicationMapExport,
+    downloadBundle: blob => downloadBlob(`${slug(title)}.developer.zip`, blob, "application/zip"),
+    downloadPublication: blob => downloadBlob(`${slug(title)}.publication-source.zip`, blob, "application/zip"),
+    publicationHref: context.demoSurface ? `${MANAGED_STUDIO_URL}workspaces?view=publishing` : "/workspaces?view=publishing",
     downloadManifest: manifest => downloadBlob(`${slug(title)}.html.artifact.json`, JSON.stringify(manifest, null, 2), "application/json"),
     download: html => downloadBlob(`${slug(title)}.html`, html, "text/html;charset=utf-8")});
   return true;
@@ -17544,13 +18758,6 @@ function firstSymbolLayerId(map) {
 
 function toolTitle(id) {
   return PROCESSING_TOOLS.find((tool) => tool.id === id)?.title ?? id;
-}
-
-function coerce(value) {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  if (value !== "" && Number.isFinite(Number(value))) return Number(value);
-  return value;
 }
 
 function formatBytes(value) {

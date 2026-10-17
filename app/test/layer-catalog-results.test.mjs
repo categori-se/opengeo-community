@@ -11,6 +11,19 @@ const payload={dataset_id:id,dataset_name:"MassEnviroScreen",project_id:id,proje
 const service = {url:"https://services.example.org/arcgis/rest/services/Screening/FeatureServer",kind:"FeatureServer",
   layer_id:"0",layer_url:"https://services.example.org/arcgis/rest/services/Screening/FeatureServer/0",rendering_source:"provider",source_version:2};
 
+it("rejects a late preview after leaving saved Layer presentations", async () => {
+  const dom = new JSDOM("<!doctype html>"); const old = globalThis.document; globalThis.document = dom.window.document;
+  try {
+    let signal, finish;
+    const root = LayerCatalogResults({records: [parseCatalogLayer({...payload, service})],
+      loadPreview: (_record, options) => {signal = options.signal; return new Promise(resolve => {finish = resolve;});}});
+    document.body.append(root); root.querySelector(".platform-catalog-open-map").click();
+    assert.equal(signal.aborted, false); root.dispose(); assert.equal(signal.aborted, true);
+    finish({}); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(root.querySelector(".catalog-layer-preview"), null);
+  } finally {globalThis.document = old; dom.window.close();}
+});
+
 it("validates the service/layer relationship and rejects credentials",()=>{
   assert.equal(parseCatalogLayer({...payload,service}).service.layerId,"0");
   assert.equal(parseCatalogLayer(payload).service,null,"older API records remain readable");

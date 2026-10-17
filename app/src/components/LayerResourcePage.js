@@ -1,4 +1,5 @@
 import {DatasetVersionFiles} from "./DatasetVersionFiles.js";
+import {DatasetAccess} from "./DatasetAccess.js";
 import {CaptureRefresh} from "./CaptureRefresh.js";
 import {DatasetRefresh} from "./DatasetRefresh.js";
 import {DatasetVersionComparison} from "./DatasetVersionComparison.js";
@@ -16,7 +17,7 @@ import {CatalogPreservationStatus} from "./CatalogPreservationStatus.js";
 import {CatalogArchivePreview, canPreviewCatalogArchive} from "./CatalogArchivePreview.js";
 import {SourceDetails} from "./SourceDetails.js";
 
-const REMOTE_SOURCES = new Set(["xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog"]);
+const REMOTE_SOURCES = new Set(["xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog", "postgis"]);
 
 // Inspection is read-only; explicit update controls are separate. The returned projectId is an authorization context,
 // never the layer identity, an ownership assertion or a newly created project.
@@ -92,11 +93,12 @@ export function renderLayerResource({dataset, source: recordedSource = null, kno
     node("p", dataset.description || "Description not recorded."));
   if (observed?.name && observed.name !== dataset.name) root.append(node("p", dataset.name, "layer-metadata-note"));
   const mapAction = CatalogResourceMapAction({dataset, adapter});
-  if (mapAction) root.append(mapAction.button, mapAction.panel);
+  if (mapAction) {root.append(mapAction.button, mapAction.panel); root.dispose = mapAction.dispose;}
   if (canPreviewCatalogArchive(dataset, adapter)) {
     const preview = CatalogArchivePreview({dataset, adapter});
     root.append(preview);
-    root.dispose = () => preview.dispose();
+    const disposeEarlier = root.dispose;
+    root.dispose = () => {disposeEarlier?.(); preview.dispose();};
   }
   root.append(LayerMetadataCards({dataset, source: recordedSource, knowledge}));
   root.append(node("p", nonSpatial ? "Non-spatial resource · review files, columns or document text below. Geometry is not required." : `Catalog spatial search: ${catalogSpatialStatus(dataset)}`, "layer-metadata-note"));
@@ -163,6 +165,13 @@ export function renderLayerResource({dataset, source: recordedSource = null, kno
   root.append(link("Manage dataset access and reuse", projectHref(dataset.projectId, {
     adapterKind: adapter.kind, management: "data", datasetId: dataset.id
   })));
+  if (dataset.capabilities?.managePermissions && ["listDatasetPermissions", "putDatasetPermission", "deleteDatasetPermission"]
+    .every(method => typeof adapter[method] === "function")) {
+    const access = DatasetAccess({adapter, dataset, accountId, accountRole});
+    const disposeBeforeAccess = root.dispose;
+    root.dispose = () => {disposeBeforeAccess?.(); access.dispose();};
+    root.append(access);
+  }
 
   const reuse = layerReuse({dataset, adapter, projects, projectsLoaded, accountRole, accountId});
   const disposeBeforeReuse = root.dispose;
@@ -178,6 +187,16 @@ export function renderLayerResource({dataset, source: recordedSource = null, kno
       if (disposed) throw new Error("Layer inspection is closed");
       if (source.datasetId !== dataset.id || source.projectId !== dataset.projectId) throw new Error("Source identity changed");
       const section = node("section");
+      if (source.sourceType === "postgis") {
+        const configuration = source.configuration;
+        section.append(node("h3", "Registered database relation"),
+          node("p", `${configuration.schema}.${configuration.relation} · ${configuration.geometryColumn} · Key: ${configuration.stableKey}`),
+          node("p", `Source revision ${source.versionNumber} · Connection revision ${configuration.connectionRevision}`),
+          node("p", `Source identity: ${source.sourceUrl}`),
+          node("p", "The database connection supplies authorized bounded views. Its credentials are not available in this page."),
+          jsonDetails("Registered relation configuration", configuration));
+        return section;
+      }
       section.append(node("h3", "Registered source configuration"),
         node("p", "This is the saved connection configuration, not an original provider metadata response."),
         node("p", `Revision ${source.versionNumber} · ${source.verificationState}`),
@@ -207,7 +226,8 @@ export function renderLayerResource({dataset, source: recordedSource = null, kno
   metadata.append(node("h2", "Metadata"),
     node("p", "The catalog fields above are recorded OpenGeo Studio facts. Original provider responses, curated assertions and machine inferences are not interchangeable."),
     jsonDetails("Recorded catalog fields", dataset));
-  root.append(metadata, LayerGovernedMetadata({adapter, datasetId: dataset.id}), resourceKnowledge);
+  const governedMetadata = LayerGovernedMetadata({adapter, datasetId: dataset.id, accountId});
+  root.append(metadata, governedMetadata, resourceKnowledge);
   if (dataset.sourceType === "upload" && dataset.status === "active" && dataset.capabilities?.edit
       && adapter.createDatasetRefreshReview && adapter.acceptDatasetRefreshReview) {
     const capture = ["getDatasetVersionLineage", "getProtectedCopy", "getSource", "createExternalSourceCopyEstimate", "createProtectedCopy"].every(key => typeof adapter[key] === "function")
@@ -246,7 +266,7 @@ export function renderLayerResource({dataset, source: recordedSource = null, kno
     return section;
   }));
   const disposeBeforeMetadata=root.dispose;
-  root.dispose=()=>{disposed=true;disposeBeforeMetadata?.();sourceInspector?.dispose();resourceKnowledge.dispose();};
+  root.dispose=()=>{disposed=true;disposeBeforeMetadata?.();sourceInspector?.dispose();resourceKnowledge.dispose();governedMetadata.dispose();};
   return root;
 }
 

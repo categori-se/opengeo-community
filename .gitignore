@@ -28,8 +28,14 @@ __pycache__/
 # Download inventories, original source snapshots and local archive receipts.
 .local-archives/
 
+# Retained local development databases, objects and synthetic sessions.
+.opengeo/
+
 # Generated inside the publication compiler image.
 services/observable-builder/notebook-assets.json
+
+# Independent public Community Git checkout.
+community-edition/
 
 # Community private state and credentials
 .opengeo/

@@ -1,4 +1,8 @@
-export function ProjectPrintStudio({state}) {
+import {ProjectPrintEditor} from "./ProjectPrintEditor.js";
+import {compositionHref} from "../lib/applicationRoutes.js";
+
+export function ProjectPrintStudio({state, workbench = null, editFrame = null, canSave = false, onSaved = () => {}}) {
+  if (state.selectedMap && workbench && editFrame) return ProjectPrintEditor({state, workbench, editFrame, canSave, onSaved});
   const section = document.createElement("section");
   section.className = "project-print-studio";
   section.id = "project-print-studio";
@@ -12,26 +16,21 @@ export function ProjectPrintStudio({state}) {
     text("h2", "Print Studio"),
     text(
       "p",
-      "Prepare and retrieve print output from this project's governed site layouts. Print settings remain versioned with the site revision and sealed edition.",
+      "Choose a saved map Project to arrange a page, map frames, legend and measured map furniture.",
       "platform-subtitle"
     )
   );
   heading.append(
     identity,
-    text("p", "Project-scoped · immutable editions · PDF, PNG, and SVG", "project-resources-boundary")
+    text("p", "Saved Project layouts · paper and web output", "project-resources-boundary")
   );
   section.append(heading);
+  section.append(projectMapChoices(state, section));
 
   const sites = state.sites ?? [];
   if (!sites.length) {
     section.append(
-      text("h3", "No print layout yet"),
-      text(
-        "p",
-        "Create a governed site in Publishing, select its pages and layout, then return here for project print output.",
-        "project-resource-feedback"
-      ),
-      projectLink(state, "Open Publishing", "publishing")
+      projectDirectoryLink(state)
     );
     return section;
   }
@@ -39,8 +38,46 @@ export function ProjectPrintStudio({state}) {
   const list = document.createElement("div");
   list.className = "project-print-catalog";
   for (const site of sites) list.append(printSiteCard(state, site));
-  section.append(list);
+  const editions = text("details", "");editions.append(text("summary", "Published edition downloads"), list);
+  section.append(editions);
   return section;
+}
+
+function projectMapChoices(state, section) {
+  const root = text("section", ""), list = text("div", ""), status = text("p", "");status.setAttribute("role", "status");
+  root.append(text("h3", "Choose a map Project"), status, list);
+  const known = new Set();let offset = 0, busy = false, disposed = false;
+  const append = maps => {
+    for (const map of maps) {
+      if (known.has(map.id)) continue;known.add(map.id);
+      const row = text("p", ""), link = text("a", map.name || "Saved map Project");
+      link.href = compositionHref(map.id, {adapterKind: state.adapter?.kind, management: "print"});row.append(link);list.append(row);
+    }
+  };
+  append(state.maps ?? []);
+  const load = text("button", "Load map Projects");load.type = "button";load.className = "print-button secondary";
+  load.disabled = typeof state.adapter.listMaps !== "function";
+  load.onclick = async () => {
+    if (busy || disposed || !section.isConnected) return;
+    const current = async () => !disposed && section.isConnected
+      && (typeof state.adapter.organizationProvider !== "function" || await state.adapter.organizationProvider() === state.organization.id);
+    busy = true;load.disabled = true;status.textContent = "Loading saved map Projects…";
+    try {
+      if (!await current()) return;
+      const maps = await state.adapter.listMaps(state.project.id, {limit: 50, offset});
+      if (!await current()) return;
+      append(maps);offset += maps.length;load.hidden = maps.length < 50;load.textContent = "Load more map Projects";
+      status.textContent = known.size ? "Select the map Project whose layout you want to compose." : "No readable map Projects were found in this access workspace.";
+    } catch {if (await current()) status.textContent = "Map Projects could not load. Check access and try again.";}
+    finally {busy = false;if (!disposed) load.disabled = false;}
+  };
+  section.dispose = () => {disposed = true;};root.append(load);return root;
+}
+
+function projectDirectoryLink(state) {
+  const link = text("a", "Open Projects", "platform-button secondary");
+  link.href = state.adapter?.kind === "fixture" ? "/workspaces?adapter=fixture" : "/workspaces";
+  return link;
 }
 
 function printSiteCard(state, site) {

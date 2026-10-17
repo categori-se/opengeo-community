@@ -483,8 +483,8 @@ describe("request-driven API stack", () => {
     assert.doesNotMatch(serialized, /secretsmanager:ListSecrets/);
   });
 
-  it("uses HTTP API payload v2 with exact-origin CORS and no hourly network resources", () => {
-    const template = serverlessApiTemplateFor("dev");
+  it("uses HTTP API payload v2 with anonymous public CORS and no hourly network resources", () => {
+    const template = serverlessApiTemplateFor("production");
 
     template.hasResourceProperties("AWS::ApiGatewayV2::Api", {
       CorsConfiguration: {
@@ -495,12 +495,8 @@ describe("request-driven API stack", () => {
           "X-Request-ID"
         ],
         AllowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        AllowOrigins: [
-          "http://localhost:3000",
-          "http://127.0.0.1:3000",
-          "http://localhost:5173",
-          "http://127.0.0.1:5173"
-        ],
+        AllowOrigins: ["*"],
+        AllowCredentials: Match.absent(),
         ExposeHeaders: [
           "X-Request-ID",
           "X-OpenGeo-Source-Sha256",
@@ -508,7 +504,7 @@ describe("request-driven API stack", () => {
         ],
         MaxAge: 3600
       },
-      Name: "opengeo-dev-api",
+      Name: "opengeo-production-api",
       ProtocolType: "HTTP"
     });
     template.hasResourceProperties("AWS::ApiGatewayV2::Integration", {

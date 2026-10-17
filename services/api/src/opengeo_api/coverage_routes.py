@@ -271,6 +271,8 @@ def service_repository_from_request(request: Request) -> SpatialServiceRepositor
 
 
 def dispatcher_from_request(request: Request) -> RenderDispatcher:
+    if request.app.state.settings.worker_processing_mode != "shared":
+        raise HTTPException(status_code=503, detail="shared_worker_processing_held")
     return cast(RenderDispatcher, request.app.state.render_dispatcher)
 
 

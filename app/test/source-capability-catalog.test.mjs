@@ -14,7 +14,7 @@ import {
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const expectedIds = [
-  "vector", "raster", "delimited-text", "cad", "gdb", "photos", "gpx", "mbtiles",
+  "vector", "raster", "delimited-text", "cad", "gdb", "photos", "gpx", "nmea", "mbtiles",
   "osm-pbf", "xyz", "wms", "imageserver", "mapserver", "wfs", "wmts", "ogc-features", "ogc-vector-tiles",
   "arcgis", "georss", "stac", "video", "deckgl-viz", "geoparquet", "flatgeobuf",
   "pmtiles", "zarr", "netcdf", "lidar", "splatting", "3d-tiles", "gltf-model",
@@ -26,15 +26,15 @@ describe("source capability catalog", () => {
     assert.deepEqual(SOURCE_CAPABILITY_CATALOG.map(({id}) => id), expectedIds);
     assert.equal(new Set(expectedIds).size, expectedIds.length);
     assert.deepEqual(sourceCapabilitySummary(), {
-      total: 33,
-      current: 14,
-      preserveOnly: 19,
+      total: 34,
+      current: 16,
+      preserveOnly: 18,
       sections: 5,
       operations: 7
     });
     assert.deepEqual(
       sourceCapabilitySections().map(({id, records}) => [id, records.length]),
-      [["files", 9], ["web-services", 13], ["cloud", 5], ["3d", 4], ["databases", 2]]
+      [["files", 10], ["web-services", 13], ["cloud", 5], ["3d", 4], ["databases", 2]]
     );
   });
 

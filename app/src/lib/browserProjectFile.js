@@ -1,5 +1,6 @@
 import {upgradeMapDefinition} from './mapDefinition.js';
 import {placesForSave} from './kmlPlaces.js';
+import {projectPrintLayouts} from './printLayouts.js';
 
 export const BROWSER_PROJECT_FILE_BYTES = 2_000_000;
 
@@ -7,7 +8,7 @@ export const BROWSER_PROJECT_FILE_BYTES = 2_000_000;
 export function readBrowserProjectFile(text, {catalog = []} = {}) {
   if (typeof text !== 'string' || new TextEncoder().encode(text).length > BROWSER_PROJECT_FILE_BYTES) throw Error('Project file exceeds the 2 MB browser limit.');
   const raw = JSON.parse(text);
-  if (raw?.persistence?.mode !== 'browser-only-demo') throw Error('Choose a Project JSON exported from Demo. Managed Projects must be opened in Studio.');
+  if (!['browser-only-demo', 'browser-draft', 'browser-personal'].includes(raw?.persistence?.mode)) throw Error('Choose a browser Project file. Managed Projects must be opened in Studio.');
   const pending = [[raw, 0]]; let nodes = 0;
   while (pending.length) {
     const [value, depth] = pending.pop();
@@ -18,6 +19,8 @@ export function readBrowserProjectFile(text, {catalog = []} = {}) {
     }
   }
   const definition = upgradeMapDefinition(raw);
+  const layouts = definition.extensions?.opengeoPrintLayouts;
+  if (layouts !== undefined) projectPrintLayouts({id: layouts?.projectId, definition});
   if (!Array.isArray(definition.layers) || definition.layers.length > 64) throw Error('A browser Project can contain at most 64 Layers.');
   const ids = new Set();
   for (const layer of definition.layers) {
@@ -34,7 +37,7 @@ export function readBrowserProjectFile(text, {catalog = []} = {}) {
       }
       layer.kmlDocument = placesForSave(document);
     } else if (layer.geojson?.type === 'FeatureCollection' && Array.isArray(layer.geojson.features)) {
-      if (!['geojson-object', 'geojson-archive', 'geojson-inline'].includes(layer.sourceType)) throw Error(`The local source type for ${layer.title} is not supported.`);
+      if (!['geojson-object', 'geojson-archive', 'geojson-inline', 'arcgis-feature-layer-snapshot'].includes(layer.sourceType)) throw Error(`The local source type for ${layer.title} is not supported.`);
     } else if (layer.browserCatalogId) {
       if (!catalog.some(entry => entry.id === layer.browserCatalogId)) throw Error(`The catalog source for ${layer.title} is unavailable.`);
     } else if (['xyz-raster', 'wms-raster', 'pmtiles-vector', 'pmtiles-raster'].includes(layer.sourceType)) {
@@ -46,6 +49,6 @@ export function readBrowserProjectFile(text, {catalog = []} = {}) {
     } else throw Error(`The data for ${layer.title} is not included or available in the Demo catalog.`);
   }
   definition.kmlLayerDocuments = true;
-  definition.persistence = {mode: 'browser-only-demo', uploaded: false, published: false};
+  definition.persistence = {mode: raw.persistence.mode, uploaded: false, published: false};
   return definition;
 }

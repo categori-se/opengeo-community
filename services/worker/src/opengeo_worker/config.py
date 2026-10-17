@@ -40,6 +40,8 @@ class Settings:
     max_attempts: int = 3
     http_timeout_seconds: int = 30
     statement_timeout_seconds: int = 30
+    geodata_expected_owner: str | None = None
+    pmtiles_worker_image_digest: str | None = None
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "Settings":
@@ -70,6 +72,8 @@ class Settings:
                 heartbeat_seconds=int(values.get("OPEN_GEO_HEARTBEAT_SECONDS", "60")),
                 visibility_seconds=int(values.get("OPEN_GEO_VISIBILITY_SECONDS", "900")),
                 max_attempts=int(values.get("OPEN_GEO_MAX_ATTEMPTS", "3")),
+                geodata_expected_owner=values.get("OPEN_GEO_GEODATA_EXPECTED_OWNER"),
+                pmtiles_worker_image_digest=values.get("OPEN_GEO_PMTILES_WORKER_IMAGE_DIGEST"),
             )
         except ValueError as error:
             raise WorkerError("configuration_invalid") from error
@@ -77,6 +81,15 @@ class Settings:
         return settings
 
     def validate(self) -> None:
+        if self.pmtiles_worker_image_digest is not None and re.fullmatch(
+            r"sha256:[0-9a-f]{64}", self.pmtiles_worker_image_digest
+        ) is None:
+            raise WorkerError("configuration_invalid")
+        if (
+            self.geodata_expected_owner is not None
+            and re.fullmatch(r"[0-9]{12}", self.geodata_expected_owner) is None
+        ):
+            raise WorkerError("configuration_invalid")
         if _REGION.fullmatch(self.aws_region) is None:
             raise WorkerError("configuration_invalid")
         if (

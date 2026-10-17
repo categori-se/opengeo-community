@@ -13,7 +13,6 @@ describe("bounded on-demand platform wake retry", () => {
 
     assert.match(directory, /Loading your account and project index/);
     assert.match(project, /essential records/);
-    assert.match(project, /does not mean your session was idle/);
     assert.match(account, /account tools/);
     assert.doesNotMatch(`${directory} ${project} ${account}`, /attempt|retry|failed/i);
     assert.throws(() => platformStartupMessage("unknown"), /account, directory, or project/);

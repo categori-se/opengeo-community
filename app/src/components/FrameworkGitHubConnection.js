@@ -53,7 +53,7 @@ export function FrameworkGitHubConnection({adapter, projectId, sourceProjectId, 
         const option = element("option", connection.repository); option.value = connection.id; select.append(option);
       }
       label.append(select); details.append(label);
-      const connect = button("Connect this Framework project", async () => {
+      const connect = button("Connect this publication", async () => {
         if (busy || !canManage) return;
         busy = true; connect.disabled = select.disabled = reload.disabled = true;
         status.textContent = "Saving this project's repository selection…";

@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, it} from "node:test";
 import {JSDOM} from "jsdom";
 
 import {ProjectDatasets} from "../src/components/ProjectDatasets.js";
+import {normalizePmtilesOptions} from "../src/lib/pmtilesOptions.js";
 
 let harness;
 
@@ -229,7 +230,7 @@ describe("connected repository datasets", () => {
     const panel = root.querySelector(".project-dataset-version-panel");
     assert.match(panel.textContent, /Connected repository source/);
     assert.match(panel.textContent, /registered this exact provider version without copying its bytes/);
-    assert.match(panel.textContent, /s3:\/\/example-geodata\/usa\/ma\//);
+    assert.match(panel.textContent, /s3:\/\/geospatial\.data\/usa\/ma\//);
     assert.match(panel.textContent, /version-0001/);
     assert.doesNotMatch(panel.textContent, /secret|credential|role arn/i);
   });
@@ -622,6 +623,136 @@ describe("connected repository datasets", () => {
     assert.doesNotMatch(root.textContent, /bucket|object_key|s3_version/i);
   });
 });
+
+describe("managed PMTiles originals", () => {
+  it("offers an explicit preservation choice and reports the completed original without queuing", async () => {
+    const calls = [];
+    let refreshed = false;
+    const state = preservedOriginalState({
+      async requestUpload(projectId, metadata) {
+        calls.push("request"); assert.equal(projectId, state.project.id);
+        assert.equal(metadata.purpose, "pmtiles_original"); assert.equal(metadata.format, "geojson");
+        return {purpose: "pmtiles_original", uploadId: "upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};
+      },
+      async uploadFile() {calls.push("upload");},
+      async completeUpload() {calls.push("complete"); return {purpose: "pmtiles_original", dataset: state.datasets[0], versionNumber: 1, processingJobId: null, processingJobState: null};},
+      async createPmtilesDerivative() {assert.fail("upload must not start conversion");},
+      async listPmtilesDerivatives() {assert.fail("upload must not inspect conversions");}
+    });
+    const root = ProjectDatasets({state, refresh: async () => {refreshed = true;}});
+    const purpose = root.querySelector('[aria-label="Upload purpose"]');
+    const format = root.querySelector('[aria-label="Dataset, image, or document format"]');
+    const file = root.querySelector('[aria-label="Dataset, image, or document file"]');
+    assert.equal(purpose.value, "ingest"); assert.equal(format.disabled, false);
+    purpose.value = "pmtiles_original";
+    purpose.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    assert.equal(format.value, "geojson"); assert.equal(format.disabled, true);
+    assert.equal(file.accept, ".geojson,.json");
+    assert.match(root.textContent, /GeoJSON up to 512 MiB/);
+    const blob = new Blob(['{"type":"FeatureCollection","features":[]}'], {type: "application/geo+json"});
+    Object.defineProperty(blob, "name", {value: "Original.geojson"});
+    Object.defineProperty(file, "files", {value: [blob]});
+    file.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    root.querySelector(".project-upload-form").dispatchEvent(new harness.dom.window.Event("submit", {bubbles: true, cancelable: true}));
+    await waitFor(() => refreshed, () => root.textContent);
+    assert.deepEqual(calls, ["request", "upload", "complete"]);
+    const feedback = root.querySelector(".project-upload-feedback");
+    assert.equal(feedback.dataset.state, "preserved");
+    assert.match(feedback.textContent, /preserved as version 1/);
+    assert.doesNotMatch(feedback.textContent, /queued|ready|inspection/);
+  });
+
+  it("opens the existing conversion editor for preserved GeoJSON while withholding spatial actions", async () => {
+    let reads = 0;
+    const state = preservedOriginalState({
+      async listPmtilesDerivatives() {reads++; return [];},
+      async createPmtilesDerivative() {assert.fail("opening the editor must not start a conversion");},
+      async getDatasetSpatialPreview() {assert.fail("preserved originals have no raw preview");}
+    });
+    const root = ProjectDatasets({state, refresh: async () => {}});
+    const actions = [...root.querySelectorAll(".project-dataset-actions button")].map(button => button.textContent);
+    assert.ok(actions.includes("Create PMTiles"));
+    for (const unavailable of ["View preview", "Edit features", "Field capture"]) assert.ok(!actions.includes(unavailable));
+    assert.equal(root.querySelector(".project-dataset-map-handoff"), null);
+    assert.match(root.textContent, /original preserved/); assert.match(root.textContent, /not inspected/);
+    click(root, "Create PMTiles");
+    await waitFor(() => reads === 1);
+    assert.ok(root.querySelector(".pmtiles-conversion-editor"));
+    assert.ok(root.querySelector('[aria-label="WGS84 bounds · west, south, east, north"]'));
+  });
+
+  it("reviews and admits a preserved conversion before offering an exact map handoff without reading tiles", async () => {
+    const calls=[];
+    const state=preservedOriginalState({
+      async createPmtilesDerivative(){assert.fail('no compute from reviewing a completed job');},
+      async listPmtilesDerivatives(){return [job];},
+      async getPmtilesDisplayReview(project,dataset,version,id){
+        calls.push(['review',project,dataset,version,id]);return review;
+      },
+      async admitPmtilesDisplayReview(project,dataset,version,id,request){
+        calls.push(['admit',project,dataset,version,id,request]);
+        return {jobId:id,displayId:id,datasetId:dataset,datasetVersionId:version,reviewSha256:review.reviewSha256};
+      },
+      async getDatasetSpatialPreview(){assert.fail('no raw preview');},
+      async readManagedDisplay(){assert.fail('review and admission do not download tiles');}
+    });
+    const dataset=state.datasets[0],job=completedPreservedJob(state),review=preservedDisplayReview(job);
+    state.maps=[{id:'a0000000-0000-4000-8000-000000000065',name:'Saved study',status:'active',definition:{layers:[]}}];
+    const root=ProjectDatasets({state,refresh:async()=>{}});
+    click(root,'Create PMTiles');await waitFor(()=>root.textContent.includes('Review tiled display'));
+    assert.equal(calls.length,0);assert.equal(root.querySelector('.project-dataset-map-handoff'),null);
+    click(root,'Review tiled display');await waitFor(()=>root.querySelector('[aria-label="Tiled display title"]'));
+    assert.equal(calls.length,1);assert.equal(root.querySelector('.project-dataset-map-handoff'),null);
+    click(root,'Admit tiled display');assert.equal(calls.length,1);
+    for(const [label,value] of [['Tiled display title','Study display'],['Display rights basis','Source terms reviewed'],['Display attribution','Source agency']]){
+      const control=root.querySelector(`[aria-label="${label}"]`);control.value=value;
+      control.dispatchEvent(new harness.dom.window.Event('input',{bubbles:true}));
+    }
+    const acknowledge=root.querySelector('[aria-label="I reviewed the conversion limits"]');acknowledge.checked=true;
+    acknowledge.dispatchEvent(new harness.dom.window.Event('change',{bubbles:true}));
+    click(root,'Admit tiled display');await waitFor(()=>root.querySelector('.project-dataset-map-handoff'));
+    assert.equal(calls.length,2);assert.deepEqual(calls[1].slice(1,5),[state.project.id,dataset.id,dataset.currentVersionId,job.jobId]);
+    assert.deepEqual(calls[1][5],{expectedReviewSha256:review.reviewSha256,title:'Study display',rightsBasis:'Source terms reviewed',attribution:'Source agency',acknowledgeConversionLimits:true});
+    const link=root.querySelector('.project-dataset-map-choices a'),url=new URL(link.href);
+    assert.equal(url.searchParams.get('dataset'),dataset.id);assert.equal(url.searchParams.get('datasetVersion'),dataset.currentVersionId);
+    assert.equal(url.searchParams.get('map'),state.maps[0].id);
+    assert.equal(dataset.status,'draft');assert.equal(dataset.currentVersionState,'preserved');
+  });
+
+  for(const failure of ['wrong-version','ineligible','access-changed'])it(`withholds display admission and handoff for ${failure} review`,async()=>{
+    const state=preservedOriginalState({
+      async createPmtilesDerivative(){assert.fail('no compute');},async listPmtilesDerivatives(){return [job];},
+      async getPmtilesDisplayReview(){
+        if(failure==='wrong-version')return {...review,datasetVersionId:'82000000-0000-4000-8000-000000000099'};
+        if(failure==='access-changed')state.datasets[0].capabilities.edit=false;
+        return {...review,eligible:failure!=='ineligible'};
+      },async admitPmtilesDisplayReview(){assert.fail('no admission');}
+    });
+    const job=completedPreservedJob(state),review=preservedDisplayReview(job),root=ProjectDatasets({state,refresh:async()=>{}});
+    click(root,'Create PMTiles');await waitFor(()=>root.textContent.includes('Review tiled display'));
+    click(root,'Review tiled display');await waitFor(()=>root.textContent.includes(failure==='ineligible'?'cannot be added':'could not be reviewed'));
+    assert.equal(root.querySelector('[aria-label="Tiled display title"]'),null);
+    assert.equal(root.querySelector('.project-dataset-map-handoff'),null);
+  });
+});
+
+function completedPreservedJob(state){return {jobId:'90000000-0000-4000-8000-000000000065',projectId:state.project.id,
+  datasetId:state.datasets[0].id,datasetVersionId:state.datasets[0].currentVersionId,state:'completed',recipe:'gdal-pmtiles-v2',options:normalizePmtilesOptions({})};}
+
+function preservedDisplayReview(job){return {jobId:job.jobId,datasetId:job.datasetId,datasetVersionId:job.datasetVersionId,
+  reviewSha256:'a'.repeat(64),eligible:true,displayId:null,downloadBytes:4096,reportedFragmentCount:4,minZoom:0,maxZoom:8};}
+
+function preservedOriginalState(adapter) {
+  const projectId = "50000000-0000-4000-8000-000000000065";
+  return {adapter: {kind: "api", ...adapter}, session: {userId: "20000000-0000-4000-8000-000000000065"},
+    organization: {id: "10000000-0000-4000-8000-000000000065", callerRole: "member"}, project: {id: projectId, callerRole: "editor"},
+    datasets: [{id: "80000000-0000-4000-8000-000000000068", projectId, name: "Original", description: null,
+      classification: "internal", sourceType: "upload", format: "geojson", status: "draft",
+      currentVersionId: "82000000-0000-4000-8000-000000000065", currentVersionNumber: 1, currentVersionState: "preserved",
+      featureCount: null, extent: null, crs: null, geometryType: null, qualityResults: {checks: [], warnings: [], errors: []},
+      processingJobState: null, processingErrorCode: null, tags: [], capabilities: {read: true, edit: true, managePermissions: false, createPublication: false}}],
+    sources: [], maps: [], datasetConnectionBindings: [], basemapConnectionBindings: []};
+}
 
 function click(root, label) {
   const button = [...root.querySelectorAll("button")]

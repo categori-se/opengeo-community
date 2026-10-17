@@ -6,6 +6,7 @@ import {JSDOM} from "jsdom";
 
 import {ProjectWorkspacePage} from "../src/components/ProjectWorkspacePage.js";
 import {StudioAccountControls} from "../src/components/StudioAccountControls.js";
+import {definitionWithPrintLayouts, newProjectPrintLayout} from "../src/lib/printLayouts.js";
 
 const IDS = Object.freeze({
   organization: "10000000-0000-4000-8000-000000000001",
@@ -47,6 +48,7 @@ describe("project durable-job hydration", () => {
       assert.equal(page.querySelector("h2").textContent, "Loading publication");
       assert.equal(page.querySelector('[aria-current="page"]').textContent, "Publications");
       assert.ok(deadline);
+      await waitFor(() => sessionSignal);
       deadline();
       assert.equal(sessionSignal.aborted, true);
       assert.match(page.textContent, /temporarily unavailable/);
@@ -141,6 +143,93 @@ describe("project durable-job hydration", () => {
     clickButton(controls, "Sign out"); await waitFor(() => signouts === 1);
     assert.equal(saves, 1); assert.equal(mapWrites, 0);
     page.remove(); controls.remove();
+  });
+
+  it("supplies only the selected saved composition's Layer context before separate metadata loads", async () => {
+    const adapter = projectAdapter({kind: "wms"});
+    const map = {...(await adapter.listMaps())[0], description: "A saved regional comparison."};
+    map.definition.layers[0] = {...map.definition.layers[0], sourceVersion: 2,
+      sourceUrl: "https://example.org/saved/wms", attribution: "Saved MassGIS attribution"};
+    adapter.getComposition = async () => ({...map, resourceType: "project", accessContainerId: IDS.project});
+    const dataset = (await adapter.listDatasets())[0];
+    adapter.listDatasets = async () => [dataset, {...dataset, id: IDS.job, name: "Unrelated container Layer"}];
+    let reads = 0;
+    adapter.getAuthoredKnowledge = async (kind, id) => {
+      reads++;assert.equal(kind, "project");assert.equal(id, IDS.map);
+      return {version: 0, canEdit: false, document: {schemaVersion: "1.0.0", distributions: [],
+        metadata: {source: [], normalized: [], curated: [], inferred: []}, context: []}};
+    };
+    const page = mountPage(adapter, {compositionId: IDS.map});
+    const metadata = await waitFor(() => page.querySelector(".authored-resource-metadata"));
+    metadata.open = true;metadata.dispatchEvent(new harness.dom.window.Event("toggle"));
+    assert.equal(reads, 1);
+    metadata.dispatchEvent(new harness.dom.window.Event("toggle"));assert.equal(reads, 1);
+    const overview = metadata.querySelector(".project-metadata-context");
+    assert.match(overview.textContent, /Durable jobs map/);assert.match(overview.textContent, /A saved regional comparison/);
+    assert.match(overview.textContent, /saved source revision 2/);assert.match(overview.textContent, /Saved MassGIS attribution/);
+    assert.doesNotMatch(overview.textContent, /Unrelated container Layer/);
+    assert.equal(overview.querySelector('[aria-label="Layers in this Project"]').children.length, 1);
+    assert.equal(overview.querySelector("a").getAttribute("href"), `/layers?id=${IDS.dataset}`);
+    await waitFor(() => metadata.textContent.includes("No Project-specific metadata revision yet"));
+    assert.match(metadata.textContent, /No Project-specific metadata revision yet/);
+    page.dispose();page.remove();
+  });
+
+  it("opens Print Studio for the exact selected composition without a Publication or automatic save", async () => {
+    const adapter = projectAdapter({kind: "managed"});
+    const map = (await adapter.listMaps())[0];let writes = 0, sites = 0;
+    adapter.getComposition = async () => ({...map, resourceType: "project", accessContainerId: IDS.project});
+    adapter.updateMap = async () => {writes++;throw Error("Opening Print Studio must not save");};
+    adapter.listSites = async () => {sites++;return [];};
+    const page = mountPage(adapter, {compositionId: IDS.map, managementTarget: "print"});
+    const studio = await waitFor(() => page.querySelector(".project-print-editor"));
+    assert.equal(studio.querySelector("h2").textContent, "Print Studio");assert.match(studio.textContent, /Durable jobs map/);
+    assert.ok(studio.querySelector('[aria-label="Layout title"]'));
+    assert.doesNotMatch(studio.textContent, /Open Publishing|Live API adapter|PostgreSQL-backed/);
+    assert.equal(writes, 0);assert.equal(sites, 0);assert.equal(studio.hasUnsavedChanges(), false);
+    page.dispose();page.remove();
+  });
+
+  it("starts a new Print layout from the current scoped Layer presentation while isolating Print drafts", async () => {
+    const adapter = projectAdapter({kind: "managed"}), original = (await adapter.listMaps())[0];
+    adapter.getComposition = async () => ({...original, resourceType: "project", accessContainerId: IDS.project});
+    const key = `opengeo.project.${IDS.project}.${IDS.organization}:${IDS.user}:${IDS.map}`;
+    const draft = {...original.definition, extensions: {opengeoRenderer: {id: "cesium"}},
+      layers: original.definition.layers.map(layer => ({...layer, opacity: 0.25, visible: false})),
+      mapViews: [{id: "draft", title: "Current view", center: [-70, 43], zoom: 8, pitch: 0, bearing: 20}]};
+    const bytes = JSON.stringify(draft);localStorage.setItem(key, bytes);
+    const page = mountPage(adapter, {compositionId: IDS.map, managementTarget: "print"});
+    const view = await waitFor(() => page.querySelector(".project-print-editor .opengeo-workbench"));
+    assert.equal(view.__opengeoLayers[0].opacity, 0.25);assert.equal(view.__opengeoLayers[0].visible, false);
+    assert.equal(view.getPrintContext().project.extensions.opengeoRenderer.id, "maplibre");
+    assert.equal(view.saveDraftForNavigation(), true);
+    assert.equal(localStorage.getItem(key), bytes, "Print edits must not replace the ordinary map draft");
+    assert.ok(localStorage.getItem(key + ":print"));
+    page.dispose();page.remove();
+  });
+
+  it("keeps saved Print frames authoritative over an ordinary map draft", async () => {
+    const adapter = projectAdapter({kind: "managed"}), original = (await adapter.listMaps())[0];
+    const layout = newProjectPrintLayout(original);layout.frames[0].presentation[0].opacity = 0.8;
+    const saved = {...original, definition: definitionWithPrintLayouts(original, {schemaVersion: "opengeo.project-print-layouts.1", projectId: original.id, layouts: [layout]})};
+    adapter.getComposition = async () => ({...saved, resourceType: "project", accessContainerId: IDS.project});
+    localStorage.setItem(`opengeo.project.${IDS.project}.${IDS.organization}:${IDS.user}:${IDS.map}`,
+      JSON.stringify({...original.definition, layers: original.definition.layers.map(layer => ({...layer, opacity: 0.25}))}));
+    const page = mountPage(adapter, {compositionId: IDS.map, managementTarget: "print"});
+    const view = await waitFor(() => page.querySelector(".project-print-editor .opengeo-workbench"));
+    assert.equal(view.__opengeoLayers[0].opacity, 0.8);
+    page.dispose();page.remove();
+  });
+
+  it("ignores current-view Print presentation from a different source version", async () => {
+    const adapter = projectAdapter({kind: "managed"}), original = (await adapter.listMaps())[0];
+    adapter.getComposition = async () => ({...original, resourceType: "project", accessContainerId: IDS.project});
+    localStorage.setItem(`opengeo.project.${IDS.project}.${IDS.organization}:${IDS.user}:${IDS.map}`,
+      JSON.stringify({...original.definition, layers: original.definition.layers.map(layer => ({...layer, sourceVersion: 999, opacity: 0.25}))}));
+    const page = mountPage(adapter, {compositionId: IDS.map, managementTarget: "print"});
+    const view = await waitFor(() => page.querySelector(".project-print-editor .opengeo-workbench"));
+    assert.equal(view.__opengeoLayers[0].opacity, original.definition.layers[0].opacity);
+    page.dispose();page.remove();
   });
 
   it("isolates drafts across sibling Projects and keeps publication previews on saved state", async () => {
@@ -485,6 +574,167 @@ describe("project durable-job hydration", () => {
     assert.equal(adapter.calls.createPmtiles.length, 0);
     assert.equal(adapter.calls.cancelPmtiles.length, 0);
   });
+  it("deduplicates omitted preserved dataset metadata before refusing any raw preview", async () => {
+    const adapter = projectAdapter({kind: "managed"});
+    const dataset = {...(await adapter.listDatasets())[0], format: "geojson", status: "draft", currentVersionState: "preserved", geometryType: null, featureCount: null, extent: null};
+    const saved = (await adapter.listMaps())[0];
+    saved.definition.layers[0].datasetVersionId = IDS.version; saved.definition.layers[0].sourceVersion = 4;
+    let metadataReads = 0, rawReads = 0, release;
+    adapter.organizationProvider = async () => IDS.organization;
+    adapter.listDatasets = async () => [];
+    adapter.listMaps = async () => [saved];
+    adapter.getDataset = async () => {metadataReads++; await new Promise(resolve => {release = resolve;}); return dataset;};
+    adapter.getDatasetSpatialPreview = async () => {rawReads++; throw Error("An uninspected original has no raw preview");};
+    adapter.listPmtilesDerivatives = async () => [{jobId: IDS.job, datasetId: IDS.dataset, datasetVersionId: IDS.version, state: "completed", cancellable: false}];
+    adapter.getPmtilesDisplayReview = async () => pmtilesDisplayReview();
+    const page = mountPage(adapter, {startPanel: "processing"});
+    await waitFor(() => release); assert.equal(metadataReads, 1); release();
+    await waitFor(() => findButton(page, "Review tiled display"));
+    assert.deepEqual([metadataReads, rawReads], [1, 0]);
+    page.dispose(); page.remove();
+  });
+
+  for (const preserved of [false, true]) it(`reviews a completed PMTiles output, saves its exact selection and reopens without read consent (${preserved ? "preserved draft" : "active upload"})`, async () => {
+    const adapter = projectAdapter({kind: "managed"});
+    let saved = (await adapter.listMaps())[0], reviews = 0, admissions = 0, reads = 0, listings = 0, saves = 0, previews = 0;
+    if (preserved) {
+      const dataset = {...(await adapter.listDatasets())[0], format: "geojson", status: "draft", currentVersionState: "preserved", geometryType: null, featureCount: null, extent: null};
+      adapter.listDatasets = async () => [dataset];
+      saved.definition.layers[0].datasetVersionId = IDS.version;
+      saved.definition.layers[0].sourceVersion = 4;
+    }
+    adapter.organizationProvider = async () => IDS.organization;
+    adapter.listMaps = async () => [structuredClone(saved)];
+    adapter.listPmtilesDerivatives = async () => [{jobId: IDS.job, datasetId: IDS.dataset, datasetVersionId: IDS.version, state: "completed", cancellable: false}];
+    adapter.getPmtilesDisplayReview = async (...args) => {
+      assert.deepEqual(args, [IDS.project, IDS.dataset, IDS.version, IDS.job]); reviews++;
+      return pmtilesDisplayReview();
+    };
+    adapter.admitPmtilesDisplayReview = async (project, dataset, version, job, request) => {
+      assert.deepEqual([project, dataset, version, job], [IDS.project, IDS.dataset, IDS.version, IDS.job]);
+      assert.deepEqual(request, {expectedReviewSha256: "a".repeat(64), title: "Reviewed screening tiles", rightsBasis: "Internal analysis of retained source", attribution: "Original source retained", acknowledgeConversionLimits: true});
+      admissions++; return {jobId: job, datasetId: dataset, datasetVersionId: version, reviewSha256: "a".repeat(64), displayId: job};
+    };
+    if (!preserved) adapter.listLayerArchives = async () => {throw Error("Wrong custody kind");};
+    adapter.listManagedDisplays = async (...args) => {
+      assert.deepEqual(args.slice(0,3), [IDS.project, IDS.dataset, IDS.version]); listings++;
+      return {dataset_id: IDS.dataset, dataset_version_id: IDS.version, archives: [{id: IDS.job, title: "Reviewed screening tiles", format: "pmtiles", download_bytes: 14855, feature_count: 6, tile_layers: []}]};
+    };
+    adapter.readManagedDisplay = async () => {reads++; throw Error("No storage consent was given");};
+    adapter.getDatasetSpatialPreview = async () => {previews++; throw Error("A saved tiled display cannot fall back to original preview");};
+    adapter.updateMap = async (project, map, update) => {
+      assert.equal(project, IDS.project); assert.equal(map, IDS.map); assert.equal(update.expectedVersion, 3);
+      saved = {...saved, version: 4, definition: structuredClone(update.changes.definition)}; saves++;return saved;
+    };
+    const page = mountPage(adapter, {startPanel: "processing"});
+    await waitFor(() => findButton(page, "Review tiled display"));
+    assert.equal(reviews + admissions + reads + listings, 0);
+    clickButton(page, "Review tiled display");
+    await waitFor(() => findButton(page, "Admit tiled display"));
+    assert.match(page.textContent, /Tile fragments are not source records/);
+    const enter = (label, value) => {const input=page.querySelector(`[aria-label="${label}"]`);assert.ok(input);input.value=value;input.dispatchEvent(new harness.dom.window.Event("input", {bubbles:true}));};
+    enter("Tiled display title", "Reviewed screening tiles");enter("Display rights basis", "Internal analysis of retained source");enter("Display attribution", "Original source retained");
+    const acknowledged = [...page.querySelectorAll("label")].find(label => label.textContent.includes("I reviewed the conversion limits")).querySelector("input");
+    acknowledged.checked=true;acknowledged.dispatchEvent(new harness.dom.window.Event("change", {bubbles:true}));
+    clickButton(page, "Admit tiled display");
+    await waitFor(() => findButton(page, "Choose admitted tiled display"));
+    assert.equal(reads + listings, 0);
+    clickButton(page, "Choose admitted tiled display");
+    const dialog = document.querySelector(".gis-layer-archive-dialog");assert.equal(dialog.open, true);
+    clickButton(dialog, "Review tiled displays");await waitFor(() => listings === 1 && dialog.querySelector("select").value === IDS.job);
+    assert.equal(dialog.querySelector('input[type="checkbox"]').checked, false);
+    assert.equal(findButton(dialog, "Use selected tiled display").disabled, true);
+    clickButton(page, "Save");await waitFor(() => saves === 1);
+    assert.equal(saved.definition.schemaVersion, "opengeo.map-definition.1.5.0");
+    assert.equal(saved.definition.layers[0].managedDisplayId, IDS.job);assert.equal(saved.definition.layers[0].datasetVersionId, IDS.version);assert.equal(saved.definition.layers[0].sourceVersion, 4);
+    assert.doesNotMatch(JSON.stringify(saved.definition), /acknowledge_storage_cost|X-Amz|ticket|reviewSha256|rightsBasis/);
+    page.dispose();page.remove();
+    const reopened = mountPage(adapter);
+    await waitFor(() => reopened.querySelector(".opengeo-workbench"));
+    assert.equal(reads, 0);assert.equal(listings, 1);assert.equal(previews, 0);
+    assert.equal(reopened.querySelector(".opengeo-workbench").__opengeoLayers[0].managedDisplayId, IDS.job);
+    clickButton(reopened, "Map display");
+    const fresh = document.querySelector(".gis-layer-archive-dialog");assert.equal(fresh.querySelector('input[type="checkbox"]').checked, false);
+    assert.equal(findButton(fresh, "Use selected tiled display").disabled, true);
+    clickButton(fresh, preserved ? "Pause tiled display" : "Return to saved data");
+    assert.equal(Object.hasOwn(reopened.querySelector(".opengeo-workbench").__opengeoLayers[0], "managedDisplayId"), preserved);
+    if (preserved) {
+      assert.match(fresh.textContent, /tiled display paused/);
+      assert.equal((await adapter.listDatasets())[0].currentVersionState, "preserved");
+      assert.equal(previews, 0);
+    }
+    assert.deepEqual([reviews, admissions, saves, reads], [1, 1, 1, 0]);
+    reopened.dispose();reopened.remove();
+  });
+
+  it("retains ineligible completed PMTiles review limits without offering admission or reads", async () => {
+    const adapter = projectAdapter({kind: "managed"});adapter.organizationProvider=async()=>IDS.organization;
+    adapter.listPmtilesDerivatives=async()=>[{jobId:IDS.job,datasetId:IDS.dataset,datasetVersionId:IDS.version,state:"completed",cancellable:false}];
+    adapter.getPmtilesDisplayReview=async()=>({...pmtilesDisplayReview(),eligible:false,tileLayers:[]});
+    adapter.admitPmtilesDisplayReview=async()=>{throw Error("Ineligible output must not be admitted");};
+    const page=mountPage(adapter,{startPanel:"processing"});await waitFor(()=>findButton(page,"Review tiled display"));clickButton(page,"Review tiled display");
+    await waitFor(()=>page.textContent.includes("not eligible for map display"));
+    assert.equal(findButton(page,"Admit tiled display"),null);assert.match(page.textContent,/Source-record preservation has not been verified/);
+    page.dispose();page.remove();
+  });
+
+  it("discards a PMTiles review after its selected Layer identity changes", async () => {
+    const adapter=projectAdapter({kind:"managed"});adapter.organizationProvider=async()=>IDS.organization;let release;
+    adapter.listPmtilesDerivatives=async()=>[{jobId:IDS.job,datasetId:IDS.dataset,datasetVersionId:IDS.version,state:"completed",cancellable:false}];
+    adapter.getPmtilesDisplayReview=()=>new Promise(resolve=>{release=resolve;});
+    const page=mountPage(adapter,{startPanel:"processing"});await waitFor(()=>findButton(page,"Review tiled display"));clickButton(page,"Review tiled display");await waitFor(()=>release);
+    page.querySelector(".opengeo-workbench").__opengeoLayers[0].sourceVersion=99;release(pmtilesDisplayReview());
+    await waitFor(()=>page.textContent.includes("selected Layer or saved dataset version changed"));assert.equal(findButton(page,"Admit tiled display"),null);
+    page.dispose();page.remove();
+  });
+
+  it("loads only the active saved Layer metadata outside the first100 Catalog records", async () => {
+    const adapter=projectAdapter({kind:"managed"});adapter.organizationProvider=async()=>IDS.organization;
+    const target=(await adapter.listDatasets())[0];let metadataReads=0,catalogReads=0;
+    adapter.listDatasets=async(project,options)=>{catalogReads++;assert.equal(options.limit,100);return Array.from({length:100},(_,index)=>({...target,id:`20000000-0000-4000-8000-${String(index).padStart(12,"0")}`}));};
+    adapter.getDataset=async(project,id,options)=>{metadataReads++;assert.deepEqual([project,id],[IDS.project,IDS.dataset]);assert.ok(options.signal);return target;};
+    adapter.listPmtilesDerivatives=async(project,id,version)=>{assert.deepEqual([project,id,version],[IDS.project,IDS.dataset,IDS.version]);return[{jobId:IDS.job,datasetId:IDS.dataset,datasetVersionId:IDS.version,state:"completed",cancellable:false}];};
+    adapter.getPmtilesDisplayReview=async()=>pmtilesDisplayReview();
+    const page=mountPage(adapter,{startPanel:"processing"});await waitFor(()=>findButton(page,"Review tiled display"));
+    selectFieldValue(page,"Tool","vector-to-pmtiles");
+    assert.doesNotMatch(page.querySelector(".gis-pmtiles-derivative-editor").textContent,/active managed vector upload/);
+    assert.equal(findButton(page,"Queue on-demand conversion").disabled,false);
+    page.querySelector(".opengeo-workbench").dispatchEvent(new harness.dom.window.Event("workbench:render"));
+    await new Promise(resolve=>setTimeout(resolve,0));assert.deepEqual([metadataReads,catalogReads],[1,1]);
+    page.dispose();page.remove();
+  });
+
+  it("retains a failed active Layer metadata lookup without an automatic retry", async () => {
+    const adapter=projectAdapter({kind:"managed"});adapter.organizationProvider=async()=>IDS.organization;let metadataReads=0;
+    adapter.listDatasets=async()=>[];adapter.getDataset=async()=>{metadataReads++;throw Error("unavailable");};
+    const page=mountPage(adapter,{startPanel:"processing"});await waitFor(()=>findButton(page,"Retry selected Layer metadata"));
+    page.querySelector(".opengeo-workbench").dispatchEvent(new harness.dom.window.Event("workbench:render"));await new Promise(resolve=>setTimeout(resolve,0));
+    assert.equal(metadataReads,1);assert.equal(findButton(page,"Review tiled display"),null);assert.match(page.textContent,/metadata is unavailable/);
+    page.dispose();page.remove();
+  });
+
+  it("never queues the current dataset head for a Layer pinned to an older saved version", async () => {
+    const adapter=projectAdapter({kind:"managed"}), saved=(await adapter.listMaps())[0];
+    saved.definition.layers[0].datasetVersionId="10000000-0000-4000-8000-000000000099";saved.definition.layers[0].sourceVersion=3;
+    adapter.listMaps=async()=>[saved];adapter.organizationProvider=async()=>IDS.organization;
+    const pinned=saved.definition.layers[0].datasetVersionId;let historyReads=0,reviewReads=0;
+    adapter.listPmtilesDerivatives=async(project,dataset,version)=>{assert.deepEqual([project,dataset,version],[IDS.project,IDS.dataset,pinned]);historyReads++;return[{jobId:IDS.job,datasetId:IDS.dataset,datasetVersionId:pinned,state:"completed",cancellable:false}];};
+    adapter.getPmtilesDisplayReview=async(project,dataset,version,job)=>{assert.deepEqual([project,dataset,version,job],[IDS.project,IDS.dataset,pinned,IDS.job]);reviewReads++;return{...pmtilesDisplayReview(),datasetVersionId:pinned};};
+    adapter.admitPmtilesDisplayReview=async(project,dataset,version,job)=>({jobId:job,datasetId:dataset,datasetVersionId:version,displayId:job,reviewSha256:"a".repeat(64)});
+    const page=mountPage(adapter,{startPanel:"processing"});await waitFor(()=>findButton(page,"Review tiled display"));
+    selectFieldValue(page,"Tool","vector-to-pmtiles");
+    assert.match(page.querySelector(".gis-pmtiles-derivative-editor").textContent,/pins a different saved dataset version/);
+    assert.equal(findButton(page,"Queue on-demand conversion"),null);assert.equal(adapter.calls.createPmtiles.length,0);
+    clickButton(page,"Review tiled display");await waitFor(()=>findButton(page,"Admit tiled display"));
+    for (const [label,value] of [["Tiled display title","Pinned tiles"],["Display rights basis","Retained source rights"],["Display attribution","Original source"]]) {const input=page.querySelector(`[aria-label="${label}"]`);input.value=value;input.dispatchEvent(new harness.dom.window.Event("input",{bubbles:true}));}
+    const ack=[...page.querySelectorAll("label")].find(label=>label.textContent.includes("I reviewed the conversion limits")).querySelector("input");ack.checked=true;ack.dispatchEvent(new harness.dom.window.Event("change",{bubbles:true}));
+    clickButton(page,"Admit tiled display");await waitFor(()=>findButton(page,"Choose admitted tiled display"));clickButton(page,"Choose admitted tiled display");
+    assert.equal(page.querySelector(".opengeo-workbench").__opengeoLayers[0].datasetVersionId,pinned);
+    assert.equal(page.querySelector(".opengeo-workbench").__opengeoLayers[0].sourceVersion,3);assert.equal(page.querySelector(".opengeo-workbench").__opengeoLayers[0].managedDisplayId,IDS.job);
+    assert.deepEqual([historyReads,reviewReads],[1,1]);assert.equal(adapter.calls.createPmtiles.length,0);
+    page.dispose();page.remove();
+  });
+
 });
 
 function mountPage(adapter, options = {}) {
@@ -726,9 +976,12 @@ function installDom() {
   const dom = new JSDOM("<!doctype html><html><body></body></html>", {
     url: `https://studio.opengeo.tools/workspaces?project=${IDS.project}`
   });
+  dom.window.HTMLDialogElement.prototype.showModal = function () {this.open = true;};
+  dom.window.HTMLDialogElement.prototype.close = function () {this.open = false;};
   const media = {matches: false, addEventListener() {}, removeEventListener() {}};
   const replacements = {
     document: dom.window.document,
+    Option: dom.window.Option,
     location: dom.window.location,
     history: dom.window.history,
     sessionStorage: dom.window.sessionStorage,
@@ -757,3 +1010,5 @@ function installDom() {
     }
   };
 }
+
+function pmtilesDisplayReview() {return {jobId: IDS.job, datasetId: IDS.dataset, datasetVersionId: IDS.version, reviewSha256: "a".repeat(64), downloadBytes: 14855, minZoom: 0, maxZoom: 12, reportedFragmentCount: 6, eligible: true, tileLayers: [], conversionLimits: {geometry: "Tile geometry may be clipped or simplified.", attributes: "Properties may be omitted or normalized.", featureIds: "Source row identities are not retained."}};}

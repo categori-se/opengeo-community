@@ -1,5 +1,6 @@
+import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, Decimal
 from hashlib import sha256
@@ -25,6 +26,7 @@ from opengeo_api.ingestion import (
     UploadDatasetFormat,
 )
 from opengeo_api.json_canonical import canonical_json_bytes
+from opengeo_api.pmtiles_options import normalize_pmtiles_options
 from opengeo_api.tenant_database import (
     TenantContext,
     TenantDatabaseConflict,
@@ -47,6 +49,22 @@ MAX_FEATURE_COPY_PAGE_SIZE = 2_000
 MAX_FEATURE_COPY_REQUESTS = 64
 PMTILES_DERIVATIVE_REQUEST_SCHEMA = "opengeo.pmtiles-derivative-request.1.0.0"
 PMTILES_DERIVATIVE_RECIPE = "gdal-pmtiles-v1"
+PMTILES_CONFIGURABLE_REQUEST_SCHEMA = "opengeo.pmtiles-derivative-request.1.1.0"
+PMTILES_CONFIGURABLE_RECIPE = "gdal-pmtiles-v2"
+PMTILES_ADMISSION_REASONS = frozenset(
+    {
+        "ready",
+        "runtime_not_configured",
+        "runtime_not_ready",
+        "runtime_disabled",
+        "runtime_window_active",
+        "runtime_limits_invalid",
+        "runtime_budget_exhausted",
+        "runtime_job_pending",
+        "runtime_binding_changed",
+        "runtime_status_unavailable",
+    }
+)
 ESTIMATE_LIFETIME = timedelta(minutes=30)
 _STORAGE_USD_PER_GB_MONTH = Decimal("0.023")
 _PUT_REQUEST_USD = Decimal("0.000005")
@@ -203,6 +221,8 @@ class PmtilesDerivativeRequest:
     maximum_zoom: int
     source_layer: str
     idempotency_key: UUID
+    options: dict[str, Any] | None = None
+    worker_image_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,6 +248,8 @@ class PmtilesDerivativeJob:
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+    options: dict[str, Any] | None = None
+    worker_image_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,6 +322,8 @@ class PmtilesDerivativeSubmission:
 
 
 class DataPreservationRepository(Protocol):
+    async def pmtiles_admission_status(self, context: TenantContext) -> dict[str, bool | str]: ...
+
     async def create_copy_estimate(
         self,
         context: TenantContext,
@@ -451,10 +475,48 @@ class PostgresDataPreservationRepository:
         destination_bucket: str | None,
         *,
         now: Callable[[], datetime] | None = None,
+        pmtiles_worker_image_digest: str | None = None,
+        pmtiles_input_formats: frozenset[str] = frozenset({"geojson"}),
+        pmtiles_queue_url: str | None = None,
     ) -> None:
         self._executor = executor
         self._destination_bucket = destination_bucket
         self._now = now or (lambda: datetime.now(UTC))
+        if (
+            pmtiles_worker_image_digest is not None
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", pmtiles_worker_image_digest) is None
+        ):
+            raise ValueError("Invalid PMTiles worker image digest")
+        self._pmtiles_worker_image_digest = pmtiles_worker_image_digest
+        self._pmtiles_input_formats = pmtiles_input_formats
+        self._pmtiles_queue_url = pmtiles_queue_url
+
+    async def _pmtiles_admission(
+        self, transaction: TenantTransaction, *, lock: bool
+    ) -> dict[str, bool | str]:
+        row = await transaction.fetch_one(
+            "SELECT app.pmtiles_v2_admission(%s, %s, %s)",
+            (self._pmtiles_worker_image_digest, self._pmtiles_queue_url, lock),
+        )
+        value = row[0] if row else None
+        if (
+            not isinstance(value, dict)
+            or type(value.get("ready")) is not bool
+            or not isinstance(value.get("reason"), str)
+            or value.get("reason") not in PMTILES_ADMISSION_REASONS
+            or value["ready"] != (value["reason"] == "ready")
+        ):
+            raise DataPreservationStoreUnavailable("PMTiles admission status is unavailable")
+        return cast(dict[str, bool | str], value)
+
+    async def pmtiles_admission_status(self, context: TenantContext) -> dict[str, bool | str]:
+        if self._pmtiles_worker_image_digest is None or self._pmtiles_queue_url is None:
+            return {"ready": False, "reason": "runtime_not_configured"}
+
+        async def operation(transaction: TenantTransaction) -> dict[str, bool | str]:
+            return await self._pmtiles_admission(transaction, lock=False)
+
+        return await self._run(context, operation)
 
     async def _run(
         self,
@@ -1227,15 +1289,30 @@ class PostgresDataPreservationRepository:
         request: PmtilesDerivativeRequest,
         request_id: str,
     ) -> PmtilesDerivativeSubmission:
+        options = (
+            normalize_pmtiles_options(request.options) if request.options is not None else None
+        )
+        if options is not None and self._pmtiles_worker_image_digest is None:
+            raise DataPreservationStoreUnavailable("PMTiles v2 runtime image is not configured")
+        request = replace(
+            request,
+            options=options,
+            worker_image_digest=self._pmtiles_worker_image_digest if options is not None else None,
+        )
+
         async def operation(transaction: TenantTransaction) -> PmtilesDerivativeSubmission:
             access = await self._dataset_access(transaction, context, project_id, dataset_id)
             self._require(Action.PROJECT_DATASETS_MANAGE, access.roles)
+            if options is not None and access.format not in self._pmtiles_input_formats:
+                raise DataPreservationConflict("pmtiles_derivative_source_format_unavailable")
             source = await self._load_pmtiles_source(
                 transaction,
                 context,
+                project_id,
                 dataset_id,
                 dataset_version_id,
                 access,
+                allow_preserved=options is not None,
             )
             checksum = pmtiles_derivative_request_checksum(
                 project_id=project_id,
@@ -1273,6 +1350,10 @@ class PostgresDataPreservationRepository:
                 if job.request_checksum_sha256 != checksum:
                     raise DataPreservationConflict("pmtiles_derivative_idempotency_conflict")
                 return PmtilesDerivativeSubmission(job, job.state == "queued")
+            if options is not None:
+                admission = await self._pmtiles_admission(transaction, lock=True)
+                if not admission["ready"]:
+                    raise DataPreservationConflict("pmtiles_derivative_" + str(admission["reason"]))
             job_id = uuid4()
             created_at = self._utc_now()
             await transaction.execute(
@@ -1281,9 +1362,10 @@ class PostgresDataPreservationRepository:
                   (id, organization_id, project_id, dataset_id,
                    dataset_version_id, source_object_id, bounds, minimum_zoom,
                    maximum_zoom, source_layer, request_checksum_sha256,
-                   idempotency_key, request_id, created_by, created_at)
+                   idempotency_key, request_id, created_by, created_at,
+                   conversion_options, worker_image_digest)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s)
+                        %s, %s, %s, %s, %s)
                 """,
                 (
                     job_id,
@@ -1301,6 +1383,8 @@ class PostgresDataPreservationRepository:
                     request_id,
                     context.user_id,
                     created_at,
+                    Jsonb(options) if options is not None else None,
+                    request.worker_image_digest,
                 ),
             )
             await self._event(
@@ -1339,6 +1423,8 @@ class PostgresDataPreservationRepository:
                 created_at=created_at,
                 started_at=None,
                 finished_at=None,
+                options=options,
+                worker_image_digest=request.worker_image_digest,
             )
             return PmtilesDerivativeSubmission(job, True)
 
@@ -1577,9 +1663,12 @@ class PostgresDataPreservationRepository:
         self,
         transaction: TenantTransaction,
         context: TenantContext,
+        project_id: UUID,
         dataset_id: UUID,
         dataset_version_id: UUID,
         access: _DatasetAccess,
+        *,
+        allow_preserved: bool = False,
     ) -> _PmtilesSource:
         row = await transaction.fetch_one(
             """
@@ -1599,6 +1688,16 @@ class PostgresDataPreservationRepository:
             raise DataPreservationNotFound("dataset_version")
         content_type = cast(str, row[2])
         size_bytes = cast(int, row[3])
+        # Preservation proves the immutable original, not spatial readiness. Only
+        # the separately validated v2 path can consume this jobless version.
+        if allow_preserved and row[0] == "preserved":
+            eligible = await transaction.fetch_one(
+                "SELECT app.pmtiles_preserved_original_eligible(%s, %s, %s, %s, %s)",
+                (context.organization_id, project_id, dataset_id, dataset_version_id, row[1]),
+            )
+            if eligible is None or eligible[0] is not True:
+                raise DataPreservationConflict("pmtiles_derivative_source_ineligible")
+            return _PmtilesSource(cast(UUID, row[1]), content_type, size_bytes)
         if (
             access.source_type != "upload"
             or access.status != "active"
@@ -1747,7 +1846,8 @@ class PostgresDataPreservationRepository:
                    job.request_checksum_sha256, job.idempotency_key,
                    job.state::text, job.output_object_id, job.output_size_bytes,
                    job.output_checksum_sha256, job.error_code, job.attempt_count,
-                   job.created_by, job.created_at, job.started_at, job.finished_at
+                   job.created_by, job.created_at, job.started_at, job.finished_at,
+                   job.conversion_options, job.worker_image_digest
             FROM app.pmtiles_derivative_jobs job
         """
 
@@ -1885,6 +1985,8 @@ class PostgresDataPreservationRepository:
             created_at=cast(datetime, row[18]),
             started_at=cast(datetime | None, row[19]),
             finished_at=cast(datetime | None, row[20]),
+            options=cast(dict[str, Any] | None, row[21]) if len(row) > 21 else None,
+            worker_image_digest=cast(str | None, row[22]) if len(row) > 22 else None,
         )
 
     @staticmethod
@@ -2175,10 +2277,23 @@ def pmtiles_derivative_request_canonical_bytes(
         or any(ord(character) < 32 or ord(character) == 127 for character in request.source_layer)
     ):
         raise ValueError("PMTiles derivative parameters are outside supported bounds")
+    options = normalize_pmtiles_options(request.options) if request.options is not None else None
+    if options is not None:
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,62}", request.source_layer) is None:
+            raise ValueError("PMTiles output layer must be a tile identifier")
+        if (
+            not isinstance(request.worker_image_digest, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", request.worker_image_digest) is None
+        ):
+            raise ValueError("PMTiles v2 requires a pinned worker image")
     return canonical_json_bytes(
         {
-            "schema": PMTILES_DERIVATIVE_REQUEST_SCHEMA,
-            "recipe": PMTILES_DERIVATIVE_RECIPE,
+            "schema": PMTILES_CONFIGURABLE_REQUEST_SCHEMA
+            if options is not None
+            else PMTILES_DERIVATIVE_REQUEST_SCHEMA,
+            "recipe": PMTILES_CONFIGURABLE_RECIPE
+            if options is not None
+            else PMTILES_DERIVATIVE_RECIPE,
             "project_id": str(project_id),
             "dataset_id": str(dataset_id),
             "dataset_version_id": str(dataset_version_id),
@@ -2187,6 +2302,11 @@ def pmtiles_derivative_request_canonical_bytes(
             "minimum_zoom": request.minimum_zoom,
             "maximum_zoom": request.maximum_zoom,
             "source_layer": request.source_layer,
+            **(
+                {"options": options, "worker_image_digest": request.worker_image_digest}
+                if options is not None
+                else {}
+            ),
         }
     )
 

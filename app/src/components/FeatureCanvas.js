@@ -1,4 +1,5 @@
 import maplibregl from "../lib/mapRenderer.js";
+import {canClosePolygon} from "../lib/mapAuthoringPreview.js";
 
 const CANVAS_GEOMETRIES = new Set([
   "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
@@ -825,7 +826,7 @@ export function commitVertexDragHistory(history, session, featureId) {
   });
 }
 
-export function FeatureCanvas({collection, features, initialGeometry, onGeometryChange, onSelectFeature}) {
+export function FeatureCanvas({collection, features, initialGeometry, onGeometryChange, onSelectFeature, mapEngine = maplibregl}) {
   const root = document.createElement("section");
   root.className = "project-feature-canvas";
   root.append(
@@ -941,7 +942,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     loaded: false
   };
   updatePartTargetControl();
-  const map = new maplibregl.Map({
+  const map = new mapEngine.Map({
     container: mapContainer,
     style: {
       version: 8,
@@ -953,7 +954,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     attributionControl: false,
     transformRequest: (url) => ({url, credentials: "omit"})
   });
-  map.addControl(new maplibregl.NavigationControl({showCompass: false}), "top-right");
+  map.addControl(new mapEngine.NavigationControl({showCompass: false}), "top-right");
   map.on("load", () => {
     state.loaded = true;
     addSourcesAndLayers(map);
@@ -1195,6 +1196,13 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     if (["draw", "hole", "part"].includes(state.mode)) {
       const drawingHole = state.mode === "hole";
       const drawingPart = state.mode === "part";
+      const polygon = drawingHole || componentGeometryType(collection.geometryType) === "Polygon";
+      if (polygon && !map.isMoving?.() && canClosePolygon({kind: "Polygon", coordinates: state.clicks}, event.point,
+        coordinate => map.project(coordinate), SNAP_TOLERANCE_PIXELS,
+        {width: mapContainer.clientWidth, height: mapContainer.clientHeight})) {
+        finishDraw();
+        return;
+      }
       const snapped = snappedPosition(rawPosition, drawingHole && state.selectedFeature
         ? {featureId: state.selectedFeature.id, featureOnly: true}
         : null);

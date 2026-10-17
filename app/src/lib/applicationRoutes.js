@@ -67,11 +67,12 @@ export function publicationHref(publicationId, {adapterKind = null} = {}) {
 }
 
 // Authored Project identity. The legacy project parameter remains access context.
-export function compositionHref(compositionId, {adapterKind = null} = {}) {
+export function compositionHref(compositionId, {adapterKind = null, management = null} = {}) {
   if (!UUID.test(compositionId ?? "")) throw new TypeError("Invalid composition identity");
   const query = new URLSearchParams({composition: compositionId});
   if (adapterKind === "fixture") query.set("adapter", "fixture");
-  return `/workspaces?${query}`;
+  if (management === "print") query.set("manage", "print");
+  return `/workspaces?${query}${management === "print" ? "#project-print" : ""}`;
 }
 
 export function projectHref(projectId, {

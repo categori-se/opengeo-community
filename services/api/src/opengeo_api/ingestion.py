@@ -52,6 +52,7 @@ DatasetSourceType = Literal[
     "imageserver",
     "mapserver",
     "cog",
+    "postgis",
 ]
 DatasetFormat = Literal[
     "kml",
@@ -72,6 +73,7 @@ DatasetFormat = Literal[
     "wfs",
     "imageserver",
     "mapserver",
+    "postgis",
 ]
 UploadDatasetFormat = Literal[
     "kml",
@@ -88,10 +90,11 @@ UploadDatasetFormat = Literal[
     "odt",
 ]
 DatasetStatus = Literal["draft", "processing", "active", "failed", "archived"]
-DatasetVersionState = Literal["queued", "processing", "active", "failed"]
+DatasetVersionState = Literal["queued", "processing", "active", "failed", "preserved"]
 ProcessingJobState = Literal["queued", "running", "completed", "failed", "cancelled"]
 ProjectRole = Literal["owner", "editor", "reviewer", "viewer"]
 UploadIntentState = Literal["pending", "completed"]
+UploadPurpose = Literal["ingest", "pmtiles_original"]
 
 
 class IngestionStoreUnavailable(RuntimeError):
@@ -112,6 +115,16 @@ class IngestionConflict(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+class IngestionProcessingHeld(RuntimeError):
+    def __init__(self, purpose: UploadPurpose) -> None:
+        self.code = (
+            "shared_worker_processing_held"
+            if purpose == "ingest"
+            else "pmtiles_original_preservation_held"
+        )
+        super().__init__(self.code)
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +198,7 @@ class UploadDraft:
     size_bytes: int
     checksum_sha256: str
     tags: tuple[str, ...]
+    purpose: UploadPurpose = "ingest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,6 +227,7 @@ class UploadIntent:
     expires_at: datetime
     completed_object_id: UUID | None
     staged_base_version_id: UUID | None = None
+    purpose: UploadPurpose = "ingest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,6 +235,7 @@ class UploadTicket:
     upload_id: UUID
     dataset: Dataset
     upload: UploadForm
+    purpose: UploadPurpose = "ingest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,8 +243,9 @@ class UploadCompletion:
     dataset: Dataset
     dataset_version_id: UUID
     version_number: int
-    processing_job_id: UUID
-    processing_job_state: ProcessingJobState
+    processing_job_id: UUID | None
+    processing_job_state: ProcessingJobState | None
+    purpose: UploadPurpose = "ingest"
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +374,7 @@ class IngestionRepository(Protocol):
         request_id: str,
         *,
         staged_target: tuple[UUID, UUID] | None = None,
+        allowed_purposes: frozenset[UploadPurpose] = frozenset({"ingest"}),
     ) -> UploadTicket: ...
 
     async def renew_upload(
@@ -365,6 +383,8 @@ class IngestionRepository(Protocol):
         project_id: UUID,
         upload_id: UUID,
         request_id: str,
+        *,
+        allowed_purposes: frozenset[UploadPurpose] = frozenset({"ingest"}),
     ) -> UploadTicket: ...
 
     async def complete_upload(
@@ -373,6 +393,8 @@ class IngestionRepository(Protocol):
         project_id: UUID,
         upload_id: UUID,
         request_id: str,
+        *,
+        allowed_purposes: frozenset[UploadPurpose] = frozenset({"ingest"}),
     ) -> UploadCompletion: ...
 
     async def register_repository_object(
@@ -1410,6 +1432,28 @@ class PostgresIngestionRepository:
             raise IngestionConflict("staged_upload_base_changed")
         return dataset
 
+    @staticmethod
+    def _require_upload_purpose(
+        purpose: UploadPurpose, allowed_purposes: frozenset[UploadPurpose]
+    ) -> None:
+        if purpose not in allowed_purposes:
+            raise IngestionProcessingHeld(purpose)
+
+    @staticmethod
+    def _check_preservation_target(
+        dataset: Dataset, *, content_type: str, size_bytes: int, staged: bool
+    ) -> None:
+        if (
+            staged
+            or dataset.source_type != "upload"
+            or dataset.format != "geojson"
+            or content_type != "application/geo+json"
+            or not 1 <= size_bytes <= 512 * 1024 * 1024
+        ):
+            raise IngestionConflict("pmtiles_original_upload_unsupported")
+        if dataset.status != "draft" or dataset.current_version_id is not None:
+            raise IngestionConflict("upload_dataset_changed")
+
     async def request_upload(
         self,
         context: TenantContext,
@@ -1418,7 +1462,17 @@ class PostgresIngestionRepository:
         request_id: str,
         *,
         staged_target: tuple[UUID, UUID] | None = None,
+        allowed_purposes: frozenset[UploadPurpose] = frozenset({"ingest"}),
     ) -> UploadTicket:
+        self._require_upload_purpose(draft.purpose, allowed_purposes)
+        if draft.purpose == "pmtiles_original" and (
+            staged_target is not None
+            or draft.format != "geojson"
+            or draft.content_type != "application/geo+json"
+            or not 1 <= draft.size_bytes <= 512 * 1024 * 1024
+        ):
+            raise IngestionConflict("pmtiles_original_upload_unsupported")
+
         async def preauthorize(transaction: TenantTransaction) -> None:
             roles = await self._project_roles(transaction, context, project_id)
             self._require(Action.DATASET_UPLOAD, roles)
@@ -1539,8 +1593,9 @@ class PostgresIngestionRepository:
                 INSERT INTO app.upload_intents
                   (id, organization_id, project_id, dataset_id, created_by,
                    original_filename, content_type, expected_size_bytes,
-                   expected_sha256, bucket, object_key, expires_at, staged_base_version_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   expected_sha256, bucket, object_key, expires_at, staged_base_version_id,
+                   purpose)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     registration.upload_id,
@@ -1556,6 +1611,7 @@ class PostgresIngestionRepository:
                     registration.object_key,
                     registration.expires_at,
                     staged_target[1] if staged_target else None,
+                    draft.purpose,
                 ),
             )
             await self._record_event(
@@ -1569,6 +1625,7 @@ class PostgresIngestionRepository:
                     "upload_id": str(registration.upload_id),
                     "format": draft.format,
                     "expected_size_bytes": draft.size_bytes,
+                    "purpose": draft.purpose,
                 },
             )
             return await self._load_dataset(
@@ -1576,7 +1633,9 @@ class PostgresIngestionRepository:
             )
 
         dataset = await self._run(context, create)
-        return UploadTicket(upload_id=upload_id, dataset=dataset, upload=upload_form)
+        return UploadTicket(
+            upload_id=upload_id, dataset=dataset, upload=upload_form, purpose=draft.purpose
+        )
 
     async def renew_upload(
         self,
@@ -1584,6 +1643,8 @@ class PostgresIngestionRepository:
         project_id: UUID,
         upload_id: UUID,
         request_id: str,
+        *,
+        allowed_purposes: frozenset[UploadPurpose] = frozenset({"ingest"}),
     ) -> UploadTicket:
         async def authorize(
             transaction: TenantTransaction,
@@ -1597,6 +1658,7 @@ class PostgresIngestionRepository:
             )
             if intent.state != "pending":
                 raise IngestionConflict("upload_already_completed")
+            self._require_upload_purpose(intent.purpose, allowed_purposes)
             if intent.bucket != self._storage.bucket:
                 raise IngestionConflict("upload_storage_changed")
             if intent.staged_base_version_id:
@@ -1611,6 +1673,13 @@ class PostgresIngestionRepository:
             dataset = await self._load_dataset(
                 transaction, context, project_id, intent.dataset_id, roles=roles
             )
+            if intent.purpose == "pmtiles_original":
+                self._check_preservation_target(
+                    dataset,
+                    content_type=intent.content_type,
+                    size_bytes=intent.expected_size_bytes,
+                    staged=intent.staged_base_version_id is not None,
+                )
             if not intent.staged_base_version_id and dataset.status != "draft":
                 raise IngestionConflict("upload_dataset_changed")
             return intent, dataset
@@ -1648,7 +1717,9 @@ class PostgresIngestionRepository:
             return dataset
 
         dataset = await self._run(context, renew)
-        return UploadTicket(upload_id=upload_id, dataset=dataset, upload=form)
+        return UploadTicket(
+            upload_id=upload_id, dataset=dataset, upload=form, purpose=intent.purpose
+        )
 
     async def complete_upload(
         self,
@@ -1656,6 +1727,8 @@ class PostgresIngestionRepository:
         project_id: UUID,
         upload_id: UUID,
         request_id: str,
+        *,
+        allowed_purposes: frozenset[UploadPurpose] = frozenset({"ingest"}),
     ) -> UploadCompletion:
         async def load(transaction: TenantTransaction) -> UploadIntent:
             roles = await self._project_roles(transaction, context, project_id)
@@ -1663,6 +1736,18 @@ class PostgresIngestionRepository:
             intent = await self._load_upload_intent(
                 transaction, context, project_id, upload_id, lock=False
             )
+            if intent.state != "completed":
+                self._require_upload_purpose(intent.purpose, allowed_purposes)
+                if intent.purpose == "pmtiles_original":
+                    dataset = await self._load_dataset(
+                        transaction, context, project_id, intent.dataset_id, roles=roles
+                    )
+                    self._check_preservation_target(
+                        dataset,
+                        content_type=intent.content_type,
+                        size_bytes=intent.expected_size_bytes,
+                        staged=intent.staged_base_version_id is not None,
+                    )
             if intent.state != "completed" and intent.staged_base_version_id:
                 await self._check_staged_target(
                     transaction,
@@ -1677,7 +1762,7 @@ class PostgresIngestionRepository:
         intent = await self._run(context, load)
         if intent.state == "completed":
             return await self._existing_completion(
-                context, project_id, intent.dataset_id, intent.completed_object_id
+                context, project_id, intent.dataset_id, intent.completed_object_id, intent.purpose
             )
         if intent.expires_at <= datetime.now(UTC):
             raise IngestionConflict("upload_expired")
@@ -1698,7 +1783,9 @@ class PostgresIngestionRepository:
                     locked.dataset_id,
                     original_object_id=locked.completed_object_id,
                     roles=roles,
+                    purpose=locked.purpose,
                 )
+            self._require_upload_purpose(locked.purpose, allowed_purposes)
             expiry = await transaction.fetch_one(
                 "SELECT expires_at > clock_timestamp() FROM app.upload_intents WHERE id = %s",
                 (upload_id,),
@@ -1715,6 +1802,16 @@ class PostgresIngestionRepository:
                 """,
                 (context.organization_id, locked.dataset_id),
             )
+            if locked.purpose == "pmtiles_original":
+                dataset = await self._load_dataset(
+                    transaction, context, project_id, locked.dataset_id, roles=roles
+                )
+                self._check_preservation_target(
+                    dataset,
+                    content_type=locked.content_type,
+                    size_bytes=locked.expected_size_bytes,
+                    staged=locked.staged_base_version_id is not None,
+                )
             if locked.staged_base_version_id:
                 await self._check_staged_target(
                     transaction,
@@ -1737,7 +1834,7 @@ class PostgresIngestionRepository:
             version_number = cast(int, version_row[0])
             object_id = uuid4()
             version_id = uuid4()
-            job_id = uuid4()
+            job_id = uuid4() if locked.purpose == "ingest" else None
             await transaction.execute(
                 """
                 INSERT INTO app.data_objects
@@ -1765,7 +1862,8 @@ class PostgresIngestionRepository:
                 INSERT INTO app.dataset_versions
                   (id, organization_id, dataset_id, version_number,
                    original_object_id, state, change_message, created_by, parent_version_id)
-                VALUES (%s, %s, %s, %s, %s, 'queued', 'Uploaded data version', %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s::app.dataset_version_state,
+                        %s, %s, %s)
                 """,
                 (
                     version_id,
@@ -1773,11 +1871,17 @@ class PostgresIngestionRepository:
                     locked.dataset_id,
                     version_number,
                     object_id,
+                    "preserved" if locked.purpose == "pmtiles_original" else "queued",
+                    (
+                        "Preserved original for PMTiles conversion"
+                        if locked.purpose == "pmtiles_original"
+                        else "Uploaded data version"
+                    ),
                     context.user_id,
                     locked.staged_base_version_id,
                 ),
             )
-            if locked.staged_base_version_id is None:
+            if locked.purpose == "ingest" and locked.staged_base_version_id is None:
                 await transaction.execute(
                     """
                     UPDATE app.datasets
@@ -1795,29 +1899,42 @@ class PostgresIngestionRepository:
                 """,
                 (object_id, context.organization_id, upload_id),
             )
-            await transaction.execute(
-                """
-                INSERT INTO app.processing_jobs
+            if locked.purpose == "pmtiles_original":
+                updated = await transaction.execute(
+                    """
+                    UPDATE app.datasets
+                    SET current_version_id = %s, updated_by = %s
+                    WHERE organization_id = %s AND id = %s AND status = 'draft'
+                      AND current_version_id IS NULL
+                    """,
+                    (version_id, context.user_id, context.organization_id, locked.dataset_id),
+                )
+                if updated != 1:
+                    raise IngestionConflict("upload_dataset_changed")
+            else:
+                await transaction.execute(
+                    """
+                    INSERT INTO app.processing_jobs
                   (id, organization_id, project_id, dataset_id, dataset_version_id,
                    job_type, parameters, created_by)
                 VALUES (%s, %s, %s, %s, %s, 'dataset.ingest', %s, %s)
-                """,
-                (
-                    job_id,
-                    context.organization_id,
-                    project_id,
-                    locked.dataset_id,
-                    version_id,
-                    Jsonb(
-                        {
-                            "upload_id": str(upload_id),
-                            "object_id": str(object_id),
-                            "s3_version_id": stored.version_id,
-                        }
+                    """,
+                    (
+                        job_id,
+                        context.organization_id,
+                        project_id,
+                        locked.dataset_id,
+                        version_id,
+                        Jsonb(
+                            {
+                                "upload_id": str(upload_id),
+                                "object_id": str(object_id),
+                                "s3_version_id": stored.version_id,
+                            }
+                        ),
+                        context.user_id,
                     ),
-                    context.user_id,
-                ),
-            )
+                )
             await self._record_event(
                 transaction,
                 context,
@@ -1829,13 +1946,21 @@ class PostgresIngestionRepository:
                     "upload_id": str(upload_id),
                     "dataset_version_id": str(version_id),
                     "version_number": version_number,
-                    "processing_job_id": str(job_id),
+                    "processing_job_id": str(job_id) if job_id else None,
+                    "purpose": locked.purpose,
                 },
             )
             dataset = await self._load_dataset(
                 transaction, context, project_id, locked.dataset_id, roles=roles
             )
-            return UploadCompletion(dataset, version_id, version_number, job_id, "queued")
+            return UploadCompletion(
+                dataset,
+                version_id,
+                version_number,
+                job_id,
+                "queued" if job_id else None,
+                locked.purpose,
+            )
 
         return await self._run(context, complete)
 
@@ -1845,6 +1970,7 @@ class PostgresIngestionRepository:
         project_id: UUID,
         dataset_id: UUID,
         original_object_id: UUID | None,
+        purpose: UploadPurpose,
     ) -> UploadCompletion:
         async def operation(transaction: TenantTransaction) -> UploadCompletion:
             roles = await self._project_roles(transaction, context, project_id)
@@ -1856,6 +1982,7 @@ class PostgresIngestionRepository:
                 dataset_id,
                 original_object_id=original_object_id,
                 roles=roles,
+                purpose=purpose,
             )
 
         return await self._run(context, operation)
@@ -1869,6 +1996,7 @@ class PostgresIngestionRepository:
         *,
         roles: Roles,
         original_object_id: UUID | None,
+        purpose: UploadPurpose,
     ) -> UploadCompletion:
         if original_object_id is None:
             raise IngestionStoreUnavailable("completed upload has no original object")
@@ -1876,27 +2004,29 @@ class PostgresIngestionRepository:
             transaction, context, project_id, dataset_id, roles=roles
         )
         row = await transaction.fetch_one(
-            """
+            f"""
             SELECT version.id, version.version_number, job.id, job.state::text
             FROM app.dataset_versions version
-            JOIN app.processing_jobs job
+            {"LEFT JOIN" if purpose == "pmtiles_original" else "JOIN"} app.processing_jobs job
               ON job.organization_id = version.organization_id
              AND job.dataset_version_id = version.id
              AND job.job_type = 'dataset.ingest'
             WHERE version.organization_id = %s
               AND version.dataset_id = %s
               AND version.original_object_id = %s
+              {"AND version.state::text = 'preserved'" if purpose == "pmtiles_original" else ""}
             """,
             (context.organization_id, dataset_id, original_object_id),
         )
-        if row is None:
-            raise IngestionStoreUnavailable("completed upload has no ingestion job")
+        if row is None or (purpose == "pmtiles_original" and row[2] is not None):
+            raise IngestionStoreUnavailable("completed upload has no matching completion")
         return UploadCompletion(
             dataset=dataset,
             dataset_version_id=cast(UUID, row[0]),
             version_number=cast(int, row[1]),
-            processing_job_id=cast(UUID, row[2]),
-            processing_job_state=cast(ProcessingJobState, row[3]),
+            processing_job_id=cast(UUID | None, row[2]),
+            processing_job_state=cast(ProcessingJobState | None, row[3]),
+            purpose=purpose,
         )
 
     async def _load_upload_intent(
@@ -1912,7 +2042,7 @@ class PostgresIngestionRepository:
             f"""
             SELECT id, dataset_id, project_id, object_key, bucket, original_filename,
                    content_type, expected_size_bytes, expected_sha256, state::text,
-                   expires_at, completed_object_id, staged_base_version_id
+                   expires_at, completed_object_id, purpose, staged_base_version_id
             FROM app.upload_intents
             WHERE organization_id = %s AND project_id = %s AND id = %s
             {"FOR UPDATE" if lock else ""}
@@ -1934,7 +2064,8 @@ class PostgresIngestionRepository:
             state=cast(UploadIntentState, row[9]),
             expires_at=cast(datetime, row[10]),
             completed_object_id=cast(UUID | None, row[11]),
-            staged_base_version_id=cast(UUID | None, row[12]),
+            purpose=cast(UploadPurpose, row[12]),
+            staged_base_version_id=cast(UUID | None, row[13]),
         )
 
     async def _load_dataset(

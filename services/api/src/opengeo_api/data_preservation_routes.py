@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 from collections.abc import Awaitable
 from datetime import datetime
 from decimal import Decimal
@@ -40,6 +41,7 @@ from opengeo_api.data_preservation import (
 )
 from opengeo_api.ingestion import DatasetClassification, Page, ProcessingJobState
 from opengeo_api.logging import get_request_id
+from opengeo_api.pmtiles_options import normalize_pmtiles_options
 from opengeo_api.processing_dispatch import (
     ExternalSourceSnapshotDispatcher,
     PmtilesDerivativeDispatcher,
@@ -181,6 +183,12 @@ class CreatePmtilesDerivativeRequest(RequestModel):
     min_zoom: int = Field(ge=0, le=22)
     max_zoom: int = Field(ge=0, le=22)
     source_layer: SourceLayer
+    options: dict[str, Any] | None = None
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def normalize_options(cls, value: object) -> dict[str, Any] | None:
+        return normalize_pmtiles_options(value) if value is not None else None
 
     @field_validator("bounds", mode="after")
     @classmethod
@@ -198,6 +206,11 @@ class CreatePmtilesDerivativeRequest(RequestModel):
     def validate_zoom_range(self) -> "CreatePmtilesDerivativeRequest":
         if self.min_zoom > self.max_zoom:
             raise ValueError("min_zoom must not exceed max_zoom")
+        if (
+            self.options is not None
+            and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,62}", self.source_layer) is None
+        ):
+            raise ValueError("source_layer must be a supported output tile identifier")
         return self
 
 
@@ -314,10 +327,8 @@ class RepositoryProtectedCopyResponse(BaseModel):
     cancellable: bool
 
 
-class PmtilesDerivativeResponse(BaseModel):
-    schema_version: Literal["opengeo.pmtiles-derivative-job.1.0.0"] = (
-        "opengeo.pmtiles-derivative-job.1.0.0"
-    )
+class _PmtilesDerivativeResponseFields(BaseModel):
+    schema_version: str = "opengeo.pmtiles-derivative-job.1.0.0"
     job_id: UUID
     project_id: UUID
     dataset_id: UUID
@@ -340,6 +351,21 @@ class PmtilesDerivativeResponse(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     cancellable: bool
+
+
+class PmtilesDerivativeResponse(_PmtilesDerivativeResponseFields):
+    schema_version: Literal["opengeo.pmtiles-derivative-job.1.0.0"] = (
+        "opengeo.pmtiles-derivative-job.1.0.0"
+    )
+
+
+class ConfigurablePmtilesDerivativeResponse(_PmtilesDerivativeResponseFields):
+    schema_version: Literal["opengeo.pmtiles-derivative-job.1.1.0"] = (
+        "opengeo.pmtiles-derivative-job.1.1.0"
+    )
+    recipe: Literal["gdal-pmtiles-v2"] = "gdal-pmtiles-v2"
+    options: dict[str, Any]
+    worker_image_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
 def repository_from_request(request: Request) -> DataPreservationRepository:
@@ -688,7 +714,7 @@ async def cancel_repository_protected_copy(
 @router.post(
     "/projects/{project_id}/datasets/{dataset_id}/versions/"
     "{dataset_version_id}/pmtiles-derivatives",
-    response_model=PmtilesDerivativeResponse,
+    response_model=PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
 async def create_pmtiles_derivative(
@@ -699,7 +725,10 @@ async def create_pmtiles_derivative(
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[DataPreservationRepository, Depends(repository_from_request)],
     dispatcher: Annotated[PmtilesDerivativeDispatcher, Depends(pmtiles_dispatcher_from_request)],
-) -> PmtilesDerivativeResponse:
+) -> PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse:
+    recipe = "gdal-pmtiles-v2" if payload.options is not None else "gdal-pmtiles-v1"
+    if not dispatcher.supports_recipe(recipe):
+        raise HTTPException(status_code=503, detail="pmtiles_derivative_recipe_unavailable")
     submission = await execute_preservation(
         repository.request_pmtiles_derivative(
             tenant_context(session),
@@ -712,6 +741,7 @@ async def create_pmtiles_derivative(
                 maximum_zoom=payload.max_zoom,
                 source_layer=payload.source_layer,
                 idempotency_key=payload.idempotency_key,
+                options=payload.options,
             ),
             get_request_id(),
         )
@@ -730,7 +760,7 @@ async def create_pmtiles_derivative(
 @router.get(
     "/projects/{project_id}/datasets/{dataset_id}/versions/"
     "{dataset_version_id}/pmtiles-derivatives",
-    response_model=list[PmtilesDerivativeResponse],
+    response_model=list[PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse],
 )
 async def list_pmtiles_derivatives(
     project_id: UUID,
@@ -739,7 +769,7 @@ async def list_pmtiles_derivatives(
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[DataPreservationRepository, Depends(repository_from_request)],
     page: PageDependency,
-) -> list[PmtilesDerivativeResponse]:
+) -> list[PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse]:
     records = await execute_preservation(
         repository.list_pmtiles_derivatives(
             tenant_context(session), project_id, dataset_id, dataset_version_id, page
@@ -751,7 +781,7 @@ async def list_pmtiles_derivatives(
 @router.get(
     "/projects/{project_id}/datasets/{dataset_id}/versions/"
     "{dataset_version_id}/pmtiles-derivatives/{job_id}",
-    response_model=PmtilesDerivativeResponse,
+    response_model=PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse,
 )
 async def get_pmtiles_derivative(
     project_id: UUID,
@@ -760,7 +790,7 @@ async def get_pmtiles_derivative(
     job_id: UUID,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[DataPreservationRepository, Depends(repository_from_request)],
-) -> PmtilesDerivativeResponse:
+) -> PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse:
     record = await execute_preservation(
         repository.get_pmtiles_derivative(
             tenant_context(session), project_id, dataset_id, dataset_version_id, job_id
@@ -772,7 +802,7 @@ async def get_pmtiles_derivative(
 @router.post(
     "/projects/{project_id}/datasets/{dataset_id}/versions/"
     "{dataset_version_id}/pmtiles-derivatives/{job_id}/cancel",
-    response_model=PmtilesDerivativeResponse,
+    response_model=PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse,
 )
 async def cancel_pmtiles_derivative(
     project_id: UUID,
@@ -781,7 +811,7 @@ async def cancel_pmtiles_derivative(
     job_id: UUID,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[DataPreservationRepository, Depends(repository_from_request)],
-) -> PmtilesDerivativeResponse:
+) -> PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse:
     record = await execute_preservation(
         repository.cancel_pmtiles_derivative(
             tenant_context(session),
@@ -908,8 +938,10 @@ def repository_protected_copy_response(
     )
 
 
-def pmtiles_derivative_response(record: PmtilesDerivativeJob) -> PmtilesDerivativeResponse:
-    return PmtilesDerivativeResponse(
+def pmtiles_derivative_response(
+    record: PmtilesDerivativeJob,
+) -> PmtilesDerivativeResponse | ConfigurablePmtilesDerivativeResponse:
+    response = PmtilesDerivativeResponse(
         job_id=record.job_id,
         project_id=record.project_id,
         dataset_id=record.dataset_id,
@@ -933,6 +965,16 @@ def pmtiles_derivative_response(record: PmtilesDerivativeJob) -> PmtilesDerivati
         finished_at=record.finished_at,
         cancellable=record.state == "queued",
     )
+    if record.options is not None:
+        return ConfigurablePmtilesDerivativeResponse(
+            **{
+                **response.model_dump(),
+                "schema_version": "opengeo.pmtiles-derivative-job.1.1.0",
+                "options": record.options,
+                "worker_image_digest": record.worker_image_digest,
+            }
+        )
+    return response
 
 
 def _ordered_bounds(value: Bounds) -> Bounds:

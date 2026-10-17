@@ -1,14 +1,74 @@
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
 import {it} from "node:test";
 import {JSDOM} from "jsdom";
 import {createCatalogPreviewLoader, livePreviewEndpoint, loadProviderPreview} from "../src/lib/catalogLayerPreview.js";
 import {CatalogLayerPreview} from "../src/components/CatalogLayerPreview.js";
+import {CatalogResourceMapAction} from "../src/components/CatalogResourceMapAction.js";
 
 const endpoint = "https://services1.arcgis.com/example/arcgis/rest/services/Screening/FeatureServer/0";
 const metadata = {capabilities: "Query", supportedQueryFormats: "JSON, geoJSON", objectIdField: "OBJECTID",
   maxRecordCount: 2, fields: [{name: "OBJECTID"}, {name: "heat"}], advancedQueryCapabilities: {supportsPagination: true}, copyrightText: "Official provider"};
 const feature = id => ({type: "Feature", properties: {OBJECTID: id, heat: id}, geometry: {type: "Point", coordinates: [-71, 42]}});
 const record = {projectId: "project", mapId: "map", mapVersion: 1, datasetId: "dataset", layerId: "heat", title: "Heat", geometryType: "Point", styleField: "heat"};
+
+function archiveFixture() {
+  const bytes = Buffer.from(JSON.stringify({type: "FeatureCollection", features: [feature(1)]}));
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  const source = {datasetId: "dataset", projectId: "project", versionNumber: 2, status: "active", credentialMode: "none",
+    accessMode: "direct_browser", capabilities: {read: true}, sourceType: "geojson", sourceUrl: "https://archive.example.org/context.geojson",
+    configuration: {contentEncoding: "identity", objectSha256: hash, decodedSha256: hash, sizeBytes: bytes.length,
+      decodedSizeBytes: bytes.length, featureCount: 1, geometryType: "Point", bounds: [-72, 41, -70, 43],
+      attribution: "Recorded archive credit", license: "Archive terms unknown", authoritativeUrl: "https://provider.example.org/context",
+      rightsUrl: "https://provider.example.org/rights"}};
+  return {bytes, source, record: {datasetId: "dataset", projectId: "project", title: "Context", geometryType: "Point",
+    sourceType: "geojson", resourcePreview: true, sourceVersion: 2}};
+}
+
+it("opens only the selected referenced GeoJSON after a deliberate click and retains archive custody", async () => {
+  const {bytes, source, record} = archiveFixture();
+  const dom = new JSDOM("<!doctype html>"), old = globalThis.document; globalThis.document = dom.window.document;
+  let sourceReads = 0, archiveReads = 0, renders = 0;
+  try {
+    const adapter = {getSource: async (projectId, datasetId) => {sourceReads++; assert.equal(projectId, "project"); assert.equal(datasetId, "dataset"); return source;},
+      getMap: () => {throw Error("A Catalog Layer must not open a containing Project");}};
+    const loader = createCatalogPreviewLoader({adapter, fetchImplementation: async (url, options) => {
+      archiveReads++; assert.equal(url, source.sourceUrl); assert.equal(options.credentials, "omit"); assert.equal(options.redirect, "error");
+      return new Response(bytes, {headers: {"content-type": "binary/octet-stream", "content-length": String(bytes.length)}});
+    }});
+    const action = CatalogResourceMapAction({dataset: {id: "dataset", projectId: "project", name: "Context", sourceType: "geojson",
+      status: "active", capabilities: {read: true}, preservationSummary: {sourceVersion: 2}}, adapter, load: loader,
+      renderMap: async options => {renders++; assert.equal(options.geojson.features.length, 1); return document.createElement("div");}});
+    document.body.append(action.button, action.panel);
+    assert.deepEqual([sourceReads, archiveReads, renders], [0, 0, 0]);
+    action.button.click(); assert.match(action.panel.textContent, /Loading Layer map/);
+    for (let wait = 0; wait < 50 && action.button.disabled; wait++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(action.button.disabled, false, action.panel.textContent);
+    assert.deepEqual([sourceReads, archiveReads, renders], [1, 1, 1]);
+    assert.match(action.panel.textContent, /referenced archive preview|Referenced archive/);
+    assert.match(action.panel.textContent, /Source revision 2 · GeoJSON archive/);
+    assert.match(action.panel.textContent, /1 features\. Point · GeoJSON archive · Source revision 2/);
+    assert.doesNotMatch(action.panel.textContent, /live source preview|Official service and query|Save to Project|creates no hosted copy|not established/);
+    assert.equal(action.panel.querySelectorAll(".catalog-layer-access a").length, 3);
+    action.button.click(); action.button.click();
+    assert.deepEqual([sourceReads, archiveReads, renders], [1, 1, 1]);
+    action.dispose(); loader.dispose();
+  } finally {globalThis.document = old; dom.window.close();}
+});
+
+it("checks GeoJSON source authority, revision and integrity without substituting another copy", async () => {
+  const {bytes, source, record} = archiveFixture();
+  for (const patch of [{versionNumber: 3}, {capabilities: {read: false}}, {accessMode: "server_mediated"}]) {
+    const loader = createCatalogPreviewLoader({adapter: {getSource: async () => ({...source, ...patch})},
+      fetchImplementation: () => {throw Error("No archive request permitted");}});
+    await assert.rejects(loader(record), /changed|unavailable/); loader.dispose();
+  }
+  const loader = createCatalogPreviewLoader({adapter: {getSource: async () => source}, fetchImplementation: async () => {
+    const corrupt = Buffer.from(bytes); corrupt[0] ^= 1;
+    return new Response(corrupt, {headers: {"content-type": "application/geo+json", "content-length": String(corrupt.length)}});
+  }});
+  await assert.rejects(loader(record), {code: "object_checksum_mismatch"}); loader.dispose();
+});
 
 it("previews NOAA XYZ references without provider metadata, archives or a saved Project", async () => {
   const url = "https://coast.noaa.gov/arcgis/rest/services/dc_slr/slr_2ft/MapServer/tile/{z}/{y}/{x}";
@@ -76,9 +136,96 @@ it("fetches only on demand, reuses shared provider data and omits credentials", 
     return Response.json({type: "FeatureCollection", features: offset ? [feature(3)] : [feature(1), feature(2)], exceededTransferLimit: !offset});
   }});
   assert.equal(requests, 0); assert.equal(mapCalls, 0);
-  const first = await loader(record), second = await loader(record);
+  const [first, second] = await Promise.all([loader(record), loader(record)]);
   assert.equal(mapCalls, 1); assert.equal(requests, 3);
   assert.equal(first.geojson, second.geojson); assert.equal(first.geojson.features.length, 3); assert.equal(first.complete, true);
+  assert.equal((await loader(record)).geojson, first.geojson);
+  assert.equal(mapCalls, 1); assert.equal(requests, 3);
+  loader.dispose();
+});
+
+it("disposes pending map reads and rejects late responses without requesting the provider", async () => {
+  let signal, finishMap, providerReads = 0, mapReads = 0;
+  const loader = createCatalogPreviewLoader({adapter: {getMap(_project, _map, options) {
+    mapReads++; signal = options.signal;
+    return new Promise(resolve => {finishMap = resolve;});
+  }}, fetchImplementation: () => {providerReads++; throw Error("Disposed preview reached provider");}});
+  const pending = loader(record);
+  loader.dispose(); loader.dispose();
+  assert.equal(signal.aborted, true);
+  await assert.rejects(loader(record), {name: "AbortError"});
+  finishMap({id: "map", projectId: "project", version: 1,
+    definition: {layers: [{layerId: "heat", datasetId: "dataset", sourceUrl: endpoint}]}});
+  await assert.rejects(pending, {name: "AbortError"});
+  assert.equal(mapReads, 1); assert.equal(providerReads, 0);
+});
+
+it("disposes source reads before provider work and gives a new loader its own active cache", async () => {
+  const source = {datasetId: "dataset", projectId: "project", versionNumber: 1, status: "active",
+    credentialMode: "none", accessMode: "direct_browser", capabilities: {read: true}, sourceType: "arcgis",
+    sourceUrl: endpoint, configuration: {fields: ["OBJECTID", "heat"]}};
+  const standalone = {datasetId: "dataset", projectId: "project", title: "Heat", resourcePreview: true, sourceVersion: 1};
+  let signal, finishSource, sourceReads = 0, providerReads = 0;
+  const options = {adapter: {getSource(_project, _dataset, request) {
+    sourceReads++;
+    if (sourceReads > 1) return Promise.resolve(source);
+    signal = request.signal;
+    return new Promise(resolve => {finishSource = resolve;});
+  }}, fetchImplementation: async url => {
+    providerReads++;
+    return Response.json(url.includes("/query?") ? {type: "FeatureCollection", features: [feature(1)]} : metadata);
+  }};
+  const loader = createCatalogPreviewLoader(options), pending = loader(standalone);
+  loader.dispose();
+  assert.equal(signal.aborted, true);
+  finishSource(source);
+  await assert.rejects(pending, {name: "AbortError"});
+  await assert.rejects(loader(standalone), {name: "AbortError"});
+  assert.equal(providerReads, 0); assert.equal(sourceReads, 1);
+  const next = createCatalogPreviewLoader(options);
+  const [first, second] = await Promise.all([next(standalone), next(standalone)]);
+  assert.equal(first.geojson, second.geojson);
+  assert.equal(sourceReads, 2); assert.equal(providerReads, 2);
+  next.dispose();
+  await assert.rejects(next(standalone), {name: "AbortError"});
+});
+
+it("aborts pending provider geometry and rejects a response that ignores cancellation", async () => {
+  let signal, finishGeometry, startedGeometry;
+  const started = new Promise(resolve => {startedGeometry = resolve;});
+  const loader = createCatalogPreviewLoader({adapter: {getMap: async () => ({id: "map", projectId: "project", version: 1,
+    definition: {layers: [{layerId: "heat", datasetId: "dataset", sourceUrl: endpoint}]}})},
+  fetchImplementation: async (url, options) => {
+    if (!url.includes("/query?")) return Response.json(metadata);
+    signal = options.signal; startedGeometry();
+    return new Promise(resolve => {finishGeometry = resolve;});
+  }});
+  const pending = loader(record);
+  await started;
+  loader.dispose();
+  assert.equal(signal.aborted, true);
+  finishGeometry(Response.json({type: "FeatureCollection", features: [feature(1)]}));
+  await assert.rejects(pending, {name: "AbortError"});
+});
+
+it("aborts a pending WFS page and rejects a response that ignores cancellation", async () => {
+  const source = {datasetId: "wfs-data", projectId: "project", versionNumber: 1, status: "active",
+    credentialMode: "none", accessMode: "direct_browser", capabilities: {read: true}, sourceType: "wfs",
+    sourceUrl: "https://maps.example.com/geoserver/wfs", configuration: {version: "2.0.0", typeName: "public:facilities",
+      geometryName: "geom", fields: ["OBJECTID", "heat"], sortBy: "OBJECTID", geometryType: "Point", pageSize: 2, attribution: null}};
+  let signal, finishPage, startedPage;
+  const started = new Promise(resolve => {startedPage = resolve;});
+  const loader = createCatalogPreviewLoader({adapter: {getSource: async () => source},
+    fetchImplementation: async (_url, options) => {
+      signal = options.signal; startedPage();
+      return new Promise(resolve => {finishPage = resolve;});
+    }});
+  const pending = loader({datasetId: "wfs-data", projectId: "project", title: "Facilities", service: {kind: "WFS", sourceVersion: 1}});
+  await started;
+  loader.dispose();
+  assert.equal(signal.aborted, true);
+  finishPage(Response.json({type: "FeatureCollection", numberMatched: 1, numberReturned: 1, features: [feature(1)]}));
+  await assert.rejects(pending, {name: "AbortError"});
 });
 
 it("stops repeated pages rather than presenting an incomplete export as complete", async () => {

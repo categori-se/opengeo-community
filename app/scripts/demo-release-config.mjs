@@ -7,9 +7,11 @@ import {MAPBOX_RUNTIME} from '../src/lib/mapboxRuntime.js';
 
 // Shared Workbench adapters are part of the core; optional SDKs have a separate,
 // exact source inventory. The shared publication editor/compilers add 29 files;
-// neither allowance changes the byte or PWA/startup cache budgets.
+// Local developer/figure/publishing exports add five files; cached COG Identify adds one.
+// Saved-profile line of sight adds one shared component. These allowances
+// do not change the byte or PWA/startup cache budgets. Bounded Ozi import adds one file.
 export const BROWSER_DEMO_LIMITS = Object.freeze({
-  coreFiles: 250, coreBytes: 20 * 1024 * 1024,
+  coreFiles: 269, coreBytes: 20 * 1024 * 1024,
   rendererFiles: 400, rendererBytes: 14 * 1024 * 1024
 });
 

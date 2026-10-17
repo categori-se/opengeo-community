@@ -41,6 +41,9 @@ def test_accepts_complete_worker_only_configuration(tmp_path: Path) -> None:
         ("OPEN_GEO_AWS_REGION", "invalid"),
         ("OPEN_GEO_PROCESSING_QUEUE_URL", "https://example.test/queue"),
         ("OPEN_GEO_MAX_ATTEMPTS", "11"),
+        ("OPEN_GEO_GEODATA_EXPECTED_OWNER", "11111111111"),
+        ("OPEN_GEO_GEODATA_EXPECTED_OWNER", ""),
+        ("OPEN_GEO_PMTILES_WORKER_IMAGE_DIGEST", "latest"),
     ],
 )
 def test_rejects_cross_service_or_unbounded_configuration(
@@ -52,3 +55,12 @@ def test_rejects_cross_service_or_unbounded_configuration(
     values[name] = value
     with pytest.raises(WorkerError, match="configuration_invalid"):
         Settings.from_env(values)
+
+
+def test_expected_bucket_owner_is_explicit_and_not_inferred_from_kms(tmp_path: Path) -> None:
+    cert = tmp_path / "root.pem"
+    cert.write_text("certificate", encoding="utf-8")
+    values = environment(cert)
+    assert Settings.from_env(values).geodata_expected_owner is None
+    values["OPEN_GEO_GEODATA_EXPECTED_OWNER"] = "222222222222"
+    assert Settings.from_env(values).geodata_expected_owner == "222222222222"

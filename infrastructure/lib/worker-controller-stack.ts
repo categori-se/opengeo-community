@@ -24,6 +24,7 @@ export interface WorkerControllerConfiguration {
     account: string; region: string; stage: string; execution_role_arn: string;
     worker_template: Record<string, unknown>; endpoint_template: Record<string, unknown>;
     shared_endpoint_template?: Record<string, unknown>;
+    workload?: "shared" | "pmtiles-v2";
   };
   queueUrl: string; queueArn: string; deadLetterUrl: string; deadLetterArn: string;
   databaseClusterArn: string; workerSecretArn: string; ecsClusterArn: string;
@@ -47,6 +48,7 @@ export class WorkerControllerStack extends Stack {
     super(scope, id, props);
     const config = structuredClone(props.configuration);
     const runtime = config.runtime;
+    const pmtilesOnly = runtime.workload === "pmtiles-v2";
     if (runtime.account !== this.account || runtime.region !== this.region
       || !/^[0-9]{12}$/.test(runtime.account)
       || !/^(dev|staging|demo|production)$/.test(runtime.stage)) {
@@ -92,13 +94,14 @@ export class WorkerControllerStack extends Stack {
       const task = resources.filter(r => r.Type === "AWS::ECS::TaskDefinition");
       const service = resources.filter(r => r.Type === "AWS::ECS::Service");
       if (task.length !== 1 || task[0].Properties.Family !== props.lifecycleScope.taskFamily
-        || service.length !== 1 || service[0].Properties.ServiceName !== `opengeo-${runtime.stage}-gis-worker`) {
+        || service.length !== 1 || service[0].Properties.ServiceName !==
+          `opengeo-${runtime.stage}-${pmtilesOnly ? "pmtiles-v2" : "gis"}-worker`) {
         throw new Error("Lifecycle scope must match the reviewed worker family and service");
       }
       lifecycleRole = new iam.Role(this, "LifecycleExecutionRole", {
         roleName, assumedBy: new iam.ServicePrincipal("cloudformation.amazonaws.com"),
         inlinePolicies: {WorkerLifecycle: workerLifecyclePolicy(this.account, this.region,
-          runtime.stage, config.ecsClusterArn, props.lifecycleScope)}
+          runtime.stage, config.ecsClusterArn, props.lifecycleScope, runtime.workload)}
       });
       new CfnOutput(this, "LifecycleExecutionRoleArn", {value: lifecycleRole.roleArn});
     }

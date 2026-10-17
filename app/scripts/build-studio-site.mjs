@@ -27,6 +27,18 @@ const expectedRoutes = canonicalStudioRoutes;
 await rm(distRoot, {recursive: true, force: true});
 await prepareMapWorkerAsset(resolve(appRoot, "src"));
 runObservableBuild();
+// Preserve the current deployed Studio shell while rebuilding recovered source.
+for (const [, htmlPath] of expectedRoutes) {
+  const path = resolve(distRoot, htmlPath);
+  const html = await readFile(path, "utf8");
+  if (!html.includes("<html>") || !html.includes("<body>")
+    || !html.includes('<main id="observablehq-main"')) {
+    throw Error(`Unexpected Studio shell structure: ${htmlPath}`);
+  }
+  await writeFile(path, html.replace("<html>", '<html lang="en">')
+    .replace("<body>", '<body><a class="studio-skip-link" href="#observablehq-main">Skip to content</a>')
+    .replace('<main id="observablehq-main"', '<main tabindex="-1" id="observablehq-main"'));
+}
 await buildPublicationEditor(distRoot);
 await buildArchiveWorker(distRoot);
 // Exported maps carry their own viewer, with no Studio or CDN runtime dependency.
@@ -34,6 +46,8 @@ await writeMaplibreExportAssets(distRoot);
 await prepareMapboxRuntime(distRoot);
 await prepareCesiumRuntime(distRoot);
 await writeFile(resolve(distRoot, "third-party-notices.txt"), [
+  "earcut · ISC",
+  await readFile(resolve(appRoot, "node_modules/earcut/LICENSE"), "utf8"),
   "@categori/workspace-contracts · Apache-2.0",
   await readFile(resolve(appRoot, "vendor/workspace-contracts/LICENSE"), "utf8"),
   await readFile(resolve(appRoot, "vendor/workspace-contracts/NOTICE"), "utf8")
@@ -54,7 +68,7 @@ const pwa = await writeStudioPwaAssets({
   applicationId: "opengeo-production-studio",
   name: "OpenGeo Studio",
   description: "An open workspace for geospatial analysis and publishing.",
-  startUrl: "/workspaces",
+  startUrl: "/",
   routes: expectedRoutes.map(([path]) => path)
 });
 const artifactTree = await snapshotTree(distRoot);

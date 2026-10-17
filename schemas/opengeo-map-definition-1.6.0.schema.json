@@ -1,0 +1,546 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/opengeo-map-definition-1.6.0.schema.json",
+  "title": "OpenGeo map definition1.6.0",
+  "description": "Adds bounded 3Dpolygon faces with explicit elevations/source/topology and independently recomputed metric summaries. Existing2D measurements remain readable.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mapViews",
+    "basemaps",
+    "bookmarks",
+    "activeLayerId",
+    "activeProcessingModelId",
+    "models",
+    "processingHistory",
+    "measurements",
+    "projection",
+    "colorMode",
+    "layers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "opengeo.map-definition.1.6.0"
+    },
+    "mapViews": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/mapViews"
+    },
+    "basemaps": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/basemaps"
+    },
+    "bookmarks": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/bookmarks"
+    },
+    "activeLayerId": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/activeLayerId"
+    },
+    "activeProcessingModelId": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/activeProcessingModelId"
+    },
+    "models": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/models"
+    },
+    "processingHistory": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/processingHistory"
+    },
+    "measurements": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "oneOf": [
+          {
+            "$ref": "opengeo-map-definition-1.2.0.schema.json#/$defs/pathMeasurement"
+          },
+          {
+            "$ref": "#/$defs/polygonMeasurement"
+          },
+          {
+            "$ref": "#/$defs/circleMeasurement"
+          },
+          {
+            "$ref": "#/$defs/polygon3dMeasurement"
+          }
+        ]
+      }
+    },
+    "spatialBody": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/spatialBody"
+    },
+    "projection": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/projection"
+    },
+    "colorMode": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/colorMode"
+    },
+    "layers": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/layers",
+      "items": {
+        "properties": {
+          "labels": {
+            "properties": {
+              "fontRef": {
+                "$ref": "#/$defs/mapFontRef"
+              },
+              "drawOrder": {
+                "enum": [
+                  "with-layer",
+                  "above-data"
+                ]
+              }
+            }
+          },
+          "filter": {
+            "$ref": "opengeo-map-filter-1.0.0.schema.json"
+          },
+          "opacityMode": {
+            "enum": [
+              "feature",
+              "composite"
+            ]
+          }
+        }
+      }
+    },
+    "portal": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/properties/portal"
+    },
+    "extensions": {
+      "type": "object",
+      "properties": {
+        "opengeoRenderer": {
+          "type": "object",
+          "required": [
+            "id"
+          ],
+          "properties": {
+            "id": {
+              "enum": [
+                "maplibre",
+                "mapbox",
+                "cesium"
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "mapFontRef": {
+      "type": "object",
+      "required": [
+        "id",
+        "version",
+        "manifestChecksumSha256"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,63}$"
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "manifestChecksumSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "identifier": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/$defs/identifier"
+    },
+    "coordinate": {
+      "$ref": "opengeo-map-definition-1.2.0.schema.json#/$defs/coordinate"
+    },
+    "polygonMeasurement": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "id",
+        "title",
+        "kind",
+        "spatialBodyId",
+        "measurementModel",
+        "distanceUnit",
+        "areaUnit",
+        "coordinates",
+        "perimeterMeters",
+        "areaSquareMeters"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "opengeo.area-measurement.1.0.0"
+        },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "const": "polygon-area"
+        },
+        "spatialBodyId": {
+          "enum": [
+            "earth",
+            "moon",
+            "mars"
+          ]
+        },
+        "measurementModel": {
+          "const": "spherical-mean-radius"
+        },
+        "distanceUnit": {
+          "const": "meter"
+        },
+        "areaUnit": {
+          "const": "square-meter"
+        },
+        "coordinates": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/coordinate"
+          }
+        },
+        "perimeterMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2000000000
+        },
+        "areaSquareMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000000000
+        }
+      },
+      "additionalProperties": false
+    },
+    "circleMeasurement": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "id",
+        "title",
+        "kind",
+        "spatialBodyId",
+        "measurementModel",
+        "distanceUnit",
+        "areaUnit",
+        "center",
+        "radiusPoint",
+        "radiusMeters",
+        "circumferenceMeters",
+        "areaSquareMeters"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "opengeo.area-measurement.1.0.0"
+        },
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "const": "circle-area"
+        },
+        "spatialBodyId": {
+          "enum": [
+            "earth",
+            "moon",
+            "mars"
+          ]
+        },
+        "measurementModel": {
+          "const": "spherical-mean-radius"
+        },
+        "distanceUnit": {
+          "const": "meter"
+        },
+        "areaUnit": {
+          "const": "square-meter"
+        },
+        "center": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "radiusPoint": {
+          "$ref": "#/$defs/coordinate"
+        },
+        "radiusMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2000000000
+        },
+        "circumferenceMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 2000000000
+        },
+        "areaSquareMeters": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000000000000
+        }
+      },
+      "additionalProperties": false
+    },
+    "polygon3dMeasurement": {
+      "type": "object",
+      "required": [
+        "schemaVersion",
+        "id",
+        "title",
+        "kind",
+        "spatialBodyId",
+        "measurementModel",
+        "distanceUnit",
+        "areaUnit",
+        "coordinates",
+        "triangles",
+        "source",
+        "uncertaintyMeters",
+        "model",
+        "summary",
+        "bounds"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "opengeo.polygon-3d-measurement.1.0.0"
+        },
+        "id": {
+          "$ref": "opengeo-map-definition-1.2.0.schema.json#/$defs/identifier"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "kind": {
+          "const": "polygon-3d"
+        },
+        "spatialBodyId": {
+          "enum": [
+            "earth",
+            "moon",
+            "mars"
+          ]
+        },
+        "measurementModel": {
+          "const": "mean-sphere-radial-elevation-chords"
+        },
+        "distanceUnit": {
+          "const": "meter"
+        },
+        "areaUnit": {
+          "const": "square-meter"
+        },
+        "coordinates": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 128,
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "prefixItems": [
+              {
+                "type": "number",
+                "minimum": -180,
+                "maximum": 180
+              },
+              {
+                "type": "number",
+                "minimum": -85.05112878,
+                "maximum": 85.05112878
+              },
+              {
+                "type": "number",
+                "minimum": -100000,
+                "maximum": 100000
+              }
+            ]
+          }
+        },
+        "triangles": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 126,
+          "items": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 127
+            }
+          }
+        },
+        "source": {
+          "type": "object",
+          "required": [
+            "kind",
+            "label",
+            "verticalDatum",
+            "geometryMeasurementId"
+          ],
+          "properties": {
+            "kind": {
+              "const": "user-supplied-vertices"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "verticalDatum": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 120
+            },
+            "geometryMeasurementId": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "maxLength": 160
+            }
+          },
+          "additionalProperties": false
+        },
+        "uncertaintyMeters": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000
+        },
+        "model": {
+          "type": "object",
+          "required": [
+            "surface",
+            "projectionAxis",
+            "radiusMeters",
+            "maximumPlaneDeviationMeters",
+            "verticalAccuracy",
+            "uncertainty",
+            "betweenVertices"
+          ],
+          "properties": {
+            "surface": {
+              "const": "vertex-triangulated"
+            },
+            "projectionAxis": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2
+            },
+            "radiusMeters": {
+              "type": "number",
+              "minimum": 1000000
+            },
+            "maximumPlaneDeviationMeters": {
+              "type": "number",
+              "minimum": 0
+            },
+            "verticalAccuracy": {
+              "const": "not-declared"
+            },
+            "uncertainty": {
+              "const": "conservative-radial-intervals"
+            },
+            "betweenVertices": {
+              "const": "planar-facets"
+            }
+          },
+          "additionalProperties": false
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "perimeterMeters",
+            "areaSquareMeters",
+            "widthMeters",
+            "heightMeters"
+          ],
+          "properties": {
+            "perimeterMeters": {
+              "type": "number",
+              "minimum": 0
+            },
+            "areaSquareMeters": {
+              "type": "number",
+              "minimum": 0
+            },
+            "widthMeters": {
+              "type": "number",
+              "minimum": 0
+            },
+            "heightMeters": {
+              "type": "number",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "bounds": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "required": [
+                "perimeterMeters",
+                "areaSquareMeters",
+                "heightMeters"
+              ],
+              "properties": {
+                "perimeterMeters": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "areaSquareMeters": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "number"
+                  }
+                },
+                "heightMeters": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

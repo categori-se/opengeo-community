@@ -73,6 +73,8 @@ export async function exerciseGeoLibreImport({page, project, composition, origin
   assert.equal(exported.layers[0].id, layer.layerId);
   assert.deepEqual(exported.layers[0].geojson.features, fixture.layers[0].geojson.features);
   assert.deepEqual(await readApi(mapPath), saved, 'Reopen and export leave the saved version unchanged');
+  const handoff = await exerciseReviewedGeoLibreReturn({page, project, composition, saved, layer,
+    fixture, origin, worker, readApi, work});
   const denied = await apiRequest(`${base}/imports/${operation.import_id}`, {headers:{authorization:'Bearer synthetic-local-reviewer','x-opengeo-organization':organization}});
   assert.ok([403,404].includes(denied.status), 'Uninvited reviewer cannot read imported project records');
   await writeFile(join(work, 'geolibre-renderer-export.json'), bytes);
@@ -80,7 +82,117 @@ export async function exerciseGeoLibreImport({page, project, composition, origin
     sourceVersion:operation.source_version,mapVersion:saved.version,inspectWithoutWrites:true,
     actualDatasetAndObjectBound:true,reopenedFromApiWithoutBrowserDraft:true,rendererRetained:true,featureRendered:true,
     exportedFeatureCount:exported.layers[0].geojson.features.length,uninvitedReadStatus:denied.status,
-    workerConversions:1,renderJobs:0,limits:'Real local API/PostgreSQL and worker; synthetic login and object/queue transport. No managed identity, AWS or upstream desktop acceptance.'};
+    handoff,workerConversions:2,renderJobs:0,limits:'Real local API/PostgreSQL and worker; synthetic login, returned analysis file and object/queue transport. No managed identity, AWS, upstream analysis execution or desktop acceptance.'};
+}
+
+async function exerciseReviewedGeoLibreReturn({page, project, composition, saved, layer, fixture, origin, worker, readApi, work}) {
+  const base = `/projects/${project.id}`, mapPath = `${base}/maps/${composition.id}`;
+  const menu = page.locator('.gis-menu-wrap[data-menu="project"]');
+  await menu.locator('.gis-menu-button').click();
+  await menu.getByRole('menuitem', {name:/^Save as \/ export…/}).click();
+  await page.getByRole('dialog', {name:'Save as or export Project',exact:true})
+    .getByRole('button', {name:'Open in GeoLibre…',exact:true}).click();
+  const instructions = page.getByRole('dialog', {name:'Open in GeoLibre',exact:true});
+  const externalLink = instructions.getByRole('link', {name:'Open GeoLibre workbench',exact:true});
+  const workbenchUrl = new URL(await externalLink.getAttribute('href'));
+  assert.equal(workbenchUrl.origin, 'https://web.geolibre.app');
+  assert.equal(workbenchUrl.search, '', 'The external link carries no Project or token');
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    instructions.getByRole('button', {name:'Download saved revision',exact:true}).click()
+  ]);
+  const handoffBytes = await readFile(await download.path()), returned = JSON.parse(handoffBytes);
+  assert.equal(returned.metadata.opengeo.handoff.projectId, project.id);
+  assert.equal(returned.metadata.opengeo.handoff.mapId, composition.id);
+  assert.equal(returned.metadata.opengeo.handoff.mapVersion, saved.version);
+  assert.match(returned.metadata.opengeo.handoff.definitionSha256, /^[a-f0-9]{64}$/);
+  assert.deepEqual(returned.layers[0].geojson.features, fixture.layers[0].geojson.features);
+  assert.deepEqual(await readApi(mapPath), saved, 'Handoff download does not save or replace the map');
+  await instructions.getByRole('button', {name:'Close',exact:true}).click();
+
+  // Exercise the external file boundary without claiming execution of upstream
+  // GeoLibre or one of its analysis tools. The original input remains unchanged;
+  // a separate synthetic result carries explicitly reported fixture parameters.
+  const output = structuredClone(returned.layers[0]);
+  output.id = 'reviewed-analysis-output';
+  output.name = 'Reviewed analysis output';
+  output.metadata = {license:'CC0-1.0', processingHistory:[{
+    tool:'synthetic-point-translation', parameters:{longitudeOffset:0.01},
+    execution:'local integration fixture; not upstream GeoLibre analysis'
+  }]};
+  output.style.fillColor = '#f97316';
+  output.geojson.features[0].geometry.coordinates[0] += 0.01;
+  output.geojson.features[0].properties.name = 'Reviewed result point';
+  output.geojson.features[0].properties.output = true;
+  returned.layers.push(output);
+  const returnedBytes = Buffer.from(JSON.stringify(returned));
+  const beforeDatasets = await readApi(`${base}/datasets`);
+  await menu.locator('.gis-menu-button').click();
+  const choosingProject = page.waitForEvent('filechooser');
+  await menu.getByRole('menuitem', {name:/^Open Project file…/}).click();
+  await (await choosingProject).setFiles({name:'reviewed-results.geolibre.json',mimeType:'application/json',buffer:returnedBytes});
+  const review = page.getByRole('dialog', {name:'Review GeoLibre results',exact:true});
+  await review.getByText('1 unchanged Layers reuse their existing identities.', {exact:true}).waitFor();
+  await review.getByText(/not declared reproducible analyses/).waitFor();
+  assert.deepEqual(await readApi(mapPath), saved, 'Return inspection does not save the map');
+  assert.deepEqual(await readApi(`${base}/datasets`), beforeDatasets, 'Return inspection creates no dataset');
+  const inputs = review.locator('select[multiple]');
+  assert.equal(await inputs.count(), 1);
+  assert.deepEqual(await inputs.locator('option:checked').evaluateAll(options => options.map(option => option.value)), []);
+  await inputs.selectOption(layer.layerId);
+  const [finalized] = await Promise.all([
+    page.waitForResponse(response => response.url().includes(`${base}/imports`) &&
+      (response.status() >= 400 || response.url().endsWith('/finalize') && response.request().method() === 'POST')),
+    review.getByRole('button', {name:'Save results to OpenGeo',exact:true}).click()
+  ]).catch(async error => {throw new Error(`${error.message}; return review: ${await review.textContent().catch(() => '')}`);});
+  assert.equal(finalized.status(), 200, await finalized.text());
+  const operation = await finalized.json();
+  assert.equal(operation.state, 'completed');
+  assert.equal(operation.items.length, 1, 'Only the new output is registered; unchanged input bytes are reused');
+  assert.match(operation.items[0].import_ref, /^geolibre:return:[a-f0-9]{64}$/);
+  const result = await readApi(mapPath);
+  assert.equal(result.version, saved.version + 1);
+  assert.equal(result.definition.layers.length, 2);
+  assert.deepEqual(result.definition.layers.find(candidate => candidate.layerId === layer.layerId), layer,
+    'The original Layer and exact managed version remain unchanged');
+  const savedOutput = result.definition.layers.find(candidate => candidate.layerId !== layer.layerId);
+  assert.match(savedOutput.layerId, /^geolibre-result-/);
+  assert.equal(savedOutput.datasetId, operation.items[0].dataset_id);
+  assert.notEqual(savedOutput.datasetId, layer.datasetId);
+  assert.equal(savedOutput.sourceType, 'governed-dataset');
+  assert.match(savedOutput.datasetVersionId, /^[0-9a-f-]{36}$/);
+  assert.equal(savedOutput.style.circleColor, '#f97316');
+  const lineage = result.definition.extensions.opengeoGeoLibreReturn;
+  assert.equal(lineage.base.mapVersion, saved.version);
+  assert.deepEqual(lineage.inputs, [{layerId:layer.layerId,datasetId:layer.datasetId,datasetVersionId:layer.datasetVersionId}]);
+  assert.equal(lineage.outputs.length, 1);
+  assert.deepEqual(lineage.outputs[0].inputLayerIds, [layer.layerId]);
+  assert.equal(lineage.outputs[0].inputLinkMethod, 'user-declared');
+  assert.equal(lineage.outputs[0].datasetId, savedOutput.datasetId);
+  assert.equal(lineage.outputs[0].datasetVersionId, savedOutput.datasetVersionId);
+  assert.equal(lineage.outputs[0].reproducible, false);
+  assert.deepEqual(result.definition.extensions.geolibre.project.layers.find(candidate => candidate.id === output.id).metadata.processingHistory,
+    output.metadata.processingHistory);
+  await worker();
+  const outputDataset = await readApi(`${base}/datasets/${savedOutput.datasetId}`);
+  assert.equal(outputDataset.feature_count, 1);
+  assert.equal((await readApi(`${base}/datasets`)).length, beforeDatasets.length + 1);
+  await page.evaluate(() => localStorage.clear());
+  await page.goto(`${origin}/workspaces?composition=${composition.id}`);
+  await page.waitForFunction(ids => {
+    const shell = document.querySelector('.opengeo-workbench'), map = shell?.__opengeoMap;
+    return ids.every(id => shell?.__opengeoData?.get(id)?.features?.length === 1 && map?.isStyleLoaded?.()
+      && map.queryRenderedFeatures().some(feature => feature.layer?.id?.startsWith(`${id}-`)));
+  }, [layer.layerId, savedOutput.layerId]);
+  const reopenedData = await page.evaluate(id => document.querySelector('.opengeo-workbench').__opengeoData.get(id), savedOutput.layerId);
+  assert.deepEqual(reopenedData.features, output.geojson.features);
+  assert.deepEqual(await readApi(mapPath), result, 'Fresh reopen keeps the saved result revision exact');
+  await writeFile(join(work, 'geolibre-saved-handoff.json'), handoffBytes);
+  await writeFile(join(work, 'geolibre-returned-results.json'), returnedBytes);
+  return {baseMapVersion:saved.version,resultMapVersion:result.version,outputLayerId:savedOutput.layerId,
+    outputDatasetId:savedOutput.datasetId,importId:operation.import_id,inspectedWithoutWrites:true,
+    unchangedInputReused:true,userDeclaredInputLink:true,originalDataPreserved:true,reopenedOutputRendered:true,
+    processingHistoryPreserved:true,reproducible:false,externalAnalysisExecution:'synthetic returned file only; no upstream GeoLibre runtime'};
 }
 
 export async function exerciseRendererPersistence({page, project, composition, origin, organization, worker, readApi, apiRequest}) {

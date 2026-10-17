@@ -508,6 +508,21 @@ async def handle_sqs_event(
         ):
             raise VerificationCommandInvalid("connection_verification_event_invalid")
         try:
+            try:
+                routed = json.loads(body) if len(body.encode()) <= _MAX_COMMAND_BYTES else None
+            except (ValueError, UnicodeError):
+                routed = None
+            if (
+                isinstance(routed, dict)
+                and routed.get("schema") == "opengeo.connection-catalog-discovery.command.v1"
+            ):
+                from opengeo_api.postgis_catalog_runtime import (
+                    default_processor as catalog_processor,
+                )
+                from opengeo_api.postgis_catalog_runtime import parse_catalog_discovery_command
+
+                await catalog_processor().process(parse_catalog_discovery_command(body))
+                continue
             command = parse_verification_command(body)
             await processor.process(command)
         except (VerificationCommandInvalid, VerificationDependencyUnavailable):
@@ -531,7 +546,11 @@ def default_processor() -> ConnectionVerificationProcessor:
     return _DEFAULT_PROCESSOR
 
 
-def handler(event: Mapping[str, Any], context: object) -> dict[str, list[dict[str, str]]]:
+def handler(event: Mapping[str, Any], context: object) -> dict[str, Any]:
+    if event.get("schema") == "opengeo.postgis-preview.command.v1":
+        from opengeo_api.postgis_preview_runtime import handler as preview_handler
+
+        return preview_handler(event, context)
     del context
     return asyncio.run(handle_sqs_event(event, default_processor()))
 

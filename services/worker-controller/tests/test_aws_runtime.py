@@ -38,6 +38,22 @@ class AwsRuntimeTests(unittest.TestCase):
         self.window = Window("local-window", 100, 1900, 2800, digest, digest)
         self.arn = "arn:aws:cloudformation:us-east-1:111111111111:stack/OpenGeo-dev-Worker/retained-id"
 
+    def test_isolated_scope_requires_only_the_pmtiles_entrypoint(self):
+        with self.assertRaisesRegex(WindowUnsafe, "pmtiles_task_definition_invalid"):
+            replace(self.scope, workload="pmtiles-v2")
+        worker = {"Resources": {"Task": {
+            "Type": "AWS::ECS::TaskDefinition", "Properties": {
+                "ContainerDefinitions": [{"Command": ["python3", "-m", "opengeo_worker.pmtiles_main"]}]
+            }
+        }}}
+        self.assertEqual(replace(self.scope, workload="pmtiles-v2", worker_template=worker).workload,
+                         "pmtiles-v2")
+        worker["Resources"]["Task"]["Properties"]["ContainerDefinitions"][0]["Command"] = [
+            "python3", "-m", "opengeo_worker.main"
+        ]
+        with self.assertRaisesRegex(WindowUnsafe, "pmtiles_entrypoint_invalid"):
+            replace(self.scope, workload="pmtiles-v2", worker_template=worker)
+
     def stack(self, owner="local-window"):
         return {
             "StackName": "OpenGeo-dev-Worker",

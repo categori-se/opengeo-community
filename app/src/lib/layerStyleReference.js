@@ -1,5 +1,6 @@
 import {opacityPaint} from "./layerOpacity.js";
 import {savedPattern, rasterizePattern} from "./cartographicPatterns.js";
+import {normalizePointSymbolStyle, pointSymbolImages, pointSymbolStyleParts, ensurePointSymbolAssets} from "./pointSymbols.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FIELDS = ["projectId", "resourceId", "styleId", "versionNumber", "checksumSha256", "format"];
 export function validateLayerStyleReference(value) {
@@ -50,7 +51,20 @@ export async function resolveLayerStyle(adapter, layer) {
     throw new Error("Style must contain detached geometry passes without external dependencies");
   }
   const geometry = layer.geometryType;
-  const kinds = ["Point", "MultiPoint"].includes(geometry) ? ["circle"]
+  const pointStyle = document.metadata?.["opengeo:point-symbol"] === undefined ? null
+    : pointStyleMetadata(document.metadata["opengeo:point-symbol"]);
+  const pointParts = pointStyle ? pointSymbolStyleParts({geometryType: "Point", opacity: 1, style: pointStyle}) : [];
+  const pointGeometry = ["Point", "MultiPoint"].includes(geometry);
+  if (pointStyle && !pointGeometry) throw Error("Point symbols require a Point Layer");
+  if (pointStyle) {
+    const expected = JSON.parse(pointSymbolStyleDefinition(pointStyle, document.name ?? style.title)).layers;
+    if (document.layers.length !== expected.length || document.layers.some((part, index) =>
+      part?.type !== expected[index].type || JSON.stringify(part.paint) !== JSON.stringify(expected[index].paint)
+      || JSON.stringify(part.layout ?? {}) !== JSON.stringify(expected[index].layout ?? {}))) {
+      throw Error("Saved point symbol passes do not match their metadata");
+    }
+  }
+  const kinds = pointGeometry ? ["circle", ...(pointStyle ? ["symbol"] : [])]
     : ["Polygon", "MultiPolygon"].includes(geometry) ? ["fill", "line"]
       : ["LineString", "MultiLineString"].includes(geometry) ? ["line"] : [];
   const fields = {
@@ -63,10 +77,20 @@ export async function resolveLayerStyle(adapter, layer) {
     if (!part || typeof part !== "object" || typeof part.id !== "string" || !part.id.length || part.id.length > 100
       || ids.has(part.id) || !kinds.includes(part.type)
       || Object.keys(part).some(key => !["id", "type", "paint", "layout"].includes(key))
-      || (part.layout !== undefined && (!part.layout || typeof part.layout !== "object" || Array.isArray(part.layout) || Object.keys(part.layout).length))) {
+      || (part.type !== "symbol" && part.layout !== undefined && (!part.layout || typeof part.layout !== "object" || Array.isArray(part.layout) || Object.keys(part.layout).length))) {
       throw new Error("Style geometry or layout is incompatible with this Layer");
     }
     ids.add(part.id);
+    if (part.type === "symbol") {
+      const expected = pointParts.find(candidate => candidate.type === "symbol");
+      if (!expected || JSON.stringify(part.layout) !== JSON.stringify(expected.layout)
+        || !part.paint || Object.keys(part.paint).length !== 1
+        || typeof part.paint["icon-opacity"] !== "number" || !Number.isFinite(part.paint["icon-opacity"])
+        || part.paint["icon-opacity"] < 0 || part.paint["icon-opacity"] > 1) {
+        throw Error("Unsupported point symbol layout or paint");
+      }
+      continue;
+    }
     if (!part.paint || typeof part.paint !== "object" || Array.isArray(part.paint)
       || Object.keys(part.paint).some(key => !fields[part.type].includes(key))) throw new Error("Unsupported Style paint");
     for (const field of fields[part.type]) {
@@ -78,10 +102,68 @@ export async function resolveLayerStyle(adapter, layer) {
         || (field.endsWith("opacity") && value > 1)) throw new Error("Unsupported Style dimension or opacity");
     }
   }
-  return {title: style.title, reference: structuredClone(reference), parts: document.layers};
+  if (pointStyle) await ensurePointSymbolAssets(pointStyle);
+  return {title: style.title, reference: structuredClone(reference), parts: document.layers,
+    ...(pointStyle ? {pointSymbolStyle: pointStyle, images: pointSymbolImages(pointStyle)} : {})};
+}
+
+function pointStyleMetadata(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || Object.keys(value).some(key => !["pointSymbol", "circleColor", "circleRadius", "categoryField", "categorySymbols"].includes(key))
+    || !["pointSymbol", "circleColor", "circleRadius"].every(key => Object.hasOwn(value, key))
+    || typeof value.circleColor !== "string" || !/^#[a-f\d]{6}$/i.test(value.circleColor)
+    || (Object.hasOwn(value, "categoryField") !== Object.hasOwn(value, "categorySymbols"))) {
+    throw Error("Invalid saved point symbol metadata");
+  }
+  return normalizePointSymbolStyle({...value, ...(value.categoryField ? {renderer: "category"} : {})});
+}
+
+export function pointSymbolStyleDefinition(style, title = "Point symbols") {
+  const normalized = normalizePointSymbolStyle(style);
+  const metadata = {pointSymbol: normalized.pointSymbol, circleColor: normalized.circleColor ?? "#2563eb",
+    circleRadius: normalized.circleRadius ?? 6,
+    ...(normalized.categorySymbols ? {categoryField: normalized.categoryField, categorySymbols: normalized.categorySymbols} : {})};
+  const selected = pointStyleMetadata(metadata);
+  if (typeof title !== "string" || !title.trim() || title.length > 300) throw Error("Invalid point Style title");
+  return JSON.stringify({version: 8, name: title.trim(), metadata: {"opengeo:point-symbol": metadata}, sources: {},
+    layers: [{id: "point-fill", type: "circle", paint: {"circle-color": selected.circleColor,
+      "circle-radius": selected.circleRadius, "circle-opacity": 1, "circle-stroke-color": "#ffffff",
+      "circle-stroke-width": 1.5, "circle-stroke-opacity": 1}},
+    ...pointSymbolStyleParts({geometryType: "Point", opacity: 1, style: selected})]}, null, 2);
+}
+
+// The visual editor recognizes only generated definitions; other saved text
+// remains inspectable through the existing version editor.
+export function savedPointSymbolStyle(style) {
+  if (style?.format !== "maplibre" || typeof style.definition !== "string") return null;
+  try {
+    const document = JSON.parse(style.definition);
+    const selected = pointStyleMetadata(document.metadata?.["opengeo:point-symbol"]);
+    return JSON.stringify(document) === JSON.stringify(JSON.parse(pointSymbolStyleDefinition(selected, document.name)))
+      ? selected : null;
+  } catch {return null;}
 }
 function validColor(value) {
   if (typeof value === "string") return /^#[a-f\d]{6}(?:[a-f\d]{2})?$/i.test(value);
+  // Closed numeric classification used by the MassGIS/palette library. This
+  // admits a bounded step over one field, without a general expression editor.
+  if (Array.isArray(value) && value[0] === "step") {
+    const input=value[1], nullable=input?.[1], get=nullable?.[1];
+    if (value.length<5 || value.length>45 || value.length%2!==1
+      || !Array.isArray(input) || input.length!==3 || input[0]!=="to-number" || input[2]!==-1
+      || !Array.isArray(nullable) || nullable.length!==3 || nullable[0]!=="coalesce" || nullable[2]!==-1
+      || !Array.isArray(get) || get.length!==2 || get[0]!=="get"
+      || typeof get[1]!=="string" || !/^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$/.test(get[1])
+      || ["__proto__","constructor","prototype"].includes(get[1])
+      || typeof value[2]!=="string" || !validColor(value[2])) return false;
+    let previous=-Infinity;
+    for (let i=3;i<value.length;i+=2) {
+      if (typeof value[i]!=="number" || !Number.isFinite(value[i]) || value[i]<=previous
+        || typeof value[i+1]!=="string" || !validColor(value[i+1])) return false;
+      previous=value[i];
+    }
+    return true;
+  }
   if (!Array.isArray(value) || value[0] !== "match" || value.length < 5 || value.length % 2 !== 1
     || !Array.isArray(value[1]) || value[1].length !== 2 || value[1][0] !== "get"
     || typeof value[1][1] !== "string" || !/^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$/.test(value[1][1])) return false;

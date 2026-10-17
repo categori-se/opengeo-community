@@ -52,3 +52,58 @@ it("reuses governed Style identity and version editing while protecting an unsav
     assert.equal(root.querySelector(".resource-style-version-editor").hasUnsavedChanges(),false);
   }finally{globalThis.document=previous;dom.window.close();}
 });
+
+it("embeds deliberate read-only metadata exports only for the bound record and withholds stale results",async()=>{
+  const dom=new JSDOM("<!doctype html><body></body>");const previous=globalThis.document;globalThis.document=dom.window.document;
+  try {
+    const record={id:"resource",projectId:"project",datasetId:"layer",title:"Road metadata",versionNumber:1};
+    const exported={target:"iso_19115_3",targetVersion:"test",status:"mapped_with_explicit_losses",
+      document:null,documentText:'<metadata><script>inert</script></metadata>',report:{unmapped:["content"],conformanceClaimed:false}};
+    const calls=[];let account="account", resolveExport;
+    const adapter={selectedOrganizationId:account,listDatasetResources:async()=>[record],getResource:async()=>record,
+      exportResourceMetadata:async(...args)=>{calls.push(args);return exported;}};
+    const click=async(root,label)=>{[...root.querySelectorAll("button")].find(b=>b.textContent===label).click();await flush();};
+    const until=async(check)=>{for(let i=0;i<100&&!check();i++)await flush();assert.ok(check());};
+    const open=async()=>{
+      const root=LayerGovernedMetadata({adapter,datasetId:"layer",accountId:account});document.body.append(root);
+      assert.equal(root.querySelector(".resource-metadata-exchange"),null);
+      await click(root,"Find metadata records");await click(root,"Inspect record");
+      return root;
+    };
+    const root=await open();assert.equal(calls.length,0);
+    const exchange=root.querySelector(".resource-metadata-exchange");
+    assert.match(exchange.textContent,/does not publish/);
+    exchange.querySelector("select").value="iso_19115_3";
+    await click(root,"Prepare metadata export");
+    await until(()=>[...exchange.querySelectorAll("button")].some(b=>b.textContent==="Download metadata"));
+    assert.deepEqual(calls,[["project","resource","iso_19115_3",undefined]]);
+    assert.ok([...exchange.querySelectorAll("button")].some(b=>b.textContent==="Download conversion report"));
+    assert.equal(exchange.querySelector('[aria-label="Metadata document"]').textContent,exported.documentText);
+    assert.equal(exchange.querySelectorAll("script").length,0);
+    // A prepared download must recheck the selected account before creating any local file.
+    const download=[...exchange.querySelectorAll("button")].find(b=>b.textContent==="Download metadata");
+    adapter.selectedOrganizationId="other";download.click();await flush();
+    assert.match(root.textContent,/selected account changed/);assert.equal(root.querySelector(".resource-metadata-exchange"),null);
+    assert.equal(exchange.querySelectorAll("button:not(:disabled)").length,0);
+    adapter.selectedOrganizationId=account;
+    // Disposing the Layer suppresses an already-started export and prevents another request.
+    adapter.exportResourceMetadata=(...args)=>{calls.push(args);return new Promise(resolve=>{resolveExport=resolve;});};
+    const closing=await open(),closingExchange=closing.querySelector(".resource-metadata-exchange");
+    closingExchange.querySelector("select").value="iso_19115_3";
+    await click(closing,"Prepare metadata export");const requests=calls.length;
+    closing.dispose();resolveExport(exported);await flush();await flush();
+    assert.equal(closingExchange.querySelectorAll("pre").length,0);
+    assert.equal(closingExchange.querySelectorAll("button:not(:disabled)").length,0);
+    await click(closing,"Prepare metadata export");assert.equal(calls.length,requests);
+    // A late account switch likewise withholds the response rather than displaying its contents.
+    const changing=await open();changing.querySelector("select").value="iso_19115_3";
+    await click(changing,"Prepare metadata export");adapter.selectedOrganizationId="other";
+    resolveExport(exported);await flush();await flush();
+    assert.equal(changing.querySelector(".resource-metadata-exchange"),null);
+    adapter.selectedOrganizationId=account;
+    // An accessible record with a different Layer binding never receives export controls.
+    adapter.getResource=async()=>({...record,datasetId:"other"});
+    const mismatch=await open();assert.equal(mismatch.querySelector(".resource-metadata-exchange"),null);
+    assert.match(mismatch.textContent,/binding may have changed/);
+  }finally{globalThis.document=previous;dom.window.close();}
+});

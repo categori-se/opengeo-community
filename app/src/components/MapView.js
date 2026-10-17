@@ -4,6 +4,8 @@ import maplibregl from "../lib/mapRenderer.js";
 import {geojsonBounds, geometryPaint} from "../lib/mapLayers.js";
 import {graduatedColorExpression} from "../lib/thematicStyle.js";
 import {installCogMapLayer} from "../lib/cogMapLayer.js";
+import {CogIdentifyResult} from "./CogIdentifyResult.js";
+import {RasterViewshed} from "./RasterViewshed.js";
 
 export function MapView({geojson, geometryType, height, graduated, imageServer, cog, xyz} = {}) {
   if (!imageServer && !cog && !xyz && !geojson?.features?.length) return emptyMap();
@@ -72,17 +74,63 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
       if (cog) {
         const bounds = cog.configuration.bounds;
         map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {padding: 24, maxZoom: 18, duration: 0});
+        let inspectedPoint = null, viewshed, observerPick = null;
         const session = installCogMapLayer(map, {sourceId: "preview", layerId: "preview-cog", source: cog,
-          onStatus: message => {status.textContent = message;}, onReady: () => {failed = false;}});
+          onStatus: message => {status.textContent = message;}, onReady: () => {failed = false;renderSample();viewshed?.updateSource();}});
         const refresh = document.createElement("button"); refresh.type = "button"; refresh.textContent = "Refresh raster window";
         refresh.className = "map-preview-raster-refresh";
-        const read = async currentView => {
-          refresh.disabled = true;
-          try {await session.refresh(currentView ? map.getBounds().toArray().flat() : bounds);}
+        refresh.style.position = "static";
+        const cancel = document.createElement("button"); cancel.type = "button"; cancel.textContent = "Cancel raster read"; cancel.disabled = true;
+        let appliedDisplay = {}, apply;
+        const read = async (currentView, display = appliedDisplay) => {
+          refresh.disabled = true; cancel.disabled = false; if (apply) apply.disabled = true;
+          try {
+            const result = await session.refresh(currentView ? map.getBounds().toArray().flat() : bounds, display);
+            if (result) appliedDisplay = display;
+          }
           catch {failed = true;}
-          finally {refresh.disabled = false;}
+          finally {refresh.disabled = false; cancel.disabled = true; if (apply) apply.disabled = false;}
         };
-        refresh.addEventListener("click", () => void read(true)); container.append(refresh);
+        refresh.addEventListener("click", () => void read(true));
+        cancel.addEventListener("click", () => {session.cancel(); status.textContent = "Raster read cancelled. The previous view and Layer reference are preserved.";});
+        const controls = document.createElement("div"); controls.className = "map-preview-raster-controls";
+        controls.append(refresh, cancel); container.append(controls);
+        const inspected = document.createElement("section");inspected.setAttribute("aria-label", "Raster values");
+        inspected.setAttribute("aria-live", "polite");controls.append(inspected);
+        function renderSample() {if (inspectedPoint) inspected.replaceChildren(CogIdentifyResult(session.identify(inspectedPoint.lng, inspectedPoint.lat)));}
+        map.on("click", event => {inspectedPoint = event.lngLat.wrap?.() ?? event.lngLat;renderSample();
+          if(observerPick){const callback=observerPick;observerPick=null;callback([inspectedPoint.lng,inspectedPoint.lat]);}});
+        if (cog.configuration.bands.length === 1) {
+          const form = document.createElement("form"), fields = document.createElement("fieldset");
+          form.className = "map-preview-raster-display";
+          const legend = document.createElement("legend"); legend.textContent = "One-band raster display"; fields.append(legend);
+          const inputs = ["Display minimum", "Display maximum", "Transparent value (optional)"].map((name, index) => {
+            const label = document.createElement("label"); label.textContent = name;
+            const input = document.createElement("input"); input.type = "number"; input.step = "any";
+            input.required = index < 2; input.setAttribute("aria-label", name); label.append(input); fields.append(label); return input;
+          });
+          const note = document.createElement("p");
+          note.textContent = "Choose a minimum below the maximum for a grayscale view. Values outside the range use black or white; missing values stay transparent. These choices apply only to this temporary map.";
+          fields.append(note);
+          apply = document.createElement("button"); apply.type = "submit"; apply.textContent = "Apply display range"; fields.append(apply); form.append(fields);
+          form.addEventListener("submit", event => {
+            event.preventDefault(); if (!form.reportValidity()) return;
+            const [minimum, maximum] = inputs.slice(0, 2).map(input => input.valueAsNumber);
+            const noDataValue = inputs[2].value === "" ? null : inputs[2].valueAsNumber;
+            if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum >= maximum
+              || !Number.isFinite(maximum - minimum) || noDataValue !== null && !Number.isFinite(noDataValue)) {
+              status.textContent = "Choose a finite minimum below the maximum and a finite transparent value, or leave the transparent value empty.";
+              return;
+            }
+            void read(true, {displayRange: {minimum, maximum}, noDataValue});
+          });
+          controls.append(form);
+        }
+        viewshed=RasterViewshed({getGrid:()=>session.grid,initialObserver:()=>map.getCenter().toArray(),
+          pickObserver:callback=>{observerPick=callback;return true;},clearPick:()=>{observerPick=null;},
+          onDownload:body=>{const url=URL.createObjectURL(new Blob([body],{type:"application/geo+json"}));
+            const link=document.createElement("a");link.href=url;link.download="viewshed.geojson";link.click();URL.revokeObjectURL(url);}});
+        controls.append(viewshed);map.on("remove",()=>viewshed.dispose());
         container.__cogSession = session; void read(false);
         return;
       }

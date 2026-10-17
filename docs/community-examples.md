@@ -1,8 +1,8 @@
 # Maps and published analysis
 
-These publications show how maps, data and methods can work together in a
-readable explanation. Open an example to explore its controls and follow the
-source references.
+Start with a question, then keep enough of the inputs and method to adapt the
+study later. These publications show maps and analysis together. They are worked
+references, not complete input bundles or one-click Studio templates.
 
 | Publication | What to explore |
 | --- | --- |
@@ -16,11 +16,33 @@ Their source data and reuse terms are described on the individual pages; this
 repository does not include a complete installation and input bundle for every
 publication.
 
+## Adapt a method
+
+Each example should help you decide what to reuse, what to change and what the
+result can support. Read its source and rights record before downloading,
+capturing or redistributing an input. A public page does not itself grant rights
+to all of its data.
+
+| Starting point and question | Inputs and method | Expected observation and route into Studio |
+| --- | --- | --- |
+| **Map Folio:** How do water and forest features relate in this study area? | Use the publication's retained OpenStreetMap snapshot under its recorded terms; compare thematic Layers and annotations. | Layer visibility and presentation change the reading of a shared geography. Use permitted compatible vector inputs in a Project and retain source attribution; the publication's full composition is not supplied as a Studio template. |
+| **Reading beyond the visible:** What does color infrared reveal that natural color obscures? | Select permitted NOAA imagery identified on the page; compare band combinations, contrast stretches and vegetation indices, retaining the analysis parameters. | Vegetation and surface differences become easier to distinguish; display colors alone do not establish a land-cover classification. Use a supported imagery source or permitted local input in Studio; the publication's analytical controls are not all Studio tools. |
+| **Nepal census tables:** What changed between observations? | Follow the cited tables and their reuse terms; check denominators, dates and boundary correspondence before comparing counts. | Apparent change can depend on the denominator or geographic join. Bring a permitted compatible table or derived spatial input into Studio and document the join; automatic census harmonization is not implied. |
+| **Accessible cartographic design:** Can readers distinguish the mapped categories? | Apply the article's color, pattern, label and control guidance to a dataset you may use. | Compare readability in the intended viewing and print conditions. Adapt supported Styles and labels in Studio, then inspect the exported result; the article is design guidance rather than an importable style pack. |
+
+The [capability guide](community-capabilities.md) describes supported inputs and
+operations. Preserve the method and interpretation limits alongside any adapted
+map instead of assuming that a visual resemblance reproduces the analysis.
+
 ## Explore environmental screening
 
 The [MassGIS demonstration](https://demo.studio.opengeo.tools/?view=examples)
 offers a different way to explore the workspace. Choose **Explore MassGIS**,
 open an indicator and inspect its source and legend before comparing Layers.
+The question is which block groups warrant further investigation for a selected
+environmental indicator. Compare the indicator's statewide percentile with the
+source definition and other Layers; keep the edition and selected measure with
+your saved map.
 MassEnviroScreen uses statewide block-group percentiles for screening. A high
 percentile identifies a question for investigation; it does not establish
 conditions on a particular parcel or an individual's exposure.
@@ -31,11 +53,13 @@ The source archive is not included in this repository.
 
 ## Try it: community facilities
 
-For a short interface exercise, open the [starter map](https://demo.studio.opengeo.tools/?map=community-facilities).
+For a short study you can keep, open the [starter map](https://demo.studio.opengeo.tools/?map=community-facilities).
 It contains five fictional facilities released under **CC0-1.0**, with a
 [downloadable GeoJSON input](../app/src/data/sample-public-facilities.geojson)
 and [source and rights record](../app/src/data/public-demo-catalog.json).
-On GitHub, choose **Raw** to download the original input.
+On GitHub, choose **Raw** to download the original input. The question is which
+facilities are marked as publicly accessible and how to make that distinction
+clear to a reader.
 
 1. Open **Catalog**, find **Public community facilities** and choose **Review
    and add**. Read the source information, then choose **Cancel** to keep the
@@ -44,14 +68,30 @@ On GitHub, choose **Raw** to download the original input.
    records; four have `public_access: true`.
 3. Open **Layer → Layer properties**, change the point symbol or opacity, and
    toggle visibility. These choices change the presentation, not the input.
-4. Choose **Save locally** to retain a browser draft. Use **Save as** to export a
-   backup; Demo drafts are subject to daily reset.
+4. Choose **Project → Save on this device**, give the map a name and check for
+   **Saved on this device**. Open **Project → Projects on this device** and
+   reopen the saved Project to check that your styling remains.
+5. In **Projects on this device**, choose **Download backup**. The ZIP retains
+   the Project, supported local data, source metadata, styling and saved layouts;
+   live services remain references. Keep the ZIP outside browser storage.
+6. Choose **Project → Open Print Studio** to prepare a layout from this map.
+   Inspect its legend and attribution, save the layout, then download an updated
+   backup to retain it. Use **Project → Save as / export…** for the available map
+   outputs; a viewable export and an editable Project backup serve different uses.
+
+Personal Projects have no daily expiry and are independent of sample resets.
+They remain local to this browser profile and site; browser storage can be
+cleared or evicted. Older sample drafts have separate daily expiry. Saving on
+this device does not upload a Project or make it available to another website.
 
 The facility names, coordinates and verification dates are invented. The
 exercise teaches inspection and styling, rather than assessment of a real
 community. Its data license is separate from the software's Apache-2.0 license.
 
-See the [workflow guide](community-workflow.md) for account-backed saving and
-publication, and the [contribution guide](../CONTRIBUTING.md) to add a
-worked example. Include source links or permitted downloads, reuse terms,
-instructions and the result readers should expect.
+See the [workflow guide](community-workflow.md) for account-backed saving,
+shared-Layer reuse and the recurring-study publication acceptance target. To add
+a worked example, follow the
+[contribution guide](../CONTRIBUTING.md) and include its question,
+permitted inputs, method, expected observations, interpretation limits and a
+route into the compatible Studio workflow. Identify which steps are demonstrated
+and which still need acceptance.

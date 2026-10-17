@@ -3,6 +3,7 @@ import {ServiceConnection} from "./ServiceConnection.js";
 import {TileCacheSettings} from "./TileCacheSettings.js";
 import {ProjectWmsPublications} from "./ProjectWmsPublications.js";
 import {WcsSubsetPreparation} from "./WcsSubsetPreparation.js";
+import {ExternalDatabaseCatalog} from "./ExternalDatabaseCatalog.js";
 
 const VECTOR_FORMATS = new Set(["geojson", "shapefile", "geopackage", "geoparquet"]);
 const COG_CONTENT_TYPES = new Set(["image/tiff", "image/geotiff"]);
@@ -33,6 +34,11 @@ export function ProjectServices({state, refresh}) {
     )
   );
   section.append(heading);
+  if (typeof state.adapter.externalDatabaseCatalog === "function" && !["fixture", "demo"].includes(state.adapter.kind)) {
+    const databases = ExternalDatabaseCatalog({state});
+    section.append(databases);
+    section.dispose = () => databases.dispose();
+  }
   if (typeof state.adapter.listWmsPublications === "function") {
     section.append(ProjectWmsPublications({state}));
   }

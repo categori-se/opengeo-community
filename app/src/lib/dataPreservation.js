@@ -1,3 +1,5 @@
+import {normalizePmtilesOptions,PMTILES_OUTPUT_LAYER} from './pmtilesOptions.js';
+
 const SOURCE_METHODS = Object.freeze({
   arcgis: Object.freeze({method: "bounded_feature_capture", scope: "feature", available: true}),
   "arcgis-map": Object.freeze({method: "bounded_map_capture", scope: "image", available: false}),
@@ -122,7 +124,7 @@ export function createPmtilesDerivativeRequest(input) {
     "bounds",
     "minZoom",
     "maxZoom",
-    "sourceLayer"
+    "sourceLayer",...(Object.hasOwn(input??{},'options')?['options']:[])
   ], "PMTiles derivative request");
   const projectId = uuid(input.projectId, "projectId");
   const datasetId = uuid(input.datasetId, "datasetId");
@@ -132,9 +134,11 @@ export function createPmtilesDerivativeRequest(input) {
   const maxZoom = integerBetween(input.maxZoom, 0, 22, "maxZoom");
   if (minZoom > maxZoom) throw new TypeError("minZoom must not exceed maxZoom");
   const sourceLayer = boundedText(input.sourceLayer, 200, "sourceLayer");
+  const options=normalizePmtilesOptions(input.options);
+  if(options&&!PMTILES_OUTPUT_LAYER.test(sourceLayer))throw TypeError('PMTiles output layer is invalid');
 
   return deepFreeze({
-    schemaVersion: "opengeo.pmtiles-derivative-request.1.0.0",
+    schemaVersion: options?"opengeo.pmtiles-derivative-request.1.1.0":"opengeo.pmtiles-derivative-request.1.0.0",
     requestType: "dataset_vector_to_pmtiles",
     idempotencyKey: uuid(input.idempotencyKey, "idempotencyKey"),
     projectId,
@@ -146,7 +150,7 @@ export function createPmtilesDerivativeRequest(input) {
       bounds,
       minZoom,
       maxZoom,
-      sourceLayer
+      sourceLayer,...(options?{options}:{})
     },
     output: {
       format: "pmtiles",

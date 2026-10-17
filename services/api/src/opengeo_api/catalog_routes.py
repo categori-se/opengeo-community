@@ -76,10 +76,10 @@ class DatasetLineageOriginResponse(BaseModel):
     acquired_at: datetime
 
 
-class DatasetDerivativeLineageResponse(BaseModel):
+class _DatasetDerivativeLineageResponseFields(BaseModel):
     kind: Literal["pmtiles"]
     operation_id: UUID
-    recipe: Literal["gdal-pmtiles-v1"]
+    recipe: str
     source_object_id: UUID
     output_object_id: UUID
     bounds: tuple[float, float, float, float]
@@ -90,13 +90,25 @@ class DatasetDerivativeLineageResponse(BaseModel):
     created_at: datetime
 
 
+class DatasetDerivativeLineageResponse(_DatasetDerivativeLineageResponseFields):
+    recipe: Literal["gdal-pmtiles-v1"]
+
+
+class ConfigurableDatasetDerivativeLineageResponse(_DatasetDerivativeLineageResponseFields):
+    recipe: Literal["gdal-pmtiles-v2"]
+    options: dict[str, Any]
+    software: dict[str, Any]
+
+
 class DatasetVersionLineageResponse(BaseModel):
     schema_version: Literal["opengeo.dataset-version-lineage.1.0.0"]
     dataset_id: UUID
     version_id: UUID
     version_number: int = Field(ge=1)
     origins: list[DatasetLineageOriginResponse]
-    derivatives: list[DatasetDerivativeLineageResponse]
+    derivatives: list[
+        DatasetDerivativeLineageResponse | ConfigurableDatasetDerivativeLineageResponse
+    ]
     derivatives_truncated: bool
 
 
@@ -295,19 +307,31 @@ def lineage_origin_response(record: DatasetLineageOrigin) -> DatasetLineageOrigi
 
 def derivative_lineage_response(
     record: DatasetDerivativeLineage,
-) -> DatasetDerivativeLineageResponse:
-    return DatasetDerivativeLineageResponse(
-        kind=record.kind,
-        operation_id=record.operation_id,
-        recipe=record.recipe,
-        source_object_id=record.source_object_id,
-        output_object_id=record.output_object_id,
-        bounds=record.bounds,
-        minimum_zoom=record.minimum_zoom,
-        maximum_zoom=record.maximum_zoom,
-        source_layer=record.source_layer,
-        request_checksum_sha256=record.request_checksum_sha256,
-        created_at=record.created_at,
+) -> DatasetDerivativeLineageResponse | ConfigurableDatasetDerivativeLineageResponse:
+    response_type = (
+        ConfigurableDatasetDerivativeLineageResponse
+        if record.recipe == "gdal-pmtiles-v2"
+        else DatasetDerivativeLineageResponse
+    )
+    return response_type.model_validate(
+        dict(
+            kind=record.kind,
+            operation_id=record.operation_id,
+            recipe=record.recipe,
+            source_object_id=record.source_object_id,
+            output_object_id=record.output_object_id,
+            bounds=record.bounds,
+            minimum_zoom=record.minimum_zoom,
+            maximum_zoom=record.maximum_zoom,
+            source_layer=record.source_layer,
+            request_checksum_sha256=record.request_checksum_sha256,
+            created_at=record.created_at,
+            **(
+                {"options": record.options, "software": record.software}
+                if record.recipe == "gdal-pmtiles-v2"
+                else {}
+            ),
+        )
     )
 
 

@@ -7,7 +7,7 @@ let runtime;
 let frameworkCompiler;
 async function loadFrameworkCompiler() {
   if (!frameworkCompiler) frameworkCompiler = (async () => {
-    const response = await fetch('/editor-assets/manifest.json', {credentials: 'omit'});
+    const response = await fetch('/editor-assets/manifest.json', {credentials: 'omit', cache: 'no-store'});
     if (!response.ok) throw Error('Framework preview assets unavailable');
     const {frameworkPreview} = await response.json();
     if (!/^framework-preview-[\w-]+\.js$/.test(frameworkPreview ?? '')) throw Error('Framework preview is not available in this release');
@@ -20,7 +20,7 @@ export const publicationLanguage = path => ({md: 'markdown', html: 'html', css: 
 
 async function loadRuntime() {
   if (!runtime) runtime = (async () => {
-    const response = await fetch('/editor-assets/manifest.json', {credentials: 'omit'});
+    const response = await fetch('/editor-assets/manifest.json', {credentials: 'omit', cache: 'no-store'});
     if (!response.ok) throw Error('Editor assets unavailable');
     const manifest = await response.json();
     const asset = key => {
