@@ -101,6 +101,13 @@ the same state directory to reopen them. The private directory must have mode
 are rejected. A schema rejection preserves the state and requires a reviewed
 upgrade; selecting a new directory creates a separate database.
 
+The maintained five-facility CC0 smoke has completed actual compiled UI upload,
+ingest, Catalog preview without changing the Project, deliberate map addition,
+styling, Save and rendered reopening. It also verifies the same saved version and
+rendered features after stopping and restarting the database. This local evidence
+uses synthetic identity and local transports; independent installation and
+configured production identity/delivery remain separate acceptance work.
+
 Use `--rebuild-studio` after changing frontend source. It replaces only the staged
 frontend in that development directory and preserves the database and uploaded
 files. Rebuild the maintained API/worker images after dependency changes and pass

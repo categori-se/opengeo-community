@@ -1,36 +1,38 @@
-## October 17 — Community opening and connected core checkpoint
+## October 17 — Connected local core workflow accepted
 
-The public connection form's undefined owner flag is fixed. Its existing navigation
-case passes, and the corrected 872-file compiled build/check passes in 23.871 seconds.
-The maintained builder uses the installed pinned CLI directly, preserving routes,
-configuration and executable PATH. Earlier failed build/runtime attempts are retained.
+The compiled community app completes one retained Project/map and pinned five-point
+CC0 facilities dataset through upload, ingest, actual Catalog preview, deliberate
+map addition, styling, UI Save and rendered reopening. Catalog inspection displays
+all five names without changing the Project. The interrupted ingest completes by
+canonical expired-lease recovery on the same job/version, attempt two; ordinary
+account API readback confirms its exact active version, no error and five features.
 
-The actual interface creates one Project/map and uploads the pinned five-point CC0
-facilities example. The interrupted ingest resumes through canonical expired-lease
-recovery on the same job/version, completing on attempt two. Normal account API
-readback confirms active dataset/version, completed job, no processing error and
-five features. Compiled Catalog rendering displays all five names without changing
-the Project. Deliberate Add to map opens Layer Properties. The two focused Catalog
-fallback/control cases also pass in 1.982 seconds.
+The saved map is version 2, with `#2563eb` points, 0.8 opacity and the exact uploaded
+source version. Actual MapLibre feature/paint checks pass after Save and reopening.
+After the database physically stops and restarts, a read-only continuation confirms
+the unchanged stored definition and renders all five names again. It completes in
+30.921 seconds with 14 API requests and no map/data writes; one exact-source read
+capability uses POST. API/worker containers are removed and the database is stopped.
+No upload, processing, compilation, build, AWS call or CI run is repeated.
 
-Style/Save and physical restart/reopen remain unverified. The last bounded attempt
-stops on a stale test row locator, with no page errors or Save request. Retained DOM
-shows the native version suffix and Select layer label; the helper now matches both.
-Syntax and static checks pass; no further runtime retry is made. Phase checkpoints
-identify the remaining step. Cumulative browser time remains recorded against an
-explicitly revised 150-second bound; API limits remain 100 per run and 160 total.
-Measured local pilot stages total 856.717 seconds, including failed attempts;
-agent/tool overhead and service-side usage are not inferred from that measurement.
-Reuse the accepted artifact, dataset/version and completed ingest for continuation.
-API/worker containers are absent and the database is stopped. No AWS calls are made.
+Earlier build/runtime failures and selector mistakes remain recorded. The native
+layer title includes its saved-version suffix; the current button is Select layer.
+The smoke now uses those controls and checkpoints phases and cumulative usage.
+After styled Save it allows only reads and exact-source download grants. Final
+usage is 174 API attempts and 159.346 browser/controller seconds within explicitly
+revised 185-attempt/180-second bounds. Measured local pilot stages total 965.508
+seconds under the existing 1,000-second ceiling. Agent/tool overhead is unavailable;
+these measurements are not a full cost total. No more core replay is needed.
 
-The approved public main b5afc3d passes both existing jobs in
-[run 39058926252](https://github.com/categori-se/opengeo-community/actions/runs/39058926252),
-including the added Catalog and form regression suites. One standard public workflow
-runs, with two jobs, no artifact uploads and unchanged 297,010,310-byte cache usage.
-Private Actions remain gated on verified free allowance. Follow-up harness/docs
-changes are checkpointed on release branches; that passing run does not cover them.
-Full independent installation and production identity/delivery remain open.
+The public opening flag and normal pinned-CLI builder fixes remain accepted.
+Public main b5afc3d passes
+[both existing jobs](https://github.com/categori-se/opengeo-community/actions/runs/39058926252),
+including the Catalog/form regression suites. Follow-up harness/docs changes remain
+on release branches and are not covered by that run. No additional CI is triggered;
+private Actions remain gated on verified allowance. Next, carry the inspected
+Catalog file/version into one native Publication using Connect a Catalog file.
+This verifies retained Layer input, not saved-map Artifact presentation. Independent
+operator installation and production identity/delivery remain open.
 
 ## October 17 — Standalone image fixes and installation prerequisites
 

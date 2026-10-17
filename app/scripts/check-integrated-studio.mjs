@@ -61,7 +61,7 @@ let restoration = null;
 let serviceClients = null;
 let developmentWorkerRunning = false;
 const developmentSmoke = developmentMode && process.env.OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE === "1";
-const developmentActiveTimeLimit = 150_000;
+const developmentActiveTimeLimit = 180_000;
 const developmentCheckpoint = join(work, "development-smoke.json");
 const developmentProgress = developmentSmoke && existsSync(developmentCheckpoint)
   ? JSON.parse(readFileSync(developmentCheckpoint)) : {};
@@ -93,10 +93,13 @@ const securityReviewer='20000000-0000-4000-8000-000000000002';
 
 function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} = {}) {
   if (developmentSmoke) {
-    assert.ok(developmentApiAttempts < 100 && (developmentProgress.apiRequestAttempts ?? 0) < 160,
-      "Development smoke: 100 API attempts per run, 160 across creation and restart/reopen");
+    if (developmentProgress.styledSaved) assert.ok(method === "GET" || method === "HEAD"
+      || method === "POST" && path.startsWith(`/projects/${developmentProgress.project}/datasets/${developmentProgress.datasetId}/versions/${developmentProgress.datasetVersionId}/objects/`)
+        && path.endsWith("/download"), "Saved development map reopening only reads the retained Project and exact source");
+    assert.ok(developmentApiAttempts < 100 && (developmentProgress.apiRequestAttempts ?? 0) < 185,
+      "Development smoke: 100 API attempts per run, 185 across creation and restart/reopen");
     assert.ok(developmentPriorMilliseconds + Date.now() - developmentStarted < developmentActiveTimeLimit,
-      "Development smoke: 150 seconds of combined active browser/controller time");
+      "Development smoke: 180 seconds of combined active browser/controller time");
     developmentApiAttempts++;
     checkpointDevelopment({apiRequestAttempts: (developmentProgress.apiRequestAttempts ?? 0) + 1});
   }

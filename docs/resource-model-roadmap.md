@@ -1,32 +1,34 @@
 # Resource model: active plan and continuation queue
 
-October 17 — Community opening and Catalog rendering accepted locally
+October 17 — Connected local core workflow accepted
 
-The public connection form now opens without its undefined owner flag. The normal
-pinned-CLI build/check passes. The retained CC0 example completes upload and ingest;
-normal account API readback confirms the exact active version, completed job and
-five features. Actual compiled Catalog rendering shows all five named features
-without changing the Project. Deliberate addition to the existing map also works.
-Catalog can use a disclosed blank background when the remote basemap stalls or
-fails; both existing focused Catalog cases pass.
+The compiled community app now completes the retained CC0 study through upload,
+ingest, Catalog preview, deliberate map addition, styling, UI Save and actual
+rendered reopening. After a physical database stop/restart, the same map version,
+source version, blue symbols, 80% opacity and all five named features match.
+Catalog inspection does not change the Project. API/worker containers are removed
+and the database is stopped. No AWS resources or additional CI runs are used.
 
-Style/Save and physical database restart/reopen remain unverified. The bounded
-continuation stops at a stale test locator, with no page errors and no Save request.
-The retained page identifies the native version suffix and current Select layer
-button; the helper now matches both. That correction has syntax/static checks only.
-Next, finish the same retained map through styling, Save and rendered reopening,
-then restart its database. Preserve cumulative request/time counters, completed
-writes and ingest; do not upload, process or rebuild unchanged inputs again.
+The public opening defect and npm-dependent builder invocation are fixed. Catalog
+can recover to a disclosed blank background when its remote provider stalls or
+fails. The existing smoke uses current native controls and retains completed writes
+and all prior request/time usage. Its final restart phase admits only reads and
+exact-source download grants; it performs no new upload, ingest, style or Save.
+The selected local core is accepted, not a full independent installation.
 
-The approved public main update is b5afc3d. Its existing two-job validation
-[passes](https://github.com/categori-se/opengeo-community/actions/runs/39058926252),
-including the added Catalog/form regression suites. Standard public-runner compute
-is free under GitHub's current terms; verified cache usage is 297,010,310 bytes,
-with no artifact uploads. Private Actions remain gated on verified allowance.
-Follow-up harness/docs changes stay on release branches for the next consolidated
-validation. Local API/worker containers are absent and the database is stopped.
-No AWS resources are started. Full independent installation and production
-identity/delivery remain open.
+Next, connect this exact Catalog file/version to one authored native Publication,
+build it once and inspect its private preview. Reuse the accepted compiler and
+previous two-edition/history/preview-security evidence. This consumes the Layer
+without another map-rendering job; saved-map presentation requires a retained
+Project Artifact and remains separate acceptance. Independent operator installation
+and configured production identity/delivery remain open.
+
+The approved public main b5afc3d passes its
+[existing two-job validation](https://github.com/categori-se/opengeo-community/actions/runs/39058926252).
+Follow-up harness/docs changes remain on release branches for consolidated
+validation; that run does not cover them. Public standard-runner compute is free
+under GitHub's current terms; verified cache usage is 297,010,310 bytes, with no
+artifact uploads. Private Actions remain gated on verified allowance.
 
 October 17 — Standalone installation prerequisites accepted
 

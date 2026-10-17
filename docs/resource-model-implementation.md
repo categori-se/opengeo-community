@@ -1,34 +1,36 @@
 # Resource model implementation — September 19, 2026
 
-October 17 — Community opening, ingest and compiled Catalog rendering
+October 17 — Compiled local core Save and restart/reopen accepted
 
-`MapView` installs its preview once, offers a neutral background while its provider
-stalls and falls back once on initial failure. It discloses that choice and retains
-later failure handling. Both focused Catalog cases pass. The actual compiled
-Catalog now renders all five named CC0 fixture features; API comparison confirms
-inspection does not alter its Project. Deliberate Add to map opens Layer Properties.
+The existing five-point CC0 study now passes the complete selected local core:
+compiled UI Project/map creation, upload, completed ingest, actual Catalog rendering,
+deliberate map addition, styling, UI Save and rendered reopening. Catalog inspection
+renders all five names without changing the Project. Canonical expired-lease
+recovery completes the same interrupted ingest job/version on attempt two; normal
+account API readback confirms active state, no error and five features. No job,
+lease or version state is manually rewritten.
 
-The normal build/check passes with the installed pinned CLI, preserving routes,
-configuration and local executable PATH. Compiled acceptance identifies and fixes
-a public-only undefined owner flag in the connection form. The corrected build
-creates the Project/map and completes the upload. After interruption, canonical
-expired-lease recovery completes the same ingest job/version on attempt two;
-normal account API readback confirms active state, no error and five features.
-No lease, version or job state is manually rewritten.
+The saved map is version 2, pinned to the exact uploaded dataset version, with
+`#2563eb` point color and 0.8 opacity. Actual MapLibre feature/paint assertions pass
+before and after reopening. The runner stops the database between invocations;
+a final read-only invocation compares the exact saved definition and renders all
+five names after restarting it. API/worker containers are absent and the retained
+database is stopped. No AWS or new Actions runs are used.
 
-The existing development smoke retains writes, incrementally records requests and
-worker output, and reconciles completed ingest before admitting further processing.
-Its style check stops on a stale row locator, with no page errors or Save request.
-Retained DOM evidence supplies the version-suffixed layer title and current Select
-layer label; both are corrected in the helper. Syntax/static review passes, but
-styling, Save and rendered reopening after a physical database restart remain open.
-The explicit cumulative browser bound is 150 seconds, retaining prior elapsed time;
-API limits remain 100 per run and 160 cumulative. No new runtime retry is performed.
+The smoke retains completed writes, cumulative elapsed time/API attempts and
+incremental response/worker logs. Current native menu/row labels replace obsolete
+test selectors. Once styled Save succeeds, API admission permits only reads and
+exact-source download grants. Final cumulative usage is 174 API attempts and
+159.346 seconds of browser/controller time, against explicit revised bounds of
+185 and 180 seconds; earlier failed attempts are retained. Measured local pilot
+stages total 965.508 seconds, below the existing 1,000-second ceiling. Agent/tool
+overhead is not represented as measured runtime or a dollar estimate.
 
-Public main b5afc3d passes both existing CI jobs, including the two added regression
-suites. Follow-up harness changes are not covered by that run. API/worker containers
-are absent and the retained database is stopped. No AWS resources are used.
-Independent full-stack installation and production identity/delivery remain open.
+The public opening flag and installed pinned-CLI builder fixes remain accepted;
+Catalog's blank-background fallback and two focused cases pass. Public main
+b5afc3d passes both existing CI jobs. Follow-up harness changes are not covered by
+that run. Broader selected-input Publication round trips, independent full-stack
+installation and configured production identity/delivery remain open.
 
 October 17 — Standalone images and frontend
 
