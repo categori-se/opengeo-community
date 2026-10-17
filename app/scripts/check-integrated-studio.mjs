@@ -61,7 +61,18 @@ let restoration = null;
 let serviceClients = null;
 let developmentWorkerRunning = false;
 const developmentSmoke = developmentMode && process.env.OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE === "1";
-const developmentWrites = new Map();
+const developmentCheckpoint = join(work, "development-smoke.json");
+const developmentProgress = developmentSmoke && existsSync(developmentCheckpoint)
+  ? JSON.parse(readFileSync(developmentCheckpoint)) : {};
+const developmentStarted = Date.now();
+const developmentPriorMilliseconds = developmentProgress.activeMilliseconds ?? 0;
+let developmentApiAttempts = 0;
+function checkpointDevelopment(update = {}) {
+  Object.assign(developmentProgress, update, {
+    activeMilliseconds: developmentPriorMilliseconds + Date.now() - developmentStarted
+  });
+  writeFileSync(developmentCheckpoint, JSON.stringify(developmentProgress, null, 2) + "\n");
+}
 const localAnalysisRunner = developmentMode ? loadLocalAnalysisRunner(work) : null;
 const publicationProfile = existsSync(join(work, "publication-profile.json"))
   ? JSON.parse(readFileSync(join(work, "publication-profile.json"), "utf8")) : null;
@@ -80,6 +91,14 @@ const securityCumulativeApiRequests=securityResume?.cumulativeApiRequests??42;
 const securityReviewer='20000000-0000-4000-8000-000000000002';
 
 function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} = {}) {
+  if (developmentSmoke) {
+    assert.ok(developmentApiAttempts < 100 && (developmentProgress.apiRequestAttempts ?? 0) < 160,
+      "Development smoke: 100 API attempts per run, 160 across creation and restart/reopen");
+    assert.ok(developmentPriorMilliseconds + Date.now() - developmentStarted < 90_000,
+      "Development smoke: 90 seconds of combined active browser/controller time");
+    developmentApiAttempts++;
+    checkpointDevelopment({apiRequestAttempts: (developmentProgress.apiRequestAttempts ?? 0) + 1});
+  }
   if(publicationSecurityOnly){
     const capability=securityFacts.builds.some(build=>
       path===`/projects/${securityFacts.projectId}/observable-build-jobs/${build.id}/preview-capabilities`);
@@ -125,8 +144,22 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} 
             securityInvitationId=invitation.id;
           }catch{return reject(new Error('Temporary reviewer invitation response is invalid.'));}
         }
-        if (developmentSmoke && method === "POST" && response.statusCode === 201 && /^\/projects(?:\/[^/]+\/maps)?$/.test(path)) {
-          developmentWrites.set(path, JSON.parse(body));
+        if (developmentSmoke && response.statusCode >= 200 && response.statusCode < 300 && (
+          method === "POST" && (path === "/projects" || /^\/projects\/[^/]+\/maps$/.test(path)
+            || path.endsWith("/uploads/request") || path.endsWith("/complete"))
+          || method === "PATCH" && path === `/projects/${developmentProgress.project}/maps/${developmentProgress.map?.id}`)) {
+          try {
+            const record = JSON.parse(body);
+            if (method === "POST" && path === "/projects") checkpointDevelopment({project: record.id});
+            else if (method === "POST" && /^\/projects\/[^/]+\/maps$/.test(path)) checkpointDevelopment({map: record});
+            else if (method === "POST" && path.endsWith("/uploads/request")) {
+              checkpointDevelopment({uploadId: record.upload_id, datasetId: record.dataset.id});
+            } else if (method === "POST" && path.endsWith("/complete")) {
+              checkpointDevelopment({datasetId: record.dataset.id, datasetVersionId: record.dataset_version_id, uploadCompleted: true});
+            } else if (method === "PATCH" && path === `/projects/${developmentProgress.project}/maps/${developmentProgress.map?.id}`) {
+              checkpointDevelopment({map: record, styledSaved: true});
+            }
+          } catch (error) { return reject(error); }
         }
         requests.push({method, path, status: response.statusCode, authenticated: Boolean(headers.authorization),
           backend:socket === join(work, "api.sock") ? "original" : "restored",
@@ -151,11 +184,11 @@ async function readApi(path) {
   return JSON.parse(response.body);
 }
 
-async function worker() {
+async function worker(timeout = 120_000) {
   const [executable, ...args] = JSON.parse(readFileSync(join(work, "worker-command.json")));
   assert.equal(executable, "podman");
   const output = await new Promise((done, reject) => {
-    const process = spawn(executable, args, {timeout: 120_000});
+    const process = spawn(executable, args, {timeout});
     const chunks = [];
     process.stdout.on("data", (chunk) => chunks.push(chunk));
     process.stderr.on("data", (chunk) => chunks.push(chunk));
@@ -273,7 +306,7 @@ const server = createServer(async (request, response) => {
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 if (developmentMode) localAnalysisBridge = createLocalAnalysisBridge({runner: localAnalysisRunner, origin});
-let browser, page, previewServer, publicServer, publicationBrowserTimer;
+let browser, page, previewServer, publicServer, publicationBrowserTimer, developmentBrowserTimer;
 const previewOrigin = publicationProfile?.previewOrigin;
 const publicOrigin = publicationProfile?.publicationOrigin;
 const canonicalPublicOrigin = publicationProfile?.publicationCanonicalOrigin;
@@ -332,6 +365,8 @@ try {
   assert.ok(executablePath, "Cached system Chromium is required");
   browser = await chromium.launch({headless: publicationOnlyMode || !developmentMode || developmentSmoke, chromiumSandbox: Boolean(developmentMode && !developmentSmoke && !publicationOnlyMode), executablePath, args: [...(developmentMode && !developmentSmoke && !publicationOnlyMode ? [] : ["--no-sandbox"]),
     ...(pinnedFontMode ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
+  if (developmentSmoke) developmentBrowserTimer = setTimeout(() => void browser.close(),
+    Math.max(1, 90_000 - developmentPriorMilliseconds - (Date.now() - developmentStarted)));
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
   if (publicationOnlyMode) {
     publicationBrowserTimer=setTimeout(()=>void browser.close(),publicationSecurityOnly?75_000:60_000);
@@ -392,14 +427,42 @@ try {
     console.log(`Local development: ${origin}/__local/development (synthetic sign-in; external requests blocked)`);
     await page.goto(`${origin}/__local/development`);
     if (developmentSmoke) {
-      const checkpoint = join(work,"development-smoke.json");
-      if (existsSync(checkpoint)) {
-        const saved = JSON.parse(readFileSync(checkpoint));
-        assert.deepEqual(await readApi(`/projects/${saved.project}/maps/${saved.map.id}`),saved.map);
-        await page.goto(`${origin}/workspaces?composition=${saved.map.id}`);
-        await page.locator(".opengeo-workbench").waitFor();
-        console.log("Development smoke: saved Project reopened after database restart");
-      } else {
+      stage = "development-core";
+      const fixturePath = "app/src/data/sample-public-facilities.geojson";
+      const fixtureBytes = readFileSync(join(root, fixturePath));
+      const fixture = JSON.parse(fixtureBytes);
+      const fixtureMetadata = JSON.parse(readFileSync(join(root, "app/src/data/public-demo-catalog.json")))
+        .entries.find(record => record.id === "public-community-facilities");
+      const fixtureRights = fixtureMetadata.sourceFiles.find(record => record.path === "/data/sample-public-facilities.geojson");
+      assert.equal(fixtureRights.license, "CC0-1.0");
+      assert.equal(fixtureBytes.length, 1472);
+      assert.equal(fixture.type, "FeatureCollection");
+      assert.equal(fixture.features.length, 5);
+      assert.ok(fixture.features.every(feature => feature.geometry.type === "Point"));
+      const expectedNames = fixture.features.map(feature => feature.properties.name).sort();
+      const fixtureSha256 = createHash("sha256").update(fixtureBytes).digest("hex");
+      assert.equal(fixtureSha256, "b384b0990bc62a8a5339e801098f995989bd6a770fdbf5fe7f58025a2351c96c");
+      if (developmentProgress.fixture) assert.equal(developmentProgress.fixture.sha256, fixtureSha256);
+      checkpointDevelopment({fixture: {path: fixturePath, sha256: fixtureSha256, bytes: fixtureBytes.length,
+        featureNames: expectedNames, metadata: {title: fixtureMetadata.title, description: fixtureMetadata.summary,
+          license: fixtureRights.license, attribution: fixtureRights.attribution}}});
+      const wasSaved = developmentProgress.styledSaved === true;
+      const datasetName = "Community development facilities";
+      const mapPath = () => `/projects/${developmentProgress.project}/maps/${developmentProgress.map.id}`;
+      async function assertRenderedMap() {
+        await page.waitForFunction(({datasetId, names}) => {
+          const shell = document.querySelector(".opengeo-workbench"), map = shell?.__opengeoMap;
+          const layer = shell?.__opengeoLayers?.find(layer => layer.datasetId === datasetId);
+          if (!map?.isStyleLoaded() || map.isMoving() || !layer || !map.getLayer(`${layer.layerId}-points`)) return false;
+          const rendered = new Set(map.queryRenderedFeatures({layers: [`${layer.layerId}-points`]}).map(feature => feature.properties.name));
+          return names.every(name => rendered.has(name)) && layer.style.circleColor === "#2563eb" && layer.opacity === 0.8
+            && map.getPaintProperty(`${layer.layerId}-points`, "circle-color") === "#2563eb"
+            && map.getPaintProperty(`${layer.layerId}-points`, "circle-opacity") === 0.8;
+        }, {datasetId: developmentProgress.datasetId, names: expectedNames});
+      }
+      if (!developmentProgress.project) {
+        assert.ok(!developmentProgress.creationAttempted, "Project creation response unresolved; retain checkpoint and reconcile before retrying");
+        checkpointDevelopment({creationAttempted: true});
         await page.goto(`${origin}/workspaces`);
         await page.getByRole("link",{name:/New Project/}).click();
         await page.getByLabel("New project name",{exact:true}).fill("Community development persistence smoke");
@@ -409,13 +472,87 @@ try {
         await page.getByRole("button",{name:"Create project and map",exact:true}).click();
         const projectResponse=await created, mapResponse=await mapCreated;
         assert.equal(projectResponse.status(),201); assert.equal(mapResponse.status(),201);
-        const project=developmentWrites.get("/projects"), map=developmentWrites.get(`/projects/${project.id}/maps`);
         await page.locator(".opengeo-workbench").waitFor();
-        writeFileSync(checkpoint,JSON.stringify({project:project.id,map:await readApi(`/projects/${project.id}/maps/${map.id}`)})+"\n");
-        console.log("Development smoke: Project created through Studio and retained");
       }
-      assert.ok(requests.length <= 60,"Development smoke request budget");
+      if (!developmentProgress.map) {
+        const maps = await readApi(`/projects/${developmentProgress.project}/maps`);
+        assert.equal(maps.length, 1, "Retained Project needs its committed map reconciled before continuation");
+        checkpointDevelopment({map: maps[0]});
+      }
+      if (!developmentProgress.styledSaved) {
+        if (!developmentProgress.uploadCompleted) {
+          assert.ok(!developmentProgress.uploadAttempted, "Upload already attempted; reconcile its retained ticket before another transfer");
+          await page.goto(`${origin}/workspaces?project=${developmentProgress.project}&manage=data`);
+          await page.getByLabel("Dataset, image, or document file", {exact: true}).setInputFiles({
+            name: "sample-public-facilities.geojson", mimeType: "application/geo+json", buffer: fixtureBytes});
+          await page.getByLabel("Dataset, image, or document name", {exact: true}).fill(datasetName);
+          await page.getByLabel("Dataset description", {exact: true}).fill(`${fixtureMetadata.summary} ${fixtureRights.license}; ${fixtureRights.attribution}.`);
+          await page.getByLabel("Dataset classification", {exact: true}).selectOption("internal");
+          const completed = page.waitForResponse(response => response.url().endsWith("/complete") && response.request().method() === "POST");
+          checkpointDevelopment({uploadAttempted: true});
+          await page.getByRole("button", {name: "Hash and upload", exact: true}).click();
+          assert.equal((await completed).status(), 200);
+        }
+        if (!developmentProgress.workerCompleted) {
+          assert.ok(!developmentProgress.workerAttempted, "Worker already attempted; inspect retained result before another run");
+          checkpointDevelopment({workerAttempted: true});
+          await worker(30_000);
+          checkpointDevelopment({workerCompleted: true});
+        }
+        const dataset = await readApi(`/projects/${developmentProgress.project}/datasets/${developmentProgress.datasetId}`);
+        assert.equal(dataset.status, "active"); assert.equal(dataset.feature_count, 5);
+        if (!developmentProgress.catalogRendered) {
+          const beforePreview = await readApi(mapPath());
+          await page.goto(`${origin}/layers?id=${developmentProgress.datasetId}`);
+          await page.getByRole("heading", {name: datasetName, exact: true}).waitFor();
+          await page.getByRole("button", {name: "Preview archived data", exact: true}).click();
+          const blankPreview = page.getByRole("button", {name: "Use blank basemap", exact: true});
+          if (await blankPreview.isVisible()) await blankPreview.click();
+          await page.waitForFunction(names => {
+            const map = document.querySelector(".layer-resource-archive-preview .map-frame")?.__opengeoMap;
+            if (!map?.isStyleLoaded() || map.isMoving() || !map.getLayer("preview-points")) return false;
+            const rendered = new Set(map.queryRenderedFeatures({layers: ["preview-points"]}).map(feature => feature.properties.name));
+            return names.every(name => rendered.has(name));
+          }, expectedNames);
+          assert.deepEqual(await readApi(mapPath()), beforePreview, "Catalog inspection must not save or alter a Project");
+          checkpointDevelopment({catalogRendered: true});
+        }
+        await page.goto(`${origin}/workspaces?project=${developmentProgress.project}&manage=data`);
+        const card = page.locator(`[data-dataset-id="${developmentProgress.datasetId}"]`);
+        await card.getByText("Add to map…", {exact: true}).click();
+        await card.getByRole("link", {name: "Add to Retained local map", exact: true}).click();
+        await page.getByRole("button", {name: `Add ${datasetName} to map`, exact: true}).click();
+        await page.getByRole("heading", {name: "Layer Properties", exact: true}).waitFor();
+        // Choose the actual blank basemap before styling; no tile responses are substituted.
+        await page.locator('button[aria-label="Change basemap"]').click();
+        const basemapDialog = page.getByRole("dialog", {name: "Change basemap", exact: true});
+        const blank = basemapDialog.locator('.gis-basemap-card[data-catalog-id="blank"]');
+        const group = blank.locator("xpath=ancestor::details[1]");
+        if (await group.getAttribute("open") === null) await group.locator("summary").click();
+        await blank.click();
+        await basemapDialog.getByRole("button", {name: "Done", exact: true}).click();
+        await styleLayer(page, `${datasetName} · saved v1`, "#2563eb", 0.8);
+        await page.getByRole("button", {name: "Fit", exact: true}).click();
+        await assertRenderedMap();
+        const saved = page.waitForResponse(response => /\/maps\/[^/]+$/.test(response.url()) && response.request().method() === "PATCH");
+        await page.getByRole("button", {name: "Save", exact: true}).click();
+        assert.equal((await saved).status(), 200);
+        checkpointDevelopment({map: await readApi(mapPath()), styledSaved: true});
+      }
+      assert.deepEqual(await readApi(mapPath()), developmentProgress.map);
+      const [layer] = developmentProgress.map.definition.layers;
+      assert.equal(developmentProgress.map.definition.layers.length, 1);
+      assert.equal(layer.datasetId, developmentProgress.datasetId);
+      assert.equal(layer.datasetVersionId, developmentProgress.datasetVersionId);
+      assert.equal(layer.style.circleColor, "#2563eb"); assert.equal(layer.opacity, 0.8);
+      await page.goto(`${origin}/workspaces?composition=${developmentProgress.map.id}`);
+      await assertRenderedMap();
+      checkpointDevelopment({reopened: true, databaseRestartReopened: wasSaved || developmentProgress.databaseRestartReopened === true});
       assert.deepEqual(errors,[]);
+      writeFileSync(join(work, "browser-result.json"), JSON.stringify({status: "pass", development: developmentProgress,
+        applicationShell: builtShell.evidence, requestCount: requests.length,
+        notProven: ["Fresh image installation", "Independent operator installation", "Production identity/delivery"]}, null, 2) + "\n");
+      console.log(`Development smoke: Catalog, styled UI Save and exact rendered reopen pass${wasSaved ? " after database restart" : ""}`);
       break scopedJourney;
     }
     for (const signal of ["SIGINT","SIGTERM"]) process.once(signal,()=>browser.close());
@@ -1532,6 +1669,8 @@ try {
   throw error;
 } finally {
   clearTimeout(publicationBrowserTimer);
+  clearTimeout(developmentBrowserTimer);
+  if (developmentSmoke) checkpointDevelopment();
   writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
   if (browser) await browser.close();
   if (previewServer) await new Promise((done) => previewServer.close(done));

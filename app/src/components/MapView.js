@@ -18,6 +18,8 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
   status.setAttribute("role", "status");
   status.className = "map-preview-status";
   status.textContent = "Loading layer…";
+  let basemapNote = "";
+  const setStatus = message => {status.textContent = basemapNote + message;};
   container.append(status);
   // Allow an asynchronously constructed preview panel to attach before WebGL
   // initialization; a microtask can run before its caller inserts the panel.
@@ -29,10 +31,25 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
       center: [0, 0],
       zoom: 1
     });
+    container.__opengeoMap = map;
     container.__resize = () => map.resize();
     container.__view = () => ({center: map.getCenter().toArray(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing()});
     map.addControl(new maplibregl.NavigationControl({showCompass: false}), "top-left");
     map.addControl(new maplibregl.ScaleControl());
+    let previewStarted = false, blankBasemap = false, disposed = false;
+    const blank = document.createElement("button");
+    blank.type = "button"; blank.className = "platform-button secondary";
+    blank.textContent = "Use blank basemap";
+    Object.assign(blank.style, {position: "absolute", bottom: "4.5rem", left: ".5rem", zIndex: "3"});
+    const useBlankBasemap = unavailable => {
+      if (disposed || previewStarted || blankBasemap) return;
+      blankBasemap = true; blank.remove();
+      basemapNote = unavailable ? "Basemap unavailable. Showing a blank background. " : "Blank basemap selected. ";
+      setStatus("Loading layer…");
+      map.setStyle({version: 8, sources: {}, layers: [{id: "preview-background", type: "background", paint: {"background-color": "#f3f4f6"}}]}, {diff: false});
+    };
+    blank.addEventListener("click", () => useBlankBasemap(false));
+    container.append(blank);
     let xyzActive = false, areaButton;
     const activateXyz = () => {
       if (map.getSource("preview")) return;
@@ -61,14 +78,20 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
       container.append(form);
     }
     let failed = false;
-    map.on("error", () => {failed = true; status.textContent = "Some layer imagery could not load. Pan or zoom to try another area, or reopen the preview.";});
-    map.on("dataloading", () => {if (!failed) status.textContent = "Loading visible layer area…";});
-    map.on("idle", () => {if (!failed && !cog) status.textContent = xyz && !xyzActive ? "Choose an area to load provider tiles." : "Layer view ready. Pan and zoom to explore.";});
+    map.on("error", () => {
+      if (disposed) return;
+      if (!previewStarted && !blankBasemap) {useBlankBasemap(true); return;}
+      failed = true; setStatus("Some layer imagery could not load. Pan or zoom to try another area, or reopen the preview.");
+    });
+    map.on("dataloading", () => {if (!failed) setStatus("Loading visible layer area…");});
+    map.on("idle", () => {if (!failed && !cog) setStatus(xyz && !xyzActive ? "Choose an area to load provider tiles." : "Layer view ready. Pan and zoom to explore.");});
 
     map.on("load", () => {
+      if (disposed || previewStarted) return;
+      previewStarted = true; blank.remove();
       if (xyz) {
         areaButton.disabled = false;
-        status.textContent = "Choose an area to load provider tiles.";
+        setStatus("Choose an area to load provider tiles.");
         return;
       }
       if (cog) {
@@ -76,7 +99,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
         map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]], {padding: 24, maxZoom: 18, duration: 0});
         let inspectedPoint = null, viewshed, observerPick = null;
         const session = installCogMapLayer(map, {sourceId: "preview", layerId: "preview-cog", source: cog,
-          onStatus: message => {status.textContent = message;}, onReady: () => {failed = false;renderSample();viewshed?.updateSource();}});
+          onStatus: setStatus, onReady: () => {failed = false;renderSample();viewshed?.updateSource();}});
         const refresh = document.createElement("button"); refresh.type = "button"; refresh.textContent = "Refresh raster window";
         refresh.className = "map-preview-raster-refresh";
         refresh.style.position = "static";
@@ -92,7 +115,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
           finally {refresh.disabled = false; cancel.disabled = true; if (apply) apply.disabled = false;}
         };
         refresh.addEventListener("click", () => void read(true));
-        cancel.addEventListener("click", () => {session.cancel(); status.textContent = "Raster read cancelled. The previous view and Layer reference are preserved.";});
+        cancel.addEventListener("click", () => {session.cancel(); setStatus("Raster read cancelled. The previous view and Layer reference are preserved.");});
         const controls = document.createElement("div"); controls.className = "map-preview-raster-controls";
         controls.append(refresh, cancel); container.append(controls);
         const inspected = document.createElement("section");inspected.setAttribute("aria-label", "Raster values");
@@ -119,7 +142,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
             const noDataValue = inputs[2].value === "" ? null : inputs[2].valueAsNumber;
             if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || minimum >= maximum
               || !Number.isFinite(maximum - minimum) || noDataValue !== null && !Number.isFinite(noDataValue)) {
-              status.textContent = "Choose a finite minimum below the maximum and a finite transparent value, or leave the transparent value empty.";
+              setStatus("Choose a finite minimum below the maximum and a finite transparent value, or leave the transparent value empty.");
               return;
             }
             void read(true, {displayRange: {minimum, maximum}, noDataValue});
@@ -171,6 +194,8 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
     });
 
     observeDisconnection(container, () => {
+      disposed = true;
+      delete container.__opengeoMap;
       delete container.__resize;
       delete container.__view;
       container.__cogSession?.dispose(); delete container.__cogSession;

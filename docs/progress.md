@@ -1,3 +1,27 @@
+## October 17 — Catalog fallback source checkpoint
+
+The shared Catalog preview previously waited for its remote basemap before
+drawing archived features. It now offers a blank background while waiting and
+falls back once on initial provider failure, with persistent disclosure. Repeated
+errors retain the failure message. The existing COG controls test passes in
+3.940 seconds, and syntax/whitespace checks pass. Compiled behavior is unverified.
+
+The existing development smoke now uses the five-feature CC0 facilities fixture
+to check upload, actual Catalog rendering without changing the Project, deliberate
+map addition, styling, Save and exact rendered reopening. Persistent checkpoints
+record committed writes; limits are 100 API attempts per invocation, 160 total,
+90 seconds of combined browser/controller time and one worker execution. The
+new connected assertions have not run.
+
+The affected offline build first stops before compilation because the invocation
+uses one npm config path for two roles (6.464 seconds). A changed invocation uses
+distinct empty configs and continues the same staged normal builder, then reaches
+its remaining deadline during page compilation (38.084 seconds). Both attempts
+remain recorded: 44.548 of the admitted 45 build seconds. No build processes remain,
+and runtime acceptance is not started without a verified artifact. No new images,
+dependency installs, AWS account calls or Actions jobs are used. Preserve the
+staged source and accepted earlier artifacts; no equivalent retry in this batch.
+
 ## October 17 — Standalone image fixes and installation prerequisites
 
 The maintained standalone API image builds from public source and starts its real

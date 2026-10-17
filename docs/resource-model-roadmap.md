@@ -1,5 +1,21 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Catalog preview fallback; connected acceptance pending
+
+Catalog's shared preview now offers a blank basemap while the provider is stalled
+and falls back once if its initial request fails. The status discloses the blank
+background; later layer errors retain their existing handling. The existing COG
+controls check passes. These source changes are not deployed.
+
+The existing development smoke now checks the CC0 facilities example through
+upload, actual Catalog rendering, deliberate map addition, styling, Save and
+rendered reopening. Its new assertions have not run: the affected offline build
+stopped at the cumulative 45-second batch limit. No runtime or cloud work followed.
+Preserve the staged source and prior accepted images/artifacts. The next admitted
+continuation must finish this affected build before core runtime acceptance;
+do not replay completed installation or publication checks. No Actions jobs were
+triggered, and main validation still requires verified free allowance.
+
 October 17 — Standalone installation prerequisites accepted
 
 The current public-source app installs into an empty dependency directory; its

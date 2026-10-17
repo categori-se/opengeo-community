@@ -1,5 +1,19 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Catalog basemap failure handling
+
+`MapView` installs its preview once and can switch once to a disclosed neutral
+background before initial loading completes. A visible button also handles a
+stalled provider. Repeated errors report failure, and disposal removes the map
+hook used to inspect actual rendered features. Syntax, whitespace and the existing
+COG controls check pass; compiled acceptance and deployment remain pending.
+
+The existing development smoke retains committed upload/map stages, bounds API
+attempts and checks actual Catalog/Workbench features before and after Save and
+database restart. This increment has not exercised those new assertions. The
+normal offline build stopped at its batch deadline; prior accepted artifacts
+remain valid for their unchanged source, not for this preview change.
+
 October 17 — Standalone images and frontend
 
 The standalone API Dockerfile now applies libuuid 2.41.6-r1 and SQLite 3.53.4-r0,
