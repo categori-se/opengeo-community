@@ -284,6 +284,7 @@ def stage_built_studio(work, reuse_tree=None):
     for filename in ("package.json", "package-lock.json", "observablehq.config.js"):
         shutil.copyfile(ROOT / "app" / filename, app / filename)
     for relative in (
+        "services/api/src/opengeo_api/project_module.py",
         "services/observable-builder/scripts/notebook-assets.mjs",
         "services/observable-builder/src/notebook-runtime.mjs",
         "services/observable-builder/src/portable-map-view.mjs",

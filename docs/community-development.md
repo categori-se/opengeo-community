@@ -12,8 +12,12 @@ These checks used cached images and synthetic sign-in. A separate empty-director
 app installation now passes from the current lockfile, including esbuild's install
 script/native binary and 154 existing API-client tests. It uses verified package
 cache entries plus 13 retrieved locked tarballs; install and tests run without
-external networking. Fresh container images, a complete independent installation,
-production identity/delivery and large uploads remain separate acceptance work.
+external networking. The seven-page frontend build and artifact checks also pass
+in an isolated public-source copy. That build reuses Framework package-version
+indexes and the CSV parser cache; application modules are generated from the
+fresh installed graph. It does not verify every optional Framework library.
+Fresh container images, a complete independent installation, production
+identity/delivery and large uploads remain separate acceptance work.
 See the [release record](../COMMUNITY-RELEASE.json) for detailed results.
 
 The [deployment guide](community-deployments.md) explains how local development,

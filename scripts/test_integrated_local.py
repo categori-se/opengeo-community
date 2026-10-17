@@ -304,7 +304,8 @@ class InitializationTests(unittest.TestCase):
             ):
                 (app / name).write_text(name)
 
-            notebook_sources = [
+            build_sources = [
+                "services/api/src/opengeo_api/project_module.py",
                 "services/observable-builder/scripts/notebook-assets.mjs",
                 "services/observable-builder/src/notebook-runtime.mjs",
                 "services/observable-builder/src/portable-map-view.mjs",
@@ -313,12 +314,20 @@ class InitializationTests(unittest.TestCase):
                 "services/observable-builder/src/jupyter-notebook.mjs",
                 "services/observable-builder/src/observable-notebook.mjs",
             ]
-            for relative in notebook_sources:
+            for relative in build_sources:
                 source = root / relative
                 source.parent.mkdir(parents=True, exist_ok=True)
                 source.write_text(relative)
 
             def complete_build(*args, **kwargs):
+                # The normal builder reads the canonical native viewer outside
+                # app/. It must exist before either build command runs.
+                native_viewer = (kwargs["cwd"] / "scripts" /
+                    "../../services/api/src/opengeo_api/project_module.py")
+                self.assertEqual(
+                    native_viewer.read_bytes(),
+                    (root / "services/api/src/opengeo_api/project_module.py").read_bytes(),
+                )
                 generated = work / "built-studio/dist"
                 generated.mkdir(exist_ok=True)
                 (generated / "opengeo-studio-build.json").write_text("sealed-build")
@@ -341,7 +350,7 @@ class InitializationTests(unittest.TestCase):
                 (work / "built-studio/app/vendor/workspace-contracts/NOTICE").read_bytes(),
                 (app / "vendor/workspace-contracts/NOTICE").read_bytes(),
             )
-            for relative in notebook_sources:
+            for relative in build_sources:
                 self.assertEqual((work / "built-studio" / relative).read_bytes(),
                                  (root / relative).read_bytes())
             self.assertEqual(
