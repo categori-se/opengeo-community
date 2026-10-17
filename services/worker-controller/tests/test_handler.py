@@ -10,7 +10,8 @@ from botocore.stub import Stubber
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from controller import Window, WindowUnsafe
-from handler import tick, unfinished_worker_tasks
+from handler import tick, unfinished_worker_tasks, unfinished_analysis_hosts
+from aws_runtime import template_hash
 
 
 class HandlerTests(unittest.TestCase):
@@ -204,6 +205,81 @@ class HandlerTests(unittest.TestCase):
                 ledger.return_value.retain.call_args.args[2].phase, "complete"
             )
             runtime.return_value.execute.assert_not_called()
+
+
+class AnalysisHandlerTests(unittest.TestCase):
+    def setUp(self):
+        endpoint = {"Resources": {"Existing": {"Type": "AWS::EC2::VPCEndpoint"}}}
+        host = {"Parameters": {"ActivationWindowId": {"Type": "String"}}, "Resources": {"Group": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup", "Properties": {"AutoScalingGroupName": "opengeo-dev-analysis",
+                "MinSize": "0", "MaxSize": "1", "DesiredCapacity": "1", "Tags": [
+                    {"Key": "opengeo:analysis-stack", "Value": {"Ref": "AWS::StackId"}, "PropagateAtLaunch": True}]}}}}
+        self.config = {"runtime": {"account": "111111111111", "region": "us-east-1", "stage": "dev",
+            "execution_role_arn": "arn:aws:iam::111111111111:role/reviewed", "workload": "analysis",
+            "worker_template": host, "endpoint_template": endpoint, "shared_endpoint_template": endpoint},
+            "queueUrl": "queue", "queueArn": "queue-arn", "deadLetterUrl": "dead", "deadLetterArn": "dead-arn",
+            "databaseClusterArn": "database", "workerSecretArn": "analysis-controller-secret",
+            "activationRuleName": "opengeo-dev-analysis-controller-tick"}
+        self.clients = {name: Mock() for name in ("cloudformation", "sqs", "rds-data", "autoscaling", "ec2", "events")}
+        self.context = SimpleNamespace(get_remaining_time_in_millis=lambda: 60_000)
+        self.endpoint = __import__('controller').Stack("baseline-id", "CREATE_COMPLETE", template_hash(endpoint), None)
+        self.window = Window("10000000-0000-4000-8000-000000000001", 100, 190, 400,
+            template_hash(endpoint), template_hash(host), shared_endpoint_id="baseline-id", shared_endpoint_hash=template_hash(endpoint))
+
+    def test_inactive_analysis_lease_disables_schedule_without_reserving_or_waking(self):
+        with patch("handler.AwsRuntime") as runtime, patch("handler.RdsLedger") as ledger, patch("handler.queue_counts", return_value=(0, 0, 0)):
+            runtime.return_value.observe_stack.return_value = None
+            ledger.return_value.claim.return_value = {"status": "claimed", "window": None, "revision": 2, "lease_expires_at": 290}
+            result = tick(self.config, self.clients, self.context, clock=lambda: 110)
+            self.assertEqual(result, {"status": "idle"})
+            self.clients["events"].disable_rule.assert_called_once_with(Name="opengeo-dev-analysis-controller-tick")
+            self.clients["events"].enable_rule.assert_not_called()
+            runtime.return_value.execute.assert_not_called()
+            ledger.return_value.release.assert_called_once()
+
+    def test_reserved_analysis_window_activates_only_host_after_baseline_and_retention(self):
+        with patch("handler.AwsRuntime") as runtime, patch("handler.RdsLedger") as ledger, patch("handler.queue_counts", side_effect=[(1, 0, 0), (0, 0, 0)]):
+            runtime.return_value.observe_stack.side_effect = lambda kind, *_: self.endpoint if kind == "endpoints" else None
+            ledger.return_value.claim.return_value = {"status": "claimed", "window": asdict(self.window), "revision": 2, "lease_expires_at": 290}
+            order = []
+            ledger.return_value.retain.side_effect = lambda *_: order.append("retain")
+            runtime.return_value.execute.side_effect = lambda *_, **__: order.append("execute")
+            result = tick(self.config, self.clients, self.context, clock=lambda: 110)
+            self.assertEqual(result["status"], "command-submitted")
+            self.assertEqual(runtime.return_value.execute.call_args.args[1].kind, "worker")
+            self.assertEqual(order[-2:], ["retain", "execute"])
+            self.clients["events"].enable_rule.assert_called_once()
+            self.assertFalse(ledger.return_value.retain.call_args.args[2].endpoint_requested)
+
+    def test_deadline_host_absence_finalizes_jobs_before_completing_and_disabling(self):
+        with patch("handler.AwsRuntime") as runtime, patch("handler.RdsLedger") as ledger, patch("handler.queue_counts", return_value=(0, 0, 0)):
+            window = replace(self.window, phase="processing", worker_requested=True, worker_id="worker-id")
+            deleted = __import__('controller').Stack("worker-id", "DELETE_COMPLETE", window.worker_hash, window.id)
+            runtime.return_value.observe_stack.side_effect = lambda kind, *_: self.endpoint if kind == "endpoints" else deleted
+            ledger.return_value.claim.return_value = {"status": "claimed", "window": asdict(window), "revision": 2, "lease_expires_at": 380}
+            ledger.return_value.unfinished.return_value = {"analysis": 0}
+            self.clients["autoscaling"].describe_auto_scaling_groups.return_value = {"AutoScalingGroups": []}
+            self.clients["ec2"].describe_instances.return_value = {"Reservations": []}
+            result = tick(self.config, self.clients, self.context, clock=lambda: 200)
+            self.assertEqual(result, {"status": "complete", "outcome": "deadline-abort"})
+            ledger.return_value.cancel_analysis_window.assert_called_once()
+            ledger.return_value.finalize_analysis_window.assert_called_once()
+            self.clients["events"].disable_rule.assert_called_once()
+            runtime.return_value.execute.assert_not_called()
+
+    def test_exact_host_observation_counts_stopped_instances_and_rejects_missing_or_paginated_data(self):
+        asg, ec2 = self.clients["autoscaling"], self.clients["ec2"]
+        asg.describe_auto_scaling_groups.return_value = {"AutoScalingGroups": []}
+        instance = {"InstanceId": "i-abc123", "State": {"Name": "stopped"}, "Tags": [
+            {"Key": "opengeo:analysis-stack", "Value": "stack-id"}, {"Key": "aws:autoscaling:groupName", "Value": "opengeo-dev-analysis"}]}
+        ec2.describe_instances.return_value = {"Reservations": [{"Instances": [instance]}]}
+        self.assertEqual(unfinished_analysis_hosts(asg, ec2, "opengeo-dev-analysis", "stack-id"), 1)
+        instance["State"]["Name"] = "terminated"
+        self.assertEqual(unfinished_analysis_hosts(asg, ec2, "opengeo-dev-analysis", "stack-id"), 0)
+        for response in ({}, {"Reservations": [], "NextToken": "more"}):
+            ec2.describe_instances.return_value = response
+            with self.assertRaises(WindowUnsafe):
+                unfinished_analysis_hosts(asg, ec2, "opengeo-dev-analysis", "stack-id")
 
 
 if __name__ == "__main__":

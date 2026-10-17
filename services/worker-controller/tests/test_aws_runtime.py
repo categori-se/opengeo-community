@@ -54,6 +54,27 @@ class AwsRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(WindowUnsafe, "pmtiles_entrypoint_invalid"):
             replace(self.scope, workload="pmtiles-v2", worker_template=worker)
 
+    def test_analysis_scope_requires_a_host_only_single_group_and_readonly_baseline(self):
+        host = {"Parameters": {"ActivationWindowId": {"Type": "String"}}, "Resources": {"Group": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup", "Properties": {
+                "AutoScalingGroupName": "opengeo-dev-analysis", "MinSize": "0", "MaxSize": "1", "DesiredCapacity": "1",
+                "Tags": [{"Key": "opengeo:analysis-stack", "Value": {"Ref": "AWS::StackId"}, "PropagateAtLaunch": True}]}}}}
+        scope = replace(self.scope, workload="analysis", worker_template=host, shared_endpoint_template=self.template)
+        self.assertEqual(scope.name("worker"), "OpenGeo-dev-AnalysisRuntime")
+        with self.assertRaisesRegex(WindowUnsafe, "unchanged_endpoint"):
+            replace(scope, shared_endpoint_template=None)
+        import copy
+        changed = copy.deepcopy(host);changed["Resources"]["Group"]["Properties"]["MaxSize"] = "2"
+        with self.assertRaisesRegex(WindowUnsafe, "host_template"):
+            replace(scope, worker_template=changed)
+        changed = copy.deepcopy(host);changed["Resources"]["Queue"] = {"Type": "AWS::SQS::Queue"}
+        with self.assertRaisesRegex(WindowUnsafe, "host_template"):
+            replace(scope, worker_template=changed)
+        runtime = AwsRuntime(scope, self.client)
+        window = replace(self.window, phase="endpoints", shared_endpoint_id="baseline", shared_endpoint_hash=self.window.endpoint_hash)
+        with self.assertRaisesRegex(WindowUnsafe, "endpoint_mutation_forbidden"):
+            runtime.execute(window, Command("endpoints", "activate", "local-window-endpoints-activate", None), now=110, lease_expires_at=290)
+
     def stack(self, owner="local-window"):
         return {
             "StackName": "OpenGeo-dev-Worker",

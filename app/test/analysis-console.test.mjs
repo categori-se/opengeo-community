@@ -122,3 +122,19 @@ test('an explicitly configured managed callback runs and failed exits cannot add
     assert.equal(u.button('Add result to map').hidden, true);
   } finally {u.clean();}
 });
+
+test('managed Stop keeps Run locked until cleanup acknowledges and exposes uncertain cancellation', async () => {
+  let reject, request;
+  const u = ui({getManagedCapabilities: async () => ({configured: true, languages: ['javascript']}),
+    runManaged: input => {request = input;return new Promise((_done, fail) => {reject = fail;});}});
+  try {
+    u.consoleUI.open();u.get('Execution profile').value = 'managed';u.get('Execution profile').dispatchEvent(new u.dom.window.Event('change'));await turn();
+    const checkbox = u.consoleUI.element.querySelector('input[type=checkbox]');checkbox.checked = true;checkbox.dispatchEvent(new u.dom.window.Event('change'));
+    u.button('Run').click();await turn();assert.equal(request.inputPins[0].inputPin.sourceVersion, 4);
+    assert.equal(Object.hasOwn(request.layers[0], 'inputPin'), false);
+    u.button('Stop').click();assert.equal(request.signal.aborted, true);assert.equal(u.button('Run').disabled, true);
+    const error = Error('Cancellation could not be confirmed.');error.cancellationUncertain = true;reject(error);await turn();
+    assert.match(u.consoleUI.element.querySelector('[role=status]').textContent, /could not be confirmed/);
+    assert.equal(u.button('Run').disabled, false);assert.equal(u.button('Add result to map').hidden, true);
+  } finally {u.clean();}
+});

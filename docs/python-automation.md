@@ -48,11 +48,34 @@ one line beginning `OPEN_GEO_GEOJSON:` followed by compact GeoJSON. The Python
 example in the editor demonstrates this protocol. Only successful, validated
 results can be added to a map.
 
-Both Local and Managed profiles are part of the intended workflow. The local
-runner and browser path have focused execution evidence; managed authenticated
-jobs, deployment configuration and hosted acceptance remain unfinished. Selecting
-an unconfigured Managed profile does not allocate compute. The console does not
-run code inside the application API or the publication compiler.
+Both Local and Managed profiles are part of the intended workflow. Browser/local
+execution is accepted locally. Managed source now provides authenticated private
+jobs, pinned snapshots/results, source-access rechecks, cancellation and bounded
+host lifecycle control. Explicit submission sends one identity-only queue message
+and wakes the exact configured controller; opening a page or reading status does
+not start compute. Failed dispatch retains the same frozen job for deliberate retry.
+Analysis snapshots/results use application storage, separate from geodata intake.
+
+Managed configuration defaults off. The request-driven API requires an existing
+analysis-only queue, `OPEN_GEO_ANALYSIS_CONTROLLER_FUNCTION_ARN`, application storage
+and `OPEN_GEO_ANALYSIS_RUNTIME_PROFILES` with all three immutable image profiles.
+The deployment's explicit `OPEN_GEO_ANALYSIS_ENABLED` switch imports these admitted
+identities; it does not create a host or controller. The controller's periodic
+rule stays disabled between reserved windows. Existing private endpoints are a
+separate shared operating cost; no zero-total-idle-cost claim is made.
+
+Each host accepts at most four jobs. Startup waits retain the same queue receipt;
+idle, job-limit and deadline exits close that window to further submissions before
+the existing controller removes the host. A job admitted before an ordinary idle
+close keeps the consumer active. These lifecycle changes remain source-only until
+the connected database and fresh-host checks pass.
+
+Actual local coordinator checks cover Python, JavaScript, Bash and cancellation;
+native SQL checks cover the selected permission, lease and cleanup groups.
+Connected HTTP/database acceptance, an admitted AMI, fresh-boot rootless execution,
+current image security and real AWS cleanup remain open. The optional AMI package,
+host verifier and installer are source prerequisites, not a verified baked host.
+The console never runs user code inside the API or publication compiler.
 
 ## Existing API automation
 

@@ -58,7 +58,7 @@ class Observation:
             and self.dead_letters == (0, 0, 0)
             and self.unfiltered is True
             and isinstance(self.unfinished, dict)
-            and self.lanes in {LANES, frozenset({"pmtiles"})}
+            and self.lanes in {LANES, frozenset({"pmtiles"}), frozenset({"analysis"})}
             and self.unfinished.keys() == self.lanes
             and all(
                 type(count) is int and count == 0 for count in self.unfinished.values()

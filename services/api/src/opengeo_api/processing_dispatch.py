@@ -6,7 +6,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from typing import Protocol
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import UUID
 from xml.etree import ElementTree
@@ -18,6 +18,12 @@ from opengeo_api.cognito_provisioning import (
     IdentityProvisioningUnavailable,
 )
 from opengeo_api.config import Settings
+from opengeo_api.user_dataset_verification_runtime import (
+    AwsJsonTransport,
+    DatasetVerificationDependencyUnavailable,
+    UrlAwsTransport,
+    _signed_headers,
+)
 
 
 class ProcessingDispatchUnavailable(RuntimeError):
@@ -51,6 +57,23 @@ class UserDatasetVerificationDispatcher(Protocol):
     def available(self) -> bool: ...
 
     async def dispatch_user_dataset_verification(self, verification_id: UUID) -> None: ...
+
+
+class AnalysisDispatcher(Protocol):
+    @property
+    def available(self) -> bool: ...
+
+    async def dispatch_analysis(self, job_id: UUID) -> None: ...
+
+
+class UnavailableAnalysisDispatcher:
+    @property
+    def available(self) -> bool:
+        return False
+
+    async def dispatch_analysis(self, job_id: UUID) -> None:
+        del job_id
+        raise ProcessingDispatchUnavailable("managed analysis dispatch is not configured")
 
 
 class ObservableBuildDispatcher(Protocol):
@@ -309,9 +332,11 @@ class AwsSqsRenderDispatcher:
             reclamation_id,
         )
 
-    def _dispatch(self, schema: str, identifier_key: str, job_id: UUID) -> None:
+    def _dispatch(
+        self, schema: str, identifier_key: str, job_id: UUID, schema_key: str = "schema"
+    ) -> None:
         message = json.dumps(
-            {"schema": schema, identifier_key: str(job_id)},
+            {schema_key: schema, identifier_key: str(job_id)},
             separators=(",", ":"),
             sort_keys=True,
         )
@@ -499,6 +524,60 @@ class AwsSqsUserDatasetVerificationDispatcher:
             "verification_id",
             verification_id,
         )
+
+
+class AwsSqsAnalysisDispatcher:
+    def __init__(self, settings: Settings, credentials: CredentialProvider | None = None,
+                 transport: DispatchTransport | None = None,
+                 now: Callable[[], datetime] | None = None,
+                 wake_transport: AwsJsonTransport | None = None) -> None:
+        if not settings.analysis_dispatch_configured:
+            raise ValueError("managed analysis dispatch must be configured")
+        assert settings.aws_region is not None
+        assert settings.analysis_controller_function_arn is not None
+        self._region = settings.aws_region
+        self._function_arn = settings.analysis_controller_function_arn
+        self._credentials = credentials or AwsCredentialProvider(timeout_seconds=5.0)
+        self._now = now or (lambda: datetime.now(UTC))
+        self._wake_transport = wake_transport or UrlAwsTransport()
+        self._delegate = AwsSqsRenderDispatcher(settings, credentials=self._credentials,
+            transport=transport, now=self._now, queue_url=settings.analysis_queue_url)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def dispatch_analysis(self, job_id: UUID) -> None:
+        await asyncio.to_thread(self._delegate._dispatch,
+                               "opengeo.analysis.command.1", "analysis_job_id", job_id,
+                               "schemaVersion")
+        # The SQL submission already froze and budgeted this exact job. Wake only
+        # after its identity is queued; an uncertain response leaves dispatch_pending
+        # for deliberate same-job recovery, never another snapshot or reservation.
+        await asyncio.to_thread(self._wake)
+
+    def _wake(self) -> None:
+        body = b'{"schema":"opengeo.analysis-runtime.wake.1"}'
+        host = f"lambda.{self._region}.amazonaws.com"
+        function = quote(self._function_arn, safe="-_.~")
+        path = f"/2015-03-31/functions/{function}/invocations"
+        try:
+            headers = _signed_headers(
+                method="POST", canonical_uri=path, canonical_query="", host=host,
+                region=self._region, service="lambda", credentials=self._credentials.load(),
+                body=body, now=self._now(), extra_headers={
+                    "content-type": "application/json", "x-amz-invocation-type": "Event",
+                },
+            )
+            status, response_headers, response = self._wake_transport.call(
+                "POST", f"https://{host}{path}", headers, body, 5.0, 4096,
+            )
+        except (IdentityProvisioningUnavailable, DatasetVerificationDependencyUnavailable,
+                TimeoutError, OSError) as error:
+            raise ProcessingDispatchUnavailable("managed analysis wake is unavailable") from error
+        if (status != 202 or len(response) > 4096
+                or "x-amz-function-error" in {key.lower() for key in response_headers}):
+            raise ProcessingDispatchUnavailable("managed analysis wake was not accepted")
 
 
 class AwsSqsObservableBuildDispatcher:

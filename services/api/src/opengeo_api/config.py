@@ -65,6 +65,10 @@ class Settings(BaseSettings):
     geodata_bucket: str | None = None
     geodata_kms_key_arn: str | None = None
     processing_queue_url: str | None = None
+    analysis_enabled: bool = False
+    analysis_queue_url: str | None = None
+    analysis_controller_function_arn: str | None = None
+    analysis_runtime_profiles: str | None = Field(default=None, max_length=8192)
     pmtiles_derivative_queue_url: str | None = None
     pmtiles_worker_image_digest: str | None = None
     pmtiles_input_formats: str = "geojson"
@@ -358,6 +362,7 @@ class Settings(BaseSettings):
 
         for queue_name, queue_url in (
             ("processing_queue_url", self.processing_queue_url),
+            ("analysis_queue_url", self.analysis_queue_url),
             ("pmtiles_derivative_queue_url", self.pmtiles_derivative_queue_url),
             ("connection_verification_queue_url", self.connection_verification_queue_url),
             (
@@ -496,6 +501,40 @@ class Settings(BaseSettings):
     @property
     def source_upload_configured(self) -> bool:
         return self.upload_configured and self.application_bucket is not None
+
+    @model_validator(mode="after")
+    def validate_analysis_profiles(self) -> Self:
+        from opengeo_api.analysis_jobs import parse_runtime_profiles
+        parse_runtime_profiles(self.analysis_runtime_profiles)
+        if self.analysis_queue_url is not None and self.analysis_queue_url in {
+            self.processing_queue_url, self.pmtiles_derivative_queue_url,
+            self.observable_build_queue_url, self.framework_publication_queue_url,
+        }:
+            raise ValueError("managed analysis requires its own queue")
+        if self.analysis_controller_function_arn is not None:
+            controller = re.fullmatch(
+                r"arn:aws:lambda:([a-z]{2}(?:-gov)?-[a-z]+-\d):(\d{12}):function:"
+                r"opengeo-(?:dev|staging|demo|production)-analysis-controller",
+                self.analysis_controller_function_arn,
+            )
+            queue_account = (
+                urlsplit(self.analysis_queue_url).path.split("/")[1]
+                if self.analysis_queue_url is not None else None
+            )
+            if (controller is None or controller.group(1) != self.aws_region
+                    or controller.group(2) != queue_account):
+                raise ValueError(
+                    "analysis_controller_function_arn must identify the same-account regional "
+                    "analysis controller as its queue"
+                )
+        return self
+
+    @property
+    def analysis_dispatch_configured(self) -> bool:
+        return (self.analysis_enabled and self.analysis_queue_url is not None
+                and self.analysis_controller_function_arn is not None
+                and self.analysis_runtime_profiles is not None and self.aws_region is not None
+                and self.source_upload_configured)
 
     @property
     def render_dispatch_configured(self) -> bool:

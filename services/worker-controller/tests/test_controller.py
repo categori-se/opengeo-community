@@ -19,6 +19,12 @@ class WindowTests(unittest.TestCase):
             "worker-arn", "CREATE_COMPLETE", "worker-hash", "test-window"
         )
 
+    def test_analysis_drain_requires_its_unfiltered_complete_lane(self):
+        observation = self.observation(lanes=frozenset({"analysis"}), unfinished={"analysis": 0})
+        self.assertTrue(observation.drained())
+        self.assertFalse(replace(observation, unfinished={"analysis": 1}).drained())
+        self.assertFalse(replace(observation, unfinished={"analysis": 0}, unfiltered=False).drained())
+
     def observation(self, **changes):
         return replace(
             Observation(

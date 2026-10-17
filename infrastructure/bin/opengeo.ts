@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
-import {App, Tags} from "aws-cdk-lib";
+import {App, Tags, aws_lambda as lambda, aws_sqs as sqs} from "aws-cdk-lib";
 import {readFileSync} from "node:fs";
+import {analysisProfilesSha256, type AnalysisProfiles} from "../lib/analysis-runtime-stack.js";
 import {WorkerControllerStack, type WorkerControllerStackProps} from "../lib/worker-controller-stack.js";
 import {ApiServiceStack} from "../lib/api-service-stack.js";
 import {ConnectionVerifierStack} from "../lib/connection-verifier-stack.js";
@@ -388,16 +389,47 @@ if (kmlNetworkLinkFetchEnabled && apiImage === undefined) {
 if ((portableArtifactsEnabled || publicationArtifactBuildsEnabled) && apiImage === undefined) {
   throw new Error("Artifact activation requires the request-driven API image");
 }
+const managedAnalysisEnabled = optionalTrue(
+  process.env.OPEN_GEO_ANALYSIS_ENABLED ?? app.node.tryGetContext("managedAnalysisEnabled"), "managed analysis"
+);
+if (managedAnalysisEnabled && apiImage === undefined) {
+  throw new Error("Managed analysis requires the request-driven API image");
+}
 if (apiImage !== undefined) {
   const observableBuilderImageDigest = parseObservableBuilderImageDigest(
     process.env.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST
       ?? app.node.tryGetContext("observableBuilderImageDigest")
   );
+  // Import admitted persistent identities only. This flag creates neither a
+  // host nor its controller, and ordinary synthesis leaves analysis disabled.
+  const analysisOptions = (() => {
+    if (!managedAnalysisEnabled) return {};
+    if (!env) throw new Error("Managed analysis requires a concrete deployment account and region");
+    const queueArn = process.env.OPEN_GEO_ANALYSIS_QUEUE_ARN ?? app.node.tryGetContext("analysisQueueArn");
+    const controllerArn = process.env.OPEN_GEO_ANALYSIS_CONTROLLER_FUNCTION_ARN
+      ?? app.node.tryGetContext("analysisControllerFunctionArn");
+    const rawProfiles = process.env.OPEN_GEO_ANALYSIS_RUNTIME_PROFILES
+      ?? app.node.tryGetContext("analysisRuntimeProfiles");
+    if (typeof queueArn !== "string" || !queueArn.startsWith(`arn:aws:sqs:${env.region}:${env.account}:`)
+      || queueArn.split(":").length !== 6
+      || !/^[A-Za-z0-9_-]{1,80}$/.test(queueArn.split(":").at(-1) ?? "")
+      || controllerArn !== `arn:aws:lambda:${env.region}:${env.account}:function:opengeo-${stage}-analysis-controller`
+      || typeof rawProfiles !== "string" || Buffer.byteLength(rawProfiles) > 8192) {
+      throw new Error("Managed analysis requires its exact existing queue/controller and bounded operator profiles");
+    }
+    const profiles = JSON.parse(rawProfiles) as AnalysisProfiles;
+    analysisProfilesSha256(profiles);
+    return {enableManagedAnalysis: true,
+      analysisQueue: sqs.Queue.fromQueueArn(stack, "ImportedAnalysisQueue", queueArn),
+      analysisControllerFunction: lambda.Function.fromFunctionArn(stack, "ImportedAnalysisController", controllerArn),
+      analysisRuntimeProfiles: profiles};
+  })();
   const apiStack = new ServerlessApiStack(app, `OpenGeo-${stage}-Api`, {
     config,
     foundation: stack,
     imageDigest: parseImageTagOrDigest(apiImage),
     observableBuilderImageDigest,
+    ...analysisOptions,
     ...(pmtilesQueues ? {pmtilesOnly: true, pmtilesDerivativeQueue: pmtilesQueues.queue,
       pmtilesWorkerImageDigest: pmtilesWorkerImageDigest === undefined
         ? undefined : parseImageTagOrDigest(pmtilesWorkerImageDigest),

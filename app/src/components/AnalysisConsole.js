@@ -4,7 +4,8 @@ import {ANALYSIS_EXAMPLES, normalizeAnalysisResult,
 
 /** Explicit, in-memory analysis. Opening the console never contacts a runtime. */
 export function AnalysisConsole({getLayers = () => [], runNative, getNativeCapabilities,
-  runManaged, getManagedCapabilities, onResult = () => {}, onClose = () => {}, dark = false} = {}) {
+  runManaged, getManagedCapabilities, cancelManaged, hasPendingManagedRun = () => false,
+  onResult = () => {}, onClose = () => {}, dark = false} = {}) {
   const node = (tag, className, text) => {
     const value = document.createElement(tag);if (className) value.className = className;
     if (text != null) value.textContent = text;return value;
@@ -44,7 +45,7 @@ export function AnalysisConsole({getLayers = () => [], runNative, getNativeCapab
   const note = node('p', 'gis-analysis-runtime-note');
   workspace.append(actions, editorHost, output, status, addButton, note);body.append(inputs, workspace);element.append(toolbar, body);
   const buffers = new Map(Object.entries(ANALYSIS_EXAMPLES)), selected = new Set(), capabilities = new Map();
-  let currentLanguage = language.value, active = null, ready = null, revision = 0, disposed = false, capabilityEpoch = 0;
+  let currentLanguage = language.value, active = null, activeProfile = null, ready = null, revision = 0, disposed = false, capabilityEpoch = 0;
   let view, model, kit, loadingEditor = false, observer, changing = false;
   const getCode = () => view ? model.getValue() : textarea.value;
   function setCode(code) {
@@ -52,7 +53,21 @@ export function AnalysisConsole({getLayers = () => [], runNative, getNativeCapab
   }
   function invalidate() {revision++;ready = null;addButton.hidden = true;}
   function cancel(message) {
-    if (active) {active.abort();active = null;revision++;}
+    if (!active && hasPendingManagedRun() && typeof cancelManaged === 'function') {
+      const controller = new AbortController();active = controller;activeProfile = 'managed';revision++;
+      ready = null;addButton.hidden = true;status.textContent = 'Stopping managed run…';updateControls();
+      Promise.resolve().then(() => cancelManaged()).then(() => {if (!disposed) status.textContent = 'Stopped.';})
+        .catch(error => {if (!disposed) status.textContent = String(error?.message ?? 'Cancellation could not be confirmed.').slice(0, 2000);})
+        .finally(() => {if (active === controller) {active = null;activeProfile = null;updateControls();}});
+      return;
+    }
+    if (active) {
+      active.abort();revision++;
+      // Keep Run locked until the managed adapter confirms cancellation or
+      // reports uncertainty. Aborting a browser request is not worker cleanup.
+      if (activeProfile !== 'managed') active = null;
+      else message = 'Stopping managed run…';
+    }
     ready = null;addButton.hidden = true;if (message) status.textContent = message;updateControls();
   }
   function configured() {
@@ -61,7 +76,7 @@ export function AnalysisConsole({getLayers = () => [], runNative, getNativeCapab
     return typeof runner === 'function' && capability?.configured === true && capability.languages.includes(language.value);
   }
   function updateControls() {
-    runButton.disabled = !!active || !configured();stopButton.disabled = !active;
+    runButton.disabled = !!active || !configured();stopButton.disabled = !active && !hasPendingManagedRun();
     language.disabled = !!active;profile.disabled = !!active;exampleButton.disabled = !!active;
     checkButton.hidden = profile.value === 'browser';checkButton.disabled = !!active;
     refreshButton.disabled = !!active;
@@ -105,7 +120,7 @@ export function AnalysisConsole({getLayers = () => [], runNative, getNativeCapab
   async function run() {
     if (disposed || active || !configured()) return;
     invalidate();const token = revision, chosen = profile.value, lang = language.value;
-    const controller = new AbortController();active = controller;output.textContent = '';status.textContent = 'Running…';updateControls();
+    const controller = new AbortController();active = controller;activeProfile = chosen;output.textContent = '';status.textContent = 'Running…';updateControls();
     try {
       const code = validateAnalysisSource(getCode());
       const rows = getLayers();
@@ -113,7 +128,9 @@ export function AnalysisConsole({getLayers = () => [], runNative, getNativeCapab
       const result = chosen === 'browser'
         ? await runBrowserAnalysis({code, layers: snapshot.layers, signal: controller.signal,
           onLog: text => {if (revision === token && !controller.signal.aborted) output.textContent += text;}})
-        : await (chosen === 'local' ? runNative : runManaged)({language: lang, code, layers: snapshot.layers, signal: controller.signal});
+        : await (chosen === 'local' ? runNative : runManaged)({language: lang, code, layers: snapshot.layers, signal: controller.signal,
+          ...(chosen === 'managed' ? {inputPins: snapshot.inputPins,
+            onStatus: message => {if (!disposed && revision === token && !controller.signal.aborted) status.textContent = message;}} : {})});
       if (disposed || controller.signal.aborted || revision !== token) return;
       const normalized = normalizeAnalysisResult(result);
       output.textContent = normalized.stdout + (normalized.stderr ? '\n' + normalized.stderr : '');
@@ -125,8 +142,10 @@ export function AnalysisConsole({getLayers = () => [], runNative, getNativeCapab
         addButton.hidden = false;
       }
     } catch (error) {
-      if (!disposed && revision === token && !controller.signal.aborted) status.textContent = String(error?.message ?? 'Script failed.').slice(0, 2000);
-    } finally {if (active === controller) {active = null;updateControls();}}
+      if (!disposed && chosen === 'managed' && error?.cancellationUncertain) status.textContent = String(error.message).slice(0, 2000);
+      else if (!disposed && chosen === 'managed' && (controller.signal.aborted || error?.name === 'AbortError')) status.textContent = 'Stopped.';
+      else if (!disposed && revision === token && !controller.signal.aborted) status.textContent = String(error?.message ?? 'Script failed.').slice(0, 2000);
+    } finally {if (active === controller) {active = null;activeProfile = null;updateControls();}}
   }
   async function addResult() {
     if (!ready || active || disposed) return;const result = ready;addButton.disabled = true;

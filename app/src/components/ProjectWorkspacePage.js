@@ -10,6 +10,7 @@ import {createGeoLibreHandoff, reviewGeoLibreReturn} from "../lib/geolibreHandof
 import {loadManagedVectorData} from "../lib/managedVectorRead.js";
 import {ingestManagedFile} from "../lib/managedUpload.js";
 import {createManagedAnalysisRegistration} from "../lib/managedAnalysisRegistration.js";
+import {createManagedAnalysisRuntime} from "../lib/analysisManagedRuntime.js";
 import {emptyMapDefinition} from "../lib/mapDefinition.js";
 import {definitionForPrintFrame, projectPrintLayouts} from "../lib/printLayouts.js";
 import {
@@ -559,6 +560,8 @@ export function ProjectWorkspacePage({
     let geoLibreReviewGeneration = 0;
     return WorkbenchView({
       ...input,
+      analysisRuntime: adapter.kind === "api" && canEdit(state)
+        ? createManagedAnalysisRuntime({adapter, projectId: archiveScope[2], organizationId: archiveScope[1], assertScope: assertArchiveScope}) : null,
       canResumeRenderer: () => checkRetainedAccess({signal: AbortSignal.timeout(20_000)}),
       projectSwitcher: {
         initial: state.maps,

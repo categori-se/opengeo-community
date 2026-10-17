@@ -35,8 +35,23 @@ class RuntimeScope:
     workload: str = "shared"
 
     def __post_init__(self):
-        if self.workload not in {"shared", "pmtiles-v2"}:
+        if self.workload not in {"shared", "pmtiles-v2", "analysis"}:
             raise WindowUnsafe("unsupported_worker_workload")
+        if self.workload == "analysis":
+            resources = list(self.worker_template.get("Resources", {}).values())
+            groups = [r.get("Properties", {}) for r in resources if r.get("Type") == "AWS::AutoScaling::AutoScalingGroup"]
+            if (len(groups) != 1 or groups[0].get("AutoScalingGroupName") != f"opengeo-{self.stage}-analysis"
+                    or str(groups[0].get("MinSize")) != "0" or str(groups[0].get("MaxSize")) != "1"
+                    or str(groups[0].get("DesiredCapacity")) != "1"
+                    or not any(t.get("Key") == "opengeo:analysis-stack" and t.get("Value") == {"Ref": "AWS::StackId"}
+                               and t.get("PropagateAtLaunch") is True for t in groups[0].get("Tags", []))
+                    or any(r.get("Type") not in {"AWS::AutoScaling::AutoScalingGroup", "AWS::EC2::LaunchTemplate",
+                        "AWS::EC2::SecurityGroup", "AWS::EC2::SecurityGroupIngress", "AWS::EC2::SecurityGroupEgress", "AWS::CDK::Metadata"} for r in resources)
+                    or self.worker_template.get("Parameters", {}).get("ActivationWindowId", {}).get("Type") != "String"):
+                raise WindowUnsafe("analysis_host_template_invalid")
+            if (self.shared_endpoint_template is None
+                    or template_hash(self.endpoint_template) != template_hash(self.shared_endpoint_template)):
+                raise WindowUnsafe("analysis_requires_unchanged_endpoint_baseline")
         if self.workload == "pmtiles-v2":
             resources = self.worker_template.get("Resources", {}).values()
             tasks = [item for item in resources if item.get("Type") == "AWS::ECS::TaskDefinition"]
@@ -69,7 +84,8 @@ class RuntimeScope:
     def name(self, kind: str) -> str:
         if kind not in {"worker", "endpoints"}:
             raise WindowUnsafe("unsupported_stack_target")
-        return f"OpenGeo-{self.stage}-{'Worker' if kind == 'worker' else 'PrivateRuntimeEndpoints'}"
+        worker = "AnalysisRuntime" if self.workload == "analysis" else "Worker"
+        return f"OpenGeo-{self.stage}-{worker if kind == 'worker' else 'PrivateRuntimeEndpoints'}"
 
     def check_id(self, kind: str, stack_id: str) -> None:
         prefix = f"arn:aws:cloudformation:{self.region}:{self.account}:stack/{self.name(kind)}/"
@@ -196,6 +212,8 @@ class AwsRuntime:
         }.get(window.phase)
         if command.kind != expected_kind or command.operation != expected_op:
             raise WindowUnsafe("command_does_not_match_phase")
+        if self.scope.workload == "analysis" and command.kind != "worker":
+            raise WindowUnsafe("analysis_endpoint_mutation_forbidden")
         if command.operation == "activate" and now >= window.deadline:
             raise WindowUnsafe("activation_deadline_exceeded")
         if command.stack_id:
@@ -286,6 +304,9 @@ class AwsRuntime:
             "ClientRequestToken": command.token,
             "Capabilities": ["CAPABILITY_IAM", "CAPABILITY_NAMED_IAM"],
         }
+        if self.scope.workload == "analysis":
+            arguments["Capabilities"] = []
+            arguments["Parameters"] = [{"ParameterKey": "ActivationWindowId", "ParameterValue": window.id}]
         if command.stack_id:
             # Preserve existing tags, notifications and parameter bindings.
             # A shared template is restored exactly; its current coordinator
@@ -313,7 +334,7 @@ class AwsRuntime:
             self.cloudformation.update_stack(
                 StackName=command.stack_id,
                 **arguments,
-                Parameters=parameters,
+                **({} if self.scope.workload == "analysis" else {"Parameters": parameters}),
                 Tags=old_tags + ([] if command.operation == "restore" else tags),
             )
         else:

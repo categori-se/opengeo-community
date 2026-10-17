@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {mkdtemp, readFile, rm, writeFile} from "node:fs/promises";
+import * as FS from "node:fs";
+import {spawnSync} from "node:child_process";
 import {tmpdir} from "node:os";
 import {join, resolve} from "node:path";
 import {describe, it} from "node:test";
 import {buildCoordinatorArchive, PUBLIC_FILE_TRANSPORT_MODULES} from "../scripts/build-ami-coordinator-archive.mjs";
+import {installAnalysisRunner, ensureAnalysisDirectory} from "../ami/scripts/install-analysis-runner.mjs";
+import {ANALYSIS_PACKAGE_MEMBERS} from "../../analysis-coordinator/scripts/verify-host.mjs";
 import {
   cloudWatchAgentConfiguration,
   parseEnvironmentFile
@@ -136,6 +140,41 @@ describe("trusted ARM64 runner AMI contract", () => {
     } finally {
       await rm(directory, {recursive: true, force: true});
     }
+  });
+
+  it("optionally packages only the complete analysis dependency closure without changing the default archive", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "opengeo-analysis-archive-"));
+    try {
+      const legacy = await buildCoordinatorArchive(join(directory, "legacy.tar"));
+      const explicitLegacy = await buildCoordinatorArchive(join(directory, "explicit-legacy.tar"), {analysis: false});
+      assert.deepEqual(await readFile(legacy), await readFile(explicitLegacy));
+      const first = await buildCoordinatorArchive(join(directory, "analysis.tar"), {analysis: true});
+      const second = await buildCoordinatorArchive(join(directory, "repeat.tar"), {analysis: true});
+      const bytes = await readFile(first);
+      assert.deepEqual(bytes, await readFile(second));
+      assert.ok(bytes.length < 2 * 1024 * 1024);
+      const members = new Map();
+      for (let offset = 0; bytes[offset];) {
+        const name = bytes.subarray(offset, offset + 100).toString().replace(/\0.*$/, "");
+        const size = parseInt(bytes.subarray(offset + 124, offset + 136).toString().replace(/\0.*$/, ""), 8);
+        assert.ok(!name.startsWith("/") && !name.split("/").includes(".."));
+        members.set(name, bytes.subarray(offset + 512, offset + 512 + size));
+        offset += 512 + Math.ceil(size / 512) * 512;
+      }
+      assert.deepEqual([...members.keys()].sort(), [...ANALYSIS_PACKAGE_MEMBERS, "analysis-package.json"].sort());
+      const manifest = JSON.parse(members.get("analysis-package.json"));
+      assert.equal(manifest.schemaVersion, "opengeo.analysis-package.1");
+      for (const file of manifest.files) {
+        assert.equal(file.size_bytes, members.get(file.path).length);
+        assert.equal(file.checksum_sha256, createHash("sha256").update(members.get(file.path)).digest("hex"));
+        const imports = members.get(file.path).toString().matchAll(/\bfrom\s+["'](\.[^"']+)["']/g);
+        for (const [, imported] of imports) {
+          const target = resolve("/opt/opengeo", file.path, "..", imported).slice("/opt/opengeo/".length);
+          assert.ok(members.has(target), `${file.path} import ${imported} is included`);
+        }
+      }
+      assert.equal(manifest.files.length, 11);
+    } finally {await rm(directory, {recursive: true, force: true});}
   });
 
   it("accepts only exact, same-region, closed-schema preparation inputs", () => {
@@ -316,5 +355,135 @@ describe("trusted ARM64 runner AMI contract", () => {
       Buffer.from(JSON.stringify({SchemaVersion: 2, Results: [{Vulnerabilities: [{Severity: "HIGH"}]}]})),
       "vulnerabilities"
     ), /vulnerability evidence is invalid/);
+  });
+});
+
+
+describe("privileged analysis bake staging", () => {
+  // The installer retains its fixed production paths. Only filesystem/command adapters
+  // are replaced: actual tar extraction and module/profile parsing run unprivileged.
+  async function fixture() {
+    const directory = await mkdtemp(join(tmpdir(), "analysis-installer-test-"));
+    const root = join(directory, "root"), payload = "/tmp/opengeo-analysis-payload";
+    const mapped = path => ["/opt", "/etc", "/var", "/run", payload, "/tmp/opengeo-analysis-coordinator.service"]
+      .some(prefix => path === prefix || path.startsWith(prefix + "/")) ? root + path : path;
+    for (const path of [payload, "/opt/opengeo", "/etc/systemd/system", "/var/lib", "/run"]) FS.mkdirSync(mapped(path), {recursive: true});
+    const owners = new Map(), mutations = [];
+    const filesystem = {...FS};
+    for (const name of ["existsSync", "readFileSync", "writeFileSync", "chmodSync", "chownSync", "mkdirSync", "lstatSync"]) {
+      filesystem[name] = (path, ...args) => {
+        if (name === "lstatSync") {
+          const info = FS.lstatSync(mapped(path)), [uid, gid] = owners.get(path) ?? [0, 0];
+          return Object.assign(Object.create(info), {uid, gid});
+        }
+        if (["writeFileSync", "chmodSync", "chownSync", "mkdirSync"].includes(name)) mutations.push({name, path});
+        if (name === "chownSync") {owners.set(path, args);return;}
+        return FS[name](mapped(path), ...args);
+      };
+    }
+    const run = (file, args) => {
+      assert.equal(file, "tar", "no account, image, scanner or systemd command is run in this check");
+      const result = spawnSync(file, args.map(mapped), {encoding: "utf8", timeout: 2000});
+      assert.equal(result.status, 0, result.stderr);return result.stdout;
+    };
+    const archive = await buildCoordinatorArchive(mapped(payload + "/analysis.tar"), {analysis: true});
+    const source = join(directory, "oci");FS.mkdirSync(source);FS.writeFileSync(join(source, "oci-layout"), '{"imageLayoutVersion":"1.0.0"}');
+    run("tar", ["--create", "--file", mapped(payload + "/image.tar"), "--directory", source, "oci-layout"]);
+    const architecture = process.arch === "x64" ? "amd64" : process.arch;
+    const profiles = {schemaVersion: 1, architecture, profiles: {
+      python: {image: DIGEST, interpreter: "/usr/bin/python3"},
+      javascript: {image: DIGEST, interpreter: "/usr/local/bin/node"},
+      bash: {image: DIGEST, interpreter: "/bin/bash"}
+    }};
+    const canonical = value => JSON.stringify(value, (_key, item) => item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+    const digest = bytes => createHash("sha256").update(bytes).digest("hex");
+    const inputs = {schemaVersion: "opengeo.analysis-ami-inputs.1", package: {file: "analysis.tar", sha256: digest(FS.readFileSync(archive))},
+      profiles, profilesSha256: digest(canonical(profiles)), images: [{file: "image.tar", image: DIGEST, sha256: digest(FS.readFileSync(mapped(payload + "/image.tar")))}]};
+    FS.writeFileSync(mapped("/tmp/opengeo-analysis-coordinator.service"), "[Service]\nUser=opengeo-analysis\n");
+    const save = () => FS.writeFileSync(mapped(payload + "/inputs.json"), JSON.stringify(inputs));save();
+    const install = () => installAnalysisRunner(payload, {filesystem, run, uid: 0, architecture: process.arch,
+      nodeVersion: "v24.19.0", identity: () => false});
+    return {directory, mapped, inputs, owners, mutations, filesystem, save, install, digest, canonical};
+  }
+  it("verifies the actual archive/profile closure before writes and preserves identical installed bytes", async () => {
+    const f = await fixture();
+    try {
+      const installed = await f.install();assert.equal(installed.amiManifest.account.uid, 10002);
+      const target = f.mapped("/opt/opengeo/analysis-coordinator/src/runtime.mjs"), before = FS.statSync(target);
+      assert.equal(before.mode & 0o777, 0o444);
+      assert.equal(FS.statSync(f.mapped("/opt/opengeo/analysis-coordinator/src")).mode & 0o777, 0o755);
+      f.mutations.length = 0;await f.install();
+      assert.equal(FS.statSync(target).ino, before.ino);assert.equal(FS.statSync(target).mtimeMs, before.mtimeMs);
+      assert.equal(f.mutations.length, 0, "an identical package does not rewrite/chmod existing shared files");
+    } finally {await rm(f.directory, {recursive: true, force: true});}
+  });
+  it("rejects a complete but invalid interpreter profile before any destination mutation", async () => {
+    const f = await fixture();
+    try {
+      f.inputs.profiles.profiles.python.interpreter = "/tmp/other-python";
+      f.inputs.profilesSha256 = f.digest(f.canonical(f.inputs.profiles));f.save();
+      await assert.rejects(f.install, /analysis_profile_invalid/);assert.equal(f.mutations.length, 0);
+    } finally {await rm(f.directory, {recursive: true, force: true});}
+  });
+  it("rejects missing or corrupt OCI inventories before installing package files", async () => {
+    const f = await fixture();
+    try {
+      f.inputs.images[0].sha256 = "f".repeat(64);f.save();
+      await assert.rejects(f.install, /artifact mismatch/);assert.equal(f.mutations.length, 0);
+      f.inputs.images[0].sha256 = f.digest(FS.readFileSync(f.mapped("/tmp/opengeo-analysis-payload/image.tar")));
+      f.inputs.images[0].image = `sha256:${"e".repeat(64)}`;f.save();
+      await assert.rejects(f.install, /image inventory/);assert.equal(f.mutations.length, 0);
+    } finally {await rm(f.directory, {recursive: true, force: true});}
+  });
+  it("refuses symlinked or differing shared destinations without touching the link target", async () => {
+    const f = await fixture();
+    try {
+      const external = join(f.directory, "untouched");FS.mkdirSync(external);FS.writeFileSync(join(external, "sentinel"), "keep");
+      const destination = f.mapped("/opt/opengeo/analysis-coordinator");FS.symlinkSync(external, destination);
+      await assert.rejects(f.install, /Unsafe analysis installation directory/);assert.equal(f.mutations.length, 0);
+      assert.equal(FS.readFileSync(join(external, "sentinel"), "utf8"), "keep");FS.unlinkSync(destination);
+      FS.mkdirSync(f.mapped("/opt/opengeo/analysis-coordinator/src"), {recursive: true});
+      const file = f.mapped("/opt/opengeo/analysis-coordinator/src/runtime.mjs");FS.writeFileSync(file, "different shared runtime");
+      await assert.rejects(f.install, /differs from installed shared runtime/);assert.equal(f.mutations.length, 0);
+      assert.equal(FS.readFileSync(file, "utf8"), "different shared runtime");
+    } finally {await rm(f.directory, {recursive: true, force: true});}
+  });
+  it("rejects duplicate tar members and pre-existing runtime allocation before writes", async () => {
+    const f = await fixture();
+    try {
+      const archive = f.mapped("/tmp/opengeo-analysis-payload/analysis.tar");
+      const member = join(f.directory, "analysis-package.json");FS.writeFileSync(member, "{}");
+      const appended = spawnSync("tar", ["--append", "--file", archive, "--directory", f.directory, "analysis-package.json"], {timeout: 2000});
+      assert.equal(appended.status, 0);f.inputs.package.sha256 = f.digest(FS.readFileSync(archive));f.save();
+      await assert.rejects(f.install, /Unsafe analysis archive members/);assert.equal(f.mutations.length, 0);
+      await buildCoordinatorArchive(archive, {analysis: true});f.inputs.package.sha256 = f.digest(FS.readFileSync(archive));f.save();
+      FS.mkdirSync(f.mapped("/var/lib/opengeo-analysis"));
+      await assert.rejects(f.install, /runtime directory already allocated/);assert.equal(f.mutations.length, 0);
+    } finally {await rm(f.directory, {recursive: true, force: true});}
+  });
+  it("rejects subordinate-ID symlinks and overlapping allocations without package writes", async () => {
+    const f = await fixture();
+    try {
+      const path = f.mapped("/etc/subuid");FS.symlinkSync(join(f.directory, "missing-subids"), path);
+      await assert.rejects(f.install, /Unsafe analysis subordinate ID file/);assert.equal(f.mutations.length, 0);
+      FS.unlinkSync(path);FS.writeFileSync(path, "another-account:265535:2\n");
+      await assert.rejects(f.install, /subordinate IDs already allocated or invalid/);assert.equal(f.mutations.length, 0);
+    } finally {await rm(f.directory, {recursive: true, force: true});}
+  });
+  it("never follows or chowns a pre-existing runtime directory or a dangling symlink", async () => {
+    const f = await fixture();
+    try {
+      const home = f.mapped("/var/lib/opengeo-analysis");FS.symlinkSync(join(f.directory, "missing"), home);
+      assert.throws(() => ensureAnalysisDirectory("/var/lib/opengeo-analysis", {filesystem: f.filesystem}), /Unsafe analysis runtime directory/);
+      assert.equal(f.mutations.length, 0);FS.unlinkSync(home);FS.mkdirSync(home);
+      assert.throws(() => ensureAnalysisDirectory("/var/lib/opengeo-analysis", {filesystem: f.filesystem}), /Unsafe analysis runtime directory/);
+      assert.equal(f.mutations.length, 0, "foreign ownership must not be corrected by chown");
+      f.owners.set("/var/lib/opengeo-analysis", [10002, 10002]);
+      ensureAnalysisDirectory("/var/lib/opengeo-analysis/tmp", {filesystem: f.filesystem});
+      assert.equal(FS.statSync(f.mapped("/var/lib/opengeo-analysis/tmp")).mode & 0o777, 0o700);
+      assert.deepEqual(f.owners.get("/var/lib/opengeo-analysis/tmp"), [10002, 10002]);
+      assert.throws(() => ensureAnalysisDirectory("/tmp/arbitrary", {filesystem: f.filesystem}), /Invalid analysis runtime directory/);
+    } finally {await rm(f.directory, {recursive: true, force: true});}
   });
 });

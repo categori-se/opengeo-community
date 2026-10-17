@@ -26,7 +26,7 @@ pending. We record implementation, acceptance and delivery separately:
 | External PostGIS Layers | Connection verification, relation discovery, stable live Layer registration and bounded feature preview are implemented. A real local PostGIS journey verifies feature queries, exact numeric values, paging limits, revocation and cleanup. | Connected-browser and configured-provider acceptance, followed by deployment. The new source path defaults off. |
 | API and CKAN exchange | The API contract has reproducible offline validation. The STAC-to-CKAN exporter and disposable CKAN 2.11.6 create/read/purge check are complete for their documented scope. | Complete harvesting, synchronization and live portal integration. |
 | Configurable PMTiles intake | The dedicated conversion lane, parameter review, preserved-original path and completed-display handoff are implemented locally. The pinned worker converts GeoJSON and rejects disguised VRT input. | Current security review, native ARM64 execution and real-data hosted acceptance before activation. The large global KBA conversion has not completed. |
-| Analysis console | The docked JavaScript/Python/Bash editor, isolated browser JavaScript and opt-in local runners are implemented. Local checks verify real execution, selected inputs, explicit result admission, cancellation, cleanup and light/dark layouts. | Managed authenticated execution, runtime configuration and production delivery remain in progress. |
+| Analysis console | The docked JavaScript/Python/Bash editor, isolated browser JavaScript and opt-in local runners are implemented and accepted locally. Managed source connects private jobs, application storage, explicit queue/controller wake and a bounded host; local coordinator checks execute all three languages and cancellation. | Managed activation stays disabled. Connected HTTP/database and updated consumer lifecycle, admitted AMI, fresh-boot rootless security, actual AWS cleanup and production delivery remain open. |
 
 The [capability matrix](docs/community-capabilities.md) describes operation-level
 limits. The [workflow guide](docs/community-workflow.md),
@@ -69,9 +69,9 @@ status reports.
 
 | Priority | Next useful outcome |
 | --- | --- |
-| 1. Finish selected delivery | Apply the reviewed saved-map presentation updates and complete hosted account acceptance of the delivered Styles/clustering workflows. Complete the outstanding PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
+| 1. Finish selected delivery | Nepal's layer ordering, clustering and colors are saved and read back; the Berkshires update remains blocked by the current account's access. Complete hosted Style/Print acceptance and the outstanding PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
 | 2. Finish the shared-data journey | Exercise contributor review and publication through the actual interface, then accept the implemented PostGIS Layer source with a connected browser and configured provider. Preserve identity, permissions and history when replacing data. |
-| 3. Make analytical sessions usable | Complete the docked console with explicit local and managed execution profiles, bounded runs, cancellation and deliberate result Layers. Opening the console must not allocate managed compute. |
+| 3. Accept managed analytical sessions | Preserve the accepted browser/local console and finish connected managed-runner acceptance and delivery. Opening the console must not allocate managed compute. |
 | 4. Verify installation and reuse | Reproduce the small reference workspace on an independent installation, finish the standalone native publication journey and verify delivery to another website. |
 | 5. Extend proven workflows | Add service operations, source adapters and cartographic tools where a specific recurring task requires them. |
 

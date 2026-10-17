@@ -21,7 +21,7 @@ export function workerLifecyclePolicy(account: string, region: string, stage: st
   assert.match(region, /^[a-z]{2}-[a-z]+-[0-9]+$/);
   assert.match(stage, /^(dev|staging|demo|production)$/);
   assert.match(scope.vpcId, /^vpc-[0-9a-f]+$/);
-  assert.match(scope.databaseSecurityGroupId, /^sg-[0-9a-f]+$/);
+  assert.match(scope.databaseSecurityGroupId, /^sg-(?:[0-9a-f]{8}|[0-9a-f]{17})$/);
   assert.ok(scope.subnetIds.length && scope.routeTableIds.length, "Private subnet and route table scope required");
   scope.subnetIds.forEach(id => assert.match(id, /^subnet-[0-9a-f]+$/));
   scope.routeTableIds.forEach(id => assert.match(id, /^rtb-[0-9a-f]+$/));
@@ -93,6 +93,58 @@ export function workerLifecyclePolicy(account: string, region: string, stage: st
   allow(["cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms", "cloudwatch:DescribeAlarms",
     "cloudwatch:TagResource", "cloudwatch:UntagResource", "cloudwatch:ListTagsForResource"],
   [arn("cloudwatch", `alarm:OpenGeo-${stage}-Worker-*`)]);
+  allow(["ssm:GetParameters"], [arn("ssm", "parameter/cdk-bootstrap/hnb659fds/version")]);
+  return document;
+}
+
+export interface AnalysisLifecycleScope {
+  vpcId: string;
+  subnetIds: string[];
+  endpointSecurityGroupId: string;
+  hostRoleArn: string;
+  instanceProfileArn: string;
+}
+
+/** Analysis host lifecycle only. Existing private endpoint services are read-only. */
+export function analysisLifecyclePolicy(account: string, region: string, stage: string,
+  scope: AnalysisLifecycleScope): iam.PolicyDocument {
+  assert.match(account, /^[0-9]{12}$/);assert.match(region, /^[a-z]{2}-[a-z]+-[0-9]+$/);
+  assert.match(stage, /^(dev|staging|demo|production)$/);assert.match(scope.vpcId, /^vpc-[0-9a-f]+$/);
+  assert.match(scope.endpointSecurityGroupId, /^sg-(?:[0-9a-f]{8}|[0-9a-f]{17})$/);assert.ok(scope.subnetIds.length);
+  scope.subnetIds.forEach(value => assert.match(value, /^subnet-[0-9a-f]+$/));
+  assert.equal(scope.hostRoleArn, `arn:aws:iam::${account}:role/opengeo-${stage}-analysis-host`);
+  assert.equal(scope.instanceProfileArn, `arn:aws:iam::${account}:instance-profile/opengeo-${stage}-analysis-host`);
+  const arn = (service: string, resource: string) => `arn:aws:${service}:${region}:${account}:${resource}`;
+  const document = new iam.PolicyDocument();
+  const allow = (actions: string[], resources: string[], conditions?: Record<string, unknown>) =>
+    document.addStatements(new iam.PolicyStatement({actions, resources, conditions}));
+  const owned = {StringEquals: {"aws:ResourceTag/aws:cloudformation:stack-name": `OpenGeo-${stage}-AnalysisRuntime`}};
+  const requested = {StringEquals: {"aws:RequestTag/Application": "OpenGeo", "aws:RequestTag/Environment": stage}};
+  const security = arn("ec2", "security-group/*"), launch = arn("ec2", "launch-template/*");
+  allow(["ec2:DescribeSecurityGroups", "ec2:DescribeSecurityGroupRules", "ec2:DescribeVpcs", "ec2:DescribeSubnets",
+    "ec2:DescribeLaunchTemplates", "ec2:DescribeLaunchTemplateVersions", "ec2:DescribeImages"], ["*"],
+  {StringEquals: {"aws:RequestedRegion": region}});
+  allow(["ec2:CreateSecurityGroup"], [security], requested);
+  allow(["ec2:CreateSecurityGroup"], [arn("ec2", `vpc/${scope.vpcId}`)]);
+  allow(["ec2:DeleteSecurityGroup", "ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress",
+    "ec2:AuthorizeSecurityGroupEgress", "ec2:RevokeSecurityGroupEgress"], [security], owned);
+  allow(["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
+    [arn("ec2", `security-group/${scope.endpointSecurityGroupId}`)]);
+  allow(["ec2:CreateLaunchTemplate"], [launch], requested);
+  allow(["ec2:CreateLaunchTemplateVersion", "ec2:DeleteLaunchTemplateVersions", "ec2:ModifyLaunchTemplate", "ec2:DeleteLaunchTemplate"], [launch], owned);
+  allow(["ec2:CreateTags"], [security, launch], {StringEquals: {"ec2:CreateAction": ["CreateSecurityGroup", "CreateLaunchTemplate"], ...requested.StringEquals}});
+  allow(["ec2:CreateTags", "ec2:DeleteTags"], [security, launch], owned);
+  const group = arn("autoscaling", `autoScalingGroup:*:autoScalingGroupName/opengeo-${stage}-analysis`);
+  allow(["autoscaling:CreateAutoScalingGroup", "autoscaling:UpdateAutoScalingGroup", "autoscaling:DeleteAutoScalingGroup",
+    "autoscaling:CreateOrUpdateTags", "autoscaling:DeleteTags"], [group]);
+  allow(["autoscaling:DescribeAutoScalingGroups", "autoscaling:DescribeScalingActivities", "autoscaling:DescribeLaunchConfigurations"], ["*"],
+    {StringEquals: {"aws:RequestedRegion": region}});
+  allow(["iam:PassRole"], [scope.hostRoleArn], {StringEquals: {"iam:PassedToService": "ec2.amazonaws.com"}});
+  allow(["iam:GetInstanceProfile"], [scope.instanceProfileArn]);
+  // The operator must already have admitted the Auto Scaling service-linked
+  // role and encrypted-volume key grant. This role cannot create either.
+  allow(["iam:PassRole"], [`arn:aws:iam::${account}:role/aws-service-role/autoscaling.amazonaws.com/AWSServiceRoleForAutoScaling`],
+    {StringEquals: {"iam:PassedToService": "autoscaling.amazonaws.com"}});
   allow(["ssm:GetParameters"], [arn("ssm", "parameter/cdk-bootstrap/hnb659fds/version")]);
   return document;
 }

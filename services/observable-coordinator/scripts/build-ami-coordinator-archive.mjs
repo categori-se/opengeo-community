@@ -1,6 +1,8 @@
 import {lstat, mkdir, readFile, readdir, realpath, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
+import {createHash} from "node:crypto";
+import {ANALYSIS_PACKAGE_MEMBERS} from "../../analysis-coordinator/scripts/verify-host.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..");
@@ -16,7 +18,7 @@ const MEMBERS = Object.freeze([
   "scripts/configure-host-logs.mjs"
 ]);
 
-export async function buildCoordinatorArchive(outputPath) {
+export async function buildCoordinatorArchive(outputPath, {analysis = false} = {}) {
   if (typeof outputPath !== "string" || outputPath.length === 0) {
     throw new Error("one coordinator archive output path is required");
   }
@@ -27,6 +29,28 @@ export async function buildCoordinatorArchive(outputPath) {
   await mkdir(dirname(output), {recursive: true, mode: 0o700});
   const packageRoot = await realpath(PACKAGE_ROOT);
   const records = [];
+  if (analysis === true) {
+    const servicesRoot = await realpath(resolve(PACKAGE_ROOT, ".."));
+    const files = [];
+    for (const member of ANALYSIS_PACKAGE_MEMBERS) {
+      const metadata = await lstat(resolve(servicesRoot, member));
+      if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.size < 1 || metadata.size > 1024 * 1024) {
+        throw new Error("analysis archive requires bounded regular runtime files");
+      }
+      const bytes = await readFile(resolve(servicesRoot, member));
+      files.push({path: member, size_bytes: bytes.length,
+        checksum_sha256: createHash("sha256").update(bytes).digest("hex")});
+      await appendMember(records, servicesRoot, member);
+    }
+    const manifest = Buffer.from(JSON.stringify({schemaVersion: "opengeo.analysis-package.1", files}, null, 2) + "\n");
+    appendBytes(records, "analysis-package.json", manifest);
+    records.push(Buffer.alloc(1024));
+    const bytes = Buffer.concat(records);
+    if (bytes.length > 2 * 1024 * 1024) throw new Error("analysis archive exceeds its runtime-only bound");
+    await writeFile(output, bytes, {mode: 0o600});
+    return output;
+  }
+  if (analysis !== false) throw new Error("analysis archive selection must be boolean");
   for (const member of MEMBERS) {
     await appendMember(records, packageRoot, member);
   }
@@ -56,6 +80,10 @@ async function appendMember(records, packageRoot, name, archiveName = name) {
     return;
   }
   const bytes = await readFile(path);
+  appendBytes(records, archiveName, bytes);
+}
+
+function appendBytes(records, archiveName, bytes) {
   records.push(tarHeader(archiveName, bytes.length, "0", 0o644), bytes);
   const remainder = bytes.length % 512;
   if (remainder !== 0) records.push(Buffer.alloc(512 - remainder));
@@ -96,7 +124,10 @@ function octal(buffer, offset, length, value) {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   try {
-    const output = await buildCoordinatorArchive(process.argv[2]);
+    if (process.argv.length > 4 || process.argv.length === 4 && process.argv[3] !== "--analysis") {
+      throw new Error("expected an archive output path and optional --analysis");
+    }
+    const output = await buildCoordinatorArchive(process.argv[2], {analysis: process.argv[3] === "--analysis"});
     process.stdout.write(`${output}\n`);
   } catch (error) {
     process.stderr.write(`${error.message}\n`);

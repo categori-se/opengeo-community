@@ -39,6 +39,7 @@ require_match "${COMPILER_OCI_ARCHIVE_SHA256:-}" '^[0-9a-f]{64}$' COMPILER_OCI_A
 require_match "${COMPILER_IMAGE_DIGEST:-}" '^sha256:[0-9a-f]{64}$' COMPILER_IMAGE_DIGEST
 require_match "${TRIVY_BINARY_SHA256:-}" '^[0-9a-f]{64}$' TRIVY_BINARY_SHA256
 require_match "${TRIVY_CACHE_ARCHIVE_SHA256:-}" '^[0-9a-f]{64}$' TRIVY_CACHE_ARCHIVE_SHA256
+require_match "${INSTALL_ANALYSIS_RUNNER:-false}" '^(true|false)$' INSTALL_ANALYSIS_RUNNER
 
 if [[ "$(uname -m)" != "aarch64" ]]; then
   echo "runner AMI must be built natively on aarch64" >&2
@@ -177,6 +178,9 @@ if [[ "$trivy_db_version" != "2" || -z "$trivy_db_next_update" ]] \
   exit 1
 fi
 readonly TRIVY=(/usr/local/sbin/opengeo-trivy --cache-dir "$TRIVY_CACHE" --offline-scan --skip-db-update)
+if [[ "${INSTALL_ANALYSIS_RUNNER:-false}" == "true" ]]; then
+  /usr/local/bin/node /tmp/opengeo-install-analysis-runner.mjs /tmp/opengeo-analysis-payload
+fi
 java_archive_path="$(find / -xdev -type f \
   \( -name '*.jar' -o -name '*.war' -o -name '*.ear' -o -name '*.par' \) \
   -not -path '/tmp/*' -print -quit)"
@@ -217,7 +221,11 @@ install -m 0644 -o root -g root /tmp/opengeo-observable-logrotate \
   /etc/logrotate.d/opengeo-observable
 
 systemctl daemon-reload
-systemctl enable opengeo-observable-coordinator.service
+if [[ "${INSTALL_ANALYSIS_RUNNER:-false}" == "true" ]]; then
+  systemctl disable opengeo-observable-coordinator.service
+else
+  systemctl enable opengeo-observable-coordinator.service
+fi
 systemctl disable amazon-cloudwatch-agent.service 2>/dev/null || true
 systemctl disable amazon-ssm-agent.service 2>/dev/null || true
 systemctl disable snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || true
@@ -247,3 +255,9 @@ rmdir "$TRIVY_CACHE"
 find "$COMPILER_OCI_DIR" -mindepth 1 -delete
 rmdir "$COMPILER_OCI_DIR"
 find /var/cache/apt/archives -type f -delete
+rm -f /tmp/opengeo-install-analysis-runner.mjs /tmp/opengeo-analysis-coordinator.service
+if [[ -e /tmp/opengeo-analysis-payload || -L /tmp/opengeo-analysis-payload ]]; then
+  [[ -d /tmp/opengeo-analysis-payload && ! -L /tmp/opengeo-analysis-payload ]]
+  find /tmp/opengeo-analysis-payload -mindepth 1 -delete
+  rmdir /tmp/opengeo-analysis-payload
+fi

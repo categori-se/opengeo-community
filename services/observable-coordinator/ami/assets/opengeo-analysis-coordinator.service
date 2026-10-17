@@ -1,0 +1,53 @@
+[Unit]
+Description=OpenGeo trusted managed analysis coordinator
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=1
+
+[Service]
+Type=simple
+User=opengeo-analysis
+Group=opengeo-analysis
+EnvironmentFile=/etc/opengeo/analysis.env
+Environment=HOME=/var/lib/opengeo-analysis
+Environment=XDG_RUNTIME_DIR=/run/opengeo-analysis
+Environment=TMPDIR=/var/lib/opengeo-analysis/tmp
+WorkingDirectory=/opt/opengeo/analysis-coordinator
+StateDirectory=opengeo-analysis
+StateDirectoryMode=0700
+RuntimeDirectory=opengeo-analysis
+RuntimeDirectoryMode=0700
+Delegate=yes
+ExecStartPre=/usr/local/bin/node /opt/opengeo/analysis-coordinator/scripts/verify-host.mjs
+ExecStart=/usr/local/bin/node /opt/opengeo/analysis-coordinator/src/runtime.mjs
+Restart=no
+TimeoutStopSec=30s
+KillMode=mixed
+UMask=0077
+# Rootless Podman needs subordinate-ID helpers; user containers still run with
+# no-new-privileges, no capabilities, no network and explicit resource limits.
+NoNewPrivileges=false
+RestrictSUIDSGID=false
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID
+AmbientCapabilities=
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=false
+ProtectHostname=true
+LockPersonality=true
+RestrictRealtime=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+ReadWritePaths=/var/lib/opengeo-analysis /run/opengeo-analysis
+MemoryMax=1G
+TasksMax=128
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

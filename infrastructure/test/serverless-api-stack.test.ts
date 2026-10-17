@@ -5,13 +5,31 @@ import {App, aws_lambda as lambda, aws_sqs as sqs} from "aws-cdk-lib";
 import {Match, Template} from "aws-cdk-lib/assertions";
 import {environmentConfig, SHARED_AUTH_ACCOUNT_ID, type Stage} from "../lib/config.js";
 import {PlatformFoundationStack} from "../lib/platform-foundation-stack.js";
-import {ServerlessApiStack} from "../lib/serverless-api-stack.js";
+import {ServerlessApiStack, type ServerlessApiStackProps} from "../lib/serverless-api-stack.js";
+import type {AnalysisProfiles} from "../lib/analysis-runtime-stack.js";
 
 const PREVIEW_PUBLIC_KEY = generateKeyPairSync("rsa", {modulusLength: 2048})
   .publicKey.export({type: "spki", format: "pem"})
   .toString();
 const PREVIEW_SECRET_ARN =
   `arn:aws:secretsmanager:us-east-1:${SHARED_AUTH_ACCOUNT_ID}:secret:opengeo/preview-AbCd`;
+type ManagedAnalysisOptions = Pick<ServerlessApiStackProps, "enableManagedAnalysis" | "analysisQueue"
+  | "analysisControllerFunction" | "analysisRuntimeProfiles">;
+const ANALYSIS_PROFILES: AnalysisProfiles = {schemaVersion: 1, architecture: "amd64", profiles: {
+  python: {image: `sha256:${"a".repeat(64)}`, interpreter: "/usr/local/bin/python3"},
+  javascript: {image: `sha256:${"b".repeat(64)}`, interpreter: "/usr/local/bin/node"},
+  bash: {image: `sha256:${"b".repeat(64)}`, interpreter: "/bin/bash"}
+}};
+const ANALYSIS_CONTROLLER_ARN = `arn:aws:lambda:us-east-1:${SHARED_AUTH_ACCOUNT_ID}:function:opengeo-dev-analysis-controller`;
+function analysisInputs(foundation: PlatformFoundationStack): ManagedAnalysisOptions {
+  return {enableManagedAnalysis: true, analysisQueue: new sqs.Queue(foundation, "AnalysisQueue", {queueName: "opengeo-dev-analysis"}),
+    analysisControllerFunction: lambda.Function.fromFunctionArn(foundation, "AnalysisController", ANALYSIS_CONTROLLER_ARN),
+    analysisRuntimeProfiles: ANALYSIS_PROFILES};
+}
+function managedAnalysisTemplate(options: (foundation: PlatformFoundationStack) => ManagedAnalysisOptions): Template {
+  return serverlessApiTemplateFor("dev", false, false, false, SHARED_AUTH_ACCOUNT_ID, false,
+    undefined, false, {}, false, options);
+}
 
 function serverlessApiTemplateFor(
   stage: Stage,
@@ -23,7 +41,8 @@ function serverlessApiTemplateFor(
   additionalCognitoClientIds?: string,
   repositoryBrowser = false,
   artifactOptions: {enablePortableArtifacts?: boolean; enablePublicationArtifactBuilds?: boolean; region?: string} = {},
-  enablePublicMapsPreview = false
+  enablePublicMapsPreview = false,
+  managedAnalysis?: (foundation: PlatformFoundationStack) => ManagedAnalysisOptions
 ): Template {
   const app = new App();
   const {region = "us-east-1", ...artifactFlags} = artifactOptions;
@@ -84,12 +103,77 @@ function serverlessApiTemplateFor(
         }
       : {}),
     ...(preview ? {observablePreviewPrivateKeySecretArn: PREVIEW_SECRET_ARN} : {}),
+    ...(managedAnalysis?.(foundation) ?? {}),
     env
   });
   return Template.fromStack(api);
 }
 
 describe("request-driven API stack", () => {
+  it("keeps managed analysis dormant unless explicitly enabled even with supplied runtime inputs", () => {
+    for (const template of [serverlessApiTemplateFor("dev"), managedAnalysisTemplate(foundation => ({
+      ...analysisInputs(foundation), enableManagedAnalysis: false
+    }))]) {
+      assert.doesNotMatch(JSON.stringify(template.toJSON()), /OPEN_GEO_ANALYSIS_|opengeo-dev-analysis|analysis\/\*/);
+      template.resourceCountIs("AWS::Lambda::Function", 1);
+      template.resourceCountIs("AWS::AutoScaling::AutoScalingGroup", 0);
+      template.resourceCountIs("AWS::Events::Rule", 0);
+    }
+  });
+
+  it("advertises complete managed analysis with only exact dispatch and bounded object transport authority", () => {
+    const template = managedAnalysisTemplate(analysisInputs);
+    template.hasResourceProperties("AWS::Lambda::Function", {Architectures: ["arm64"], Environment: {Variables: Match.objectLike({
+      OPEN_GEO_ANALYSIS_ENABLED: "true", OPEN_GEO_ANALYSIS_QUEUE_URL: Match.anyValue(),
+      OPEN_GEO_ANALYSIS_CONTROLLER_FUNCTION_ARN: ANALYSIS_CONTROLLER_ARN,
+      OPEN_GEO_ANALYSIS_RUNTIME_PROFILES: JSON.stringify(ANALYSIS_PROFILES)
+    })}});
+    const statements = Object.values(template.findResources("AWS::IAM::Policy"))
+      .flatMap((policy: any) => policy.Properties.PolicyDocument.Statement);
+    const invoke = statements.filter((s: any) => [s.Action].flat().includes("lambda:InvokeFunction"));
+    assert.equal(invoke.length, 1);assert.equal(invoke[0].Resource, ANALYSIS_CONTROLLER_ARN);
+    const analysisSend = statements.filter((s: any) => JSON.stringify(s.Resource).includes("AnalysisQueue"));
+    assert.equal(analysisSend.length, 1);assert.equal(analysisSend[0].Action, "sqs:SendMessage");
+    const analysisObjects = statements.filter((s: any) => JSON.stringify(s.Resource).includes("analysis/*"));
+    assert.equal(analysisObjects.length, 2);
+    const snapshot = analysisObjects.find((s: any) => JSON.stringify(s.Resource).includes("/analysis/*/snapshot.json"));
+    const result = analysisObjects.find((s: any) => JSON.stringify(s.Resource).includes("/analysis/*/result.json"));
+    assert.deepEqual(snapshot.Action, ["s3:PutObject", "s3:GetObject"]);
+    assert.equal(result.Action, "s3:GetObjectVersion");
+    const ordinary = Object.values(serverlessApiTemplateFor("dev").findResources("AWS::IAM::Policy"))
+      .flatMap((policy: any) => policy.Properties.PolicyDocument.Statement);
+    const added = statements.filter((s: any) => !ordinary.some((old: any) => JSON.stringify(old) === JSON.stringify(s)));
+    assert.equal(added.length, 4);
+    assert.doesNotMatch(JSON.stringify(added), /events:|ec2:|autoscaling:|cloudformation:|secretsmanager:|sqs:Receive|sqs:Delete|s3:Delete/);
+    template.resourceCountIs("AWS::Lambda::Function", 1);
+    template.resourceCountIs("AWS::AutoScaling::AutoScalingGroup", 0);
+    template.resourceCountIs("AWS::Events::Rule", 0);
+  });
+
+  it("rejects incomplete enabled analysis inputs and reused non-analysis queues", () => {
+    for (const missing of ["analysisQueue", "analysisControllerFunction", "analysisRuntimeProfiles"] as const) {
+      assert.throws(() => managedAnalysisTemplate(foundation => {
+        return {...analysisInputs(foundation), [missing]: undefined};
+      }), /requires its isolated queue, controller and complete runtime profiles/);
+    }
+    assert.throws(() => managedAnalysisTemplate(foundation => ({...analysisInputs(foundation), analysisQueue: foundation.processingQueue})),
+      /requires a separate analysis-only queue/);
+  });
+
+  it("rejects foreign, qualified or wrong managed controllers and invalid runtime profiles", () => {
+    for (const arn of [ANALYSIS_CONTROLLER_ARN.replace("us-east-1", "us-west-2"),
+      ANALYSIS_CONTROLLER_ARN.replace(SHARED_AUTH_ACCOUNT_ID, "111111111111"),
+      ANALYSIS_CONTROLLER_ARN.replace("-analysis-controller", "-worker-controller"), `${ANALYSIS_CONTROLLER_ARN}:1`]) {
+      assert.throws(() => managedAnalysisTemplate(foundation => ({...analysisInputs(foundation),
+        analysisControllerFunction: lambda.Function.fromFunctionArn(foundation, "WrongAnalysisController", arn)})),
+      /exact same-account regional analysis controller/);
+    }
+    assert.throws(() => managedAnalysisTemplate(foundation => ({...analysisInputs(foundation), analysisRuntimeProfiles: {
+      ...ANALYSIS_PROFILES, profiles: {...ANALYSIS_PROFILES.profiles,
+        python: {...ANALYSIS_PROFILES.profiles.python, interpreter: "/bin/sh"}}
+    }})), /Exact cached analysis image and interpreter required/);
+  });
+
   it("activates Artifact storage and builds explicitly with only the portable object prefix", () => {
     const ordinary = JSON.stringify(serverlessApiTemplateFor("production").toJSON());
     assert.doesNotMatch(ordinary, /OPEN_GEO_PORTABLE_ARTIFACTS_ENABLED|OPEN_GEO_PUBLICATION_ARTIFACT_BUILDS_ENABLED|artifacts\/\*/);

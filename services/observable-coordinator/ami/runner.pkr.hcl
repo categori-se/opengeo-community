@@ -64,6 +64,12 @@ variable "coordinator_archive_path" {
   type = string
 }
 
+variable "analysis_payload_directory" {
+  type        = string
+  default     = ""
+  description = "Optional reviewed inputs.json, analysis.tar and pinned OCI archives; empty keeps analysis disabled."
+}
+
 variable "coordinator_archive_sha256" {
   type = string
   validation {
@@ -264,6 +270,25 @@ build {
   }
 
   provisioner "shell" {
+    inline = ["mkdir -m 700 /tmp/opengeo-analysis-payload"]
+  }
+
+  provisioner "file" {
+    source      = var.analysis_payload_directory == "" ? "${path.root}/assets/analysis-disabled/" : "${var.analysis_payload_directory}/"
+    destination = "/tmp/opengeo-analysis-payload"
+  }
+
+  provisioner "file" {
+    source      = "${path.root}/scripts/install-analysis-runner.mjs"
+    destination = "/tmp/opengeo-install-analysis-runner.mjs"
+  }
+
+  provisioner "file" {
+    source      = "${path.root}/assets/opengeo-analysis-coordinator.service"
+    destination = "/tmp/opengeo-analysis-coordinator.service"
+  }
+
+  provisioner "shell" {
     script = "${path.root}/scripts/install-runner.sh"
     environment_vars = [
       "SOURCE_AMI_ID=${var.source_ami_id}",
@@ -274,7 +299,8 @@ build {
       "COMPILER_OCI_ARCHIVE_SHA256=${var.compiler_oci_archive_sha256}",
       "COMPILER_IMAGE_DIGEST=${var.compiler_image_digest}",
       "TRIVY_BINARY_SHA256=${var.trivy_binary_sha256}",
-      "TRIVY_CACHE_ARCHIVE_SHA256=${var.trivy_cache_archive_sha256}"
+      "TRIVY_CACHE_ARCHIVE_SHA256=${var.trivy_cache_archive_sha256}",
+      "INSTALL_ANALYSIS_RUNNER=${var.analysis_payload_directory == "" ? "false" : "true"}"
     ]
     execute_command = "chmod +x '{{ .Path }}'; sudo -E {{ .Vars }} bash '{{ .Path }}'"
     timeout         = "30m"
@@ -331,6 +357,7 @@ build {
       compiler_image_digest           = var.compiler_image_digest
       trivy_binary_sha256             = var.trivy_binary_sha256
       trivy_cache_archive_sha256      = var.trivy_cache_archive_sha256
+      analysis_enabled                = var.analysis_payload_directory != ""
       packer_version                  = "1.16.0"
       packer_amazon_plugin_version    = "1.8.2"
     }

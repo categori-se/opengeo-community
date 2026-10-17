@@ -7,8 +7,8 @@ from dataclasses import replace
 from pathlib import Path
 from uuid import uuid4
 
-from aws_runtime import AwsRuntime, RuntimeScope
-from controller import LANES, Observation, Window, WindowUnsafe, advance
+from aws_runtime import AwsRuntime, RuntimeScope, template_hash
+from controller import LANES, READY, Observation, Window, WindowUnsafe, advance
 from ledger import RdsLedger
 
 ATTRIBUTE_NAMES = [
@@ -67,6 +67,34 @@ def unfinished_worker_tasks(ecs, cluster, family, service):
     return sum(task["lastStatus"] != "STOPPED" for task in tasks)
 
 
+def unfinished_analysis_hosts(autoscaling, ec2, group_name, stack_id):
+    groups = autoscaling.describe_auto_scaling_groups(AutoScalingGroupNames=[group_name])
+    if groups.get("NextToken") or not isinstance(groups.get("AutoScalingGroups"), list) or len(groups["AutoScalingGroups"]) > 1:
+        raise WindowUnsafe("incomplete_analysis_group_observation")
+    active_groups = groups.get("AutoScalingGroups", [])
+    for group in active_groups:
+        tags = {tag["Key"]: tag["Value"] for tag in group.get("Tags", [])}
+        if group.get("AutoScalingGroupName") != group_name or tags.get("opengeo:analysis-stack") != stack_id:
+            raise WindowUnsafe("analysis_group_identity_changed")
+    response = ec2.describe_instances(Filters=[
+        {"Name": "tag:opengeo:analysis-stack", "Values": [stack_id]},
+        {"Name": "tag:aws:autoscaling:groupName", "Values": [group_name]}])
+    if not isinstance(response.get("Reservations"), list) or any(not isinstance(r.get("Instances"), list) for r in response["Reservations"]):
+        raise WindowUnsafe("incomplete_analysis_instance_observation")
+    instances = [instance for reservation in response["Reservations"] for instance in reservation["Instances"]]
+    if response.get("NextToken") or len(instances) > 100:
+        raise WindowUnsafe("incomplete_analysis_instance_observation")
+    for instance in instances:
+        tags = {tag["Key"]: tag["Value"] for tag in instance.get("Tags", [])}
+        if (tags.get("opengeo:analysis-stack") != stack_id or tags.get("aws:autoscaling:groupName") != group_name
+                or instance.get("State", {}).get("Name") not in {"pending", "running", "stopping", "stopped", "shutting-down", "terminated"}):
+            raise WindowUnsafe("analysis_instance_identity_changed")
+    identities = [instance.get("InstanceId") for instance in instances]
+    if any(not isinstance(value, str) or not value for value in identities) or len(set(identities)) != len(identities):
+        raise WindowUnsafe("incomplete_analysis_instance_observation")
+    return len(active_groups) + sum(instance["State"]["Name"] != "terminated" for instance in instances)
+
+
 def tick(
     config,
     clients,
@@ -79,6 +107,9 @@ def tick(
     if context.get_remaining_time_in_millis() > 60_000:
         raise WindowUnsafe("controller_timeout_must_not_exceed_sixty_seconds")
     scope = RuntimeScope(**config["runtime"])
+    analysis = scope.workload == "analysis"
+    if analysis and config.get("activationRuleName") != f"opengeo-{scope.stage}-analysis-controller-tick":
+        raise WindowUnsafe("analysis_activation_rule_changed")
     runtime = AwsRuntime(scope, clients["cloudformation"])
     observed_at = int(clock())
     queue = queue_counts(clients["sqs"], config["queueUrl"], config["queueArn"])
@@ -88,6 +119,7 @@ def tick(
     # do not imply an active GIS processing window.
     if (
         not force_reconcile
+        and not analysis
         and queue == (0, 0, 0)
         and worker is None
         and (endpoint is None or endpoint.owner is None)
@@ -102,6 +134,7 @@ def tick(
         clients["rds-data"],
         cluster_arn=config["databaseClusterArn"],
         secret_arn=config["workerSecretArn"],
+        **({"workload": "analysis"} if analysis else {}),
     )
     token = new_token()
     claim = ledger.claim(token, digest, queue[0] > 0)
@@ -110,13 +143,34 @@ def tick(
             raise WindowUnsafe("terminal_event_waiting_for_lease")
         return {"status": claim["status"]}
 
-    def finish(result):
+    def finish(result, *, disable_schedule=False):
         # Cloud requests have completed and no further mutation follows. Release
         # normally; crashes/timeouts retain the lease for safe recovery.
+        if disable_schedule:
+            if int(clock()) >= claim["lease_expires_at"] - 30:
+                raise WindowUnsafe("window_lease_unavailable")
+            clients["events"].disable_rule(Name=config["activationRuleName"])
         ledger.release(token, claim["revision"])
         return result
 
+    if analysis and claim["window"] is None:
+        return finish({"status": "idle"}, disable_schedule=True)
     window = Window(**claim["window"])
+    if analysis:
+        expected_rule = f"opengeo-{scope.stage}-analysis-controller-tick"
+        if config.get("activationRuleName") != expected_rule:
+            raise WindowUnsafe("analysis_activation_rule_changed")
+        if (not window.shared_endpoint_id or window.shared_endpoint_hash != window.endpoint_hash
+                or window.endpoint_hash != template_hash(scope.endpoint_template)):
+            raise WindowUnsafe("analysis_endpoint_baseline_not_admitted")
+        if window.phase in {"endpoints", "worker"} and int(clock()) < window.deadline:
+            if endpoint is None or endpoint.id != window.shared_endpoint_id or endpoint.status not in READY or endpoint.template_hash != window.endpoint_hash:
+                raise WindowUnsafe("analysis_endpoint_baseline_unavailable")
+        if int(clock()) >= min(claim["lease_expires_at"] - 30, window.cleanup_deadline):
+            raise WindowUnsafe("window_lease_unavailable")
+        clients["events"].enable_rule(Name=expected_rule)
+        if int(clock()) >= window.deadline and window.phase in {"endpoints", "worker", "processing", "remove-worker"}:
+            ledger.cancel_analysis_window(window)
     # A rollback may remove the stack before it ever exposes Outputs. Retain
     # the reviewed service name before creation so task cleanup is still scoped.
     services = [
@@ -133,7 +187,7 @@ def tick(
         endpoint = runtime.observe_stack("endpoints", window.endpoint_id)
     if window.worker_id:
         worker = runtime.observe_stack("worker", window.worker_id)
-    if worker is not None and worker.status != "DELETE_COMPLETE":
+    if not analysis and worker is not None and worker.status != "DELETE_COMPLETE":
         records = clients["cloudformation"].describe_stacks(StackName=worker.id)[
             "Stacks"
         ]
@@ -156,7 +210,9 @@ def tick(
         unfinished = ledger.unfinished(scope.workload)
     tasks = None
     if worker is None or worker.status == "DELETE_COMPLETE":
-        if window.worker_service_name and window.worker_requested:
+        if analysis and window.worker_requested and window.worker_id:
+            tasks = unfinished_analysis_hosts(clients["autoscaling"], clients["ec2"], f"opengeo-{scope.stage}-analysis", window.worker_id)
+        elif window.worker_service_name and window.worker_requested:
             families = [
                 resource.get("Properties", {}).get("Family")
                 for resource in scope.worker_template["Resources"].values()
@@ -185,11 +241,20 @@ def tick(
         unfinished,
         unfinished is not None,
         tasks,
-        lanes=frozenset({"pmtiles"}) if scope.workload == "pmtiles-v2" else LANES,
+        lanes=frozenset({"analysis"}) if analysis else frozenset({"pmtiles"}) if scope.workload == "pmtiles-v2" else LANES,
     )
     # Pure phase changes can share this observation. Never issue more than one
     # CloudFormation mutation per tick or wait inside the billed invocation.
+    analysis_finalized = False
     for _ in range(3):
+        if (analysis and not analysis_finalized and window.phase in {"remove-worker", "remove-endpoints"}
+                and tasks == 0 and (worker is None or worker.status == "DELETE_COMPLETE")):
+            ledger.finalize_analysis_window(window)
+            unfinished = ledger.unfinished("analysis")
+            if unfinished != {"analysis": 0}:
+                raise WindowUnsafe("analysis_jobs_not_terminal_after_host_cleanup")
+            observation = replace(observation, unfinished=unfinished, unfiltered=True)
+            analysis_finalized = True
         step = advance(window, observation, now=int(clock()))
         ledger.retain(token, claim["revision"], step.window)
         window = step.window
@@ -205,7 +270,8 @@ def tick(
             return finish({"status": "command-submitted", "phase": window.phase})
         if step.waiting or window.phase == "complete":
             return finish(
-                {"status": step.waiting or "complete", "outcome": window.outcome}
+                {"status": step.waiting or "complete", "outcome": window.outcome},
+                disable_schedule=analysis and window.phase == "complete",
             )
     return finish({"status": "phase-retained", "phase": window.phase})
 
@@ -229,7 +295,8 @@ def handler(event, context):
             name: boto3.client(
                 name, region_name=config["runtime"]["region"], config=settings
             )
-            for name in ("cloudformation", "sqs", "rds-data", "ecs")
+            for name in (("cloudformation", "sqs", "rds-data", "ec2", "autoscaling", "events")
+                         if config["runtime"].get("workload") == "analysis" else ("cloudformation", "sqs", "rds-data", "ecs"))
         }
     # The deployment must also route terminal events for these exact two stacks.
     # A deletion event finishes the durable receipt after both stacks disappear,

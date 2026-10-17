@@ -15,7 +15,11 @@ class RdsLedger:
         cluster_arn: str,
         secret_arn: str,
         database: str = "opengeo",
+        workload: str = "shared",
     ):
+        if workload not in {"shared", "pmtiles-v2", "analysis"}:
+            raise WindowUnsafe("unsupported_worker_workload")
+        self.analysis = workload == "analysis"
         self.client = client
         self.arguments = {
             "resourceArn": cluster_arn,
@@ -36,8 +40,9 @@ class RdsLedger:
         return json.loads(value["stringValue"])
 
     def claim(self, token: str, scope_hash: str, has_work: bool) -> dict[str, Any]:
+        function = "claim_analysis_runtime" if self.analysis else "claim_worker_runtime"
         return self._call(
-            "SELECT app.claim_worker_runtime(:token, :scope, :work)",
+            f"SELECT app.{function}(:token, :scope, :work)",
             [
                 {"name": "token", "typeHint": "UUID", "value": {"stringValue": token}},
                 {"name": "scope", "value": {"stringValue": scope_hash}},
@@ -46,8 +51,9 @@ class RdsLedger:
         )
 
     def retain(self, token: str, revision: int, window: Window) -> None:
+        function = "advance_analysis_runtime" if self.analysis else "advance_worker_runtime"
         accepted = self._call(
-            "SELECT app.advance_worker_runtime(:token, :revision, :window)",
+            f"SELECT app.{function}(:token, :revision, :window)",
             [
                 {"name": "token", "typeHint": "UUID", "value": {"stringValue": token}},
                 {"name": "revision", "value": {"longValue": revision}},
@@ -62,8 +68,9 @@ class RdsLedger:
             raise WindowUnsafe("worker_window_lease_lost")
 
     def release(self, token: str, revision: int) -> None:
+        function = "release_analysis_runtime" if self.analysis else "release_worker_runtime"
         accepted = self._call(
-            "SELECT app.release_worker_runtime(:token, :revision)",
+            f"SELECT app.{function}(:token, :revision)",
             [
                 {"name": "token", "typeHint": "UUID", "value": {"stringValue": token}},
                 {"name": "revision", "value": {"longValue": revision}},
@@ -73,9 +80,10 @@ class RdsLedger:
             raise WindowUnsafe("worker_window_lease_lost")
 
     def unfinished(self, workload: str = "shared") -> dict[str, int]:
-        if workload not in {"shared", "pmtiles-v2"}:
+        if workload not in {"shared", "pmtiles-v2", "analysis"}:
             raise WindowUnsafe("unsupported_worker_workload")
         function = (
+            "analysis_runtime_unfinished" if workload == "analysis" else
             "worker_runtime_unfinished_pmtiles_v2"
             if workload == "pmtiles-v2" else "worker_runtime_unfinished"
         )
@@ -85,3 +93,16 @@ class RdsLedger:
         ):
             raise WindowUnsafe("invalid_unfinished_counts")
         return result
+
+    def cancel_analysis_window(self, window: Window) -> None:
+        if not self.analysis:
+            raise WindowUnsafe("unsupported_worker_workload")
+        self._call("SELECT app.request_cancel_analysis_window(:window)", [
+            {"name": "window", "typeHint": "UUID", "value": {"stringValue": window.id}}])
+
+    def finalize_analysis_window(self, window: Window) -> None:
+        if not self.analysis or window.worker_requested and not window.worker_id:
+            raise WindowUnsafe("analysis_host_identity_missing")
+        self._call("SELECT app.finalize_analysis_window_cleanup(:window, :worker)", [
+            {"name": "window", "typeHint": "UUID", "value": {"stringValue": window.id}},
+            {"name": "worker", "value": {"stringValue": window.worker_id} if window.worker_id else {"isNull": True}}])

@@ -15,6 +15,8 @@ import {
   aws_sqs as sqs
 } from "aws-cdk-lib";
 import type {Construct} from "constructs";
+import {RegionInfo} from "aws-cdk-lib/region-info";
+import {analysisProfilesSha256, type AnalysisProfiles} from "./analysis-runtime-stack.js";
 import {parseAdditionalUserPoolClientIds, type EnvironmentConfig} from "./config.js";
 import type {PlatformFoundationStack} from "./platform-foundation-stack.js";
 
@@ -39,6 +41,10 @@ export interface ServerlessApiStackProps extends StackProps {
   readonly pmtilesOnly?: boolean;
   readonly pmtilesWorkerImageDigest?: string;
   readonly pmtilesInputFormats?: string;
+  readonly enableManagedAnalysis?: boolean;
+  readonly analysisQueue?: sqs.IQueue;
+  readonly analysisControllerFunction?: lambda.IFunction;
+  readonly analysisRuntimeProfiles?: AnalysisProfiles;
   readonly observableBuildProvider?: "private_worker" | "github";
   readonly enableKmlNetworkLinkFetch?: boolean;
   readonly enablePortableArtifacts?: boolean;
@@ -53,6 +59,25 @@ export class ServerlessApiStack extends Stack {
     super(scope, id, props);
 
     const {config, foundation, imageDigest} = props;
+    if (props.enableManagedAnalysis === true) {
+      if (!props.analysisQueue || !props.analysisControllerFunction || !props.analysisRuntimeProfiles) {
+        throw new Error("Managed analysis requires its isolated queue, controller and complete runtime profiles");
+      }
+      const otherQueues = [foundation.processingQueue, props.connectionVerificationQueue,
+        props.userDatasetVerificationQueue, props.sourceArchiverQueue, props.repositoryObjectCopyQueue,
+        props.observableBuildQueue, props.frameworkPublicationQueue, props.pmtilesDerivativeQueue];
+      if (otherQueues.some(queue => queue?.queueArn === props.analysisQueue!.queueArn)) {
+        throw new Error("Managed analysis requires a separate analysis-only queue");
+      }
+      // formatArn retains AWS::Partition as a token, while the explicitly
+      // imported controller ARN is concrete. Resolve its regional partition.
+      const controllerArn = `arn:${RegionInfo.get(this.region).partition}:lambda:${this.region}:${this.account}`
+        + `:function:opengeo-${config.stage}-analysis-controller`;
+      if (props.analysisControllerFunction.functionArn !== controllerArn) {
+        throw new Error("Managed analysis requires the exact same-account regional analysis controller");
+      }
+      analysisProfilesSha256(props.analysisRuntimeProfiles);
+    }
     if (props.pmtilesOnly && (!props.pmtilesDerivativeQueue
       || !/^sha256:[0-9a-f]{64}$/.test(props.pmtilesWorkerImageDigest ?? "")
       || props.pmtilesDerivativeQueue.queueArn === foundation.processingQueue.queueArn)) {
@@ -203,6 +228,10 @@ export class ServerlessApiStack extends Stack {
           ? {OPEN_GEO_PMTILES_INPUT_FORMATS: props.pmtilesInputFormats ?? "geojson"} : {}),
         ...(props.pmtilesDerivativeQueue
           ? {OPEN_GEO_PMTILES_DERIVATIVE_QUEUE_URL: props.pmtilesDerivativeQueue.queueUrl} : {}),
+        ...(props.enableManagedAnalysis === true
+          ? {OPEN_GEO_ANALYSIS_ENABLED: "true", OPEN_GEO_ANALYSIS_QUEUE_URL: props.analysisQueue!.queueUrl,
+            OPEN_GEO_ANALYSIS_CONTROLLER_FUNCTION_ARN: props.analysisControllerFunction!.functionArn,
+            OPEN_GEO_ANALYSIS_RUNTIME_PROFILES: JSON.stringify(props.analysisRuntimeProfiles!)} : {}),
         ...(props.connectionVerificationQueue
           ? {
               OPEN_GEO_CONNECTION_VERIFICATION_QUEUE_URL:
@@ -260,6 +289,17 @@ export class ServerlessApiStack extends Stack {
       })
     );
     props.pmtilesDerivativeQueue?.grantSendMessages(this.apiFunction);
+    if (props.enableManagedAnalysis === true) {
+      this.apiFunction.addToRolePolicy(new iam.PolicyStatement({actions: ["sqs:SendMessage"],
+        resources: [props.analysisQueue!.queueArn]}));
+      // Invoke only this unqualified controller; its own role owns activation.
+      this.apiFunction.addToRolePolicy(new iam.PolicyStatement({actions: ["lambda:InvokeFunction"],
+        resources: [props.analysisControllerFunction!.functionArn]}));
+      this.apiFunction.addToRolePolicy(new iam.PolicyStatement({actions: ["s3:PutObject", "s3:GetObject"],
+        resources: [`${applicationBucketArn}/organizations/*/projects/*/analysis/*/snapshot.json`]}));
+      this.apiFunction.addToRolePolicy(new iam.PolicyStatement({actions: ["s3:GetObjectVersion"],
+        resources: [`${applicationBucketArn}/organizations/*/projects/*/analysis/*/result.json`]}));
+    }
     if (props.connectionVerificationQueue !== undefined) {
       props.connectionVerificationQueue.grantSendMessages(this.apiFunction);
     }

@@ -3,6 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from opengeo_api.analysis_jobs import (
+    AnalysisConfiguration,
+    AnalysisJobRepository,
+    PostgresAnalysisJobRepository,
+)
+from opengeo_api.analysis_routes import router as analysis_router
 from opengeo_api.archive_upload_routes import router as archive_upload_router
 from opengeo_api.artifact_release_routes import router as artifact_release_router
 from opengeo_api.artifact_share_routes import router as artifact_share_router
@@ -130,6 +136,8 @@ from opengeo_api.principals import (
     UnavailablePrincipalRepository,
 )
 from opengeo_api.processing_dispatch import (
+    AnalysisDispatcher,
+    AwsSqsAnalysisDispatcher,
     AwsSqsConnectionVerificationDispatcher,
     AwsSqsExternalSourceDiscoveryDispatcher,
     AwsSqsExternalSourceSnapshotDispatcher,
@@ -147,6 +155,7 @@ from opengeo_api.processing_dispatch import (
     PmtilesDerivativeDispatcher,
     RenderDispatcher,
     RepositoryObjectCopyDispatcher,
+    UnavailableAnalysisDispatcher,
     UnavailableConnectionVerificationDispatcher,
     UnavailableExternalSourceDiscoveryDispatcher,
     UnavailableExternalSourceSnapshotDispatcher,
@@ -280,6 +289,8 @@ def create_app(
     connection_repository: ExternalConnectionRepository | None = None,
     connection_catalog_repository: CatalogDiscoveryRepository | None = None,
     postgis_layer_repository: PostgisLayerRepository | None = None,
+    analysis_job_repository: AnalysisJobRepository | None = None,
+    analysis_dispatcher: AnalysisDispatcher | None = None,
     postgis_preview_client: PostgisPreviewClient | None = None,
     connection_verification_dispatcher: ConnectionVerificationDispatcher | None = None,
     user_dataset_verification_dispatcher: UserDatasetVerificationDispatcher | None = None,
@@ -393,6 +404,15 @@ def create_app(
         else UnavailableDownloadStorage()
     )
     app.state.download_storage = downloads
+    app.state.analysis_configuration = AnalysisConfiguration.from_settings(runtime_settings)
+    app.state.analysis_job_repository = analysis_job_repository or PostgresAnalysisJobRepository(
+        tenant_executor
+    )
+    app.state.analysis_dispatcher = analysis_dispatcher or (
+        AwsSqsAnalysisDispatcher(runtime_settings)
+        if runtime_settings.analysis_dispatch_configured
+        else UnavailableAnalysisDispatcher()
+    )
     app.state.catalog_repository = catalog_repository or PostgresCatalogRepository(
         tenant_executor, downloads
     )
@@ -406,6 +426,10 @@ def create_app(
         if runtime_settings.source_upload_configured
         else UnavailableDownloadStorage()
     )
+    # Private analysis snapshots/results share the application custody boundary
+    # used by the admitted coordinator, rather than the geodata intake bucket.
+    app.state.analysis_upload_storage = source_uploads
+    app.state.analysis_download_storage = source_downloads
     app.state.resource_repository = resource_repository or PostgresResourceRepository(
         tenant_executor, source_uploads, source_downloads
     )
@@ -587,6 +611,7 @@ def create_app(
     app.include_router(connection_router)
     app.include_router(connection_catalog_router)
     app.include_router(postgis_layer_router)
+    app.include_router(analysis_router)
     app.include_router(project_import_router)
     app.include_router(catalog_router)
     app.include_router(ckan_router)

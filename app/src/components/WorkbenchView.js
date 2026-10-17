@@ -5295,6 +5295,8 @@ function toggleAnalysisConsole(context) {
       getNativeCapabilities: context.analysisRuntime?.getNativeCapabilities ?? local.getNativeCapabilities,
       runManaged: context.analysisRuntime?.runManaged,
       getManagedCapabilities: context.analysisRuntime?.getManagedCapabilities,
+      cancelManaged: context.analysisRuntime?.cancelManaged,
+      hasPendingManagedRun: context.analysisRuntime?.hasPendingManagedRun,
       dark: context.state.colorMode === "dark",
       onClose: () => {context.mapColumn.classList.remove("gis-analysis-console-open");context.state.map?.resize?.();},
       onResult: ({geojson, execution, language, inputPins}) => {
