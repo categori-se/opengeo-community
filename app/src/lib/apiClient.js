@@ -159,6 +159,7 @@ export class OpenGeoApiClient {
     this.tokenProvider = tokenProvider;
     this.organizationProvider = organizationProvider;
     this.previewOrigins = resolvePublicationPreviewOrigins(previewOrigins, studioOrigin);
+    this.studioOrigin = studioOrigin;
     this.fetchImplementation = fetchImplementation;
     this.pendingSessions = new Map();
     this.publicArtifactUrls = new Map();
@@ -4283,7 +4284,8 @@ export class OpenGeoApiClient {
     return parseObservablePreviewCapability(await this.request(
       `/projects/${pathUuid(projectId, "project id")}/observable-build-jobs/${pathUuid(buildJobId, "Observable build job id")}/preview-capabilities`,
       {method: "POST", ...(runtimeProfile === "public_maps_v1" ? {body: {runtime_profile: runtimeProfile}} : {})}
-    ));
+    ), {previewOrigins: this.studioOrigin === undefined ? undefined : this.previewOrigins,
+      studioOrigin: this.studioOrigin, runtimeProfile});
   }
 
   /** @returns {Promise<ProjectSite>} */
@@ -12531,7 +12533,9 @@ function observableOutputPath(value, label) {
   return path;
 }
 
-export function parseObservablePreviewCapability(value) {
+export function parseObservablePreviewCapability(value, {previewOrigins, studioOrigin, runtimeProfile} = {}) {
+  const origins = resolvePublicationPreviewOrigins(previewOrigins, studioOrigin);
+  const allowedOrigins = runtimeProfile ? [origins[runtimeProfile]] : Object.values(origins);
   const record = object(value, "Observable preview capability");
   exactKeys(record, [
     "authorize_url", "expires_at", "publication_authorized"
@@ -12550,7 +12554,7 @@ export function parseObservablePreviewCapability(value) {
   } catch {
     contract("Observable preview authorize URL is invalid");
   }
-  if (!["https://preview.studio.opengeo.tools", "https://maps-preview.studio.opengeo.tools"].includes(parsed.origin)
+  if (!allowedOrigins.includes(parsed.origin)
     || authorizeUrl !== `${parsed.origin}/authorize/${parsed.hash}`
     || parsed.pathname !== "/authorize/"
     || parsed.search !== ""

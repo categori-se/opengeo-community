@@ -3,7 +3,7 @@ import {test} from "node:test";
 import {LocalExactVersionStorage, localDependencies, localPublicationBridge, processLocalBuildQueue}
   from "../src/local-adapters.mjs";
 import {RdsDataBuildRepository} from "../src/production-adapters.mjs";
-import {sha256,verifyRead} from "../src/contracts.mjs";
+import {sha256,verifyRead,verifyWrite} from "../src/contracts.mjs";
 
 const pin = `sha256:${"a".repeat(64)}`;
 const id = "10000000-0000-4000-8000-000000000001";
@@ -51,6 +51,20 @@ test("queue retry reads completed SQL state and acknowledges without executing c
     runner: {run() { throw new Error("Completed output must not compile again"); }}});
   assert.equal(result[0].status, "already_succeeded");
   assert.deepEqual(calls, ["receive", "sql", "acknowledge", "receive"]);
+});
+
+test("retained local writes satisfy the production completion manifest contract", async () => {
+  const bytes=Buffer.from('<!doctype html><h1>Saved edition</h1>');
+  const outputPrefix='organizations/example/builds/edition/output/';
+  const file={path:'dist/index.html',contentType:'text/html',sizeBytes:bytes.length,checksumSha256:sha256(bytes)};
+  const storage=new LocalExactVersionStorage(async request=>({bucket:request.bucket,key:request.objectKey,
+    version_id:id,etag:'exact-etag',content_type:request.contentType,
+    size_bytes:bytes.length,checksum_sha256:request.checksumSha256}));
+  const written=await storage.writeExact({bucket:'local-pilot.invalid',objectKey:outputPrefix+'index.html',
+    contentType:file.contentType,checksumSha256:file.checksumSha256,bytes});
+  const pinned=verifyWrite(file,outputPrefix,written);
+  assert.equal(pinned.sizeBytes,bytes.length);assert.equal(pinned.s3VersionId,id);
+  assert.equal(Object.hasOwn(written,'bytes'),false);
 });
 
 test("busy SQL lease stops the batch and preserves queued work", async () => {

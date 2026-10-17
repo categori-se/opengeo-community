@@ -83,6 +83,23 @@ class ObservableBuildDispatcher(Protocol):
     async def dispatch_observable_build(self, build_job_id: UUID) -> None: ...
 
 
+class FrameworkPublicationDispatcher(Protocol):
+    @property
+    def available(self) -> bool: ...
+
+    async def dispatch_framework_publication(self, review_id: UUID) -> None: ...
+
+
+class UnavailableFrameworkPublicationDispatcher:
+    @property
+    def available(self) -> bool:
+        return False
+
+    async def dispatch_framework_publication(self, review_id: UUID) -> None:
+        del review_id
+        raise ProcessingDispatchUnavailable("Framework publication dispatch is not configured")
+
+
 class ExternalSourceSnapshotDispatcher(Protocol):
     @property
     def available(self) -> bool: ...
@@ -610,6 +627,29 @@ class AwsSqsObservableBuildDispatcher:
             "build_job_id",
             build_job_id,
         )
+
+
+class AwsSqsFrameworkPublicationDispatcher:
+    def __init__(
+        self,
+        settings: Settings,
+        credentials: CredentialProvider | None = None,
+        transport: DispatchTransport | None = None,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        if settings.framework_publication_queue_url is None:
+            raise ValueError("Framework publication dispatch must be configured")
+        self._delegate = AwsSqsRenderDispatcher(
+            settings, credentials=credentials, transport=transport, now=now,
+            queue_url=settings.framework_publication_queue_url,
+        )
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def dispatch_framework_publication(self, review_id: UUID) -> None:
+        await self._delegate.dispatch_framework_publication(review_id)
 
 
 class AwsSqsExternalSourceSnapshotDispatcher:

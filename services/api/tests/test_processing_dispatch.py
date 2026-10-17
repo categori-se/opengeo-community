@@ -11,6 +11,7 @@ from opengeo_api.processing_dispatch import (
     AwsSqsConnectionVerificationDispatcher,
     AwsSqsExternalSourceDiscoveryDispatcher,
     AwsSqsExternalSourceSnapshotDispatcher,
+    AwsSqsFrameworkPublicationDispatcher,
     AwsSqsGeoNodeHarvestDispatcher,
     AwsSqsObservableBuildDispatcher,
     AwsSqsPmtilesDerivativeDispatcher,
@@ -18,6 +19,7 @@ from opengeo_api.processing_dispatch import (
     AwsSqsRepositoryObjectCopyDispatcher,
     AwsSqsUserDatasetVerificationDispatcher,
     ProcessingDispatchUnavailable,
+    UnavailableFrameworkPublicationDispatcher,
 )
 
 JOB_ID = UUID("a6000000-0000-4000-8000-000000000001")
@@ -433,3 +435,31 @@ def test_discovery_dispatch_uses_explicit_queue_and_only_sealed_job_uuid(
             AwsSqsExternalSourceSnapshotDispatcher(configured)
         with pytest.raises(ValueError, match="harvest dispatch must be configured"):
             AwsSqsGeoNodeHarvestDispatcher(configured)
+
+
+def test_framework_publication_adapter_uses_only_its_configured_queue_and_review_id():
+    import json
+
+    configuration = settings()
+    with pytest.raises(ValueError):
+        AwsSqsFrameworkPublicationDispatcher(configuration)
+    unavailable = UnavailableFrameworkPublicationDispatcher()
+    assert unavailable.available is False
+    with pytest.raises(ProcessingDispatchUnavailable):
+        asyncio.run(unavailable.dispatch_framework_publication(JOB_ID))
+    queue = "https://sqs.us-east-1.amazonaws.com/111111111111/opengeo-publications"
+    configuration.framework_publication_queue_url = queue
+    transport = Transport()
+    dispatcher = AwsSqsFrameworkPublicationDispatcher(
+        configuration, credentials=Credentials(), transport=transport,
+        now=lambda: datetime(2026, 10, 17, tzinfo=UTC),
+    )
+    assert dispatcher.available is True
+    asyncio.run(dispatcher.dispatch_framework_publication(JOB_ID))
+    assert len(transport.calls) == 1
+    url, _, body, _ = transport.calls[0]
+    assert url == queue
+    payload = parse_qs(body.decode())
+    assert json.loads(payload["MessageBody"][0]) == {
+        "schema": "opengeo.framework-publication.command.1.0.0", "review_id": str(JOB_ID)
+    }

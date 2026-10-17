@@ -779,9 +779,7 @@ async def framework_publication_status(
     result = await execute_observable(
         repository.publication_status(tenant_context(session), project_id, source_project_id)
     )
-    result["dispatch_configured"] = (
-        request.app.state.settings.framework_publication_queue_url is not None
-    )
+    result["dispatch_configured"] = request.app.state.framework_publication_dispatcher.available
     response.headers["Cache-Control"] = "no-store"
     return FrameworkPublicationStatusResponse.model_validate(result)
 
@@ -865,8 +863,8 @@ async def approve_framework_publication(
     repository: Annotated[ObservableSourceRepository, Depends(repository_from_request)],
 ) -> FrameworkPublicationStatusResponse:
     del body  # The explicit acknowledgment was validated; the DB pins its canonical value.
-    settings = request.app.state.settings
-    if settings.framework_publication_queue_url is None:
+    dispatcher = request.app.state.framework_publication_dispatcher
+    if not dispatcher.available:
         raise HTTPException(status_code=503, detail="framework_publication_dispatch_not_configured")
     await execute_observable(
         repository.approve_publication(
@@ -877,9 +875,7 @@ async def approve_framework_publication(
         )
     )
     try:
-        await AwsSqsRenderDispatcher(
-            settings, queue_url=settings.framework_publication_queue_url
-        ).dispatch_framework_publication(review_id)
+        await dispatcher.dispatch_framework_publication(review_id)
     except ProcessingDispatchUnavailable as error:
         # Approval persists. Retrying this same review sends only its original ID.
         raise HTTPException(

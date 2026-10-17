@@ -11,6 +11,8 @@ on:
       - scripts/run-integrated-*-local.py
       - scripts/test_integrated_local.py
       - scripts/local-publication-bridge.py
+      - scripts/local_framework_publication.py
+      - scripts/test_local_framework_publication.py
       - services/observable-preview/**
       - services/observable-coordinator/src/local-adapters.mjs
       - services/observable-coordinator/test/local-adapters.test.mjs
@@ -47,6 +49,8 @@ on:
       - scripts/run-integrated-*-local.py
       - scripts/test_integrated_local.py
       - scripts/local-publication-bridge.py
+      - scripts/local_framework_publication.py
+      - scripts/test_local_framework_publication.py
       - services/observable-preview/**
       - services/observable-coordinator/src/local-adapters.mjs
       - services/observable-coordinator/test/local-adapters.test.mjs
@@ -154,11 +158,14 @@ jobs:
           python -m pip freeze
       - name: Check saved API contract
         run: python scripts/export_openapi.py --check
+      - name: Check local publication storage and activation boundaries
+        run: PYTHONPATH=src python ../../scripts/test_local_framework_publication.py
       - name: Check workspace routes and metadata contracts
         run: |
           python -m pytest \
             tests/test_openapi_export.py \
             tests/test_analysis_jobs.py \
+            tests/test_processing_dispatch.py \
             tests/test_config.py \
             tests/test_observable_previews.py \
             tests/test_observable_source_routes.py \

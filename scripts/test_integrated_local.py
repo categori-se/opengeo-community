@@ -31,6 +31,16 @@ PUBLICATION_SPEC.loader.exec_module(publication)
 
 
 class InitializationTests(unittest.TestCase):
+    def test_retained_publication_mode_reuses_development_without_an_application_build(self):
+        args=studio.parse_args(["--development","--publication-only","--state-directory","/tmp/publication-state",
+                                "--publication-compiler-digest","sha256:"+"a"*64])
+        self.assertFalse(args.built_studio)
+        self.assertEqual(studio.browser_command("/tmp/publication-state",development=True,publication_only=True),
+                         ["node","app/scripts/check-integrated-studio.mjs","/tmp/publication-state","--development","--publication-only"])
+        with self.assertRaises(SystemExit),patch("sys.stderr",new=io.StringIO()):
+            studio.parse_args(["--development","--publication-only","--state-directory","/tmp/publication-state",
+                               "--publication-compiler-digest","sha256:"+"a"*64,"--rebuild-studio"])
+
     def test_source_upload_custody_does_not_enqueue_gis_ingestion(self):
         identity = "10000000-0000-4000-8000-000000000001"
         prefix = f"organizations/{identity}/projects/{identity}/"
@@ -45,13 +55,15 @@ class InitializationTests(unittest.TestCase):
             work = Path(temporary)
             pin = "sha256:" + "a" * 64
             with (patch.object(studio.subprocess, "run", return_value=Mock(returncode=0)) as inspect,
-                  patch.object(studio, "publication_preview_origin", return_value="http://127.0.0.1:58000"),
+                  patch.object(studio, "publication_preview_origin", side_effect=["http://127.0.0.1:58000","http://127.0.0.1:58001"]),
                   patch.object(studio, "publication_signing_keys", return_value=("publication-preview-private.pem", "publication-preview-public.pem"))):
                 studio.stage_publication_profile(work, pin)
             inspect.assert_called_once_with(["podman", "image", "exists", pin],
                                             capture_output=True, check=False, timeout=15)
             self.assertEqual(json.loads((work / "publication-profile.json").read_text()), {
                 "compilerImageDigest": pin, "previewOrigin": "http://127.0.0.1:58000",
+                "publicationOrigin": "http://127.0.0.1:58001",
+                "publicationCanonicalOrigin": "https://publication.local.invalid",
                 "previewKeyPairId": "LOCALPREVIEW123",
                 "previewPrivateKeyPath": "publication-preview-private.pem",
                 "previewPublicKeyPath": "publication-preview-public.pem"})
@@ -108,10 +120,14 @@ class InitializationTests(unittest.TestCase):
             builds = pilot.LocalQueue("observable-builds")
             builds.push({"build": 1})
             builds.push({"build": 2})
+            publications = pilot.LocalQueue("framework-publications")
+            publications.push({"review_id": "retained-review"})
             first = pilot.read_json("observable-builds.json")[0]
             builds.delete(first["id"])
             self.assertEqual(json.loads(pilot.read_json("observable-builds.json")[0]["body"]), {"build": 2})
             self.assertEqual(json.loads(pilot.read_json("queue.json")[0]["body"]), {"gis": True})
+            self.assertEqual(json.loads(pilot.read_json("framework-publications.json")[0]["body"]),
+                             {"review_id": "retained-review"})
 
     def test_publication_output_reuses_exact_version_and_rejects_changed_bytes(self):
         import base64

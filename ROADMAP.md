@@ -24,7 +24,7 @@ pending. We record implementation, acceptance and delivery separately:
 | Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. Studio now delivers the 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides. Local checks cover navigation, rendering and memory save/reopen. | Hosted account save/reopen, individual-feature overrides and separate icon/label controls. |
 | Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. | Hosted persistence and visual paper-layout acceptance. |
 | External PostGIS Layers | Connection verification, relation discovery, stable live Layer registration and bounded feature preview are implemented. A real local PostGIS journey verifies feature queries, exact numeric values, paging limits, revocation and cleanup. | Connected-browser and configured-provider acceptance, followed by deployment. The new source path defaults off. |
-| Native authored publications | Local immutable source storage, SQL build coordination and isolated signed previews are connected. Actual local Studio saves the first source revision and leases its build job. Preview and build history accept trusted deployment-specific domains. | Connected native save/build/preview/revision acceptance, followed by independent installation and delivery. [Readiness](docs/api/native-publication-readiness.md). |
+| Native authored publications | Two saved revisions compile through the native runner, open signed private previews and publish through actual review/approval controls. Current and earlier public editions, private Build history and missing/cross-build cookie denials pass locally. Preview domains are installation-configured. | Clean installation, independent AWS delivery, complete browser capability replay, expiry/revocation and production delivery. Local sign-in and delivery transports are disclosed substitutes. [Readiness](docs/api/native-publication-readiness.md). |
 | API and CKAN exchange | The API contract has reproducible offline validation. The STAC-to-CKAN exporter and disposable CKAN 2.11.6 create/read/purge check are complete for their documented scope. | Complete harvesting, synchronization and live portal integration. |
 | Configurable PMTiles intake | The dedicated conversion lane, parameter review, preserved-original path and completed-display handoff are implemented locally. The pinned worker converts GeoJSON and rejects disguised VRT input. | Current security review, successful native ARM64 execution and real-data hosted acceptance before activation. The corrected native API probe passes; the worker remains unexecuted because the host rejects a launcher mount option. Both temporary stacks and containers are cleaned up. The large global KBA conversion has not completed. |
 | Analysis console | The docked JavaScript/Python/Bash editor, isolated browser JavaScript and opt-in local runners are implemented and accepted locally. Managed source connects private jobs, application storage, explicit queue/controller wake and a bounded host; local coordinator checks execute all three languages and cancellation. | Managed activation stays disabled. Connected HTTP/database and updated consumer lifecycle, admitted AMI, fresh-boot rootless security, actual AWS cleanup and production delivery remain open. |
@@ -55,10 +55,11 @@ been built as an application release or deployed.
 
 Existing application checks use cached dependencies/images and explicit local
 substitutes; fresh installation, clean image builds and independent-account AWS
-acceptance remain separate work. The complete standalone native
-Notebook/Framework compilation, preview and publication journey also remains
-open; the [readiness review](docs/api/native-publication-readiness.md) distinguishes
-implemented runtime connections from their remaining acceptance checks.
+acceptance remain separate work. The local native Framework publication journey now
+passes source save, compilation, private preview, publication and earlier-edition
+reopening for two revisions. The [readiness review](docs/api/native-publication-readiness.md)
+distinguishes this connected local acceptance from independent installation and
+production delivery.
 
 ## Planning and delivery
 
@@ -80,7 +81,7 @@ status reports.
 | 1. Finish selected delivery | Nepal's layer ordering, clustering and colors are saved and read back; the Berkshires update remains blocked by the current account's access. Complete hosted Style/Print acceptance and the outstanding PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
 | 2. Finish the shared-data journey | Exercise contributor review and publication through the actual interface, then accept the implemented PostGIS Layer source with a connected browser and configured provider. Preserve identity, permissions and history when replacing data. |
 | 3. Accept managed analytical sessions | Preserve the accepted browser/local console and finish connected managed-runner acceptance and delivery. Opening the console must not allocate managed compute. |
-| 4. Verify installation and reuse | Reproduce the small reference workspace on an independent installation, finish the standalone native publication journey and verify delivery to another website. |
+| 4. Verify installation and reuse | Reproduce the small reference workspace and the accepted two-revision Framework publication journey on an independent installation, then verify delivery to another website. |
 | 5. Extend proven workflows | Add service operations, source adapters and cartographic tools where a specific recurring task requires them. |
 
 We prioritize the time to a first useful map, dependable reopening, reuse in a
@@ -101,8 +102,9 @@ source definitions and metadata imports remain distinct from executable readers.
 
 ## Publish maps and analysis
 
-Complete standalone Notebook/Framework authoring, compilation, preview and
-delivery using operator-owned configuration. Extend mixed map, chart, table and
+Accept independent installation and hosted delivery for the locally verified
+Framework source, compilation, preview and publication workflow. Extend Notebook
+support and mixed map, chart, table and
 narrative layouts while preserving resource versions, attribution and citations.
 Reuse compiled Project Artifacts across Publications and retain earlier editions
 when an author revises an output.

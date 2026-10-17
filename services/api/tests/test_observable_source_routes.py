@@ -496,6 +496,7 @@ def client(
     preview_origin: str | None = None,
     signer: FakePreviewCookieSigner | None = None,
     dispatcher: FakeBuildDispatcher | None = None,
+    publication_dispatcher=None,
 ) -> DirectAsgiClient:
     return DirectAsgiClient(
         create_app(
@@ -514,6 +515,7 @@ def client(
             principal_repository=FakePrincipalRepository(),
             observable_source_repository=repository,
             observable_build_dispatcher=dispatcher,
+            framework_publication_dispatcher=publication_dispatcher,
             observable_preview_cookie_signer=signer,
         )
     )
@@ -696,6 +698,48 @@ def test_framework_publication_routes_keep_review_separate_from_unconfigured_dis
         json={"acknowledgment": "publish-exact-previewed-output"},
     )
     assert response.status_code == 503
+
+
+def test_publication_dispatch_injection_preserves_authority_and_exact_review_identity():
+    class Repository(MemoryObservableSourceRepository):
+        denied = False
+
+        async def publication_status(self, context, project, source):
+            return {"source_project_id": source, "can_publish": True, "mounts": [], "reviews": []}
+
+        async def approve_publication(self, context, project, source, review):
+            assert (context.user_id, project, source, review) == (
+                USER_ID, PROJECT_ID, SOURCE_PROJECT_ID, REVISION_ID
+            )
+            if self.denied:
+                raise ObservableSourceAccessDenied()
+            self.calls.append(("approved", review))
+
+    dispatcher = SimpleNamespace(available=True, dispatch_framework_publication=AsyncMock())
+    repository = Repository()
+    api = client(repository, publication_dispatcher=dispatcher)
+    base = f"/projects/{PROJECT_ID}/source-projects/{SOURCE_PROJECT_ID}/publications"
+    url = base + f"/reviews/{REVISION_ID}/approve"
+    payload = {"acknowledgment": "publish-exact-previewed-output"}
+    assert api.get(base, headers=headers()).json()["dispatch_configured"] is True
+    dispatcher.dispatch_framework_publication.assert_not_awaited()
+    assert api.post(url, json=payload).status_code == 401
+    assert api.post(url, headers=headers(), json={"acknowledgment": "publish"}).status_code == 422
+    repository.denied = True
+    assert api.post(url, headers=headers(), json=payload).status_code == 403
+    dispatcher.dispatch_framework_publication.assert_not_awaited()
+    repository.denied = False
+    dispatcher.dispatch_framework_publication.side_effect = ProcessingDispatchUnavailable("offline")
+    response = api.post(url, headers=headers(), json=payload)
+    assert response.status_code == 503
+    assert response.json()["detail"] == "framework_publication_dispatch_unconfirmed"
+    assert repository.calls[-1] == ("approved", REVISION_ID)
+    dispatcher.dispatch_framework_publication.assert_awaited_once_with(REVISION_ID)
+    dispatcher.dispatch_framework_publication.side_effect = None
+    assert api.post(url, headers=headers(), json=payload).status_code == 202
+    assert [call.args for call in dispatcher.dispatch_framework_publication.await_args_list] == [
+        (REVISION_ID,), (REVISION_ID,)
+    ]
 
 
 def test_destination_reservation_route_requires_an_explicit_scoped_request_and_does_not_publish():

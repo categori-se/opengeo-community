@@ -6,6 +6,7 @@ source uploads. There is no HTTP endpoint or production authentication bypass.
 """
 
 import base64
+import asyncio
 import importlib.util
 import json
 import re
@@ -53,6 +54,15 @@ def operate(request):
     operation = request["operation"]
     if operation == "sql":
         return execute_sql(request)
+    if operation == "configure-publication":
+        return pilot.configure_local_publication(request["projectId"], request["sourceProjectId"])
+    if operation in {"publish", "public-read"}:
+        from local_framework_publication import publish_local_review, read_publication
+
+        if operation == "publish":
+            return asyncio.run(publish_local_review(pilot, UUID(request["reviewId"]), maximum_files=64))
+        record = read_publication(pilot, request["path"], review_id=request.get("reviewId"))
+        return None if record is None else {**record, "body": base64.b64encode(record["body"]).decode()}
     store = pilot.LocalObjects()
     if operation == "read":
         record, body = store.exact(request["bucket"], request["objectKey"], request["s3VersionId"])
@@ -78,9 +88,10 @@ def operate(request):
                     raise ValueError("Retained publication output collision")
                 return record
             return store.put(request["objectKey"], body, request["contentType"])
-    queue = pilot.LocalQueue("observable-builds")
+    queue_name = request.get("queue", "observable-builds")
+    queue = pilot.LocalQueue(queue_name)
     if operation == "receive":
-        messages = pilot.read_json("observable-builds.json", [])
+        messages = pilot.read_json(f"{queue_name}.json", [])
         return messages[0] if messages else None
     if operation == "acknowledge":
         queue.delete(request["id"])

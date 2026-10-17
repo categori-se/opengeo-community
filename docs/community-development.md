@@ -95,6 +95,24 @@ and restore procedures for a consistent database backup. The existing
 shows how the integrated workflow handles database and object copies; it is not
 an automatic backup service.
 
+## Native publication development
+
+The same development runner can connect saved source to native compilation,
+private preview and local publication. Add
+`--publication-compiler-digest sha256:<exact-cached-digest>`; the cached image
+must already exist. Use `--publication-only` to run the bounded two-edition
+publication check through the actual source and Publish controls. No image is
+pulled and no cloud service is used. Keep the same private state directory to
+retain source, jobs, output and release history.
+
+Preview and anonymous delivery run on separate loopback ports. The anonymous
+server reads only activated, separately retained public objects. The local
+canonical hostname uses an explicit browser transport mapping; it does not
+establish DNS, TLS or CDN delivery. Ordinary startup without the compiler option
+leaves this profile disabled. The accepted CC0 study demonstrates two revisions,
+private access checks and reopening earlier editions; production identity and
+independent clean installation remain separate acceptance work.
+
 ## Release limits
 
 The local workflow provides actual application authorization and persistent

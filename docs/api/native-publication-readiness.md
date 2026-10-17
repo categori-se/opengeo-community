@@ -1,20 +1,29 @@
 # Native publication: local readiness
 
-The local storage, build coordination and isolated-preview connections are now
-implemented. The complete saved-source → native compiler → authorized private
-preview journey has **not yet been accepted in the standalone environment**.
-A connected local Studio check imports the CC0 reference study, saves its first
-source revision and creates/leases the build job. It finds a local storage adapter
-return-shape mismatch before the compiler starts. That narrow correction passes
-the existing production read contract offline; native compilation and the two-revision preview journey still need acceptance.
-The [earlier inspection receipt](evidence/task-5.json) remains historical evidence;
-its missing-adapter findings describe the source inspected then.
+The connected local Studio journey now passes for two native publication
+editions. An author imports the existing CC0 fictional-facilities study, saves
+approved source, builds it with the isolated native compiler, opens the signed
+private preview, and prepares and approves a release through the Publish controls.
+Repeating that workflow creates a second edition. Build history reopens the first
+private edition, and anonymous readers can retrieve the earlier public edition
+while the second remains current. The ten retained compiler outputs total
+175,040 bytes. The [earlier inspection receipt](evidence/task-5.json) remains
+historical; its missing-adapter findings describe the source inspected then.
 
-| Boundary | Implemented local connection | Acceptance still required |
+| Boundary | Implemented and accepted locally | Remaining acceptance |
 | --- | --- | --- |
-| Saved authored source | The [local API profile](../../scripts/run-integrated-pilot-local.py) supplies source upload/download storage, exact compiler identity and durable Observable build dispatch. | First source revision saved through the actual local Studio/API. Additional selected-input and revision round trips remain. |
-| Native build and retained output | The [local coordinator adapters](../../services/observable-coordinator/src/local-adapters.mjs) bridge the existing SQL job leases and exact-version local object store to the real isolated compiler runner. | Compile that saved revision, retain the exact output manifest, reopen it and compile a deliberate second revision without substituting an in-memory job. |
-| Authorized private preview | The [local preview server](../../services/observable-preview/src/local-server.mjs) exchanges one-time capabilities through the API and enforces signed cookies and exact output identity on a separate loopback origin. API settings also admit explicitly configured canonical HTTPS origins for independent installations. | Open the retained result in a real browser; verify denied access, capability replay, expiry and revocation through the actual API/database path. |
+| Saved authored source | Actual Studio/API saves two approved revisions with retained input bytes and checksums. The local API supplies exact source storage, compiler identity and durable dispatch. | Independent operator installation and broader selected-input round trips. |
+| Native build and retained output | The existing coordinator, real SQL leases and exact-version object store execute the isolated native compiler twice. Completed output survives reopening and is reused without replaying builds. | Fresh compiler/image installation and independent deployment. |
+| Authorized private preview | Separate-origin signed previews display both builds. Missing cookies and cookies for another build return 403. The actual Build history button reopens the earlier edition. Installation-specific origins are validated through the API client response parser. | Capability replay, expiry and revocation through the complete connected browser journey, and production identity/delivery. |
+| Publication and earlier editions | Actual review, acknowledgment and approval controls dispatch the existing canonical publisher. Its restricted SQL role, separate public custody and atomic prefix activation publish both editions. Both public links open and permit anonymous reads; the previous public edition remains readable after replacement. | Independent HTTPS/DNS/CDN delivery and production release. |
+
+This check uses cached images, synthetic sign-in and three separate loopback
+origins. The canonical local hostname is explicitly mapped to an anonymous HTTP
+server by the browser check. It does not prove DNS, TLS or CloudFront delivery.
+The publisher uses the same seven existing security-definer functions; its local
+bootstrap enables login only for the isolated development role. Production role
+grants and migrations are unchanged. Private objects are never used as an
+anonymous fallback, and staged public objects are unavailable until activation.
 
 Activation is explicit through the existing
 [development runner](../../scripts/run-integrated-studio-local.py): use
@@ -47,10 +56,11 @@ outside explicit local development; a capability response cannot add a trusted
 origin. Separate delivery, signing keys and authorization still need configuration.
 
 The [public CI workflow](../../.github/workflows/api-contract.yml) now includes
-local coordinator/preview checks and API preview-origin, signing and route tests,
+local publisher/custody, coordinator/preview and API preview-origin, signing and route tests,
 alongside Catalog save, exact map reopen, query authority and publication-draft
 checks. These checks use bounded fixtures; they do not execute this complete
-native compiler/browser journey or establish a fresh installation.
+native compiler/browser journey or establish a fresh installation. The connected
+local journey above runs separately through the existing runner.
 
 Reuse the existing [community facilities study](../community-examples.md#try-it-community-facilities):
 five fictional **CC0-1.0** facilities, with four marked publicly accessible and
@@ -60,7 +70,8 @@ publishing exercise, not evidence about real facilities. The existing two-page
 watershed pilot separately verifies static ZIP delivery and revocation; that
 result does not establish native compilation.
 
-The next local acceptance step is the saved-revision build and browser preview
-above, followed by its second revision and access-denial checks. Independent
-clean-install acceptance and the fresh-account AWS publication journey remain
-separate, unfinished requirements. This update makes no deployment claim.
+Next, reproduce the accepted local workflow on a clean independent installation
+and verify configured identity, HTTPS delivery, capability replay, expiry and
+revocation. The
+fresh-account AWS publication journey remains unfinished. This update makes no
+production deployment claim.

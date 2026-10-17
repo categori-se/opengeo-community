@@ -18,7 +18,7 @@ export function integratedStudioShellMode(args) {
   assert.ok(!args.includes("--service-clients") || args.includes("--built-studio"), "Service clients require the built application");
   assert.ok(!args.includes("--wcs-only") || (args.includes("--built-studio") && !args.some(arg=>["--restore-checkpoint","--pinned-map-fonts","--service-clients"].includes(arg))), "WCS-only requires built Studio without other journey modes");
   assert.ok(!args.includes("--analysis-only") || (args.includes("--built-studio") && args.length === 2), "Analysis-only requires only built Studio");
-  assert.ok(!args.includes("--development") || (args.includes("--built-studio") && args.length === 2), "Development requires only built Studio");
+  assert.ok(!args.includes("--development") || ((args.includes("--built-studio") || args.includes("--publication-only")) && args.length === 2), "Development requires built Studio or source publication mode");
   return {built:args.includes("--built-studio"), pinnedFonts:args.includes("--pinned-map-fonts"), restore:args.includes("--restore-checkpoint"),
     ...(args.includes("--service-clients") ? {serviceClients:true} : {}),
     ...(args.includes("--wcs-only") ? {wcsOnly:true} : {}),

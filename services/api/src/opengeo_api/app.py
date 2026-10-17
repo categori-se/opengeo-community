@@ -141,6 +141,7 @@ from opengeo_api.processing_dispatch import (
     AwsSqsConnectionVerificationDispatcher,
     AwsSqsExternalSourceDiscoveryDispatcher,
     AwsSqsExternalSourceSnapshotDispatcher,
+    AwsSqsFrameworkPublicationDispatcher,
     AwsSqsGeoNodeHarvestDispatcher,
     AwsSqsObservableBuildDispatcher,
     AwsSqsPmtilesDerivativeDispatcher,
@@ -150,6 +151,7 @@ from opengeo_api.processing_dispatch import (
     ConnectionVerificationDispatcher,
     ExternalSourceDiscoveryDispatcher,
     ExternalSourceSnapshotDispatcher,
+    FrameworkPublicationDispatcher,
     GeoNodeHarvestDispatcher,
     ObservableBuildDispatcher,
     PmtilesDerivativeDispatcher,
@@ -159,6 +161,7 @@ from opengeo_api.processing_dispatch import (
     UnavailableConnectionVerificationDispatcher,
     UnavailableExternalSourceDiscoveryDispatcher,
     UnavailableExternalSourceSnapshotDispatcher,
+    UnavailableFrameworkPublicationDispatcher,
     UnavailableGeoNodeHarvestDispatcher,
     UnavailableObservableBuildDispatcher,
     UnavailablePmtilesDerivativeDispatcher,
@@ -285,6 +288,7 @@ def create_app(
     site_publication_repository: SitePublicationRepository | None = None,
     observable_source_repository: ObservableSourceRepository | None = None,
     observable_build_dispatcher: ObservableBuildDispatcher | None = None,
+    framework_publication_dispatcher: FrameworkPublicationDispatcher | None = None,
     observable_preview_cookie_signer: PreviewCookieSigner | None = None,
     connection_repository: ExternalConnectionRepository | None = None,
     connection_catalog_repository: CatalogDiscoveryRepository | None = None,
@@ -534,6 +538,11 @@ def create_app(
         AwsSqsObservableBuildDispatcher(runtime_settings)
         if runtime_settings.observable_build_dispatch_configured
         else UnavailableObservableBuildDispatcher()
+    )
+    app.state.framework_publication_dispatcher = framework_publication_dispatcher or (
+        AwsSqsFrameworkPublicationDispatcher(runtime_settings)
+        if runtime_settings.framework_publication_queue_url is not None
+        else UnavailableFrameworkPublicationDispatcher()
     )
     app.state.observable_preview_cookie_signer = observable_preview_cookie_signer or (
         SecretsManagerPreviewCookieSigner(runtime_settings)

@@ -24,6 +24,8 @@ BUCKET = "local-pilot.invalid"
 ORG = "10000000-0000-4000-8000-000000000001"
 OWNER = "20000000-0000-4000-8000-000000000001"
 REVIEWER = "20000000-0000-4000-8000-000000000002"
+PUBLICATION_ORIGIN = "30000000-0000-4000-8000-000000000001"
+PUBLICATION_MOUNT = "30000000-0000-4000-8000-000000000002"
 API_IMAGE = "e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb"
 WORKER_IMAGE = "a830dae1cae3b4cbdd88cd44f702fd485e6d70d435557ea68d35df017a7fdb87"
 BASELINE = ROOT / "database/baselines/0085_opengeo_schema.sql"
@@ -268,7 +270,7 @@ class LocalObjects:
 
 class LocalQueue:
     def __init__(self, name="queue"):
-        if name not in {"queue", "observable-builds"}:
+        if name not in {"queue", "observable-builds", "framework-publications"}:
             raise ValueError("Unknown local queue")
         self.name = name
 
@@ -326,6 +328,53 @@ class LocalObservableDispatcher:
             "schema": "opengeo.observable-build.command.1.0.0",
             "build_job_id": str(job_id),
         })
+
+
+class LocalFrameworkPublicationDispatcher:
+    available = True
+
+    async def dispatch_framework_publication(self, review_id):
+        LocalQueue("framework-publications").push({
+            "schema": "opengeo.framework-publication.command.1.0.0",
+            "review_id": str(review_id),
+        })
+
+
+def configure_local_publication(project_id, source_project_id):
+    """Operator-only fixture grant; normal API still reviews/approves delivery."""
+    import psycopg
+
+    project_id, source_project_id = UUID(project_id), UUID(source_project_id)
+    with psycopg.connect("postgresql://postgres@127.0.0.1/opengeo?sslmode=disable") as connection:
+        owned = connection.execute(
+            "SELECT 1 FROM app.observable_source_projects WHERE id=%s AND project_id=%s "
+            "AND organization_id=%s AND owner_user_id=%s",
+            (source_project_id, project_id, ORG, OWNER),
+        ).fetchone()
+        if owned is None:
+            raise ValueError("Publication fixture must belong to the local owner")
+        connection.execute("ALTER ROLE opengeo_framework_publisher LOGIN")
+        connection.execute(
+            "INSERT INTO app.framework_publication_origins "
+            "(id,organization_id,hostname,bucket,distribution_id,origin_id,active_release_prefix,enabled,verified_by,verified_at) "
+            "VALUES (%s,%s,'publication.local.invalid','local-publication.invalid','LOCALPUBLICATION',"
+            "'local-publication','releases/bootstrap',true,%s,clock_timestamp()) ON CONFLICT(id) DO NOTHING",
+            (PUBLICATION_ORIGIN, ORG, OWNER),
+        )
+        connection.execute(
+            "INSERT INTO app.framework_publication_mounts "
+            "(id,organization_id,project_id,source_project_id,origin_id,mount_path,enabled,verified_by,verified_at) "
+            "VALUES (%s,%s,%s,%s,%s,'/',true,%s,clock_timestamp()) ON CONFLICT(id) DO NOTHING",
+            (PUBLICATION_MOUNT, ORG, project_id, source_project_id, PUBLICATION_ORIGIN, OWNER),
+        )
+        mount = connection.execute(
+            "SELECT project_id,source_project_id FROM app.framework_publication_mounts WHERE id=%s",
+            (PUBLICATION_MOUNT,),
+        ).fetchone()
+        if mount != (project_id, source_project_id):
+            raise ValueError("Retained publication mount belongs to another source")
+    return {"originId": PUBLICATION_ORIGIN, "mountId": PUBLICATION_MOUNT,
+            "canonicalOrigin": "https://publication.local.invalid", "mountPath": "/"}
 
 
 def worker():
@@ -443,6 +492,7 @@ def local_app(**overrides):
             allowed_origins=[publication["previewOrigin"]],
         )
         dependencies["observable_build_dispatcher"] = LocalObservableDispatcher()
+        dependencies["framework_publication_dispatcher"] = LocalFrameworkPublicationDispatcher()
     dependencies.update(overrides)
     return create_app(**dependencies)
 

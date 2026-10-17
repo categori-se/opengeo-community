@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {test} from "node:test";
 import {DEFAULT_PUBLICATION_PREVIEW_ORIGINS, resolvePublicationPreviewOrigins} from "../src/lib/publicationPreviewOrigins.js";
 import {parseAuthConfig, AuthConfigurationError} from "../src/lib/authConfig.js";
-import {OpenGeoApiClient} from "../src/lib/apiClient.js";
+import {OpenGeoApiClient, ApiContractError} from "../src/lib/apiClient.js";
 import {createPlatformAdapter} from "../src/lib/platform.js";
 
 const studio = "https://studio.example.org";
@@ -53,4 +53,31 @@ test("API and platform adapters carry trusted configuration without a network re
   const adapter = await createPlatformAdapter({url: `${localStudio}/workspaces`, storage: null, previewOrigins: configured, fetchImplementation});
   assert.equal(adapter.previewOrigins.local_only, configured.local_only);assert.equal(Object.isFrozen(adapter.previewOrigins), true);
   assert.throws(() => new OpenGeoApiClient({previewOrigins: {local_only: localStudio}, studioOrigin: localStudio, fetchImplementation}));
+});
+
+// Exercise the response parser through the actual adapter, not a component stub.
+test("preview capability responses use the trusted deployment and selected runtime profile", async () => {
+  const project = "10000000-0000-4000-8000-000000000001";
+  const build = "10000000-0000-4000-8000-000000000002";
+  for (const [studioOrigin, local] of [[studio, "https://preview.example.org"],
+    ["http://127.0.0.1:4173", "http://127.0.0.1:4174"]]) {
+    const previewOrigins = {local_only: local, public_maps_v1: "https://maps-preview.example.org"};
+    let returnedOrigin = local, publicationAuthorized = false;
+    const api = new OpenGeoApiClient({studioOrigin, previewOrigins,
+      tokenProvider: () => "synthetic-local-owner", organizationProvider: () => project,
+      fetchImplementation: async () => new Response(JSON.stringify({
+        authorize_url: returnedOrigin + "/authorize/#cap=" + "a".repeat(160),
+        expires_at: "2099-01-01T00:00:00Z", publication_authorized: publicationAuthorized
+      }), {status: 201, headers: {"content-type": "application/json"}})});
+    assert.equal((await api.createObservablePreviewCapability(project, build)).authorizeUrl,
+      local + "/authorize/#cap=" + "a".repeat(160));
+    returnedOrigin = previewOrigins.public_maps_v1;
+    await assert.rejects(() => api.createObservablePreviewCapability(project, build), ApiContractError);
+    assert.equal((await api.createObservablePreviewCapability(project, build,
+      {runtimeProfile: "public_maps_v1"})).authorizeUrl, returnedOrigin + "/authorize/#cap=" + "a".repeat(160));
+    returnedOrigin = "https://unconfigured.example.org";
+    await assert.rejects(() => api.createObservablePreviewCapability(project, build), ApiContractError);
+    returnedOrigin = local;publicationAuthorized = true;
+    await assert.rejects(() => api.createObservablePreviewCapability(project, build), ApiContractError);
+  }
 });

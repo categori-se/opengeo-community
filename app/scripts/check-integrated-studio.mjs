@@ -219,16 +219,40 @@ const server = createServer(async (request, response) => {
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 if (developmentMode) localAnalysisBridge = createLocalAnalysisBridge({runner: localAnalysisRunner, origin});
-let browser, page, previewServer, publicationBrowserTimer;
+let browser, page, previewServer, publicServer, publicationBrowserTimer;
 const previewOrigin = publicationProfile?.previewOrigin;
+const publicOrigin = publicationProfile?.publicationOrigin;
+const canonicalPublicOrigin = publicationProfile?.publicationCanonicalOrigin;
 const errors = [];
 let stage = "project-creation";
 try {
   if (publicationProfile) previewServer = await startLocalPreviewServer({work, profile: publicationProfile, studioOrigin: origin, apiRequest});
+  if (publicOrigin) {
+    const publicUrl=new URL(publicOrigin);
+    assert.ok(publicUrl.origin===publicOrigin&&publicUrl.protocol==='http:'&&publicUrl.hostname==='127.0.0.1'&&publicUrl.port
+      &&publicOrigin!==origin&&publicOrigin!==previewOrigin&&canonicalPublicOrigin==='https://publication.local.invalid');
+    const bridge=localPublicationBridge(JSON.parse(readFileSync(join(work,'local-api-container.json'))));
+    publicServer=createServer(async(request,response)=>{
+      response.setHeader('Cache-Control','no-store').setHeader('X-Content-Type-Options','nosniff');
+      response.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; frame-ancestors 'self'; form-action 'none'");
+      try {
+        if(request.headers.host!==publicUrl.host||request.headers.authorization||!['GET','HEAD'].includes(request.method))return response.writeHead(403).end();
+        let path=new URL(request.url,publicOrigin).pathname,reviewId;
+        const retained=/^\/_editions\/([0-9a-f-]{36})(\/.*)$/.exec(path);
+        if(retained){reviewId=retained[1];path=retained[2];}
+        const record=await bridge({operation:'public-read',path,...(reviewId?{reviewId}:{})});
+        if(!record)return response.writeHead(404).end();
+        if(record.redirect)return response.writeHead(302,{location:(reviewId?`/_editions/${reviewId}`:'')+record.redirect}).end();
+        response.writeHead(200,{'Content-Type':record.content_type,'X-OpenGeo-Local-Release':record.release_prefix});
+        return response.end(request.method==='HEAD'?undefined:Buffer.from(record.body,'base64'));
+      }catch{return response.writeHead(404).end();}
+    });
+    await new Promise((done,reject)=>{publicServer.once('error',reject);publicServer.listen(Number(publicUrl.port),'127.0.0.1',done);});
+  }
   scopedJourney: {
   const executablePath = ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"].find(existsSync);
   assert.ok(executablePath, "Cached system Chromium is required");
-  browser = await chromium.launch({headless: !developmentMode || developmentSmoke, chromiumSandbox: Boolean(developmentMode && !developmentSmoke), executablePath, args: [...(developmentMode && !developmentSmoke ? [] : ["--no-sandbox"]),
+  browser = await chromium.launch({headless: publicationOnlyMode || !developmentMode || developmentSmoke, chromiumSandbox: Boolean(developmentMode && !developmentSmoke && !publicationOnlyMode), executablePath, args: [...(developmentMode && !developmentSmoke && !publicationOnlyMode ? [] : ["--no-sandbox"]),
     ...(pinnedFontMode ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
   if (publicationOnlyMode) {
@@ -257,7 +281,12 @@ try {
     } else if (request.url().startsWith(`${uploadUrl}/`)) {
       const result = localObjectDownload({work, url: request.url(), method: request.method(), headers: request.headers()});
       await route.fulfill(result);
-    } else if (request.url().startsWith(`${origin}/`) || (previewOrigin && request.url().startsWith(`${previewOrigin}/`))) await route.continue();
+    } else if (canonicalPublicOrigin && new URL(request.url()).origin===canonicalPublicOrigin) {
+      assert.ok(['GET','HEAD'].includes(request.method()));
+      const target=new URL(request.url());
+      const result=await fetch(publicOrigin+target.pathname+target.search,{method:request.method(),redirect:'manual'});
+      await route.fulfill({status:result.status,headers:Object.fromEntries(result.headers),body:Buffer.from(await result.arrayBuffer())});
+    } else if (request.url().startsWith(`${origin}/`) || (previewOrigin && request.url().startsWith(`${previewOrigin}/`)) || (publicOrigin && request.url().startsWith(`${publicOrigin}/`))) await route.continue();
     else if (rendererPersistenceMode || geolibreImportMode) await route.fulfill({contentType:"application/json",body:JSON.stringify(
       new URL(request.url()).hostname.includes("mapbox") ? {} : {version:8,sources:{},layers:[{id:"background",type:"background",paint:{"background-color":"#ffffff"}}]})});
     else await route.abort();
@@ -1423,5 +1452,6 @@ try {
   writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
   if (browser) await browser.close();
   if (previewServer) await new Promise((done) => previewServer.close(done));
+  if (publicServer) await new Promise((done) => publicServer.close(done));
   await new Promise((done) => server.close(done));
 }

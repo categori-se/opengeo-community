@@ -1046,7 +1046,7 @@ def development(args):
                 time.sleep(0.2)
             # Reuse a verified staged tree across restarts. Source changes need a
             # deliberate rebuild through the same maintained builder.
-            if args.rebuild_studio or not (work / "studio-build-manifest.json").exists():
+            if not args.publication_only and (args.rebuild_studio or not (work / "studio-build-manifest.json").exists()):
                 staged = work / "built-studio"
                 if staged.is_symlink():
                     raise ValueError("The staged build must not be a symlink")
@@ -1066,7 +1066,9 @@ def development(args):
                 (work / "local-api-container.json").write_text(json.dumps(server_name))
                 print(f"LOCAL DEVELOPMENT ONLY: synthetic sign-in; private state {work}", flush=True)
                 print("Closing Chromium stops compute and retains the database, files and queue.", flush=True)
-                subprocess.run(browser_command(work, built_studio=True, development=True), cwd=ROOT, check=True)
+                subprocess.run(browser_command(work, built_studio=not args.publication_only,
+                    development=True, publication_only=args.publication_only), cwd=ROOT, check=True,
+                    **({"timeout": 180} if args.publication_only else {}))
         finally:
             try:
                 pilot.cleanup_resources([server_name, worker_name], [], process)
@@ -1133,9 +1135,14 @@ def stage_publication_profile(work, compiler_digest, preview_port=0):
     if available.returncode != 0:
         raise ValueError("Publication compiler is absent from the local cache; no image is downloaded")
     preview_origin = publication_preview_origin(preview_port)
+    public_origin = publication_preview_origin(0)
+    if public_origin == preview_origin:
+        raise ValueError("Publication and private preview need distinct local ports")
     private, public = publication_signing_keys(work)
     target.write_text(json.dumps({"compilerImageDigest": compiler_digest,
                                  "previewOrigin": preview_origin,
+                                 "publicationOrigin": public_origin,
+                                 "publicationCanonicalOrigin": "https://publication.local.invalid",
                                  "previewKeyPairId": "LOCALPREVIEW123",
                                  "previewPrivateKeyPath": private,
                                  "previewPublicKeyPath": public}) + "\n")
@@ -1170,7 +1177,7 @@ def parse_args(argv=None):
         if not args.state_directory or any((args.serve, args.upgrade_from_0082, args.pinned_map_fonts,
                 args.restore_checkpoint, args.service_clients, args.wcs_only, args.analysis_only, args.restored)):
             parser.error("Development requires --state-directory and excludes acceptance-only modes")
-        args.built_studio = True
+        args.built_studio = not args.publication_only
     elif args.state_directory or args.rebuild_studio or args.analysis_profile or ((args.publication_compiler_digest or args.publication_preview_port) and not args.publication_only):
         parser.error("State, analysis profile and frontend rebuild options belong only to --development")
     if args.publication_compiler_digest and not re.fullmatch(r"sha256:[a-f0-9]{64}", args.publication_compiler_digest):
@@ -1200,7 +1207,7 @@ def parse_args(argv=None):
         parser.error("WCS-only requires built Studio without other journey modes")
     if args.analysis_only and (not args.built_studio or args.serve or args.service_clients or args.restore_checkpoint or args.pinned_map_fonts or args.wcs_only):
         parser.error("Analysis-only requires built Studio without other journey modes")
-    if args.publication_only and (args.built_studio or args.reuse_studio_tree or not args.publication_compiler_digest or any((args.serve,args.development,args.analysis_only,args.wcs_only,args.service_clients,args.restore_checkpoint,args.pinned_map_fonts))):
+    if args.publication_only and (args.built_studio or args.reuse_studio_tree or not args.publication_compiler_digest or any((args.serve,args.analysis_only,args.wcs_only,args.service_clients,args.restore_checkpoint,args.pinned_map_fonts,args.rebuild_studio,args.analysis_profile))):
         parser.error("Publication-only uses the existing source UI and exact compiler pin without other modes")
     runtime_options = (args.font_runtime_package, args.font_runtime_manifest_sha256)
     if args.pinned_map_fonts:
