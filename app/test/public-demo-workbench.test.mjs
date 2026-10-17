@@ -101,6 +101,76 @@ describe("public workbench demo source boundary", () => {
     } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
   });
 
+  it("focuses completed governed Identify results without stealing focus after hiding or switching panels", {timeout: 5000}, async () => {
+    const dom = new JSDOM("<!doctype html><body><button id='continue'>Continue working</button></body>", {url: "https://studio.opengeo.tools/workspaces"});
+    const restore = installDomGlobals(dom.window);
+    const listeners = new Map(), requests = [];
+    const map = {
+      on(type, callback) {listeners.set(type, callback);},
+      off(type) {listeners.delete(type);},
+      resize() {},
+      isStyleLoaded: () => false,
+      getZoom: () => 2,
+      getBearing: () => 0,
+      getPitch: () => 0,
+      getCenter: () => ({lng: -71, lat: 42}),
+      getLayer: () => null,
+      getStyle: () => ({version: 8, sources: {}, layers: []}),
+      queryRenderedFeatures: () => []
+    };
+    const layer = {layerId: "governed-facilities", datasetId: "70000000-0000-4000-8000-000000000001",
+      title: "Governed facilities", sourceType: "governed-dataset", geometryType: "Point",
+      visible: true, opacity: 1, order: 0, style: {}, labels: {enabled: false}};
+    let shell, observer;
+    try {
+      globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+      shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Identify acceptance"},
+        role: "owner", project: emptyMapDefinition(), layers: [layer], persistenceMode: "fixture", restoreBrowserDraft: false,
+        rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: () => map, disposeMap() {}},
+        queryDatasetFeatures: (datasetId, query, options) => new Promise(resolve => requests.push({datasetId, query, options, resolve}))});
+      document.body.append(shell);
+      await waitFor(() => listeners.has("click"));
+      for (const mode of ["results", "hidden", "switched"]) {
+        shell.querySelector('.gis-primary-toolbar [data-primary-command="identify"]').click();
+        listeners.get("click")({lngLat: {lng: -71, lat: 42}, point: {x: 100, y: 100}});
+        assert.equal(requests.length, ["results", "hidden", "switched"].indexOf(mode) + 1);
+        assert.equal(shell.querySelector(".gis-identify-panel").dataset.identifyState, "running");
+        assert.equal(document.activeElement, shell.querySelector(".gis-identify-panel"), "pending results receive focus");
+        const request = requests.at(-1);
+        assert.equal(request.datasetId, layer.datasetId);
+        assert.deepEqual(request.query.steps[0].geometry.coordinates, [-71, 42]);
+        if (mode === "hidden") shell.querySelector('button[aria-label="Collapse inspector"]').click();
+        if (mode === "switched") shell.querySelector('button[aria-label="Open attribute table"]').click();
+        const continueButton = document.querySelector("#continue");
+        if (mode !== "results") continueButton.focus();
+        const completed = new Promise(resolve => {
+          observer = new MutationObserver(() => {
+            if (shell.querySelector('[data-status-field="message"]').textContent === "1 matches across 1 checked visible layers.") {
+              observer.disconnect(); resolve();
+            }
+          });
+          observer.observe(shell, {childList: true, subtree: true});
+        });
+        request.resolve({features: [{type: "Feature", id: "clinic", geometry: {type: "Point", coordinates: [-71, 42]},
+          properties: {name: "Governed clinic", capacity: 12}}], numberMatched: 1, numberReturned: 1, generation: 7});
+        await completed;
+        assert.equal(request.options.signal.aborted, false, "panel choices do not cancel the governed result");
+        if (mode === "results") {
+          const panel = shell.querySelector(".gis-identify-panel");
+          assert.equal(panel.dataset.identifyState, "ready");
+          assert.equal(panel.querySelector("h3").textContent, layer.title);
+          assert.match(panel.textContent, /Governed clinic/);
+          assert.match(panel.querySelector("dl").textContent, /capacity12/);
+          assert.equal(document.activeElement, panel, "completed results retain keyboard focus after rendering");
+        } else {
+          assert.equal(document.activeElement, continueButton, mode);
+          if (mode === "hidden") assert.equal(shell.classList.contains("right-collapsed"), true);
+          else assert.equal(shell.querySelector(".gis-identify-panel"), null);
+        }
+      }
+    } finally {observer?.disconnect();shell?.dispose();shell?.remove();restore();dom.window.close();}
+  });
+
   it("starts in the shared Observable near-midnight workbench theme", () => {
     assert.equal(DEFAULT_WORKBENCH_COLOR_MODE, "dark");
   });

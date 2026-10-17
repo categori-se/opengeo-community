@@ -32,3 +32,8 @@ Use existing runners, lockfiles and focused checks. Keep `.opengeo/`, credential
 private datasets, dependency directories and build outputs outside Git. The local
 synthetic-authentication mode is loopback-only and must never become a production
 sign-in path. Do not perform paid/cloud work or deployment without scoped authority.
+
+Keep GitHub Actions within the available free allowance. Consolidate validation
+and reuse local checks. Verify allowance before triggering runners; when it is
+unknown, retain a checkpoint without starting Actions and leave required merge
+checks pending. Do not assume paid runner usage is authorized.

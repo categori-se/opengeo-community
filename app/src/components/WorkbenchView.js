@@ -6528,6 +6528,12 @@ function openIdentifyPanel(context) {
     ? workbenchIdentifySummary(context.state.identifyReport)
     : "Identify enabled. Click a feature on the map to inspect its attributes.");
   context.render();
+  focusIdentifyPanel(context);
+}
+
+function focusIdentifyPanel(context) {
+  const {state} = context;
+  if (context.disposed || !state.identify || !state.rightOpen || state.activePanel !== "identify") return;
   context.shell.querySelector(".gis-identify-panel")?.focus({preventScroll: true});
 }
 
@@ -6680,6 +6686,7 @@ async function runDrillDownIdentify(context, lngLat, point) {
   if (isMobileWorkbenchViewport()) state.leftOpen = false;
   setStatus(context, "Inspecting visible layers…");
   context.render();
+  focusIdentifyPanel(context);
   const renderedFeaturesForLayer = captureManagedPreviewIdentify(context, point);
   try {
     const report = hasVectorQuery ? await identifyVisibleGovernedLayers({
@@ -6715,6 +6722,7 @@ async function runDrillDownIdentify(context, lngLat, point) {
         void runDrillDownIdentify(context, pendingLocation, pendingLocation.point);
       } else {
         context.render();
+        focusIdentifyPanel(context);
       }
     }
   }
@@ -15570,7 +15578,7 @@ function showFeaturePopup(map, event, dataset, {focus = true} = {}) {
     title: dataset?.title ?? "Feature",
     properties: feature.properties
   });
-  const popup = workbenchRenderer(map).createPopup({maxWidth: "340px"})
+  const popup = workbenchRenderer(map).createPopup({maxWidth: "340px", focusAfterOpen: focus})
     .setLngLat(event.lngLat)
     .setDOMContent(content)
     .addTo(map);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {test} from 'node:test';
+import {after, before, test} from 'node:test';
 import {createHash} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import {readFile, writeFile, mkdtemp, rm, stat, open} from 'node:fs/promises';
@@ -228,6 +228,89 @@ async function verifyExistingExport(path) {
       catalogPins:'none; actual original export does not claim registration acceptance',offlineReactiveD3:true}));
   } finally {await browser?.close();}
 }
+function createTIFFDiagnostics() {
+  let page;
+  const started = performance.now(), timings = [];
+  let phase = 'fixture', phaseStarted = started;
+  const enterPhase = next => {
+    const now = performance.now();
+    timings.push({phase, milliseconds: Math.round(now - phaseStarted)});
+    phase = next; phaseStarted = now;
+    console.error(JSON.stringify({frameworkTIFF: 'phase', phase, elapsedMilliseconds: Math.round(now - started), previous: timings.at(-1)}));
+  };
+  const reportState = async reason => {
+    const frames = await Promise.all((page?.frames() ?? []).slice(0, 4).map(async frame => {
+      let timer;
+      try {
+        return await Promise.race([
+          frame.evaluate(() => ({
+            status: [...document.querySelectorAll('.observablehq--error, .publication-document-preview > p[role="status"], #dimensions, #attachment, #reactive')]
+              .slice(0, 8).map(node => node.textContent.slice(0, 300)),
+            canvas: [...document.querySelectorAll('canvas')].slice(0, 2).map(node => [node.width, node.height]),
+            saves: window.saves, sourceReads: window.sourceReads?.slice(0, 4),
+            inventoryReads: window.inventoryReads, tickets: window.tickets
+          })),
+          new Promise(resolve => {timer = setTimeout(() => resolve({unavailable: 'snapshot timed out'}), 300);})
+        ]);
+      } catch {return {unavailable: 'frame detached or closed'};}
+      finally {clearTimeout(timer);}
+    }));
+    console.error(JSON.stringify({frameworkTIFF: 'state', reason, phase,
+      elapsedMilliseconds: Math.round(performance.now() - started), timings, frames}));
+  };
+  return {enterPhase, reportState, setPage: value => {page = value;}};
+}
+const synthetic = !nativeOutput && !existingExport && !original;
+let syntheticFixture, syntheticPreparation;
+async function prepareTIFFFixture(fixture, signal) {
+  const {enterPhase} = fixture.diagnostics;
+  const setupStarted = performance.now();
+  const checkActive = () => signal?.throwIfAborted();
+  checkActive();
+  fixture.directory = await mkdtemp(join(tmpdir(), 'opengeo-preview-packages-'));
+  checkActive();
+  enterPhase('compiler fixture bundles');
+  fixture.filename = await buildFrameworkPreview(fixture.directory);
+  fixture.compiler = await readFile(join(fixture.directory, fixture.filename));
+  checkActive();
+  enterPhase('editor fixture bundle');
+  fixture.editor = await build({stdin: {contents: `export {PublicationCodeEditor} from './src/components/PublicationCodeEditor.js';
+    export {createFrameworkAttachmentReader} from './src/lib/frameworkArchiveInputs.js';`,
+    resolveDir: new URL('..', import.meta.url).pathname, loader: 'js'}, bundle: true, format: 'esm', write: false});
+  checkActive();
+  enterPhase('Chromium launch');
+  fixture.browser = await chromium.launch({headless: true,
+    executablePath: ['/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync),
+    ...(signal ? {timeout: Math.max(1, 15000 - (performance.now() - setupStarted))} : {})});
+  checkActive();
+  enterPhase('fixture ready');
+}
+async function cleanupTIFFFixture(fixture) {
+  fixture.diagnostics.enterPhase('cleanup');
+  try {await fixture.browser?.close();}
+  finally {if (fixture.directory) await rm(fixture.directory, {recursive: true, force: true});}
+  fixture.diagnostics.enterPhase('complete');
+}
+// Synthetic setup has its own 15-second bound; the unchanged UI behavior bound
+// below remains 18 seconds (33 seconds combined, followed by bounded cleanup).
+// Original-file and retained-output modes keep their existing test timeouts.
+before(async () => {
+  if (!synthetic) return;
+  syntheticFixture = {diagnostics: createTIFFDiagnostics()};
+  const signal = AbortSignal.timeout(15000);
+  const timer = setTimeout(() => void syntheticFixture.diagnostics.reportState('before setup timeout'), 12000);
+  timer.unref();
+  syntheticPreparation = prepareTIFFFixture(syntheticFixture, signal);
+  try {await syntheticPreparation;}
+  finally {clearTimeout(timer);}
+}, {timeout: 15000});
+after(async () => {
+  if (!syntheticFixture) return;
+  // Let an interrupted preparation settle before removing its partial fixture,
+  // so a late launch or compiler write cannot outlive cleanup.
+  await syntheticPreparation?.catch(() => {});
+  await cleanupTIFFFixture(syntheticFixture);
+}, {timeout: 5000});
 test(nativeOutput ? localizeRetainedNative
     ? 'current localizer on the retained native tree decodes GeoTIFF and updates D3 under the current preview CSP without network or compilation'
     : 'saved native single HTML decodes GeoTIFF and updates D3 under the current preview CSP without network or compilation'
@@ -236,8 +319,13 @@ test(nativeOutput ? localizeRetainedNative
   : 'unsaved Framework preview decodes a cached TIFF attachment and updates D3 pixels without saving or network', {timeout: nativeOutput ? 25000 : existingExport ? 20000 : original ? 28000 : 18000}, async () => {
   if (nativeOutput) return verifyNativeOutput(nativeOutput);
   if (existingExport) return verifyExistingExport(existingExport);
-  const directory = await mkdtemp(join(tmpdir(), 'opengeo-preview-packages-'));
-  let browser, page, offlineContext;
+  const fixture = syntheticFixture ?? {diagnostics: createTIFFDiagnostics()};
+  let page, offlineContext;
+  const {enterPhase, reportState} = fixture.diagnostics;
+  // Capture synthetic UI state before its unchanged 18-second cancellation;
+  // each frame snapshot is bounded and never reads source URLs or credentials.
+  const diagnosticTimer = original ? null : setTimeout(() => void reportState('before test timeout'), 15000);
+  diagnosticTimer?.unref();
   try {
     if (originalExport) assert(isAbsolute(originalExport), 'Retained export destination must be an explicit absolute path');
     // Original mode reads only the exact local file explicitly retained by the
@@ -252,18 +340,18 @@ test(nativeOutput ? localizeRetainedNative
     const raster = original ? null : Array.from(rasterBuffer);
     const archivePath = original ? 'original-retained-fixture.tif' : 'tiny.tif';
     const dimensions = original ? '11194 × 5713' : '2 × 2';
-    // Compile only this browser compiler and editor. No Studio or publication build.
-    const filename = await buildFrameworkPreview(directory);
-    const compiler = await readFile(join(directory, filename));
-    const editor = await build({stdin: {contents: `export {PublicationCodeEditor} from './src/components/PublicationCodeEditor.js';
-      export {createFrameworkAttachmentReader} from './src/lib/frameworkArchiveInputs.js';`,
-      resolveDir: new URL('..', import.meta.url).pathname, loader: 'js'}, bundle: true, format: 'esm', write: false});
+    // The hooks prepare the exact synthetic fixture; original mode still builds
+    // the same fixture inside its existing 28-second test boundary.
+    console.error(JSON.stringify({frameworkTIFF: 'fixture bundles', nodeVersion: process.version,
+      tiffBytes: rasterBuffer.length, tiffChecksumSha256: checksum, bundles:
+      ['geotiff', 'jszip', 'd3', 'Framework runtime', 'default and Inputs CSS', 'air CSS', 'near-midnight CSS', 'Framework compiler']}));
+    if (!synthetic) await prepareTIFFFixture(fixture);
+    const {directory, filename, compiler, editor, browser} = fixture;
     const shell = await readFile(new URL('../../services/observable-preview/authorize/draft.html', import.meta.url), 'utf8');
     // Exact retained CloudFront PublisherDraftHeaders20260915 response policy.
     const draftCsp = "default-src 'none'; base-uri 'none'; object-src 'none'; frame-ancestors https://studio.opengeo.tools https://demo.studio.opengeo.tools; frame-src 'none'; form-action 'none'; script-src 'unsafe-inline' data:; script-src-attr 'none'; style-src 'unsafe-inline' data:; font-src data:; img-src data: blob:; connect-src data: blob:; worker-src blob:";
     const external = [], errors = [], origin = 'https://studio.opengeo.tools';
-    browser = await chromium.launch({headless: true,
-      executablePath: ['/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync)});
+    enterPhase('browser context and routes');
     const context = await browser.newContext({viewport: {width: 390, height: 800}});
     await context.route('**/*', route => {
       const url = new URL(route.request().url());
@@ -279,9 +367,11 @@ test(nativeOutput ? localizeRetainedNative
         headers:{'content-length':String(rasterBuffer.length)}});
       throw Error(`Unexpected request: ${url.pathname}`);
     });
-    page = await context.newPage(); page.setDefaultTimeout(original ? 15000 : 4000);
+    page = await context.newPage(); fixture.diagnostics.setPage(page);
+    page.setDefaultTimeout(original ? 15000 : 4000);
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(origin);
+    enterPhase('editor open');
     await page.evaluate(async ({raster, checksum, original, sizeBytes, archivePath}) => {
       const {PublicationCodeEditor, createFrameworkAttachmentReader} = await import('/editor.js');
       const textarea = document.createElement('textarea');
@@ -328,6 +418,7 @@ test(nativeOutput ? localizeRetainedNative
       window.editor = editor;
       await editor.open('index.md', source);
     }, {raster, checksum, original, sizeBytes:rasterBuffer.length, archivePath});
+    enterPhase('initial preview');
     // Text edits deliberately retire the outer browsing context. Wait for that
     // exact retirement before asking Playwright to inspect the replacement.
     const frame = page.frameLocator('iframe[title="Framework draft preview"]').frameLocator('iframe[title="Rendered Framework draft"]');
@@ -335,10 +426,12 @@ test(nativeOutput ? localizeRetainedNative
     await frame.locator('#attachment').getByText('Attachment ready', {exact: true}).waitFor();
     if (original) await frame.locator('#source-format').getByText('1 band · 8 bits · nodata 255', {exact:true}).waitFor();
     assertInitialPixels(await readPixels(frame));
+    enterPhase('reactive preview');
     const nextInput = original ? '0.5' : '3';
     await frame.locator('input[type="range"]').fill(nextInput);
     await frame.locator('#reactive').getByText(nextInput, {exact: true}).waitFor();
     assertReactivePixels(await readPixels(frame));
+    enterPhase('draft frame replacement');
     let editedFrame = frame;
     if (!original) {
       // The unchanged small fixture owns edit/replacement acceptance. Original
@@ -361,6 +454,7 @@ test(nativeOutput ? localizeRetainedNative
 
     // Reuse this one compiler and the cached exact attachment; the download is
     // a single local HTML file, opened directly without Studio or a web server.
+    enterPhase('standalone export');
     if (original) {
       let prematureDownloads = 0;
       const premature = () => {prematureDownloads++;}; page.on('download', premature);
@@ -409,6 +503,7 @@ test(nativeOutput ? localizeRetainedNative
       standaloneHTMLBytes:Buffer.byteLength(standaloneHtml),retainedExport:originalExport ?? null,
       renderer:'source-based GeoTIFF decode/resize pipeline adapted to local D3 canvas',
       catalogPins:'reader uses synthetic fixture UUIDs; export omits them; no real registration acceptance'}));
+    enterPhase('offline preview and reactive pixels');
     offlineContext = await browser.newContext({offline:true, viewport:{width:390,height:800}});
     const offlineRequests = [], offlineErrors = [];
     const offline = await offlineContext.newPage(); offline.setDefaultTimeout(original ? 15000 : 4000);
@@ -429,6 +524,7 @@ test(nativeOutput ? localizeRetainedNative
     assert.equal(await page.evaluate(() => window.inventoryReads), 1); assert.equal(await page.evaluate(() => window.tickets), 1);
 
     if (!original) {
+      enterPhase('corruption rejection');
       const changedRaster = Uint8Array.from(raster); changedRaster[changedRaster.length - 1] ^= 1;
       const tamperedPath = join(directory, 'tampered.html');
       await writeFile(tamperedPath, standaloneHtml.replace(encoded, Buffer.from(changedRaster).toString('base64')));
@@ -441,12 +537,12 @@ test(nativeOutput ? localizeRetainedNative
     await offlineContext.close(); offlineContext = null;
     await page.evaluate(() => {window.editor.dispose(); window.attachmentReader.dispose();});
   } catch (error) {
-    const diagnostics = [];
-    for (const frame of page?.frames() ?? []) {
-      try {diagnostics.push(await frame.locator('.observablehq--error, .publication-document-preview > p[role="status"]').allTextContents());} catch {}
-    }
-    console.error(JSON.stringify({diagnostics})); throw error;
+    await reportState('test failure'); throw error;
   } finally {
-    await offlineContext?.close(); await browser?.close(); await rm(directory, {recursive: true, force: true});
+    clearTimeout(diagnosticTimer);
+    if (!synthetic) {
+      try {await offlineContext?.close();}
+      finally {await cleanupTIFFFixture(fixture);}
+    }
   }
 });

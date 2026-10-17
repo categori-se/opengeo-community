@@ -22,7 +22,7 @@ pending. We record implementation, acceptance and delivery separately:
 | Local authoring and print | Personal device saves, editable Project exports, a dedicated Print Studio, figure/print packs and interactive HTML are delivered on configured Studio/Demo. Print opens directly from a map without requiring a Publication. | Additional cartographic layout tools and higher-fidelity vector/georeferenced output. |
 | Reuse on other websites | Native JavaScript delivery, developer bundles and an Observable Framework example are implemented. Local checks cover a separate origin, map events, filtering, selection, inherited styling and cleanup. | Independent installation acceptance and expanded content compatibility. Existing native delivery is not limited to the iframe helper. |
 | Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. Studio now delivers the 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides. Local checks cover navigation, rendering and memory save/reopen. | Hosted account save/reopen, individual-feature overrides and separate icon/label controls. |
-| Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. Demo now delivers immediate Identify-panel opening, local feature attributes and Hide/Escape/reopening, verified on the compiled artifact and served files. | Studio delivery of the new explicit panel action, hosted persistence and visual paper-layout acceptance. |
+| Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. Studio and Demo deliver immediate Identify-panel opening, local feature attributes and Hide/Escape/reopening, verified on compiled artifacts and served files. Studio also preserves Results focus after native popups and governed-query completion. | Hosted persistence and visual paper-layout acceptance. |
 | External PostGIS Layers | Connection verification, relation discovery, stable live Layer registration and bounded feature preview are implemented. A real local PostGIS journey verifies feature queries, exact numeric values, paging limits, revocation and cleanup. | Connected-browser and configured-provider acceptance, followed by deployment. The new source path defaults off. |
 | Native authored publications | Two saved revisions compile through the native runner, open signed private previews and publish through actual review/approval controls. Current and earlier public editions, private Build history and missing/cross-build cookie denials pass locally. Preview domains are installation-configured; signed opening and capability replay denial also pass locally. | Clean installation, independent AWS delivery, complete viewer-access revocation/expiry journey and production delivery. Local sign-in and delivery transports are disclosed substitutes. [Readiness](docs/api/native-publication-readiness.md). |
 | API and CKAN exchange | The API contract has reproducible offline validation. The STAC-to-CKAN exporter and disposable CKAN 2.11.6 create/read/purge check are complete for their documented scope. | Complete harvesting, synchronization and live portal integration. |
@@ -61,13 +61,21 @@ reopening for two revisions. The [readiness review](docs/api/native-publication-
 distinguishes this connected local acceptance from independent installation and
 production delivery.
 
-Frontend validation now discovers both the top-level and nested test suites.
-All 41 failures found in the bounded local run have focused fixes, and every
-interrupted test file has since been exercised. Retained-build checks cover the
-core workflow in both themes, including Home access and opening/hiding Map
-controls. Consolidated release CI remains pending; this combined local evidence
-does not establish a single complete green run. No additional cloud resources
-or production deployment were needed for these repairs.
+Frontend validation discovers both top-level and nested test suites. Community
+core CI passes. The broader application suite currently stops at a TIFF test
+deadline after 2,457 passing tests. That workflow passes locally; compiler and
+browser setup now have a separate bounded phase, preserving every interactive
+assertion. Consolidated release validation remains pending.
+
+The new Identify action opens Results directly. Source also restores keyboard
+focus after governed queries finish while preserving the user's choice to hide
+or switch panels. Its component regression and compiled feature-click, focus and Hide/Escape/reopen
+checks pass. Studio now delivers this action and stable focus; its served software
+matches the verified release. Demo remains live.
+
+GitHub Actions stay within the free allowance. Remaining capacity could not be
+verified, so this checkpoint does not trigger another runner job. Main-branch
+validation remains pending until its allowance can be established.
 
 ## Planning and delivery
 
