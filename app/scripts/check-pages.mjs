@@ -3324,12 +3324,19 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   }
 
   await editableDataset.getByRole("button", {name: "Field capture"}).click();
-  await editableDataset.getByText("Offline field capture and review").waitFor();
-  await editableDataset.getByRole("button", {name: "Create version 1 form"}).click();
-  await editableDataset.getByText(/form v1/).waitFor();
-  await editableDataset.getByRole("button", {name: "Save to device queue"}).click();
+  await editableDataset.getByRole("heading", {name: "Capture a field observation", exact: true}).waitFor();
+  await editableDataset.getByRole("button", {name: "Create survey form", exact: true}).click();
+  const capture = editableDataset.locator(".project-field-capture");
+  await capture.locator(".project-field-form-summary > details > summary").click();
+  await capture.getByText(/Form v1 · LineString/).waitFor();
+  await capture.getByLabel("Field capture target", {exact: true}).selectOption("");
+  await capture.getByText("Enter or inspect coordinates (GeoJSON)", {exact: true}).click();
+  await capture.getByLabel("Field observation GeoJSON geometry", {exact: true})
+    .fill(JSON.stringify({type: "LineString", coordinates: [[85.31, 27.7], [85.32, 27.71]]}));
+  await capture.getByLabel("Feature property name", {exact: true}).fill("Reviewed field road");
+  await capture.getByRole("button", {name: "Save to device queue", exact: true}).click();
   try {
-    await editableDataset.getByText(/saved only on this device/).waitFor();
+    await capture.getByText(/Draft saved on this device · 1 pending/).waitFor();
   } catch (error) {
     const renderedState = (await editableDataset.innerText()).replaceAll(/\s+/g, " ").trim();
     throw new Error(
@@ -3337,20 +3344,51 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
       {cause: error}
     );
   }
-  await editableDataset.getByRole("button", {name: "Sync device queue"}).click();
+  const queuedDraft = await page.evaluate(async ({organizationId, userId, projectId, datasetId}) => {
+    const records = await new Promise((resolve, reject) => {
+      const request = indexedDB.open("opengeo-field-capture-v1");
+      request.onupgradeneeded = () => {request.transaction.abort(); reject(new Error("Device queue was not retained"));};
+      request.onerror = () => reject(new Error("Device queue could not be opened"));
+      request.onsuccess = () => {
+        const database = request.result;
+        const read = database.transaction("submissions", "readonly").objectStore("submissions").getAll();
+        read.onerror = () => {database.close(); reject(new Error("Device drafts could not be read"));};
+        read.onsuccess = () => {database.close(); resolve(read.result);};
+      };
+    });
+    const own = records.filter(record => record.organizationId === organizationId && record.userId === userId);
+    return {
+      count: own.length,
+      scoped: own.every(record => record.request.projectId === projectId && record.request.datasetId === datasetId
+        && record.request.operation === "create" && record.request.formVersion === 1
+        && record.request.feature.properties.name === "Reviewed field road"),
+      hasCredentials: /browser\.test\.token|Bearer |"accessToken"|"authorization"/i.test(JSON.stringify(records))
+    };
+  }, {organizationId: IDS.organization, userId: IDS.user, projectId: IDS.projects[0], datasetId: IDS.dataset});
+  if (queuedDraft.count !== 1 || !queuedDraft.scoped || queuedDraft.hasCredentials) {
+    failures.push(`${route}: field draft was not retained under the selected account, layer and form without credentials`);
+  }
+  if (browserFieldSubmissions.length !== 0 || browserAuthoritativeFeatureState.features.length !== 1) {
+    failures.push(`${route}: saving a device draft changed the review queue or authoritative features`);
+  }
+  await capture.getByRole("button", {name: "Sync device queue", exact: true}).click();
   try {
-    await editableDataset.getByRole("button", {name: "Start review"}).waitFor();
+    await capture.getByRole("button", {name: "Start review", exact: true}).waitFor();
   } catch {
     throw new Error(
       `field-capture sync did not reach review: ${await editableDataset.innerText()}`
     );
   }
-  await editableDataset.getByRole("button", {name: "Start review"}).click();
-  await editableDataset.getByRole("button", {name: "Accept and promote"}).waitFor();
-  await editableDataset.getByRole("button", {name: "Accept and promote"}).click();
-  await editableDataset.getByText(/accepted · rv3/).waitFor();
-  const captureText = await editableDataset.innerText();
-  if (!captureText.includes("No access token is stored") || !captureText.includes("accepted · rv3")) {
+  await capture.getByRole("button", {name: "Start review", exact: true}).click();
+  await capture.getByRole("button", {name: "Accept and promote", exact: true}).waitFor();
+  if (browserFieldSubmissions.length !== 1 || browserFieldSubmissions[0].review_version !== 2
+    || browserAuthoritativeFeatureState.features.length !== 1) {
+    failures.push(`${route}: review did not preserve the submission version and unchanged authoritative features before acceptance`);
+  }
+  await capture.getByRole("button", {name: "Accept and promote", exact: true}).click();
+  await capture.getByText(/accepted · rv3/).waitFor();
+  const captureText = await capture.innerText();
+  if (!captureText.includes("Acceptance makes the reviewed observation part of this layer.") || !captureText.includes("accepted · rv3")) {
     failures.push(`${route}: offline field capture did not retain auth boundary and review evidence`);
   }
   if (screenshotsEnabled) {
@@ -8090,20 +8128,31 @@ async function assertAuthenticationStates(browser, baseUrl) {
     await expectText(page, "Studio status: Signed out", "reloaded signed-out login");
   });
 
-  await withAuthPage(browser, {transaction: true}, async (page) => {
-    await visit(page, `${baseUrl}/login?code=valid-browser-code&state=${BROWSER_OAUTH_STATE}`, "/login callback success");
-    await page.locator(".platform-project-table").waitFor();
-    if (new URL(page.url()).pathname !== "/workspaces") failures.push("callback success: did not reach the project directory");
-    const session = await page.evaluate(() => ({
-      token: sessionStorage.getItem("opengeo.accessToken"),
-      expiresAt: Number(sessionStorage.getItem("opengeo.accessTokenExpiresAt")),
-      transaction: sessionStorage.getItem("opengeo.oauthTransaction")
-    }));
-    if (session.token !== "browser.test.token" || session.expiresAt <= Date.now() || session.transaction !== null) {
-      failures.push("callback success: expiring browser session was not established safely");
-    }
-    if (page.url().includes("code=") || page.url().includes("state=")) failures.push("callback success: OAuth parameters remained in browser history");
-  });
+  for (const returnTo of ["/", "/workspaces", "/workspaces?view=data"]) {
+    await withAuthPage(browser, {transaction: true, returnTo}, async (page) => {
+      await visit(page, `${baseUrl}/login?code=valid-browser-code&state=${BROWSER_OAUTH_STATE}`, `/login callback returns ${returnTo}`);
+      if (returnTo === "/") await page.locator(".opengeo-start .gis-account-command").waitFor({state: "attached"});
+      else if (returnTo === "/workspaces") await page.locator('.composition-directory[data-state="ready"]').waitFor();
+      else {
+        await page.getByRole("heading", {name: "Catalog", exact: true}).waitFor();
+        await page.locator(".platform-catalog-table").first().waitFor();
+        await expectText(page, "Access Road Network", "callback retains authorized Catalog content");
+      }
+      const destination = new URL(page.url());
+      if (`${destination.pathname}${destination.search}${destination.hash}` !== returnTo) {
+        failures.push(`callback success: did not retain ${returnTo}`);
+      }
+      const session = await page.evaluate(() => ({
+        token: sessionStorage.getItem("opengeo.accessToken"),
+        expiresAt: Number(sessionStorage.getItem("opengeo.accessTokenExpiresAt")),
+        transaction: sessionStorage.getItem("opengeo.oauthTransaction")
+      }));
+      if (session.token !== "browser.test.token" || session.expiresAt <= Date.now() || session.transaction !== null) {
+        failures.push("callback success: expiring browser session was not established safely");
+      }
+      if (page.url().includes("code=") || page.url().includes("state=")) failures.push("callback success: OAuth parameters remained in browser history");
+    });
+  }
 
   await withAuthPage(browser, {transaction: true}, async (page) => {
     const exchangesBefore = tokenExchangeRequests;
@@ -8149,19 +8198,23 @@ async function assertAuthenticationStates(browser, baseUrl) {
     }
     await localFixture.click();
     await page.waitForURL(`${baseUrl}/workspaces?adapter=fixture`);
-    await page.locator('[data-adapter="fixture"]').waitFor();
+    const fixtureMode = page.locator('[data-adapter="fixture"]');
+    await fixtureMode.waitFor({state: "attached"});
     await page.getByRole("heading", {name: "Your projects"}).waitFor();
-    await expectText(page, "Fixture adapter · browser test data · changes are memory-only", "local fixture entry");
+    if (!(await fixtureMode.textContent()).includes("Fixture adapter · browser test data · changes are memory-only")) {
+      failures.push("local fixture entry: synthetic memory-only mode was not identified");
+    }
     await expectText(page, "Your projects", "local fixture entry");
   });
 
   await withAuthPage(browser, {signedIn: true}, async (page) => {
     await visit(page, `${baseUrl}/login`, "/login sign out");
-    await page.locator(".platform-project-table").waitFor();
-    if (new URL(page.url()).pathname !== "/workspaces") {
-      failures.push("signed-in login: did not continue directly to Projects");
+    await page.locator(".opengeo-start").waitFor();
+    if (new URL(page.url()).pathname !== "/" || new URL(page.url()).search) {
+      failures.push("signed-in login: did not continue directly to Home");
     }
-    await page.getByRole("button", {name: "Sign out"}).click();
+    await page.getByRole("button", {name: "Continue with an empty map", exact: true}).click();
+    await page.locator(".gis-account-controls").getByRole("button", {name: "Sign out", exact: true}).click();
     try {
       await page.waitForURL(`${baseUrl}/login`);
     } catch (error) {
@@ -8191,7 +8244,7 @@ async function assertAuthenticationStates(browser, baseUrl) {
 
 async function withAuthPage(
   browser,
-  {transaction = false, expired = false, signedIn = false, configUnavailable = false, apiUnavailable = false},
+  {transaction = false, returnTo = "/", expired = false, signedIn = false, configUnavailable = false, apiUnavailable = false},
   callback
 ) {
   const context = await browser.newContext({
@@ -8203,7 +8256,10 @@ async function withAuthPage(
       ...(apiUnavailable ? {"X-OpenGeo-Test-Api": "unavailable"} : {})
     }} : {})
   });
-  await context.addInitScript(({transaction, expired, signedIn, state, verifier, organizationId}) => {
+  await context.route("**/*", route => new URL(route.request().url()).origin === baseUrl
+    ? route.continue() : route.abort("blockedbyclient"));
+  await context.addInitScript(({transaction, returnTo, expired, signedIn, state, verifier, organizationId}) => {
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = true;
     if (sessionStorage.getItem("opengeo.browserCheckInitialized")) return;
     sessionStorage.setItem("opengeo.browserCheckInitialized", "true");
     if (transaction) {
@@ -8211,7 +8267,7 @@ async function withAuthPage(
         state,
         verifier,
         createdAt: Date.now(),
-        returnTo: "/workspaces"
+        returnTo
       }));
     }
     if (expired || signedIn) {
@@ -8219,7 +8275,7 @@ async function withAuthPage(
       sessionStorage.setItem("opengeo.accessTokenExpiresAt", String(Date.now() + (signedIn ? 3_600_000 : -1000)));
       sessionStorage.setItem("opengeo.organizationId", organizationId);
     }
-  }, {transaction, expired, signedIn, state: BROWSER_OAUTH_STATE, verifier: BROWSER_OAUTH_VERIFIER, organizationId: IDS.organization});
+  }, {transaction, returnTo, expired, signedIn, state: BROWSER_OAUTH_STATE, verifier: BROWSER_OAUTH_VERIFIER, organizationId: IDS.organization});
   const page = await context.newPage();
   capturePageErrors(page, "authentication browser state");
   try {

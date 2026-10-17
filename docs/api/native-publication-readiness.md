@@ -17,6 +17,24 @@ historical; its missing-adapter findings describe the source inspected then.
 | Authorized private preview | Separate-origin signed previews display both builds. Missing cookies and cookies for another build return 403. The actual Build history button reopens the earlier edition. Installation-specific origins are validated through the API client response parser. | Capability replay, expiry and revocation through the complete connected browser journey, and production identity/delivery. |
 | Publication and earlier editions | Actual review, acknowledgment and approval controls dispatch the existing canonical publisher. Its restricted SQL role, separate public custody and atomic prefix activation publish both editions. Both public links open and permit anonymous reads; the previous public edition remains readable after replacement. | Independent HTTPS/DNS/CDN delivery and production release. |
 
+The [source repository](../../services/api/src/opengeo_api/observable_sources.py)
+issues a capability for 60 seconds. It can be exchanged once. Project and input
+authority are checked when issuing and exchanging it; the
+[database exchange function](../../database/migrations/0046_observable_preview_capabilities.sql)
+checks current membership and consumes the capability atomically. A successful
+exchange grants signed cookies for the exact build-output path for 15 minutes.
+
+In the current local/native preview path, issued cookies are bearer grants
+verified by signature, path and expiry; delivery does not check current membership
+on each request. Removing a user's effective project access prevents new grants
+and exchanges, but an already issued cookie remains valid until its signed
+expiry. Immediate cookie revocation is not implemented. The
+[local delivery verifier](../../services/observable-preview/src/local-server.mjs)
+uses the same signature, path and expiry boundaries. These are source-inspection
+findings, not additional browser acceptance: capability replay, expiry and
+revocation through the complete connected browser journey remain open, as does
+production identity and delivery acceptance.
+
 This check uses cached images, synthetic sign-in and three separate loopback
 origins. The canonical local hostname is explicitly mapped to an anonymous HTTP
 server by the browser check. It does not prove DNS, TLS or CloudFront delivery.
