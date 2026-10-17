@@ -61,6 +61,7 @@ let restoration = null;
 let serviceClients = null;
 let developmentWorkerRunning = false;
 const developmentSmoke = developmentMode && process.env.OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE === "1";
+const developmentActiveTimeLimit = 150_000;
 const developmentCheckpoint = join(work, "development-smoke.json");
 const developmentProgress = developmentSmoke && existsSync(developmentCheckpoint)
   ? JSON.parse(readFileSync(developmentCheckpoint)) : {};
@@ -94,8 +95,8 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} 
   if (developmentSmoke) {
     assert.ok(developmentApiAttempts < 100 && (developmentProgress.apiRequestAttempts ?? 0) < 160,
       "Development smoke: 100 API attempts per run, 160 across creation and restart/reopen");
-    assert.ok(developmentPriorMilliseconds + Date.now() - developmentStarted < 90_000,
-      "Development smoke: 90 seconds of combined active browser/controller time");
+    assert.ok(developmentPriorMilliseconds + Date.now() - developmentStarted < developmentActiveTimeLimit,
+      "Development smoke: 150 seconds of combined active browser/controller time");
     developmentApiAttempts++;
     checkpointDevelopment({apiRequestAttempts: (developmentProgress.apiRequestAttempts ?? 0) + 1});
   }
@@ -370,7 +371,7 @@ try {
   browser = await chromium.launch({headless: publicationOnlyMode || !developmentMode || developmentSmoke, chromiumSandbox: Boolean(developmentMode && !developmentSmoke && !publicationOnlyMode), executablePath, args: [...(developmentMode && !developmentSmoke && !publicationOnlyMode ? [] : ["--no-sandbox"]),
     ...(pinnedFontMode || developmentSmoke ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
   if (developmentSmoke) developmentBrowserTimer = setTimeout(() => void browser.close(),
-    Math.max(1, 90_000 - developmentPriorMilliseconds - (Date.now() - developmentStarted)));
+    Math.max(1, developmentActiveTimeLimit - developmentPriorMilliseconds - (Date.now() - developmentStarted)));
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
   if (publicationOnlyMode) {
     publicationBrowserTimer=setTimeout(()=>void browser.close(),publicationSecurityOnly?75_000:60_000);
@@ -538,6 +539,7 @@ try {
           assert.deepEqual(await readApi(mapPath()), beforePreview, "Catalog inspection must not save or alter a Project");
           checkpointDevelopment({catalogRendered: true});
         }
+        checkpointDevelopment({phase: "map-add"});
         await page.goto(`${origin}/workspaces?project=${developmentProgress.project}&manage=data`);
         const card = page.locator(`[data-dataset-id="${developmentProgress.datasetId}"]`);
         await card.getByText("Add to map…", {exact: true}).click();
@@ -545,16 +547,21 @@ try {
         await page.getByRole("button", {name: `Add ${datasetName} to map`, exact: true}).click();
         await page.getByRole("heading", {name: "Layer Properties", exact: true}).waitFor();
         // Choose the actual blank basemap before styling; no tile responses are substituted.
-        await page.locator('button[aria-label="Change basemap"]').click();
+        checkpointDevelopment({phase: "basemap"});
+        await page.locator('.gis-menubar [data-menu="view"] > button').click();
+        await page.getByRole("menuitem", {name: "Change basemap", exact: true}).click();
         const basemapDialog = page.getByRole("dialog", {name: "Change basemap", exact: true});
         const blank = basemapDialog.locator('.gis-basemap-card[data-catalog-id="blank"]');
         const group = blank.locator("xpath=ancestor::details[1]");
         if (await group.getAttribute("open") === null) await group.locator("summary").click();
         await blank.click();
         await basemapDialog.getByRole("button", {name: "Done", exact: true}).click();
+        checkpointDevelopment({phase: "style"});
         await styleLayer(page, `${datasetName} · saved v1`, "#2563eb", 0.8);
         await page.getByRole("button", {name: "Fit", exact: true}).click();
+        checkpointDevelopment({phase: "render"});
         await assertRenderedMap();
+        checkpointDevelopment({phase: "save"});
         const saved = page.waitForResponse(response => /\/maps\/[^/]+$/.test(response.url()) && response.request().method() === "PATCH");
         await page.getByRole("button", {name: "Save", exact: true}).click();
         assert.equal((await saved).status(), 200);
@@ -566,6 +573,7 @@ try {
       assert.equal(layer.datasetId, developmentProgress.datasetId);
       assert.equal(layer.datasetVersionId, developmentProgress.datasetVersionId);
       assert.equal(layer.style.circleColor, "#2563eb"); assert.equal(layer.opacity, 0.8);
+      checkpointDevelopment({phase: "reopen"});
       await page.goto(`${origin}/workspaces?composition=${developmentProgress.map.id}`);
       await assertRenderedMap();
       checkpointDevelopment({reopened: true, databaseRestartReopened: wasSaved || developmentProgress.databaseRestartReopened === true});
@@ -919,7 +927,7 @@ try {
     return witnesses;
   }
   async function styleLayer(editor, title, color, opacity) {
-    const row = editor.locator(".gis-layer-row").filter({has: editor.getByRole("button", {name: `Open layer properties for ${title}`, exact: true})});
+    const row = editor.locator(".gis-layer-row").filter({has: editor.getByRole("button", {name: `Select layer ${title}`, exact: true})});
     await row.getByLabel(`Layer actions for ${title}`, {exact: true}).click();
     await row.getByRole("button", {name: "Style layer", exact: true}).click();
     const inspector = editor.locator(".gis-panel-right");

@@ -1,28 +1,34 @@
 # Resource model implementation — September 19, 2026
 
-October 17 — Catalog basemap failure handling
+October 17 — Community opening, ingest and compiled Catalog rendering
 
-`MapView` installs its preview once and can switch once to a disclosed neutral
-background before initial loading completes. A visible button also handles a
-stalled provider. Repeated errors report failure, and disposal removes the map
-hook used to inspect actual rendered features. Two focused Catalog cases pass;
-compiled Catalog rendering and deployment remain pending.
+`MapView` installs its preview once, offers a neutral background while its provider
+stalls and falls back once on initial failure. It discloses that choice and retains
+later failure handling. Both focused Catalog cases pass. The actual compiled
+Catalog now renders all five named CC0 fixture features; API comparison confirms
+inspection does not alter its Project. Deliberate Add to map opens Layer Properties.
 
-The existing development smoke retains committed upload/map stages, bounds API
-attempts and checks actual Catalog/Workbench features before and after Save and
-database restart. Worker reconciliation now reads the exact version and completed
-ingest before recording success; unresolved attempted work stops without replay.
-Worker output and completed API responses are retained during execution so an
-interruption does not discard their existing logs. This continuation code is not
-yet accepted through a completed runtime journey.
+The normal build/check passes with the installed pinned CLI, preserving routes,
+configuration and local executable PATH. Compiled acceptance identifies and fixes
+a public-only undefined owner flag in the connection form. The corrected build
+creates the Project/map and completes the upload. After interruption, canonical
+expired-lease recovery completes the same ingest job/version on attempt two;
+normal account API readback confirms active state, no error and five features.
+No lease, version or job state is manually rewritten.
 
-The normal offline build/check passes with the pinned CLI invoked directly,
-preserving configuration, routes and local executable PATH. Compiled acceptance
-found a public-only undefined owner flag in the connection form; its bucket default
-now matches canonical source. The corrected build opens and commits Project/map
-creation and the fixture upload. Worker completion, rendered Catalog/map/style
-checks and physical restart/reopening remain open. API/worker containers are absent
-and the retained database is stopped; no AWS resources are used.
+The existing development smoke retains writes, incrementally records requests and
+worker output, and reconciles completed ingest before admitting further processing.
+Its style check stops on a stale row locator, with no page errors or Save request.
+Retained DOM evidence supplies the version-suffixed layer title and current Select
+layer label; both are corrected in the helper. Syntax/static review passes, but
+styling, Save and rendered reopening after a physical database restart remain open.
+The explicit cumulative browser bound is 150 seconds, retaining prior elapsed time;
+API limits remain 100 per run and 160 cumulative. No new runtime retry is performed.
+
+Public main b5afc3d passes both existing CI jobs, including the two added regression
+suites. Follow-up harness changes are not covered by that run. API/worker containers
+are absent and the retained database is stopped. No AWS resources are used.
+Independent full-stack installation and production identity/delivery remain open.
 
 October 17 — Standalone images and frontend
 

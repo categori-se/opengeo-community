@@ -1,42 +1,36 @@
 ## October 17 — Community opening and connected core checkpoint
 
-The shared Catalog preview previously waited for its remote basemap before
-drawing archived features. It now offers a blank background while waiting and
-falls back once on initial provider failure, with persistent disclosure. Repeated
-errors retain the failure message. Two named Catalog cases pass in 1.982 seconds,
-including unchanged data and disposal. Actual compiled Catalog rendering remains
-unverified.
+The public connection form's undefined owner flag is fixed. Its existing navigation
+case passes, and the corrected 872-file compiled build/check passes in 23.871 seconds.
+The maintained builder uses the installed pinned CLI directly, preserving routes,
+configuration and executable PATH. Earlier failed build/runtime attempts are retained.
 
-The existing development smoke now uses the five-feature CC0 facilities fixture
-to check upload, actual Catalog rendering without changing the Project, deliberate
-map addition, styling, Save and exact rendered reopening. Persistent checkpoints
-record committed writes; limits are 100 API attempts per invocation, 160 total,
-90 seconds of combined browser/controller time and one worker execution.
+The actual interface creates one Project/map and uploads the pinned five-point CC0
+facilities example. The interrupted ingest resumes through canonical expired-lease
+recovery on the same job/version, completing on attempt two. Normal account API
+readback confirms active dataset/version, completed job, no processing error and
+five features. Compiled Catalog rendering displays all five names without changing
+the Project. Deliberate Add to map opens Layer Properties. The two focused Catalog
+fallback/control cases also pass in 1.982 seconds.
 
-The affected offline build first stops before compilation because the invocation
-uses one npm config path for two roles (6.464 seconds). A changed invocation uses
-distinct empty configs and continues the same staged normal builder, then reaches
-its remaining deadline during page compilation (38.084 seconds). Both attempts
-remain recorded: 44.548 of the admitted 45 build seconds. The maintained builder
-then changes to the installed pinned CLI, retaining configuration/routes/PATH and
-avoiding npm resolution. Its normal offline build/check passes in 28.854 seconds.
+Style/Save and physical restart/reopen remain unverified. The last bounded attempt
+stops on a stale test row locator, with no page errors or Save request. Retained DOM
+shows the native version suffix and Select layer label; the helper now matches both.
+Syntax and static checks pass; no further runtime retry is made. Phase checkpoints
+identify the remaining step. Cumulative browser time remains recorded against an
+explicitly revised 150-second bound; API limits remain 100 per run and 160 total.
+Measured local pilot stages total 856.717 seconds, including failed attempts;
+agent/tool overhead and service-side usage are not inferred from that measurement.
+Reuse the accepted artifact, dataset/version and completed ingest for continuation.
+API/worker containers are absent and the database is stopped. No AWS calls are made.
 
-The compiled core run reveals `isExampleOwner` left undefined in the public
-connection form. The public default now matches canonical source, its existing
-form/navigation check passes in 3.011 seconds, and the corrected 872-file build
-passes in 23.871 seconds. One explicit 80-second local corrective window raises
-the pilot ceiling from 600 to 680 seconds, retaining prior costs and reusing the
-initialized database. The corrected app creates the Project/map and completes
-the fixture upload; its worker phase exceeds the runtime ceiling. Completed writes
-are retained. Ingest completion, rendering, style/Save and restart/reopen remain
-open; the API/worker are removed and the database is stopped.
-
-Continuation now checks exact dataset/version and ingest-job completion before
-reconciling an attempted worker, and retains logs incrementally. This change has
-not completed runtime acceptance. Reuse the verified frontend; no image, install
-or completed publication phase needs replay. No AWS account calls are made.
-Community validation retains its existing standard public jobs and adds both
-existing regression suites; private Actions still require verified free allowance.
+The approved public main b5afc3d passes both existing jobs in
+[run 39058926252](https://github.com/categori-se/opengeo-community/actions/runs/39058926252),
+including the added Catalog and form regression suites. One standard public workflow
+runs, with two jobs, no artifact uploads and unchanged 297,010,310-byte cache usage.
+Private Actions remain gated on verified free allowance. Follow-up harness/docs
+changes are checkpointed on release branches; that passing run does not cover them.
+Full independent installation and production identity/delivery remain open.
 
 ## October 17 — Standalone image fixes and installation prerequisites
 

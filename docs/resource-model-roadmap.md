@@ -1,33 +1,32 @@
 # Resource model: active plan and continuation queue
 
-October 17 — Community opening fixed; core ingestion acceptance pending
+October 17 — Community opening and Catalog rendering accepted locally
 
-Catalog's shared preview now offers a blank basemap while the provider is stalled
-and falls back once if its initial request fails. The status discloses the blank
-background; later layer errors retain their existing handling. Two focused Catalog
-cases pass, covering fallback/manual recovery, unchanged data, controls and disposal.
-This remains component-level evidence; compiled Catalog rendering is still pending.
+The public connection form now opens without its undefined owner flag. The normal
+pinned-CLI build/check passes. The retained CC0 example completes upload and ingest;
+normal account API readback confirms the exact active version, completed job and
+five features. Actual compiled Catalog rendering shows all five named features
+without changing the Project. Deliberate addition to the existing map also works.
+Catalog can use a disclosed blank background when the remote basemap stalls or
+fails; both existing focused Catalog cases pass.
 
-The existing development smoke now checks the CC0 facilities example through
-upload, actual Catalog rendering, deliberate map addition, styling, Save and
-rendered reopening. The maintained builder now invokes the installed pinned CLI
-directly, retaining its routes and local executable PATH without npm configuration
-or implicit installation. The normal offline build/check passes. A compiled run
-found an undefined owner flag in the public connection form; its empty bucket
-default now matches canonical source. The existing form/navigation case passes,
-and the corrected compiled app creates a Project and completes the fixture upload.
+Style/Save and physical database restart/reopen remain unverified. The bounded
+continuation stops at a stale test locator, with no page errors and no Save request.
+The retained page identifies the native version suffix and current Select layer
+button; the helper now matches both. That correction has syntax/static checks only.
+Next, finish the same retained map through styling, Save and rendered reopening,
+then restart its database. Preserve cumulative request/time counters, completed
+writes and ingest; do not upload, process or rebuild unchanged inputs again.
 
-The worker phase exceeded the bounded runtime; ingest completion, Catalog rendering,
-styling and restart/reopening remain unverified. Next, read back the exact retained
-dataset/version and ingest job before another worker attempt. Completion can be
-reconciled only from active dataset/version, completed job, no processing error and
-five features. Do not recreate the Project, repeat its upload or replay attempted
-processing. Reuse the accepted frontend and initialized stopped database.
-
-Community CI adds both existing regression suites to its existing job. Public
-standard-runner compute is free under GitHub's current terms; verified cache usage
-is below its separate free allowance, with no artifact uploads. Private Actions
-remain gated on verified remaining allowance. No AWS resources are started.
+The approved public main update is b5afc3d. Its existing two-job validation
+[passes](https://github.com/categori-se/opengeo-community/actions/runs/39058926252),
+including the added Catalog/form regression suites. Standard public-runner compute
+is free under GitHub's current terms; verified cache usage is 297,010,310 bytes,
+with no artifact uploads. Private Actions remain gated on verified allowance.
+Follow-up harness/docs changes stay on release branches for the next consolidated
+validation. Local API/worker containers are absent and the database is stopped.
+No AWS resources are started. Full independent installation and production
+identity/delivery remain open.
 
 October 17 — Standalone installation prerequisites accepted
 
