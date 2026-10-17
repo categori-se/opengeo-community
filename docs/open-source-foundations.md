@@ -176,21 +176,3 @@ This short treatment provides release checklist prompts. Legal review and the up
 6. Update this readable summary when the foundation is important enough to affect architecture, security, cost, interoperability, or product behavior.
 
 A dependency upgrade is complete after its attribution, security, runtime, interoperability, and release checks pass.
-
-
-## September 19 direct-dependency reconciliation
-
-The foundation gate now passes for 43 direct packages, 17 platform foundations and
-7 source-audited references. Added eight missing entries for notebook/compiler and
-Studio authoring dependencies, and recorded the builder use of Plot and D3.
-Manifest usage, exact versions and package-license expressions match existing
-lockfiles. Installed metadata and license files were inspected without fetching
-packages or changing versions; the [review record](../governance/foundation-inventory-review-20260919.json)
-retains their hashes and source locations.
-
-JSZip's declared `(MIT OR GPL-3.0-or-later)` expression is preserved as published;
-the inventory does not replace the package's license options or notices. Shipped
-notices, transitive/OS SBOMs and exact release-artifact review remain separate.
-Existing platform/reference entries were not newly source-audited by this update.
-GeoLens remains pinned in the parity source lock; this dependency reconciliation
-does not import it as a runtime package or add a new audited foundation reference.
