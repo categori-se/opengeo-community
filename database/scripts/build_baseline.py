@@ -130,16 +130,19 @@ def run(
 
 def load_migrations() -> list[MigrationSource]:
     paths = sorted(MIGRATIONS_DIR.glob("*.sql"))
-    if len(paths) != BASELINE_RELEASE:
-        fail(f"expected {BASELINE_RELEASE} migrations, found {len(paths)}")
+    if len(paths) < BASELINE_RELEASE:
+        fail(f"expected at least {BASELINE_RELEASE} migrations, found {len(paths)}")
     sources: list[MigrationSource] = []
     for expected, path in enumerate(paths, start=1):
         if not MIGRATION_NAME.fullmatch(path.name):
             fail(f"invalid migration filename: {path.name}")
         if int(path.name[:4]) != expected:
             fail(f"migration sequence is not contiguous at {path.name}")
-        data = path.read_bytes()
-        sources.append(MigrationSource(path.name, sha256(data), path))
+        # Later migrations remain forward upgrades, not changes to this baseline.
+        # Validate their sequence too, but reproduce only the pinned release.
+        if expected <= BASELINE_RELEASE:
+            data = path.read_bytes()
+            sources.append(MigrationSource(path.name, sha256(data), path))
     return sources
 
 

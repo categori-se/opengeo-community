@@ -815,7 +815,11 @@ class DatasetInspector:
                     ),
                 }
             )
-        if any("M" in layout for layer in layers for layout in (layer["coordinate_layouts"] or [])):
+        if any(
+            "M" in layout
+            for layer in layers
+            for layout in cast(list[str], layer["coordinate_layouts"] or [])
+        ):
             warnings.append(
                 {
                     "code": "working_parquet_measured_extension",

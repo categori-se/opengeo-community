@@ -479,7 +479,7 @@ try {
             const route = "/workspaces?adapter=fixture";
             const caseLabel = `${route} ${colorScheme} ${viewport.width}x${viewport.height}`;
             await visit(page, `${baseUrl}${route}`, `${caseLabel} project-directory acceptance`);
-            await page.locator(".platform-project-table").waitFor();
+            await page.locator('.composition-directory[data-state="ready"]').waitFor();
             await assertProjectDirectory(page, caseLabel);
           }
         );
@@ -3016,34 +3016,38 @@ async function assertBasemapResourceFeedback(browser, baseUrl) {
 }
 
 async function assertProjectDirectory(page, route) {
-  if (await page.locator(".platform-directory-action").count() !== 3) {
-    failures.push(`${route}: expected three focused project-directory creation and connection actions`);
+  await page.locator('.composition-directory[data-state="ready"]').waitFor();
+  const navigation = page.getByRole("navigation", {name: "Studio navigation", exact: true});
+  const destinations = await navigation.getByRole("link").allTextContents();
+  if (JSON.stringify(destinations) !== JSON.stringify([
+    "OpenGeo Studio", "Home", "Projects", "Catalog", "Styles", "Geographic tags", "Collections", "Publications"
+  ])) {
+    failures.push(`${route}: shared Studio destinations were incomplete (${JSON.stringify(destinations)})`);
   }
-  if (await page.locator(".platform-resource-navigation-item").count() !== 5) {
-    failures.push(`${route}: expected Projects, Data, Sources, Publishing, and Teams account destinations`);
-  }
-  if (await page.locator('.platform-resource-navigation-item[aria-current="page"]', {hasText: "Projects"}).count() !== 1) {
+  if (await navigation.locator('[aria-current="page"]').innerText() !== "Projects") {
     failures.push(`${route}: project destination was not identified as current`);
+  }
+  if (await page.locator(".platform-directory-action").count() !== 1) {
+    failures.push(`${route}: expected one focused New Project action`);
   }
   if (await page.locator(".platform-directory-advanced").count() !== 0) {
     failures.push(`${route}: project selection retained buried account administration panels`);
   }
-  await expectText(page, "Connections", "account dataset-connection entry");
   await expectText(page, "New Project", "durable OpenGeo Project creation entry");
-  await expectText(page, "New publication", "durable publication-project creation entry");
   if (await page.getByRole("link", {name: /^Open project$/}).count() !== 0) {
     failures.push(`${route}: project directory retained an arbitrary generic Open project shortcut`);
   }
-  const projectRows = page.locator(".platform-project-row");
-  if (await projectRows.count() === 0) {
-    failures.push(`${route}: no full-row project activation targets were rendered`);
+  const projectLinks = page.locator('.composition-directory tbody tr[data-composition-id] td:first-child > a').filter({hasNotText: "Related publications"});
+  if (await projectLinks.count() === 0) {
+    failures.push(`${route}: no authored Project activation targets were rendered`);
   } else {
-    const firstRow = projectRows.first();
-    if (!(await firstRow.getAttribute("aria-label"))?.startsWith("Open ")) {
-      failures.push(`${route}: project row has no explicit accessible Open label`);
+    const firstProject = projectLinks.first();
+    if (!/^\/workspaces\?composition=/.test(await firstProject.getAttribute("href") ?? "")) {
+      failures.push(`${route}: authored Project does not target its persistent composition identity`);
     }
-    if (!/^\/workspaces\?project=/.test(await firstRow.getAttribute("href") ?? "")) {
-      failures.push(`${route}: project row does not target a durable project route`);
+    await firstProject.focus();
+    if (!await firstProject.evaluate(element => element === document.activeElement && element.tabIndex === 0)) {
+      failures.push(`${route}: authored Project link cannot receive keyboard focus`);
     }
   }
   const layout = await page.locator(".platform-directory-actions").evaluate((container) => {
@@ -3058,57 +3062,76 @@ async function assertProjectDirectory(page, route) {
   if (layout.overlaps || layout.overflow > 1) {
     failures.push(`${route}: project actions overlap or overflow (${JSON.stringify(layout)})`);
   }
-  const projectLayout = await page.locator(".platform-directory").evaluate((directory) => {
-    const viewportWidth = document.documentElement.clientWidth;
-    const rows = [...directory.querySelectorAll(".platform-project-row")]
-      .map((element) => {
-        const rectangle = element.getBoundingClientRect();
-        return {
-          left: rectangle.left,
-          right: rectangle.right,
-          width: rectangle.width,
-          height: rectangle.height
-        };
-      });
+  const projectLayout = await page.locator(".composition-directory").evaluate((directory) => {
+    const bounds = directory.getBoundingClientRect();
     return {
-      documentOverflow: document.documentElement.scrollWidth - viewportWidth,
-      directoryOverflow: directory.scrollWidth - directory.clientWidth,
-      rows
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      left: bounds.left,
+      right: bounds.right,
+      // The table scrolls inside its own container on narrow screens.
+      scrollable: getComputedStyle(directory).overflowX === "auto"
     };
   });
-  if (projectLayout.documentOverflow > 1
-    || projectLayout.directoryOverflow > 1
-    || projectLayout.rows.some(({left, right, height}) => left < -1 || right > page.viewportSize().width + 1 || height < 44)) {
-    failures.push(`${route}: project rows overflow or miss the 44-pixel activation target (${JSON.stringify(projectLayout)})`);
+  if (projectLayout.documentOverflow > 1 || projectLayout.left < -1
+    || projectLayout.right > page.viewportSize().width + 1 || !projectLayout.scrollable) {
+    failures.push(`${route}: authored Projects escape their responsive scroll container (${JSON.stringify(projectLayout)})`);
   }
-  await page.getByRole("link", {name: /Data Authorized datasets/}).click();
+  const accountMenu = page.locator(".platform-account-menu");
+  const accountSummary = accountMenu.locator(":scope > summary");
+  await accountSummary.focus();
+  await page.keyboard.press("Enter");
+  if (!await accountMenu.evaluate(menu => menu.open)) {
+    failures.push(`${route}: account settings did not open from the keyboard`);
+  }
+  await page.keyboard.press("Escape");
+  if (!await accountMenu.evaluate(menu => !menu.open && document.activeElement === menu.querySelector("summary"))) {
+    failures.push(`${route}: account settings did not close and restore keyboard focus`);
+  }
+  await navigation.getByRole("link", {name: "Catalog", exact: true}).click();
   await page.getByRole("heading", {name: "Catalog", exact: true}).waitFor();
   try {
-    await page.locator(".platform-catalog-table").waitFor();
+    await page.locator(".platform-catalog-table").first().waitFor();
   } catch (error) {
     const catalogState = await page.locator(".platform-catalog-search").evaluate((catalog) => ({
       feedback: catalog.querySelector(".platform-note")?.textContent ?? null,
       forms: catalog.querySelectorAll("form").length,
       url: location.href
     })).catch(() => null);
-    throw new Error(`Data catalog did not finish loading: ${JSON.stringify(catalogState)}`, {cause: error});
+    throw new Error(`Catalog did not finish loading: ${JSON.stringify(catalogState)}`, {cause: error});
   }
   await expectText(page, "Access Road Network", "first-class authorized data catalog");
-  await page.getByRole("link", {name: /Sources.*Storage and services/}).click();
-  await page.getByRole("heading", {name: "Sources and connections", exact: true}).waitFor();
+  await page.locator(".platform-account-menu > summary").click();
+  await page.getByRole("navigation", {name: "Account settings", exact: true})
+    .getByRole("link", {name: "Connections", exact: true}).click();
+  await page.getByRole("heading", {name: "Connections", exact: true}).waitFor();
   if (await page.locator("#connections[open]").count() !== 1) {
-    failures.push(`${route}: Sources did not open the reusable connection interface directly`);
+    failures.push(`${route}: Connections did not open the reusable connection interface directly`);
   }
   await expectText(page, "s3://example-geodata/", "reusable fixture S3 target");
   await page.locator(".platform-connection-record").first().locator("summary").click();
   await expectText(page, "Live S3 verification", "truthful unverified connection disclosure");
-  await page.getByRole("link", {name: /Teams.*People and access/}).click();
-  await page.getByRole("heading", {name: "Teams and access", exact: true}).waitFor();
+  await page.getByRole("navigation", {name: "Account settings", exact: true})
+    .getByRole("link", {name: "Teams", exact: true}).click();
+  await page.getByRole("heading", {name: "Account teams", exact: true}).waitFor();
   if (await page.locator("#teams[open]").count() !== 1) {
-    failures.push(`${route}: Teams did not open membership and grant administration directly`);
+    failures.push(`${route}: Teams did not open account membership administration directly`);
   }
-  await page.getByRole("link", {name: /Projects.*Maps and publications/}).click();
-  await page.locator(".platform-project-table").waitFor();
+  await expectText(page, "A person can belong to a team without gaining any project access.", "team membership does not grant project access");
+  await expectText(page, "A project owner separately grants that team an owner, editor, reviewer, or viewer role.", "explicit resource grant scope");
+  if (await page.locator("#teams .platform-compact-record").count() === 0
+    || await page.locator("#teams").getByRole("button", {name: "Create team", exact: true}).count() !== 1
+    || await page.locator(".platform-project-directory").count() !== 0) {
+    failures.push(`${route}: account team records or administrator controls were missing or mixed with access-container administration`);
+  }
+  await navigation.getByRole("link", {name: "Publications", exact: true}).click();
+  await page.getByRole("heading", {name: "Publications", exact: true}).waitFor();
+  await expectText(page, "New publication", "durable publication creation entry");
+  await navigation.getByRole("link", {name: "Projects", exact: true}).focus();
+  await page.keyboard.press("Enter");
+  await page.locator('.composition-directory[data-state="ready"]').waitFor();
+  if (await navigation.locator('[aria-current="page"]').innerText() !== "Projects") {
+    failures.push(`${route}: keyboard return did not restore Projects navigation`);
+  }
 }
 
 async function assertGovernedRegionalBasemapWorkflow(page, route, {projectId, mapId}) {
@@ -5491,7 +5514,7 @@ async function assertBasemapProviderConnectionWorkflow(browser, baseUrl) {
   await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
     const route = "/workspaces?view=sources";
     await visit(page, `${baseUrl}${route}`, `${route} Protomaps connection setup`);
-    await page.getByRole("heading", {name: "Sources and connections", exact: true}).waitFor();
+    await page.getByRole("heading", {name: "Connections", exact: true}).waitFor();
     const providers = page.locator(".platform-basemap-connections");
     await providers.getByRole("button", {name: "Save provider connection"}).click();
     let record = providers.locator(".platform-connection-record", {hasText: "Protomaps hosted API"});
@@ -5653,19 +5676,18 @@ async function assertPlatformStates(browser, baseUrl) {
 
   await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
     await visit(page, `${baseUrl}/workspaces`, "/workspaces live API");
-    await page.locator(".platform-project-table").waitFor();
+    await page.locator('.composition-directory[data-state="ready"]').waitFor();
     await expectText(page, "Live API adapter · PostgreSQL-backed records", "live adapter banner");
     await expectText(page, "Nepal Energy Access", "API-backed project directory");
     if (await page.getByRole("button", {name: "Sign out", exact: true}).count() !== 1) {
       failures.push("API-backed project directory: expected one visible Sign out control");
     }
-    await page.getByRole("link", {name: /^Data/}).click();
-    await page.locator('.platform-resource-navigation-item[aria-current="page"]', {
-      hasText: "Data"
-    }).waitFor();
+    const navigation = page.getByRole("navigation", {name: "Studio navigation", exact: true});
+    await navigation.getByRole("link", {name: "Catalog", exact: true}).click();
+    await navigation.locator('a[aria-current="page"]', {hasText: "Catalog"}).waitFor();
     await page.getByLabel("Search organization datasets").fill("Access Road");
     await page.getByRole("button", {name: "Search catalog"}).click();
-    await page.locator(".platform-catalog-table").waitFor();
+    await page.locator(".platform-catalog-table").first().waitFor();
     await page.getByText("1 authorized dataset found.", {exact: true}).waitFor();
     await expectText(page, "1 authorized dataset found", "organization catalog discovery");
     await expectText(page, "Access Road Network", "organization catalog result");
@@ -6386,7 +6408,7 @@ async function assertPlatformStates(browser, baseUrl) {
     await page.locator('[data-state="invitation_required"]').waitFor();
     await expectText(page, "Accept your invitation", "pre-membership invitation state");
     await page.getByRole("button", {name: "Accept invitation"}).click();
-    await page.locator(".platform-project-table").waitFor();
+    await page.locator('.composition-directory[data-state="ready"]').waitFor();
     await expectText(page, "Nepal Energy Access", "accepted invitation project access");
   });
 
@@ -7677,7 +7699,9 @@ async function assertStudioAccount(browser, baseUrl) {
 async function assertInvitationRecovery(browser, baseUrl) {
   await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
     await visit(page, `${baseUrl}/workspaces`, "administrator invitation navigation");
-    await page.getByRole("link", {name: "People and access", exact: true}).click();
+    await page.locator(".platform-account-menu > summary").click();
+    await page.getByRole("navigation", {name: "Account settings", exact: true})
+      .getByRole("link", {name: "People and access", exact: true}).click();
     await page.getByRole("heading", {name: "People and access", exact: true}).waitFor();
     await page.getByLabel("Email", {exact: true}).fill("reviewer@example.com");
     await page.getByLabel("Display name", {exact: true}).fill("Reviewer");
@@ -7694,7 +7718,7 @@ async function assertInvitationRecovery(browser, baseUrl) {
       throw new Error("Administrator invitation did not retain the selected project and access scope");
     }
     await page.getByRole("link", {name: "Back to projects", exact: true}).click();
-    await page.locator(".platform-project-table").waitFor();
+    await page.locator('.composition-directory[data-state="ready"]').waitFor();
   });
   for (const viewport of [{width: 1440, height: 950}, {width: 390, height: 844}]) {
     acceptedInvitationTokens.delete("invited.test.token");
@@ -7730,7 +7754,7 @@ async function assertInvitationRecovery(browser, baseUrl) {
       if (overflowing) throw new Error(`Invitation recovery overflows at ${viewport.width}px`);
       if (screenshotsEnabled) await page.screenshot({path: join(artifactRoot, `invitation-recovery-${viewport.width}.png`), fullPage: true});
       await page.getByRole("button", {name: "Accept invitation", exact: true}).click();
-      await page.locator(".platform-project-table").waitFor();
+      await page.locator('.composition-directory[data-state="ready"]').waitFor();
       if (acceptanceWrites !== 1 || documents.length !== 1) {
         throw new Error("Explicit acceptance must perform one write and return to projects without a redirect");
       }
@@ -7767,17 +7791,18 @@ async function withPlatformPage(
   callback
 ) {
   const flightOnly = process.argv.includes("--flight-simulator");
+  const offlineDirectory = process.argv.includes("--project-directory");
   const context = await browser.newContext({
     colorScheme, viewport, hasTouch, isMobile,
-    ...(flightOnly ? {serviceWorkers: "block"} : {})
+    ...(flightOnly || offlineDirectory ? {serviceWorkers: "block"} : {})
   });
-  if (flightOnly) {
+  if (flightOnly || offlineDirectory) {
     // Register first so the existing explicit local/provider fixture routes take
     // precedence. Every remaining remote request fails before network access.
     await context.route("**/*", async (route) => {
       if (new URL(route.request().url()).origin === baseUrl) return route.continue();
       flightBrowserRequests.blockedUnexpected += 1;
-      failures.push(`flight simulator: unexpected external request blocked (${new URL(route.request().url()).origin})`);
+      failures.push(`${offlineDirectory ? "project directory" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
       await route.abort("blockedbyclient");
     });
     context.on("request", (request) => {
@@ -8431,6 +8456,21 @@ async function handleApiRequest(request, response) {
       status: "active",
       caller_role: "admin"
     }, requestId);
+    return true;
+  }
+
+  if (url.pathname === "/api/compositions" && request.method === "GET") {
+    const query = (url.searchParams.get("q") ?? "").toLowerCase();
+    const status = url.searchParams.get("status") ?? "active";
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 50);
+    const records = allProjectPayloads().flatMap(project => mapPayloadsForProject(project.id)
+      .map(map => ({id: map.id, resource_type: "project", access_container_id: project.id,
+        access_container_name: project.name, name: map.name, description: map.description,
+        status: map.status, version: map.version, updated_at: map.updated_at})))
+      .filter(record => (status === "all" || record.status === status)
+        && `${record.name} ${record.description ?? ""} ${record.access_container_name}`.toLowerCase().includes(query));
+    writeJson(response, 200, records.slice(offset, offset + limit), requestId);
     return true;
   }
 

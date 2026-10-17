@@ -63,10 +63,14 @@ SUPPORTED_MAPLIBRE_VERSIONS = frozenset({"5.24.0", "6.0.0"})
 
 def bound_engine_version(request: dict[str, Any], runtime: dict[str, Any]) -> str:
     """Use the verified package identity; legacy requests remain pinned to v5."""
-    version = runtime.get("maplibreVersion")
+    version: str | None = runtime.get("maplibreVersion")
     expected = request.get("maplibreVersion")
     if expected is None and "runtimeReference" not in request:
         expected = "5.24.0"
-    if version not in SUPPORTED_MAPLIBRE_VERSIONS or (expected is not None and expected != version):
+    if (
+        version is None
+        or version not in SUPPORTED_MAPLIBRE_VERSIONS
+        or (expected is not None and expected != version)
+    ):
         raise ValidationFailure("saved_map_gl_engine_identity_mismatch")
     return version

@@ -7,6 +7,7 @@ import pytest
 
 from opengeo_api.authorization import Roles
 from opengeo_api.observable_sources import (
+    OBSERVABLE_SOURCE_MANIFEST_SCHEMA,
     ObservableSourceAccessDenied,
     ObservableSourceConflict,
     PostgresObservableSourceRepository,
@@ -100,7 +101,9 @@ def test_build_refuses_unstaged_references_before_reusing_an_old_job():
     repo = PostgresObservableSourceRepository(Executor())
     repo._project_roles = AsyncMock(return_value=Roles(organization="admin", project="owner"))
     repo._load_project = AsyncMock(return_value=SimpleNamespace())
-    repo._load_revision = AsyncMock(return_value=SimpleNamespace())
+    repo._load_revision = AsyncMock(
+        return_value=SimpleNamespace(manifest={"schemaVersion": OBSERVABLE_SOURCE_MANIFEST_SCHEMA})
+    )
     with pytest.raises(ObservableSourceConflict, match="staging_unavailable"):
         asyncio.run(
             repo.create_build_job(
@@ -114,6 +117,7 @@ def test_build_refuses_unstaged_references_before_reusing_an_old_job():
             )
         )
     assert transaction.fetch_one.await_count == 1
+    assert "app.publication_artifact_reference_sets" in transaction.fetch_one.await_args.args[0]
 
 
 def test_reference_routes_keep_intent_distinct_from_builds_and_disable_caching():

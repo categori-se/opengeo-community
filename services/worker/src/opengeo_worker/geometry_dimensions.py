@@ -61,7 +61,9 @@ def dimension_evidence(geometry_fields: list[object]) -> dict[str, object]:
     known = bool(layouts) and all(value is not None for value in layouts)
     return {
         "geometry_fields": declarations,
-        "coordinate_layouts": sorted(set(layouts)) if known else None,
+        "coordinate_layouts": sorted({value for value in layouts if value is not None})
+        if known
+        else None,
         "coordinate_dimension": next(iter(dimensions)) if known and len(dimensions) == 1 else None,
         "coordinate_dimension_basis": "ogrinfo declared geometry types",
     }

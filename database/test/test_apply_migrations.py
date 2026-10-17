@@ -19,6 +19,14 @@ MODULE = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
+BASELINE_SPEC = importlib.util.spec_from_file_location(
+    "opengeo_build_baseline", MODULE_PATH.with_name("build_baseline.py")
+)
+assert BASELINE_SPEC is not None and BASELINE_SPEC.loader is not None
+BASELINE_MODULE = importlib.util.module_from_spec(BASELINE_SPEC)
+sys.modules[BASELINE_SPEC.name] = BASELINE_MODULE
+BASELINE_SPEC.loader.exec_module(BASELINE_MODULE)
+
 
 class SqlSplitterTests(unittest.TestCase):
     def test_preserves_dollar_quoted_functions_and_semicolons(self) -> None:
@@ -51,6 +59,43 @@ class SqlSplitterTests(unittest.TestCase):
             MODULE.split_sql("BEGIN; SELECT $$missing;")
 
 
+class BaselineGeneratorPrefixTests(unittest.TestCase):
+    def test_reproduces_only_the_recorded_release_prefix_with_forward_migrations(self):
+        sources = BASELINE_MODULE.load_migrations()
+        manifest = json.loads(
+            (BASELINE_MODULE.BASELINES_DIR / BASELINE_MODULE.MANIFEST_NAME).read_text()
+        )
+        self.assertEqual(len(sources), BASELINE_MODULE.BASELINE_RELEASE)
+        self.assertEqual(
+            [{"name": item.name, "sha256": item.sha256} for item in sources],
+            manifest["migrations"],
+        )
+        self.assertEqual(
+            BASELINE_MODULE.migration_chain_sha256(sources),
+            manifest["migrationChainSha256"],
+        )
+
+    def test_validates_the_entire_sequence_including_forward_migrations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for number in range(1, BASELINE_MODULE.BASELINE_RELEASE + 1):
+                (directory / f"{number:04d}_fixture.sql").write_text("SELECT 1;\n")
+            with patch.object(BASELINE_MODULE, "MIGRATIONS_DIR", directory):
+                tail = directory / "0090_forward.sql"
+                tail.write_text("SELECT 2;\n")
+                self.assertEqual(len(BASELINE_MODULE.load_migrations()), 89)
+                tail.rename(directory / "0090_Invalid.sql")
+                with self.assertRaisesRegex(BASELINE_MODULE.BaselineError, "invalid migration filename"):
+                    BASELINE_MODULE.load_migrations()
+                (directory / "0090_Invalid.sql").rename(directory / "0091_gap.sql")
+                with self.assertRaisesRegex(BASELINE_MODULE.BaselineError, "not contiguous"):
+                    BASELINE_MODULE.load_migrations()
+                (directory / "0091_gap.sql").unlink()
+                (directory / "0089_fixture.sql").unlink()
+                with self.assertRaisesRegex(BASELINE_MODULE.BaselineError, "expected at least 89"):
+                    BASELINE_MODULE.load_migrations()
+
+
 class MigrationPlanTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -62,14 +107,14 @@ class MigrationPlanTests(unittest.TestCase):
             cls.migrations,
         )
 
-    def test_loads_exact_contiguous_167_migrations(self) -> None:
-        self.assertEqual(len(self.migrations), 167)
+    def test_loads_exact_contiguous_175_migrations(self) -> None:
+        self.assertEqual(len(self.migrations), 175)
         self.assertEqual(self.migrations[0].name, "0001_platform_foundation.sql")
         self.assertEqual(
             self.migrations[-1].name,
-            "0167_observable_catalog_reference_workspaces.sql",
+            "0175_analysis_runtime_control.sql",
         )
-        self.assertEqual([item.number for item in self.migrations], list(range(1, 168)))
+        self.assertEqual([item.number for item in self.migrations], list(range(1, 176)))
 
     def test_implicit_migration_is_atomic_and_retains_its_source_checksum(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -156,6 +201,7 @@ class MigrationPlanTests(unittest.TestCase):
             "0089_imageserver_sources.sql",
             "0129_mapserver_sources.sql",
             "0156_referenced_cog_sources.sql",
+            "0171_external_postgis_layers_and_previews.sql",
         }
         actual = {
             migration.name
@@ -163,7 +209,7 @@ class MigrationPlanTests(unittest.TestCase):
             if migration.transaction_count == 2
         }
         self.assertEqual(actual, expected_two_transaction_migrations)
-        self.assertEqual(sum(item.transaction_count for item in self.migrations), 176)
+        self.assertEqual(sum(item.transaction_count for item in self.migrations), 185)
 
     def test_connector_password_configuration_is_explicit_and_optional(self) -> None:
         self.assertIn("opengeo_connector", MODULE.ALLOWED_DATABASE_ROLES)
