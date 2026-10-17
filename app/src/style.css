@@ -12971,6 +12971,30 @@ a.platform-site-switcher-item:focus-visible {
 }
 /* Visibility actions stay above the map, including in map-only mode. */
 .opengeo-workbench .gis-map-column { grid-template-rows: minmax(0, 1fr) auto auto; }
+.opengeo-workbench .gis-map-column.gis-analysis-console-open { grid-template-rows: minmax(0, 1fr) auto auto minmax(14rem, 35vh); }
+.opengeo-workbench .gis-analysis-console { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; border-top: 1px solid var(--gis-line); background: var(--gis-panel-bg); color: var(--gis-ink); font: 13px/1.4 system-ui; }
+.opengeo-workbench .gis-analysis-console[hidden] { display: none; }
+.opengeo-workbench .gis-analysis-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; padding: .4rem .6rem; border-bottom: 1px solid var(--gis-line); }
+.opengeo-workbench .gis-analysis-toolbar strong { margin-right: auto; }
+.opengeo-workbench .gis-analysis-console :is(button, select) { width: auto; min-height: 1.9rem; padding: .2rem .5rem; font: inherit; background: var(--gis-panel-strong); color: var(--gis-ink); border: 1px solid var(--gis-line); border-radius: 4px; }
+.opengeo-workbench .gis-analysis-console button:disabled { opacity: .55; }
+.opengeo-workbench .gis-analysis-body { display: grid; grid-template-columns: minmax(8rem, 24%) minmax(0, 1fr); min-height: 0; flex: 1; }
+.opengeo-workbench .gis-analysis-inputs { min-width: 0; overflow: auto; margin: .4rem; padding: .4rem; border: 1px solid var(--gis-line); }
+.opengeo-workbench .gis-analysis-input-list label { display: flex; align-items: flex-start; gap: .4rem; padding: .2rem 0; overflow-wrap: anywhere; }
+.opengeo-workbench .gis-analysis-input-list input[type=checkbox] { flex: 0 0 auto; width: 1rem; height: 1rem; min-height: 0; margin: .15rem 0 0; }
+.opengeo-workbench :is(.gis-analysis-input-note, .gis-analysis-runtime-note) { margin: .3rem 0; color: var(--gis-muted); font-size: 11px; }
+.opengeo-workbench .gis-analysis-workspace { min-width: 0; min-height: 0; overflow: auto; display: grid; grid-template-rows: auto minmax(7rem, 1fr) auto auto auto auto; gap: .25rem; padding: .4rem; }
+.opengeo-workbench .gis-analysis-script-actions { display: flex; gap: .4rem; }
+.opengeo-workbench .gis-analysis-editor { min-width: 0; min-height: 7rem; position: relative; border: 1px solid var(--gis-line); }
+.opengeo-workbench .gis-analysis-source { display: block; box-sizing: border-box; width: 100%; height: 100%; min-height: 7rem; resize: vertical; padding: .5rem; border: 0; background: var(--gis-panel-strong); color: var(--gis-ink); font: 13px/1.5 monospace; tab-size: 2; }
+.opengeo-workbench .gis-analysis-source[hidden] { display: none; }
+.opengeo-workbench .gis-analysis-output { max-height: 8rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font: 12px/1.4 monospace; }
+.opengeo-workbench .gis-analysis-output:empty { display: none; }
+@media(max-width: 600px) {
+  .opengeo-workbench .gis-analysis-body { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .opengeo-workbench .gis-analysis-inputs { max-height: 5rem; }
+  .opengeo-workbench .gis-analysis-workspace { overflow: visible; }
+}
 .opengeo-workbench .gis-map-attribution { background: var(--gis-panel-bg); color: var(--gis-ink); font: 11px/1.4 system-ui; }
 .opengeo-workbench .gis-map-attribution .maplibregl-ctrl-attrib { float: none; margin: 0; padding: 2px 6px; background: transparent; text-align: right; }
 .opengeo-workbench .gis-map-attribution a { color: inherit; }

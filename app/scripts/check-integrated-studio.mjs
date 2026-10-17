@@ -19,6 +19,7 @@ import {exerciseStudioWcs} from "./integrated-studio-wcs.mjs";
 import {localObjectDownload} from "./integrated-studio-object-transport.mjs";
 import {exerciseManagedConversion} from "./integrated-studio-conversion.mjs";
 import {exerciseStudioAccess} from "./integrated-studio-access.mjs";
+import {createLocalAnalysisBridge, loadLocalAnalysisRunner} from "./integrated-studio-analysis-runner.mjs";
 
 const work = resolve(process.argv[2] ?? "");
 const {built:builtStudio, pinnedFonts:pinnedFontMode, restore:restoreCheckpoint,serviceClients:allServicesMode,wcsOnly:wcsOnlyMode,analysisOnly:analysisOnlyMode,development:developmentMode} = integratedStudioShellMode(process.argv.slice(3));
@@ -52,6 +53,8 @@ let serviceClients = null;
 let developmentWorkerRunning = false;
 const developmentSmoke = developmentMode && process.env.OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE === "1";
 const developmentWrites = new Map();
+const localAnalysisRunner = developmentMode ? loadLocalAnalysisRunner(work) : null;
+let localAnalysisBridge;
 
 function apiRequest(path, {method = "GET", headers = {}, body} = {}) {
   if (rendererPersistenceMode) assert.ok(requests.length < 160,"Renderer persistence request ceiling");
@@ -147,6 +150,7 @@ const server = createServer(async (request, response) => {
     const path = new URL(request.url, "http://localhost").pathname;
     if (developmentMode && (request.headers.host !== new URL(origin).host ||
       (request.headers.origin && request.headers.origin !== origin))) return response.writeHead(403).end("Loopback development only");
+    if (developmentMode && await localAnalysisBridge(request, response, path)) return;
     if (developmentMode && path === "/__local/development" && request.method === "GET") {
       response.setHeader("Content-Type","text/html; charset=utf-8").setHeader("Cache-Control","no-store").end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>OpenGeo community development</title><h1>OpenGeo community development</h1><p>Local development only. Sign-in is synthetic. Database, uploaded files and queued jobs persist after closing Chromium. External browser requests are blocked; choose Blank canvas.</p><p><a href="/" target="_blank">Open Studio</a></p><form method="post" action="/__local/process"><button>Process queued local jobs</button></form><p>After requesting a conversion or image in Studio, process the queue here, then refresh that result in Studio. Keep this page available. Close every Chromium window to stop.</p></html>`);
     } else if (developmentMode && path === "/__local/process" && request.method === "POST") {
@@ -196,6 +200,7 @@ const server = createServer(async (request, response) => {
 });
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const origin = `http://127.0.0.1:${server.address().port}`;
+if (developmentMode) localAnalysisBridge = createLocalAnalysisBridge({runner: localAnalysisRunner, origin});
 let browser, page;
 const errors = [];
 let stage = "project-creation";

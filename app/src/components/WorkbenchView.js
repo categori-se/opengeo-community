@@ -1,5 +1,7 @@
 import {cesiumWorkbenchContent, prepareCesiumWorkbench, cesiumWorkbenchAdapter, rendererTitle} from "../lib/cesiumWorkbench.js";
 import {cogDisplayOptions} from "../lib/cogDisplay.js";
+import {AnalysisConsole} from "./AnalysisConsole.js";
+import {createLocalAnalysisRuntime} from "../lib/analysisLocalRuntime.js";
 import {RendererPanel} from "./RendererPanel.js";
 import {createMapboxSession} from "../lib/mapboxSession.js";
 import {createMapboxLoader} from "../lib/mapboxLoader.js";
@@ -449,7 +451,8 @@ function createWorkbenchView({
   restoreBrowserDraft = true,
   account = null,
   canResumeRenderer = null,
-  onPublicationMapExport = null
+  onPublicationMapExport = null,
+  analysisRuntime = null
 } = {}) {
   const shell = document.createElement("section");
   shell.className = "opengeo-workbench";
@@ -722,6 +725,7 @@ function createWorkbenchView({
   replaceLayerOrder(workingLayers, normalizeProjectLayerOrder(workingLayers, project?.layerTree));
 
   const context = {
+    analysisRuntime,
     canResumeRenderer,
     rendererAdapter,
     mapFontAttachments,
@@ -903,6 +907,8 @@ function createWorkbenchView({
     return !context.rendererSuspended && Boolean(state.map);
   };
   const accountNavigation = () => {
+    context.analysisConsole?.dispose();
+    context.analysisConsole = null;
     context.queryLocationScopeInvalid = true;
     cancelDrillDownIdentify(context);
     cancelQueryLocationRequest(context);
@@ -913,6 +919,7 @@ function createWorkbenchView({
   shell.dispose = () => {
     if (context.disposed) return;
     context.disposed = true;
+    context.analysisConsole?.dispose();
     context.browserPrintStudio?.dispose?.();
     context.localProjectDialog?.dispose?.();
     context.pointSymbolDialog?.dispose?.();
@@ -971,6 +978,7 @@ function createWorkbenchView({
   attribution.className = "gis-map-attribution maplibregl-map";
   attribution.setAttribute("aria-label", "Map attribution");
   mapColumn.append(mapContainer, attribution, statusbar);
+  context.mapColumn = mapColumn;
   shell.append(topbar, leftPanel, mapColumn, rightPanel, mobileToolbar, modalLayer);
   context.modalLayer = modalLayer;
 
@@ -981,6 +989,7 @@ function createWorkbenchView({
     panelAfterAdd
   });
   context.render = () => {
+    context.analysisConsole?.setTheme(state.colorMode === "dark");
     if(context.rasterObserverPick&&state.activePanel!=="style")context.rasterViewshed?.view.cancelPick();
     const area = state.queryLocationState;
     if (area && (area.layer !== activeLayer(context) || area.draft !== state.queryDraft
@@ -1039,6 +1048,9 @@ function createWorkbenchView({
       || localDraftSignature(context) !== context.localDraftBaseline
   });
   shell.addEventListener("keydown", event => {
+    if ((event.ctrlKey || event.metaKey) && event.code === "Backquote" && !event.defaultPrevented) {
+      event.preventDefault();toggleAnalysisConsole(context);return;
+    }
     if (event.key === "Escape" && state.mapOnly && !event.defaultPrevented
       && !event.target.closest("dialog")) {
       event.preventDefault();
@@ -2760,6 +2772,7 @@ function toolbarMenus(context) {
           menuAction("Rendering engine…", () => {
             state.activePanel = "renderer"; state.rightOpen = true; context.render();
           }),
+          menuAction("Analysis console", () => toggleAnalysisConsole(context), {shortcut: "Ctrl+`"}),
           menuAction(state.mapOnly ? "Show panels and tools" : "Map only", () => setMapOnly(context, !state.mapOnly)),
           menuAction("Camera tour", () => openCameraTourPanel(context)),
           menuAction("Flight simulator", () => openFlightSimulatorPanel(context), {
@@ -2844,7 +2857,8 @@ function toolbarMenus(context) {
     {
       id: "processing",
       label: "Processing",
-      sections: [[menuAction("Project processing jobs", () => openProjectCatalog(context))], ...groupedTools().map(([category, tools]) => [
+      sections: [[menuAction("Analysis console…", () => toggleAnalysisConsole(context)),
+        menuAction("Project processing jobs", () => openProjectCatalog(context))], ...groupedTools().map(([category, tools]) => [
         menuLabel(category),
         ...tools.map((tool) => menuAction(`${tool.title} (${tool.engine})`, () => {
           if (isMobileWorkbenchViewport()) state.leftOpen = false;
@@ -5251,7 +5265,51 @@ function searchPanel(context) {
   return section;
 }
 
+function analysisInputLayers(context) {
+  const completeTypes = new Set(["geojson-object", "geojson-archive", "governed-dataset", "arcgis-feature-layer-snapshot"]);
+  return context.layers.filter(layer => completeTypes.has(layer.sourceType)
+    && !layer.managedDisplayId && !context.layerArchiveModes.has(layer.layerId)
+    && !context.loadingDatasetLayerIds.has(layer.layerId)
+    && !context.failedDatasetLayerIds.has(layer.layerId)
+    && context.dataByLayerId.get(layer.layerId)?.type === "FeatureCollection").map(layer => ({
+      id: layer.layerId, title: layer.title, geojson: context.dataByLayerId.get(layer.layerId),
+      inputPin: {layerId: layer.layerId, datasetId: layer.datasetId ?? null,
+        datasetVersionId: layer.datasetVersionId ?? null, sourceVersion: layer.sourceVersion ?? null,
+        featureGeneration: layer.featureGeneration ?? null,
+        checksumSha256: layer.sourceConfiguration?.checksumSha256 ?? null}
+    }));
+}
+
+function toggleAnalysisConsole(context) {
+  if (context.disposed) return;
+  if (context.analysisConsole && !context.analysisConsole.element.hidden) {context.analysisConsole.close();return;}
+  if (context.state.mapOnly) setMapOnly(context, false);
+  if (!context.analysisConsole) {
+    const local = createLocalAnalysisRuntime();
+    context.analysisConsole = AnalysisConsole({getLayers: () => analysisInputLayers(context),
+      runNative: context.analysisRuntime?.runNative ?? local.runNative,
+      getNativeCapabilities: context.analysisRuntime?.getNativeCapabilities ?? local.getNativeCapabilities,
+      runManaged: context.analysisRuntime?.runManaged,
+      getManagedCapabilities: context.analysisRuntime?.getManagedCapabilities,
+      dark: context.state.colorMode === "dark",
+      onClose: () => {context.mapColumn.classList.remove("gis-analysis-console-open");context.state.map?.resize?.();},
+      onResult: ({geojson, execution, language, inputPins}) => {
+        if (context.disposed) throw Error("This map has closed.");
+        const result = {...geojson, "opengeo:analysis": {operation: "script", language,
+          execution, inputs: inputPins, persisted: false, crs: "CRS:84"}};
+        addProcessingOutputLayer(context, {title: "Analysis", layerId: null, datasetId: null},
+          "script", result, `${language === "javascript" ? "JavaScript" : language === "python" ? "Python" : "Bash"} analysis result`);
+      }
+    });
+    context.mapColumn.append(context.analysisConsole.element);
+  }
+  context.mapColumn.classList.add("gis-analysis-console-open");
+  context.analysisConsole.open();context.state.activeMenu = null;context.render();
+  requestAnimationFrame(() => context.state.map?.resize?.());
+}
+
 function setMapOnly(context, enabled) {
+  if (enabled) context.analysisConsole?.close();
   context.state.mapOnly = enabled;
   context.state.activeMenu = null;
   context.render();

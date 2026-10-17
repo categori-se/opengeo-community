@@ -16,9 +16,9 @@ async function loadFrameworkCompiler() {
   return frameworkCompiler;
 }
 export const publicationLanguage = path => ({md: 'markdown', html: 'html', css: 'css', js: 'javascript',
-  mjs: 'javascript', json: 'json', ipynb: 'json', geojson: 'json', svg: 'xml', yaml: 'yaml', yml: 'yaml'}[String(path).split('.').pop().toLowerCase()] ?? 'plaintext');
+  mjs: 'javascript', py: 'python', sh: 'shell', bash: 'shell', json: 'json', ipynb: 'json', geojson: 'json', svg: 'xml', yaml: 'yaml', yml: 'yaml'}[String(path).split('.').pop().toLowerCase()] ?? 'plaintext');
 
-async function loadRuntime() {
+export async function loadCodeEditorRuntime() {
   if (!runtime) runtime = (async () => {
     const response = await fetch('/editor-assets/manifest.json', {credentials: 'omit', cache: 'no-store'});
     if (!response.ok) throw Error('Editor assets unavailable');
@@ -39,7 +39,7 @@ async function loadRuntime() {
 
 /** Keep the existing exact-byte/save contract; Monaco edits only its text buffer. */
 export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, getSourceContext, preview: previewOverride,
-  onDispose = () => {}, draftPreviewEnabled = frameworkDraftPreviewEnabled, loadEditor = loadRuntime,
+  onDispose = () => {}, draftPreviewEnabled = frameworkDraftPreviewEnabled, loadEditor = loadCodeEditorRuntime,
   loadFramework = loadFrameworkCompiler, loadCellTools = loadNotebookCellTools}) {
   const element = document.createElement('div'); element.className = 'publication-code-editor'; element.hidden = true;
   const status = document.createElement('div'); status.className = 'publication-editor-status'; status.setAttribute('role', 'status');

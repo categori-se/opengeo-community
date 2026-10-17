@@ -33,7 +33,7 @@ export class PodmanRunner {
     this.command = command;
     this.temporaryDirectory = temporaryDirectory;
     if (imageRepository !== undefined && imageRepository !==
-        "111111111111.dkr.ecr.us-east-1.amazonaws.com/opengeo/production/observable-builder") {
+        "977060200223.dkr.ecr.us-east-1.amazonaws.com/opengeo/production/observable-builder") {
       throw new CoordinatorContractError("runner_image_repository_invalid");
     }
     this.imageRepository = imageRepository;
@@ -78,18 +78,7 @@ export function podmanArguments({contract, input, workspace, result, imageDigest
     "run",
     "--rm",
     "--pull=never",
-    "--network=none",
-    "--read-only",
-    "--cap-drop=all",
-    "--security-opt=no-new-privileges",
-    "--ipc=private",
-    "--pids-limit=128",
-    `--memory=${limits.memoryMiB}m`,
-    `--memory-swap=${limits.memoryMiB}m`,
-    `--cpus=${(limits.cpuMillis / 1000).toFixed(3)}`,
-    "--ulimit=nofile=1024:1024",
-    "--userns=keep-id:uid=10001,gid=10001",
-    "--user=10001:10001",
+    ...containerIsolationArguments(limits),
     `--volume=${contract}:/contract:ro,Z`,
     `--volume=${input}:/input:ro,Z`,
     `--volume=${workspace}:/workspace:rw,Z`,
@@ -102,6 +91,16 @@ export function podmanArguments({contract, input, workspace, result, imageDigest
       "--page-cache", "/contract/page-cache"
     ] : [])
   ];
+}
+
+// Shared process isolation only; publication mounts, image and entrypoint stay
+// owned by podmanArguments. Its default argument sequence is unchanged.
+export function containerIsolationArguments(limits, {pids = 128, nofile = 1024} = {}) {
+  return ["--network=none", "--read-only", "--cap-drop=all",
+    "--security-opt=no-new-privileges", "--ipc=private", `--pids-limit=${pids}`,
+    `--memory=${limits.memoryMiB}m`, `--memory-swap=${limits.memoryMiB}m`,
+    `--cpus=${(limits.cpuMillis / 1000).toFixed(3)}`, `--ulimit=nofile=${nofile}:${nofile}`,
+    "--userns=keep-id:uid=10001,gid=10001", "--user=10001:10001"];
 }
 
 async function stage(root, invocation, inputs, incrementalPageCache) {

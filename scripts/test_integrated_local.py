@@ -64,6 +64,44 @@ class InitializationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "symlink"):
                 studio.development_state(link, "image")
 
+    def test_analysis_profile_is_explicit_private_and_cleared_without_opt_in(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            source = work / "operator.json"
+            profile = {"profiles": {"python": {"image": "sha256:" + "a" * 64,
+                                              "interpreter": "/usr/bin/python3"}}}
+            source.write_text(json.dumps(profile))
+            studio.stage_analysis_profile(work, source)
+            staged = work / "analysis-profile.json"
+            self.assertEqual(json.loads(staged.read_text()), {"enabled": True, **profile})
+            self.assertEqual(stat.S_IMODE(staged.stat().st_mode), 0o600)
+            studio.stage_analysis_profile(work)
+            self.assertFalse(staged.exists())
+            self.assertTrue(source.exists())
+            args = studio.parse_args(["--development", "--state-directory", str(work),
+                                      "--analysis-profile", str(source)])
+            self.assertEqual(args.analysis_profile, source)
+            with self.assertRaises(SystemExit), patch("sys.stderr", new=io.StringIO()):
+                studio.parse_args(["--analysis-profile", str(source)])
+
+    def test_analysis_profile_rejects_mutable_images_commands_and_widened_limits(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            source = work / "operator.json"
+            good = {"profiles": {"bash": {"image": "sha256:" + "a" * 64, "interpreter": "/bin/bash"}}}
+            bad = [dict(good, enabled=True), dict(good, timeoutSeconds=31), dict(good, memoryMiB=1024),
+                   {"profiles": {"bash": {"image": "node:latest", "interpreter": "/bin/bash"}}},
+                   {"profiles": {"bash": {"image": "sha256:" + "a" * 64, "interpreter": "/bin/sh"}}}]
+            for value in bad:
+                source.write_text(json.dumps(value))
+                with self.assertRaises(ValueError):
+                    studio.stage_analysis_profile(work, source)
+            link = work / "linked.json"
+            link.symlink_to(source)
+            with self.assertRaises(ValueError):
+                studio.stage_analysis_profile(work, link)
+            self.assertFalse((work / "analysis-profile.json").exists())
+
     def test_local_queue_retains_jobs_added_during_processing(self):
         with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)):
             queue = pilot.LocalQueue()

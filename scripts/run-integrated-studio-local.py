@@ -739,6 +739,9 @@ def orchestrate(
         ROOT / "app/scripts/check-integrated-studio.mjs",
         ROOT / "app/scripts/integrated-studio-conversion.mjs",
         ROOT / "app/scripts/integrated-studio-analysis.mjs",
+        ROOT / "app/scripts/integrated-studio-analysis-runner.mjs",
+        ROOT / "services/observable-coordinator/src/analysis-runner.mjs",
+        ROOT / "services/observable-coordinator/src/podman-runner.mjs",
         ROOT / "app/scripts/integrated-studio-renderers.mjs",
         ROOT / "app/scripts/integrated-studio-object-transport.mjs",
         ROOT / "app/scripts/integrated-studio-font-mode.mjs",
@@ -931,6 +934,42 @@ def development_state(directory, database_image):
     return directory, metadata
 
 
+def stage_analysis_profile(work, source=None):
+    """Explicit local opt-in only; never retain activation across an omitted flag."""
+    target = work / "analysis-profile.json"
+    if target.is_symlink():
+        raise ValueError("Analysis profile must not be a symlink")
+    if source is None:
+        target.unlink(missing_ok=True)
+        return
+    source = Path(source)
+    if source.is_symlink() or not source.is_file() or source.stat().st_uid != os.getuid() or source.stat().st_size > 16384:
+        raise ValueError("Analysis profile must be a small owned regular JSON file")
+    config = json.loads(source.read_text())
+    if (not isinstance(config, dict) or set(config) - {"profiles", "timeoutSeconds", "memoryMiB"}
+            or not isinstance(config.get("profiles"), dict) or not config["profiles"]):
+        raise ValueError("Analysis profile has unsupported configuration")
+    interpreters = {"python": {"/usr/bin/python3", "/usr/local/bin/python3", "/var/lang/bin/python3.14"},
+                    "javascript": {"/usr/bin/node", "/usr/local/bin/node", "/nodejs/bin/node", "/var/lang/bin/node"},
+                    "bash": {"/bin/bash", "/usr/bin/bash"}}
+    for language, profile in config["profiles"].items():
+        if (language not in interpreters or not isinstance(profile, dict) or set(profile) != {"image", "interpreter"}
+                or not isinstance(profile["image"], str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", profile["image"])
+                or not isinstance(profile["interpreter"], str) or profile["interpreter"] not in interpreters[language]):
+            raise ValueError("Analysis requires exact cached image IDs and allowlisted native interpreters")
+    timeout, memory = config.get("timeoutSeconds", 10), config.get("memoryMiB", 256)
+    if type(timeout) is not int or not 1 <= timeout <= 30 or type(memory) is not int or memory not in (256, 512):
+        raise ValueError("Analysis resource limits are outside the supported local profile")
+    staged = work / f".analysis-profile-{uuid4().hex}.json"
+    try:
+        with open(staged, "x", opener=lambda path, flags: os.open(path, flags, 0o600)) as handle:
+            json.dump({"enabled": True, **config}, handle)
+            handle.write("\n")
+        staged.replace(target)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
 def development(args):
     """Retain local data; use the same built Studio, isolated API and worker seams."""
     sys.path.insert(0, str(ROOT / "database/scripts"))
@@ -948,6 +987,7 @@ def development(args):
         except BlockingIOError as error:
             raise ValueError("This development state is already open") from error
         work, metadata = development_state(work, IMAGE)
+        stage_analysis_profile(work, args.analysis_profile)
         name = metadata["database"]
         server_name, worker_name = f"{name}-api", f"{name}-worker"
         process = None
@@ -1025,6 +1065,7 @@ def parse_args(argv=None):
     parser.add_argument("--font-runtime-manifest-sha256")
     parser.add_argument("--development", action="store_true")
     parser.add_argument("--state-directory", type=Path)
+    parser.add_argument("--analysis-profile", type=Path)
     parser.add_argument("--api-image")
     parser.add_argument("--worker-image")
     parser.add_argument("--rebuild-studio", action="store_true")
@@ -1034,8 +1075,8 @@ def parse_args(argv=None):
                 args.restore_checkpoint, args.service_clients, args.wcs_only, args.analysis_only, args.restored)):
             parser.error("Development requires --state-directory and excludes acceptance-only modes")
         args.built_studio = True
-    elif args.state_directory or args.rebuild_studio:
-        parser.error("State and frontend rebuild options belong only to --development")
+    elif args.state_directory or args.rebuild_studio or args.analysis_profile:
+        parser.error("State, analysis profile and frontend rebuild options belong only to --development")
     if args.serve and (args.api_image or args.worker_image):
         parser.error("Image overrides belong to the host orchestrator")
     for image in (args.api_image, args.worker_image):

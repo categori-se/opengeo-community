@@ -12,6 +12,8 @@ import 'monaco-editor/features/clipboard/register.js';
 import 'monaco-editor/features/contextmenu/register.js';
 import 'monaco-editor/features/tokenization/register.js';
 import 'monaco-editor/languages/definitions/javascript/register.js';
+import 'monaco-editor/languages/definitions/python/register.js';
+import 'monaco-editor/languages/definitions/shell/register.js';
 import 'monaco-editor/languages/definitions/html/register.js';
 import 'monaco-editor/languages/definitions/css/register.js';
 import 'monaco-editor/languages/definitions/yaml/register.js';
