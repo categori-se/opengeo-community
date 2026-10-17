@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -221,6 +222,7 @@ def browser_command(
     wcs_only=False,
     analysis_only=False,
     development=False,
+    publication_only=False,
 ):
     return [
         "node",
@@ -233,6 +235,7 @@ def browser_command(
         *(["--wcs-only"] if wcs_only else []),
         *(["--analysis-only"] if analysis_only else []),
         *(["--development"] if development else []),
+        *(["--publication-only"] if publication_only else []),
     ]
 
 
@@ -408,7 +411,7 @@ def serve(restored=False):
         )
         record = BrowserObjects().put(fields["key"], files[0], fields["Content-Type"])
         pilot.save_json("issued-uploads.json", issued)
-        if fields["Content-Type"] != "text/markdown":
+        if is_dataset_upload(fields["key"]):
             queue_ingestion(record, files[0])
         return Response(status_code=204)
 
@@ -438,6 +441,16 @@ def serve(restored=False):
     # Only this isolated harness exposes the local transport seam.
     app.add_api_route("/__local/upload", upload, methods=["POST"])
     uvicorn.run(app, uds="/work/api.sock", access_log=False, log_level="warning")
+
+
+def is_dataset_upload(key):
+    # Source project files include HTML, JS, JSON and images as well as Markdown.
+    # Their custody identifies authored source; MIME type must not submit them to
+    # the unrelated GIS ingestion worker.
+    return re.fullmatch(
+        r"organizations/[0-9a-f-]{36}/projects/[0-9a-f-]{36}/"
+        r"datasets/[0-9a-f-]{36}/uploads/[0-9a-f-]{36}/original/.+", key
+    ) is not None
 
 
 def bootstrap_browser_identities(psycopg):
@@ -688,6 +701,8 @@ def orchestrate(
     analysis_only=False,
     api_image=None,
     worker_image=None,
+    publication_only=False,
+    publication_compiler_digest=None,
 ):
     pilot.API_IMAGE = api_image or pilot.API_IMAGE
     pilot.WORKER_IMAGE = worker_image or pilot.WORKER_IMAGE
@@ -737,6 +752,10 @@ def orchestrate(
         ),
         ROOT / "app/src/style.css",
         ROOT / "app/scripts/check-integrated-studio.mjs",
+        ROOT / "app/scripts/integrated-studio-publication.mjs",
+        ROOT / "scripts/local-publication-bridge.py",
+        ROOT / "services/observable-coordinator/src/local-adapters.mjs",
+        ROOT / "services/observable-preview/src/local-server.mjs",
         ROOT / "app/scripts/integrated-studio-conversion.mjs",
         ROOT / "app/scripts/integrated-studio-analysis.mjs",
         ROOT / "app/scripts/integrated-studio-analysis-runner.mjs",
@@ -781,6 +800,8 @@ def orchestrate(
             flush=True,
         )
         stage_built_studio(work, reuse_studio_tree)
+    if publication_only:
+        stage_publication_profile(work, publication_compiler_digest)
     try:
         with database, (work / "api.log").open("wb") as log:
             volumes = pilot.database_volumes(database.name)
@@ -814,6 +835,7 @@ def orchestrate(
                 else None,
             )
             (work / "worker-command.json").write_text(json.dumps(worker))
+            (work / "local-api-container.json").write_text(json.dumps(server_name))
             if restore_checkpoint:
                 run_browser_with_restore(
                     work, database, server_name, process, font_runtime, service_clients
@@ -827,10 +849,11 @@ def orchestrate(
                         service_clients=service_clients,
                         wcs_only=wcs_only,
                         analysis_only=analysis_only,
+                        publication_only=publication_only,
                     ),
                     cwd=ROOT,
                     check=True,
-                    timeout=600,
+                    timeout=270 if publication_only else 600,
                 )
     finally:
         try:
@@ -988,6 +1011,8 @@ def development(args):
             raise ValueError("This development state is already open") from error
         work, metadata = development_state(work, IMAGE)
         stage_analysis_profile(work, args.analysis_profile)
+        stage_publication_profile(work, args.publication_compiler_digest,
+                                  args.publication_preview_port)
         name = metadata["database"]
         server_name, worker_name = f"{name}-api", f"{name}-worker"
         process = None
@@ -1038,6 +1063,7 @@ def development(args):
                 worker = container_command(name, work, worker_name, pilot.WORKER_IMAGE,
                     "python3", "scripts/run-integrated-pilot-local.py", "--stage", "worker")
                 (work / "worker-command.json").write_text(json.dumps(worker))
+                (work / "local-api-container.json").write_text(json.dumps(server_name))
                 print(f"LOCAL DEVELOPMENT ONLY: synthetic sign-in; private state {work}", flush=True)
                 print("Closing Chromium stops compute and retains the database, files and queue.", flush=True)
                 subprocess.run(browser_command(work, built_studio=True, development=True), cwd=ROOT, check=True)
@@ -1047,6 +1073,73 @@ def development(args):
             finally:
                 subprocess.run(["podman", "stop", "--time=10", name], capture_output=True, check=False)
                 (work / "api.sock").unlink(missing_ok=True)
+
+
+def publication_preview_origin(port):
+    if not isinstance(port, int) or isinstance(port, bool) or not 0 <= port <= 65535:
+        raise ValueError("Publication preview port must be between 0 and 65535")
+    # Choose before API startup. The preview listener later binds this exact
+    # port and must fail on a conflict rather than selecting another origin.
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", port))
+        return f"http://127.0.0.1:{listener.getsockname()[1]}"
+
+
+def publication_signing_keys(work):
+    private = Path(work) / "publication-preview-private.pem"
+    public = Path(work) / "publication-preview-public.pem"
+    for path in (private, public):
+        if path.is_symlink() or (path.exists() and (
+            not path.is_file() or path.stat().st_uid != os.getuid()
+            or stat.S_IMODE(path.stat().st_mode) != 0o600
+        )):
+            raise ValueError("Publication signing keys must be owned regular files with mode 0600")
+    if private.exists() != public.exists():
+        raise ValueError("Publication signing key pair is incomplete; retained keys were not replaced")
+    # Node is already required by the local runner. Generate only when absent;
+    # key bytes stay in this process's files and never enter arguments/output.
+    script = """
+      const {generateKeyPairSync,createPrivateKey,createPublicKey} = require('node:crypto');
+      const {existsSync,writeFileSync,readFileSync} = require('node:fs');
+      const [privatePath,publicPath] = process.argv.slice(1);
+      if (!existsSync(privatePath)) {
+        const {privateKey,publicKey} = generateKeyPairSync('rsa',{modulusLength:2048,
+          privateKeyEncoding:{type:'pkcs8',format:'pem'},publicKeyEncoding:{type:'spki',format:'pem'}});
+        writeFileSync(privatePath,privateKey,{flag:'wx',mode:0o600});
+        writeFileSync(publicPath,publicKey,{flag:'wx',mode:0o600});
+      }
+      const privateKey = createPrivateKey(readFileSync(privatePath));
+      const publicKey = createPublicKey(readFileSync(publicPath));
+      if (privateKey.asymmetricKeyType !== 'rsa' || privateKey.asymmetricKeyDetails.modulusLength < 2048 ||
+          !createPublicKey(privateKey).export({type:'spki',format:'der'}).equals(publicKey.export({type:'spki',format:'der'})))
+        throw new Error('Invalid local publication signing keys');
+    """
+    subprocess.run(["node", "--eval", script, str(private), str(public)],
+                   capture_output=True, check=True, timeout=30)
+    return private.name, public.name
+
+
+def stage_publication_profile(work, compiler_digest, preview_port=0):
+    target = Path(work) / "publication-profile.json"
+    if target.is_symlink():
+        raise ValueError("Publication profile must not be a symlink")
+    if compiler_digest is None:
+        target.unlink(missing_ok=True)
+        return
+    if not re.fullmatch(r"sha256:[a-f0-9]{64}", compiler_digest):
+        raise ValueError("Publication compiler must be an exact cached image digest")
+    available = subprocess.run(["podman", "image", "exists", compiler_digest],
+                               capture_output=True, check=False, timeout=15)
+    if available.returncode != 0:
+        raise ValueError("Publication compiler is absent from the local cache; no image is downloaded")
+    preview_origin = publication_preview_origin(preview_port)
+    private, public = publication_signing_keys(work)
+    target.write_text(json.dumps({"compilerImageDigest": compiler_digest,
+                                 "previewOrigin": preview_origin,
+                                 "previewKeyPairId": "LOCALPREVIEW123",
+                                 "previewPrivateKeyPath": private,
+                                 "previewPublicKeyPath": public}) + "\n")
+    target.chmod(0o600)
 
 
 def parse_args(argv=None):
@@ -1059,6 +1152,7 @@ def parse_args(argv=None):
     parser.add_argument("--service-clients", action="store_true")
     parser.add_argument("--wcs-only", action="store_true")
     parser.add_argument("--analysis-only", action="store_true")
+    parser.add_argument("--publication-only", action="store_true")
     parser.add_argument("--reuse-studio-tree")
     parser.add_argument("--restored", action="store_true")
     parser.add_argument("--font-runtime-package", type=Path)
@@ -1066,6 +1160,8 @@ def parse_args(argv=None):
     parser.add_argument("--development", action="store_true")
     parser.add_argument("--state-directory", type=Path)
     parser.add_argument("--analysis-profile", type=Path)
+    parser.add_argument("--publication-compiler-digest")
+    parser.add_argument("--publication-preview-port", type=int, default=0)
     parser.add_argument("--api-image")
     parser.add_argument("--worker-image")
     parser.add_argument("--rebuild-studio", action="store_true")
@@ -1075,8 +1171,12 @@ def parse_args(argv=None):
                 args.restore_checkpoint, args.service_clients, args.wcs_only, args.analysis_only, args.restored)):
             parser.error("Development requires --state-directory and excludes acceptance-only modes")
         args.built_studio = True
-    elif args.state_directory or args.rebuild_studio or args.analysis_profile:
+    elif args.state_directory or args.rebuild_studio or args.analysis_profile or ((args.publication_compiler_digest or args.publication_preview_port) and not args.publication_only):
         parser.error("State, analysis profile and frontend rebuild options belong only to --development")
+    if args.publication_compiler_digest and not re.fullmatch(r"sha256:[a-f0-9]{64}", args.publication_compiler_digest):
+        parser.error("Publication compiler must be an exact cached sha256 digest")
+    if not 0 <= args.publication_preview_port <= 65535 or (args.publication_preview_port and not args.publication_compiler_digest):
+        parser.error("Publication preview port requires the compiler pin and must be between 0 and 65535")
     if args.serve and (args.api_image or args.worker_image):
         parser.error("Image overrides belong to the host orchestrator")
     for image in (args.api_image, args.worker_image):
@@ -1100,6 +1200,8 @@ def parse_args(argv=None):
         parser.error("WCS-only requires built Studio without other journey modes")
     if args.analysis_only and (not args.built_studio or args.serve or args.service_clients or args.restore_checkpoint or args.pinned_map_fonts or args.wcs_only):
         parser.error("Analysis-only requires built Studio without other journey modes")
+    if args.publication_only and (args.built_studio or args.reuse_studio_tree or not args.publication_compiler_digest or any((args.serve,args.development,args.analysis_only,args.wcs_only,args.service_clients,args.restore_checkpoint,args.pinned_map_fonts))):
+        parser.error("Publication-only uses the existing source UI and exact compiler pin without other modes")
     runtime_options = (args.font_runtime_package, args.font_runtime_manifest_sha256)
     if args.pinned_map_fonts:
         if args.serve or not all(runtime_options):
@@ -1134,4 +1236,6 @@ if __name__ == "__main__":
         args.analysis_only,
         api_image=args.api_image,
         worker_image=args.worker_image,
+        publication_only=args.publication_only,
+        publication_compiler_digest=args.publication_compiler_digest,
     )

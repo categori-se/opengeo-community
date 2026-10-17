@@ -31,7 +31,7 @@ const workspaceSurface = await loadStudioPage(async () => {
   const runtimeAuthConfig = query.get("adapter") === "fixture"
     ? null
     : await loadBrowserAuthConfig().catch(() => null);
-  const platform = await createPlatformAdapter({catalog, capabilities: runtimeAuthConfig?.capabilities});
+  const platform = await createPlatformAdapter({catalog, capabilities: runtimeAuthConfig?.capabilities, previewOrigins: runtimeAuthConfig?.previewOrigins});
   const auth = createCognitoBrowserAuth({
     configLoader: runtimeAuthConfig ? async () => runtimeAuthConfig : null
   });

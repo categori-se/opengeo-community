@@ -1,3 +1,5 @@
+import {resolvePublicationPreviewOrigins} from "./publicationPreviewOrigins.js";
+
 const CONFIG_PATH = "/auth-config.json";
 const MAX_CONFIG_BYTES = 16_384;
 const CONFIG_KEYS = new Set([
@@ -10,6 +12,7 @@ const CONFIG_KEYS = new Set([
   "logoutUri",
   "scopes",
   "capabilities",
+  "previewOrigins",
   "deployment",
   "federation"
 ]);
@@ -140,6 +143,9 @@ export function parseAuthConfig(value, {currentOrigin = globalThis.location?.ori
     invalid("OAuth scopes must include openid and email");
   }
   const capabilities = parseCapabilities(record.capabilities);
+  let previewOrigins;
+  try {previewOrigins = resolvePublicationPreviewOrigins(record.previewOrigins, origin);}
+  catch {invalid("publication preview origins are invalid");}
   const deployment = record.version === 1
     ? defaultDeployment(origin)
     : parseDeployment(record.deployment, origin);
@@ -157,6 +163,7 @@ export function parseAuthConfig(value, {currentOrigin = globalThis.location?.ori
     logoutUri,
     scopes: Object.freeze(scopes),
     capabilities,
+    previewOrigins,
     deployment,
     federation
   });

@@ -5,6 +5,7 @@ from urllib.parse import parse_qs
 from uuid import UUID
 
 import pytest
+from openapi_schema_validator import OAS31Validator
 from pydantic import ValidationError
 
 from opengeo_api.analysis_jobs import (
@@ -250,6 +251,7 @@ def test_default_off_stops_mutations_before_database_storage_and_dispatch_but_re
     [
         {"code": "do not execute in API"},
         {"image": "sha256:" + SHA},
+        {"language": "ruby"},
         {"layer_ids": ["selected", "selected"]},
         {"source_bindings": [{"layer_id": "unselected", "dataset_id": str(DATASET)}]},
         {
@@ -266,6 +268,28 @@ def test_api_accepts_only_small_closed_metadata_descriptors(change):
     )
     assert response.status_code == 422
     assert not store.calls and not storage.forms
+
+
+def test_openapi_describes_the_streamed_analysis_request_without_running_jobs():
+    app, store, storage, dispatcher = setup()
+    contract = app.openapi()
+    operation = contract["paths"]["/projects/{project_id}/analysis/jobs"]["post"]
+    body = operation["requestBody"]
+    assert body["required"] is True
+    assert "16384 bytes" in body["description"]
+    schema = body["content"]["application/json"]["schema"]
+    assert schema["additionalProperties"] is False
+    assert set(schema["required"]) == {"request_key", "language", "snapshot", "layer_ids"}
+    assert set(schema["properties"]["language"]["enum"]) == {"python", "javascript", "bash"}
+    assert schema["properties"]["snapshot"]["properties"]["size_bytes"]["maximum"] > 0
+    bindings = schema["properties"]["source_bindings"]
+    assert bindings["maxItems"] == 16
+    assert bindings["items"]["properties"]["dataset_id"]["format"] == "uuid"
+    validator = OAS31Validator(schema)
+    validator.validate(payload())
+    for change in ({"language": "ruby"}, {"code": "print('not a descriptor')"}, {"snapshot": {}}):
+        assert list(validator.iter_errors({**payload(), **change}))
+    assert not store.calls and not storage.forms and not storage.heads and not dispatcher.calls
 
 
 def test_oversize_descriptor_rejected_before_store_and_recovery_reuses_only_upload_ticket():

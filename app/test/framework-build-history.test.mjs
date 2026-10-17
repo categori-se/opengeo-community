@@ -8,7 +8,7 @@ import {FrameworkWorkflowStatus} from "../src/components/FrameworkWorkflowStatus
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const job = {id: "build-one", sourceProjectId: "source-one", sourceRevisionNumber: 2, purpose: "preview", state: "pending", attemptCount: 0, updatedAt: "2026-09-10T00:00:00Z", executionAvailable: true};
 async function withDocument(run) {
-  const dom = new JSDOM("<!doctype html><body></body>"); const before = globalThis.document;
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.example.org"}); const before = globalThis.document;
   globalThis.document = dom.window.document;
   try {await run();} finally {globalThis.document = before; dom.window.close();}
 }
@@ -34,6 +34,26 @@ test("completed GitHub runs do not claim the article is unpublished or offer res
   const computed = document.defaultView.getComputedStyle;
   assert.equal(computed(button(root, "Resume queued build")).display, "none");
   assert.equal(computed(button(root, "Open private preview")).display, "inline-flex");
+}));
+
+test("saved build history uses the configured isolated preview origin", async () => withDocument(async () => {
+  const previousOpen = globalThis.open;
+  let destination, closed = false;
+  const popup = {opener: {}, location: {replace: value => {destination = value;}}, close: () => {closed = true;}};
+  globalThis.open = () => popup;
+  try {
+    const root = FrameworkBuildHistory({adapter: {
+      previewOrigins: {local_only: "https://preview.example.org"},
+      listObservableBuildJobs: async () => [{...job, state: "succeeded"}],
+      createObservablePreviewCapability: async () => ({
+        authorizeUrl: "https://preview.example.org/authorize/#cap=" + "a".repeat(128),
+        expiresAt: "2099-01-01T00:00:00Z", publicationAuthorized: false
+      })
+    }, projectId: "project-one", sourceProjectId: "source-one"});
+    await tick();button(root, "Open private preview").click();await tick();
+    assert.equal(destination, "https://preview.example.org/authorize/#cap=" + "a".repeat(128));
+    assert.equal(popup.opener, null);assert.equal(closed, false);
+  } finally {globalThis.open = previousOpen;}
 }));
 
 test("GitHub startup failures survive reopening and refresh without a replacement build", async () => withDocument(async () => {
@@ -139,8 +159,9 @@ test("workflow availability distinguishes configuration from health and public a
   await tick();
   assert.match(root.textContent, /Private source storage: configured/);
   assert.match(root.textContent, /Build queue: not configured/);
-  assert.match(root.textContent, /not a runtime health check/);
-  assert.match(root.textContent, /Framework public activation: not connected/);
+  assert.match(root.textContent, /Build service configuration/);
+  assert.doesNotMatch(root.textContent, /running|succeeded|published release/);
+  assert.match(root.textContent, /Destinations and release status are shown in Publish/);
   fail = true; button(root, "Check workflow configuration").click(); await tick();
   assert.equal(root.querySelectorAll("li").length, 0);
   assert.match(root.textContent, /Do not assume/);

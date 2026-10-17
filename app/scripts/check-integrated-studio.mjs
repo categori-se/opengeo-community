@@ -1,5 +1,7 @@
 import {exerciseFieldComparisons} from "./integrated-studio-field-comparisons.mjs";
 import assert from "node:assert/strict";
+import {localPublicationBridge, processLocalBuildQueue} from "../../services/observable-coordinator/src/local-adapters.mjs";
+import {startLocalPreviewServer} from "../../services/observable-preview/src/local-server.mjs";
 import {existsSync, readFileSync, writeFileSync} from "node:fs";
 import {createServer, request as httpRequest} from "node:http";
 import {spawn} from "node:child_process";
@@ -22,7 +24,7 @@ import {exerciseStudioAccess} from "./integrated-studio-access.mjs";
 import {createLocalAnalysisBridge, loadLocalAnalysisRunner} from "./integrated-studio-analysis-runner.mjs";
 
 const work = resolve(process.argv[2] ?? "");
-const {built:builtStudio, pinnedFonts:pinnedFontMode, restore:restoreCheckpoint,serviceClients:allServicesMode,wcsOnly:wcsOnlyMode,analysisOnly:analysisOnlyMode,development:developmentMode} = integratedStudioShellMode(process.argv.slice(3));
+const {built:builtStudio, pinnedFonts:pinnedFontMode, restore:restoreCheckpoint,serviceClients:allServicesMode,wcsOnly:wcsOnlyMode,analysisOnly:analysisOnlyMode,development:developmentMode,publicationOnly:publicationOnlyMode} = integratedStudioShellMode(process.argv.slice(3));
 const serviceClientsMode=allServicesMode||wcsOnlyMode;
 const rendererPersistenceMode=process.env.OPENGEO_RENDERER_PERSISTENCE_ONLY === "1";
 const geolibreImportMode=process.env.OPENGEO_GEOLIBRE_IMPORT_ONLY === "1";
@@ -54,9 +56,12 @@ let developmentWorkerRunning = false;
 const developmentSmoke = developmentMode && process.env.OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE === "1";
 const developmentWrites = new Map();
 const localAnalysisRunner = developmentMode ? loadLocalAnalysisRunner(work) : null;
+const publicationProfile = existsSync(join(work, "publication-profile.json"))
+  ? JSON.parse(readFileSync(join(work, "publication-profile.json"), "utf8")) : null;
 let localAnalysisBridge;
 
 function apiRequest(path, {method = "GET", headers = {}, body} = {}) {
+  if (publicationOnlyMode) assert.ok(requests.length < 500, "Publication request ceiling");
   if (rendererPersistenceMode) assert.ok(requests.length < 160,"Renderer persistence request ceiling");
   if (geolibreImportMode) assert.ok(requests.length < 120,"GeoLibre import request ceiling");
   assert.ok(path.startsWith("/") && !path.startsWith("//"));
@@ -118,6 +123,7 @@ const bundle = builtStudio ? null : await build({
     ${pinnedFontMode ? integratedStudioFontTransport(fontAssets.ranges) : "const mapFontAttachments = null;"}
     const adapter = new OpenGeoApiClient({baseUrl:'/api',
       tokenProvider:()=> 'synthetic-local-' + (sessionStorage.getItem('local-actor') || 'owner'),
+      ${publicationProfile ? `previewOrigins:${JSON.stringify({local_only:publicationProfile.previewOrigin})},` : ''}
       organizationProvider:()=> sessionStorage.getItem('local-organization') || (sessionStorage.getItem('local-actor') === 'reviewer' ? null : '${organization}')});
     adapter.kind='api'; adapter.selectOrganization=(id)=>sessionStorage.setItem('local-organization',id);
     const query=new URL(location.href).searchParams;
@@ -131,6 +137,12 @@ const bundle = builtStudio ? null : await build({
       : PlatformDirectory({adapter,view:query.get('view')}));
   `, resolveDir: join(root, "app"), sourcefile: "integrated-studio-entry.js"},
   bundle: true, write: false, format: "esm", platform: "browser", logLevel: "silent", metafile: pinnedFontMode,
+  plugins: [{name:'framework-stdlib',setup(builder){
+    builder.onResolve({filter:/^observablehq:/},({path})=>path==='observablehq:stdlib'
+      ? {path:join(root,'app/node_modules/@observablehq/framework/dist/client/stdlib.js')} : {path,external:true});
+    builder.onResolve({filter:/^npm:/},({path})=>path==='npm:d3-dsv'
+      ? {path:join(root,'app/node_modules/d3-dsv/src/index.js')} : {path,external:true});
+  }}],
   outdir: join(work, "bundle"), loader: {".css": "css"}
 });
 const javascript = bundle?.outputFiles.find((file) => file.path.endsWith(".js")).contents;
@@ -160,6 +172,11 @@ const server = createServer(async (request, response) => {
       try {
         const queued = existsSync(join(work,"queue.json")) ? JSON.parse(readFileSync(join(work,"queue.json"),"utf8")) : [];
         if (queued.length) await worker();
+        if (existsSync(join(work,"publication-profile.json"))) {
+          const {compilerImageDigest} = JSON.parse(readFileSync(join(work,"publication-profile.json")));
+          const apiContainer = JSON.parse(readFileSync(join(work,"local-api-container.json")));
+          await processLocalBuildQueue({bridge: localPublicationBridge(apiContainer), compilerImageDigest});
+        }
       } finally { developmentWorkerRunning = false; }
       response.writeHead(303,{location:"/__local/development"}).end();
     } else if (path.startsWith("/api/") || path.startsWith("/public/") || (serviceClientsMode && request.method === "GET" && path.startsWith("/projects/"))) {
@@ -171,7 +188,8 @@ const server = createServer(async (request, response) => {
       response.writeHead(result.status, result.headers).end(result.body);
     } else if (builtStudio && path === "/auth-config.json" && request.method === "GET") {
       response.setHeader("Content-Type", "application/json").setHeader("Cache-Control", "no-store")
-        .end(JSON.stringify(integratedStudioAuthConfig(origin)));
+        .end(JSON.stringify({...integratedStudioAuthConfig(origin),
+          ...(publicationProfile ? {previewOrigins:{local_only:publicationProfile.previewOrigin}} : {})}));
     } else if (builtStudio) {
       // Playwright's block option injects a navigator.serviceWorker getter into
       // opaque-origin publication frames and itself raises SecurityError.
@@ -201,17 +219,24 @@ const server = createServer(async (request, response) => {
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 if (developmentMode) localAnalysisBridge = createLocalAnalysisBridge({runner: localAnalysisRunner, origin});
-let browser, page;
+let browser, page, previewServer, publicationBrowserTimer;
+const previewOrigin = publicationProfile?.previewOrigin;
 const errors = [];
 let stage = "project-creation";
 try {
+  if (publicationProfile) previewServer = await startLocalPreviewServer({work, profile: publicationProfile, studioOrigin: origin, apiRequest});
   scopedJourney: {
   const executablePath = ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"].find(existsSync);
   assert.ok(executablePath, "Cached system Chromium is required");
   browser = await chromium.launch({headless: !developmentMode || developmentSmoke, chromiumSandbox: Boolean(developmentMode && !developmentSmoke), executablePath, args: [...(developmentMode && !developmentSmoke ? [] : ["--no-sandbox"]),
     ...(pinnedFontMode ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
-  if (builtStudio) await context.addInitScript(initializeIntegratedStudioSession, {organization});
+  if (publicationOnlyMode) {
+    publicationBrowserTimer=setTimeout(()=>void browser.close(),60_000);
+    let browserRequests=0;
+    context.on('request',()=>assert.ok(++browserRequests<=500,'Publication browser request ceiling'));
+  }
+  if (builtStudio) await context.addInitScript(initializeIntegratedStudioSession, {organization,origin});
   if (pinnedFontMode) await context.addInitScript(() => {
     window.__opengeoIntegratedFontProbe = {localGlyphCalls: 0};
     const fillText = CanvasRenderingContext2D.prototype.fillText;
@@ -232,7 +257,7 @@ try {
     } else if (request.url().startsWith(`${uploadUrl}/`)) {
       const result = localObjectDownload({work, url: request.url(), method: request.method(), headers: request.headers()});
       await route.fulfill(result);
-    } else if (request.url().startsWith(`${origin}/`)) await route.continue();
+    } else if (request.url().startsWith(`${origin}/`) || (previewOrigin && request.url().startsWith(`${previewOrigin}/`))) await route.continue();
     else if (rendererPersistenceMode || geolibreImportMode) await route.fulfill({contentType:"application/json",body:JSON.stringify(
       new URL(request.url()).hostname.includes("mapbox") ? {} : {version:8,sources:{},layers:[{id:"background",type:"background",paint:{"background-color":"#ffffff"}}]})});
     else await route.abort();
@@ -240,6 +265,17 @@ try {
   page = await context.newPage();
   page.setDefaultTimeout(15_000);
   page.on("pageerror", (error) => errors.push(error.message));
+  if (publicationOnlyMode) {
+    stage = "native-publication";
+    const {exerciseNativePublication} = await import('./integrated-studio-publication.mjs');
+    const publication = await exerciseNativePublication({page, browser, context, origin, organization,
+      apiRequest, work, publicationProfile});
+    assert.deepEqual(errors,[], 'Publication source UI and native preview page errors');
+    writeFileSync(join(work,"browser-result.json"),JSON.stringify({status:"pass",publication,
+      requestCount:requests.length,applicationShell:builtShell?.evidence ?? {mode:'existing source UI bundle'},
+      notProven:["Compiled Studio delivery","Fresh installation","Production authentication and transport"]},null,2)+"\n");
+    break scopedJourney;
+  }
   if (developmentMode) {
     console.log(`Local development: ${origin}/__local/development (synthetic sign-in; external requests blocked)`);
     await page.goto(`${origin}/__local/development`);
@@ -1383,7 +1419,9 @@ try {
   }
   throw error;
 } finally {
+  clearTimeout(publicationBrowserTimer);
   writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
   if (browser) await browser.close();
+  if (previewServer) await new Promise((done) => previewServer.close(done));
   await new Promise((done) => server.close(done));
 }

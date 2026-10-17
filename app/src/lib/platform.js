@@ -13,7 +13,8 @@ export async function createPlatformAdapter({
   url = globalThis.location?.href ?? "http://localhost/",
   storage = safeSessionStorage(),
   fetchImplementation = globalThis.fetch?.bind(globalThis),
-  capabilities = null
+  capabilities = null,
+  previewOrigins
 } = {}) {
   const mode = new URL(url).searchParams.get("adapter");
   if (mode === "fixture") {
@@ -25,6 +26,8 @@ export async function createPlatformAdapter({
   const client = new OpenGeoApiClient({
     tokenProvider: () => getAccessToken(storage),
     organizationProvider: () => selectedOrganizationId,
+    previewOrigins,
+    studioOrigin: new URL(url).origin,
     fetchImplementation
   });
   client.kind = "api";

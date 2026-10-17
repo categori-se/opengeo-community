@@ -1,4 +1,5 @@
 import {pendingSessionRequest} from "./pendingSessionRequest.js";
+import {resolvePublicationPreviewOrigins} from "./publicationPreviewOrigins.js";
 import {normalizePmtilesOptions,pmtilesOptionsToWire,pmtilesOptionsFromWire,PMTILES_OUTPUT_LAYER,PMTILES_ADMISSION_REASONS} from './pmtilesOptions.js';
 import {ckanUrl, ckanId, parseCkanSearch, parseCkanInspection, parseCkanPreview} from "./ckan.js";
 import {validateCalculation, evaluateCalculation} from "./fieldCalculations.js";
@@ -149,12 +150,15 @@ export class OpenGeoApiClient {
     baseUrl = globalThis.OPEN_GEO_API_BASE_URL ?? DEFAULT_API_BASE_URL,
     tokenProvider = () => null,
     organizationProvider = () => null,
+    previewOrigins,
+    studioOrigin = globalThis.location?.origin,
     fetchImplementation = globalThis.fetch?.bind(globalThis)
   } = {}) {
     if (typeof fetchImplementation !== "function") throw new TypeError("fetch implementation is required");
     this.baseUrl = String(baseUrl).replace(/\/$/, "");
     this.tokenProvider = tokenProvider;
     this.organizationProvider = organizationProvider;
+    this.previewOrigins = resolvePublicationPreviewOrigins(previewOrigins, studioOrigin);
     this.fetchImplementation = fetchImplementation;
     this.pendingSessions = new Map();
     this.publicArtifactUrls = new Map();

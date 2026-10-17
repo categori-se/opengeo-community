@@ -1,7 +1,7 @@
 """Explicit managed analysis: small manifests, private direct uploads and leased jobs."""
 
 from collections.abc import Awaitable
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -15,7 +15,6 @@ from pydantic import (
 )
 
 from opengeo_api.analysis_jobs import (
-    LANGUAGES,
     MAX_RESULT_BYTES,
     MAX_SNAPSHOT_BYTES,
     AnalysisAccessDenied,
@@ -62,15 +61,13 @@ class SourceBinding(BaseModel):
 class AnalysisRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_key: UUID
-    language: str
+    language: Literal["javascript", "python", "bash"]
     snapshot: SnapshotDescriptor
     layer_ids: list[LayerId] = Field(max_length=16)
     source_bindings: list[SourceBinding] = Field(default_factory=list, max_length=16)
 
     @model_validator(mode="after")
     def closed_scope(self) -> "AnalysisRequest":
-        if self.language not in LANGUAGES:
-            raise ValueError("unsupported language")
         if len(set(self.layer_ids)) != len(self.layer_ids) or any(
             not value.strip() or any(ord(c) < 32 for c in value) for value in self.layer_ids
         ):
@@ -79,6 +76,24 @@ class AnalysisRequest(BaseModel):
         if len(set(bound)) != len(bound) or not set(bound) <= set(self.layer_ids):
             raise ValueError("source bindings must be unique selected layer identities")
         return self
+
+
+def request_body_schema() -> dict[str, Any]:
+    # Streaming enforces the byte limit before parsing, so FastAPI cannot infer
+    # this body. Inline model definitions to keep references valid in OpenAPI.
+    schema = AnalysisRequest.model_json_schema()
+    definitions = schema.pop("$defs", {})
+
+    def inline(value: Any) -> Any:
+        if isinstance(value, dict):
+            if "$ref" in value:
+                return inline(definitions[value["$ref"].removeprefix("#/$defs/")])
+            return {key: inline(child) for key, child in value.items()}
+        if isinstance(value, list):
+            return [inline(child) for child in value]
+        return value
+
+    return cast(dict[str, Any], inline(schema))
 
 
 async def execute[T](operation: Awaitable[T]) -> T:
@@ -209,7 +224,16 @@ async def capabilities(
     )
 
 
-@router.post("/projects/{project_id}/analysis/jobs")
+@router.post(
+    "/projects/{project_id}/analysis/jobs",
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "description": f"JSON metadata descriptor, at most {MAX_DESCRIPTOR_BYTES} bytes.",
+            "content": {"application/json": {"schema": request_body_schema()}},
+        }
+    },
+)
 async def create_job(
     project_id: UUID, request: Request, response: Response, session: Session
 ) -> dict[str, Any]:

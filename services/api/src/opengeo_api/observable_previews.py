@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from threading import Lock
 from typing import Any, Protocol, cast
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from cryptography.hazmat.primitives import hashes, serialization
@@ -18,12 +19,12 @@ from opengeo_api.cognito_provisioning import (
     CredentialProvider,
     IdentityProvisioningUnavailable,
 )
-from opengeo_api.config import Settings
+from opengeo_api.config import Settings, canonical_preview_origin
 
 _KEY_PAIR_ID = re.compile(r"^[A-Z0-9]{8,32}$")
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
-_PREVIEW_RESOURCE = re.compile(
-    rf"^https://(?:preview|maps-preview)\.studio\.opengeo\.tools/organizations/{_UUID}/projects/{_UUID}/"
+_PREVIEW_PATH = re.compile(
+    rf"^/organizations/{_UUID}/projects/{_UUID}/"
     rf"source-projects/{_UUID}/builds/{_UUID}/output/\*$"
 )
 
@@ -52,7 +53,9 @@ class UnavailablePreviewCookieSigner:
 class CloudFrontPreviewCookieSigner:
     """Create CloudFront custom-policy cookies without retaining raw policy in logs."""
 
-    def __init__(self, key_pair_id: str, private_key_pem: bytes) -> None:
+    def __init__(
+        self, key_pair_id: str, private_key_pem: bytes, *, allowed_origins: list[str] | None = None
+    ) -> None:
         if _KEY_PAIR_ID.fullmatch(key_pair_id) is None:
             raise ValueError("CloudFront key pair id is invalid")
         loaded = serialization.load_pem_private_key(private_key_pem, password=None)
@@ -60,13 +63,27 @@ class CloudFrontPreviewCookieSigner:
             raise ValueError("CloudFront private key must be RSA with at least 2048 bits")
         self._key_pair_id = key_pair_id
         self._private_key = loaded
+        self._origins = frozenset(
+            canonical_preview_origin(origin, allow_loopback_http=True)
+            for origin in (
+                allowed_origins if allowed_origins is not None else [
+                    "https://preview.studio.opengeo.tools", "https://maps-preview.studio.opengeo.tools"
+                ]
+            )
+        )
+        if not self._origins:
+            raise ValueError("private preview requires an explicit isolated origin")
 
     @property
     def available(self) -> bool:
         return True
 
     def sign(self, resource_url: str, expires_at: datetime) -> dict[str, str]:
-        if _PREVIEW_RESOURCE.fullmatch(resource_url) is None:
+        parsed = urlsplit(resource_url)
+        if (
+            f"{parsed.scheme}://{parsed.netloc}" not in self._origins
+            or parsed.query or parsed.fragment or _PREVIEW_PATH.fullmatch(parsed.path) is None
+        ):
             raise ValueError("private preview resource URL is invalid")
         expires_epoch = int(expires_at.timestamp())
         policy = json.dumps(
@@ -139,6 +156,9 @@ class SecretsManagerPreviewCookieSigner:
         self._region = settings.aws_region
         self._key_pair_id = settings.observable_preview_key_pair_id
         self._secret_arn = settings.observable_preview_private_key_secret_arn
+        self._origins = [origin for origin in (
+            settings.observable_preview_origin, settings.observable_public_maps_preview_origin
+        ) if origin is not None]
         self._timeout_seconds = settings.cognito_http_timeout_seconds
         self._credentials = credentials or AwsCredentialProvider(
             timeout_seconds=settings.cognito_http_timeout_seconds
@@ -180,6 +200,7 @@ class SecretsManagerPreviewCookieSigner:
             signer = CloudFrontPreviewCookieSigner(
                 self._key_pair_id,
                 private_key.encode("ascii"),
+                allowed_origins=self._origins,
             )
         except (UnicodeEncodeError, ValueError) as error:
             raise PreviewCookieSigningUnavailable(

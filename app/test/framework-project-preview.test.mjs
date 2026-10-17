@@ -10,7 +10,7 @@ const capability={authorizeUrl:'https://preview.studio.opengeo.tools/authorize/#
 const publicCapability={...capability,authorizeUrl:capability.authorizeUrl.replace('preview.studio','maps-preview.studio')};
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 function fixture(adapter, options={}) {
-  const dom=new JSDOM('<!doctype html><body></body>',{url:'https://studio.opengeo.tools'});
+  const dom=new JSDOM('<!doctype html><body></body>',{url:options.studioOrigin ?? 'https://studio.opengeo.tools'});
   const saved={document:globalThis.document,MutationObserver:globalThis.MutationObserver,open:globalThis.open};
   globalThis.document=dom.window.document; globalThis.MutationObserver=dom.window.MutationObserver;
   const root=FrameworkProjectPreview({adapter,projectId:'project',sourceProject,canManage:true,...options});
@@ -36,6 +36,32 @@ test('capability validation rejects wider authority, wrong origins and expiry',(
     {authorizeUrl:capability.authorizeUrl.replace('/authorize/','/other/')}]) {
     assert.throws(()=>previewCapabilityUrl({...capability,...update}));
   }
+});
+test('configured self-host preview is used by the saved-preview interface',async()=>{
+  const previewOrigins={local_only:'https://preview.example.org',public_maps_v1:'https://maps-preview.example.org'};
+  const configuredCapability={...capability,authorizeUrl:capability.authorizeUrl.replace('preview.studio.opengeo.tools','preview.example.org')};
+  const f=fixture(adapter({previewOrigins,createObservablePreviewCapability:async()=>configuredCapability}),
+    {studioOrigin:'https://studio.example.org'});
+  try {
+    await settle();f.button('Show preview').click();await settle();
+    assert.equal(f.root.querySelector('iframe').src,configuredCapability.authorizeUrl);
+    assert.equal(f.root.querySelector('iframe').hidden,false);
+    assert.throws(()=>previewCapabilityUrl(configuredCapability));
+  } finally {await f.close();}
+});
+test('loopback preview requires explicit configuration on a separate local origin',async()=>{
+  const previewOrigins={local_only:'http://127.0.0.1:4181'};
+  const localCapability={...capability,authorizeUrl:capability.authorizeUrl.replace('https://preview.studio.opengeo.tools','http://127.0.0.1:4181')};
+  const f=fixture(adapter({previewOrigins,createObservablePreviewCapability:async()=>localCapability}),
+    {studioOrigin:'http://127.0.0.1:4180'});
+  try {
+    await settle();f.button('Show preview').click();await settle();
+    assert.equal(f.root.querySelector('iframe').src,localCapability.authorizeUrl);
+    assert.throws(()=>previewCapabilityUrl(localCapability,{previewOrigins,studioOrigin:'https://studio.example.org'}));
+    assert.throws(()=>previewCapabilityUrl(localCapability,{previewOrigins,studioOrigin:'http://127.0.0.1:4181'}));
+    assert.throws(()=>previewCapabilityUrl({...localCapability,authorizeUrl:localCapability.authorizeUrl.replace('4181','4182')},
+      {previewOrigins,studioOrigin:'http://127.0.0.1:4180'}));
+  } finally {await f.close();}
 });
 test('public map sources require a managing owner and approved source rights',async()=>{
   for (const [canManage, rightsStatus] of [[false,'approved'],[true,'unreviewed']]) {

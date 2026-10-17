@@ -133,11 +133,11 @@ describe("exact dataset-to-map handoff", () => {
   });
 
   for (const [name, options, permitted] of [
-    ["local draft", {persistenceMode: "local"}, true],
+    ["local draft", {role: "local", persistenceMode: "local"}, true],
     ["public demo draft", {publicDemo: true}, true],
     ["landing draft", {landingMode: true}, true],
     ["managed viewer", {}, false],
-    ["missing packaged assets", {persistenceMode: "local", mapFontAttachments: null}, false]
+    ["missing packaged assets", {role: "local", persistenceMode: "local", mapFontAttachments: null}, false]
   ]) it(`keeps pinned-font adoption deliberate for a ${name}`, () => {
     let reads = 0, saves = 0;
     const layer = {layerId: "font-names", datasetId: "font-dataset", title: "Font names", sourceType: "geojson",
@@ -330,7 +330,8 @@ describe("exact dataset-to-map handoff", () => {
     assert.equal(layer.featureGeneration, 7);
     assert.deepEqual(layer.featureFields, [{name: "name", type: "string"}]);
     assert.deepEqual(requests, [IDS.dataset]);
-    clickButton(shell, "Query");
+    shell.querySelector('.gis-menu-wrap[data-menu="layer"] > button').click();
+    clickButton(shell, "Query features…");
     const value = shell.querySelector('[aria-label="Value"]');
     assert.ok(value);
     value.value = "Census";

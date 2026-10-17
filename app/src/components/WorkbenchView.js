@@ -276,6 +276,17 @@ import {
   serializeFeatureQueryCsv
 } from "../lib/featureQuery.js";
 import {
+  featureQueryDraft,
+  defaultAttributeQueryStep,
+  queryGeometryLabel,
+  queryGeometryDrawingKind,
+  cancelFeatureQueryRequest,
+  queryInputValue,
+  queryOperatorOptions,
+  queryDraftReady,
+  inferredFieldType
+} from "../lib/workbenchFeatureQuery.js";
+import {
   GOVERNED_IDENTIFY_LIMITS,
   captureManagedPreviewIdentify,
   identifyReportSummary,
@@ -6876,33 +6887,6 @@ function savedLocationQuerySection(context, layer, draft) {
   return section;
 }
 
-function featureQueryDraft(state, layer, fields, fieldTypes = new Map()) {
-  if (state.queryDraft?.datasetId === layer.datasetId) return state.queryDraft;
-  state.queryResult = null;
-  state.queryError = null;
-  state.querySelectedFeatureId = null;
-  state.selectedFeatureIndex = null;
-  state.queryDraft = {
-    datasetId: layer.datasetId,
-    expectedGeneration: Number.isSafeInteger(layer.featureGeneration) ? layer.featureGeneration : null,
-    limit: FEATURE_QUERY_LIMITS.maximumResults,
-    offset: 0,
-    steps: fields.length ? [defaultAttributeQueryStep(fields[0], fieldTypes.get(fields[0]))] : []
-  };
-  return state.queryDraft;
-}
-
-function defaultAttributeQueryStep(field, valueType = "string") {
-  return {
-    kind: "attribute",
-    field,
-    operator: valueType === "string" ? "contains" : "equals",
-    value: valueType === "boolean" ? false : valueType === "string" ? "" : 0,
-    case_sensitive: false,
-    valueType
-  };
-}
-
 function queryStepEditor(context, draft, step, index, fields, fieldTypes) {
   const item = document.createElement("fieldset");
   item.className = "gis-query-step";
@@ -6995,24 +6979,6 @@ function queryStepEditor(context, draft, step, index, fields, fieldTypes) {
   remove.classList.add("danger");
   item.append(remove);
   return item;
-}
-
-function queryGeometryLabel(geometry) {
-  return ({
-    MultiPoint: "multiple points",
-    LineString: "line",
-    Polygon: "polygon or box",
-    MultiPolygon: "multipolygon",
-    GeometryCollection: "copied result"
-  })[geometry?.type] ?? "point";
-}
-
-function queryGeometryDrawingKind(geometry) {
-  if (["Point", "MultiPoint", "LineString"].includes(geometry?.type)
-    || (geometry?.type === "Polygon" && geometry.coordinates?.length === 1)) {
-    return geometry.type;
-  }
-  return null;
 }
 
 function copiedQuerySelectionSection(context, layer, draft) {
@@ -7396,71 +7362,6 @@ function invalidateFeatureQueryResult(context, {render = false} = {}) {
   panel?.querySelector(".gis-query-results")?.remove();
   panel?.querySelector(".gis-query-feedback.error")?.remove();
   if (panel) panel.dataset.queryState = "draft";
-}
-
-function cancelFeatureQueryRequest(state) {
-  state.queryRequestRevision += 1;
-  state.queryAbortController?.abort();
-  state.queryAbortController = null;
-  state.queryRunning = false;
-}
-
-function queryInputValue(value, type) {
-  if (type === "boolean") return value === "true";
-  if (["integer", "number"].includes(type)) return value === "" ? null : Number(value);
-  return value;
-}
-
-function queryOperatorOptions(valueType) {
-  if (valueType === "string") {
-    return [
-      ["contains", "contains"],
-      ["starts_with", "starts with"],
-      ["equals", "equals"],
-      ["not_equals", "does not equal"],
-      ["is_null", "is empty"]
-    ];
-  }
-  if (valueType === "boolean") {
-    return [
-      ["equals", "equals"],
-      ["not_equals", "does not equal"],
-      ["is_null", "is empty"]
-    ];
-  }
-  return [
-    ["equals", "equals"],
-    ["not_equals", "does not equal"],
-    ["greater_than", "greater than"],
-    ["greater_than_or_equal", "greater than or equal"],
-    ["less_than", "less than"],
-    ["less_than_or_equal", "less than or equal"],
-    ["is_null", "is empty"]
-  ];
-}
-
-function queryDraftReady(draft) {
-  return draft.steps.length >= 1 && draft.steps.every((step) => {
-    if (step.kind === "spatial") {
-      return Number.isFinite(step.buffer_meters)
-        && step.buffer_meters >= 0
-        && step.buffer_meters <= FEATURE_QUERY_LIMITS.maximumBufferMeters;
-    }
-    return step.operator === "is_null" || (
-      step.value !== null
-      && step.value !== ""
-      && (typeof step.value !== "number" || Number.isFinite(step.value))
-    );
-  });
-}
-
-function inferredFieldType(geojson, field) {
-  const value = (geojson?.features ?? [])
-    .map((feature) => feature.properties?.[field])
-    .find((candidate) => candidate !== null && candidate !== undefined);
-  if (typeof value === "boolean") return "boolean";
-  if (typeof value === "number") return Number.isInteger(value) ? "integer" : "number";
-  return "string";
 }
 
 function basemapPanel(context) {

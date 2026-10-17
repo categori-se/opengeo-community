@@ -24,8 +24,9 @@ pending. We record implementation, acceptance and delivery separately:
 | Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. Studio now delivers the 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides. Local checks cover navigation, rendering and memory save/reopen. | Hosted account save/reopen, individual-feature overrides and separate icon/label controls. |
 | Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. | Hosted persistence and visual paper-layout acceptance. |
 | External PostGIS Layers | Connection verification, relation discovery, stable live Layer registration and bounded feature preview are implemented. A real local PostGIS journey verifies feature queries, exact numeric values, paging limits, revocation and cleanup. | Connected-browser and configured-provider acceptance, followed by deployment. The new source path defaults off. |
+| Native authored publications | Local immutable source storage, SQL build coordination and isolated signed previews are connected. Actual local Studio saves the first source revision and leases its build job. Preview and build history accept trusted deployment-specific domains. | Connected native save/build/preview/revision acceptance, followed by independent installation and delivery. [Readiness](docs/api/native-publication-readiness.md). |
 | API and CKAN exchange | The API contract has reproducible offline validation. The STAC-to-CKAN exporter and disposable CKAN 2.11.6 create/read/purge check are complete for their documented scope. | Complete harvesting, synchronization and live portal integration. |
-| Configurable PMTiles intake | The dedicated conversion lane, parameter review, preserved-original path and completed-display handoff are implemented locally. The pinned worker converts GeoJSON and rejects disguised VRT input. | Current security review, successful native ARM64 execution and real-data hosted acceptance before activation. A native attempt stopped before Python could execute; temporary containers and infrastructure were cleaned up. The large global KBA conversion has not completed. |
+| Configurable PMTiles intake | The dedicated conversion lane, parameter review, preserved-original path and completed-display handoff are implemented locally. The pinned worker converts GeoJSON and rejects disguised VRT input. | Current security review, successful native ARM64 execution and real-data hosted acceptance before activation. The corrected native API probe passes; the worker remains unexecuted because the host rejects a launcher mount option. Both temporary stacks and containers are cleaned up. The large global KBA conversion has not completed. |
 | Analysis console | The docked JavaScript/Python/Bash editor, isolated browser JavaScript and opt-in local runners are implemented and accepted locally. Managed source connects private jobs, application storage, explicit queue/controller wake and a bounded host; local coordinator checks execute all three languages and cancellation. | Managed activation stays disabled. Connected HTTP/database and updated consumer lifecycle, admitted AMI, fresh-boot rootless security, actual AWS cleanup and production delivery remain open. |
 
 The [capability matrix](docs/community-capabilities.md) describes operation-level
@@ -56,8 +57,8 @@ Existing application checks use cached dependencies/images and explicit local
 substitutes; fresh installation, clean image builds and independent-account AWS
 acceptance remain separate work. The complete standalone native
 Notebook/Framework compilation, preview and publication journey also remains
-open; the [readiness review](docs/api/native-publication-readiness.md) identifies
-the remaining runtime connections.
+open; the [readiness review](docs/api/native-publication-readiness.md) distinguishes
+implemented runtime connections from their remaining acceptance checks.
 
 ## Planning and delivery
 

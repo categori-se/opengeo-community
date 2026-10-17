@@ -11,6 +11,41 @@ from opengeo_api.render_runtime import RenderRuntimeReference
 Environment = Literal["dev", "test", "staging", "production"]
 
 
+def canonical_preview_origin(value: str, *, allow_loopback_http: bool = False) -> str:
+    """Validate an explicitly configured isolated origin, never an arbitrary URL."""
+    try:
+        parsed = urlsplit(value)
+        host, port = parsed.hostname, parsed.port
+        labels = host.split(".") if host else []
+        valid_host = bool(labels) and len(host) <= 253 and all(
+            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in labels
+        )
+        authority = host + (f":{port}" if port is not None else "") if host else ""
+        valid = (
+            isinstance(value, str)
+            and all(32 < ord(character) < 127 for character in value)
+            and valid_host
+            and parsed.netloc == authority
+            and value == f"{parsed.scheme}://{authority}"
+            and (port is None or 1 <= port <= 65535)
+            and (parsed.scheme, port) not in {("https", 443), ("http", 80)}
+            and not (parsed.path or parsed.query or parsed.fragment)
+            and (
+                parsed.scheme == "https"
+                or (allow_loopback_http and parsed.scheme == "http" and host == "127.0.0.1")
+            )
+        )
+    except (TypeError, ValueError):
+        valid = False
+    if not valid:
+        raise ValueError(
+            "preview origin must be a canonical HTTPS origin; "
+            "dev/test may use HTTP on 127.0.0.1"
+        )
+    return value
+
+
 class Settings(BaseSettings):
     """Runtime settings loaded exclusively from explicit values or OPEN_GEO_* variables."""
 
@@ -302,21 +337,16 @@ class Settings(BaseSettings):
             and re.fullmatch(r"sha256:[0-9a-f]{64}", self.observable_builder_image_digest) is None
         ):
             raise ValueError("observable_builder_image_digest must be an exact sha256 digest")
-        if (
-            self.observable_preview_origin is not None
-            and self.observable_preview_origin != "https://preview.studio.opengeo.tools"
-        ):
-            raise ValueError("observable_preview_origin must be the exact private preview origin")
+        for origin in (self.observable_preview_origin, self.observable_public_maps_preview_origin):
+            if origin is not None:
+                canonical_preview_origin(origin, allow_loopback_http=self.env in {"dev", "test"})
+                if origin in {"https://studio.opengeo.tools", "https://demo.studio.opengeo.tools"}:
+                    raise ValueError("preview must use an origin separate from Studio")
         if self.observable_public_maps_preview_origin is not None:
-            if (
-                self.observable_public_maps_preview_origin
-                != "https://maps-preview.studio.opengeo.tools"
-            ):
-                raise ValueError(
-                    "observable_public_maps_preview_origin must be the exact public maps origin"
-                )
             if self.observable_preview_origin is None:
                 raise ValueError("public maps preview requires the private preview origin")
+            if self.observable_public_maps_preview_origin == self.observable_preview_origin:
+                raise ValueError("public maps preview must use a separate origin")
         preview_signing_values = (
             self.observable_preview_key_pair_id,
             self.observable_preview_private_key_secret_arn,

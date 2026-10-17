@@ -493,6 +493,7 @@ def client(
     *,
     preview: bool = False,
     public_maps_preview: bool = False,
+    preview_origin: str | None = None,
     signer: FakePreviewCookieSigner | None = None,
     dispatcher: FakeBuildDispatcher | None = None,
 ) -> DirectAsgiClient:
@@ -502,7 +503,7 @@ def client(
                 env="test",
                 expose_docs=True,
                 observable_preview_origin=(
-                    "https://preview.studio.opengeo.tools" if preview else None
+                    preview_origin or "https://preview.studio.opengeo.tools" if preview else None
                 ),
                 observable_public_maps_preview_origin=(
                     "https://maps-preview.studio.opengeo.tools" if public_maps_preview else None
@@ -2771,6 +2772,32 @@ def test_private_preview_uses_one_time_fragment_exchange_and_path_scoped_cookies
     )
     assert replay.status_code == 404
     assert replay.json()["detail"] == "observable_preview_capability_invalid"
+
+
+def test_loopback_preview_retains_one_time_authority_and_private_cookie_scope() -> None:
+    repository = MemoryObservableSourceRepository()
+    repository.job = succeeded_build_job()
+    origin = "http://127.0.0.1:8766"
+    api = client(repository, preview=True, preview_origin=origin, signer=FakePreviewCookieSigner())
+    endpoint = f"/projects/{PROJECT_ID}/observable-build-jobs/{BUILD_ID}/preview-capabilities"
+    created = api.post(endpoint, headers=headers())
+    assert created.status_code == 201
+    assert created.json()["authorize_url"].startswith(origin + "/authorize/#cap=")
+    payload = {"capability": repository.preview_capability}
+    denied = api.post(
+        "/observable-preview/exchange", json=payload,
+        headers={"Origin": "http://127.0.0.1:8767", "Sec-Fetch-Site": "same-origin"},
+    )
+    assert denied.status_code == 403 and not denied.headers.get_list("set-cookie")
+    exchange_headers = {"Origin": origin, "Sec-Fetch-Site": "same-origin"}
+    exchanged = api.post("/observable-preview/exchange", json=payload, headers=exchange_headers)
+    assert exchanged.status_code == 200
+    for cookie in exchanged.headers.get_list("set-cookie"):
+        assert "Secure" not in cookie and "HttpOnly" in cookie and "SameSite=strict" in cookie
+        assert f"Path=/organizations/{ORG_ID}/projects/{PROJECT_ID}/source-projects/" in cookie
+        assert "Domain=" not in cookie
+    replay = api.post("/observable-preview/exchange", json=payload, headers=exchange_headers)
+    assert replay.status_code == 404
 
 
 def test_public_maps_preview_binds_exchange_and_cookies_to_selected_origin() -> None:

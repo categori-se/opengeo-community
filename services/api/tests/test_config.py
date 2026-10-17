@@ -308,7 +308,7 @@ def test_observable_builder_image_is_optional_but_must_be_checksum_pinned() -> N
         Settings(env="test", observable_builder_image_digest="opengeo-builder:latest")
 
 
-def test_observable_preview_origin_is_optional_but_exact_and_https() -> None:
+def test_observable_preview_origin_is_optional_canonical_and_isolated() -> None:
     assert Settings(env="test").observable_preview_origin is None
     origin = "https://preview.studio.opengeo.tools"
     assert (
@@ -319,11 +319,11 @@ def test_observable_preview_origin_is_optional_but_exact_and_https() -> None:
         "https://preview.studio.opengeo.tools/",
         "https://studio.opengeo.tools",
     ]:
-        with pytest.raises(ValidationError, match="exact private preview origin"):
+        with pytest.raises(ValidationError, match=r"canonical HTTPS|separate from Studio"):
             Settings(env="test", observable_preview_origin=invalid)
 
 
-def test_public_maps_preview_requires_exact_origin_and_existing_private_preview() -> None:
+def test_public_maps_preview_requires_separate_origin_and_existing_private_preview() -> None:
     assert Settings(env="test").observable_public_maps_preview_origin is None
     origin = "https://maps-preview.studio.opengeo.tools"
     with pytest.raises(ValidationError, match="requires the private preview origin"):
@@ -340,8 +340,44 @@ def test_public_maps_preview_requires_exact_origin_and_existing_private_preview(
         "https://preview.studio.opengeo.tools",
         "https://studio.opengeo.tools",
     ]:
-        with pytest.raises(ValidationError, match="exact public maps origin"):
+        with pytest.raises(ValidationError, match=r"canonical HTTPS|separate"):
             Settings(**common, observable_public_maps_preview_origin=invalid)
+
+
+def test_independent_installation_can_configure_exact_preview_origins() -> None:
+    settings = Settings(
+        env="test",
+        observable_preview_origin="https://preview.customer.example:8443",
+        observable_public_maps_preview_origin="https://maps.customer.example",
+    )
+    assert settings.observable_preview_origin == "https://preview.customer.example:8443"
+    for invalid in [
+        "https://preview.customer.example/path", "https://user@preview.customer.example",
+        "https://preview.customer.example?next=x", "https://preview.customer.example#x",
+        "https://preview.customer.example:0", "https://preview.customer.example\n",
+        "HTTPS://preview.customer.example", "https://preview.customer.example:443",
+        "http://127.0.0.1:80",
+        "http://192.168.1.1:8080", "http://localhost.evil.example:8080",
+    ]:
+        with pytest.raises(ValidationError, match="canonical HTTPS"):
+            Settings(env="test", observable_preview_origin=invalid)
+
+
+@pytest.mark.parametrize("environment", ["dev", "test", "staging", "production"])
+def test_plain_http_preview_is_confined_to_explicit_local_development(environment: str) -> None:
+    origin = "http://127.0.0.1:8766"
+    if environment in {"dev", "test"}:
+        configured = Settings(env=environment, observable_preview_origin=origin)
+        assert configured.observable_preview_origin == origin
+    else:
+        with pytest.raises(ValidationError, match="canonical HTTPS"):
+            Settings(
+                env=environment,
+                observable_preview_origin=origin,
+                database_url=SecretStr("postgresql://opengeo_runtime@database.internal/opengeo"),
+                cognito_region="us-east-1", cognito_user_pool_id="us-east-1_test",
+                cognito_client_id="preview-test-client",
+            )
 
 
 def test_observable_preview_signing_configuration_is_complete_and_region_scoped() -> None:

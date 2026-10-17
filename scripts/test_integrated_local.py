@@ -23,8 +23,121 @@ STUDIO_SPEC = importlib.util.spec_from_file_location(
 studio = importlib.util.module_from_spec(STUDIO_SPEC)
 STUDIO_SPEC.loader.exec_module(studio)
 
+PUBLICATION_SPEC = importlib.util.spec_from_file_location(
+    "local_publication_bridge", Path(__file__).with_name("local-publication-bridge.py")
+)
+publication = importlib.util.module_from_spec(PUBLICATION_SPEC)
+PUBLICATION_SPEC.loader.exec_module(publication)
+
 
 class InitializationTests(unittest.TestCase):
+    def test_source_upload_custody_does_not_enqueue_gis_ingestion(self):
+        identity = "10000000-0000-4000-8000-000000000001"
+        prefix = f"organizations/{identity}/projects/{identity}/"
+        for name in ["index.md", "index.html", "settings.json", "app.js", "figure.png"]:
+            self.assertFalse(studio.is_dataset_upload(
+                f"{prefix}source-projects/{identity}/uploads/{identity}/files/{name}"))
+        self.assertTrue(studio.is_dataset_upload(
+            f"{prefix}datasets/{identity}/uploads/{identity}/original/features.geojson"))
+
+    def test_publication_opt_in_requires_cached_exact_compiler_and_preserves_queues(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            pin = "sha256:" + "a" * 64
+            with (patch.object(studio.subprocess, "run", return_value=Mock(returncode=0)) as inspect,
+                  patch.object(studio, "publication_preview_origin", return_value="http://127.0.0.1:58000"),
+                  patch.object(studio, "publication_signing_keys", return_value=("publication-preview-private.pem", "publication-preview-public.pem"))):
+                studio.stage_publication_profile(work, pin)
+            inspect.assert_called_once_with(["podman", "image", "exists", pin],
+                                            capture_output=True, check=False, timeout=15)
+            self.assertEqual(json.loads((work / "publication-profile.json").read_text()), {
+                "compilerImageDigest": pin, "previewOrigin": "http://127.0.0.1:58000",
+                "previewKeyPairId": "LOCALPREVIEW123",
+                "previewPrivateKeyPath": "publication-preview-private.pem",
+                "previewPublicKeyPath": "publication-preview-public.pem"})
+            (work / "observable-builds.json").write_text('[{"retained":true}]')
+            studio.stage_publication_profile(work, None)
+            self.assertFalse((work / "publication-profile.json").exists())
+            self.assertEqual(json.loads((work / "observable-builds.json").read_text()), [{"retained": True}])
+            with self.assertRaises(ValueError):
+                studio.stage_publication_profile(work, "node:latest")
+            with patch.object(studio.subprocess, "run", return_value=Mock(returncode=1)):
+                with self.assertRaisesRegex(ValueError, "absent"):
+                    studio.stage_publication_profile(work, pin)
+            original = work / "retained-profile.json"
+            original.write_text("retained configuration")
+            (work / "publication-profile.json").symlink_to(original)
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                studio.stage_publication_profile(work, None)
+            self.assertEqual(original.read_text(), "retained configuration")
+
+    def test_publication_keys_are_private_reused_and_reject_symlinks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            private_name, public_name = studio.publication_signing_keys(work)
+            private, public = work / private_name, work / public_name
+            self.assertEqual(stat.S_IMODE(private.stat().st_mode), 0o600)
+            self.assertEqual(stat.S_IMODE(public.stat().st_mode), 0o600)
+            original = private.read_bytes()
+            self.assertEqual(studio.publication_signing_keys(work), (private_name, public_name))
+            self.assertEqual(private.read_bytes(), original)
+            public.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "0600"):
+                studio.publication_signing_keys(work)
+            public.unlink()
+            public.symlink_to(private)
+            with self.assertRaisesRegex(ValueError, "0600"):
+                studio.publication_signing_keys(work)
+
+    def test_publication_preview_port_is_loopback_and_explicit(self):
+        listener = Mock()
+        listener.getsockname.return_value = ("127.0.0.1", 58001)
+        connection = Mock()
+        connection.__enter__ = Mock(return_value=listener)
+        connection.__exit__ = Mock(return_value=False)
+        with patch.object(studio.socket, "socket", return_value=connection):
+            self.assertEqual(studio.publication_preview_origin(0), "http://127.0.0.1:58001")
+        listener.bind.assert_called_once_with(("127.0.0.1", 0))
+        for port in [-1, 65536, True]:
+            with self.assertRaises(ValueError):
+                studio.publication_preview_origin(port)
+
+    def test_publication_queue_is_separate_and_retains_unacknowledged_work(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)):
+            pilot.LocalQueue().push({"gis": True})
+            builds = pilot.LocalQueue("observable-builds")
+            builds.push({"build": 1})
+            builds.push({"build": 2})
+            first = pilot.read_json("observable-builds.json")[0]
+            builds.delete(first["id"])
+            self.assertEqual(json.loads(pilot.read_json("observable-builds.json")[0]["body"]), {"build": 2})
+            self.assertEqual(json.loads(pilot.read_json("queue.json")[0]["body"]), {"gis": True})
+
+    def test_publication_output_reuses_exact_version_and_rejects_changed_bytes(self):
+        import base64
+
+        with tempfile.TemporaryDirectory() as temporary, patch.object(publication.pilot, "WORK", Path(temporary)):
+            body = b"<!doctype html><title>Retained edition</title>"
+            request = {"operation": "write", "bucket": pilot.BUCKET,
+                       "objectKey": "organizations/example/builds/edition-one/output/index.html",
+                       "contentType": "text/html", "checksumSha256": pilot.digest(body),
+                       "body": base64.b64encode(body).decode()}
+            original = publication.operate(request)
+            self.assertEqual(publication.operate(request), original)
+            read = publication.operate({"operation": "read", "bucket": pilot.BUCKET,
+                                       "objectKey": request["objectKey"],
+                                       "s3VersionId": original["version_id"], "maximumBytes": len(body)})
+            self.assertEqual(base64.b64decode(read["body"]), body)
+            changed = b"<!doctype html><title>Changed edition</title>"
+            with self.assertRaisesRegex(ValueError, "collision"):
+                publication.operate({**request, "body": base64.b64encode(changed).decode(),
+                                     "checksumSha256": pilot.digest(changed)})
+            self.assertEqual(len(publication.pilot.read_json("objects.json")), 1)
+            with self.assertRaises(AssertionError):
+                publication.operate({"operation": "read", "bucket": pilot.BUCKET,
+                                     "objectKey": "different-edition", "s3VersionId": original["version_id"],
+                                     "maximumBytes": len(body)})
+
     def test_development_requires_private_state_and_immutable_images(self):
         args = studio.parse_args(["--development", "--state-directory", "/tmp/community",
                                   "--api-image", "sha256:" + "a" * 64])

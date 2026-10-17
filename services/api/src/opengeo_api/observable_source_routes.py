@@ -2,6 +2,7 @@ import logging
 from collections.abc import Awaitable
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -1523,6 +1524,15 @@ async def create_observable_preview_capability(
     signer = request.app.state.observable_preview_cookie_signer
     if preview_origin is None or not signer.available:
         raise HTTPException(status_code=503, detail="observable_preview_delivery_unavailable")
+    location = urlsplit(str(request.url))
+    api_port = location.port
+    api_authority = location.hostname or ""
+    if api_port is not None and (location.scheme, api_port) not in {("https", 443), ("http", 80)}:
+        api_authority += f":{api_port}"
+    if preview_origin in {
+        request.headers.get("origin"), f"{location.scheme}://{api_authority}"
+    }:
+        raise HTTPException(status_code=503, detail="observable_preview_origin_not_isolated")
     capability = await execute_observable(
         repository.create_preview_capability(
             tenant_context(session), project_id, build_job_id, get_request_id(), runtime_profile
@@ -1595,7 +1605,7 @@ async def exchange_observable_preview_capability(
             value,
             max_age=max_age,
             path=cookie_path,
-            secure=True,
+            secure=urlsplit(preview_origin).scheme == "https",
             httponly=True,
             samesite="strict",
         )

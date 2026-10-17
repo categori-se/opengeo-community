@@ -11,7 +11,7 @@ const types = {".html":"text/html; charset=utf-8", ".js":"text/javascript", ".mj
   ".svg":"image/svg+xml", ".pbf":"application/x-protobuf", ".woff2":"font/woff2", ".txt":"text/plain"};
 
 export function integratedStudioShellMode(args) {
-  const supported = new Set(["--pinned-map-fonts", "--built-studio", "--restore-checkpoint", "--service-clients", "--wcs-only", "--analysis-only", "--development"]);
+  const supported = new Set(["--pinned-map-fonts", "--built-studio", "--restore-checkpoint", "--service-clients", "--wcs-only", "--analysis-only", "--development", "--publication-only"]);
   assert.ok(args.every(arg => supported.has(arg)) && new Set(args).size === args.length,
     "Only unique pinned-font, built-Studio, restore-checkpoint and service-clients flags are supported");
   assert.ok(!args.includes("--restore-checkpoint") || args.includes("--built-studio"), "Restoration requires the built application");
@@ -23,6 +23,7 @@ export function integratedStudioShellMode(args) {
     ...(args.includes("--service-clients") ? {serviceClients:true} : {}),
     ...(args.includes("--wcs-only") ? {wcsOnly:true} : {}),
     ...(args.includes("--analysis-only") ? {analysisOnly:true} : {}),
+    ...(args.includes("--publication-only") ? {publicationOnly:true} : {}),
     ...(args.includes("--development") ? {development:true} : {})};
 }
 
@@ -66,7 +67,8 @@ export function integratedStudioAuthConfig(origin) {
 
 // Browser session substitution only. Production auth storage, adapter selection,
 // membership resolution and all API authorization still run unchanged.
-export function initializeIntegratedStudioSession({organization, actor = null}) {
+export function initializeIntegratedStudioSession({organization, actor = null, origin = null}) {
+  if (origin && globalThis.location?.origin !== origin) return;
   // Publication previews deliberately have opaque origins. Never seed a frame
   // or weaken its sandbox merely to install a synthetic top-level session.
   if (globalThis.window && window.top !== window) return;

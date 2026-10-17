@@ -267,29 +267,34 @@ class LocalObjects:
 
 
 class LocalQueue:
+    def __init__(self, name="queue"):
+        if name not in {"queue", "observable-builds"}:
+            raise ValueError("Unknown local queue")
+        self.name = name
+
     def push(self, payload):
-        with local_state_lock("queue"):
-            messages = read_json("queue.json", [])
+        with local_state_lock(self.name):
+            messages = read_json(f"{self.name}.json", [])
             messages.append({"id": str(uuid4()), "body": json.dumps(payload)})
-            save_json("queue.json", messages)
+            save_json(f"{self.name}.json", messages)
 
     def receive(self, visibility_seconds):
         from opengeo_worker.models import QueueMessage
 
-        messages = read_json("queue.json", [])
+        messages = read_json(f"{self.name}.json", [])
         if not messages:
             return None
         first = messages[0]
         return QueueMessage(first["id"], first["id"], first["body"], 1)
 
     def delete(self, receipt_handle):
-        with local_state_lock("queue"):
-            messages = read_json("queue.json", [])
+        with local_state_lock(self.name):
+            messages = read_json(f"{self.name}.json", [])
             assert messages[0]["id"] == receipt_handle
-            save_json("queue.json", messages[1:])
+            save_json(f"{self.name}.json", messages[1:])
 
     def change_visibility(self, receipt_handle, visibility_seconds):
-        assert any(m["id"] == receipt_handle for m in read_json("queue.json", []))
+        assert any(m["id"] == receipt_handle for m in read_json(f"{self.name}.json", []))
 
 
 class LocalDispatcher:
@@ -311,6 +316,16 @@ class LocalDispatcher:
                 "coverage_derivative_job_id": str(job_id),
             }
         )
+
+
+class LocalObservableDispatcher:
+    available = True
+
+    async def dispatch_observable_build(self, job_id):
+        LocalQueue("observable-builds").push({
+            "schema": "opengeo.observable-build.command.1.0.0",
+            "build_job_id": str(job_id),
+        })
 
 
 def worker():
@@ -389,11 +404,15 @@ def local_app(**overrides):
             assert email == "reviewer@local.invalid"
             return ProvisionedIdentity("local-pilot-reviewer", email, display_name)
 
+    publication = read_json("publication-profile.json", {})
     dependencies = {
         "settings": LocalSettings(
             env="test",
             log_level="WARNING",
             geodata_bucket=BUCKET,
+            application_bucket=BUCKET,
+            observable_builder_image_digest=publication.get("compilerImageDigest"),
+            observable_preview_origin=publication.get("previewOrigin"),
             aws_region="us-east-1",
             geodata_kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/local-only",
             database_url=SecretStr("postgresql://opengeo_runtime@127.0.0.1/opengeo"),
@@ -402,6 +421,8 @@ def local_app(**overrides):
         "identity_provisioner": LocalIdentities(),
         "upload_storage": LocalObjects(),
         "download_storage": LocalObjects(),
+        "page_source_upload_storage": LocalObjects(),
+        "page_source_download_storage": LocalObjects(),
         "render_dispatcher": LocalDispatcher(
             "opengeo.render.command.v1", "render_job_id"
         ),
@@ -409,6 +430,19 @@ def local_app(**overrides):
             "opengeo.pmtiles-derivative.command.v1", "pmtiles_derivative_job_id"
         ),
     }
+    if publication:
+        from opengeo_api.observable_previews import CloudFrontPreviewCookieSigner
+
+        if publication["previewPrivateKeyPath"] != "publication-preview-private.pem":
+            raise ValueError("Local publication signing key must use the profile-relative filename")
+        private_key = WORK / publication["previewPrivateKeyPath"]
+        if private_key.is_symlink() or not private_key.is_file() or (private_key.stat().st_mode & 0o777) != 0o600:
+            raise ValueError("Local publication signing key must be a private file under the state directory")
+        dependencies["observable_preview_cookie_signer"] = CloudFrontPreviewCookieSigner(
+            publication["previewKeyPairId"], private_key.read_bytes(),
+            allowed_origins=[publication["previewOrigin"]],
+        )
+        dependencies["observable_build_dispatcher"] = LocalObservableDispatcher()
     dependencies.update(overrides)
     return create_app(**dependencies)
 

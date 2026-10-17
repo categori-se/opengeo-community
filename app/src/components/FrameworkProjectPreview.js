@@ -1,12 +1,11 @@
 import {PublicationInputDistribution} from './PublicationInputDistribution.js';
+import {resolvePublicationPreviewOrigins} from '../lib/publicationPreviewOrigins.js';
 
-const PREVIEW_ORIGIN = 'https://preview.studio.opengeo.tools';
-const PUBLIC_MAPS_PREVIEW_ORIGIN = 'https://maps-preview.studio.opengeo.tools';
-const PREVIEW_ORIGINS = new Set([PREVIEW_ORIGIN, PUBLIC_MAPS_PREVIEW_ORIGIN]);
-
-export function previewCapabilityUrl(capability) {
+export function previewCapabilityUrl(capability, {previewOrigins, studioOrigin, runtimeProfile} = {}) {
+  const origins = resolvePublicationPreviewOrigins(previewOrigins, studioOrigin);
+  const allowed = runtimeProfile ? [origins[runtimeProfile]] : Object.values(origins);
   const url = new URL(capability?.authorizeUrl);
-  if (!PREVIEW_ORIGINS.has(url.origin) || capability.authorizeUrl !== `${url.origin}/authorize/${url.hash}` ||
+  if (!allowed.includes(url.origin) || capability.authorizeUrl !== `${url.origin}/authorize/${url.hash}` ||
       url.pathname !== '/authorize/' || url.search ||
       url.username || url.password || !/^#cap=[A-Za-z0-9_-]{128,512}$/.test(url.hash) ||
       capability.publicationAuthorized !== false || Date.parse(capability.expiresAt) <= Date.now() ||
@@ -18,6 +17,9 @@ export function previewCapabilityUrl(capability) {
  * on file edits, on mount, on refresh, or after a missing response. */
 export function FrameworkProjectPreview({adapter, projectId, sourceProject, canManage = false}) {
   const root = element('section', '', 'publication-document-preview framework-project-preview');
+  const studioOrigin = root.ownerDocument.location?.origin;
+  const previewOrigins = resolvePublicationPreviewOrigins(adapter?.previewOrigins, studioOrigin);
+  const allowedPreviewOrigins = new Set(Object.values(previewOrigins));
   root.append(element('h4', 'Saved preview'));
   const note = element('p', `Saved revision ${sourceProject.currentRevisionNumber}. Uncommitted edits are not included.`);
   const status = element('p', ''); status.setAttribute('role', 'status');
@@ -154,8 +156,8 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
   function selectedCapabilityUrl(capability, profile, selection) {
     assertSelection();
     if (selection !== previewSelection || profile !== runtimeProfile()) throw Error('Preview sources changed. Select the preview again.');
-    const url = previewCapabilityUrl(capability);
-    if (new URL(url).origin !== (profile === 'public_maps_v1' ? PUBLIC_MAPS_PREVIEW_ORIGIN : PREVIEW_ORIGIN)) {
+    const url = previewCapabilityUrl(capability, {previewOrigins, studioOrigin});
+    if (new URL(url).origin !== previewOrigins[profile]) {
       throw Error('Preview authorization does not match the selected sources');
     }
     return url;
@@ -306,7 +308,7 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
   const policyFailure = event => {
     let blockedOrigin;
     try {blockedOrigin = new URL(event.blockedURI).origin;} catch {return;}
-    if (event.effectiveDirective === 'frame-src' && PREVIEW_ORIGINS.has(blockedOrigin)) {
+    if (event.effectiveDirective === 'frame-src' && allowedPreviewOrigins.has(blockedOrigin)) {
       clearPreview();
       status.textContent = 'Studio currently blocks embedded previews. Open this saved build in a new window; the editor stays open.';
     }

@@ -84,6 +84,31 @@ def test_cloudfront_preview_cookie_signer_rejects_wrong_keys_and_origins() -> No
             signer.sign(f"https://{hostname}/organizations/*", datetime.now(UTC))
 
 
+@pytest.mark.parametrize("origin", ["https://preview.customer.example", "http://127.0.0.1:8766"])
+def test_configured_preview_signer_is_bound_to_its_exact_origin(origin: str) -> None:
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    pem = key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+    signer = CloudFrontPreviewCookieSigner("LOCALPREVIEW123", pem, allowed_origins=[origin])
+    path = (
+        "/organizations/10000000-0000-4000-8000-000000000459/projects/"
+        "50000000-0000-4000-8000-000000000459/source-projects/"
+        "b0000000-0000-4000-8000-000000000459/builds/"
+        "e0000000-0000-4000-8000-000000000459/output/*"
+    )
+    cookies = signer.sign(origin + path, datetime.now(UTC))
+    policy = json.loads(cloudfront_decode(cookies["CloudFront-Policy"]))
+    assert policy["Statement"][0]["Resource"] == origin + path
+    for wrong in [
+        "https://other.customer.example" + path,
+        origin + path + "?x=1",
+        origin + "/organizations/*",
+    ]:
+        with pytest.raises(ValueError, match="resource URL"):
+            signer.sign(wrong, datetime.now(UTC))
+
+
 class FakeCredentials:
     def load(self) -> AwsCredentials:
         return AwsCredentials("AKIATEST", "test-secret", "session-token")

@@ -71,7 +71,8 @@ export function FrameworkBuildHistory({adapter, projectId, sourceProjectId, canM
       working = true; preview.disabled = true;
       try {
         const capability = await adapter.createObservablePreviewCapability(projectId, job.id);
-        if (epoch === generation) popup.location.replace(previewCapabilityUrl(capability));
+        if (epoch === generation) popup.location.replace(previewCapabilityUrl(capability, {previewOrigins: adapter.previewOrigins,
+          studioOrigin: root.ownerDocument.location?.origin, runtimeProfile: 'local_only'}));
         else popup.close();
       } catch (error) {popup.close(); status.textContent = `Preview unavailable (${error?.code ?? "request_failed"}). Nothing was published.`;}
       finally {working = false; preview.disabled = false;}

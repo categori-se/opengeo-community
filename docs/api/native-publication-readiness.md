@@ -1,44 +1,66 @@
 # Native publication: local readiness
 
-The saved-source → native compiler → authorized private-preview journey remains
-unverified in the standalone local environment. A read-only inspection found a
-cached compiler, but completing this journey requires maintained local storage,
-coordination and preview-delivery adapters beyond a small configuration change.
-The [readiness evidence](evidence/task-5.json) records the inspected source and
-image identities and the assertions that were not run.
+The local storage, build coordination and isolated-preview connections are now
+implemented. The complete saved-source → native compiler → authorized private
+preview journey has **not yet been accepted in the standalone environment**.
+A connected local Studio check imports the CC0 reference study, saves its first
+source revision and creates/leases the build job. It finds a local storage adapter
+return-shape mismatch before the compiler starts. That narrow correction is checked
+offline; native compilation and the two-revision preview journey still need acceptance.
+The [earlier inspection receipt](evidence/task-5.json) remains historical evidence;
+its missing-adapter findings describe the source inspected then.
 
-| Boundary | Current local path | Missing connection |
+| Boundary | Implemented local connection | Acceptance still required |
 | --- | --- | --- |
-| Saved authored source | The [local application](../../scripts/run-integrated-pilot-local.py#L356) supplies dataset storage and GIS dispatch substitutes. | It does not configure application/source storage, the compiler pin or Observable build dispatch. The [API](../../services/api/src/opengeo_api/app.py#L384) otherwise selects its unavailable source-storage adapters. |
-| Build coordination and retained output | The [host entry](../../services/observable-coordinator/scripts/run-host.mjs#L1) selects [production dependencies](../../services/observable-coordinator/src/runtime.mjs#L210). | That path uses AWS Data API, S3 and SQS. The local PostGIS and object store are not connected to its job-lease, exact revision/input and output-completion interfaces. |
-| Authorized private preview | The [API preview exchange](../../services/api/src/opengeo_api/observable_source_routes.py#L1502) issues path-scoped CloudFront cookies; the [preview shell](../../services/observable-preview/README.md) navigates to the exact output. | The local runner has no configured preview origin/signer or maintained local server that enforces this output-access boundary. |
+| Saved authored source | The [local API profile](../../scripts/run-integrated-pilot-local.py) supplies source upload/download storage, exact compiler identity and durable Observable build dispatch. | First source revision saved through the actual local Studio/API. Additional selected-input and revision round trips remain. |
+| Native build and retained output | The [local coordinator adapters](../../services/observable-coordinator/src/local-adapters.mjs) bridge the existing SQL job leases and exact-version local object store to the real isolated compiler runner. | Compile that saved revision, retain the exact output manifest, reopen it and compile a deliberate second revision without substituting an in-memory job. |
+| Authorized private preview | The [local preview server](../../services/observable-preview/src/local-server.mjs) exchanges one-time capabilities through the API and enforces signed cookies and exact output identity on a separate loopback origin. API settings also admit explicitly configured canonical HTTPS origins for independent installations. | Open the retained result in a real browser; verify denied access, capability replay, expiry and revocation through the actual API/database path. |
 
-The cached compiler is Linux/amd64 with container UID/GID `10001:10001`; its exact
-image ID and digest are in the evidence. It was inspected, not executed. The host
-reported Node.js `24.18.0`, below the builder and coordinator packages' declared
-`>=24.19.0 <25` requirement. Updating Node alone would not supply the missing
-connections above.
+Activation is explicit through the existing
+[development runner](../../scripts/run-integrated-studio-local.py): use
+`--development --state-directory <private-directory>` with
+`--publication-compiler-digest sha256:<exact-cached-digest>` and optionally
+`--publication-preview-port <port>`. It checks the cached compiler and creates or
+reuses private signing keys; it does not pull an image. Use Node.js
+`>=24.19.0 <25`, the existing API/worker prerequisites and a separate preview port.
+The [application harness](../../app/scripts/check-integrated-studio.mjs) starts
+the preview server and connects **Process queued local jobs** to the coordinator. Ordinary
+startup without the compiler option leaves this publication profile disabled.
 
-The existing [pipeline diagnostic](../../services/observable-coordinator/scripts/check-local-pipeline.mjs#L92)
-constructs a synthetic source claim and uses an in-memory repository and storage.
-Its real compiler adapter [removes its temporary output tree](../../services/observable-coordinator/src/podman-runner.mjs#L66)
-after collecting bytes. That diagnostic does not save authored source through the
-API or serve a retained authorized preview, so it was not used as acceptance for
-this journey.
+For an independent HTTPS installation, set the matching API origins with
+`OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN` and
+`OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN`, then add the same pair to the
+installation's same-origin `auth-config.json`:
 
-These commands reproduce the relevant read-only inspection from the repository root:
-
-```bash
-node --version
-podman image inspect e6825d9f73a3bc0ac1514363a4778cd304c61f6a53ed841bd1f4b14a790be0d7 --format '{{json .ID}} {{json .Digest}} {{json .Architecture}} {{json .Config.User}}'
-nl -ba scripts/run-integrated-pilot-local.py | sed -n '352,420p'
-nl -ba services/observable-coordinator/src/runtime.mjs | sed -n '210,244p'
-nl -ba services/api/src/opengeo_api/observable_source_routes.py | sed -n '1495,1610p'
+```json
+{
+  "previewOrigins": {
+    "local_only": "https://preview.example.org",
+    "public_maps_v1": "https://maps-preview.example.org"
+  }
+}
 ```
 
-No source revision was saved, compiler or coordinator executed, output manifest
-retained, authorized preview opened, second revision compiled, or preview
-revocation/expiry exercised for this task. No authentication substitute, mocked
-build result, cloud call, image pull or external publication was used. Native
-build/private-preview acceptance and the complete cloud publication journey remain
-open for the standalone edition.
+This is an optional field within the existing auth configuration. The two preview
+origins must differ from one another and from Studio/API. HTTPS remains required
+outside explicit local development; a capability response cannot add a trusted
+origin. Separate delivery, signing keys and authorization still need configuration.
+
+The [public CI workflow](../../.github/workflows/api-contract.yml) now includes
+local coordinator/preview checks and API preview-origin, signing and route tests,
+alongside Catalog save, exact map reopen, query authority and publication-draft
+checks. These checks use bounded fixtures; they do not execute this complete
+native compiler/browser journey or establish a fresh installation.
+
+Reuse the existing [community facilities study](../community-examples.md#try-it-community-facilities):
+five fictional **CC0-1.0** facilities, with four marked publicly accessible and
+retained source/rights metadata. Carry its inspected Layer and saved map into a
+native publication, then revise and reopen the result. It is an inspection and
+publishing exercise, not evidence about real facilities. The existing two-page
+watershed pilot separately verifies static ZIP delivery and revocation; that
+result does not establish native compilation.
+
+The next local acceptance step is the saved-revision build and browser preview
+above, followed by its second revision and access-denial checks. Independent
+clean-install acceptance and the fresh-account AWS publication journey remain
+separate, unfinished requirements. This update makes no deployment claim.
