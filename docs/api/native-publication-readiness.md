@@ -14,7 +14,7 @@ historical; its missing-adapter findings describe the source inspected then.
 | --- | --- | --- |
 | Saved authored source | Actual Studio/API saves two approved revisions with retained input bytes and checksums. The local API supplies exact source storage, compiler identity and durable dispatch. | Independent operator installation and broader selected-input round trips. |
 | Native build and retained output | The existing coordinator, real SQL leases and exact-version object store execute the isolated native compiler twice. Completed output survives reopening and is reused without replaying builds. | Fresh compiler/image installation and independent deployment. |
-| Authorized private preview | Separate-origin signed previews display both builds. Missing cookies and cookies for another build return 403. The actual Build history button reopens the earlier edition. Installation-specific origins are validated through the API client response parser. | Complete viewer-access revocation and expiry journey, and production identity/delivery. Signed-preview opening and one-time capability replay denial are accepted locally. |
+| Authorized private preview | Separate-origin signed previews display both builds; Build history reopens the earlier edition. Missing/cross-build cookies and capability replay are denied. The connected local viewer workflow verifies opening, revoked grants, real 60-second capability expiry and signed-cookie expiry with a qualified local verifier clock. Installation-specific origins are validated. | Independent installation, configured production identity/delivery and production activation. Immediate revocation of issued cookies is not implemented. |
 | Publication and earlier editions | Actual review, acknowledgment and approval controls dispatch the existing canonical publisher. Its restricted SQL role, separate public custody and atomic prefix activation publish both editions. Both public links open and permit anonymous reads; the previous public edition remains readable after replacement. | Independent HTTPS/DNS/CDN delivery and production release. |
 
 The [source repository](../../services/api/src/opengeo_api/observable_sources.py)
@@ -30,17 +30,17 @@ on each request. Removing a user's effective project access prevents new grants
 and exchanges, but an already issued cookie remains valid until its signed
 expiry. Immediate cookie revocation is not implemented. The
 [local delivery verifier](../../services/observable-preview/src/local-server.mjs)
-uses the same signature, path and expiry boundaries. These are source-inspection
-findings except for the locally accepted signed-preview opening and replay
-denial. A subsequent connected check accepted a temporary viewer invitation,
-but did not finish viewer-preview navigation, expiry or revocation. It also
-exposed a foreign key from retained capability records to removable organization
-membership. Forward migration0176 preserves capability audit records while allowing
-offboarding. The existing database regression verifies consumed/unconsumed
-history and denied issuance/exchange after removal; the retained local database
-applies the migration and restores the temporary guest fixture without deleting
-audit records. Production activation and the complete browser journey remain open. Production identity and
-delivery acceptance remain open.
+uses the same signature, path and expiry boundaries. Connected local browser
+checks verify viewer opening, refusal of new and unused grants after access
+removal, and refusal of a capability after its real 60-second expiry. The cookie
+expiry check sends the unchanged issued cookies while advancing only the local
+verifier clock; it does not claim a real 15-minute wait or CloudFront acceptance.
+
+Forward migration0176 preserves capability audit records while allowing
+offboarding. The database regression and connected workflow preserve consumed
+and unconsumed history, accepted invitations, both editions and unrelated grants.
+Temporary reviewer memberships are removed and the local API/database are stopped.
+Production activation, identity and delivery acceptance remain open.
 
 This check uses cached images, synthetic sign-in and three separate loopback
 origins. The canonical local hostname is explicitly mapped to an anonymous HTTP

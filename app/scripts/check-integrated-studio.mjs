@@ -22,6 +22,7 @@ import {localObjectDownload} from "./integrated-studio-object-transport.mjs";
 import {exerciseManagedConversion} from "./integrated-studio-conversion.mjs";
 import {exerciseStudioAccess} from "./integrated-studio-access.mjs";
 import {createLocalAnalysisBridge, loadLocalAnalysisRunner} from "./integrated-studio-analysis-runner.mjs";
+import {loadPublicationSecurityReconciliation,validatePublicationSecurityResume} from "./integrated-studio-publication.mjs";
 
 const work = resolve(process.argv[2] ?? "");
 const {built:builtStudio, pinnedFonts:pinnedFontMode, restore:restoreCheckpoint,serviceClients:allServicesMode,wcsOnly:wcsOnlyMode,analysisOnly:analysisOnlyMode,development:developmentMode,publicationOnly:publicationOnlyMode} = integratedStudioShellMode(process.argv.slice(3));
@@ -29,6 +30,9 @@ const serviceClientsMode=allServicesMode||wcsOnlyMode;
 const rendererPersistenceMode=process.env.OPENGEO_RENDERER_PERSISTENCE_ONLY === "1";
 const geolibreImportMode=process.env.OPENGEO_GEOLIBRE_IMPORT_ONLY === "1";
 const publicationSecurityOnly=process.env.OPENGEO_PUBLICATION_SECURITY_ONLY === "1";
+const publicationSecurityReconciliationPin=process.env.OPENGEO_PUBLICATION_SECURITY_RECONCILED;
+if(publicationSecurityReconciliationPin!==undefined)assert.ok(publicationSecurityOnly,
+  'Reconciled security acceptance requires the exact retained security-only mode.');
 if(publicationSecurityOnly)assert.ok(publicationOnlyMode&&developmentMode&&!builtStudio,
   "Publication security acceptance requires the retained development publication-only mode.");
 if (rendererPersistenceMode || geolibreImportMode) assert.ok(builtStudio && !pinnedFontMode && !restoreCheckpoint && !serviceClientsMode && !analysisOnlyMode);
@@ -67,6 +71,12 @@ let publicationSecurityRegularRequests=0,publicationSecurityCleanupRequests=0,se
 const securityFacts=publicationSecurityOnly?JSON.parse(readFileSync(join(work,'publication-progress.json'))):null;
 const securityPreviousRequests=securityFacts?.previewSecurity
   ?JSON.parse(readFileSync(join(work,'requests.json'))):[];
+const securityReconciliation=publicationSecurityReconciliationPin===undefined?undefined
+  :loadPublicationSecurityReconciliation(work,publicationSecurityReconciliationPin);
+const securityResume=publicationSecurityOnly
+  ?validatePublicationSecurityResume(securityFacts,securityPreviousRequests,securityReconciliation):null;
+const securityPriorApiRequests=securityResume?.priorApiRequests??securityPreviousRequests.length;
+const securityCumulativeApiRequests=securityResume?.cumulativeApiRequests??42;
 const securityReviewer='20000000-0000-4000-8000-000000000002';
 
 function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} = {}) {
@@ -85,8 +95,8 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} 
       path===`/projects/${securityFacts.projectId}/memberships`||path==='/organizations/current/memberships')),
     'Only fixture reconciliation may use the cleanup reserve.');
     assert.ok(publicationSecurityRequests<30,'Publication security total API ceiling.');
-    assert.ok(securityPreviousRequests.length+publicationSecurityRequests<42,
-      'Retain prior API usage; the corrected security attempt has a cumulative ceiling of 42.');
+    assert.ok(securityPriorApiRequests+publicationSecurityRequests<securityCumulativeApiRequests,
+      'Retain every prior API attempt within the explicitly scoped cumulative security ceiling.');
     assert.ok(cleanup?publicationSecurityCleanupRequests<4:publicationSecurityRegularRequests<26,
       'Publication security allows 26 normal calls plus four reserved cleanup calls.');
     if(method==='POST'&&path==='/organizations/current/invitations'){
@@ -367,12 +377,12 @@ try {
     const {exerciseNativePublication} = await import('./integrated-studio-publication.mjs');
     const publication = await exerciseNativePublication({page, browser, context, origin, organization,
       apiRequest, work, publicationProfile,securityOnly:publicationSecurityOnly,
-      ...(publicationSecurityOnly?{expirePreviewCookies,observePreviewExchange,securityPreviousRequests}:{})});
+      ...(publicationSecurityOnly?{expirePreviewCookies,observePreviewExchange,securityPreviousRequests,securityReconciliation}:{})});
     assert.deepEqual(errors,[], 'Publication source UI and native preview page errors');
     writeFileSync(join(work,"browser-result.json"),JSON.stringify({status:"pass",publication,
       requestCount:requests.length,...(publicationSecurityOnly?{apiRequestAttempts:publicationSecurityRequests,
-        priorApiRequestAttempts:securityPreviousRequests.length,
-        cumulativeApiRequestAttempts:securityPreviousRequests.length+publicationSecurityRequests,
+        priorApiRequestAttempts:securityPriorApiRequests,
+        cumulativeApiRequestAttempts:securityPriorApiRequests+publicationSecurityRequests,
         regularApiAttempts:publicationSecurityRegularRequests,cleanupApiAttempts:publicationSecurityCleanupRequests}:{}),
       applicationShell:builtShell?.evidence ?? {mode:publicationSecurityOnly?'retained private preview bootstrap; no application build':'existing source UI bundle'},
       notProven:["Compiled Studio delivery","Fresh installation","Production authentication and transport"]},null,2)+"\n");

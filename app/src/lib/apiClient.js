@@ -1,3 +1,42 @@
+import {
+  UUID_PATTERN,
+  ApiClientError,
+  ApiContractError,
+  responsePayload,
+  apiResponseError,
+  assertUuid,
+  uuid,
+  nullableUuid,
+  string,
+  boundedString,
+  boundedUtf8String,
+  boolean,
+  nullableString,
+  nullableBoundedString,
+  timestamp,
+  nullableTimestamp,
+  positiveInteger,
+  nonNegativeInteger,
+  nullablePositiveInteger,
+  nullableNonNegativeInteger,
+  finiteNumber,
+  oneOf,
+  machineCode,
+  languageTag,
+  object,
+  boundedObject,
+  parseArray,
+  isObject,
+  contract,
+  exactKeys,
+  boundedStringArray,
+  uniqueBoundedStringArray,
+  integerBetween,
+  decimalBetween,
+  sha256
+} from "./apiResponseContracts.js";
+
+export {ApiClientError, ApiContractError} from "./apiResponseContracts.js";
 import {pendingSessionRequest} from "./pendingSessionRequest.js";
 import {resolvePublicationPreviewOrigins} from "./publicationPreviewOrigins.js";
 import {normalizePmtilesOptions,pmtilesOptionsToWire,pmtilesOptionsFromWire,PMTILES_OUTPUT_LAYER,PMTILES_ADMISSION_REASONS} from './pmtilesOptions.js';
@@ -124,26 +163,6 @@ import {
  */
 
 export const DEFAULT_API_BASE_URL = "/api";
-
-export class ApiClientError extends Error {
-  constructor(message, {status = 0, code = "request_failed", requestId = null, currentVersion = null, currentDraftRevision = null, cause} = {}) {
-    super(message, {cause});
-    this.name = "ApiClientError";
-    this.status = status;
-    this.code = code;
-    this.requestId = requestId;
-    this.currentVersion = currentVersion;
-    this.currentDraftRevision = currentDraftRevision;
-    this.retryable = status === 0 || status === 429 || [502, 503, 504].includes(status);
-  }
-}
-
-export class ApiContractError extends ApiClientError {
-  constructor(message, options = {}) {
-    super(message, {...options, code: "invalid_api_response"});
-    this.name = "ApiContractError";
-  }
-}
 
 export class OpenGeoApiClient {
   constructor({
@@ -11156,19 +11175,6 @@ function positivePair(value, label, ErrorClass) {
   return pair;
 }
 
-function boundedStringArray(value, maximumItems, maximumLength, label) {
-  if (!Array.isArray(value) || value.length > maximumItems) {
-    contract(`${label} is invalid`);
-  }
-  return value.map((entry) => boundedString(entry, maximumLength, label));
-}
-
-function uniqueBoundedStringArray(value, maximumItems, maximumLength, label) {
-  const result = boundedStringArray(value, maximumItems, maximumLength, label);
-  if (new Set(result).size !== result.length) contract(`${label} contains duplicates`);
-  return result;
-}
-
 function spatialCatalogPath(projectId, serviceId) {
   return `/projects/${pathUuid(projectId, "project id")}`
     + `/spatial-services/${pathUuid(serviceId, "spatial service id")}/catalog`;
@@ -13776,14 +13782,6 @@ function sourceDiscoveryServiceUrl(value, sourceType) {
   return parsed.href.replace(/\/$/, "");
 }
 
-function exactKeys(record, expected, label) {
-  const actual = Object.keys(record).sort();
-  const required = [...expected].sort();
-  if (actual.length !== required.length || actual.some((key, index) => key !== required[index])) {
-    contract(`${label} has unexpected fields`);
-  }
-}
-
 function publicCatalogHref(value, label, previewSuffix) {
   const href = boundedString(value, 512, label);
   const match = href.match(
@@ -13972,15 +13970,6 @@ function inputIntegerBetween(value, minimum, maximum, label) {
   return value;
 }
 
-function decimalBetween(value, minimum, maximum, label) {
-  const parsed = typeof value === "string" && /^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,6})?$/.test(value)
-    ? Number(value)
-    : value;
-  if (typeof parsed !== "number" || !Number.isFinite(parsed)
-    || parsed < minimum || parsed > maximum) contract(`${label} is invalid`);
-  return parsed;
-}
-
 function processingState(value, label) {
   return oneOf(value, ["queued", "running", "completed", "failed", "cancelled"], label);
 }
@@ -14001,17 +13990,6 @@ function validateJobResultShape(state, hasCompleteOutput, errorCode, cancellable
     || (errorCode !== null) !== ["failed", "cancelled"].includes(state)) {
     contract(`${label} state and result are inconsistent`);
   }
-}
-
-function integerBetween(value, minimum, maximum, label) {
-  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) contract(`${label} is invalid`);
-  return value;
-}
-
-function sha256(value, label) {
-  const digest = string(value, label);
-  if (!/^[0-9a-f]{64}$/.test(digest)) contract(`${label} is invalid`);
-  return digest;
 }
 
 function ogcName(value, label) {
@@ -16671,44 +16649,6 @@ function pageParameters({limit = 50, offset = 0} = {}) {
   return new URLSearchParams({limit: String(limit), offset: String(offset)});
 }
 
-async function responsePayload(response) {
-  if (response.status === 204) return null;
-  const text = await response.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch (cause) {
-    throw new ApiContractError("The API returned invalid JSON", {
-      status: response.status,
-      requestId: response.headers.get("X-Request-ID"),
-      cause
-    });
-  }
-}
-
-function apiResponseError(response, payload) {
-  const detail = isObject(payload) ? payload.detail : null;
-  const code = typeof detail === "string"
-    ? detail
-    : isObject(detail) && typeof detail.code === "string"
-      ? detail.code
-      : `http_${response.status}`;
-  const currentVersion = isObject(detail) && Number.isSafeInteger(detail.current_version)
-    ? detail.current_version
-    : null;
-  const currentDraftRevision = isObject(detail)
-    && Number.isSafeInteger(detail.current_draft_revision)
-    ? detail.current_draft_revision
-    : null;
-  return new ApiClientError(`API request failed with status ${response.status}`, {
-    status: response.status,
-    code,
-    requestId: response.headers.get("X-Request-ID"),
-    currentVersion,
-    currentDraftRevision
-  });
-}
-
 function pathUuid(value, label) {
   return encodeURIComponent(assertUuid(value, label));
 }
@@ -16724,145 +16664,9 @@ function siteSlug(value, label) {
   return value;
 }
 
-function assertUuid(value, label) {
-  if (typeof value !== "string" || !UUID_PATTERN.test(value)) throw new TypeError(`${label} must be a UUID`);
-  return value.toLowerCase();
-}
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const WMS_PUBLICATION_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9._-]{0,62}(?::[A-Za-z][A-Za-z0-9._-]{0,62})?$/;
 const SPATIAL_SERVICE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/;
 const SITE_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,158}[a-z0-9])?$/;
-
-function uuid(value, label) {
-  try {
-    return assertUuid(value, label);
-  } catch (cause) {
-    contract(`${label} is invalid`, cause);
-  }
-}
-
-function nullableUuid(value, label) {
-  return value === null ? null : uuid(value, label);
-}
-
-function string(value, label) {
-  if (typeof value !== "string" || !value.trim()) contract(`${label} is invalid`);
-  return value;
-}
-
-function boundedString(value, maximum, label) {
-  const result = string(value, label);
-  if (result.length > maximum) contract(`${label} is too large`);
-  return result;
-}
-
-function boundedUtf8String(value, maximumBytes, label) {
-  const result = string(value, label);
-  if (new TextEncoder().encode(result).byteLength > maximumBytes) {
-    contract(`${label} is too large`);
-  }
-  return result;
-}
-
-function boolean(value, label) {
-  if (typeof value !== "boolean") contract(`${label} is invalid`);
-  return value;
-}
-
-function nullableString(value, label) {
-  return value === null ? null : string(value, label);
-}
-
-function nullableBoundedString(value, maximum, label) {
-  return value === null ? null : boundedString(value, maximum, label);
-}
-
-function timestamp(value, label) {
-  const result = string(value, label);
-  if (Number.isNaN(Date.parse(result))) contract(`${label} is invalid`);
-  return result;
-}
-
-function nullableTimestamp(value, label) {
-  return value === null ? null : timestamp(value, label);
-}
-
-function positiveInteger(value, label) {
-  if (!Number.isSafeInteger(value) || value < 1) contract(`${label} is invalid`);
-  return value;
-}
-
-function nonNegativeInteger(value, label) {
-  if (!Number.isSafeInteger(value) || value < 0) contract(`${label} is invalid`);
-  return value;
-}
-
-function nullablePositiveInteger(value, label) {
-  return value === null ? null : positiveInteger(value, label);
-}
-
-function nullableNonNegativeInteger(value, label) {
-  if (value === null) return null;
-  if (!Number.isSafeInteger(value) || value < 0) contract(`${label} is invalid`);
-  return value;
-}
-
-function finiteNumber(value, label) {
-  if (typeof value !== "number" || !Number.isFinite(value)) contract(`${label} is invalid`);
-  return value;
-}
-
-function oneOf(value, choices, label) {
-  if (!choices.includes(value)) contract(`${label} is invalid`);
-  return value;
-}
-
-function machineCode(value, label) {
-  const result = string(value, label);
-  if (result.length > 100 || !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(result)) {
-    contract(`${label} is invalid`);
-  }
-  return result;
-}
-
-function languageTag(value, label) {
-  const result = string(value, label).trim().toLowerCase();
-  if (result.length > 40 || !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/.test(result)) {
-    contract(`${label} is invalid`);
-  }
-  return result;
-}
-
-function object(value, label) {
-  if (!isObject(value)) contract(`${label} must be an object`);
-  return value;
-}
-
-function boundedObject(value, maximumBytes, label) {
-  const record = object(value, label);
-  let encoded;
-  try {
-    encoded = new TextEncoder().encode(JSON.stringify(record));
-  } catch (cause) {
-    contract(`${label} is not JSON serializable`, cause);
-  }
-  if (encoded.byteLength > maximumBytes) contract(`${label} is too large`);
-  return structuredClone(record);
-}
-
-function parseArray(value, parser, label) {
-  if (!Array.isArray(value)) contract(`${label} must be an array`);
-  return value.map(parser);
-}
-
-function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-function contract(message, cause) {
-  throw new ApiContractError(message, {cause});
-}
 
 const S3_PATH_STYLE_HOST_PATTERN = /^s3\.[a-z]{2}(?:-gov)?-[a-z]+-[0-9]\.amazonaws\.com$/;
 const S3_BUCKET_NAME_PATTERN = /^(?=.{3,63}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])$/;

@@ -11,7 +11,7 @@ const SECURITY_QUALIFICATION='Actual API/SQL capability expiry uses real elapsed
 // One deliberately bounded real API/database/compiler/browser journey. Auth and
 // object transport use the existing isolated runner's disclosed local adapters.
 export async function exerciseNativePublication({page,browser,origin,organization,apiRequest,work,publicationProfile,
-  securityOnly=false,expirePreviewCookies,observePreviewExchange,securityPreviousRequests=[]}) {
+  securityOnly=false,expirePreviewCookies,observePreviewExchange,securityPreviousRequests=[],securityReconciliation}) {
   const resuming=existsSync(join(work,'publication-progress.json'));
   const facts=resuming?JSON.parse(readFileSync(join(work,'publication-progress.json')))
     :{revisions:[],builds:[],publications:[],coordinatorAttempts:0,nativeCompilerInvocations:0,browserOutputReads:0};
@@ -20,7 +20,7 @@ export async function exerciseNativePublication({page,browser,origin,organizatio
     &&facts.builds.every(build=>build.outcome==='succeeded'&&build.resultChecksum)
     &&facts.publications.every(release=>release.outcome==='deployed'&&release.anonymousRead&&release.openedThroughPublishUi)
     &&facts.noCookieDenied&&facts.crossEditionCookieDenied&&!facts.historyResume;
-  if(securityOnly)validatePublicationSecurityResume(facts,securityPreviousRequests);
+  const securityResume=securityOnly?validatePublicationSecurityResume(facts,securityPreviousRequests,securityReconciliation):null;
   if(resuming&&!historyOnly&&!securityOnly)assert.ok(facts.revisions.length===1&&facts.builds.length===1&&facts.publications.length===0
     &&facts.nativeCompilerInvocations===1&&facts.coordinatorAttempts===1&&facts.browserOutputReads===0
     &&facts.builds[0].outcome==='succeeded'&&facts.builds[0].resultChecksum&&!facts.resume,
@@ -70,7 +70,7 @@ export async function exerciseNativePublication({page,browser,origin,organizatio
     const revisions=await request(`/projects/${project.id}/source-projects/${source.id}/revisions`);
     validateSecurityRevisionPins(facts,revisions);
     return exercisePublicationSecurity({page,organization,apiRequest,work,publicationProfile,
-      project,source,facts,checkpoint,expirePreviewCookies,observePreviewExchange,securityPreviousRequests});
+      project,source,facts,checkpoint,expirePreviewCookies,observePreviewExchange,securityPreviousRequests,securityResume});
   }
   const bridge=localPublicationBridge(JSON.parse(readFileSync(join(work,'local-api-container.json'))));
   if(!resuming)facts.destination=await bridge({operation:'configure-publication',projectId:project.id,sourceProjectId:source.id});checkpoint();
@@ -225,7 +225,7 @@ export async function exerciseNativePublication({page,browser,origin,organizatio
 
 // Completed-state acceptance never replays authoring, compilation or publication.
 // Kept pure so a malformed or partially completed receipt can be rejected offline.
-export function validatePublicationSecurityResume(facts,previousRequests=[]) {
+export function validatePublicationSecurityResume(facts,previousRequests=[],reconciliation) {
   const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
   assert.ok(facts&&facts.revisions?.length===2&&facts.builds?.length===2&&facts.publications?.length===2);
   assert.equal(facts.nativeCompilerInvocations,2);assert.equal(facts.coordinatorAttempts,2);
@@ -248,11 +248,15 @@ export function validatePublicationSecurityResume(facts,previousRequests=[]) {
   assert.deepEqual(facts.historyResume?.reusedReviewIds,facts.publications.map(item=>item.reviewId));
   for(const key of ['noCookieDenied','crossEditionCookieDenied','earlierEditionReopenedThroughHistory',
     'earlierPublicEditionRetained','currentPublicEditionStillActive','immutableRevisionsReopened'])assert.equal(facts[key],true);
-  if(facts.previewSecurity===undefined){assert.deepEqual(previousRequests,[]);return;}
+  if(facts.previewSecurity===undefined){assert.equal(reconciliation,undefined);assert.deepEqual(previousRequests,[]);return;}
+  if(reconciliation!==undefined)return validateReconciledViewerBootstrap(facts,previousRequests,reconciliation);
   // Exactly one legacy bootstrap failure may change its response-observation
   // method. Its immutable editions, complete attempt and twelve API receipts
   // remain retained; no later failure, invitation or grant may replay here.
-  const failed=facts.previewSecurity;
+  validateFirstBootstrapFailure(facts,facts.previewSecurity,previousRequests);
+}
+
+function validateFirstBootstrapFailure(facts,failed,previousRequests) {
   assert.deepEqual(Object.keys(failed).sort(),['status','startedAt','reusedBuildIds','reusedReviewIds',
     'noReplay','limits','qualification','cleanup','capabilityExpiresAt','failedStep','errorName'].sort());
   assert.equal(failed.status,'failed');assert.equal(failed.failedStep,'valid-bootstrap');
@@ -277,6 +281,88 @@ export function validatePublicationSecurityResume(facts,previousRequests=[]) {
   assert.deepEqual(previousRequests,expected.map(([method,path,status])=>({method,path,status,
     authenticated:path!=='/observable-preview/exchange',backend:'original'})),
     'Resume only the retained twelve-call bootstrap failure before any invitation or access change.');
+}
+
+const MEMBERSHIP_HISTORY_MIGRATION='database/migrations/0176_observable_preview_membership_history.sql';
+const MEMBERSHIP_HISTORY_SHA256='8dd1de5eb8f8b3a5a5d5e3458a695852618bfe5734381cb0b1f19f37baa70262';
+
+// This opt-in binds immutable failure/cleanup receipts to the reviewed source and
+// retained schema marker. The cleanup receipt has no invitation identity: normal
+// API readback must bind the old accepted invitation and absent grants before writes.
+export function loadPublicationSecurityReconciliation(work,pin) {
+  assert.match(pin,/^[0-9a-f]{64}:[0-9a-f]{64}$/,'Pin both retained cleanup and failed-run receipts.');
+  const [cleanupPin,failurePin]=pin.split(':');
+  const readPinned=(name,expected)=>{
+    const bytes=readFileSync(join(work,name));
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),expected,'Retained security receipt bytes changed.');
+    return JSON.parse(bytes);
+  };
+  const migration=readFileSync(new URL(`../../${MEMBERSHIP_HISTORY_MIGRATION}`,import.meta.url));
+  return {cleanup:readPinned('publication-security-fixture-cleanup.json',cleanupPin),
+    failedRun:readPinned('publication-security-corrected-run-result.json',failurePin),
+    cleanupReceiptSha256:cleanupPin,failedRunReceiptSha256:failurePin,
+    migrationSha256:createHash('sha256').update(migration).digest('hex'),
+    schemaMigrationSha256:JSON.parse(readFileSync(join(work,'development-state.json'))).schemaSources?.[MEMBERSHIP_HISTORY_MIGRATION]};
+}
+
+function validateReconciledViewerBootstrap(facts,previousRequests,evidence) {
+  const failed=facts.previewSecurity;
+  assert.deepEqual(Object.keys(failed).sort(),['status','startedAt','method','attempt','priorAttempts','reusedBuildIds',
+    'reusedReviewIds','noReplay','limits','qualification','cleanup','capabilityExpiresAt','actualSignedPreviewOpened',
+    'capabilityReplayDenied','invitationAcceptanceAttempted','viewerInvitationAccepted','failedStep','failedOperation','errorName'].sort());
+  assert.equal(failed.status,'cleanup-unproved');assert.equal(failed.failedStep,'viewer-bootstrap');
+  assert.equal(failed.failedOperation,'browser-exchange-status');assert.equal(failed.errorName,'TimeoutError');
+  assert.equal(failed.method,'server-observed-exchange-v1');assert.equal(failed.attempt,2);
+  assert.equal(failed.qualification,SECURITY_QUALIFICATION);
+  assert.deepEqual(failed.reusedBuildIds,facts.builds.map(build=>build.id));
+  assert.deepEqual(failed.reusedReviewIds,facts.publications.map(release=>release.reviewId));
+  assert.deepEqual(failed.noReplay,{sourceSaves:0,buildRequests:0,publicationReviews:0,publisherCalls:0});
+  assert.deepEqual(failed.limits,{apiRequests:30,priorApiRequests:12,cumulativeApiRequests:42,
+    browserSeconds:75,totalSecondsIncludingCleanup:90,sourceSaves:0,nativeBuilds:0,publisherCalls:0,AWS:0});
+  for(const key of ['actualSignedPreviewOpened','capabilityReplayDenied','invitationAcceptanceAttempted','viewerInvitationAccepted'])assert.equal(failed[key],true);
+  assert.equal(failed.priorAttempts.length,1);
+  const {requests:firstRequests,...firstFailure}=failed.priorAttempts[0];
+  validateFirstBootstrapFailure(facts,firstFailure,firstRequests);
+  const invitation=failed.cleanup.invitationId;
+  assert.match(invitation,/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.deepEqual(failed.cleanup,{invitationId:invitation,projectMembershipRemoved:true,
+    organizationMembershipRemoved:false,errorName:'AssertionError',errorOperation:'fixture-reconciliation-request'});
+  const project=`/projects/${facts.projectId}`,reviewer='20000000-0000-4000-8000-000000000002';
+  const capability=`${project}/observable-build-jobs/${facts.builds[1].id}/preview-capabilities`;
+  const ordered=[...firstRequests.map(({method,path,status})=>[method,path,status]),
+    ['POST','/observable-preview/exchange',404],['POST','/organizations/current/invitations',201],
+    ['POST',`/auth/invitations/${invitation}/accept`,200],['POST',capability,201],['POST',capability,201],
+    ['GET',`${project}/memberships`,200],['GET','/organizations/current/memberships',200],
+    ['DELETE',`${project}/memberships/${reviewer}`,204],['DELETE',`/organizations/current/memberships/${reviewer}`,409]];
+  assert.deepEqual(previousRequests,ordered.map(([method,path,status])=>({method,path,status,
+    authenticated:path!=='/observable-preview/exchange',backend:'original'})),
+  'Resume only the exact second failure, including its denied cleanup and prior ordered API evidence.');
+  const {cleanup,failedRun}=evidence;
+  assert.match(evidence.cleanupReceiptSha256,/^[0-9a-f]{64}$/);assert.match(evidence.failedRunReceiptSha256,/^[0-9a-f]{64}$/);
+  assert.equal(evidence.migrationSha256,MEMBERSHIP_HISTORY_SHA256);
+  assert.equal(evidence.schemaMigrationSha256,MEMBERSHIP_HISTORY_SHA256);
+  assert.equal(failedRun.status,'failure');assert.equal(failedRun.returncode,1);
+  assert.equal(failedRun.priorAttempt,'publication-security-run-result.json');
+  for(const key of ['AWS','newCompilerRuns','newSourceSaves','newPublications'])assert.equal(failedRun[key],0);
+  assert.deepEqual(failedRun.cleanup,{database:'exited',APIAbsent:true,workerAbsent:true,volumePreserved:true});
+  for(const key of ['status','failedStep','failedOperation','actualSignedPreviewOpened','capabilityReplayDenied',
+    'viewerInvitationAccepted','cleanup'])assert.deepEqual(failedRun.security[key],failed[key]);
+  for(const key of ['newGrantAfterRevocationDenied','unconsumedCapabilityAfterRevocationDenied',
+    'issuedCookieRemainsValidAfterMembershipRevocation','realElapsedCapabilityExpiryDenied',
+    'controlledClockSignedCookieExpiryDenied'])assert.equal(failedRun.security[key],null);
+  assert.equal(cleanup.status,'pass');assert.equal(cleanup.transaction,'committed');
+  assert.equal(cleanup.migration,MEMBERSHIP_HISTORY_MIGRATION);assert.equal(cleanup.migrationSha256,MEMBERSHIP_HISTORY_SHA256);
+  for(const key of ['AWS','APIContainers','nativeBuilds','sourceSaves','publicationWrites'])assert.equal(cleanup[key],0);
+  for(const key of ['guestMembershipAbsent','targetProjectMembershipAbsent','acceptedInvitationUnchanged',
+    'allProjectMembershipsUnchanged','ownerAdminUnchanged','reviewedLocalSchemaMarkerUpdated'])assert.equal(cleanup[key],true);
+  assert.equal(cleanup.capabilityAuditRowsPreserved,2);
+  assert.deepEqual(cleanup.cleanup,{database:'exited',APIAbsent:true,workerAbsent:true,volumePreserved:true});
+  assert.ok(Date.parse(cleanup.startedAt)>Date.parse(failedRun.endedAt),'Cleanup must follow this failed attempt.');
+  assert.ok(Date.parse(cleanup.endedAt)>=Date.parse(cleanup.startedAt));
+  assert.equal(firstRequests.length+previousRequests.length,33);
+  return {attempt:3,priorApiRequests:33,cumulativeApiRequests:63,totalSecondsIncludingCleanup:110,
+    previousInvitationId:invitation,cleanupReceiptSha256:evidence.cleanupReceiptSha256,
+    failedRunReceiptSha256:evidence.failedRunReceiptSha256};
 }
 
 // This observes the API result before the isolated helper sends it to Chromium.
@@ -310,7 +396,7 @@ function validateSecurityRevisionPins(facts,revisions) {
 }
 
 async function exercisePublicationSecurity({page,organization,apiRequest,publicationProfile,
-  project,source,facts,checkpoint,expirePreviewCookies,observePreviewExchange,securityPreviousRequests}) {
+  project,source,facts,checkpoint,expirePreviewCookies,observePreviewExchange,securityPreviousRequests,securityResume}) {
   assert.equal(typeof expirePreviewCookies,'function');
   assert.equal(typeof observePreviewExchange,'function');
   const reviewerId='20000000-0000-4000-8000-000000000002';
@@ -318,15 +404,20 @@ async function exercisePublicationSecurity({page,organization,apiRequest,publica
   const before={revisions:structuredClone(facts.revisions),builds:structuredClone(facts.builds),
     publications:structuredClone(facts.publications)};
   const previousAttempt=facts.previewSecurity;
+  const reconciled=securityResume?.attempt===3;
+  const priorApiRequests=securityResume?.priorApiRequests??securityPreviousRequests.length;
   const result=facts.previewSecurity={status:'running',startedAt:new Date().toISOString(),
-    method:'server-observed-exchange-v1',attempt:previousAttempt?2:1,
+    method:reconciled?'fresh-document-after-migration0176-v1':'server-observed-exchange-v1',attempt:reconciled?3:previousAttempt?2:1,
     ...(previousAttempt?{priorAttempts:[{...structuredClone(previousAttempt),requests:structuredClone(securityPreviousRequests)}]}:{}),
     reusedBuildIds:facts.builds.map(item=>item.id),reusedReviewIds:facts.publications.map(item=>item.reviewId),
     noReplay:{sourceSaves:0,buildRequests:0,publicationReviews:0,publisherCalls:0},
-    limits:{apiRequests:30,priorApiRequests:securityPreviousRequests.length,cumulativeApiRequests:42,
-      browserSeconds:75,totalSecondsIncludingCleanup:90,
+    limits:{apiRequests:30,priorApiRequests,cumulativeApiRequests:securityResume?.cumulativeApiRequests??42,
+      browserSeconds:75,totalSecondsIncludingCleanup:securityResume?.totalSecondsIncludingCleanup??90,
       sourceSaves:0,nativeBuilds:0,publisherCalls:0,AWS:0},
     qualification:SECURITY_QUALIFICATION,
+    ...(reconciled?{reconciliation:structuredClone(securityResume),
+      reusedAcceptedChecks:{attempt:2,actualSignedPreviewOpened:true,capabilityReplayDenied:true},
+      actualSignedPreviewOpened:true,capabilityReplayDenied:true}:{}),
     cleanup:{invitationId:null,projectMembershipRemoved:false,organizationMembershipRemoved:false}};
   checkpoint();
   let step='membership-preflight',operation='preflight',invitation,acceptAttempted=false;
@@ -427,9 +518,12 @@ async function exercisePublicationSecurity({page,organization,apiRequest,publica
     cleanupCompleted=true;checkpoint();
   };
   try{
-    step='capability-issue';
-    const expiring=await issue(facts.builds[0]);
-    result.capabilityExpiresAt=expiring.expires_at;checkpoint();
+    let expiring;
+    if(!reconciled){
+      step='capability-issue';
+      expiring=await issue(facts.builds[0]);
+      result.capabilityExpiresAt=expiring.expires_at;checkpoint();
+    }
     step='membership-preflight';
     const members=await request('/organizations/current/memberships');
     assert.ok(!members.some(member=>member.user_id===reviewerId),'Never change a pre-existing reviewer membership.');
@@ -438,16 +532,31 @@ async function exercisePublicationSecurity({page,organization,apiRequest,publica
     const invitations=await request('/organizations/current/invitations?limit=100');
     assert.ok(!invitations.some(item=>item.email==='reviewer@local.invalid'&&item.status==='pending'),
       'Never supersede a pre-existing reviewer invitation.');
+    if(reconciled){
+      const accepted=invitations.filter(item=>item.id===securityResume.previousInvitationId);
+      assert.equal(accepted.length,1,'Read back the exact previous invitation before issuing any new capability or grant.');
+      assert.equal(accepted[0].email,'reviewer@local.invalid');assert.equal(accepted[0].status,'accepted');
+      assert.equal(accepted[0].project_id,project.id);assert.equal(accepted[0].project_role,'viewer');
+      assert.equal(accepted[0].organization_role,'guest');assert.ok(Number.isFinite(Date.parse(accepted[0].accepted_at)));
+      assert.equal(accepted[0].revoked_at,null);
+      result.previousFixtureReadback={invitationId:accepted[0].id,organizationId:organization,
+        projectId:project.id,reviewerId,acceptedInvitationPreserved:true,organizationMembershipAbsent:true,
+        projectMembershipAbsent:true};checkpoint();
+      step='capability-issue';expiring=await issue(facts.builds[0]);
+      result.capabilityExpiresAt=expiring.expires_at;checkpoint();
+    }else{
     const replay=await issue(facts.builds[0]);
     step='valid-bootstrap';
     await authorize(replay,{allowed:true,build:facts.builds[0],title:'First retained edition'});
     result.actualSignedPreviewOpened=true;checkpoint();
     step='capability-replay';await authorize(replay);
     result.capabilityReplayDenied=true;checkpoint();
+    }
     step='viewer-invitation';
     invitation=await request('/organizations/current/invitations',{method:'POST',expected:201,body:{
       email:'reviewer@local.invalid',display_name:'Local reviewer',organization_role:'guest',
       project_id:project.id,project_role:'viewer',expires_in_days:1}});
+    if(reconciled)assert.notEqual(invitation.id,securityResume.previousInvitationId,'Never replay or reaccept the previous invitation.');
     result.cleanup.invitationId=invitation.id;checkpoint();
     acceptAttempted=true;result.invitationAcceptanceAttempted=true;checkpoint();
     const acceptance=await request(`/auth/invitations/${invitation.id}/accept`,{method:'POST',actor:'reviewer'});
