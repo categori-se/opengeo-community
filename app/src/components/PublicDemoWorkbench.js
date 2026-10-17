@@ -469,14 +469,14 @@ function renderPresentation(root, presentation, massgis, selectPage, mapFontAtta
     try {await openCapture();}catch {capture.textContent='Retry field capture';}
     finally {capture.disabled=false;}
   });
-  let actions=notice.querySelector(".public-demo-actions");
-  if(!actions){actions=document.createElement("span");actions.className="public-demo-actions";notice.append(actions);}
-  actions.prepend(capture);
-  actions.prepend(directoryLink("Catalog", "/?view=catalog"), directoryLink("Publications", "/?view=publications"));
+  const actions=notice.querySelector(".public-demo-actions");
+  const secondary=notice.querySelector(".public-demo-secondary-actions");
+  secondary.prepend(capture, directoryLink("Publications", "/?view=publications"));
+  actions.prepend(directoryLink("Catalog", "/?view=catalog"));
   if (presentation.pageId === COMMUNITY_DEMO_PAGE_ID) {
     actions.prepend(exampleLink("Explore MassGIS", `massgis-${massgis.combinedAnalysis.slug}`, selectPage));
   }
-  actions.append(directoryLink("Satellite scenes", "/?view=examples#satellite-scenes"));
+  secondary.append(directoryLink("Satellite scenes", "/?view=examples#satellite-scenes"));
   replaceDemoContent(root, notice, workbench);
 }
 
@@ -659,32 +659,24 @@ export async function createPublicDemoSource(metadata) {
 }
 
 function demoNotice(presentation) {
-  if (presentation.project?.browserDraftRestored) {
-    const notice = document.createElement("aside");
-    notice.className = "public-demo-notice";
-    notice.setAttribute("aria-label", "Current browser Project");
-    const copy = document.createElement("span");
-    copy.append(text("strong", presentation.project.title), text("small", "Restored browser Project. Changes stay in this browser and reset daily."));
-    const facts = document.createElement("span"); facts.className = "public-demo-facts";
-    facts.append(text("small", "Sources and terms belong to each Layer. Inspect a Layer to review its metadata."));
-    notice.append(copy, facts);
-    return notice;
-  }
   const {publication, source} = presentation;
+  const restored = presentation.project?.browserDraftRestored;
   const notice = document.createElement("aside");
   notice.className = "public-demo-notice";
   notice.setAttribute("aria-label", "Current public demo map");
-  const copy = document.createElement("span");
-  copy.append(
-    text("strong", presentation.noticeTitle),
-    text("small", presentation.noticeSummary)
-  );
+  const title = text("strong", restored ? presentation.project.title : presentation.noticeTitle);
+  const information = document.createElement("details");
+  information.className = "public-demo-information";
+  information.append(text("summary", "About this map"));
+  const panel = document.createElement("div");
+  panel.className = "public-demo-information-panel";
+  panel.append(text("small", restored ? "Restored browser Project. Changes stay in this browser and reset daily." : presentation.noticeSummary));
   const facts = document.createElement("span");
   facts.className = "public-demo-facts";
-  facts.append(
+  facts.append(...(restored ? [text("small", "Sources and terms belong to each Layer. Inspect a Layer to review its metadata.")] : [
     text("small", `${publication.title} · ${source.license}`),
     text("small", source.attribution)
-  );
+  ]));
   if (presentation.sourceReceipt?.featureCount) {
     const sourceLabel = presentation.sourceReceipt.sourceMode === "aws-archive"
       ? "AWS archive · MassGIS source linked"
@@ -698,14 +690,15 @@ function demoNotice(presentation) {
   }
   const actions = document.createElement("span");
   actions.className = "public-demo-actions";
+  const secondary = document.createElement("span");
+  secondary.className = "public-demo-secondary-actions";
   if (presentation.officialUrls?.program) {
-    actions.append(externalLink("Source and limits", presentation.officialUrls.program));
+    secondary.append(externalLink("Source and limits", presentation.officialUrls.program));
   }
   const studio = document.createElement("a");
   studio.href = MANAGED_STUDIO_URL;
   studio.textContent = "Open Studio ↗";
-  actions.append(studio);
-  notice.append(copy, facts, actions);
+  secondary.append(studio);
   const limits = document.createElement("details");
   limits.className = "public-demo-service-boundaries";
   limits.append(
@@ -713,7 +706,9 @@ function demoNotice(presentation) {
     text("p", "Edit, style, import and export locally. Drafts are disposable; export anything you want to keep. This demo does not access your Studio account or upload your files."),
     text("p", "Cloud storage, shared projects, server processing and web publishing are unavailable here. Hosted services require a separate Studio account and acceptance of the applicable agreement and pricing. External data providers may require their own accounts. No paid service starts from this demo.")
   );
-  notice.append(limits);
+  panel.append(facts, secondary, limits);
+  information.append(panel);
+  notice.append(title, actions, information);
   return notice;
 }
 

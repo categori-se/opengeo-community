@@ -286,6 +286,7 @@ async function stageDemoSource() {
     ["lib/managedUpload.js", "lib/managedUpload.js"],
     ["lib/temporaryAnnotations.js", "lib/temporaryAnnotations.js"],
     ["lib/publicDemoProject.js", "lib/publicDemoProject.js"],
+    ["lib/studioPageBootstrap.js", "lib/studioPageBootstrap.js"],
     ["lib/browserCatalogRestore.js", "lib/browserCatalogRestore.js"],
     ["lib/browserLayerCatalogStore.js", "lib/browserLayerCatalogStore.js"],
     ["lib/publicationPolicy.js", "lib/publicationPolicy.js"],

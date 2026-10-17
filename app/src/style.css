@@ -5147,12 +5147,11 @@ a {
   position: relative;
   z-index: 30;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(15rem, 1fr);
-  gap: 0.65rem 1.25rem;
-  align-items: start;
-  min-height: 3.35rem;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.4rem 0.75rem;
+  align-items: center;
   box-sizing: border-box;
-  padding: 0.5rem 0.85rem;
+  padding: 0.35rem 0.65rem;
   border-bottom: 1px solid #323231;
   background: #161616;
   color: #dfdfd6;
@@ -5165,6 +5164,29 @@ a {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+
+.public-demo-notice > strong { font-size: 0.85rem; line-height: 1.35; }
+.public-demo-information { position: relative; font-size: 0.8rem; }
+.public-demo-information > summary { cursor: pointer; white-space: nowrap; }
+.public-demo-information-panel {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 0.75rem);
+  right: 0;
+  display: grid;
+  gap: 0.75rem;
+  box-sizing: border-box;
+  width: min(34rem, calc(100vw - 1.5rem));
+  max-height: 55dvh;
+  overflow: auto;
+  padding: 1rem;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #161616;
+  box-shadow: 0 8px 24px #0007;
+}
+.public-demo-information-panel > .public-demo-facts { display: grid; gap: 0.35rem; }
+.public-demo-secondary-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 
 .public-demo-service-boundaries {
   grid-column: 1 / -1;
@@ -5185,13 +5207,15 @@ a {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2rem;
+  min-height: 1.9rem;
+  box-sizing: border-box;
   border: 1px solid oklch(0.712564 0.257662 265.758);
   border-radius: 999px;
-  padding: 0.35rem 0.75rem;
+  padding: 0.2rem 0.65rem;
+  font-size: 0.8rem;
   color: #dfdfd6;
   text-decoration: none;
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
 }
 
@@ -5706,6 +5730,10 @@ body:has(.opengeo-workbench) #observablehq-center {
   overflow-x: auto;
   scrollbar-width: thin;
 }
+
+.gis-app-nav > a,
+.gis-app-nav > button,
+.gis-app-nav > select { flex-shrink: 0; white-space: nowrap; }
 
 .gis-app-nav .gis-button.active {
   border-color: color-mix(in srgb, var(--gis-blue) 48%, var(--gis-line));

@@ -2071,7 +2071,7 @@ describe("project directory interaction", () => {
     assert.doesNotMatch(overview.textContent, /geospatial\.data|role arn|secret/i);
   });
 
-  it("identifies the current managed site and navigates to another site without transferring credentials", () => {
+  it("identifies the current managed site and opens each site's home without transferring credentials", () => {
     const root = document.createElement("section");
     const state = directoryState();
 
@@ -2102,11 +2102,56 @@ describe("project directory interaction", () => {
     assert.match(root.querySelector(".platform-site-switcher > summary")?.textContent ?? "", /OpenGeo\.tools/);
     assert.equal(
       root.querySelector("a.platform-site-switcher-item")?.href,
-      "https://demo.studio.opengeo.tools/workspaces"
+      "https://demo.studio.opengeo.tools/"
     );
     assert.match(root.querySelector(".platform-site-switcher-list")?.textContent ?? "", /never transferred/);
     assert.match(root.querySelectorAll(".platform-project-row")[0].textContent, /Published/);
     assert.match(root.querySelectorAll(".platform-project-row")[1].textContent, /Internal/);
+    renderDirectoryState(root, state, () => {}, null, {
+      view: "access", deployment: {id: "demo", name: "Demo", origin: "https://demo.studio.opengeo.tools", mode: "demo"},
+      federation: [{id: "studio", name: "Studio", origin: "https://studio.opengeo.tools", description: null}]
+    });
+    assert.equal(root.querySelector("a.platform-site-switcher-item").href, "https://studio.opengeo.tools/");
+    root.disposeDirectoryNavigation();
+  });
+
+  it("dismisses directory navigation outside or with Escape while preserving form disclosures and focus", () => {
+    const root = document.createElement("section"), outside = document.createElement("button");
+    document.body.append(root, outside);
+    renderDirectoryState(root, directoryState(), () => {}, null, {view: "access"});
+    const site = root.querySelector(".platform-site-switcher"), account = root.querySelector(".platform-account-menu");
+    const form = document.createElement("details");form.open = true;form.append(document.createElement("summary"));root.append(form);
+    const pointer = target => target.dispatchEvent(new harness.dom.window.MouseEvent("pointerdown", {bubbles: true}));
+    site.open = true;pointer(site.querySelector(".platform-site-switcher-list"));assert.equal(site.open, true);
+    outside.focus();pointer(outside);assert.equal(site.open, false);assert.equal(document.activeElement, outside);
+    account.open = true;const inside = document.createElement("button");account.append(inside);inside.focus();pointer(inside);
+    assert.equal(account.open, true);
+    inside.dispatchEvent(new harness.dom.window.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+    assert.equal(account.open, false);assert.equal(document.activeElement, account.querySelector("summary"));
+    assert.equal(form.open, true);
+    // A nested download dialog owns its own Escape handling and editing state.
+    const dialog = document.createElement("dialog"), input = document.createElement("input");dialog.open = true;dialog.append(input);account.append(dialog);
+    account.open = true;input.focus();
+    const escape = new harness.dom.window.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true});input.dispatchEvent(escape);
+    assert.equal(account.open, true);assert.equal(escape.defaultPrevented, false);assert.equal(document.activeElement, input);
+    root.disposeDirectoryNavigation();
+  });
+
+  it("removes directory navigation listeners on rerender, disposal and disconnection", async () => {
+    const root = document.createElement("section");document.body.append(root);
+    const active = new Set(), add = document.addEventListener.bind(document), remove = document.removeEventListener.bind(document);
+    const watched = type => ["pointerdown", "keydown"].includes(type);
+    document.addEventListener = (type, listener, ...options) => {if (watched(type)) active.add(listener);return add(type, listener, ...options);};
+    document.removeEventListener = (type, listener, ...options) => {if (watched(type)) active.delete(listener);return remove(type, listener, ...options);};
+    try {
+      const state = directoryState();renderDirectoryState(root, state, () => {}, null, {view: "access"});assert.equal(active.size, 2);
+      renderDirectoryState(root, state, () => {}, null, {view: "access"});assert.equal(active.size, 2);
+      root.disposeDirectoryNavigation();assert.equal(active.size, 0);
+      renderDirectoryState(root, state, () => {}, null, {view: "access"});assert.equal(active.size, 2);
+      root.remove();await new Promise(resolve => setTimeout(resolve, 0));assert.equal(active.size, 0);
+    } finally {
+      root.disposeDirectoryNavigation?.();document.addEventListener = add;document.removeEventListener = remove;
+    }
   });
 });
 

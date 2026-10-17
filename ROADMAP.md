@@ -45,6 +45,13 @@ switcher links open each installation's home route. Its build, local browser
 checks and Studio production delivery pass. The existing phone toolbar is
 unchanged.
 
+A separate Demo/startup update is implemented and accepted locally. The compact
+Demo introduction keeps the map visible and its home route opens the map; About
+this map contains source details and secondary actions. Startup failures show one
+friendly retry/home state, and normal Studio entry does not request the fixture
+Catalog. Existing browser, parser and focused checks pass. This update has not
+been built as an application release or deployed.
+
 Existing application checks use cached dependencies/images and explicit local
 substitutes; fresh installation, clean image builds and independent-account AWS
 acceptance remain separate work. The complete standalone native
