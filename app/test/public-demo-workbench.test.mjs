@@ -75,6 +75,32 @@ describe("public workbench demo source boundary", () => {
     } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
   });
 
+  for (const governed of [false, true]) it(`opens Identify Results immediately for ${governed ? "governed" : "local"} Layers and reopens after hiding`, () => {
+    const dom = new JSDOM("<!doctype html><body></body>", {url: "https://demo.studio.opengeo.tools/?map=community-facilities"});
+    const restore = installDomGlobals(dom.window);let root;
+    try {
+      root = PublicDemoWorkbench({catalog: CATALOG, geojson: COMMUNITY_GEOJSON, massgis: MASSGIS,
+        fetchImpl: async () => {throw Error("Identify must not fetch a provider");}});
+      document.body.append(root);
+      const shell = root.querySelector(".opengeo-workbench");
+      if (governed) shell.__opengeoLayers[0].sourceType = "governed-dataset";
+      const identify = () => shell.querySelector('.gis-primary-toolbar [data-primary-command="identify"]');
+      identify().click();
+      assert.equal(shell.querySelector('.gis-panel-right .gis-panel-header h2')?.textContent, "Identify Results");
+      assert.match(shell.querySelector('.gis-identify-panel').textContent, /Click the map to inspect/);
+      assert.equal(identify().getAttribute("aria-pressed"), "true");
+      assert.equal(document.activeElement, shell.querySelector(".gis-identify-panel"));
+      shell.querySelector('button[aria-label="Collapse inspector"]').click();
+      identify().click();
+      assert.equal(shell.querySelector('.gis-panel-right .gis-panel-header h2')?.textContent, "Identify Results");
+      shell.dispatchEvent(new dom.window.KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      assert.equal(shell.classList.contains("right-collapsed"), true);
+      identify().click();
+      assert.equal(shell.classList.contains("right-collapsed"), false);
+      assert.equal(identify().getAttribute("aria-pressed"), "true");
+    } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
+  });
+
   it("starts in the shared Observable near-midnight workbench theme", () => {
     assert.equal(DEFAULT_WORKBENCH_COLOR_MODE, "dark");
   });

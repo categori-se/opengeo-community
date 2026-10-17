@@ -861,6 +861,18 @@ function createWorkbenchView({
     state.statusMessage = context.rendererSwitchStatus.message;
   }
 
+  state.onLocalFeatureIdentify = (layer, event) => {
+    const features = event.features?.slice(0, GOVERNED_IDENTIFY_LIMITS.maximumResultsPerLayer);
+    if (!features?.length) return;
+    cancelDrillDownIdentify(context);
+    const location = event.lngLat?.wrap?.() ?? event.lngLat;
+    state.activeLayerId = layer.layerId;
+    state.identifyReport = {location: [location.lng, location.lat], bufferMeters: 0, omittedLayerCount: 0,
+      layers: [{status: "ready", layerId: layer.layerId, title: layer.title, displayOnly: true,
+        result: {source: "displayed-preview", features, numberReturned: features.length}}]};
+    openIdentifyPanel(context);
+  };
+
   state.onKmlFeatureClick = (layer, event) => {
     state.activeLayerId = layer.layerId;
     syncKmlLayerContext(context);
@@ -1067,6 +1079,12 @@ function createWorkbenchView({
       event.preventDefault();
       event.stopPropagation();
       setMapOnly(context, false);
+    } else if (event.key === "Escape" && state.activePanel === "identify" && state.rightOpen
+      && !event.defaultPrevented && !event.target.closest("dialog")) {
+      event.preventDefault();
+      state.rightOpen = false;
+      context.render();
+      shell.querySelector('[data-primary-command="identify"]')?.focus();
     }
   });
   shell.addEventListener("workbench:render", () => context.render());
@@ -2111,12 +2129,8 @@ function workbenchCommandRegistry(context) {
     },
     {
       id: "identify", label: "Identify", symbol: "identify", group: "map", desktop: true,
-      title: state.identify ? "Turn identify off" : "Turn identify on", active: state.identify, disabled: false,
-      action: () => {
-        state.identify = !state.identify;
-        setStatus(context, state.identify ? "Identify enabled." : "Identify disabled.");
-        context.render();
-      }
+      title: "Open identify results, then click a feature", active: state.identify, disabled: false,
+      action: () => openIdentifyPanel(context)
     },
     {
       id: "query", label: "Query", symbol: "query", group: "map",
@@ -4506,11 +4520,7 @@ function appendPortalToolNodes(parent, nodes, context) {
 function portalToolHandler(name, context) {
   if (name === "fullextent") return () => fitVisibleLayers(context.state.map, context.layers, context.dataByLayerId);
   if (name === "measure") return () => openMeasurementPanel(context);
-  if (name === "identify") return () => {
-    context.state.identify = true;
-    setStatus(context, "Configured identify tool active.");
-    context.render();
-  };
+  if (name === "identify") return () => openIdentifyPanel(context);
   if (name === "print") return context.publicDemo
     ? () => void openBrowserPrintStudio(context) : () => window.print();
   return null;
@@ -6509,27 +6519,31 @@ function prepareBoundaryQuery(context, target, geometry, relation, source = null
   return true;
 }
 
+function openIdentifyPanel(context) {
+  context.state.identify = true;
+  context.state.activePanel = "identify";
+  context.state.rightOpen = true;
+  if (isMobileWorkbenchViewport()) context.state.leftOpen = false;
+  setStatus(context, context.state.identifyReport
+    ? workbenchIdentifySummary(context.state.identifyReport)
+    : "Identify enabled. Click a feature on the map to inspect its attributes.");
+  context.render();
+  context.shell.querySelector(".gis-identify-panel")?.focus({preventScroll: true});
+}
+
 function identifyPanel(context) {
   const {state} = context;
   const report = state.identifyReport ? {...state.identifyReport,
     rasters: sampleVisibleCogLayers(context, state.identifyReport.location)} : null;
   const panel = panelShell();
   panel.classList.add("gis-identify-panel");
+  panel.tabIndex = -1;
+  panel.setAttribute("aria-label", "Identify Results");
   panel.dataset.identifyState = state.identifyRunning
     ? "running"
     : report
       ? "ready"
       : "idle";
-
-  const candidates = visibleQueryableLayers(context.layers);
-  const rasters = visibleCogLayers(context);
-  if (!rasters.length && (!candidates.length || typeof context.queryDatasetFeatures !== "function")) {
-    panel.append(
-      textElement("p", "Identify checks every visible governed layer at the clicked location."),
-      textElement("small", "Add a governed dataset layer to use permission-scoped drill-down identify. Local and external display layers continue to use their ordinary feature popup.")
-    );
-    return panel;
-  }
 
   const live = textElement(
     "p",
@@ -6579,7 +6593,9 @@ function identifyPanel(context) {
     group.append(textElement(
       "p",
       outcome.result.source === "displayed-preview"
-        ? `${outcome.result.numberReturned} displayed features · saved data version ${layer?.sourceVersion ?? "selected"}. Hidden or unloaded features are not searched.`
+        ? outcome.displayOnly
+          ? `${outcome.result.numberReturned} ${outcome.result.numberReturned === 1 ? "feature" : "features"} at this location · From this map`
+          : `${outcome.result.numberReturned} displayed features · saved data version ${layer?.sourceVersion ?? "selected"}. Hidden or unloaded features are not searched.`
         : `${outcome.result.numberReturned} of ${outcome.result.numberMatched} matches · generation ${outcome.result.generation}`
     ));
     const results = document.createElement("div");
@@ -13149,7 +13165,11 @@ function bindLayerInteraction(state, map, layer, mapLayerId, datasets) {
     if (!state.identify || state.measureMode || state.mapAuthoring || state.queryDrawing) return;
     if (layer.sourceType === "kml-places") return state.onKmlFeatureClick?.(layer, event);
     state.activeLayerId = layer.layerId;
-    if (!isGovernedDatasetLayer(layer)) showFeaturePopup(map, event, datasets.find(dataset => dataset.datasetId === layer.datasetId));
+    if (!isGovernedDatasetLayer(layer)) {
+      state.onLocalFeatureIdentify?.(layer, event);
+      showFeaturePopup(map, event, datasets.find(dataset => dataset.datasetId === layer.datasetId),
+        {focus: !state.onLocalFeatureIdentify});
+    }
   };
   const mouseenter = () => map.getCanvas().style.cursor = state.mapAuthoring || state.queryDrawing ? "crosshair" : state.identify ? "pointer" : "";
   const mouseleave = () => map.getCanvas().style.cursor = state.mapAuthoring || state.queryDrawing ? "crosshair" : "";
@@ -15543,7 +15563,7 @@ function zoomToKmlPlace(context, place) {
   setStatus(context, `Flying to ${place.name}.`);
 }
 
-function showFeaturePopup(map, event, dataset) {
+function showFeaturePopup(map, event, dataset, {focus = true} = {}) {
   const feature = event.features?.[0];
   if (!feature) return;
   const content = accessibleFeaturePopup({
@@ -15554,7 +15574,7 @@ function showFeaturePopup(map, event, dataset) {
     .setLngLat(event.lngLat)
     .setDOMContent(content)
     .addTo(map);
-  queueMicrotask(() => content.focus());
+  if (focus) queueMicrotask(() => content.focus());
   return popup;
 }
 
