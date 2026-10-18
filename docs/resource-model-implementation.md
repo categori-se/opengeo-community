@@ -1,5 +1,20 @@
 # Resource model implementation — September 19, 2026
 
+October 18 — Empty-cache worker source build and runtime accepted
+
+A public git archive at `cb74864` supplies the unchanged worker Dockerfile and
+sources. Rootless Podman uses a new overlay graph, zero initial images, no
+additional image stores and anonymous registry access. Its source build passes
+in 360.035 seconds. The actual existing toolchain verifier passes in 16.166 seconds
+under nonroot/network-none/read-only/capability-drop constraints, with asserted
+512 MiB scratch ownership/mode and noexec/nosuid/nodev. No owned containers remain.
+The installed engine requires CPU period/quota build flags and `U=true` tmpfs
+ownership; both refused CLI forms and their costs are retained. Total build/check
+wall time is 378.222 seconds; upstream HTTP counts/bytes are not separately measured.
+No AWS account requests, KMS, Actions, image redistribution or release-security
+approval is claimed. Broader independent installation and configured delivery
+remain open.
+
 October 18 — Pure tile-cache contracts extracted
 
 `apiTileCacheContracts.js` owns the existing seed selector and six response

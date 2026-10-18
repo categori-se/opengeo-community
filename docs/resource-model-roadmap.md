@@ -1,5 +1,18 @@
 # Resource model: active plan and continuation queue
 
+October 18 — Full worker builds from an empty image cache
+
+The maintained worker Dockerfile builds from public source with no retained
+worker image/dependency cache. The build takes 360 seconds on this amd64 host;
+the existing toolchain verifier then passes in 16 seconds as user 10001, with no
+network, a read-only root and bounded private scratch. No temporary containers
+remain. Initial CLI resource/mount syntax refusals occurred before downloading or
+executing; corrected Podman forms preserve the original budget and protections.
+All attempts total 378 seconds within the 1200-second cap. No AWS/KMS or Actions
+run is used. Independent installation, native ARM64/release security gates and
+configured identity/HTTPS/CDN acceptance remain open. Existing owner GitHub
+metadata access is recovered; private main still needs known free Actions capacity.
+
 October 18 — Tile-cache contracts separated and capability status corrected
 
 The API client's existing tile-cache request/response contracts now live in a
@@ -9,7 +22,8 @@ now records the accepted local Berkshire Framework compilation, private preview,
 reviewed publication and anonymous rendering separately from general Notebook
 execution and configured production delivery. No application/image build, cloud
 call or Actions run is used. Independent installation remains open: the documented
-source path uses public inputs, but a cold full-worker build has not been measured.
+source path uses public inputs. At that checkpoint, a cold full-worker build had
+not been measured.
 Reuse existing core/native acceptance and passing public CI; private main still
 needs known free capacity. These changes join the next consolidated integration.
 

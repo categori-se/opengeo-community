@@ -23,8 +23,12 @@ selected cases cover content saves, map authoring, queries, local projects and
 printing. The latest tile-cache extraction passes all 154 existing client cases.
 Application build and delivery remain separate; broader frontend decomposition
 remains open. The capability guide now reflects accepted local native publishing.
-A source review found no private installation input, while a cold full-worker
-build and independent installation remain unverified.
+The full worker also builds from public source in an empty image cache, followed
+by its maintained nonroot/network-disabled/read-only toolchain check. Measured
+build/check attempts total 378 seconds on the maintainer's amd64 host, with no
+remaining temporary containers or AWS/Actions work. The worker guide includes
+the accepted rootless Podman scratch-mount form. Independent installation, native
+ARM64/release security gates and configured production delivery remain open.
 
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and

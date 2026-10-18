@@ -1,3 +1,22 @@
+## October 18 — Verify the public worker build without a retained image cache
+
+The current maintained full worker image builds from public source in 360.035
+seconds with a fresh isolated rootless Podman graph. The existing verifier then
+passes in 16.166 seconds as user 10001, with network disabled, a read-only root,
+all capabilities dropped and actual 512 MiB private tmpfs ownership/mount checks.
+It covers the pinned drivers/packages, malware-signature control and PDF/OCR path.
+No owned containers remain. CPU/memory/time/storage guards stay in place; the
+largest retained progress sample shows a 5.97 GiB filesystem increase. Two CLI syntax refusals occur before
+build/runtime work and are retained; all build/check attempts total 378.222 seconds
+within the original 1200-second budget. No source rebuild, AWS/KMS or Actions run
+is used after the successful build. Upstream download counts/bytes are unmeasured.
+
+The worker README now gives the accepted Podman mount form. Existing private
+GitHub owner access is recovered without credential/grant changes, allowing a
+release-branch checkpoint; private main validation still requires known free
+capacity. Independent installation, native ARM64/release scans and configured
+identity/HTTPS/CDN delivery remain open. Accepted core/native workflows are reused.
+
 ## October 18 — Separate tile-cache contracts and correct native publication status
 
 The client tile-cache contracts now have their own module. Nine moved and 289

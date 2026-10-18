@@ -51,6 +51,24 @@ docker run --rm --network none --read-only --cap-drop ALL \
   opengeo-worker:local python3 /srv/opengeo/scripts/verify-toolchain.py
 ```
 
+For rootless Podman, use the immutable `community_worker_image` resolved in the
+[development guide](../../docs/community-development.md). Its `U=true` mount
+option derives scratch ownership from the image user:
+
+```bash
+podman run --rm --pull=never --network=none --read-only \
+  --cap-drop=ALL --security-opt=no-new-privileges \
+  --cpus=2 --memory=4g --memory-swap=4g --pids-limit=256 \
+  --mount type=tmpfs,target=/tmp/opengeo-worker,tmpfs-size=536870912,tmpfs-mode=0700,U=true,noexec,nosuid,nodev \
+  "$community_worker_image" python3 /srv/opengeo/scripts/verify-toolchain.py
+```
+
+This Podman form has passed against an image built from public source in an
+empty image cache. Acceptance checked the actual scratch owner, mode, size and
+mount protections before executing the maintained verifier. This is local amd64
+build/runtime evidence; independent installation, native ARM64 and release
+security scanning remain separate requirements.
+
 The verifier mounts `/tmp/opengeo-worker` with UID/GID `10001` and mode `0700`. The image-declared volume preserves the same ownership for an ordinary anonymous Docker volume. Production supplies the separately bounded ephemeral task volume; do not make the root filesystem writable to compensate for a mis-owned scratch mount.
 
 ### Source-built library security
