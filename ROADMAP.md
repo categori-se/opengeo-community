@@ -112,9 +112,11 @@ or switch panels. Its component regression and compiled feature-click, focus and
 checks pass. Studio now delivers this action and stable focus; its served software
 matches the verified release. Demo remains live.
 
-GitHub Actions stay within the free allowance. Remaining capacity could not be
-verified, so this checkpoint does not trigger another runner job. Main-branch
-validation remains pending until its allowance can be established.
+Community core validation uses standard public runners and restores dependency
+caches without saving new entries or uploading artifacts. This keeps its execution
+and added storage within the [documented free scope](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
+Private remaining minutes are unverified, so private main validation remains pending.
+Publication compiler execution retains its separate explicit admission controls.
 
 The connected local publication access journey now passes viewer opening, revoked
 grants and real capability expiry. Temporary memberships are removed and runtime

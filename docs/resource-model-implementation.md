@@ -1,5 +1,17 @@
 # Resource model implementation — September 19, 2026
 
+October 18 — Community validation has no cache-save path
+
+The canonical `community/.github/workflows/api-contract.yml` is copied by the
+existing exporter. Its two standard `ubuntu-24.04` jobs preserve their checks,
+8/15-minute limits, concurrency and read-only credentials. Pinned restore-only
+cache actions reuse npm/pip downloads; setup-node automatic caching is explicitly
+disabled and setup-python cache saving is unconfigured. Installs remain unconditional.
+No artifact upload or AWS action is added. Existing cancellation cases join the
+same Node loop and owning file filters. YAML/source comparison preserves all
+previous run commands. Public runner eligibility and storage behavior are distinct
+from the unknown private minute allowance and from actual deployment acceptance.
+
 October 18 — Preview compiler cancellation accepted locally
 
 `buildFrameworkPreview` accepts an optional signal through the existing build

@@ -1,5 +1,16 @@
 # Resource model: active plan and continuation queue
 
+October 18 — Public core validation avoids cache-storage growth
+
+The community workflow restores existing npm/pip downloads without saving new
+caches. Automatic setup-action caching is disabled. Both standard Ubuntu jobs,
+their checks, timeouts and read permissions remain; the same Node job also checks
+the existing cancellation lifecycle cases. The private community materials and
+exporter now retain this workflow. Verified public-repository identity and GitHub's
+standard-runner policy permit public core validation without private minute
+allowance or new cache/artifact storage. Private main validation still needs known
+free capacity. Independent installation and configured delivery remain open.
+
 October 18 — TIFF preview preparation supports cancellation
 
 The existing compiler and editor fixture now receive the setup cancellation

@@ -1,3 +1,24 @@
+## October 18 — Keep public core validation within free execution and storage
+
+Verified repository identity is public, with standard Ubuntu runners and no active
+main protection or ruleset requiring a separate PR. GitHub documents unlimited
+standard public-runner execution; cache/artifact storage has separate allowances.
+The cache-limit API is unavailable, so its value is not inferred from usage.
+The existing workflow now restores dependency caches without saving new entries,
+disables setup-node automatic caching, and retains unconditional locked installs.
+Its two jobs, timeouts, permissions, concurrency and existing run commands remain.
+Ten existing cancellation cases join the same Node loop; no browser job or matrix
+is added. A pinned restore-only action has no save hook. The canonical workflow
+now lives in community materials and is copied by the maintained exporter.
+
+Scoped YAML/source checks preserve the existing checks and verify cache-save
+removal. A first local comparison assumed the wrong indentation for the added
+test-file line; correcting that assertion changes no source. Accepted application
+tests and builds are reused. One consolidated public validation run is the admitted
+scope; private main checks remain held while their allowance is unknown. No AWS,
+KMS, deployment or compiler dispatch is admitted. Independent operator and
+configured identity/HTTPS/CDN/compiler delivery acceptance remain open.
+
 ## October 18 — Cancel interrupted TIFF preview preparation before cleanup
 
 The existing setup signal previously stopped only between compiler awaits, and
