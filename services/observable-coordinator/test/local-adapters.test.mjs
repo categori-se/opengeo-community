@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {LocalExactVersionStorage, localDependencies, localPublicationBridge, processLocalBuildQueue}
+import {LocalExactVersionStorage, localDependencies, localPublicationBridge, processLocalBuildQueue,
+  processLocalPublicationQueue, boundedLocalPublicationReader}
   from "../src/local-adapters.mjs";
 import {RdsDataBuildRepository} from "../src/production-adapters.mjs";
 import {sha256,verifyRead,verifyWrite} from "../src/contracts.mjs";
@@ -108,4 +109,188 @@ test("busy SQL lease stops the batch and preserves queued work", async () => {
   const result = await processLocalBuildQueue({bridge, compilerImageDigest: pin});
   assert.equal(result[0].status, "busy");
   assert.deepEqual(calls, ["receive", "sql"]);
+});
+
+const reviewId = "10000000-0000-4000-8000-000000000002";
+const publicationCommand = JSON.stringify({schema: "opengeo.framework-publication.command.1.0.0", review_id: reviewId});
+
+test("local publication acknowledges only the deployed approved review in its own queue", async () => {
+  const calls = [];
+  const bridge = async request => {
+    calls.push(request);
+    if (request.operation === "receive") return calls.length === 1 ? {id, body: publicationCommand} : null;
+    if (request.operation === "publish") return "deployed";
+    if (request.operation === "acknowledge") return true;
+    throw new Error("Unexpected publication operation");
+  };
+  assert.deepEqual(await processLocalPublicationQueue({bridge}), [{reviewId, status: "deployed"}]);
+  assert.deepEqual(calls, [
+    {operation: "receive", queue: "framework-publications"},
+    {operation: "publish", reviewId},
+    {operation: "acknowledge", queue: "framework-publications", id},
+    {operation: "receive", queue: "framework-publications"}
+  ]);
+});
+
+test("local publication preserves retries, unclaimed reviews and failed outcomes without spinning", async () => {
+  for (const status of ["retry", "busy", "not_found", "needs_attention", "unknown"]) {
+    const calls = [];
+    const bridge = async request => {
+      calls.push(request.operation);
+      if (request.operation === "receive") return {id, body: publicationCommand};
+      if (request.operation === "publish") return status;
+      throw new Error("Undeployed publication must stay queued");
+    };
+    assert.deepEqual(await processLocalPublicationQueue({bridge}), [{reviewId, status}]);
+    assert.deepEqual(calls, ["receive", "publish"], status);
+  }
+});
+
+test("malformed publication envelopes and commands never reach the publisher or acknowledgement", async () => {
+  const messages = [
+    undefined, [], {}, {id: "other", body: publicationCommand},
+    {id, body: publicationCommand, queue: "observable-builds"},
+    {id, body: {}}, {id, body: " ".repeat(513)}, {id, body: "{"},
+    ...[null, [], {}, {schema: "opengeo.observable-build.command.1.0.0", review_id: reviewId},
+      {schema: "opengeo.framework-publication.command.1.0.0", review_id: "other"},
+      {schema: "opengeo.framework-publication.command.1.0.0", review_id: reviewId, approved: true}]
+      .map(value => ({id, body: JSON.stringify(value)}))
+  ];
+  for (const message of messages) {
+    const calls = [];
+    await assert.rejects(processLocalPublicationQueue({bridge: async request => {
+      calls.push(request.operation);
+      return message;
+    }}), /local_publication_command_invalid/);
+    assert.deepEqual(calls, ["receive"]);
+  }
+});
+
+test("publication transport failure or unknown result shape leaves the original message queued", async () => {
+  for (const result of [null, {status: "deployed"}, new Error("Publisher unavailable")]) {
+    const calls = [];
+    await assert.rejects(processLocalPublicationQueue({bridge: async request => {
+      calls.push(request.operation);
+      if (request.operation === "receive") return {id, body: publicationCommand};
+      if (result instanceof Error) throw result;
+      return result;
+    }}), /local_publication_result_invalid|Publisher unavailable/);
+    assert.deepEqual(calls, ["receive", "publish"]);
+  }
+});
+
+test("local publication stops at the default four-job cap and honors a smaller explicit cap", async () => {
+  for (const maximumJobs of [undefined, 1]) {
+    const queue = Array.from({length: 6}, (_, index) => ({
+      id: `10000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`,
+      body: publicationCommand
+    }));
+    let acknowledged = 0;
+    const bridge = async request => {
+      if (request.operation === "receive") return queue[0] ?? null;
+      if (request.operation === "publish") return "deployed";
+      if (request.operation === "acknowledge") {
+        assert.equal(request.id, queue[0].id);
+        queue.shift();
+        acknowledged++;
+        return true;
+      }
+      throw new Error("Unexpected publication operation");
+    };
+    const outcomes = await processLocalPublicationQueue({bridge, maximumJobs});
+    assert.equal(outcomes.length, maximumJobs ?? 4);
+    assert.equal(acknowledged, maximumJobs ?? 4);
+    assert.equal(queue.length, 6 - (maximumJobs ?? 4));
+  }
+});
+
+test("invalid local publication configuration fails before receiving work", async () => {
+  const bridge = async () => { throw new Error("Invalid configuration must not consume work"); };
+  for (const maximumJobs of [0, 5, 1.5, null]) {
+    await assert.rejects(processLocalPublicationQueue({bridge, maximumJobs}), /local_job_limit_invalid/);
+  }
+  await assert.rejects(processLocalPublicationQueue(), /local_configuration_invalid/);
+});
+
+test("local publication reads queue in order with four active calls and preserve exact values", async () => {
+  const calls = [], pending = [];
+  let active = 0, peak = 0;
+  const read = boundedLocalPublicationReader(async request => {
+    calls.push(request);
+    active++;
+    peak = Math.max(peak, active);
+    try { return await new Promise((resolve, reject) => pending.push({resolve, reject})); }
+    finally { active--; }
+  });
+  const requests = Array.from({length: 7}, (_, index) => Object.freeze({
+    operation: "public-read", path: `/assets/${index}.js`, reviewId
+  }));
+  const results = requests.map(request => read(request));
+  assert.equal(calls.length, 4);
+  for (let index = 0; index < results.length; index++) {
+    const response = Object.freeze({body: Buffer.from(String(index)), content_type: "text/javascript"});
+    pending[index].resolve(response);
+    assert.equal(await results[index], response);
+    assert.equal(calls[index], requests[index]);
+    if (index === 0) assert.equal(calls.length, 5, "A finished read admits exactly one waiting read");
+  }
+  assert.deepEqual(calls, requests);
+  assert.equal(peak, 4);
+  assert.equal(active, 0);
+});
+
+test("local publication reads cap active plus queued work at 64 and recover after draining", async () => {
+  const pending = [];
+  const read = boundedLocalPublicationReader(request => new Promise(resolve => pending.push({request, resolve})));
+  const results = Array.from({length: 64}, (_, index) => read({operation: "public-read", path: `/${index}`}));
+  assert.equal(pending.length, 4);
+  await assert.rejects(read({operation: "public-read", path: "/overflow"}), /local_publication_read_busy/);
+  assert.equal(pending.length, 4, "Overflow must not reach the bridge");
+  for (let index = 0; index < results.length; index++) {
+    pending[index].resolve(index);
+    assert.equal(await results[index], index);
+  }
+  assert.equal(pending.length, 64);
+  const next = read({operation: "public-read", path: "/after-draining"});
+  pending[64].resolve(null);
+  assert.equal(await next, null);
+});
+
+test("failed local publication reads release permits and retain the original error without retry", async () => {
+  const pending = [];
+  const read = boundedLocalPublicationReader(request => new Promise((resolve, reject) => pending.push({request, resolve, reject})));
+  const results = Array.from({length: 5}, (_, index) => read({operation: "public-read", path: `/${index}`}));
+  const failure = new Error("Canonical publication read failed");
+  const rejected = assert.rejects(results[0], error => error === failure);
+  pending[0].reject(failure);
+  await rejected;
+  assert.equal(pending.length, 5, "A failed read must admit the waiting read");
+  for (let index = 1; index < results.length; index++) {
+    pending[index].resolve(index);
+    assert.equal(await results[index], index);
+  }
+  assert.equal(pending.length, 5, "No failed read is retried");
+
+  let attempts = 0;
+  const syncRead = boundedLocalPublicationReader(() => {
+    if (++attempts === 1) throw failure;
+    return "readable";
+  });
+  await assert.rejects(syncRead({operation: "public-read", path: "/failed"}), error => error === failure);
+  assert.deepEqual(await Promise.all(Array.from({length: 4}, () => syncRead({operation: "public-read", path: "/next"}))),
+    Array(4).fill("readable"));
+  assert.equal(attempts, 5);
+});
+
+test("bounded publication reader rejects non-read operations before reaching the bridge", async () => {
+  let calls = 0;
+  const read = boundedLocalPublicationReader(request => { calls++; return request; });
+  for (const request of [undefined, null, [], {}, ...["sql", "receive", "acknowledge", "publish", "configure-publication"]
+    .map(operation => ({operation}))]) {
+    await assert.rejects(read(request), /local_publication_read_invalid/);
+  }
+  assert.equal(calls, 0);
+  const request = {operation: "public-read", path: "/index.html", reviewId};
+  assert.equal(await read(request), request);
+  assert.equal(calls, 1);
 });

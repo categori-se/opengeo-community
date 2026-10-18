@@ -1,5 +1,17 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Ordinary local development processes native publications
+
+The development page now configures one owned local destination and processes
+approved publication jobs through the canonical publisher. The retained Berkshire
+study passes source-object reuse, native compilation, signed private rendering
+and actual review/approval/publication controls. Sixteen focused checks pass.
+Anonymous HTML and asset reads succeed, but full anonymous map rendering remains
+unfinished at the cumulative runtime ceiling. All compute is stopped. Next,
+remove the per-asset subprocess bottleneck through the existing public-custody
+reader before another readback; reuse the completed build and publication.
+Independent installation, production delivery and private CI admission remain open.
+
 October 17 — Catalog preview response contracts separated
 
 Spatial and document preview validation now lives in a focused module, reducing

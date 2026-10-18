@@ -1,5 +1,16 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Ordinary local publication dispatch connected
+
+The existing development action now consumes approved native publication jobs,
+one canonical 64-file step per review, with at most four reviews per batch. Only
+deployed reviews are acknowledged. A same-origin destination form uses the existing
+owner check and rejects replacing another source's mount. Public reads use four
+active subprocesses and at most 64 outstanding requests, preserving the canonical
+reader and returning 503 on capacity. Sixteen focused checks pass. The real study
+compiles, renders privately and publishes through normal controls; its full
+anonymous rendering remains unverified within the retained runtime budget.
+
 October 17 — Catalog preview response contracts separated
 
 `apiPreviewContracts.js` owns the existing bounded spatial and document parsers.

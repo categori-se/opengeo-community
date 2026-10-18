@@ -158,6 +158,23 @@ cloud service. Add `--publication-only` to run the bounded two-edition check
 through the actual source and Publish controls. Keep the same private state
 directory to retain source, jobs, output and release history.
 
+For ordinary authoring, keep the initial development page open. Its **Local
+publication destination** form connects an existing Project and source project
+to `publication.local.invalid`. Copy the IDs from the selected source's API record
+or the browser's request inspector. The source must belong to the local development
+owner. One retained destination is supported per development state; selecting a
+different source fails without replacing it.
+
+Save and build a revision in Studio, then choose **Process queued local jobs** on
+the development page. Open the completed private preview in Studio. To publish,
+prepare the publication review, acknowledge its output and approve the release in
+Studio; return to the development page to process that approved job. Reload the
+review to open the published result. Processing handles at most four publication
+jobs, one canonical step of at most 64 files each. A larger output stays queued;
+process again deliberately to continue. Destination setup never approves rights
+or publishes a release. The local hostname uses the existing browser transport
+mapping; this does not configure public DNS, HTTPS or cloud delivery.
+
 The compiler profile also enables retaining portable map Artifacts and using pinned
 editions in native private previews. The local coordinator resolves each Artifact
 through the normal live lease and tenant permissions, using the retained local

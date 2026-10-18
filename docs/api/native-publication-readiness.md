@@ -27,6 +27,16 @@ for current v3 requests combining data and maps. One native compile is reused;
 no public release or production deployment is implied. The map retains reviewed
 browser snapshot provenance (`authoritativeBuild: false`).
 
+Ordinary development now processes approved publication jobs through its existing
+local action. The real Berkshire study compiles, renders all 16 polygons and both
+calculated tables privately, and publishes through normal review and approval.
+Original source objects and revision 1 remain retained. The anonymous HTML and
+individual assets return 200, but full anonymous rendering remains unfinished at
+the cumulative runtime ceiling. Four active readers and 64 outstanding requests
+now bound subprocess fanout; removing per-asset startup overhead is the next
+local delivery step. The compiled theme's remote Google font is blocked by the
+unchanged CSP and uses fallback typography. No production delivery is implied.
+
 | Boundary | Implemented and accepted locally | Remaining acceptance |
 | --- | --- | --- |
 | Saved authored source | Actual Studio/API saves two approved revisions with retained input bytes and checksums. The local API supplies exact source storage, compiler identity and durable dispatch. | One archived GeoJSON input and one retained saved-map Artifact are accepted locally. Independent operator installation and broader selected-input round trips remain. |
@@ -75,8 +85,13 @@ Activation is explicit through the existing
 reuses private signing keys; it does not pull an image. Use Node.js
 `>=24.19.0 <25`, the existing API/worker prerequisites and a separate preview port.
 The [application harness](../../app/scripts/check-integrated-studio.mjs) starts
-the preview server and connects **Process queued local jobs** to the coordinator. Ordinary
-startup without the compiler option leaves this publication profile disabled.
+the preview server and connects **Process queued local jobs** to the coordinator
+and canonical publisher. Ordinary development also provides an explicit local
+destination form for one owned source. Normal review and approval remain required;
+processing neither approves rights nor creates reviews. Each click handles one
+publisher step per queued review, retaining incomplete work for deliberate
+continuation. Ordinary startup without the compiler option leaves this publication
+profile disabled.
 
 For an independent HTTPS installation, set the matching API origins with
 `OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN` and

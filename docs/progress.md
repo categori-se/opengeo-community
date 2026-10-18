@@ -1,3 +1,42 @@
+## October 17 — Ordinary development connects the native publisher
+
+The ordinary development page previously processed ingestion and compilation but
+left approved native publication jobs queued. Its existing action now also calls
+the canonical publisher: at most four reviews, one 64-file step each, with queued
+work preserved until deployment succeeds. An explicit same-origin form configures
+one owned local destination without approving rights or publishing. Foreign-origin
+and duplicate-ID requests return 403 and 400. Existing owner and mount-collision
+checks remain in force; normal startup keeps this profile disabled.
+
+The retained Berkshire source advances to revision 2 with rights approved for the local check,
+reusing all four exact source objects and retaining unreviewed revision 1. One
+requested job completes native compilation on attempt 2. Its signed preview
+renders 16 polygon paths, five designation rows and eleven town rows. Actual
+review, output acknowledgment and approval dispatch one publication, and the
+ordinary processing action deploys it and empties both queues. Its 43 public
+objects total 699,349 bytes. No second build request or publication is created.
+
+A private observer's initial 15-second timeout interrupts the first coordinator.
+The same job resumes after its natural 900-second lease interval; no job or lease
+state is rewritten. Recorded sleep totals 635.301 seconds with compute stopped.
+Later checks reuse the completed build and publication for anonymous readback.
+Per-asset Python subprocess fanout delays loading; a four-reader, 64-request FIFO
+bound now preserves canonical reads and returns 503 on capacity. Sixteen focused
+tests pass. The last check receives HTML and twelve assets with HTTP 200, but full
+anonymous map rendering remains unfinished. The unchanged CSP also blocks the
+compiled theme's external Google font; fallback typography remains explicit.
+
+Known runtime, diagnosis, preflight and cleanup total 179.5 seconds against the
+explicit cumulative 180-second ceiling, preserving the original 150-second limit,
+all failed attempts and the reviewed readback-only extension. Browser/source
+requests total 84; public asset reads are separate local requests. Agent effort
+and a dollar total are unavailable. API/worker/compiler containers are absent,
+the database is stopped, and all source, output and release history remain.
+No AWS, Actions, image build, frontend build or external publication occurs.
+Next, use a bounded verified public-edition snapshot through the existing custody
+reader to remove per-file process startup before another anonymous readback.
+Independent installation and configured production delivery remain open.
+
 ## October 17 — Catalog preview contracts separated from the API client
 
 Spatial and document preview response validation moves to `apiPreviewContracts.js`,

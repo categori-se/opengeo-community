@@ -25,6 +25,31 @@ export function localPublicationBridge(apiContainer) {
   });
 }
 
+// The local public server reads through the same canonical publication bridge.
+// Bound process fanout without caching content or changing read authorization.
+export function boundedLocalPublicationReader(bridge) {
+  if (typeof bridge !== "function") throw new CoordinatorContractError("local_configuration_invalid");
+  let active = 0, outstanding = 0;
+  const waiting = [];
+  return async request => {
+    if (request === null || typeof request !== "object" || Array.isArray(request) ||
+        request.operation !== "public-read") {
+      throw new CoordinatorContractError("local_publication_read_invalid");
+    }
+    if (outstanding >= 64) throw new CoordinatorContractError("local_publication_read_busy");
+    outstanding++;
+    if (active === 4) await new Promise(resolve => waiting.push(resolve));
+    else active++;
+    try { return await bridge(request); }
+    finally {
+      outstanding--;
+      const next = waiting.shift();
+      if (next) next(); // Transfer this permit to the oldest waiting read.
+      else active--;
+    }
+  };
+}
+
 function record(value, bytes) {
   return {bucket: value.bucket, objectKey: value.key, s3VersionId: value.version_id,
     etag: value.etag, contentType: value.content_type,
@@ -86,6 +111,49 @@ export async function processLocalBuildQueue({bridge, compilerImageDigest, maxim
     // failed lease or replay an already retained compiler result in this batch.
     if (["pending", "busy", "not_ready", "lost"].includes(outcome.status)) break;
     await bridge({operation: "acknowledge", id: message.id});
+  }
+  return outcomes;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+function publicationReview(message) {
+  if (message === null || typeof message !== "object" || Array.isArray(message) ||
+      Object.keys(message).sort().join(",") !== "body,id" ||
+      typeof message.id !== "string" || !UUID.test(message.id) ||
+      typeof message.body !== "string" || Buffer.byteLength(message.body) > 512) {
+    throw new CoordinatorContractError("local_publication_command_invalid");
+  }
+  let command;
+  try { command = JSON.parse(message.body); }
+  catch { throw new CoordinatorContractError("local_publication_command_invalid"); }
+  if (command === null || typeof command !== "object" || Array.isArray(command) ||
+      Object.keys(command).sort().join(",") !== "review_id,schema" ||
+      command.schema !== "opengeo.framework-publication.command.1.0.0" ||
+      typeof command.review_id !== "string" || !UUID.test(command.review_id)) {
+    throw new CoordinatorContractError("local_publication_command_invalid");
+  }
+  return command.review_id;
+}
+
+export async function processLocalPublicationQueue({bridge, maximumJobs = 4} = {}) {
+  if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 4) {
+    throw new CoordinatorContractError("local_job_limit_invalid");
+  }
+  if (typeof bridge !== "function") throw new CoordinatorContractError("local_configuration_invalid");
+  const outcomes = [];
+  for (let index = 0; index < maximumJobs; index++) {
+    const message = await bridge({operation: "receive", queue: "framework-publications"});
+    if (message === null) break;
+    const reviewId = publicationReview(message);
+    // Only consume an already approved review. The canonical publisher retains
+    // authority checks, destination selection and its 64-file invocation limit.
+    const status = await bridge({operation: "publish", reviewId});
+    if (typeof status !== "string") throw new CoordinatorContractError("local_publication_result_invalid");
+    outcomes.push({reviewId, status});
+    // A retry may have checkpointed part of a large output. Leave that exact
+    // message queued for deliberate continuation, including busy/failed claims.
+    if (status !== "deployed") break;
+    await bridge({operation: "acknowledge", queue: "framework-publications", id: message.id});
   }
   return outcomes;
 }

@@ -21,6 +21,13 @@ module. Its existing exports and validation behavior are preserved, with 166
 selected client and Catalog tests passing. This source change awaits the next
 consolidated build and delivery; broader frontend decomposition remains open.
 
+Ordinary local development now connects its processing action to the canonical
+native publisher. The real Berkshire study compiles, renders privately and
+publishes through normal controls while retaining the original source objects.
+Full anonymous rendering remains unfinished: per-file process startup delays its
+43-asset output. Public reads are now bounded; the next step is to remove that
+startup overhead without rebuilding or republishing the completed study.
+
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |
 | Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. | Broader portable round trips and the complete contributor-to-reviewer-to-publisher browser journey. |

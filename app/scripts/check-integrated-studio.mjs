@@ -1,6 +1,6 @@
 import {exerciseFieldComparisons} from "./integrated-studio-field-comparisons.mjs";
 import assert from "node:assert/strict";
-import {localPublicationBridge, processLocalBuildQueue} from "../../services/observable-coordinator/src/local-adapters.mjs";
+import {localPublicationBridge, processLocalBuildQueue, processLocalPublicationQueue, boundedLocalPublicationReader} from "../../services/observable-coordinator/src/local-adapters.mjs";
 import {startLocalPreviewServer} from "../../services/observable-preview/src/local-server.mjs";
 import {appendFileSync, existsSync, readFileSync, writeFileSync} from "node:fs";
 import {createServer, request as httpRequest} from "node:http";
@@ -293,7 +293,34 @@ const server = createServer(async (request, response) => {
     if(publicationSecurityOnly&&path.startsWith('/__local/'))return response.writeHead(403).end('Security acceptance never processes queued jobs.');
     if (developmentMode && await localAnalysisBridge(request, response, path)) return;
     if (developmentMode && path === "/__local/development" && request.method === "GET") {
-      response.setHeader("Content-Type","text/html; charset=utf-8").setHeader("Cache-Control","no-store").end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>OpenGeo community development</title><h1>OpenGeo community development</h1><p>Local development only. Sign-in is synthetic. Database, uploaded files and queued jobs persist after closing Chromium. External browser requests are blocked; choose Blank canvas.</p><p><a href="/" target="_blank">Open Studio</a></p><form method="post" action="/__local/process"><button>Process queued local jobs</button></form><p>After requesting a conversion or image in Studio, process the queue here, then refresh that result in Studio. Keep this page available. Close every Chromium window to stop.</p></html>`);
+      response.setHeader("Content-Type","text/html; charset=utf-8").setHeader("Cache-Control","no-store").end(`<!doctype html><html lang="en"><meta charset="utf-8"><title>OpenGeo community development</title><h1>OpenGeo community development</h1><p>Local development only. Sign-in is synthetic. Database, uploaded files and queued jobs persist after closing Chromium. External browser requests are blocked; choose Blank canvas.</p><p><a href="/" target="_blank">Open Studio</a></p><form method="post" action="/__local/process"><button>Process queued local jobs</button></form><p>After requesting a conversion, image, saved-source build or approved publication in Studio, process the queue here, then refresh that result in Studio. Keep this page available. Close every Chromium window to stop.</p>${publicationProfile ? `<h2>Local publication destination</h2><p>Connect one source owned by the local development account to the local publication hostname. This setting persists. Prepare and approve its release in Studio before processing the publication queue.</p><form method="post" action="/__local/publication-destination"><p><label>Project ID <input name="projectId" required maxlength="36"></label></p><p><label>Source project ID <input name="sourceProjectId" required maxlength="36"></label></p><button>Configure local publication destination</button></form>` : ""}</html>`);
+    } else if (developmentMode && publicationProfile && path === "/__local/publication-destination" && request.method === "POST") {
+      if (request.headers.origin !== origin) return response.writeHead(403).end("Same-origin action required");
+      if (request.headers["content-type"]?.split(";")[0] !== "application/x-www-form-urlencoded") {
+        return response.writeHead(415).end("Use the local destination form");
+      }
+      if (developmentWorkerRunning) return response.writeHead(409).end("Local worker is already processing");
+      const chunks = [];
+      let length = 0;
+      for await (const chunk of request) {
+        length += chunk.length;
+        if (length > 512) return response.writeHead(413).end("Local destination form is too large");
+        chunks.push(chunk);
+      }
+      const form = new URLSearchParams(Buffer.concat(chunks).toString("utf8"));
+      const entries = [...form];
+      const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+      if (entries.length !== 2 || !["projectId", "sourceProjectId"].every(name => form.getAll(name).length === 1 && uuid.test(form.get(name)))) {
+        return response.writeHead(400).end("Enter the existing Project and source project IDs");
+      }
+      if (developmentWorkerRunning) return response.writeHead(409).end("Local worker is already processing");
+      developmentWorkerRunning = true;
+      try {
+        const apiContainer = JSON.parse(readFileSync(join(work,"local-api-container.json")));
+        await localPublicationBridge(apiContainer)({operation:"configure-publication",
+          projectId:form.get("projectId"), sourceProjectId:form.get("sourceProjectId")});
+      } finally { developmentWorkerRunning = false; }
+      response.writeHead(303,{location:"/__local/development"}).end();
     } else if (developmentMode && path === "/__local/process" && request.method === "POST") {
       if (request.headers.origin !== origin) return response.writeHead(403).end("Same-origin action required");
       if (developmentWorkerRunning) return response.writeHead(409).end("Local worker is already processing");
@@ -304,7 +331,9 @@ const server = createServer(async (request, response) => {
         if (existsSync(join(work,"publication-profile.json"))) {
           const {compilerImageDigest} = JSON.parse(readFileSync(join(work,"publication-profile.json")));
           const apiContainer = JSON.parse(readFileSync(join(work,"local-api-container.json")));
-          await processLocalBuildQueue({bridge: localPublicationBridge(apiContainer), compilerImageDigest});
+          const bridge = localPublicationBridge(apiContainer);
+          await processLocalBuildQueue({bridge, compilerImageDigest});
+          await processLocalPublicationQueue({bridge});
         }
       } finally { developmentWorkerRunning = false; }
       response.writeHead(303,{location:"/__local/development"}).end();
@@ -385,6 +414,7 @@ try {
     assert.ok(publicUrl.origin===publicOrigin&&publicUrl.protocol==='http:'&&publicUrl.hostname==='127.0.0.1'&&publicUrl.port
       &&publicOrigin!==origin&&publicOrigin!==previewOrigin&&canonicalPublicOrigin==='https://publication.local.invalid');
     const bridge=localPublicationBridge(JSON.parse(readFileSync(join(work,'local-api-container.json'))));
+    const publicRead=boundedLocalPublicationReader(bridge);
     publicServer=createServer(async(request,response)=>{
       response.setHeader('Cache-Control','no-store').setHeader('X-Content-Type-Options','nosniff');
       response.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; object-src 'none'; frame-ancestors 'self'; form-action 'none'");
@@ -393,12 +423,12 @@ try {
         let path=new URL(request.url,publicOrigin).pathname,reviewId;
         const retained=/^\/_editions\/([0-9a-f-]{36})(\/.*)$/.exec(path);
         if(retained){reviewId=retained[1];path=retained[2];}
-        const record=await bridge({operation:'public-read',path,...(reviewId?{reviewId}:{})});
+        const record=await publicRead({operation:'public-read',path,...(reviewId?{reviewId}:{})});
         if(!record)return response.writeHead(404).end();
         if(record.redirect)return response.writeHead(302,{location:(reviewId?`/_editions/${reviewId}`:'')+record.redirect}).end();
         response.writeHead(200,{'Content-Type':record.content_type,'X-OpenGeo-Local-Release':record.release_prefix});
         return response.end(request.method==='HEAD'?undefined:Buffer.from(record.body,'base64'));
-      }catch{return response.writeHead(404).end();}
+      }catch(error){return response.writeHead(error?.code==='local_publication_read_busy'?503:404).end();}
     });
     await new Promise((done,reject)=>{publicServer.once('error',reject);publicServer.listen(Number(publicUrl.port),'127.0.0.1',done);});
   }
