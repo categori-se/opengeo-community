@@ -147,8 +147,10 @@ images and invokes the canonical local runner. It makes no AWS account calls,
 saves no caches and uploads no artifacts.
 
 The first fresh run stops before downloads at the exact storage-path assertion.
-Physical-path normalization now preserves that assertion; its targeted retry is
-pending. These checks use synthetic local identity and local object/queue transports. The existing automated browser runs
+The retry identifies Podman 4.9 rootless storage defaults. Its supported explicit
+rootless graph setting now retains the owned/empty-store assertion; the next run
+is pending. Podman 4.9 keeps its normal user runtime directory. These checks use
+synthetic local identity and local object/queue transports. The existing automated browser runs
 without Chromium's sandbox; this check does not establish sandboxed-browser,
 configured AWS/Cognito, HTTPS/CDN or independent operator acceptance.
 

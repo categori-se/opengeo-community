@@ -11,8 +11,10 @@ caps and runtime `TMPDIR=/tmp`. Isolated graph-checked cleanup runs on failure t
 Ordinary steps, API job, automatic paths and read-only permissions are preserved;
 manual frontend timeout is 30 minutes. YAML, shell syntax and source comparisons
 pass. Ordinary hosted CI passes; the first fresh preflight fails its exact graph
-path assertion before downloads. Storage-path normalization and diagnostic messages
-now preserve every preflight requirement; the targeted retry is pending. No new workflow, job, runner or build script.
+path assertion before downloads. The retry diagnostics identify Podman 4.9
+rootless graph defaults. Its supported `rootless_storage_path` now names the same
+owned graph; every preflight requirement stays. Podman 4.9 keeps its normal user
+runtime directory. The changed-method run is pending. No new workflow, job, runner or build script.
 Existing automated browser no-sandbox behavior and synthetic/local transports
 remain acceptance limits. No AWS, cache-save or artifact-upload path is added.
 

@@ -129,7 +129,7 @@ jobs:
           fresh="$(realpath -- "$RUNNER_TEMP")/opengeo-source-install"
           test ! -e "$fresh"
           install -d -m 0700 "$fresh" "$fresh/graph" "$fresh/run" "$fresh/tmp" "$fresh/npm"
-          printf '[storage]\ndriver = "overlay"\nrunroot = "%s/run"\ngraphroot = "%s/graph"\n[storage.options]\nadditionalimagestores = []\n' "$fresh" "$fresh" > "$fresh/storage.conf"
+          printf '[storage]\ndriver = "overlay"\nrunroot = "%s/run"\ngraphroot = "%s/graph"\nrootless_storage_path = "%s/graph"\n[storage.options]\nadditionalimagestores = []\n' "$fresh" "$fresh" "$fresh" > "$fresh/storage.conf"
           printf '{"auths":{}}\n' > "$fresh/anonymous-auth.json"
           chmod 0600 "$fresh/storage.conf" "$fresh/anonymous-auth.json"
           CONTAINERS_STORAGE_CONF="$fresh/storage.conf" podman info --format json > "$fresh/podman-before.json"

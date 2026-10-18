@@ -7,8 +7,10 @@ and core/native stages and graph-checked cleanup. Static YAML/source comparison,
 shell syntax and independent reviews pass. Ordinary validation is preserved.
 No application/image build is replayed locally. Ordinary hosted CI passes. The
 first fresh preflight stops before downloads at the exact graph path assertion.
-An offline symlinked-store probe reproduces Podman physical-path normalization;
-using the physical root preserves the assertion. The targeted retry is pending;
+An offline symlinked-store probe reproduces physical-path normalization, but the
+retry diagnostics identify a different hosted cause: Podman 4.9 rootless defaults.
+Its supported explicit rootless graph setting now preserves the owned/empty
+assertion; the changed-method run is pending;
 manual job ceilings total 45 minutes. No private Actions, AWS/KMS, cache-save or
 artifact uploads are admitted. Configured identity/HTTPS/CDN, browser sandbox
 and independent human installation remain separate acceptance work.

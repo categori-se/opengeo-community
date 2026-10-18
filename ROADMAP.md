@@ -32,8 +32,9 @@ ARM64/release security gates and configured production delivery remain open.
 
 An opt-in fresh installation check now reuses the existing public workflow and
 canonical local runner. Static review and ordinary hosted CI pass. The first fresh
-preflight stops before downloads on a storage-path mismatch; physical-path
-normalization preserves the assertion and awaits its targeted retry. Ordinary CI stays unchanged and no AWS, cache-save or artifact-upload
+preflight stops before downloads. Retry diagnostics identify Podman 4.9 rootless
+defaults; its supported explicit rootless graph setting now preserves the owned/empty
+assertion and awaits one changed-method run. Ordinary CI stays unchanged and no AWS, cache-save or artifact-upload
 path is added. Automated synthetic/local transport checks do not replace
 independent human or configured Cognito/HTTPS/CDN acceptance.
 
