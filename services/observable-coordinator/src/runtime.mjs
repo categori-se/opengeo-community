@@ -4,6 +4,7 @@ import {validateGitHubExecution} from "./github-runner.mjs";
 import {CoordinatorContractError} from "./contracts.mjs";
 import {coordinateBuild} from "./coordinator.mjs";
 import {PodmanRunner} from "./podman-runner.mjs";
+import {independentDeploymentFromEnvironment, validateIndependentDeploymentEnvironment} from "./compiler-policy.mjs";
 import {configuredPageCacheStore} from "./page-cache-store.mjs";
 import {AwsDependencyError, AwsSigV4Client, boundedResponseBytes} from "./aws-sigv4.mjs";
 import {
@@ -209,6 +210,8 @@ export async function runHostQueue({queue, dependencies, maximumIdleReceives = 3
 
 export function productionDependencies(environment = process.env, {enablePublicFileStaging = false} = {}) {
   if (typeof enablePublicFileStaging !== "boolean") throw new CoordinatorContractError("production_configuration_invalid");
+  const independentDeployment = independentDeploymentFromEnvironment(environment);
+  if (independentDeployment) validateIndependentDeploymentEnvironment(environment, independentDeployment);
   if (enablePublicFileStaging && validateGitHubExecution(environment).sourceMode !== "opengeo") {
     throw new CoordinatorContractError("public_file_staging_configuration_invalid");
   }
@@ -228,7 +231,8 @@ export function productionDependencies(environment = process.env, {enablePublicF
     pageCacheStore: configuredPageCacheStore(settings, environment),
     runner: new PodmanRunner({
       temporaryDirectory: environment.OPEN_GEO_OBSERVABLE_WORKSPACE_ROOT ?? "/tmp",
-      imageRepository: environment.OPEN_GEO_OBSERVABLE_COMPILER_REPOSITORY
+      imageRepository: environment.OPEN_GEO_OBSERVABLE_COMPILER_REPOSITORY,
+      independentDeployment
     })
   };
 }

@@ -1,0 +1,110 @@
+name: Studio Framework build
+run-name: studio-build-${{ inputs.build_job_id }}
+
+# Deliberately no push, pull_request, schedule or workflow_run trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      build_job_id:
+        required: true
+        type: string
+      source_mode:
+        description: Source authority recorded on the Studio build job
+        required: false
+        type: choice
+        default: github
+        options:
+          - github
+          - opengeo
+      source_commit:
+        required: false
+        type: string
+        default: ""
+      expected_workflow_sha:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-build-${{ inputs.build_job_id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Independent execution requires explicit free-capacity admission and the
+    # immutable identity configured in IAM. Runtime preflight checks it again.
+    if: >-
+      vars.STUDIO_GITHUB_BUILDS_ENABLED == 'true' &&
+      ((vars.STUDIO_INDEPENDENT_BUILD_CONFIG == '' && github.repository == 'categorise/opengeo') ||
+       (vars.STUDIO_INDEPENDENT_BUILD_CONFIG != '' && vars.STUDIO_GITHUB_FREE_EXECUTION_VERIFIED == 'true' &&
+        inputs.source_mode == 'opengeo' &&
+        github.repository == fromJSON(vars.STUDIO_INDEPENDENT_BUILD_CONFIG || '{}').repository &&
+        github.repository_id == format('{0}', fromJSON(vars.STUDIO_INDEPENDENT_BUILD_CONFIG || '{}').repositoryId) &&
+        github.repository_owner_id == format('{0}', fromJSON(vars.STUDIO_INDEPENDENT_BUILD_CONFIG || '{}').ownerId) &&
+        inputs.expected_workflow_sha == fromJSON(vars.STUDIO_INDEPENDENT_BUILD_CONFIG || '{}').runtimeSha &&
+        github.sha == fromJSON(vars.STUDIO_INDEPENDENT_BUILD_CONFIG || '{}').runtimeSha))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: studio-framework-build
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      OPEN_GEO_EXPECTED_WORKFLOW_SHA: ${{ inputs.expected_workflow_sha }}
+      OPEN_GEO_BUILD_SOURCE_MODE: ${{ inputs.source_mode }}
+      OPEN_GEO_GITHUB_SOURCE_COMMIT: ${{ inputs.source_commit }}
+      OPEN_GEO_BUILD_JOB_ID: ${{ inputs.build_job_id }}
+      OPEN_GEO_OBSERVABLE_INDEPENDENT_BUILD_CONFIG: ${{ vars.STUDIO_INDEPENDENT_BUILD_CONFIG }}
+      OPEN_GEO_OBSERVABLE_COORDINATOR_STAGE: ${{ vars.STUDIO_BUILD_STAGE || 'production' }}
+      OPEN_GEO_AWS_REGION: ${{ fromJSON(vars.STUDIO_INDEPENDENT_BUILD_CONFIG || '{}').region || 'us-east-1' }}
+      OPEN_GEO_BUILD_AWS_ACCOUNT: ${{ fromJSON(vars.STUDIO_INDEPENDENT_BUILD_CONFIG || '{}').account || '111111111111' }}
+      OPEN_GEO_DATA_API_CLUSTER_ARN: ${{ vars.STUDIO_BUILD_CLUSTER_ARN }}
+      OPEN_GEO_DATA_API_SECRET_ARN: ${{ vars.STUDIO_BUILD_DATABASE_SECRET_ARN }}
+      OPEN_GEO_APPLICATION_BUCKET: ${{ vars.STUDIO_BUILD_BUCKET }}
+      # Empty by default; reviewed Artifact runtime activation configures this origin.
+      OPEN_GEO_OBSERVABLE_ARTIFACT_API_ORIGIN: ${{ vars.STUDIO_ARTIFACT_API_ORIGIN }}
+      OPEN_GEO_ARCHIVE_BUCKET: ${{ vars.STUDIO_BUILD_ARCHIVE_BUCKET }}
+      OPEN_GEO_APPLICATION_KMS_KEY_ARN: ${{ vars.STUDIO_BUILD_KMS_KEY_ARN }}
+      OPEN_GEO_OBSERVABLE_COMPILER_IMAGE_DIGEST: ${{ vars.STUDIO_COMPILER_IMAGE_DIGEST }}
+      OPEN_GEO_OBSERVABLE_COMPILER_IMAGE_DIGESTS: ${{ vars.STUDIO_COMPILER_IMAGE_DIGESTS }}
+      OPEN_GEO_OBSERVABLE_COMPILER_REPOSITORY: ${{ vars.STUDIO_COMPILER_ECR_REPOSITORY }}
+      OPEN_GEO_OBSERVABLE_PAGE_CACHE_SOURCE_PROJECT_IDS: ${{ vars.STUDIO_PAGE_CACHE_SOURCE_PROJECT_IDS }}
+      OPEN_GEO_OBSERVABLE_PAGE_CACHE_ADMISSION: ${{ vars.STUDIO_PAGE_CACHE_ADMISSION }}
+    steps:
+      - name: Check out trusted runtime, never project source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up trusted Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.19.0
+      - name: Verify runtime identity before requesting AWS authority
+        run: node --input-type=module -e 'import {validateGitHubExecution} from "./services/observable-coordinator/src/github-runner.mjs"; validateGitHubExecution(process.env);'
+      - name: Obtain temporary build-only authority, never publication authority
+        uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5.1.1
+        with:
+          role-to-assume: ${{ vars.STUDIO_BUILD_ROLE_ARN }}
+          aws-region: ${{ env.OPEN_GEO_AWS_REGION }}
+          role-duration-seconds: 1800
+          role-session-name: studio-build-${{ github.run_id }}
+          allowed-account-ids: ${{ env.OPEN_GEO_BUILD_AWS_ACCOUNT }}
+          unset-current-credentials: true
+      - name: Pull reviewed compiler images by immutable digest
+        env:
+          COMPILER_REPOSITORY: ${{ vars.STUDIO_COMPILER_ECR_REPOSITORY }}
+        run: |
+          set -euo pipefail
+          test -n "$COMPILER_REPOSITORY"
+          test -n "$OPEN_GEO_OBSERVABLE_COMPILER_IMAGE_DIGEST"
+          command -v podman
+          node services/observable-coordinator/scripts/pull-reviewed-compilers.mjs --check
+          aws ecr get-login-password --region "$OPEN_GEO_AWS_REGION" | podman login --username AWS --password-stdin "${COMPILER_REPOSITORY%%/*}"
+          node services/observable-coordinator/scripts/pull-reviewed-compilers.mjs --pull
+          podman logout "${COMPILER_REPOSITORY%%/*}"
+      - name: Claim existing Studio job, verify retained source, compile and retain output
+        env:
+          OPEN_GEO_GITHUB_READ_TOKEN: ${{ inputs.source_mode != 'opengeo' && github.token || '' }}
+        run: node services/observable-coordinator/scripts/run-github-build.mjs

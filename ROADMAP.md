@@ -41,8 +41,12 @@ Consumption defaults off; local checks cover activation ordering, safe continuat
 and protected Studio/private storage. An explicit origin-registration phase now
 checks existing hosting and account authority, preserves published state on reruns,
 and connects to the existing Studio address controls. Its installer/helper checks
-and actual SQL statements pass locally. Admitted compiler execution and independent
-identity/HTTPS/CDN delivery remain open.
+and actual SQL statements pass locally. The trusted GitHub runtime, build-only IAM
+and manual workflow now also accept independent account resources and immutable
+repository/owner/runtime pins. Local checks preserve managed defaults and compiler
+isolation; independent workflow admission requires verified free capacity. The
+standalone controller/database connection and actual execution activation remain
+open, alongside independent identity/HTTPS/CDN acceptance.
 
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |

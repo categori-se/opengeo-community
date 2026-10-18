@@ -224,6 +224,55 @@ preview signing and an on-demand publisher; they do not install a compiler runne
 These integrations stay unadvertised until their
 runtimes are configured. Track this work in the [roadmap](../ROADMAP.md).
 
+### Trusted GitHub compiler configuration
+
+The community source includes the manual `studio-framework-build.yml` workflow,
+the build-only IAM construct and the compiler host. They now accept independent
+account resources. The standalone installer does not yet connect the controller,
+GitHub installation and database connection, so this configuration alone does not
+activate publication builds.
+
+`GitHubFrameworkBuildAccessStack.independentDeployment` specifies the installation's
+resource prefix, separate application/archive buckets, database cluster, KMS key
+and repository identity (`fullName`, numeric `id`, numeric `ownerId`, `private`).
+The stack's existing properties specify the dedicated coordinator secret and ECR
+repository ARNs. Resources must belong to the concrete installation account in
+`us-east-1`. It references the existing GitHub OIDC provider and creates only an
+IAM role; trust defaults off. Enabling trust requires read-back evidence of the
+exact numeric repository/owner, immutable OIDC subject and environment restricted
+to the single `studio-runtime-<runtimeSha>` branch at that commit. It grants no
+GitHub App credential, publication, deployment or role-passing authority.
+
+The workflow reads the following **repository-scoped** variables. Job admission
+runs before environment variables become available, so environment-only values
+cannot enable this path:
+
+- `STUDIO_INDEPENDENT_BUILD_CONFIG`: a closed JSON object with `account`,
+  `region`, `repository`, `repositoryId`, `ownerId`, `runtimeSha` and
+  `compilerRepository`. The account is a 12-digit string, IDs are positive
+  integers, the SHA is the reviewed 40-character commit, and the repository is an
+  exact same-account ECR URI without a tag or digest.
+- `STUDIO_GITHUB_BUILDS_ENABLED=true`: explicit execution admission.
+- `STUDIO_GITHUB_FREE_EXECUTION_VERIFIED=true`: the operator has verified the
+  repository's free runner eligibility or remaining allowance. This declaration
+  does not measure usage or enforce a monthly allowance; disable admission when
+  capacity is unknown or exhausted. No automatic trigger is installed.
+
+Keep the existing `STUDIO_BUILD_*` settings consistent with that profile: the
+dedicated coordinator database secret, cluster, buckets, KMS key, role and stage.
+`STUDIO_COMPILER_ECR_REPOSITORY` must equal `compilerRepository`; the reviewed
+primary digest and bounded digest allowlist remain explicit. Optional Artifact
+and cache grants remain separate. The trusted host validates this same profile
+through `OPEN_GEO_OBSERVABLE_INDEPENDENT_BUILD_CONFIG` before requesting AWS
+authority or initializing dependencies. Independent builds accept canonical
+OpenGeo source only (`source_mode=opengeo`); no source repository token is needed.
+
+Execution uses the existing standard AMD64 runner with a 20-minute deadline and
+no idle compiler host. The compiler still runs without credentials, networking,
+pulls or elevated privileges. AWS storage, Data API, KMS and image-transfer costs
+remain workload costs. Actual controller/connection setup, operator installation
+and live execution acceptance remain open; do not infer them from local checks.
+
 ## Optional private-preview setup
 
 After the core runtime exists, add `nativePreview` to your existing configuration:

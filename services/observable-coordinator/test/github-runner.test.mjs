@@ -78,6 +78,40 @@ test("OpenGeo mode retains common execution checks before dependency initializat
   assert.equal(initialized, 0);
 });
 
+test("independent runtime binds canonical mode, repository owner IDs, reviewed SHA and AWS custody before dependencies", async () => {
+  const profile = {account: "111111111111", region: "us-east-1", repository: "owner/public-runtime",
+    repositoryId: 123, ownerId: 321, runtimeSha: WORKFLOW,
+    compilerRepository: "111111111111.dkr.ecr.us-east-1.amazonaws.com/opengeo/compiler"};
+  const environment = {...executionEnvironment(), OPEN_GEO_BUILD_SOURCE_MODE: "opengeo", OPEN_GEO_GITHUB_SOURCE_COMMIT: "",
+    OPEN_GEO_OBSERVABLE_INDEPENDENT_BUILD_CONFIG: JSON.stringify(profile),
+    GITHUB_REPOSITORY: profile.repository, GITHUB_REPOSITORY_OWNER_ID: String(profile.ownerId),
+    OPEN_GEO_AWS_REGION: profile.region,
+    OPEN_GEO_DATA_API_CLUSTER_ARN: "arn:aws:rds:us-east-1:111111111111:cluster:independent-runtime",
+    OPEN_GEO_DATA_API_SECRET_ARN: "arn:aws:secretsmanager:us-east-1:111111111111:secret:independent/coordinator-AbCd12",
+    OPEN_GEO_APPLICATION_KMS_KEY_ARN: "arn:aws:kms:us-east-1:111111111111:key/00000000-0000-4000-8000-000000000001",
+    OPEN_GEO_APPLICATION_BUCKET: "independent-source", OPEN_GEO_ARCHIVE_BUCKET: "independent-archive",
+    OPEN_GEO_OBSERVABLE_COMPILER_REPOSITORY: profile.compilerRepository};
+  assert.equal(validateGitHubExecution(environment).repository, profile.repository);
+  let initialized = 0;
+  for (const change of [
+    {OPEN_GEO_BUILD_SOURCE_MODE: "github", OPEN_GEO_GITHUB_SOURCE_COMMIT: COMMIT},
+    {OPEN_GEO_BUILD_SOURCE_MODE: undefined, OPEN_GEO_GITHUB_SOURCE_COMMIT: COMMIT},
+    {GITHUB_REPOSITORY: "attacker/public-runtime"}, {GITHUB_REPOSITORY_ID: "124"}, {GITHUB_REPOSITORY_ID: "123\n"},
+    {GITHUB_REPOSITORY_OWNER_ID: undefined}, {GITHUB_REPOSITORY_OWNER_ID: "322"},
+    {GITHUB_REPOSITORY_OWNER_ID: "0321"}, {GITHUB_WORKFLOW_SHA: COMMIT},
+    {OPEN_GEO_EXPECTED_WORKFLOW_SHA: COMMIT, GITHUB_SHA: COMMIT, GITHUB_WORKFLOW_SHA: COMMIT,
+      GITHUB_REF: `refs/heads/studio-runtime-${COMMIT}`},
+    {GITHUB_REF: `refs/heads/studio-runtime-${WORKFLOW}/extra`},
+    {OPEN_GEO_DATA_API_CLUSTER_ARN: environment.OPEN_GEO_DATA_API_CLUSTER_ARN.replace("111111111111", "222222222222")},
+    {OPEN_GEO_APPLICATION_BUCKET: "source.opengeo.tools"}
+  ]) {
+    await assert.rejects(runGitHubBuild({environment: {...environment, ...change},
+      dependenciesFactory() {initialized++;throw Error("No AWS or dependency initialization before admission");}}),
+      /github_execution_identity_invalid|independent_deployment_environment_invalid/);
+  }
+  assert.equal(initialized, 0);
+});
+
 test("Legacy source mode still selects the mirrored source gate and requires its token", async () => {
   const environment = executionEnvironment(), runner = {async run() {throw Error("Unused compiler");}};
   await assert.rejects(runGitHubBuild({environment, dependenciesFactory: () => ({runner})}), /github_source_configuration_invalid/);

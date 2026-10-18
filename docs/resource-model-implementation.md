@@ -1,5 +1,20 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Independent GitHub compiler configuration accepted offline
+
+`GitHubFrameworkBuildAccessStack.independentDeployment` binds concrete local
+storage, RDS, KMS, dedicated secret/ECR and numeric GitHub repository/owner identity.
+Trust defaults off and requires exact immutable subject/environment/ref evidence.
+The host shares a closed operator profile across preflight, ECR pulls and Podman;
+canonical source, same-account custody and the reviewed runtime SHA are required
+before dependencies. Managed defaults and local digest-only isolation are retained.
+The manual workflow uses the same profile, explicit independent free-capacity
+admission and unchanged runner/timeout/permissions. The exporter now includes only
+that workflow plus the generalized access construct and tests. Existing runtime
+and IAM suites, exporter/workflow review and TypeScript pass offline. This does not
+install the controller, establish its database connection or activate execution.
+Those installer connections and independent live acceptance remain open.
+
 October 17 — Standalone publication-origin registration accepted locally
 
 `publication-origin` invokes one owning database helper with the existing installer

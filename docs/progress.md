@@ -1,3 +1,32 @@
+## October 17 — Independent GitHub compiler boundaries connected in source
+
+The existing trusted compiler host, build-only IAM and manual workflow now accept
+explicit independent account resources and immutable repository/owner/runtime
+identity. Independent execution requires canonical OpenGeo source and explicit
+free-capacity admission. Exact ECR/digest, private storage, dedicated database/KMS
+and credential-free Podman boundaries remain; managed defaults are preserved.
+The maintained community exporter includes this workflow and generalized IAM
+source/tests, while excluding private entrypoints and other private automation.
+Repository-scoped configuration and activation limits are documented.
+
+All 33 owning coordinator cases and nine IAM cases pass in private and transformed
+community source. TypeScript, foundation inventory, workflow/export inspection and
+whitespace pass locally. Initial default Node discovery reports only four files;
+that result is explicitly unaccepted. The established no-isolation/TAP invocation
+executes the actual cases. IAM checks repeat after configuration/fixture corrections
+and once for the public account substitutions. All measured checks, including the
+unaccepted discovery and both typechecks, total 10.908 seconds before final
+whitespace/readback. No dependencies, cloud/KMS, Actions, containers, image or
+application builds, publication jobs or invalidations are used. Agent/dollar usage
+is unavailable; prior receipts and the 191.702714352 native seconds are preserved.
+
+This closes independent runtime/IAM/workflow configurability, not an installed
+compiler. Next, connect the standalone controller, function-only database role and
+account-scoped GitHub connection through the existing installer. Execution stays
+disabled. Independent operator/clean-machine and identity/HTTPS/CDN acceptance
+remain open. Main validation still awaits known free Actions capacity; unchanged
+core, preview, publisher, origin, study and historical parity evidence are reused.
+
 ## October 17 — Standalone publication origins reach existing address controls
 
 The explicit installer registration phase verifies an existing account administrator

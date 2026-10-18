@@ -1,5 +1,18 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Independent GitHub compiler resources supported
+
+The trusted runtime, build-only IAM and maintained manual workflow now accept
+exact independent account resources and immutable repository/owner/runtime pins.
+The community export includes these components. Independent execution requires
+explicit free-capacity admission; managed defaults, bounded image pins and the
+credential-free compiler remain. Focused runtime/IAM checks and TypeScript pass
+locally. No AWS, KMS, Actions, containers, image/application build or deployment
+is used. Next, connect the standalone controller, dedicated database role and
+account-scoped GitHub connection through the existing installer. Actual activation,
+independent operator installation and identity/HTTPS/CDN acceptance remain open;
+reuse the accepted core, preview, publisher, origin and study results.
+
 October 17 — Standalone publication origins connect to existing address controls
 
 An explicit installer phase now registers verified independent hosting for an

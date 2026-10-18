@@ -12,6 +12,7 @@ import {
 import {tmpdir} from "node:os";
 import {dirname, join, relative, resolve, sep} from "node:path";
 import {readPageCacheResult, stagePageCache} from "./page-cache-transport.mjs";
+import {COMPILER_REPOSITORY, parseIndependentDeployment} from "./compiler-policy.mjs";
 import {
   CoordinatorContractError,
   REQUIRED_SANDBOX,
@@ -26,14 +27,15 @@ const MAX_PROCESS_OUTPUT_BYTES = 128 * 1024;
 const REPORT_LIMIT_BYTES = 256 * 1024;
 
 export class PodmanRunner {
-  constructor({command = "podman", temporaryDirectory = tmpdir(), imageRepository} = {}) {
+  constructor({command = "podman", temporaryDirectory = tmpdir(), imageRepository, independentDeployment} = {}) {
     if (command !== "podman" || typeof temporaryDirectory !== "string") {
       throw new CoordinatorContractError("runner_configuration_invalid");
     }
     this.command = command;
     this.temporaryDirectory = temporaryDirectory;
-    if (imageRepository !== undefined && imageRepository !==
-        "977060200223.dkr.ecr.us-east-1.amazonaws.com/opengeo/production/observable-builder") {
+    const profile = independentDeployment === undefined ? undefined : parseIndependentDeployment(independentDeployment);
+    if ((profile && imageRepository !== profile.compilerRepository) ||
+        (imageRepository !== undefined && imageRepository !== (profile?.compilerRepository ?? COMPILER_REPOSITORY))) {
       throw new CoordinatorContractError("runner_image_repository_invalid");
     }
     this.imageRepository = imageRepository;

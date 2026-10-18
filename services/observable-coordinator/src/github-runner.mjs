@@ -1,6 +1,7 @@
 import {createHash} from "node:crypto";
 import {CoordinatorContractError, sha256} from "./contracts.mjs";
 import {boundedResponseBytes} from "./aws-sigv4.mjs";
+import {independentDeploymentFromEnvironment, validateIndependentDeploymentEnvironment} from "./compiler-policy.mjs";
 
 const SHA = /^[0-9a-f]{40}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -29,6 +30,8 @@ export function githubBuildSummary(result, identity) {
 }
 
 export function validateGitHubExecution(environment) {
+  const independentDeployment = independentDeploymentFromEnvironment(environment);
+  if (independentDeployment) validateIndependentDeploymentEnvironment(environment, independentDeployment);
   // Old dispatched jobs omit this field and retain their mirrored-source gate.
   // New canonical-source jobs must explicitly choose opengeo.
   const sourceMode = environment.OPEN_GEO_BUILD_SOURCE_MODE === undefined
@@ -48,7 +51,12 @@ export function validateGitHubExecution(environment) {
     !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(environment.GITHUB_REPOSITORY ?? "") ||
     !/^[1-9][0-9]*$/.test(environment.GITHUB_REPOSITORY_ID ?? "") ||
     !Number.isSafeInteger(repositoryId) || repositoryId < 1 ||
-    !/^[1-9][0-9]*$/.test(environment.GITHUB_RUN_ID ?? "")
+    !/^[1-9][0-9]*$/.test(environment.GITHUB_RUN_ID ?? "") ||
+    (independentDeployment && (sourceMode !== "opengeo" ||
+      environment.GITHUB_REPOSITORY !== independentDeployment.repository ||
+      environment.GITHUB_REPOSITORY_ID !== String(independentDeployment.repositoryId) ||
+      environment.GITHUB_REPOSITORY_OWNER_ID !== String(independentDeployment.ownerId) ||
+      environment.OPEN_GEO_EXPECTED_WORKFLOW_SHA !== independentDeployment.runtimeSha))
   ) throw new CoordinatorContractError("github_execution_identity_invalid");
   return {
     repository: environment.GITHUB_REPOSITORY,

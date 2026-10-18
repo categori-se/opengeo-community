@@ -12,6 +12,13 @@ and remaining publication work. Technical and dated hosted notes below preserve
 their original scope; hosted acceptance does not establish fresh community
 installation or production readiness.
 
+Independent GitHub compilation can now use an operator-configured account,
+repository identity and immutable runtime SHA. The manual workflow, IAM access
+construct, ECR pull check and Podman adapter share those boundaries. See the
+[configuration and activation limits](../../docs/community-aws.md#trusted-github-compiler-configuration).
+The standalone installer still needs the controller and connection setup;
+configuration support does not establish an enabled or accepted runtime.
+
 ## Implementation notes and retained acceptance history
 
 The local request-v4/invocation-v5 `single-html` option accepts only the generated

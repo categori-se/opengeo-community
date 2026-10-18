@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {describe, it} from "node:test";
 import {AwsDependencyError} from "../src/aws-sigv4.mjs";
+import {PodmanRunner, podmanArguments} from "../src/podman-runner.mjs";
+import {COMPILER_REPOSITORY} from "../src/compiler-policy.mjs";
 import {
   AwsSqsBuildQueue,
   handleSqsEvent,
@@ -37,6 +39,49 @@ it("enables public reference transport only for an explicitly admitted canonical
   assert.throws(() => productionDependencies({...environment, OPEN_GEO_BUILD_SOURCE_MODE: "github",
     OPEN_GEO_GITHUB_SOURCE_COMMIT: "b".repeat(40)}, {enablePublicFileStaging: true}), /public_file_staging_configuration_invalid/);
   assert.throws(() => productionDependencies(environment, {enablePublicFileStaging: "true"}), /production_configuration_invalid/);
+});
+
+it("connects the independent production environment to the same immutable Podman image without compiler credentials", () => {
+  const workflowSha = "a".repeat(40), digest = `sha256:${"c".repeat(64)}`;
+  const profile = {account: "111111111111", region: "us-east-1", repository: "owner/public-runtime",
+    repositoryId: 123, ownerId: 321, runtimeSha: workflowSha,
+    compilerRepository: "111111111111.dkr.ecr.us-east-1.amazonaws.com/opengeo/compiler"};
+  const environment = {
+    OPEN_GEO_OBSERVABLE_INDEPENDENT_BUILD_CONFIG: JSON.stringify(profile),
+    OPEN_GEO_OBSERVABLE_COORDINATOR_STAGE: "production", OPEN_GEO_AWS_REGION: profile.region,
+    OPEN_GEO_DATA_API_CLUSTER_ARN: "arn:aws:rds:us-east-1:111111111111:cluster:independent-runtime",
+    OPEN_GEO_DATA_API_SECRET_ARN: "arn:aws:secretsmanager:us-east-1:111111111111:secret:independent/coordinator-AbCd12",
+    OPEN_GEO_APPLICATION_BUCKET: "independent-source", OPEN_GEO_ARCHIVE_BUCKET: "independent-archive",
+    OPEN_GEO_APPLICATION_KMS_KEY_ARN: "arn:aws:kms:us-east-1:111111111111:key/00000000-0000-4000-8000-000000000001",
+    OPEN_GEO_OBSERVABLE_COMPILER_REPOSITORY: profile.compilerRepository,
+    OPEN_GEO_OBSERVABLE_COMPILER_IMAGE_DIGEST: digest,
+    OPEN_GEO_BUILD_SOURCE_MODE: "opengeo", OPEN_GEO_BUILD_JOB_ID: BUILD,
+    GITHUB_ACTIONS: "true", GITHUB_EVENT_NAME: "workflow_dispatch", OPEN_GEO_EXPECTED_WORKFLOW_SHA: workflowSha,
+    GITHUB_SHA: workflowSha, GITHUB_WORKFLOW_SHA: workflowSha, GITHUB_REF: `refs/heads/studio-runtime-${workflowSha}`,
+    GITHUB_REPOSITORY: profile.repository, GITHUB_REPOSITORY_ID: "123", GITHUB_REPOSITORY_OWNER_ID: "321", GITHUB_RUN_ID: "456",
+    AWS_ACCESS_KEY_ID: "HOST_ONLY_KEY", AWS_SECRET_ACCESS_KEY: "HOST_ONLY_SECRET"
+  };
+  const dependencies = productionDependencies(environment, {enablePublicFileStaging: true});
+  assert(dependencies.runner instanceof PodmanRunner);
+  assert.equal(dependencies.runner.imageRepository, profile.compilerRepository);
+  assert.equal(dependencies.expectedBucket, "independent-source");
+  assert.equal(dependencies.expectedArchiveBucket, "independent-archive");
+  const options = {contract: "/contract", input: "/input", workspace: "/workspace", result: "/result", imageDigest: digest,
+    imageRepository: dependencies.runner.imageRepository, limits: {memoryMiB: 512, cpuMillis: 1000}};
+  const args = podmanArguments(options);
+  assert.equal(args.at(-1), `${profile.compilerRepository}@${digest}`);
+  for (const flag of ["--pull=never", "--network=none", "--read-only", "--cap-drop=all", "--security-opt=no-new-privileges", "--user=10001:10001"]) {
+    assert(args.includes(flag));
+  }
+  assert.equal(args.some(value => /HOST_ONLY|AWS_|--env|--privileged/.test(value)), false);
+  for (const imageRepository of [undefined, COMPILER_REPOSITORY, `${profile.compilerRepository}:latest`,
+    "222222222222.dkr.ecr.us-east-1.amazonaws.com/opengeo/compiler"]) {
+    assert.throws(() => new PodmanRunner({independentDeployment: profile, imageRepository}), /runner_image_repository_invalid/);
+  }
+  assert.throws(() => new PodmanRunner({imageRepository: profile.compilerRepository}), /runner_image_repository_invalid/);
+  assert.equal(new PodmanRunner().imageRepository, undefined);
+  assert.equal(podmanArguments({...options, imageRepository: new PodmanRunner().imageRepository}).at(-1), digest);
+  assert.equal(new PodmanRunner({imageRepository: COMPILER_REPOSITORY}).imageRepository, COMPILER_REPOSITORY);
 });
 
 function dependencies(repository) {
