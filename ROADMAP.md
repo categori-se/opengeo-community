@@ -30,19 +30,17 @@ remaining temporary containers or AWS/Actions work. The worker guide includes
 the accepted rootless Podman scratch-mount form. Independent installation, native
 ARM64/release security gates and configured production delivery remain open.
 
-The opt-in fresh installation check now builds all three maintained images,
-prepares the pinned database and passes API checks on a fresh standard Ubuntu
-runner. Compiled Studio opens; an outdated Data access test selector then stops
-the connected journey. Native publication is skipped and isolated cleanup passes.
-The browser fixtures now follow current Data access, Basemap, map-control and
-PMTiles entry points, preserving assertions and deadlines. The current local
-journey passes authorization/lifecycle, uploads, styling and exact saved-map
-reopening. Conversion is then held by missing local-fixture runtime configuration;
-complete local conversion/publication acceptance remains open.
-The optional fresh run is capped at 38 summed job-minutes; ordinary checks are
-unchanged. The complete fresh-host Studio/native-publication journey remains open.
-No AWS, cache-save or artifact-upload path is added. Independent operator and
-configured delivery acceptance remain open. See the [run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665).
+The opt-in fresh installation check passes three maintained source image builds,
+pinned database preparation and API checks, then stops at an obsolete Data access
+test selector. The fixtures now follow current navigation. Actual local acceptance
+also covers authorization, uploads, saved-map styling/reopening, dedicated PMTiles
+v2 conversion, PNG rendering and both dataset publications. The next check now
+reuses the map's governed identity and explicitly selects its saved revision;
+its corrected full publication/export/revocation tail remains open. The existing
+fresh image stage now includes the maintained converter. The 38 summed job-minute
+cap and ordinary checks remain. No further remote execution or AWS/KMS request is
+started. Complete fresh-host/native publication, independent operator and configured
+delivery acceptance remain open. See the [run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665).
 
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and

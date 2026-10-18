@@ -26,6 +26,8 @@ on:
       - app/test/catalog-project-save.test.mjs
       - app/test/cog-preview.test.mjs
       - app/test/project-directory-ux.test.mjs
+      - app/test/project-resource-creation.test.mjs
+      - app/test/map-resource-version.test.mjs
       - app/test/project-dataset-map-handoff.test.mjs
       - app/test/geomoose-query-ui.test.mjs
       - app/test/publication-panels.test.mjs
@@ -70,6 +72,8 @@ on:
       - app/test/catalog-project-save.test.mjs
       - app/test/cog-preview.test.mjs
       - app/test/project-directory-ux.test.mjs
+      - app/test/project-resource-creation.test.mjs
+      - app/test/map-resource-version.test.mjs
       - app/test/project-dataset-map-handoff.test.mjs
       - app/test/geomoose-query-ui.test.mjs
       - app/test/publication-panels.test.mjs
@@ -125,6 +129,7 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = x86_64
           command -v podman
+          command -v setfacl
           test -x /usr/bin/chromium || test -x /usr/bin/chromium-browser || test -x /usr/bin/google-chrome
           fresh="$(realpath -- "$RUNNER_TEMP")/opengeo-source-install"
           test ! -e "$fresh"
@@ -174,6 +179,8 @@ jobs:
             app/test/catalog-project-save.test.mjs \
             app/test/cog-preview.test.mjs \
             app/test/project-directory-ux.test.mjs \
+            app/test/project-resource-creation.test.mjs \
+            app/test/map-resource-version.test.mjs \
             app/test/project-dataset-map-handoff.test.mjs \
             app/test/geomoose-query-ui.test.mjs \
             app/test/publication-panels.test.mjs \
@@ -203,6 +210,7 @@ jobs:
           build_options=(--jobs=1 --no-cache --layers=false --pull=missing --retry=0 --cpu-period=100000 --cpu-quota=200000 --memory=8g --memory-swap=8g --authfile "$OPEN_GEO_FRESH_STORE/anonymous-auth.json")
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/api.iid" --file services/api/Dockerfile services/api
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/worker.iid" --file services/worker/Dockerfile services/worker
+          podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/pmtiles.iid" --file services/worker/Dockerfile.pmtiles services/worker
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/compiler.iid" --file services/observable-builder/Dockerfile services/observable-builder
           BUILD
       - name: Run the canonical built Studio installation check
@@ -212,7 +220,8 @@ jobs:
           timeout --signal=TERM --kill-after=20s 6m env TMPDIR=/tmp python scripts/run-integrated-studio-local.py \
             --built-studio \
             --api-image "$(cat "$OPEN_GEO_FRESH_STORE/api.iid")" \
-            --worker-image "$(cat "$OPEN_GEO_FRESH_STORE/worker.iid")"
+            --worker-image "$(cat "$OPEN_GEO_FRESH_STORE/worker.iid")" \
+            --pmtiles-worker-image "$(cat "$OPEN_GEO_FRESH_STORE/pmtiles.iid")"
       - name: Run the canonical native publication installation check
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
         run: |

@@ -1,35 +1,37 @@
 # Resource model implementation — September 19, 2026
 
-October 18 — Fresh preparation accepted; current browser entry points restored
+October 18 — Real local PMTiles and PNG paths connected
 
-Run [39107327665](https://github.com/categori-se/opengeo-community/actions/runs/39107327665)
-uses public source `92124cfd` on standard Ubuntu 24.04/Podman 4.9.3. The exact
-owned graph starts with zero images. Pinned PostGIS and all three maintained
-source builds complete; the version-compatible pull correction is accepted.
-API checks pass. Compiled Studio creates Projects and exercises invitation,
-viewer and revocation paths, then the fixture waits for the removed
-`.access-workspace-directory` disclosure. Native publication is skipped and
-graph-checked cleanup passes. This run uses 553 summed job-seconds; cumulative
-job time, including all earlier failures and ordinary CI, is 1696 seconds.
+The existing local runner accepts an explicit exact `--pmtiles-worker-image` only
+for fresh built-Studio acceptance. It validates the dedicated ubuntu-small 3.13.1
+image binding, creates a separate file queue and initializes only pristine runtime
+control. The shared ingestion/PNG worker remains active. Production Settings,
+routes, SQL admission, worker claims and completion are unchanged; only the local
+cloud transport substitute supplies both configured lanes. Bounded nonroot,
+read-only execution and exact cleanup remain. Image/host architectures are recorded
+separately; cached emulated ARM64 execution does not establish native architecture,
+cryptographic image provenance, production controller accounting or release security.
 
-`integrated-studio-access.mjs` now uses account Data access and the lifecycle's
-direct access-directory link. The main/analysis helpers use View to open Basemap;
-the main journey explicitly shows map controls before its existing zoom loop.
-The PMTiles locator uses Output tile layer with the same exact `source` value.
-Visible layer-button waits avoid hidden folder labels after reopening; the Style
-swatch activates the intended layer before processing. Every assertion and browser
-deadline is retained. The local journey passes access/lifecycle, uploads, exact
-styles and saved-map reopening, then holds PMTiles admission because the fixture
-still uses shared mode without converter queue/image configuration. Four attempts
-total 568.177 seconds, including a stopped introduced zoom-selector ambiguity.
-One current 876-file frontend build is reused; all 547 source files and three
-frontend configuration files match its staged inputs. Cached images supply
-dependencies and read-only mounts supply current API/worker source. No new workflow,
-job, dependency or build pathway is added. Fresh-only job ceilings are 28/10
-minutes, within the original remaining budget; normal 8/15 and stage 12/6/5 limits
-remain. Further hosted execution is not admitted. Synthetic local transports and
-the existing no-sandbox browser do not prove independent operator or configured
-identity/HTTPS/CDN delivery.
+The current compiled Studio actually passes access/lifecycle, uploads, exact styles,
+saved-map reopening, PMTiles v2 conversion, metadata export, PNG rendering and both
+dataset publications. It then reopens the existing map resource v1 pinned to map
+v1 while saved map v2 exists. The obsolete POST wait times out. The fixture now
+asserts identity reuse/no duplicate, saves rights without changing the original
+pin, explicitly adopts the saved revision and retains exact subsequent version
+increments and snapshot comparisons. That final correction has focused checks;
+complete current publication/export/revocation acceptance remains open.
+
+Six local attempts, probes and earlier focused tests consume 844.234 seconds;
+all failures/stops are retained. One sealed 876-file frontend build is reused,
+with current source mounted into cached dependency images. All four exact latest
+containers are absent. No additional full local retry is admitted. Public fresh
+run [39107327665](https://github.com/categori-se/opengeo-community/actions/runs/39107327665)
+accepted the empty-store preflight, three maintained image builds, pinned database
+and API checks, then failed the old Data access selector and skipped native
+publication. Total remote job time is 1696 seconds of the original 4080-second cap.
+The existing fresh image stage now includes the converter; job limits remain
+28/10 minutes and ordinary/stage limits stay unchanged. No further hosted run is
+admitted. Independent operator and configured delivery acceptance remain open.
 
 October 18 — Empty-cache worker source build and runtime accepted
 
@@ -7320,7 +7322,7 @@ See [building archive evidence](nsdi-building-display-20260921-evidence.json).
 
 ## September 21: all Sri Lanka S3 files linked to active catalog records
 
-All 179 objects under `example-geodata/sri-lanka/` are reconciled: 173 nonempty
+All 179 objects under `geospatial.data/sri-lanka/` are reconciled: 173 nonempty
 files are linked to 32 active catalog records, and six empty ArcGIS lock files
 remain inventory-only. Eight existing records were reused and 24 new logical
 datasets were registered in Aaron's Sri Lanka workspace. Owner and Categorise
@@ -7412,7 +7414,7 @@ See [Nepal survey evidence](nepal-survey-catalog-20260921-evidence.json).
 ## September 21: Bhutan wind originals relocated and catalog archive preview prepared
 
 Both original NREL wind ZIPs now have verified private copies at
-`example-geodata/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
+`geospatial.data/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
 markers hid the old `nepal/` keys. All historical object versions remain intact;
 there were no version deletions. The bounded move used 18 S3 requests. Knowledge
 revision 2 points to the new exact objects and retains the relocation trail; Aaron

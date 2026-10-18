@@ -224,7 +224,15 @@ async function readApi(path) {
 }
 
 async function worker(timeout = 120_000) {
-  const [executable, ...args] = JSON.parse(readFileSync(join(work, "worker-command.json")));
+  const pmtilesQueue = join(work, "pmtiles-v2.json");
+  const dedicated = existsSync(pmtilesQueue) && JSON.parse(readFileSync(pmtilesQueue)).length > 0;
+  if (dedicated) {
+    const sharedQueue = join(work, "queue.json");
+    assert.equal(existsSync(sharedQueue) ? JSON.parse(readFileSync(sharedQueue)).length : 0, 0,
+      "Finish the shared worker queue before executing the dedicated PMTiles lane");
+  }
+  const [executable, ...args] = JSON.parse(readFileSync(join(work,
+    dedicated ? "pmtiles-worker-command.json" : "worker-command.json")));
   assert.equal(executable, "podman");
   const logName = `worker-${Date.now()}-${randomUUID()}.log`, logPath = join(work, logName);
   writeFileSync(logPath, "", {flag: "wx", mode: 0o600});
@@ -1231,6 +1239,57 @@ try {
     await form.getByLabel("Persistent URL name", {exact: true}).fill(kind === "map" ? "watershed-map" : "watershed-story");
     await form.getByLabel("License", {exact: true}).fill("CC-BY-4.0");
     await form.getByLabel("Attribution", {exact: true}).fill("OpenGeo local pilot");
+    if (kind === "map") {
+      // Saving a Project map already creates its governed identity. Reopen that
+      // record, curate its rights, then explicitly adopt the saved composition.
+      const governedMaps = (await readApi(`/projects/${project.id}/resources?kind=map&limit=100`))
+        .filter(resource => resource.map_id === maps[0].id);
+      assert.equal(governedMaps.length, 1, "A map retains one governed identity");
+      const resourcePath = `/projects/${project.id}/resources/${governedMaps[0].id}`;
+      const creationCount = requests.filter(request => request.method === "POST"
+        && request.path === `/projects/${project.id}/resources`).length;
+      const opened = page.waitForResponse(response => response.url().endsWith(resourcePath)
+        && response.request().method() === "GET");
+      await form.getByRole("button", {name: "Create draft resource", exact: true}).click();
+      const response = await opened;
+      assert.equal(response.status(), 200);
+      const original = await response.json();
+      assert.equal(original.id, governedMaps[0].id);
+      assert.equal(original.map_id, maps[0].id);
+      assert.equal(original.version_number, 1);
+      await detail.locator(".project-resource-detail-heading").getByRole("heading", {name:title,exact:true}).waitFor();
+      assert.equal(requests.filter(request => request.method === "POST"
+        && request.path === `/projects/${project.id}/resources`).length, creationCount,
+        "Opening an existing map never creates a duplicate resource");
+      const metadataForm = detail.locator(".project-resource-metadata-editor form");
+      await metadataForm.getByLabel("License", {exact: true}).fill("CC-BY-4.0");
+      await metadataForm.getByLabel("Attribution", {exact: true}).fill("OpenGeo local pilot");
+      const curated = page.waitForResponse(response => response.url().endsWith(resourcePath)
+        && response.request().method() === "PUT");
+      await metadataForm.getByRole("button", {name: "Save new version", exact: true}).click();
+      const curatedResponse = await curated;
+      assert.equal(curatedResponse.status(), 200);
+      const rights = await curatedResponse.json();
+      assert.equal(rights.id, original.id);
+      assert.equal(rights.version_number, original.version_number + 1);
+      assert.equal(rights.license, "CC-BY-4.0");
+      assert.equal(rights.attribution, "OpenGeo local pilot");
+      assert.deepEqual(rights.map_snapshot, original.map_snapshot, "Rights curation retains the original map pin");
+      const versionPanel = detail.locator(".project-resource-map-version");
+      await versionPanel.getByText(`Resource v${rights.version_number} uses map v${original.map_snapshot.map_version}. Saved map: v${maps[0].version}.`, {exact: true}).waitFor();
+      const selected = page.waitForResponse(response => response.url().endsWith(resourcePath)
+        && response.request().method() === "PUT");
+      await versionPanel.getByRole("button", {name: `Use saved map v${maps[0].version} in a new resource version`, exact: true}).click();
+      const selectedResponse = await selected;
+      assert.equal(selectedResponse.status(), 200);
+      const resource = await selectedResponse.json();
+      assert.equal(resource.id, original.id);
+      assert.equal(resource.version_number, rights.version_number + 1);
+      assert.equal(resource.license, rights.license);
+      assert.equal(resource.attribution, rights.attribution);
+      await versionPanel.getByText(`Resource v${resource.version_number} uses map v${maps[0].version}. Saved map: v${maps[0].version}.`, {exact: true}).waitFor();
+      return resource;
+    }
     const pending = page.waitForResponse((response) => response.url().endsWith("/resources") && response.request().method() === "POST");
     await form.getByRole("button", {name: "Create draft resource", exact: true}).click();
     const response = await pending;
@@ -1292,7 +1351,7 @@ try {
   const metadataNote = "A reviewed map revision with preserved field notes.";
   await detail.getByLabel("Abstract", {exact: true}).fill(metadataNote);
   await mapVersionPanel.getByRole("button", {name: "Refresh saved map version", exact: true}).click();
-  await mapVersionPanel.getByText(`Resource v1 uses map v${maps[0].version}. Saved map: v${nextMap.version}.`, {exact: true}).waitFor();
+  await mapVersionPanel.getByText(`Resource v${mapResource.version_number} uses map v${maps[0].version}. Saved map: v${nextMap.version}.`, {exact: true}).waitFor();
   assert.equal(await detail.getByLabel("Abstract", {exact: true}).inputValue(), metadataNote);
   assert.equal(await mapVersionPanel.getByRole("button", {name: `Use saved map v${nextMap.version} in a new resource version`, exact: true}).isDisabled(), true);
   const metadataSave = page.waitForResponse((response) => response.url().endsWith(`/resources/${mapResource.id}`) && response.request().method() === "PUT");
@@ -1300,23 +1359,23 @@ try {
   const metadataResponse = await metadataSave;
   assert.equal(metadataResponse.status(), 200);
   const metadataResource = await metadataResponse.json();
-  assert.equal(metadataResource.version_number, 2);
+  assert.equal(metadataResource.version_number, mapResource.version_number + 1);
   assert.deepEqual(metadataResource.map_snapshot, mapResource.map_snapshot, "Metadata does not repin the map");
-  await mapVersionPanel.getByText(new RegExp(`Resource v2 uses map v${maps[0].version}`)).waitFor();
+  await mapVersionPanel.getByText(new RegExp(`Resource v${metadataResource.version_number} uses map v${maps[0].version}`)).waitFor();
   await mapVersionPanel.getByRole("button", {name: "Refresh saved map version", exact: true}).click();
-  await mapVersionPanel.getByText(`Resource v2 uses map v${maps[0].version}. Saved map: v${nextMap.version}.`, {exact: true}).waitFor();
+  await mapVersionPanel.getByText(`Resource v${metadataResource.version_number} uses map v${maps[0].version}. Saved map: v${nextMap.version}.`, {exact: true}).waitFor();
   const selection = page.waitForResponse((response) => response.url().endsWith(`/resources/${mapResource.id}`) && response.request().method() === "PUT");
   await mapVersionPanel.getByRole("button", {name: `Use saved map v${nextMap.version} in a new resource version`, exact: true}).click();
   const selectionResponse = await selection;
   assert.equal(selectionResponse.status(), 200);
   const selectedMapResource = await selectionResponse.json();
-  assert.equal(selectedMapResource.version_number, 3);
+  assert.equal(selectedMapResource.version_number, metadataResource.version_number + 1);
   assert.equal(selectedMapResource.map_snapshot.map_version, nextMap.version);
   assert.equal(selectedMapResource.abstract, metadataNote);
   assert.equal(selectedMapResource.map_snapshot.map_id, maps[0].id);
   assert.notEqual(selectedMapResource.map_snapshot.map_version_id, mapResource.map_snapshot.map_version_id);
   assert.notEqual(selectedMapResource.map_snapshot.definition_checksum_sha256, mapResource.map_snapshot.definition_checksum_sha256);
-  await mapVersionPanel.getByText(`Resource v3 uses map v${nextMap.version}. Saved map: v${nextMap.version}.`, {exact: true}).waitFor();
+  await mapVersionPanel.getByText(`Resource v${selectedMapResource.version_number} uses map v${nextMap.version}. Saved map: v${nextMap.version}.`, {exact: true}).waitFor();
   await mapVersionPanel.screenshot({path: join(work, "saved-map-resource-revision.png")});
   await publishResource();
   const publishedMap = await readApi(`/projects/${project.id}/resources/${mapResource.id}`);

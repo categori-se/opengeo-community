@@ -1,13 +1,16 @@
 """Check initialization and cleanup without starting containers."""
 
 import importlib.util
+import asyncio
 import io
 import json
 import os
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -28,6 +31,168 @@ PUBLICATION_SPEC = importlib.util.spec_from_file_location(
 )
 publication = importlib.util.module_from_spec(PUBLICATION_SPEC)
 PUBLICATION_SPEC.loader.exec_module(publication)
+
+
+class PmtilesRuntimeTests(unittest.TestCase):
+    def profile(self):
+        return {"imageDigest": "sha256:" + "a" * 64, "architecture": "arm64",
+                "baseImage": pilot.PMTILES_BASE, "queueUrl": pilot.PMTILES_QUEUE_URL,
+                "expectedOwner": "000000000000"}
+
+    def test_dedicated_pmtiles_is_an_explicit_fresh_built_studio_option(self):
+        pin = "a" * 64
+        self.assertIsNone(studio.parse_args([]).pmtiles_worker_image)
+        self.assertEqual(studio.parse_args(["--built-studio", "--pmtiles-worker-image", pin]).pmtiles_worker_image, pin)
+        for arguments in (["--pmtiles-worker-image", pin],
+                ["--built-studio", "--pmtiles-worker-image", "worker:latest"],
+                ["--built-studio", "--restore-checkpoint", "--pmtiles-worker-image", pin],
+                ["--development", "--state-directory", "/tmp/local-state", "--pmtiles-worker-image", pin]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", new=io.StringIO()):
+                studio.parse_args(arguments)
+
+    def test_dedicated_image_inspection_preserves_exact_small_base_and_architecture(self):
+        labels = {"org.opencontainers.image.title": "GDAL osgeo/gdal:ubuntu-small",
+                  "org.opencontainers.image.version": "3.13.1", "org.opencontainers.image.revision": "v3.13.1",
+                  "org.opencontainers.image.source": "https://github.com/OSGeo/gdal"}
+        image = {"Id": self.profile()["imageDigest"], "Architecture": "arm64", "Labels": labels}
+        with patch.object(studio.subprocess, "run", return_value=Mock(stdout=json.dumps([image]).encode())) as run:
+            self.assertEqual(studio.inspect_pmtiles_worker_image("a" * 64), self.profile())
+            run.assert_called_once_with(["podman", "image", "inspect", self.profile()["imageDigest"]],
+                                        capture_output=True, check=True, timeout=15)
+        for changed in ({**image, "Id": "b" * 64}, {**image, "Architecture": "unknown"},
+                {**image, "Labels": {**labels, "org.opencontainers.image.title": "GDAL osgeo/gdal:ubuntu-full"}}):
+            with self.subTest(image=changed), patch.object(studio.subprocess, "run", return_value=Mock(stdout=json.dumps([changed]).encode())), self.assertRaises(ValueError):
+                studio.inspect_pmtiles_worker_image("a" * 64)
+
+    def test_local_binding_is_exact_and_cannot_replace_a_retained_control_ledger(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)):
+            work = Path(temporary)
+            init = work / "init"
+            init.mkdir()
+            studio.stage_pmtiles_runtime(work, init, self.profile())
+            self.assertEqual(pilot.local_pmtiles_profile(), self.profile())
+            self.assertEqual(stat.S_IMODE((work / "pmtiles-runtime.json").stat().st_mode), 0o640)
+            sql = (init / "zzz-local-pmtiles-runtime.sql").read_text()
+            self.assertIn("configuration='{\"enabled\":false}'::jsonb AND revision=0", sql)
+            self.assertIn("AND starts_today=0 AND total_windows=0 AND reserved_seconds=0", sql)
+            self.assertIn("RAISE EXCEPTION 'Local PMTiles requires pristine runtime control'", sql)
+            self.assertNotIn("SET starts_today", sql)
+            with self.assertRaisesRegex(ValueError, "once"):
+                studio.stage_pmtiles_runtime(work, init, self.profile())
+            for invalid in (None, {**self.profile(), "imageDigest": None},
+                    {**self.profile(), "queueUrl": "https://other.invalid"}, {**self.profile(), "extra": True}):
+                (work / "pmtiles-runtime.json").write_text(json.dumps(invalid))
+                with self.subTest(profile=invalid), self.assertRaises(ValueError):
+                    pilot.local_pmtiles_profile()
+
+    def test_pmtiles_dispatch_is_separate_from_shared_render_and_legacy_work(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)):
+            legacy = pilot.LocalDispatcher("legacy", "job_id")
+            pmtiles = pilot.LocalDispatcher("opengeo.pmtiles-derivative.command.v1", "pmtiles_derivative_job_id",
+                                            queue=pilot.PMTILES_QUEUE, recipe="gdal-pmtiles-v2")
+            render = pilot.LocalDispatcher("opengeo.render.command.v1", "render_job_id")
+            self.assertTrue(legacy.supports_recipe("gdal-pmtiles-v1"))
+            self.assertFalse(legacy.supports_recipe("gdal-pmtiles-v2"))
+            self.assertTrue(pmtiles.supports_recipe("gdal-pmtiles-v2"))
+            self.assertFalse(pmtiles.supports_recipe("gdal-pmtiles-v1"))
+            asyncio.run(pmtiles.dispatch_pmtiles_derivative("dedicated"))
+            asyncio.run(render.dispatch_render("png"))
+            self.assertEqual(json.loads(pilot.read_json("pmtiles-v2.json")[0]["body"])["pmtiles_derivative_job_id"], "dedicated")
+            self.assertEqual(json.loads(pilot.read_json("queue.json")[0]["body"])["render_job_id"], "png")
+
+    def test_dedicated_worker_keeps_nonroot_private_scratch_without_affecting_shared_command(self):
+        shared = studio.container_command("database", "/tmp/work", "shared", "a" * 64,
+                                          "python3", "scripts/run-integrated-pilot-local.py", "--stage", "worker")
+        dedicated = studio.container_command("database", "/tmp/work", "pmtiles", "b" * 64,
+                                             "python3", "scripts/run-integrated-pilot-local.py",
+                                             "--stage", "worker-pmtiles", pmtiles_worker=True)
+        self.assertIn("--user=0", shared)
+        self.assertNotIn("--mount", shared)
+        self.assertIn("--user=10001:10001", dedicated)
+        self.assertIn("type=tmpfs,target=/tmp/opengeo-worker,tmpfs-size=1073741824,tmpfs-mode=0700,U=true,noexec,nosuid,nodev", dedicated)
+        for option in ("--read-only", "--pull=never", "--cap-drop=all", "--security-opt=no-new-privileges"):
+            self.assertIn(option, shared)
+            self.assertIn(option, dedicated)
+
+    def test_worker_stage_uses_dedicated_v2_and_keeps_shared_v1_settings(self):
+        seen = []
+
+        class Settings:
+            def __init__(self, *args, **kwargs):
+                self.arguments = args
+                self.__dict__.update(kwargs)
+
+        class Repository:
+            def __init__(self, settings, *, pmtiles_profile):
+                self.profile = pmtiles_profile
+
+        class Shared:
+            def __init__(self, settings, queue, repository, storage):
+                self.queue = queue
+                seen.append((type(self), settings, queue.name, repository.profile))
+
+            def process_once(self):
+                self.queue.delete(pilot.read_json(f"{self.queue.name}.json")[0]["id"])
+
+        class Dedicated(Shared):
+            pass
+
+        modules = {"opengeo_worker.config": SimpleNamespace(Settings=Settings),
+                   "opengeo_worker.processor": SimpleNamespace(WorkerProcessor=Shared),
+                   "opengeo_worker.repository": SimpleNamespace(WorkerRepository=Repository),
+                   "opengeo_worker.pmtiles_main": SimpleNamespace(PmtilesWorkerProcessor=Dedicated)}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)), patch.dict(sys.modules, modules):
+            pilot.save_json("pmtiles-runtime.json", self.profile())
+            pilot.LocalQueue(pilot.PMTILES_QUEUE).push({"pmtiles": True})
+            pilot.LocalQueue().push({"png": True})
+            with patch("sys.stdout", new=io.StringIO()):
+                pilot.worker(pmtiles=True)
+                self.assertEqual(len(pilot.read_json("queue.json")), 1)
+                pilot.worker()
+        self.assertEqual([(entry[0], entry[2], entry[3]) for entry in seen],
+                         [(Dedicated, "pmtiles-v2", "v2"), (Shared, "queue", "v1")])
+        self.assertEqual(seen[0][1].pmtiles_worker_image_digest, self.profile()["imageDigest"])
+        self.assertEqual(seen[0][1].geodata_expected_owner, "000000000000")
+        self.assertIsNone(seen[1][1].pmtiles_worker_image_digest)
+
+    def test_local_settings_keep_intake_and_png_shared_with_exact_separate_pmtiles_binding(self):
+        class Settings:
+            def __init__(self, **values):
+                self.processing_queue_url = None
+                self.__dict__.update(values)
+
+        modules = {"opengeo_api.app": SimpleNamespace(create_app=lambda **values: values),
+                   "opengeo_api.auth_models": SimpleNamespace(VerifiedAccessToken=Mock()),
+                   "opengeo_api.config": SimpleNamespace(Settings=Settings),
+                   "pydantic": SimpleNamespace(SecretStr=lambda value: value)}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)), patch.dict(sys.modules, modules):
+            default = pilot.local_app()
+            self.assertEqual(default["settings"].worker_processing_mode, "shared")
+            self.assertFalse(default["settings"].pmtiles_derivative_dispatch_configured)
+            pilot.save_json("pmtiles-runtime.json", self.profile())
+            configured = pilot.local_app()
+            settings = configured["settings"]
+            dispatcher = configured["pmtiles_derivative_dispatcher"]
+            render = configured["render_dispatcher"]
+            self.assertEqual(settings.worker_processing_mode, "shared")
+            self.assertTrue(settings.pmtiles_derivative_dispatch_configured)
+            self.assertEqual(render.queue, "queue")
+            self.assertNotEqual(render.queue, dispatcher.queue)
+            for target, field, changed in (
+                    (settings, "worker_processing_mode", "pmtiles-v2"),
+                    (settings, "pmtiles_worker_image_digest", "sha256:" + "b" * 64),
+                    (settings, "pmtiles_derivative_queue_url", "https://other.invalid"),
+                    (settings, "processing_queue_url", self.profile()["queueUrl"]),
+                    (settings, "aws_region", "us-west-2"),
+                    (dispatcher, "available", False), (dispatcher, "recipe", "gdal-pmtiles-v1"),
+                    (dispatcher, "queue", "queue"), (dispatcher, "schema", "other"),
+                    (dispatcher, "field", "other"), (render, "queue", pilot.PMTILES_QUEUE)):
+                original = getattr(target, field)
+                setattr(target, field, changed)
+                with self.subTest(field=field, changed=changed):
+                    self.assertFalse(settings.pmtiles_derivative_dispatch_configured)
+                setattr(target, field, original)
+            self.assertFalse(pilot.local_app(pmtiles_derivative_dispatcher=None)["settings"].pmtiles_derivative_dispatch_configured)
 
 
 class InitializationTests(unittest.TestCase):

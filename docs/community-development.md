@@ -141,11 +141,20 @@ Ordinary validation retains its existing 8/15-minute limits.
 Image preparation, compiled Studio save/reopen and native publication stages have
 12-, 6- and 5-minute limits respectively.
 
-Preflight requires Linux x64, rootless Podman with cgroup v2, an installed system
+Preflight requires Linux x64, rootless Podman with cgroup v2, `setfacl`, an installed system
 Chrome/Chromium executable and at least 12 GiB free disk. The run starts isolated,
 empty Podman image and npm download stores, builds the maintained public source
 images and invokes the canonical local runner. It makes no AWS account calls,
 saves no caches and uploads no artifacts.
+
+The image stage builds the API, broad GIS worker, dedicated PMTiles converter and
+publication compiler using their maintained Dockerfiles. The built-Studio check
+passes the dedicated converter's exact ID through `--pmtiles-worker-image`.
+That fresh-state option binds a separate file queue and pristine runtime control
+through real admission/completion SQL; it does not activate a retained development
+database or hosted converter. The full GIS worker remains responsible for PNGs.
+Receipts record image and host architectures separately, so emulated local checks
+cannot establish native architecture or production controller acceptance.
 
 The [latest public fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665)
 at `92124cfd` passes the owned, empty image-store preflight, pinned PostGIS
@@ -154,10 +163,11 @@ opens and exercises invitations and access restrictions, then an outdated test
 disclosure stops navigation to Data access. Native publication is skipped; isolated
 cleanup passes. The fixture now follows the current Data access and Basemap
 navigation, visible layer controls and PMTiles labels. Current local acceptance
-covers authorization/lifecycle, uploads, styling and exact saved-map reopening.
-Conversion is held by the local fixture's missing converter runtime configuration;
-complete local conversion/publication and fresh connected/native acceptance remain
-open.
+covers authorization/lifecycle, uploads, styling, exact saved-map reopening,
+dedicated PMTiles v2 conversion, PNG rendering and both dataset publications.
+The next map-resource check now expects reuse of the existing governed identity
+and explicit selection of its saved revision. Its corrected full publication,
+export and revocation tail, and fresh connected/native acceptance, remain open.
 
 The pinned database pull precedes source builds and uses `--retry=0` only when
 pull help advertises that exact option. Legacy Podman may make three internal

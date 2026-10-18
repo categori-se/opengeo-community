@@ -118,6 +118,62 @@ def verify_cached_worker_image(architecture):
         )
 
 
+def inspect_pmtiles_worker_image(image):
+    """Select the existing dedicated image; never pull, build or infer host parity."""
+    if not re.fullmatch(r"(?:sha256:)?[a-f0-9]{64}", image or ""):
+        raise ValueError("PMTiles worker requires an exact cached image ID")
+    pin = "sha256:" + image.removeprefix("sha256:")
+    inspected = subprocess.run(["podman", "image", "inspect", pin],
+                               capture_output=True, check=True, timeout=15)
+    images = json.loads(inspected.stdout)
+    if not isinstance(images, list) or len(images) != 1:
+        raise ValueError("Expected one exact cached PMTiles worker image")
+    selected = images[0]
+    labels = selected.get("Labels") or {}
+    if (selected.get("Id", "").removeprefix("sha256:") != pin.removeprefix("sha256:")
+            or selected.get("Architecture") not in {"amd64", "arm64"}
+            or labels.get("org.opencontainers.image.title") != "GDAL osgeo/gdal:ubuntu-small"
+            or labels.get("org.opencontainers.image.version") != "3.13.1"
+            or labels.get("org.opencontainers.image.revision") != "v3.13.1"
+            or labels.get("org.opencontainers.image.source") != "https://github.com/OSGeo/gdal"):
+        raise ValueError("PMTiles image must retain the dedicated GDAL ubuntu-small 3.13.1 identity")
+    dockerfile = (ROOT / "services/worker/Dockerfile.pmtiles").read_text()
+    if dockerfile.count("FROM " + pilot.PMTILES_BASE) != 2:
+        raise ValueError("The maintained PMTiles Dockerfile base identity changed")
+    return {"imageDigest": pin, "architecture": selected["Architecture"],
+            "baseImage": pilot.PMTILES_BASE, "queueUrl": pilot.PMTILES_QUEUE_URL,
+            "expectedOwner": "000000000000"}
+
+
+def stage_pmtiles_runtime(work, init, profile):
+    """Bind only a fresh disposable DB to its real dedicated local worker lane."""
+    profile_path = work / "pmtiles-runtime.json"
+    if profile_path.exists() or profile_path.is_symlink() or (init / "zzz-local-pmtiles-runtime.sql").exists():
+        raise ValueError("Local PMTiles binding must be staged once in a fresh database")
+    profile_path.write_text(json.dumps(profile))
+    # The private directory's existing ACL grants UID 10001 read access to this
+    # nonsecret binding; ordinary other users retain no directory access.
+    profile_path.chmod(0o640)
+    configuration = {
+        "enabled": True, "pmtilesV2Ready": True,
+        "pmtilesWorkerImageDigest": profile["imageDigest"], "pmtilesQueueUrl": profile["queueUrl"],
+        "windowSeconds": 300, "cleanupSeconds": 300, "dailyWindows": 1, "totalWindows": 1,
+        "scopeHash": pilot.digest(json.dumps({"work": str(work), "profile": profile}, sort_keys=True).encode()),
+        "endpointHash": pilot.digest(str(work / f"{pilot.PMTILES_QUEUE}.json").encode()),
+        "workerHash": pilot.digest(profile["imageDigest"].encode()),
+    }
+    encoded = json.dumps(configuration).replace("'", "''")
+    target = init / "zzz-local-pmtiles-runtime.sql"
+    target.write_text("DO $local$ BEGIN\n"
+        "UPDATE app.worker_runtime_control SET configuration='" + encoded + "'::jsonb, revision=1 "
+        "WHERE singleton AND configuration='{\"enabled\":false}'::jsonb AND revision=0 "
+        "AND lease_token IS NULL AND lease_until IS NULL AND window_state IS NULL "
+        "AND budget_day IS NULL AND starts_today=0 AND total_windows=0 AND reserved_seconds=0 AND last_result IS NULL;\n"
+        "IF NOT FOUND THEN RAISE EXCEPTION 'Local PMTiles requires pristine runtime control'; END IF;\n"
+        "END $local$;\n")
+    target.chmod(0o444)
+
+
 def verify_cached_images(database_image):
     missing = []
     for image in (pilot.API_IMAGE, pilot.WORKER_IMAGE, database_image):
@@ -522,6 +578,7 @@ def container_command(
     font_runtime_package=None,
     enable_saved_map_gl=False,
     saved_map_gl_runtime=None,
+    pmtiles_worker=False,
 ):
     if enable_saved_map_gl and (
         not isinstance(saved_map_gl_runtime, dict)
@@ -547,9 +604,11 @@ def container_command(
         "--memory=3g",
         "--cpus=2",
         "--pids-limit=256",
-        *(["--user=10001:10001"] if font_runtime_package is not None else ["--user=0"]),
+        *(["--user=10001:10001"] if font_runtime_package is not None or pmtiles_worker else ["--user=0"]),
         "--tmpfs",
         "/tmp:rw,size=1g",
+        *(["--mount", "type=tmpfs,target=/tmp/opengeo-worker,tmpfs-size=1073741824,tmpfs-mode=0700,U=true,noexec,nosuid,nodev"]
+          if pmtiles_worker else []),
         "--volume",
         f"{ROOT}:/repo:ro",
         "--volume",
@@ -742,6 +801,7 @@ def orchestrate(
     worker_image=None,
     publication_only=False,
     publication_compiler_digest=None,
+    pmtiles_worker_image=None,
 ):
     pilot.API_IMAGE = api_image or pilot.API_IMAGE
     pilot.WORKER_IMAGE = worker_image or pilot.WORKER_IMAGE
@@ -769,17 +829,21 @@ def orchestrate(
             font_runtime["package_directory"], font_runtime["manifest_sha256"]
         )
     verify_cached_images(IMAGE)
+    pmtiles = inspect_pmtiles_worker_image(pmtiles_worker_image) if pmtiles_worker_image else None
     if font_runtime is not None:
         verify_cached_worker_image(font_runtime["architecture"])
     work = Path(tempfile.mkdtemp(prefix="opengeo-integrated-studio-"))
-    if font_runtime is not None:
+    if font_runtime is not None or pmtiles:
         prepare_worker_scratch(work)
     init = work / "init"
     init.mkdir()
     stage_database_initialization(init, upgrade_from_0082)
+    if pmtiles:
+        stage_pmtiles_runtime(work, init, pmtiles)
     database = TemporaryDatabase("podman", init, "integrated-studio")
     server_name = f"{database.name}-api"
     worker_name = f"{database.name}-worker"
+    pmtiles_worker_name = f"{database.name}-pmtiles"
     process = None
     volumes = []
     started = datetime.now(UTC).isoformat()
@@ -874,6 +938,11 @@ def orchestrate(
                 else None,
             )
             (work / "worker-command.json").write_text(json.dumps(worker))
+            if pmtiles:
+                dedicated = container_command(database.name, work, pmtiles_worker_name,
+                    pmtiles["imageDigest"], "python3", "scripts/run-integrated-pilot-local.py",
+                    "--stage", "worker-pmtiles", pmtiles_worker=True)
+                (work / "pmtiles-worker-command.json").write_text(json.dumps(dedicated))
             (work / "local-api-container.json").write_text(json.dumps(server_name))
             if restore_checkpoint:
                 run_browser_with_restore(
@@ -905,7 +974,7 @@ def orchestrate(
                 (work / "database-readiness.log").write_bytes(diagnostic.stdout + diagnostic.stderr)
         finally:
             pilot.cleanup_resources(
-                [worker_name, server_name, database.name], volumes, process
+                [*([pmtiles_worker_name] if pmtiles else []), worker_name, server_name, database.name], volumes, process
             )
     for path, expected in fingerprints.items():
         assert pilot.digest((ROOT / path).read_bytes()) == expected, path
@@ -934,6 +1003,9 @@ def orchestrate(
             if p.is_file()
         },
     }
+    if pmtiles:
+        receipt["pmtiles_runtime"] = {**pmtiles, "hostArchitecture": os.uname().machine,
+            "transport": "isolated local file queue", "new_image_build": False}
     if font_runtime is not None:
         assert result["pinnedMapFonts"]["enabled"] is True
         receipt["font_runtime"] = {
@@ -1210,6 +1282,7 @@ def parse_args(argv=None):
     parser.add_argument("--publication-preview-port", type=int, default=0)
     parser.add_argument("--api-image")
     parser.add_argument("--worker-image")
+    parser.add_argument("--pmtiles-worker-image")
     parser.add_argument("--rebuild-studio", action="store_true")
     args = parser.parse_args(argv)
     if args.development:
@@ -1228,6 +1301,11 @@ def parse_args(argv=None):
     for image in (args.api_image, args.worker_image):
         if image and not re.fullmatch(r"(?:sha256:)?[0-9a-f]{64}|[A-Za-z0-9][A-Za-z0-9./:_-]*@sha256:[0-9a-f]{64}", image):
             parser.error("Image overrides require immutable local image IDs or digests")
+    if args.pmtiles_worker_image and (
+            not re.fullmatch(r"(?:sha256:)?[a-f0-9]{64}", args.pmtiles_worker_image)
+            or not args.built_studio or any((args.serve, args.development, args.upgrade_from_0082,
+                args.restore_checkpoint, args.wcs_only, args.analysis_only, args.publication_only))):
+        parser.error("Dedicated PMTiles requires an exact cached image ID and the fresh built Studio journey")
     if args.serve and ROOT != Path("/repo"):
         parser.error("The local server must run in the isolated container orchestrator")
     if args.serve and args.upgrade_from_0082:
@@ -1284,4 +1362,5 @@ if __name__ == "__main__":
         worker_image=args.worker_image,
         publication_only=args.publication_only,
         publication_compiler_digest=args.publication_compiler_digest,
+        pmtiles_worker_image=args.pmtiles_worker_image,
     )

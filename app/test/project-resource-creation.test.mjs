@@ -291,6 +291,52 @@ describe("native governed resource creation", () => {
     assert.equal(calls[0].provenance.mapVersion, 3);
   });
 
+  it("opens an existing governed map without duplicating its identity or changing metadata and its pinned revision", async () => {
+    const existing = resource({
+      kind: "map", slug: `map-${IDS.map}`, mapId: IDS.map, visibility: "restricted",
+      metadata: {title: "Research atlas map", language: "und"}, content: {blocks: []},
+      provenance: {source: "opengeo_map_creation", mapId: IDS.map, mapVersion: 1}
+    });
+    existing.mapSnapshot = {mapId: IDS.map, mapVersion: 1,
+      mapVersionId: "70000000-0000-4000-8000-000000000082", definitionChecksumSha256: "a".repeat(64)};
+    const retained = structuredClone(existing);
+    const reads = [];
+    let creates = 0, updates = 0;
+    const state = projectState({
+      async createResource() { creates++; throw new Error("Existing identity must be reused"); },
+      async updateResource() { updates++; throw new Error("Reuse must not write metadata or select a map revision"); },
+      async getResource(projectId, resourceId) { reads.push({projectId, resourceId}); return existing; },
+      async getResourceCapabilities() { return {canRead: true, canUpdate: true, canPublish: false, canManagePermissions: false}; }
+    });
+    state.resources = [existing];
+    const root = ProjectResources({state});
+    const panel = root.querySelector(".project-resource-native-create");
+    panel.open = true;
+    const form = panel.querySelector("form");
+    const kind = form.querySelector('[aria-label="Resource type"]');
+    kind.value = "map";
+    kind.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    for (const [label, value] of Object.entries({"Resource title": "Attempted duplicate", "Persistent URL name": "duplicate-map",
+      License: "CC-BY-4.0", Attribution: "Attempted replacement attribution"})) {
+      form.querySelector(`[aria-label="${label}"]`).value = value;
+    }
+    form.dispatchEvent(new harness.dom.window.Event("submit", {bubbles: true, cancelable: true}));
+
+    const detail = await waitFor(() => root.querySelector('.project-resource-detail[data-state="ready"]'));
+    assert.equal(creates, 0);
+    assert.equal(updates, 0);
+    assert.deepEqual(reads, [{projectId: IDS.project, resourceId: existing.id}]);
+    assert.deepEqual(existing, retained);
+    assert.deepEqual(state.resources, [retained]);
+    assert.match(detail.querySelector(".project-resource-detail-heading").textContent, /Research atlas map/);
+    assert.equal(detail.querySelector('[aria-label="License"]').value, "");
+    assert.equal(detail.querySelector('[aria-label="Attribution"]').value, "");
+    assert.equal(detail.querySelector(".project-resource-map-version").dataset.state, "stale");
+    assert.match(detail.textContent, /Resource v1 uses map v1\. Saved map: v3\./);
+    assert.match(panel.textContent, /already governed as map-/);
+    assert.equal(panel.open, false);
+  });
+
   it("recovers a simultaneous map registration by opening the winner", async () => {
     const winner = resource({
       kind: "map",

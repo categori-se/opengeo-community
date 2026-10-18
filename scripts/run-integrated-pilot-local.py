@@ -9,6 +9,7 @@ import asyncio
 import fcntl
 import hashlib
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,9 @@ PUBLICATION_MOUNT = "30000000-0000-4000-8000-000000000002"
 API_IMAGE = "e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb"
 WORKER_IMAGE = "a830dae1cae3b4cbdd88cd44f702fd485e6d70d435557ea68d35df017a7fdb87"
 BASELINE = ROOT / "database/baselines/0085_opengeo_schema.sql"
+PMTILES_QUEUE = "pmtiles-v2"
+PMTILES_QUEUE_URL = "https://sqs.us-east-1.amazonaws.com/000000000000/local-pmtiles-v2"
+PMTILES_BASE = "ghcr.io/osgeo/gdal:ubuntu-small-3.13.1@sha256:836d1646ff9ab30d7db947c7b9690de55f34c2fd7cc5af6086a0854ccb378f59"
 
 
 def read_json(name, default=None):
@@ -40,6 +44,25 @@ def save_json(name, value):
     temporary = WORK / f".{name}.{uuid4().hex}.tmp"
     temporary.write_text(json.dumps(value, indent=2, default=str) + "\n")
     temporary.replace(WORK / name)
+
+
+def local_pmtiles_profile():
+    path = WORK / "pmtiles-runtime.json"
+    if path.is_symlink():
+        raise ValueError("Local PMTiles profile must not be a symlink")
+    if not path.exists():
+        return None
+    profile = read_json(path.name)
+    if (not isinstance(profile, dict)
+            or set(profile) != {"imageDigest", "architecture", "baseImage", "queueUrl", "expectedOwner"}
+            or not isinstance(profile["imageDigest"], str)
+            or re.fullmatch(r"sha256:[a-f0-9]{64}", profile["imageDigest"]) is None
+            or profile["architecture"] not in ("amd64", "arm64")
+            or profile["baseImage"] != PMTILES_BASE
+            or profile["queueUrl"] != PMTILES_QUEUE_URL
+            or profile["expectedOwner"] != "000000000000"):
+        raise ValueError("Invalid isolated local PMTiles runtime binding")
+    return profile
 
 
 @contextmanager
@@ -270,7 +293,7 @@ class LocalObjects:
 
 class LocalQueue:
     def __init__(self, name="queue"):
-        if name not in {"queue", "observable-builds", "framework-publications"}:
+        if name not in {"queue", "observable-builds", "framework-publications", PMTILES_QUEUE}:
             raise ValueError("Unknown local queue")
         self.name = name
 
@@ -302,11 +325,15 @@ class LocalQueue:
 class LocalDispatcher:
     available = True
 
-    def __init__(self, schema, field):
+    def __init__(self, schema, field, *, queue="queue", recipe="gdal-pmtiles-v1"):
         self.schema, self.field = schema, field
+        self.queue, self.recipe = queue, recipe
+
+    def supports_recipe(self, recipe):
+        return recipe == self.recipe
 
     async def dispatch(self, job_id):
-        LocalQueue().push({"schema": self.schema, self.field: str(job_id)})
+        LocalQueue(self.queue).push({"schema": self.schema, self.field: str(job_id)})
 
     dispatch_render = dispatch
     dispatch_pmtiles_derivative = dispatch
@@ -377,10 +404,14 @@ def configure_local_publication(project_id, source_project_id):
             "canonicalOrigin": "https://publication.local.invalid", "mountPath": "/"}
 
 
-def worker():
+def worker(pmtiles=False):
     from opengeo_worker.config import Settings
-    from opengeo_worker.processor import WorkerProcessor
     from opengeo_worker.repository import WorkerRepository
+
+    if pmtiles:
+        from opengeo_worker.pmtiles_main import PmtilesWorkerProcessor as processor_type
+    else:
+        from opengeo_worker.processor import WorkerProcessor as processor_type
 
     class LocalSettings(Settings):
         def database_connection_kwargs(self):
@@ -391,27 +422,34 @@ def worker():
                 "sslmode": "disable",
             }
 
+    profile = local_pmtiles_profile() if pmtiles else None
+    if pmtiles and profile is None:
+        raise ValueError("The dedicated PMTiles worker requires an exact local binding")
+    queue_name = PMTILES_QUEUE if pmtiles else "queue"
     settings = LocalSettings(
         "us-east-1",
         BUCKET,
         "local-only",
-        "local-only",
+        profile["queueUrl"] if profile else "local-only",
         "127.0.0.1",
         5432,
         "opengeo",
         "opengeo_worker",
         "",
         "/unused",
-        workspace_root=Path("/tmp/opengeo-integrated-worker"),
+        workspace_root=Path("/tmp/opengeo-worker" if pmtiles else "/tmp/opengeo-integrated-worker"),
+        geodata_expected_owner=profile["expectedOwner"] if profile else None,
+        pmtiles_worker_image_digest=profile["imageDigest"] if profile else None,
     )
-    processor = WorkerProcessor(
-        settings, LocalQueue(), WorkerRepository(settings), LocalObjects()
+    processor = processor_type(
+        settings, LocalQueue(queue_name),
+        WorkerRepository(settings, pmtiles_profile="v2" if pmtiles else "v1"), LocalObjects()
     )
-    count = len(read_json("queue.json", []))
+    count = len(read_json(f"{queue_name}.json", []))
     assert count, "No generated work to execute"
     for _ in range(count):
         processor.process_once()
-    assert not read_json("queue.json", []), (
+    assert not read_json(f"{queue_name}.json", []), (
         "Worker retained a retryable message; inspect the actual failure"
     )
     print(f"worker: consumed {count} real processing request(s)", flush=True)
@@ -429,6 +467,30 @@ def local_app(**overrides):
                 "conninfo": "postgresql://opengeo_runtime@127.0.0.1/opengeo",
                 "sslmode": "disable",
             }
+
+        @property
+        def pmtiles_derivative_dispatch_configured(self):
+            # This runner has two real file transports. The production mode
+            # selects one cloud worker lane; ordinary local intake stays shared.
+            # SQL admission still owns whether this configured lane is ready.
+            return bool(
+                pmtiles is not None
+                and self.worker_processing_mode == "shared"
+                and self.aws_region == "us-east-1"
+                and self.pmtiles_worker_image_digest == pmtiles["imageDigest"]
+                and self.pmtiles_derivative_queue_url == pmtiles["queueUrl"]
+                and self.pmtiles_derivative_queue_url != self.processing_queue_url
+                and isinstance(pmtiles_dispatcher, LocalDispatcher)
+                and pmtiles_dispatcher.available
+                and pmtiles_dispatcher.supports_recipe("gdal-pmtiles-v2")
+                and pmtiles_dispatcher.queue == PMTILES_QUEUE
+                and pmtiles_dispatcher.schema == "opengeo.pmtiles-derivative.command.v1"
+                and pmtiles_dispatcher.field == "pmtiles_derivative_job_id"
+                and isinstance(render_dispatcher, LocalDispatcher)
+                and render_dispatcher.available
+                and render_dispatcher.queue == "queue"
+                and render_dispatcher.queue != pmtiles_dispatcher.queue
+            )
 
     class LocalTokens:
         async def verify(self, token):
@@ -454,12 +516,24 @@ def local_app(**overrides):
             return ProvisionedIdentity("local-pilot-reviewer", email, display_name)
 
     publication = read_json("publication-profile.json", {})
+    pmtiles = local_pmtiles_profile()
+    pmtiles_dispatcher = overrides.get("pmtiles_derivative_dispatcher", LocalDispatcher(
+        "opengeo.pmtiles-derivative.command.v1", "pmtiles_derivative_job_id",
+        queue=PMTILES_QUEUE if pmtiles else "queue",
+        recipe="gdal-pmtiles-v2" if pmtiles else "gdal-pmtiles-v1",
+    ))
+    render_dispatcher = overrides.get("render_dispatcher", LocalDispatcher(
+        "opengeo.render.command.v1", "render_job_id"
+    ))
     dependencies = {
         "settings": LocalSettings(
             env="test",
             log_level="WARNING",
             geodata_bucket=BUCKET,
             application_bucket=BUCKET,
+            worker_processing_mode="shared",
+            pmtiles_derivative_queue_url=pmtiles["queueUrl"] if pmtiles else None,
+            pmtiles_worker_image_digest=pmtiles["imageDigest"] if pmtiles else None,
             observable_builder_image_digest=publication.get("compilerImageDigest"),
             observable_preview_origin=publication.get("previewOrigin"),
             portable_artifacts_enabled=bool(publication),
@@ -474,12 +548,8 @@ def local_app(**overrides):
         "download_storage": LocalObjects(),
         "page_source_upload_storage": LocalObjects(),
         "page_source_download_storage": LocalObjects(),
-        "render_dispatcher": LocalDispatcher(
-            "opengeo.render.command.v1", "render_job_id"
-        ),
-        "pmtiles_derivative_dispatcher": LocalDispatcher(
-            "opengeo.pmtiles-derivative.command.v1", "pmtiles_derivative_job_id"
-        ),
+        "render_dispatcher": render_dispatcher,
+        "pmtiles_derivative_dispatcher": pmtiles_dispatcher,
     }
     if publication:
         from opengeo_api.observable_previews import CloudFrontPreviewCookieSigner
@@ -1271,14 +1341,14 @@ if __name__ == "__main__":
     if not __debug__:
         raise SystemExit("Integration assertions must not be disabled")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=["upload", "worker", "inspect", "publish"])
+    parser.add_argument("--stage", choices=["upload", "worker", "worker-pmtiles", "inspect", "publish"])
     args = parser.parse_args()
     if args.stage and ROOT != Path("/repo"):
         parser.error(
             "Internal stages must run through the isolated container orchestrator"
         )
-    if args.stage == "worker":
-        worker()
+    if args.stage in {"worker", "worker-pmtiles"}:
+        worker(pmtiles=args.stage == "worker-pmtiles")
     elif args.stage:
         asyncio.run(api(args.stage))
     else:

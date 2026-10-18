@@ -1,29 +1,29 @@
 # Resource model: active plan and continuation queue
 
-October 18 — Fresh image and database preparation pass; browser navigation corrected
+October 18 — Local conversion and PNG rendering accepted; publication check corrected
 
-The latest approved public run, 39107327665, passes the empty-store preflight,
-all three maintained source image builds, pinned database preparation and API
-checks. Compiled Studio opens and the invitation/viewer/revocation checks proceed,
-then an obsolete test disclosure stops navigation to Data access. Native
-publication is skipped; isolated container cleanup passes. The run uses 553
-summed job-seconds. All attempts and ordinary CI total 1696 of the original
-4080-second budget. No AWS/KMS, cache saves or artifact uploads are used.
+The current compiled Studio journey passes authorization/lifecycle, uploads,
+styles and exact saved-map reopening, then completes real PMTiles v2 conversion,
+metadata export, PNG rendering and both dataset publications. The maintained local
+runner now binds the dedicated converter's exact image, separate queue and pristine
+runtime configuration through actual admission/completion SQL. The shared worker
+continues ingestion and PNGs. Emulated ARM64 execution is local evidence only.
 
-The fixture now follows the existing Data access links, opens Basemap through
-View, shows map controls before zooming and uses the current PMTiles field label.
-Assertions, expected values and browser deadlines remain. The current local
-journey passes authorization/lifecycle, uploads, styling and exact saved-map
-reopening. PMTiles then correctly holds admission because this local fixture
-still lacks its separate converter runtime configuration. Four local attempts,
-including failures and a stopped retry, total 568 seconds with one current
-frontend build and no image builds. Complete local conversion/publication remains
-open; reuse the accepted map result while connecting the existing local runtime.
-Fresh-only job ceilings are reduced to 28/10 minutes, at most 38 summed minutes,
-within the remaining 2384 seconds; ordinary 8/15-minute and stage 12/6/5-minute
-limits are unchanged. Another remote run is not admitted. Fresh connected/native,
-independent human, configured Cognito/HTTPS/CDN, browser-sandbox and private
-main/free-capacity acceptance remain open.
+The next step correctly reopens the map's existing governed identity; the fixture
+incorrectly waits for a duplicate creation. It now expects reuse, curates rights
+without repinning, and explicitly selects the saved map revision. Exact identity,
+version, snapshot and downstream publication/revocation assertions remain. This
+last correction has focused coverage; the complete current journey is still open.
+Six local attempts, probes and earlier focused checks total 844 seconds. Reuse the
+single compiled frontend; no more full local retry is admitted in this batch.
+
+Public fresh run 39107327665 passes three source builds, pinned database and API
+checks before its obsolete Data access selector fails. All remote attempts and
+ordinary CI total 1696 of 4080 job-seconds. The prepared existing image stage now
+also builds the maintained converter; fresh job ceilings remain 28/10 minutes.
+No further remote run is admitted. Fresh connected/native, independent human,
+configured identity/HTTPS/CDN, browser sandbox, native ARM64/release security and
+private main/free-capacity acceptance remain open. No AWS/KMS is used.
 
 October 18 — Full worker builds from an empty image cache
 
@@ -2088,7 +2088,7 @@ unknown. Parity remains 23 complete / 26 partial / 1 excluded.
 
 Prefer original provider archives or usable Wayback snapshots, with known S3
 fallbacks; check retained S3 inventory before any transfer. One metadata listing
-of `example-geodata/nepal/icimod/` found 35 objects and no 2020–2022 files in that
+of `geospatial.data/nepal/icimod/` found 35 objects and no 2020–2022 files in that
 prefix, with no object downloads/uploads. ICIMOD's active record supports
 2000–2022 and its 2024 release; actual annual distribution URLs/format/size remain
 unresolved after the bounded metadata follow-up. Preserve original 2000–2019
@@ -3371,7 +3371,7 @@ are now in a local draft manifest. The controller retains the template's service
 name before creation, so interrupted creation does not depend on successful stack
 outputs to scope cleanup. Three affected handler cases and Ruff pass. The approved metadata checks are now
 complete: the default profile is the development account; the existing production
-release profile was verified in account 111111111111 and used for the exact reads.
+release profile was verified in account 977060200223 and used for the exact reads.
 The bootstrap execution role has AdministratorAccess, and the one listed topic is
 for teamspaces-prod. Do not grant that administrative role to the unattended worker
 controller or assume the unrelated topic is its approved alert destination. Prepare
@@ -10877,7 +10877,7 @@ See [building archive evidence](nsdi-building-display-20260921-evidence.json).
 
 ## September 21: all Sri Lanka S3 files linked to active catalog records
 
-All 179 objects under `example-geodata/sri-lanka/` are reconciled: 173 nonempty
+All 179 objects under `geospatial.data/sri-lanka/` are reconciled: 173 nonempty
 files are linked to 32 active catalog records, and six empty ArcGIS lock files
 remain inventory-only. Eight existing records were reused and 24 new logical
 datasets were registered in Aaron's Sri Lanka workspace. Owner and Categorise
@@ -10969,7 +10969,7 @@ See [Nepal survey evidence](nepal-survey-catalog-20260921-evidence.json).
 ## September 21: Bhutan wind originals relocated and catalog archive preview prepared
 
 Both original NREL wind ZIPs now have verified private copies at
-`example-geodata/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
+`geospatial.data/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
 markers hid the old `nepal/` keys. All historical object versions remain intact;
 there were no version deletions. The bounded move used 18 S3 requests. Knowledge
 revision 2 points to the new exact objects and retains the relocation trail; Aaron
@@ -11859,7 +11859,7 @@ release remain open. An unobserved uncertain create remains pending without dupl
 
 
 Preserve the two local Bhutan/ICIMOD archive trees and scripts in geographically
-appropriate `example-geodata` prefixes, recover incomplete provider datasets,
+appropriate `geospatial.data` prefixes, recover incomplete provider datasets,
 register working Catalog Layers and organize smaller source/category Projects in a
 private Bhutan Collection, preserving the existing Bhutan composition. The user
 authorized this alternative to one oversized map. A local 25-map draft covers all
