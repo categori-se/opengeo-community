@@ -25,6 +25,16 @@ const candidate = {
     kmlNetworkLinkFetch: optionalBoolean("OPEN_GEO_KML_NETWORK_LINK_FETCH_ENABLED")
   }
 };
+const previewOrigin = process.env.OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN;
+const publicMapsPreviewOrigin = process.env.OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN;
+if (publicMapsPreviewOrigin !== undefined && previewOrigin === undefined) {
+  throw new Error("Public map previews require the private preview origin");
+}
+if (previewOrigin !== undefined) {
+  candidate.previewOrigins = {local_only: required("OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN"),
+    ...(publicMapsPreviewOrigin !== undefined
+      ? {public_maps_v1: required("OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN")} : {})};
+}
 if (version === 2) {
   candidate.deployment = {
     id: required("OPEN_GEO_DEPLOYMENT_ID"),

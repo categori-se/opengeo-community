@@ -73,6 +73,9 @@ export interface StudioWebStackProps extends StackProps {
   /** Allow an independently owned domain and omit managed preview hosts. */
   readonly communityDeployment?: boolean;
 
+  /** Exact private-preview origins for an independently configured community installation. */
+  readonly independentPreviewOrigins?: readonly string[];
+
   /** Exact private origin bucket. Defaults to the production Studio bucket. */
   readonly bucketName?: string;
 
@@ -128,6 +131,23 @@ export class StudioWebStack extends Stack {
     const resourceNamePrefix = this.validateResourceNamePrefix(
       props.resourceNamePrefix ?? "opengeo-studio"
     );
+    const previewOrigins = props.independentPreviewOrigins ?? [];
+    if (props.independentPreviewOrigins !== undefined &&
+        (props.communityDeployment !== true || !Array.isArray(previewOrigins) ||
+         previewOrigins.length < 1 || previewOrigins.length > 2 ||
+         new Set(previewOrigins).size !== previewOrigins.length ||
+         previewOrigins.some(origin => {
+           if (typeof origin !== "string") return true;
+           try {
+             const url = new URL(origin);
+             return url.protocol !== "https:" || url.origin !== origin || url.port !== "" ||
+               url.hostname.length > 253 || !DNS_ZONE.test(url.hostname) ||
+               url.hostname === domainName || url.hostname === "opengeo.tools" ||
+               url.hostname.endsWith(".opengeo.tools");
+           } catch { return true; }
+         }))) {
+      throw new Error("Independent preview origins require one or two distinct exact HTTPS community origins");
+    }
     const dnsZone = this.validateDnsZone(props.dnsZone ?? "opengeo.tools");
     const dnsRecordHost = this.validateDnsRecordHost(props.dnsRecordHost ?? "studio");
     if (`${dnsRecordHost}.${dnsZone}` !== domainName) {
@@ -204,7 +224,8 @@ export class StudioWebStack extends Stack {
       domainName,
       [],
       props.communityDeployment === true
-        ? STUDIO_CONTENT_SECURITY_POLICY.replace("frame-src 'self' https://preview.studio.opengeo.tools https://maps-preview.studio.opengeo.tools", "frame-src 'self'")
+        ? STUDIO_CONTENT_SECURITY_POLICY.replace("frame-src 'self' https://preview.studio.opengeo.tools https://maps-preview.studio.opengeo.tools",
+          ["frame-src 'self'", ...previewOrigins].join(" "))
         : STUDIO_CONTENT_SECURITY_POLICY
     );
     const authConfigHeaders = this.securityHeadersPolicy(

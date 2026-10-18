@@ -1,5 +1,19 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Private preview can use independent installation resources
+
+`ObservablePreviewEdge.independentDeployment` supplies a separate preview hostname,
+Studio origin, shell bucket and resource prefix, with an optional explicitly enabled
+maps hostname. It validates exact literal application-bucket identity, separate
+custody, same-account certificate/WAF and distinct canonical origins. Managed
+configuration keeps its existing guards and defaults. Signed output paths, OAC,
+key groups, cache policies and all CSP directives except framing authority remain.
+Foundation binds the preview to its configured Studio; both API variants consume
+its origin. Community Studio permits only explicit independent preview origins.
+The normal browser configuration generator now supplies the existing trusted-origin
+map from operator environment settings. Selected CDK and browser checks pass;
+standalone installer wiring and configured cloud delivery are not yet accepted.
+
 October 17 — Ordinary local publication delivery accepted
 
 The existing development action consumes approved native publication jobs, one
@@ -7129,7 +7143,7 @@ See [building archive evidence](nsdi-building-display-20260921-evidence.json).
 
 ## September 21: all Sri Lanka S3 files linked to active catalog records
 
-All 179 objects under `geospatial.data/sri-lanka/` are reconciled: 173 nonempty
+All 179 objects under `example-geodata/sri-lanka/` are reconciled: 173 nonempty
 files are linked to 32 active catalog records, and six empty ArcGIS lock files
 remain inventory-only. Eight existing records were reused and 24 new logical
 datasets were registered in Aaron's Sri Lanka workspace. Owner and Categorise
@@ -7221,7 +7235,7 @@ See [Nepal survey evidence](nepal-survey-catalog-20260921-evidence.json).
 ## September 21: Bhutan wind originals relocated and catalog archive preview prepared
 
 Both original NREL wind ZIPs now have verified private copies at
-`geospatial.data/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
+`example-geodata/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
 markers hid the old `nepal/` keys. All historical object versions remain intact;
 there were no version deletions. The bounded move used 18 S3 requests. Knowledge
 revision 2 points to the new exact objects and retains the relocation trail; Aaron

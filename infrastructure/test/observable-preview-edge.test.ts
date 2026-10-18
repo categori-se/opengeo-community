@@ -13,6 +13,7 @@ import {
   OBSERVABLE_PREVIEW_BUILD_CSP,
   OBSERVABLE_PREVIEW_DRAFT_CSP,
   OBSERVABLE_PREVIEW_DOMAIN_NAME,
+  OBSERVABLE_PREVIEW_ORIGIN,
   OBSERVABLE_PREVIEW_SHELL_CSP,
   OBSERVABLE_PUBLIC_MAPS_PREVIEW_DOMAIN_NAME,
   OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN,
@@ -29,19 +30,19 @@ const PUBLIC_KEY = generateKeyPairSync("rsa", {modulusLength: 2048})
   .publicKey.export({type: "spki", format: "pem"})
   .toString();
 
-function templateFor(overrides: Partial<ConstructorParameters<typeof ObservablePreviewEdge>[2]> = {}) {
+function fixtureFor(overrides: Partial<ConstructorParameters<typeof ObservablePreviewEdge>[2]> = {}) {
   const app = new App();
   const stack = new Stack(app, "Test-ObservablePreview", {
     env: {account: ACCOUNT, region: "us-east-1"}
   });
   const dataKey = new kms.Key(stack, "DataKey");
   const applicationBucket = new s3.Bucket(stack, "ApplicationBucket", {
-    bucketName: "source.opengeo.tools",
+    bucketName: overrides.applicationBucketName ?? "source.opengeo.tools",
     encryption: s3.BucketEncryption.KMS,
     encryptionKey: dataKey,
     enforceSSL: true
   });
-  new ObservablePreviewEdge(stack, "Preview", {
+  const edge = new ObservablePreviewEdge(stack, "Preview", {
     applicationBucket,
     applicationBucketName: "source.opengeo.tools",
     dataKey,
@@ -50,8 +51,20 @@ function templateFor(overrides: Partial<ConstructorParameters<typeof ObservableP
     publicKeyPem: PUBLIC_KEY,
     ...overrides
   });
-  return Template.fromStack(stack);
+  return {template: Template.fromStack(stack), edge};
 }
+
+function templateFor(overrides: Partial<ConstructorParameters<typeof ObservablePreviewEdge>[2]> = {}) {
+  return fixtureFor(overrides).template;
+}
+
+const INDEPENDENT_BUCKET_NAME = `community-${ACCOUNT}-app`;
+const INDEPENDENT = {
+  previewDomainName: "preview.community.example.org",
+  studioOrigin: "https://studio.community.example.org",
+  shellBucketName: `community-${ACCOUNT}-preview-shell`,
+  resourceNamePrefix: "community-preview"
+};
 
 describe("private Observable preview edge", () => {
   it("keeps build output private while exposing only the shell and exact exchange", () => {
@@ -145,7 +158,8 @@ describe("private Observable preview edge", () => {
   });
 
   it("leaves the default distribution and policies unchanged without explicit opt-in", () => {
-    const template = templateFor();
+    const {template, edge} = fixtureFor();
+    assert.equal(edge.previewOrigin, OBSERVABLE_PREVIEW_ORIGIN);
     assert.deepEqual(template.toJSON(), templateFor({enablePublicMapsPreview: false}).toJSON());
     const config = resourcesOfType(template, "AWS::CloudFront::Distribution")[0]!.Properties.DistributionConfig;
     assert.deepEqual(config.Aliases, [OBSERVABLE_PREVIEW_DOMAIN_NAME]);
@@ -266,6 +280,122 @@ describe("private Observable preview edge", () => {
       () => templateFor({enablePublicMapsPreview: "true" as unknown as boolean}),
       /explicit boolean opt-in/
     );
+  });
+
+  it("uses only independent custody, framing authority and names with the same private delivery boundary", () => {
+    const {template, edge} = fixtureFor({applicationBucketName: INDEPENDENT_BUCKET_NAME,
+      independentDeployment: INDEPENDENT, deployShell: false});
+    const document = JSON.stringify(template.toJSON());
+    assert.equal(edge.previewOrigin, `https://${INDEPENDENT.previewDomainName}`);
+    assert.equal(edge.publicMapsPreviewOrigin, undefined);
+    assert.doesNotMatch(document, /opengeo\.tools|DNS Made Easy/);
+    const config = resourcesOfType(template, "AWS::CloudFront::Distribution")[0]!.Properties.DistributionConfig;
+    assert.deepEqual(config.Aliases, [INDEPENDENT.previewDomainName]);
+    assert.equal(config.DefaultCacheBehavior.TrustedKeyGroups.length, 1);
+    assert.deepEqual(config.DefaultCacheBehavior.AllowedMethods, ["GET", "HEAD"]);
+    assert.deepEqual(config.CacheBehaviors.map((behavior: {PathPattern: string}) => behavior.PathPattern),
+      ["authorize/draft.html", "authorize/*", "observable-preview/exchange"]);
+    const policies = resourcesOfType(template, "AWS::CloudFront::ResponseHeadersPolicy")
+      .map(resource => resource.Properties.ResponseHeadersPolicyConfig);
+    for (const [suffix, baseline] of [["build", observablePreviewBuildCsp(API_ORIGIN)],
+      ["shell", OBSERVABLE_PREVIEW_SHELL_CSP], ["draft", OBSERVABLE_PREVIEW_DRAFT_CSP]]) {
+      const csp = policies.find(policy => policy.Name === `${INDEPENDENT.resourceNamePrefix}-${suffix}`)!
+        .SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy as string;
+      assert.equal(csp.replace(/frame-ancestors [^;]+/, "frame-ancestors REMOVED"),
+        baseline!.replace(/frame-ancestors [^;]+/, "frame-ancestors REMOVED"));
+      assert.ok(csp.includes(`frame-ancestors ${suffix === "build" ? "'self' " : ""}${INDEPENDENT.studioOrigin};`));
+    }
+    assert.equal(resourcesOfType(template, "AWS::CloudFront::PublicKey")[0]!.Properties.PublicKeyConfig.Name,
+      INDEPENDENT.resourceNamePrefix);
+    assert.equal(resourcesOfType(template, "AWS::CloudFront::KeyGroup")[0]!.Properties.KeyGroupConfig.Name,
+      INDEPENDENT.resourceNamePrefix);
+    for (const resource of resourcesOfType(template, "AWS::CloudFront::OriginAccessControl")) {
+      assert.ok(resource.Properties.OriginAccessControlConfig.Name.startsWith(`${INDEPENDENT.resourceNamePrefix}-`));
+      assert.equal(resource.Properties.OriginAccessControlConfig.SigningBehavior, "always");
+    }
+    template.hasResourceProperties("AWS::S3::Bucket", {BucketName: INDEPENDENT.shellBucketName,
+      PublicAccessBlockConfiguration: {BlockPublicAcls: true, BlockPublicPolicy: true,
+        IgnorePublicAcls: true, RestrictPublicBuckets: true}, VersioningConfiguration: {Status: "Enabled"}});
+    assert.match(JSON.stringify(resourcesOfType(template, "AWS::KMS::Key")), new RegExp(INDEPENDENT_BUCKET_NAME));
+    assert.match(JSON.stringify(resourcesOfType(template, "AWS::S3::BucketPolicy")),
+      /organizations\/\*\/projects\/\*\/source-projects\/\*\/builds\/\*\/output\/\*/);
+    assert.match(JSON.stringify(template.toJSON().Outputs.ObservablePreviewDnsHandoff),
+      new RegExp(escapeRegExp(INDEPENDENT.previewDomainName)));
+    assert.doesNotMatch(JSON.stringify(template.toJSON().Outputs.ObservablePreviewDnsHandoff), /provider|zone/);
+    template.resourceCountIs("Custom::CDKBucketDeployment", 0);
+  });
+
+  it("opts in an independent maps alias without admitting managed hosts or changing other directives", () => {
+    const mapsDomainName = "maps-preview.community.example.org";
+    const {template, edge} = fixtureFor({applicationBucketName: INDEPENDENT_BUCKET_NAME,
+      independentDeployment: {...INDEPENDENT, publicMapsPreviewDomainName: mapsDomainName},
+      enablePublicMapsPreview: true, deployShell: false});
+    assert.equal(edge.publicMapsPreviewOrigin, `https://${mapsDomainName}`);
+    const config = resourcesOfType(template, "AWS::CloudFront::Distribution")[0]!.Properties.DistributionConfig;
+    assert.deepEqual(config.Aliases, [INDEPENDENT.previewDomainName, mapsDomainName]);
+    const code = resourcesOfType(template, "AWS::CloudFront::Function")
+      .find(resource => resource.Properties.Name === `${INDEPENDENT.resourceNamePrefix}-public-maps-v1`)!.Properties.FunctionCode;
+    const handler = runInNewContext(`${code}\nhandler;`);
+    const baseline = observablePublicMapsPreviewBuildCsp(API_ORIGIN);
+    for (const host of [mapsDomainName, OBSERVABLE_PUBLIC_MAPS_PREVIEW_DOMAIN_NAME, INDEPENDENT.previewDomainName]) {
+      const response = {headers: {"content-security-policy": {value: "strict fallback"}}};
+      handler({request: {headers: {host: {value: host}}}, response});
+      const csp = response.headers["content-security-policy"].value;
+      if (host === mapsDomainName) {
+        assert.equal(csp.replace(/frame-ancestors [^;]+/, "frame-ancestors REMOVED"),
+          baseline.replace(/frame-ancestors [^;]+/, "frame-ancestors REMOVED"));
+        assert.ok(csp.includes(`frame-ancestors 'self' ${INDEPENDENT.studioOrigin};`));
+      } else assert.equal(csp, "strict fallback");
+    }
+    assert.doesNotMatch(JSON.stringify(template.toJSON()), /opengeo\.tools/);
+  });
+
+  it("rejects malformed independent declarations, shared authority and unapproved maps aliases", () => {
+    const invalid: unknown[] = [null, {}, {...INDEPENDENT, extra: "unreviewed"},
+      {...INDEPENDENT, previewDomainName: "preview.community.example.org; img-src *"},
+      {...INDEPENDENT, previewDomainName: "localhost"},
+      {...INDEPENDENT, previewDomainName: "studio.community.example.org"},
+      {...INDEPENDENT, previewDomainName: API_ORIGIN},
+      {...INDEPENDENT, previewDomainName: OBSERVABLE_PREVIEW_DOMAIN_NAME},
+      {...INDEPENDENT, studioOrigin: "https://studio.opengeo.tools"},
+      {...INDEPENDENT, studioOrigin: "https://studio.community.example.org/"},
+      {...INDEPENDENT, studioOrigin: "http://studio.community.example.org"},
+      {...INDEPENDENT, shellBucketName: "preview-shell.studio.opengeo.tools"},
+      {...INDEPENDENT, shellBucketName: INDEPENDENT_BUCKET_NAME},
+      {...INDEPENDENT, shellBucketName: "invalid..bucket"},
+      {...INDEPENDENT, shellBucketName: "reserved-s3alias"},
+      {...INDEPENDENT, resourceNamePrefix: "opengeo-observable-preview"},
+      {...INDEPENDENT, resourceNamePrefix: "x".repeat(41)},
+      {...INDEPENDENT, publicMapsPreviewDomainName: "maps-preview.community.example.org"}];
+    for (const independentDeployment of invalid) {
+      assert.throws(() => templateFor({applicationBucketName: INDEPENDENT_BUCKET_NAME,
+        independentDeployment: independentDeployment as typeof INDEPENDENT, deployShell: false}),
+      /Invalid independent Observable preview deployment/);
+    }
+    for (const publicMapsPreviewDomainName of [undefined, INDEPENDENT.previewDomainName,
+      "studio.community.example.org", API_ORIGIN, OBSERVABLE_PUBLIC_MAPS_PREVIEW_DOMAIN_NAME]) {
+      assert.throws(() => templateFor({applicationBucketName: INDEPENDENT_BUCKET_NAME,
+        independentDeployment: {...INDEPENDENT, ...(publicMapsPreviewDomainName === undefined ? {} : {publicMapsPreviewDomainName})},
+        enablePublicMapsPreview: true, deployShell: false}), /Invalid independent Observable preview deployment/);
+    }
+    assert.throws(() => templateFor({independentDeployment: INDEPENDENT}), /Invalid independent Observable preview deployment/);
+    assert.throws(() => templateFor({applicationBucketName: INDEPENDENT_BUCKET_NAME}), /exact production application bucket/);
+    const other = new Stack(new App(), "OtherBucket", {env: {account: ACCOUNT, region: "us-east-1"}});
+    const bucket = s3.Bucket.fromBucketName(other, "Imported", `community-${ACCOUNT}-other`);
+    assert.throws(() => templateFor({applicationBucket: bucket, applicationBucketName: INDEPENDENT_BUCKET_NAME,
+      independentDeployment: INDEPENDENT}), /Invalid independent Observable preview deployment/);
+    const generated = new s3.Bucket(other, "Generated");
+    assert.throws(() => templateFor({applicationBucket: generated, applicationBucketName: INDEPENDENT_BUCKET_NAME,
+      independentDeployment: INDEPENDENT}), /Invalid independent Observable preview deployment/);
+  });
+
+  it("keeps same-account certificate and WAF checks in independent mode", () => {
+    const independent = {applicationBucketName: INDEPENDENT_BUCKET_NAME, independentDeployment: INDEPENDENT, deployShell: false};
+    assert.throws(() => templateFor({...independent, certificateArn: CERTIFICATE_ARN.replace(ACCOUNT, "222222222222")}),
+      /certificate must belong to the deployment account/);
+    assert.throws(() => templateFor({...independent,
+      webAclArn: "arn:aws:wafv2:us-east-1:222222222222:global/webacl/independent/11111111-2222-3333-4444-555555555555"}),
+      /exact same-account global web ACL/);
   });
 });
 

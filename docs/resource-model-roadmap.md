@@ -1,5 +1,17 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Independent private-preview configuration supported
+
+The existing preview infrastructure now accepts explicit account-local buckets,
+hostnames, names and Studio framing authority. Both API variants use that preview
+origin, and Studio can permit its exact independent origins. Browser configuration
+passes operator origins through the existing validator. Managed defaults and signed
+output restrictions are preserved. Selected infrastructure/browser checks and
+TypeScript pass; no AWS, Actions, runtime or image/frontend build is used.
+Next, connect this configuration through the standalone installer and finish its
+native runtime/destination setup. Independent installation and configured HTTPS/CDN
+acceptance remain open; reuse the accepted core and real-study builds.
+
 October 17 — Ordinary local publication renders the real study anonymously
 
 The retained Berkshire edition now renders all 16 polygons, five designation rows
@@ -1916,7 +1928,7 @@ unknown. Parity remains 23 complete / 26 partial / 1 excluded.
 
 Prefer original provider archives or usable Wayback snapshots, with known S3
 fallbacks; check retained S3 inventory before any transfer. One metadata listing
-of `geospatial.data/nepal/icimod/` found 35 objects and no 2020–2022 files in that
+of `example-geodata/nepal/icimod/` found 35 objects and no 2020–2022 files in that
 prefix, with no object downloads/uploads. ICIMOD's active record supports
 2000–2022 and its 2024 release; actual annual distribution URLs/format/size remain
 unresolved after the bounded metadata follow-up. Preserve original 2000–2019
@@ -3199,7 +3211,7 @@ are now in a local draft manifest. The controller retains the template's service
 name before creation, so interrupted creation does not depend on successful stack
 outputs to scope cleanup. Three affected handler cases and Ruff pass. The approved metadata checks are now
 complete: the default profile is the development account; the existing production
-release profile was verified in account 977060200223 and used for the exact reads.
+release profile was verified in account 111111111111 and used for the exact reads.
 The bootstrap execution role has AdministratorAccess, and the one listed topic is
 for teamspaces-prod. Do not grant that administrative role to the unattended worker
 controller or assume the unrelated topic is its approved alert destination. Prepare
@@ -10705,7 +10717,7 @@ See [building archive evidence](nsdi-building-display-20260921-evidence.json).
 
 ## September 21: all Sri Lanka S3 files linked to active catalog records
 
-All 179 objects under `geospatial.data/sri-lanka/` are reconciled: 173 nonempty
+All 179 objects under `example-geodata/sri-lanka/` are reconciled: 173 nonempty
 files are linked to 32 active catalog records, and six empty ArcGIS lock files
 remain inventory-only. Eight existing records were reused and 24 new logical
 datasets were registered in Aaron's Sri Lanka workspace. Owner and Categorise
@@ -10797,7 +10809,7 @@ See [Nepal survey evidence](nepal-survey-catalog-20260921-evidence.json).
 ## September 21: Bhutan wind originals relocated and catalog archive preview prepared
 
 Both original NREL wind ZIPs now have verified private copies at
-`geospatial.data/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
+`example-geodata/bhutan/nrel/`. SHA-256 comparisons passed before reversible delete
 markers hid the old `nepal/` keys. All historical object versions remain intact;
 there were no version deletions. The bounded move used 18 S3 requests. Knowledge
 revision 2 points to the new exact objects and retains the relocation trail; Aaron
@@ -11687,7 +11699,7 @@ release remain open. An unobserved uncertain create remains pending without dupl
 
 
 Preserve the two local Bhutan/ICIMOD archive trees and scripts in geographically
-appropriate `geospatial.data` prefixes, recover incomplete provider datasets,
+appropriate `example-geodata` prefixes, recover incomplete provider datasets,
 register working Catalog Layers and organize smaller source/category Projects in a
 private Bhutan Collection, preserving the existing Bhutan composition. The user
 authorized this alternative to one oversized map. A local 25-map draft covers all

@@ -29,6 +29,13 @@ tables of five and eleven rows. Bounded public-custody batches remove per-file
 startup overhead; all 41 requested files return 200, with no build or publication
 replayed. Independent installation and configured production delivery remain open.
 
+Independent private-preview configuration is now supported by the existing
+infrastructure constructs: account-local buckets and domains, matching API origin
+settings and exact Studio framing authority. Managed defaults and private delivery
+controls remain unchanged. Local synthesis and browser-configuration checks pass.
+Connecting these settings through the standalone installer and verifying real
+identity/HTTPS/CDN delivery remain open.
+
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |
 | Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. | Broader portable round trips and the complete contributor-to-reviewer-to-publisher browser journey. |

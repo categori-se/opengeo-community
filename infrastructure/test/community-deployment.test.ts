@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
+import {generateKeyPairSync} from "node:crypto";
 import {App, Fn} from "aws-cdk-lib";
 import {Match, Template} from "aws-cdk-lib/assertions";
 import {environmentConfig} from "../lib/config.js";
 import {PlatformFoundationStack} from "../lib/platform-foundation-stack.js";
 import {StudioWebStack} from "../lib/studio-web-stack.js";
+import {ServerlessApiStack} from "../lib/serverless-api-stack.js";
+import {ApiServiceStack} from "../lib/api-service-stack.js";
 
 const account = "333333333333";
 const origin = "https://d123456789.cloudfront.net";
@@ -75,4 +78,109 @@ test("community edge serves independent domains without managed preview authorit
   assert.ok(distribution);
   const api = distribution.Properties.DistributionConfig.CacheBehaviors.find((behavior: {PathPattern: string}) => behavior.PathPattern === "api/*");
   assert.ok(api);
+});
+
+const previewOrigin = "https://preview.community.example.net";
+const independentPreview = {
+  previewDomainName: "preview.community.example.net", studioOrigin: origin,
+  shellBucketName: `community-${account}-preview-shell`, resourceNamePrefix: "community-private-preview"
+};
+const previewKey = generateKeyPairSync("rsa", {modulusLength: 2048})
+  .publicKey.export({type: "spki", format: "pem"}).toString();
+const previewCertificate = `arn:aws:acm:us-east-1:${account}:certificate/11111111-2222-3333-4444-555555555555`;
+const previewSecret = `arn:aws:secretsmanager:us-east-1:${account}:secret:community/preview-AbCd`;
+
+test("independent private preview connects account-owned storage, API origin and frame policy", () => {
+  const app = new App();
+  const env = {account, region: "us-east-1"};
+  const foundation = new PlatformFoundationStack(app, "IndependentPreviewFoundation", {
+    env, config, budgetAlertEmail: "maintainer@example.invalid",
+    standaloneAuthDomainPrefix: `community-${account}`, retainData: true,
+    availabilityZones: [Fn.select(0, Fn.getAzs("us-east-1")), Fn.select(1, Fn.getAzs("us-east-1"))],
+    observablePreview: {
+      apiOriginDomain: "abcdefghij.execute-api.us-east-1.amazonaws.com",
+      certificateArn: previewCertificate, publicKeyPem: previewKey, deployShell: false,
+      independentDeployment: independentPreview
+    }
+  });
+  // Build the complete cross-stack graph before Template.fromStack freezes the App.
+  const apis = ([["Lambda", ServerlessApiStack], ["Container", ApiServiceStack]] as const).map(([id, ApiStack]) =>
+    [id, new ApiStack(app, `IndependentPreview${id}`, {
+      env, config, foundation, imageDigest: `sha256:${"a".repeat(64)}`,
+      observableBuilderImageDigest: `sha256:${"b".repeat(64)}`,
+      observablePreviewPrivateKeySecretArn: previewSecret
+    })] as const);
+  const web = new StudioWebStack(app, "IndependentPreviewWeb", {
+    env, communityDeployment: true, domainName: "d123456789.cloudfront.net",
+    dnsZone: "cloudfront.net", dnsRecordHost: "d123456789", bucketName: `community-${account}-studio`,
+    resourceNamePrefix: "community-preview-web", independentPreviewOrigins: [previewOrigin]
+  });
+  assert.equal(foundation.observablePreviewEdge?.previewOrigin, previewOrigin);
+  const foundationTemplate = Template.fromStack(foundation);
+  const foundationDocument = JSON.stringify(foundationTemplate.toJSON());
+  assert.doesNotMatch(foundationDocument, /source\.opengeo\.tools|preview\.studio\.opengeo\.tools|auth\.categori\.se/);
+  assert.match(foundationDocument, /community-333333333333-us-east-1-app/);
+  foundationTemplate.resourceCountIs("AWS::CloudFront::Distribution", 1);
+  foundationTemplate.resourceCountIs("Custom::CDKBucketDeployment", 0);
+  for (const [id, api] of apis) {
+    const template = Template.fromStack(api);
+    const document = JSON.stringify(template.toJSON());
+    assert.doesNotMatch(document, /preview\.studio\.opengeo\.tools/);
+    if (id === "Lambda") {
+      template.hasResourceProperties("AWS::Lambda::Function", {Environment: {Variables: Match.objectLike({
+        OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN: previewOrigin,
+        OPEN_GEO_OBSERVABLE_PREVIEW_PRIVATE_KEY_SECRET_ARN: previewSecret
+      })}});
+    } else {
+      template.hasResourceProperties("AWS::ECS::TaskDefinition", {ContainerDefinitions: [Match.objectLike({
+        Environment: Match.arrayWith([
+          {Name: "OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN", Value: previewOrigin},
+          {Name: "OPEN_GEO_OBSERVABLE_PREVIEW_PRIVATE_KEY_SECRET_ARN", Value: previewSecret}
+        ])
+      })]});
+    }
+    template.hasResourceProperties("AWS::IAM::Policy", {PolicyDocument: {Statement: Match.arrayWith([
+      Match.objectLike({Action: "secretsmanager:GetSecretValue", Resource: previewSecret}),
+      Match.objectLike({Action: "kms:Decrypt", Condition: {StringEquals: {
+        "kms:ViaService": "secretsmanager.us-east-1.amazonaws.com",
+        "kms:EncryptionContext:SecretARN": previewSecret
+      }}})
+    ])}});
+  }
+  const policies = Template.fromStack(web).findResources("AWS::CloudFront::ResponseHeadersPolicy");
+  const policy = Object.entries(policies).find(([id]) => id.startsWith("StudioSecurityHeaders"))![1];
+  const csp = policy.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy;
+  assert.match(csp, /frame-src 'self' https:\/\/preview\.community\.example\.net;/);
+  assert.doesNotMatch(csp, /preview\.studio\.opengeo\.tools/);
+  const authPolicy = Object.entries(policies).find(([id]) => id.startsWith("StudioAuthConfigHeaders"))![1];
+  assert.match(authPolicy.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy,
+    /frame-src 'none';/);
+});
+
+test("community frame origins fail closed for broad, shared or same-origin configuration", () => {
+  const base = {
+    env: {account, region: "us-east-1"}, communityDeployment: true,
+    domainName: "d123456789.cloudfront.net", dnsZone: "cloudfront.net", dnsRecordHost: "d123456789",
+    bucketName: `community-${account}-studio`, resourceNamePrefix: "community-frame-test"
+  };
+  for (const origins of [[], [previewOrigin, previewOrigin], [previewOrigin, "https://maps.example.net", "https://third.example.net"],
+    ["http://preview.example.net"], ["https://*.example.net"], [origin], ["https://preview.example.net/"],
+    ["https://user@preview.example.net"], ["https://preview.example.net:444"], ["https://preview.studio.opengeo.tools"]]) {
+    assert.throws(() => new StudioWebStack(new App(), "InvalidFrame", {...base, independentPreviewOrigins: origins}),
+      /Independent preview origins/);
+  }
+  assert.throws(() => new StudioWebStack(new App(), "ManagedFrame", {
+    ...base, communityDeployment: false, domainName: "studio.opengeo.tools", dnsZone: "opengeo.tools", dnsRecordHost: "studio",
+    independentPreviewOrigins: [previewOrigin]
+  }), /Independent preview origins/);
+});
+
+test("independent preview cannot name a different Studio installation", () => {
+  assert.throws(() => new PlatformFoundationStack(new App(), "MismatchedPreviewStudio", {
+    env: {account, region: "us-east-1"}, config, budgetAlertEmail: "maintainer@example.invalid",
+    standaloneAuthDomainPrefix: `community-${account}`,
+    observablePreview: {apiOriginDomain: "abcdefghij.execute-api.us-east-1.amazonaws.com",
+      certificateArn: previewCertificate, publicKeyPem: previewKey, deployShell: false,
+      independentDeployment: {...independentPreview, studioOrigin: "https://another.example.net"}}
+  }), /Independent preview must use this installation's Studio origin/);
 });

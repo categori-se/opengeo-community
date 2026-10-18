@@ -208,7 +208,7 @@ export class ServerlessApiStack extends Stack {
         ...(observablePreview && props.observablePreviewPrivateKeySecretArn
           ? {
               OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN:
-                "https://preview.studio.opengeo.tools",
+                observablePreview.previewOrigin,
               ...(observablePreview.publicMapsPreviewOrigin
                 ? {OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN: observablePreview.publicMapsPreviewOrigin}
                 : {}),

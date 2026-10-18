@@ -77,6 +77,64 @@ const WEB_ACL_ARN =
   /^arn:aws:wafv2:us-east-1:([0-9]{12}):global\/webacl\/[A-Za-z0-9_-]{1,128}\/[0-9a-f-]{36}$/;
 const OUTPUT_OBJECTS =
   "organizations/*/projects/*/source-projects/*/builds/*/output/*";
+const INDEPENDENT_FQDN = /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const INDEPENDENT_BUCKET = /^(?!\d+\.\d+\.\d+\.\d+$)(?!.*\.\.)(?!.*\.-)(?!.*-\.)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
+
+export interface ObservablePreviewIndependentDeployment {
+  readonly previewDomainName: string;
+  readonly studioOrigin: string;
+  readonly shellBucketName: string;
+  readonly resourceNamePrefix: string;
+  readonly publicMapsPreviewDomainName?: string;
+}
+
+function managedName(value: string): boolean {
+  return value === "opengeo.tools" || value.endsWith(".opengeo.tools") ||
+    value === "opengeo-studio-111111111111-us-east-1";
+}
+
+function independentBucketName(value: string): boolean {
+  return INDEPENDENT_BUCKET.test(value) && !managedName(value) &&
+    !["xn--", "sthree-", "amzn-s3-demo-"].some(prefix => value.startsWith(prefix)) &&
+    !["-s3alias", "--ol-s3", ".mrap", "--x-s3", "--table-s3"].some(suffix => value.endsWith(suffix));
+}
+
+function exactLiteralBucket(bucket: s3.IBucket, expected: string): boolean {
+  if (!Token.isUnresolved(bucket.bucketName)) return bucket.bucketName === expected;
+  const resource = bucket.node.defaultChild;
+  return resource instanceof s3.CfnBucket && typeof resource.bucketName === "string" &&
+    !Token.isUnresolved(resource.bucketName) && resource.bucketName === expected;
+}
+
+function validateIndependentDeployment(props: ObservablePreviewEdgeProps): ObservablePreviewIndependentDeployment | undefined {
+  const value = props.independentDeployment;
+  if (value === undefined) return undefined;
+  const invalid = (): never => { throw new Error("Invalid independent Observable preview deployment"); };
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      !["previewDomainName,resourceNamePrefix,shellBucketName,studioOrigin",
+        "previewDomainName,publicMapsPreviewDomainName,resourceNamePrefix,shellBucketName,studioOrigin"]
+        .includes(Object.keys(value).sort().join(",")) ||
+      Object.values(value).some(item => typeof item !== "string")) invalid();
+  let studio: URL;
+  try { studio = new URL(value.studioOrigin); }
+  catch { return invalid(); }
+  if (studio.protocol !== "https:" || studio.origin !== value.studioOrigin || studio.port ||
+      studio.username || studio.password || !INDEPENDENT_FQDN.test(studio.hostname) ||
+      managedName(studio.hostname) || !INDEPENDENT_FQDN.test(value.previewDomainName) ||
+      managedName(value.previewDomainName) || value.previewDomainName === studio.hostname ||
+      value.previewDomainName === props.apiOriginDomain ||
+      !/^[a-z][a-z0-9-]{1,38}[a-z0-9]$/.test(value.resourceNamePrefix) ||
+      value.resourceNamePrefix === "opengeo-observable-preview" ||
+      !independentBucketName(value.shellBucketName) || !independentBucketName(props.applicationBucketName) ||
+      value.shellBucketName === props.applicationBucketName ||
+      !exactLiteralBucket(props.applicationBucket, props.applicationBucketName)) invalid();
+  if (props.enablePublicMapsPreview === true) {
+    const maps = value.publicMapsPreviewDomainName;
+    if (typeof maps !== "string" || !INDEPENDENT_FQDN.test(maps) || managedName(maps) ||
+        [value.previewDomainName, studio.hostname, props.apiOriginDomain].includes(maps)) invalid();
+  } else if (value.publicMapsPreviewDomainName !== undefined) invalid();
+  return value;
+}
 
 export function observablePreviewBuildCsp(apiOriginDomain: string): string {
   if (!API_ORIGIN_DOMAIN.test(apiOriginDomain)) throw new Error("Invalid preview public API origin");
@@ -130,6 +188,8 @@ export interface ObservablePreviewEdgeProps {
   readonly enablePublicMapsPreview?: boolean;
   /** Operator can upload these three static shell files separately without a deployment Lambda. */
   readonly deployShell?: boolean;
+  /** Explicit account-local names and Studio framing authority; managed defaults stay fixed. */
+  readonly independentDeployment?: ObservablePreviewIndependentDeployment;
 }
 
 /**
@@ -141,6 +201,7 @@ export class ObservablePreviewEdge extends Construct {
   readonly publicKey: cloudfront.PublicKey;
   readonly keyGroup: cloudfront.KeyGroup;
   readonly shellBucket: s3.Bucket;
+  readonly previewOrigin: string;
   readonly publicMapsPreviewOrigin?: string;
 
   constructor(scope: Construct, id: string, props: ObservablePreviewEdgeProps) {
@@ -160,7 +221,16 @@ export class ObservablePreviewEdge extends Construct {
       throw new Error("Observable public maps preview must be an explicit boolean opt-in");
     }
     const publicMapsPreviewEnabled = props.enablePublicMapsPreview === true;
-    if (props.applicationBucketName !== "source.opengeo.tools") {
+    const independent = validateIndependentDeployment(props);
+    const previewDomainName = independent?.previewDomainName ?? OBSERVABLE_PREVIEW_DOMAIN_NAME;
+    const mapsDomainName = independent?.publicMapsPreviewDomainName ?? OBSERVABLE_PUBLIC_MAPS_PREVIEW_DOMAIN_NAME;
+    const namePrefix = independent?.resourceNamePrefix ?? "opengeo-observable-preview";
+    this.previewOrigin = `https://${previewDomainName}`;
+    const frameAncestors = (csp: string) => independent === undefined ? csp : csp.replace(
+      /frame-ancestors [^;]+/,
+      directive => `frame-ancestors ${directive.includes("'self'") ? "'self' " : ""}${independent.studioOrigin}`
+    );
+    if (independent === undefined && props.applicationBucketName !== "source.opengeo.tools") {
       throw new Error("Observable preview must read the exact production application bucket");
     }
     if (props.webAclArn !== undefined) {
@@ -178,18 +248,18 @@ export class ObservablePreviewEdge extends Construct {
       props.certificateArn
     );
     this.publicKey = new cloudfront.PublicKey(this, "SigningPublicKey", {
-      publicKeyName: "opengeo-observable-preview",
+      publicKeyName: namePrefix,
       comment: "Verifies short-lived path-scoped OpenGeo private preview cookies",
       encodedKey: props.publicKeyPem
     });
     this.keyGroup = new cloudfront.KeyGroup(this, "SigningKeyGroup", {
-      keyGroupName: "opengeo-observable-preview",
+      keyGroupName: namePrefix,
       comment: "Only the OpenGeo API holds the matching private signing key",
       items: [this.publicKey]
     });
 
     this.shellBucket = new s3.Bucket(this, "ShellBucket", {
-      bucketName: OBSERVABLE_PREVIEW_SHELL_BUCKET_NAME,
+      bucketName: independent?.shellBucketName ?? OBSERVABLE_PREVIEW_SHELL_BUCKET_NAME,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
@@ -201,12 +271,12 @@ export class ObservablePreviewEdge extends Construct {
     });
 
     const applicationOac = new cloudfront.S3OriginAccessControl(this, "OutputOac", {
-      originAccessControlName: "opengeo-observable-preview-output",
+      originAccessControlName: `${namePrefix}-output`,
       description: "Read only exact private Observable build outputs",
       signing: cloudfront.Signing.SIGV4_ALWAYS
     });
     const shellOac = new cloudfront.S3OriginAccessControl(this, "ShellOac", {
-      originAccessControlName: "opengeo-observable-preview-shell",
+      originAccessControlName: `${namePrefix}-shell`,
       description: "Read only the public capability exchange shell",
       signing: cloudfront.Signing.SIGV4_ALWAYS
     });
@@ -220,7 +290,7 @@ export class ObservablePreviewEdge extends Construct {
       originSslProtocols: [cloudfront.OriginSslPolicy.TLS_V1_2]
     });
     const authorizeRewrite = new cloudfront.Function(this, "AuthorizeRewrite", {
-      functionName: "opengeo-observable-preview-authorize",
+      functionName: `${namePrefix}-authorize`,
       comment: "Resolve only the canonical /authorize/ bootstrap document",
       runtime: cloudfront.FunctionRuntime.JS_2_0,
       code: cloudfront.FunctionCode.fromInline(`
@@ -235,41 +305,41 @@ function handler(event) {
     const buildHeaders = securityHeaders(
       this,
       "BuildHeaders",
-      "opengeo-observable-preview-build",
-      observablePreviewBuildCsp(props.apiOriginDomain),
+      `${namePrefix}-build`,
+      frameAncestors(observablePreviewBuildCsp(props.apiOriginDomain)),
       false
     );
     const shellHeaders = securityHeaders(
       this,
       "ShellHeaders",
-      "opengeo-observable-preview-shell",
-      OBSERVABLE_PREVIEW_SHELL_CSP,
+      `${namePrefix}-shell`,
+      frameAncestors(OBSERVABLE_PREVIEW_SHELL_CSP),
       true
     );
     const exchangeHeaders = securityHeaders(
       this,
       "ExchangeHeaders",
-      "opengeo-observable-preview-exchange",
+      `${namePrefix}-exchange`,
       "default-src 'none'; frame-ancestors 'none'",
       true
     );
     const draftHeaders = securityHeaders(this, "DraftHeaders",
-      "opengeo-observable-preview-draft", OBSERVABLE_PREVIEW_DRAFT_CSP, true);
+      `${namePrefix}-draft`, frameAncestors(OBSERVABLE_PREVIEW_DRAFT_CSP), true);
     // Response headers policies run before viewer-response Functions. The
     // strict BuildHeaders policy therefore remains the fallback for every
     // other host, including the CloudFront domain and an absent Host header.
     // Only output uses this function; shell/draft/exchange policies stay intact.
     const publicMapsHeaders = publicMapsPreviewEnabled
       ? new cloudfront.Function(this, "PublicMapsBuildHeaders", {
-        functionName: "opengeo-observable-preview-public-maps-v1",
+        functionName: `${namePrefix}-public-maps-v1`,
         comment: "Select public_maps_v1 CSP only for the opted-in maps-preview alias",
         runtime: cloudfront.FunctionRuntime.JS_2_0,
         code: cloudfront.FunctionCode.fromInline(`
 function handler(event) {
   var host = event.request.headers.host;
-  if (host && host.value === ${JSON.stringify(OBSERVABLE_PUBLIC_MAPS_PREVIEW_DOMAIN_NAME)}) {
+  if (host && host.value === ${JSON.stringify(mapsDomainName)}) {
     event.response.headers['content-security-policy'] = {
-      value: ${JSON.stringify(observablePublicMapsPreviewBuildCsp(props.apiOriginDomain))}
+      value: ${JSON.stringify(frameAncestors(observablePublicMapsPreviewBuildCsp(props.apiOriginDomain)))}
     };
   }
   return event.response;
@@ -279,10 +349,10 @@ function handler(event) {
       : undefined;
 
     this.distribution = new cloudfront.Distribution(this, "Distribution", {
-      comment: OBSERVABLE_PREVIEW_DOMAIN_NAME,
+      comment: previewDomainName,
       certificate,
-      domainNames: [OBSERVABLE_PREVIEW_DOMAIN_NAME,
-        ...(publicMapsPreviewEnabled ? [OBSERVABLE_PUBLIC_MAPS_PREVIEW_DOMAIN_NAME] : [])],
+      domainNames: [previewDomainName,
+        ...(publicMapsPreviewEnabled ? [mapsDomainName] : [])],
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_3_2025,
       sslSupportMethod: cloudfront.SSLMethod.SNI,
       enableIpv6: true,
@@ -400,19 +470,24 @@ function handler(event) {
       description: "Configure the API with this public-key id and its separately held private key"
     });
     if (publicMapsPreviewEnabled) {
-      this.publicMapsPreviewOrigin = OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN;
+      this.publicMapsPreviewOrigin = `https://${mapsDomainName}`;
       new CfnOutput(stack, "ObservablePublicMapsPreviewOrigin", {
         value: this.publicMapsPreviewOrigin,
         description: "Requires the shared certificate to cover both aliases and a separate DNS handoff"
       });
     }
     new CfnOutput(stack, "ObservablePreviewDnsHandoff", {
-      value: stack.toJsonString({
+      value: stack.toJsonString(independent === undefined ? {
         provider: "DNS Made Easy",
         type: "CNAME",
         zone: "opengeo.tools",
         name: "preview.studio",
         fqdn: OBSERVABLE_PREVIEW_DOMAIN_NAME,
+        value: this.distribution.distributionDomainName,
+        ttlSeconds: 300
+      } : {
+        type: "CNAME",
+        fqdn: previewDomainName,
         value: this.distribution.distributionDomainName,
         ttlSeconds: 300
       })

@@ -223,6 +223,31 @@ preview signing and publication destination configuration is the next deployment
 increment. The core installer leaves these integrations unadvertised until their
 runtimes are configured. Track this work in the [roadmap](../ROADMAP.md).
 
+The existing private-preview constructs also support independent installations.
+`ObservablePreviewEdge` accepts an explicit `independentDeployment` containing
+`previewDomainName`, `studioOrigin`, `shellBucketName` and `resourceNamePrefix`.
+The application bucket must have an explicit physical name matching its configured
+KMS identity. The Studio and preview must use distinct HTTPS origins. An optional
+`publicMapsPreviewDomainName` requires explicit maps-profile enablement and the
+same certificate must cover both aliases. Certificate and WAF resources remain
+restricted to the deployment account. Keep the private signing key in its separate
+operator-owned secret; only the public key belongs in infrastructure configuration.
+
+Pass that descriptor through `PlatformFoundationStack.observablePreview`, with
+`studioOrigin` equal to `config.webOrigin`. Both API stacks use the edge's configured
+origin. Set `StudioWebStack.independentPreviewOrigins` to the exact enabled origins
+alongside `communityDeployment: true`. Generate browser configuration with
+`OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN` and, when using the maps profile,
+`OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN`. These values pass through the
+existing auth-config validator before writing. Supply both origins explicitly for
+independent public-map previews; omitted profiles retain the existing defaults.
+
+These are construct and configuration interfaces. The core `community-aws.py`
+installer does not yet configure native previews or runtimes automatically. The
+local checks verify synthesized permissions, routing and browser configuration;
+they do not prove domain ownership, issued certificate coverage or live delivery.
+No additional compute, endpoint or service is enabled by the default profile.
+
 Validation for this profile consists of local TypeScript/CDK checks, synthesized
 resource/security assertions, migration plan/tests and sealed Studio release
 checks. A new-account live AWS installation has yet to complete its representative

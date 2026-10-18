@@ -185,8 +185,12 @@ export class PlatformFoundationStack extends Stack {
         : {})
     });
     if (props.observablePreview !== undefined) {
-      if (!config.production) {
+      if (!config.production && props.observablePreview.independentDeployment === undefined) {
         throw new Error("The exact Observable preview domain is production-only");
+      }
+      if (props.observablePreview.independentDeployment !== undefined &&
+          props.observablePreview.independentDeployment.studioOrigin !== config.webOrigin) {
+        throw new Error("Independent preview must use this installation's Studio origin");
       }
       this.observablePreviewEdge = new ObservablePreviewEdge(this, "ObservablePreview", {
         ...props.observablePreview,

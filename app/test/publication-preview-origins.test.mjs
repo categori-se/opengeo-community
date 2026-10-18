@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
+import {spawnSync} from "node:child_process";
+import {mkdtempSync, readFileSync, existsSync, rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {fileURLToPath} from "node:url";
+
 import {DEFAULT_PUBLICATION_PREVIEW_ORIGINS, resolvePublicationPreviewOrigins} from "../src/lib/publicationPreviewOrigins.js";
 import {parseAuthConfig, AuthConfigurationError} from "../src/lib/authConfig.js";
 import {OpenGeoApiClient, ApiContractError} from "../src/lib/apiClient.js";
@@ -80,4 +86,41 @@ test("preview capability responses use the trusted deployment and selected runti
     returnedOrigin = local;publicationAuthorized = true;
     await assert.rejects(() => api.createObservablePreviewCapability(project, build), ApiContractError);
   }
+});
+
+test("generated browser configuration carries operator preview origins and rejects invalid binding before writing", () => {
+  const directory = mkdtempSync(join(tmpdir(), "opengeo-preview-origins-"));
+  const ordinary = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("OPEN_GEO_")));
+  const env = {...ordinary, OPEN_GEO_WEB_ORIGIN: studio, OPEN_GEO_STUDIO_ORIGIN: studio,
+    OPEN_GEO_COMMUNITY_DEPLOYMENT: "true", OPEN_GEO_COGNITO_REGION: "us-east-1",
+    OPEN_GEO_COGNITO_USER_POOL_ID: "us-east-1_Community123", OPEN_GEO_COGNITO_CLIENT_ID: "client123",
+    OPEN_GEO_COGNITO_HOSTED_UI_BASE_URL: "https://community.auth.us-east-1.amazoncognito.com"};
+  const script = fileURLToPath(new URL("../scripts/render-auth-config.mjs", import.meta.url));
+  const run = (name, options) => spawnSync(process.execPath, [script], {
+    env: {...env, OPEN_GEO_AUTH_CONFIG_OUTPUT_DIR: join(directory, name), ...options},
+    encoding: "utf8", timeout: 5000
+  });
+  try {
+    const configured = {local_only: "https://preview.example.org", public_maps_v1: "https://maps-preview.example.org"};
+    const valid = run("valid", {OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN: configured.local_only,
+      OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN: configured.public_maps_v1});
+    assert.equal(valid.status, 0, valid.stderr);
+    const generated = JSON.parse(readFileSync(join(directory, "valid", "auth-config.json"), "utf8"));
+    assert.deepEqual(parseAuthConfig(generated, {currentOrigin: studio}).previewOrigins, configured);
+    assert.equal(generated.hostedUiBaseUrl, env.OPEN_GEO_COGNITO_HOSTED_UI_BASE_URL);
+    assert.doesNotMatch(JSON.stringify(generated), /preview\.studio\.opengeo\.tools|auth\.categori\.se/);
+    const defaults = run("defaults", {});
+    assert.equal(defaults.status, 0, defaults.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(join(directory, "defaults", "auth-config.json"), "utf8")).previewOrigins,
+      DEFAULT_PUBLICATION_PREVIEW_ORIGINS);
+    for (const [name, options] of [
+      ["same-origin", {OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN: studio}],
+      ["maps-only", {OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN: configured.public_maps_v1}],
+      ["insecure", {OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN: "http://preview.example.org"}]
+    ]) {
+      const invalid = run(name, options);
+      assert.notEqual(invalid.status, 0, name);
+      assert.equal(existsSync(join(directory, name, "auth-config.json")), false, name);
+    }
+  } finally {rmSync(directory, {recursive: true, force: true});}
 });
