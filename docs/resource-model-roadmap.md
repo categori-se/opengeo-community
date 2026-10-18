@@ -1,20 +1,23 @@
 # Resource model: active plan and continuation queue
 
-October 18 — Opt-in fresh public installation check prepared
+October 18 — Fresh public source builds accepted; connected installation still open
 
-The existing two-job public workflow now has one default-off input for the
-documented source installation. Its fresh npm and rootless Podman stores, public
-Dockerfiles and canonical Studio/native-publication checks preserve ordinary CI.
-Static comparison and shell/YAML review pass. The first hosted preflight stops
-before downloads on a storage-path mismatch. Diagnostics on the targeted retry
-show Podman 4.9 choosing its default rootless graph despite reading the config.
-An explicit supported rootless storage path now preserves the exact owned/empty
-graph requirement; its changed-method run is pending.
-The manual jobs have 30/15-minute ceilings and the image/core/native stages have
-12/6/5-minute ceilings. No AWS access, cache saves or artifact uploads are added.
-This automated local-transport check does not establish independent human,
-Cognito/HTTPS/CDN or browser-sandbox acceptance. Private main remains held for
-known free Actions capacity.
+The existing two-job workflow now builds all three maintained API, worker and
+compiler images on a fresh standard Ubuntu runner with initially empty image/npm
+stores. The exact owned-graph preflight and API job pass. Image preparation runs
+for about 406 seconds, then stops because Podman 4 rejects the database pull's
+`--retry` flag. Studio save/reopen and native publication do not run; graph-checked
+cleanup passes. The approved run uses 570 summed job-seconds; this whole batch,
+including earlier failures and ordinary CI, totals 995 seconds of its original
+4080-second budget. No AWS/KMS, cache saves or artifact uploads are used.
+
+The local compatibility fix checks the exact pull flag, uses zero retries when
+supported, and discloses Podman 4's three internal transient copy retries within
+the unchanged 12-minute stage cap. The pinned database pull now comes first so
+failures precede source builds. YAML/source/shell checks pass; another remote run
+is not admitted. The manual jobs retain 30/15-minute ceilings and core/native
+stages retain 6/5 minutes. Independent human, configured Cognito/HTTPS/CDN,
+browser-sandbox and private main/free-capacity acceptance remain open.
 
 October 18 — Full worker builds from an empty image cache
 

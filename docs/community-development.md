@@ -146,13 +146,23 @@ empty Podman image and npm download stores, builds the maintained public source
 images and invokes the canonical local runner. It makes no AWS account calls,
 saves no caches and uploads no artifacts.
 
-The first fresh run stops before downloads at the exact storage-path assertion.
-The retry identifies Podman 4.9 rootless storage defaults. Its supported explicit
-rootless graph setting now retains the owned/empty-store assertion; the next run
-is pending. Podman 4.9 keeps its normal user runtime directory. These checks use
-synthetic local identity and local object/queue transports. The existing automated browser runs
-without Chromium's sandbox; this check does not establish sandboxed-browser,
-configured AWS/Cognito, HTTPS/CDN or independent operator acceptance.
+The [public fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675)
+at `a80543b4` passes the owned, empty image-store preflight and builds all three
+maintained API, worker and compiler Dockerfiles; the image stage lasts about
+406 seconds. The API job and cleanup pass. Podman 4.9 then rejects the unsupported
+`pull --retry` option before downloading pinned PostGIS, so the connected Studio
+save/reopen and native publication journeys are skipped.
+
+Current local workflow source moves the pinned database pull before image builds
+and passes `--retry=0` only when pull help advertises that exact option. Legacy
+Podman may make three internal transient copy retries, at most four copy attempts,
+under the same 12-minute stage limit with no outer retry. This correction has not
+run remotely; fresh connected runtime acceptance remains open.
+
+These checks use synthetic local identity and local object/queue transports. The
+existing automated browser runs without Chromium's sandbox; source-build success
+does not establish sandboxed-browser, configured AWS/Cognito, HTTPS/CDN or
+independent operator acceptance.
 
 ## Native publication development
 

@@ -1,22 +1,25 @@
 # Resource model implementation — September 19, 2026
 
-October 18 — Fresh installation uses the maintained public workflow
+October 18 — Fresh public images build; old Podman pull compatibility corrected locally
 
-A boolean `fresh_installation` input defaults off on the existing two-job
-workflow. Fresh mode checks x64, system Chrome, rootless cgroup-v2 Podman and
-12 GiB free space, then uses empty isolated image/npm stores and anonymous
-registry access. The unchanged Dockerfiles build under a 12-minute cap; the
-canonical built-Studio and native-publication modes run separately with 6/5-minute
-caps and runtime `TMPDIR=/tmp`. Isolated graph-checked cleanup runs on failure too.
-Ordinary steps, API job, automatic paths and read-only permissions are preserved;
-manual frontend timeout is 30 minutes. YAML, shell syntax and source comparisons
-pass. Ordinary hosted CI passes; the first fresh preflight fails its exact graph
-path assertion before downloads. The retry diagnostics identify Podman 4.9
-rootless graph defaults. Its supported `rootless_storage_path` now names the same
-owned graph; every preflight requirement stays. Podman 4.9 keeps its normal user
-runtime directory. The changed-method run is pending. No new workflow, job, runner or build script.
-Existing automated browser no-sandbox behavior and synthetic/local transports
-remain acceptance limits. No AWS, cache-save or artifact-upload path is added.
+Run [39103423675](https://github.com/categori-se/opengeo-community/actions/runs/39103423675)
+uses public source `a80543b4` on standard Ubuntu 24.04/Podman 4.9.3. Its explicit
+`rootless_storage_path` produces the exact owned graph with zero initial images;
+Podman 4 keeps its normal user runtime directory. All three maintained Dockerfiles
+complete in about 406 seconds. API contracts pass. The final database pull rejects
+unsupported `--retry`, so built-Studio/native-publication modes are skipped.
+Graph-checked container cleanup passes. Total run job time is 570 seconds;
+including earlier attempts and ordinary CI, cumulative job time is 995 seconds.
+
+The existing image stage now captures pull help, adds `--retry=0` only for the
+exact supported flag, and otherwise reports Podman 4's maximum three transient
+copy retries. This means at most four copy attempts, not four HTTP requests.
+The same 12-minute stage cap and no outer retry remain. The unchanged database
+digest/auth and empty-store/security checks stay; its pull precedes expensive
+builds. Source/YAML/Bash checks pass. No new workflow, job, dependency, build script,
+local image build, AWS/KMS, cache-save or artifact-upload path is added. Further
+hosted execution remains unaccepted; synthetic/local transports and the existing
+no-sandbox browser do not prove independent operator or configured delivery.
 
 October 18 — Empty-cache worker source build and runtime accepted
 

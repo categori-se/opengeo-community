@@ -30,13 +30,15 @@ remaining temporary containers or AWS/Actions work. The worker guide includes
 the accepted rootless Podman scratch-mount form. Independent installation, native
 ARM64/release security gates and configured production delivery remain open.
 
-An opt-in fresh installation check now reuses the existing public workflow and
-canonical local runner. Static review and ordinary hosted CI pass. The first fresh
-preflight stops before downloads. Retry diagnostics identify Podman 4.9 rootless
-defaults; its supported explicit rootless graph setting now preserves the owned/empty
-assertion and awaits one changed-method run. Ordinary CI stays unchanged and no AWS, cache-save or artifact-upload
-path is added. Automated synthetic/local transport checks do not replace
-independent human or configured Cognito/HTTPS/CDN acceptance.
+An opt-in fresh installation check reuses the existing public workflow and
+canonical local runner. On a fresh standard Ubuntu runner, all three maintained
+API/worker/compiler images build and API checks pass. An unsupported Podman 4
+pull flag stops the database preparation, so connected Studio/native-publication
+checks remain open; isolated cleanup succeeds. A local version-compatible pull
+correction preserves the existing time/security limits and moves the database pull
+before source builds. Another remote run has not been admitted. No AWS, cache-save
+or artifact-upload path is added. Independent operator and configured delivery
+acceptance remain open. See the [run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675).
 
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and

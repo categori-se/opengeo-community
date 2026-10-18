@@ -1,19 +1,24 @@
-## October 18 — Prepare one fresh public-source installation check
+## October 18 — Build the public source stack on a fresh hosted runner
 
-The maintained public workflow now offers a default-off fresh installation input.
-It reuses the existing two jobs, Dockerfiles and canonical integration runner,
-with empty isolated npm/image stores, prerequisite/disk preflight, bounded build
-and core/native stages and graph-checked cleanup. Static YAML/source comparison,
-shell syntax and independent reviews pass. Ordinary validation is preserved.
-No application/image build is replayed locally. Ordinary hosted CI passes. The
-first fresh preflight stops before downloads at the exact graph path assertion.
-An offline symlinked-store probe reproduces physical-path normalization, but the
-retry diagnostics identify a different hosted cause: Podman 4.9 rootless defaults.
-Its supported explicit rootless graph setting now preserves the owned/empty
-assertion; the changed-method run is pending;
-manual job ceilings total 45 minutes. No private Actions, AWS/KMS, cache-save or
-artifact uploads are admitted. Configured identity/HTTPS/CDN, browser sandbox
-and independent human installation remain separate acceptance work.
+The [approved fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675)
+passes its exact owned/empty-graph preflight and builds the maintained API, worker
+and compiler Dockerfiles from public source. This closes the cold-image-build
+uncertainty for this amd64 runner. Image preparation takes about 406 seconds.
+The API job passes. Podman 4 rejects `--retry` on the final pinned database pull;
+Studio save/reopen and native publication therefore remain unexecuted in this run.
+Graph-checked cleanup succeeds. The run uses 570 summed job-seconds; earlier
+attempts/ordinary CI bring this batch to 995 of its original 4080-second cap.
+No AWS/KMS, new dependency cache or artifact upload is used.
+
+The local pull correction checks actual CLI support, keeps zero retries on newer
+Podman, and reports the older version's three internal transient copy retries
+inside the same 12-minute stage cap, with no outer retry. Pulling the pinned
+database first makes failure cheaper. YAML/source/Bash checks pass; no local
+application/image build or remote run is replayed. The private reviewed checkpoint
+is synchronized and its exact push-run readback shows zero Actions runs. Further
+fresh connected installation, independent operator and configured identity/delivery
+acceptance remain open. The existing prepared PMTiles launcher correction also
+still awaits ARM64 acceptance; no extra implementation is needed there.
 
 ## October 18 — Verify the public worker build without a retained image cache
 
