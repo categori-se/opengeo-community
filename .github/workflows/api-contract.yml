@@ -108,7 +108,7 @@ jobs:
   frontend-core:
     name: Catalog, map and publication workflows (Node 24)
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && 30 || 8 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && 28 || 8 }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -241,7 +241,7 @@ jobs:
   api-contract:
     name: API contract and metadata (Python 3.14)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && 10 || 15 }}
     defaults:
       run:
         working-directory: services/api

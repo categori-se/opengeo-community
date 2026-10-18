@@ -1,24 +1,30 @@
-## October 18 — Build the public source stack on a fresh hosted runner
+## October 18 — Pass fresh image/database preparation and correct browser navigation
 
-The [approved fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675)
-passes its exact owned/empty-graph preflight and builds the maintained API, worker
-and compiler Dockerfiles from public source. This closes the cold-image-build
-uncertainty for this amd64 runner. Image preparation takes about 406 seconds.
-The API job passes. Podman 4 rejects `--retry` on the final pinned database pull;
-Studio save/reopen and native publication therefore remain unexecuted in this run.
-Graph-checked cleanup succeeds. The run uses 570 summed job-seconds; earlier
-attempts/ordinary CI bring this batch to 995 of its original 4080-second cap.
-No AWS/KMS, new dependency cache or artifact upload is used.
+The [latest approved run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665)
+passes the initially empty image-store preflight, pinned database preparation,
+all three public source image builds and the API job. Compiled Studio opens and
+invitation/viewer/revocation checks proceed. The browser fixture then waits for a
+removed Data access disclosure. Native publication is skipped; isolated cleanup
+succeeds. The run uses 553 summed job-seconds. All failures and ordinary CI bring
+the batch to 1696 of its original 4080-second cap. No AWS/KMS, cache saves or
+artifact uploads are used.
 
-The local pull correction checks actual CLI support, keeps zero retries on newer
-Podman, and reports the older version's three internal transient copy retries
-inside the same 12-minute stage cap, with no outer retry. Pulling the pinned
-database first makes failure cheaper. YAML/source/Bash checks pass; no local
-application/image build or remote run is replayed. The private reviewed checkpoint
-is synchronized and its exact push-run readback shows zero Actions runs. Further
-fresh connected installation, independent operator and configured identity/delivery
-acceptance remain open. The existing prepared PMTiles launcher correction also
-still awaits ARM64 acceptance; no extra implementation is needed there.
+The fixture follows the current account/lifecycle Data access links. A local
+current-build run passes that complete authorization/lifecycle block, then exposes
+a closed-panel Basemap assumption. Main/analysis helpers now open Basemap through
+View; the main journey explicitly shows map controls before zooming and uses the
+current PMTiles field label. Visible layer-button waits replace hidden text
+matches; the current Style control activates the layer for processing. Existing
+assertions and deadlines stay. The local journey now passes uploads, exact styles
+and saved-map reopening. PMTiles correctly remains disabled because this fixture
+lacks converter runtime configuration. All four local attempts, including failures
+and a stopped introduced zoom-selector ambiguity, total 568.177 seconds. One
+current frontend build is reused; no local image build or further remote run is
+started. Complete local conversion/publication remains open. Optional fresh-only
+job ceilings become 28/10 minutes, retaining ordinary
+8/15 and stage 12/6/5 limits. Further fresh connected/native, independent operator,
+configured identity/delivery and private-main/free-capacity acceptance remain open.
+The prepared PMTiles launcher still awaits native ARM64/release acceptance.
 
 ## October 18 — Verify the public worker build without a retained image cache
 

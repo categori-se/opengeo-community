@@ -1,25 +1,35 @@
 # Resource model implementation — September 19, 2026
 
-October 18 — Fresh public images build; old Podman pull compatibility corrected locally
+October 18 — Fresh preparation accepted; current browser entry points restored
 
-Run [39103423675](https://github.com/categori-se/opengeo-community/actions/runs/39103423675)
-uses public source `a80543b4` on standard Ubuntu 24.04/Podman 4.9.3. Its explicit
-`rootless_storage_path` produces the exact owned graph with zero initial images;
-Podman 4 keeps its normal user runtime directory. All three maintained Dockerfiles
-complete in about 406 seconds. API contracts pass. The final database pull rejects
-unsupported `--retry`, so built-Studio/native-publication modes are skipped.
-Graph-checked container cleanup passes. Total run job time is 570 seconds;
-including earlier attempts and ordinary CI, cumulative job time is 995 seconds.
+Run [39107327665](https://github.com/categori-se/opengeo-community/actions/runs/39107327665)
+uses public source `92124cfd` on standard Ubuntu 24.04/Podman 4.9.3. The exact
+owned graph starts with zero images. Pinned PostGIS and all three maintained
+source builds complete; the version-compatible pull correction is accepted.
+API checks pass. Compiled Studio creates Projects and exercises invitation,
+viewer and revocation paths, then the fixture waits for the removed
+`.access-workspace-directory` disclosure. Native publication is skipped and
+graph-checked cleanup passes. This run uses 553 summed job-seconds; cumulative
+job time, including all earlier failures and ordinary CI, is 1696 seconds.
 
-The existing image stage now captures pull help, adds `--retry=0` only for the
-exact supported flag, and otherwise reports Podman 4's maximum three transient
-copy retries. This means at most four copy attempts, not four HTTP requests.
-The same 12-minute stage cap and no outer retry remain. The unchanged database
-digest/auth and empty-store/security checks stay; its pull precedes expensive
-builds. Source/YAML/Bash checks pass. No new workflow, job, dependency, build script,
-local image build, AWS/KMS, cache-save or artifact-upload path is added. Further
-hosted execution remains unaccepted; synthetic/local transports and the existing
-no-sandbox browser do not prove independent operator or configured delivery.
+`integrated-studio-access.mjs` now uses account Data access and the lifecycle's
+direct access-directory link. The main/analysis helpers use View to open Basemap;
+the main journey explicitly shows map controls before its existing zoom loop.
+The PMTiles locator uses Output tile layer with the same exact `source` value.
+Visible layer-button waits avoid hidden folder labels after reopening; the Style
+swatch activates the intended layer before processing. Every assertion and browser
+deadline is retained. The local journey passes access/lifecycle, uploads, exact
+styles and saved-map reopening, then holds PMTiles admission because the fixture
+still uses shared mode without converter queue/image configuration. Four attempts
+total 568.177 seconds, including a stopped introduced zoom-selector ambiguity.
+One current 876-file frontend build is reused; all 547 source files and three
+frontend configuration files match its staged inputs. Cached images supply
+dependencies and read-only mounts supply current API/worker source. No new workflow,
+job, dependency or build pathway is added. Fresh-only job ceilings are 28/10
+minutes, within the original remaining budget; normal 8/15 and stage 12/6/5 limits
+remain. Further hosted execution is not admitted. Synthetic local transports and
+the existing no-sandbox browser do not prove independent operator or configured
+identity/HTTPS/CDN delivery.
 
 October 18 — Empty-cache worker source build and runtime accepted
 

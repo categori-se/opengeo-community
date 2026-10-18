@@ -30,15 +30,19 @@ remaining temporary containers or AWS/Actions work. The worker guide includes
 the accepted rootless Podman scratch-mount form. Independent installation, native
 ARM64/release security gates and configured production delivery remain open.
 
-An opt-in fresh installation check reuses the existing public workflow and
-canonical local runner. On a fresh standard Ubuntu runner, all three maintained
-API/worker/compiler images build and API checks pass. An unsupported Podman 4
-pull flag stops the database preparation, so connected Studio/native-publication
-checks remain open; isolated cleanup succeeds. A local version-compatible pull
-correction preserves the existing time/security limits and moves the database pull
-before source builds. Another remote run has not been admitted. No AWS, cache-save
-or artifact-upload path is added. Independent operator and configured delivery
-acceptance remain open. See the [run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675).
+The opt-in fresh installation check now builds all three maintained images,
+prepares the pinned database and passes API checks on a fresh standard Ubuntu
+runner. Compiled Studio opens; an outdated Data access test selector then stops
+the connected journey. Native publication is skipped and isolated cleanup passes.
+The browser fixtures now follow current Data access, Basemap, map-control and
+PMTiles entry points, preserving assertions and deadlines. The current local
+journey passes authorization/lifecycle, uploads, styling and exact saved-map
+reopening. Conversion is then held by missing local-fixture runtime configuration;
+complete local conversion/publication acceptance remains open.
+The optional fresh run is capped at 38 summed job-minutes; ordinary checks are
+unchanged. The complete fresh-host Studio/native-publication journey remains open.
+No AWS, cache-save or artifact-upload path is added. Independent operator and
+configured delivery acceptance remain open. See the [run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665).
 
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and

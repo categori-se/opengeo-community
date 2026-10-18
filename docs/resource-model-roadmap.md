@@ -1,23 +1,29 @@
 # Resource model: active plan and continuation queue
 
-October 18 — Fresh public source builds accepted; connected installation still open
+October 18 — Fresh image and database preparation pass; browser navigation corrected
 
-The existing two-job workflow now builds all three maintained API, worker and
-compiler images on a fresh standard Ubuntu runner with initially empty image/npm
-stores. The exact owned-graph preflight and API job pass. Image preparation runs
-for about 406 seconds, then stops because Podman 4 rejects the database pull's
-`--retry` flag. Studio save/reopen and native publication do not run; graph-checked
-cleanup passes. The approved run uses 570 summed job-seconds; this whole batch,
-including earlier failures and ordinary CI, totals 995 seconds of its original
+The latest approved public run, 39107327665, passes the empty-store preflight,
+all three maintained source image builds, pinned database preparation and API
+checks. Compiled Studio opens and the invitation/viewer/revocation checks proceed,
+then an obsolete test disclosure stops navigation to Data access. Native
+publication is skipped; isolated container cleanup passes. The run uses 553
+summed job-seconds. All attempts and ordinary CI total 1696 of the original
 4080-second budget. No AWS/KMS, cache saves or artifact uploads are used.
 
-The local compatibility fix checks the exact pull flag, uses zero retries when
-supported, and discloses Podman 4's three internal transient copy retries within
-the unchanged 12-minute stage cap. The pinned database pull now comes first so
-failures precede source builds. YAML/source/shell checks pass; another remote run
-is not admitted. The manual jobs retain 30/15-minute ceilings and core/native
-stages retain 6/5 minutes. Independent human, configured Cognito/HTTPS/CDN,
-browser-sandbox and private main/free-capacity acceptance remain open.
+The fixture now follows the existing Data access links, opens Basemap through
+View, shows map controls before zooming and uses the current PMTiles field label.
+Assertions, expected values and browser deadlines remain. The current local
+journey passes authorization/lifecycle, uploads, styling and exact saved-map
+reopening. PMTiles then correctly holds admission because this local fixture
+still lacks its separate converter runtime configuration. Four local attempts,
+including failures and a stopped retry, total 568 seconds with one current
+frontend build and no image builds. Complete local conversion/publication remains
+open; reuse the accepted map result while connecting the existing local runtime.
+Fresh-only job ceilings are reduced to 28/10 minutes, at most 38 summed minutes,
+within the remaining 2384 seconds; ordinary 8/15-minute and stage 12/6/5-minute
+limits are unchanged. Another remote run is not admitted. Fresh connected/native,
+independent human, configured Cognito/HTTPS/CDN, browser-sandbox and private
+main/free-capacity acceptance remain open.
 
 October 18 — Full worker builds from an empty image cache
 

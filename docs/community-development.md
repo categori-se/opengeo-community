@@ -136,7 +136,8 @@ an automatic backup service.
 In GitHub Actions, open **Core workflows and API contract**, choose **Run
 workflow**, and enable `fresh_installation`. This manual input defaults to
 `false`. It uses the existing two jobs on Ubuntu 24.04: the frontend job has a
-30-minute ceiling and the API job keeps 15 minutes, at most 45 summed job minutes.
+28-minute ceiling and the API job has 10 minutes, at most 38 summed job minutes.
+Ordinary validation retains its existing 8/15-minute limits.
 Image preparation, compiled Studio save/reopen and native publication stages have
 12-, 6- and 5-minute limits respectively.
 
@@ -146,18 +147,22 @@ empty Podman image and npm download stores, builds the maintained public source
 images and invokes the canonical local runner. It makes no AWS account calls,
 saves no caches and uploads no artifacts.
 
-The [public fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675)
-at `a80543b4` passes the owned, empty image-store preflight and builds all three
-maintained API, worker and compiler Dockerfiles; the image stage lasts about
-406 seconds. The API job and cleanup pass. Podman 4.9 then rejects the unsupported
-`pull --retry` option before downloading pinned PostGIS, so the connected Studio
-save/reopen and native publication journeys are skipped.
+The [latest public fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665)
+at `92124cfd` passes the owned, empty image-store preflight, pinned PostGIS
+preparation, all three maintained source builds and API checks. Compiled Studio
+opens and exercises invitations and access restrictions, then an outdated test
+disclosure stops navigation to Data access. Native publication is skipped; isolated
+cleanup passes. The fixture now follows the current Data access and Basemap
+navigation, visible layer controls and PMTiles labels. Current local acceptance
+covers authorization/lifecycle, uploads, styling and exact saved-map reopening.
+Conversion is held by the local fixture's missing converter runtime configuration;
+complete local conversion/publication and fresh connected/native acceptance remain
+open.
 
-Current local workflow source moves the pinned database pull before image builds
-and passes `--retry=0` only when pull help advertises that exact option. Legacy
-Podman may make three internal transient copy retries, at most four copy attempts,
-under the same 12-minute stage limit with no outer retry. This correction has not
-run remotely; fresh connected runtime acceptance remains open.
+The pinned database pull precedes source builds and uses `--retry=0` only when
+pull help advertises that exact option. Legacy Podman may make three internal
+transient copy retries, at most four copy attempts, under the same 12-minute
+stage limit with no outer retry.
 
 These checks use synthetic local identity and local object/queue transports. The
 existing automated browser runs without Chromium's sandbox; source-build success

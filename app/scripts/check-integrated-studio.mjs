@@ -946,7 +946,8 @@ try {
   }, conservationId);
   await page.getByRole("heading", {name: "Layer Properties", exact: true}).waitFor();
   // Select the real blank background deliberately, without substituting tile responses.
-  await page.locator('button[aria-label="Change basemap"]').click();
+  await page.locator('.gis-menubar [data-menu="view"] > button').click();
+  await page.getByRole("menuitem", {name: "Change basemap", exact: true}).click();
   const basemapDialog = page.getByRole("dialog", {name: "Change basemap", exact: true});
   const blank = basemapDialog.locator('.gis-basemap-card[data-catalog-id="blank"]');
   const blankGroup = blank.locator("xpath=ancestor::details[1]");
@@ -1047,6 +1048,7 @@ try {
   });
   // Output dimensions keep the saved zoom. Use ordinary zoom controls until
   // the complete two-dataset extent fits the requested 320 × 240 image.
+  await page.getByRole("button", {name: "Show map controls", exact: true}).click();
   for (let attempt = 0; attempt < 8; attempt++) {
     const fits = await page.evaluate(() => {
       const map = document.querySelector(".opengeo-workbench").__opengeoMap;
@@ -1070,7 +1072,7 @@ try {
   await page.getByRole("button", {name: "Save", exact: true}).click();
   assert.equal((await saved).status(), 200);
   await page.reload();
-  await page.getByText(watershedLayerTitle, {exact: true}).first().waitFor();
+  await page.getByRole("button", {name: `Select layer ${watershedLayerTitle}`, exact: true}).waitFor();
   await page.waitForFunction((datasetId) => {
     const shell = document.querySelector(".opengeo-workbench");
     const map = shell?.__opengeoMap;
@@ -1113,7 +1115,7 @@ try {
     assert.equal(layer.visible, true);
   }
   // Keep the watershed active for its existing PMTiles processing acceptance.
-  await page.getByRole("button", {name: `Open layer properties for ${watershedLayerTitle}`, exact: true}).click();
+  await page.getByRole("button", {name: `Style ${watershedLayerTitle}`, exact: true}).click();
 
   stage = "pmtiles";
   console.log(`Studio: ${stage}`);
@@ -1121,7 +1123,7 @@ try {
   await page.getByText(/^Vector to PMTiles \(/).click();
   await page.getByLabel("Minimum zoom", {exact: true}).fill("4");
   await page.getByLabel("Maximum zoom", {exact: true}).fill("8");
-  assert.equal(await page.getByLabel("Source layer in the managed object", {exact: true}).inputValue(), "source");
+  assert.equal(await page.getByLabel("Output tile layer", {exact: true}).inputValue(), "source");
   const queued = page.waitForResponse((response) => response.url().endsWith("/pmtiles-derivatives") && response.request().method() === "POST");
   await page.getByRole("button", {name: "Queue on-demand conversion", exact: true}).click();
   const derivativeResponse = await queued;
@@ -1260,7 +1262,7 @@ try {
   assert.ok(nextMap.version > maps[0].version);
   assert.deepEqual(nextMap.definition.layers.map(layer => layer.datasetId), [conservationId, datasetId]);
   await mapEditor.reload();
-  await mapEditor.getByText(conservationLayerTitle, {exact: true}).first().waitFor();
+  await mapEditor.getByRole("button", {name: `Select layer ${conservationLayerTitle}`, exact: true}).waitFor();
   const reopenedOrderedMap = await readApi(`/projects/${project.id}/maps/${maps[0].id}`);
   assert.equal(reopenedOrderedMap.version, nextMap.version);
   assert.deepEqual(reopenedOrderedMap.definition.layers, nextMap.definition.layers);

@@ -125,7 +125,8 @@ export async function exerciseStudioAnalysis({page, project, composition, origin
   await card.getByRole('link',{name:'Add to Watershed review map',exact:true}).click();
   await page.getByRole('button',{name:'Add Saved analysis centroid to map',exact:true}).click();
   // A deliberate blank basemap makes local rendering independent of provider traffic.
-  await page.locator('button[aria-label="Change basemap"]').click();
+  await page.locator('.gis-menubar [data-menu="view"] > button').click();
+  await page.getByRole("menuitem", {name: "Change basemap", exact: true}).click();
   const basemapDialog=page.getByRole('dialog',{name:'Change basemap',exact:true});
   const blank=basemapDialog.locator('.gis-basemap-card[data-catalog-id="blank"]');
   const group=blank.locator('xpath=ancestor::details[1]');
