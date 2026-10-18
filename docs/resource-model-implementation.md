@@ -1,5 +1,17 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Real study input packages and native rendering
+
+The Berkshire ACEC example preserves the exact 284,185-byte historical GeoJSON
+and its separate provider, archive and curated metadata. Its dependency-free
+method groups 16 municipal records into five designations and eleven towns,
+rejecting inconsistent designation names instead of summing repeated areas.
+The package command uses the existing Project and Publication archive validators.
+Actual native output renders the map, legend and calculated tables. The cached
+Studio imports its editable backup, changes opacity, saves and reopens with all
+geometry and category styles intact. No hosted records or service configuration
+change. Independent installation and configured production delivery remain open.
+
 October 17 — Saved-map Artifact reaches the native Publication
 
 The local compiler profile now enables portable Artifact retention through local

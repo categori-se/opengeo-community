@@ -1,3 +1,41 @@
+## October 17 — Real Berkshire study and planner reconciliation
+
+The [Berkshire conservation example](../examples/berkshires-acecs/README.md)
+packages an unchanged existing archive, a reproducible method, an editable map
+backup and native Publication source. It reports 16 municipal records, five
+designations and eleven town attributes without summing repeated area fields.
+The Project ZIP is 102,838 bytes; the source ZIP is 302,740 bytes. Source dates,
+unknown export dates, public-domain provider guidance and archive-specific
+license uncertainty remain separate. Existing hosted Layer/map identities and
+permissions are unchanged.
+
+The cached native compiler runs with networking denied and a read-only root.
+The first output exposed a generated-cell syntax error for an awaited URL inside
+a loop; an explicit top-level Promise.all resolves it. The second retained build
+passes generated-module syntax and actual browser rendering: 16 map paths, five
+designation rows and eleven town rows. A local software-load ceiling stopped the
+next map check; the existing compiled transport bound then completes import,
+opacity change, Save and reload in 5.784 seconds, preserving all geometry and
+styles. Earlier outputs and failures are retained; no accepted core/security
+journey or successful native build is replayed. There are two native compilations,
+no application build, no API/provider/AWS account call and no Actions run. Local
+measured and conservatively charged stages total 154.391 seconds within the
+180-second batch limit; agent effort and a dollar total are unavailable.
+
+The two existing publication planner tasks are also reconciled through normal
+owner authentication. Native publishing advances to in-progress/review, and the
+handoff remains in-progress/review. Issues30/18 stay open; their owned sections
+and four status fields across the public/private GitHub boards match. All 36
+other canonical tasks remain unchanged. Offline restoration reuses 20 verified
+SDK archives in 0.139 seconds. A local URL-validation correction retains prior
+usage; cumulative tracking uses four authentication requests, five Team Spaces
+reads/two patches, three GitHub reads/one six-field mutation and one public
+read. Its conservative elapsed window is 193.338 seconds; measured responses
+total 706,271 bytes, with original Team Spaces wire formatting unavailable.
+There are no AWS administration, direct KMS or Actions calls; service-side KMS
+usage is unknown. Sessions are closed. Independent operator installation and
+production identity/HTTPS/CDN acceptance remain open.
+
 ## October 17 — Retained map and Catalog data share a native preview
 
 The existing saved-map resource now retains portable Artifact v1 and supplies a

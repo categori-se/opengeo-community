@@ -1,0 +1,85 @@
+{
+  "title": "Berkshire conservation designations in a retained MassGIS archive",
+  "input": {
+    "path": "data/acecs.geojson",
+    "mediaType": "application/geo+json",
+    "bytes": 284185,
+    "sha256": "1a436462c200365cce9235e79815e1458aabb22d4add893057172817d2e9663f",
+    "featureCount": 16,
+    "geometryType": "MultiPolygon",
+    "crs": "OGC:CRS84",
+    "inputBytesChanged": false
+  },
+  "source": {
+    "datasetTitle": "Areas of Critical Environmental Concern",
+    "informationUrl": "https://www.mass.gov/info-details/massgis-data-areas-of-critical-environmental-concern",
+    "sourceEditionStatement": {
+      "value": "April 2009",
+      "meaning": "Edition statement on the provider information page; not proof of this export's capture or transformation date."
+    },
+    "latestObservedDesignationDate": {
+      "value": "2009-03-30",
+      "sourceField": "DES_DATE",
+      "meaning": "Latest designation date observed among these records, not an archive edition or export date."
+    },
+    "exportDate": null,
+    "captureDate": null,
+    "clippingAndNormalizationMethod": null,
+    "originalNarrative": "mapping-the-berkshires-environmental-conservation/src/index.md",
+    "originalNarrativePublicationDateText": "Feb. 2, 2021"
+  },
+  "provider": {
+    "name": "MassGIS (Bureau of Geographic Information), Commonwealth of Massachusetts EOTSS",
+    "originalStudyProviderCredit": "MassGIS / Massachusetts Natural Heritage and Endangered Species Program",
+    "rights": {
+      "publicDomainDetermination": {
+        "status": "provider-stated",
+        "url": "https://www.mass.gov/info-details/massgis-frequently-asked-questions"
+      },
+      "redistributionAndDerivativesGuidance": {
+        "status": "provider-stated; preserve source credit",
+        "url": "https://www.mass.gov/info-details/learn-about-massgis-data"
+      },
+      "archiveFileLicenseStatement": null,
+      "spdxLicenseIdentifier": null,
+      "licenseInheritanceAssumed": false,
+      "qualification": "Provider public-domain guidance and the absence of a separate archive-file statement are retained separately. No CC0 dedication is asserted."
+    }
+  },
+  "archive": {
+    "custodian": "berkshire.guide",
+    "storageUri": "s3://berkshire.guide/maps/berkshires_acecs_poly.geojson",
+    "accessUrl": "https://s3.amazonaws.com/berkshire.guide/maps/berkshires_acecs_poly.geojson",
+    "listedLastModified": "2024-02-02T13:20:45Z",
+    "listedETag": "5cc7f8a61c3bc23f769e7fa7adc13a2e",
+    "versionId": null,
+    "equalityEvidence": "Retained S3 listing length and single-part ETag match local source length and MD5. The SHA-256 identifies the local retained bytes; a separate remote-body SHA-256 read is not claimed.",
+    "storageTimestampIsObservationDate": false
+  },
+  "curated": {
+    "assessmentQuestion": "Which conservation designations and municipalities appear in this historical Berkshire archive?",
+    "method": "Group records by ACECID, require consistent NAME and DES_DATE, count municipal records, and collect distinct TOWN values. Do not sum designation-level area attributes.",
+    "module": "analysis.js",
+    "expectedResult": {
+      "recordCount": 16,
+      "designationCount": 5,
+      "municipalityCount": 11
+    },
+    "dataAcquisition": "Reuse exact existing local bytes and retained S3/Catalog evidence; no new provider retrieval or hosted registration.",
+    "interpretationLimits": [
+      "Historical planning inventory, not a statement of current regulatory status or official boundaries.",
+      "Municipalities come from existing TOWN attributes; no new spatial intersection is performed.",
+      "POLY_ACRES and ACEC_ACRES repeat designation-level areas across municipal records and must not be summed.",
+      "Unknown export/capture date and normalization method remain unknown."
+    ]
+  },
+  "existingOpenGeoReferences": {
+    "meaning": "Descriptive references to previously registered hosted records. These identifiers do not transfer ownership, credentials or access rights, and are not precreated identities for another installation.",
+    "datasetId": "4c476476-3c07-4984-9469-605e9d15e335",
+    "sourceVersion": 1,
+    "knowledgeVersion": 1,
+    "mapId": "addf2581-b231-40a2-9338-e9f0f1aae3ae",
+    "mapVersionAtPriorReadback": 1,
+    "hostedRecordsModifiedByExample": false
+  }
+}

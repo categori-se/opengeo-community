@@ -1,5 +1,16 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Real Berkshire study packaged and accepted locally
+
+The [real conservation study](../examples/berkshires-acecs/README.md) now includes
+unchanged archived input, provenance, executable calculations, a styled editable
+Project and native Publication source. Actual native rendering and browser
+import/revise/save/reopen pass. The existing hosted Catalog and Berkshire map are
+unchanged. Both existing publication planner rows and GitHub mirrors now record
+the accepted local workflow and retain independent installation and production
+delivery as open work. Next, reproduce the provided study on an independent
+installation; reuse the completed local core, native build and security evidence.
+
 October 17 — Connected local core workflow accepted
 
 The compiled community app now completes the retained CC0 study through upload,

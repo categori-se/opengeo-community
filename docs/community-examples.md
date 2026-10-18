@@ -16,6 +16,23 @@ Their source data and reuse terms are described on the individual pages; this
 repository does not include a complete installation and input bundle for every
 publication.
 
+## Reproduce a Berkshire conservation study
+
+The [Berkshire conservation example](../examples/berkshires-acecs/README.md)
+includes the real retained GeoJSON, executable analysis, provenance and a native
+Framework page. It asks which conservation designations and municipalities appear
+in the historical archive. The result is 16 municipal polygon records, five
+distinct designations and eleven town attributes; repeated area fields are not
+summed. Unknown export dates and provider/archive rights remain explicit.
+
+Its packaging command creates an editable Studio Project backup and a Publication
+source ZIP. The map starts with its Layer visible, designation colors, transparent
+fills and a blank background. Actual browser checks import the backup, revise its
+opacity, save and reopen it without changing geometry. The native compiler and
+browser render the same real input as a map and calculated tables. These local
+checks reuse cached software; they do not establish independent installation or
+hosted delivery. Existing hosted Berkshire Layers and map identities are preserved.
+
 ## Adapt a method
 
 Each example should help you decide what to reuse, what to change and what the
