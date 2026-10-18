@@ -1,4 +1,4 @@
-import {build} from 'esbuild';
+import {buildWithSignal} from './esbuild-with-signal.mjs';
 import {readFile, writeFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {dirname, join} from 'node:path';
@@ -53,23 +53,32 @@ async function declarations(file, names) {
   }).join('\n');
 }
 
-export async function buildFrameworkPreview(outdir) {
+export async function buildFrameworkPreview(outdir, {signal} = {}) {
+  const checkActive = () => signal?.throwIfAborted();
+  const build = options => buildWithSignal(options, signal);
+  checkActive();
   const version = JSON.parse(await readFile(join(framework, 'package.json'), 'utf8')).version;
+  checkActive();
   if (version !== '1.13.4') throw Error('Review the browser compiler before updating Framework');
   // The connected land-cover pages use these packages. Package versions and
   // transitive dependencies come from the existing application lock; preview
   // never downloads dependencies or installs a publication's package.json.
   const lock = JSON.parse(await readFile(new URL('../package-lock.json', import.meta.url), 'utf8'));
+  checkActive();
   const packages = {}, packageLicenses = [];
   const notebook = dirname(dirname(require.resolve('@observablehq/notebook-kit/index.css')));
   const notebookRoot = join(notebook, '../..');
   if (JSON.parse(await readFile(join(notebookRoot, 'package.json'), 'utf8')).version !== '2.5.6') throw Error('Review legacy DOM compatibility before updating Notebook Kit');
+  checkActive();
   packageLicenses.push(`@observablehq/notebook-kit@2.5.6\n${await readFile(join(notebookRoot, 'LICENSE'), 'utf8')}`);
+  checkActive();
   for (const name of ['geotiff', 'jszip', 'd3']) {
+    checkActive();
     const entry = require.resolve(name);
     let directory = dirname(entry), pkg;
     while (true) {
       try {pkg = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'));} catch {}
+      checkActive();
       if (pkg?.name === name) break;
       const parent = dirname(directory);
       if (parent === directory) throw Error(`Preview package metadata missing: ${name}`);
@@ -84,7 +93,9 @@ export async function buildFrameworkPreview(outdir) {
     packages[name] = {version: pkg.version, integrity: pinned.integrity, code: bundled.outputFiles[0].text};
     const licensePath = name === 'jszip' ? 'LICENSE.markdown' : 'LICENSE';
     packageLicenses.push(`${name}@${pkg.version}\n${await readFile(join(directory, licensePath), 'utf8')}`);
+    checkActive();
   }
+  checkActive();
   const runtimePlugin = {name: 'framework-browser-runtime', setup(builder) {
     builder.onResolve({filter: /^observablehq:/}, ({path}) => {
       if (path === 'observablehq:runtime') return {path: join(client, 'runtime.js')};
@@ -143,14 +154,25 @@ export async function buildFrameworkPreview(outdir) {
     bundle: true, format: 'esm', platform: 'browser', target: 'es2022', write: false, minify: true, plugins: [runtimePlugin]});
   const css = async contents => (await build({stdin: {contents, resolveDir: join(dist, 'style'), loader: 'css'},
     bundle: true, write: false, minify: true})).outputFiles[0].text;
-  const [styles, light, dark] = await Promise.all([
+  let styleFailed = false, styleFailure;
+  const styleResults = await Promise.allSettled([
     css(`@import "./default.css"; @import ${JSON.stringify(require.resolve('@observablehq/inputs/dist/index.css'))};`),
     css('@import "./theme-air.css";'), css('@import "./theme-near-midnight.css";')
-  ]);
+  ].map(promise => promise.catch(error => {
+    if (!styleFailed) {styleFailed = true; styleFailure = error;}
+    throw error;
+  })));
+  checkActive();
+  if (styleFailed) throw styleFailure;
+  const [styles, light, dark] = styleResults.map(result => result.value);
   const config = await declarations('config.js', ['mergeStyle', 'stringOrNull', 'normalizeArray', 'normalizeTheme']);
+  checkActive();
   const frontmatter = await declarations('frontMatter.js', ['normalizeFrontMatter', 'normalizeToc', 'normalizeKeywords', 'normalizeSql']);
+  checkActive();
   const html = await declarations('html.js', ['Html', 'html']);
+  checkActive();
   const npmSpecifier = await declarations('npm.js', ['parseNpmSpecifier']);
+  checkActive();
   const shim = {
     'config.js': `import {resolvePath} from '${join(dist, 'path.js')}'; import {resolveTheme} from '${join(dist, 'theme.js')}'; ${config}; export {mergeStyle,stringOrNull,normalizeTheme};`,
     'frontMatter.js': `import {load} from 'js-yaml'; import {normalizeTheme,stringOrNull} from '${join(dist, 'config.js')}'; ${frontmatter}; export function readFrontMatter(input) {const m=input.match(/^---\\r?\\n([\\s\\S]*?)\\r?\\n---(?:\\r?\\n|$)/); return m ? {content:input.slice(m[0].length),data:normalizeFrontMatter(load(m[1]))} : {content:input,data:{}};}`,
@@ -180,7 +202,12 @@ export async function buildFrameworkPreview(outdir) {
     write: true, minify: true, metafile: true, plugins: [plugin], legalComments: 'linked',
     define: {'process.env.OBSERVABLE_ANNOTATE_FILES':'undefined'}, banner: {js:'const process = {cwd: () => "/"};'}});
   const filename = Object.keys(result.metafile.outputs).find(path => path.endsWith('.js'));
-  await writeFile(join(outdir, 'FRAMEWORK-LICENSE.txt'), await readFile(join(framework, 'LICENSE')));
+  checkActive();
+  const frameworkLicense = await readFile(join(framework, 'LICENSE'));
+  checkActive();
+  await writeFile(join(outdir, 'FRAMEWORK-LICENSE.txt'), frameworkLicense);
+  checkActive();
   await writeFile(join(outdir, 'PREVIEW-PACKAGES-LICENSES.txt'), packageLicenses.join('\n\n'));
+  checkActive();
   return filename.split('/').pop();
 }

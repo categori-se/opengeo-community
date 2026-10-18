@@ -6,7 +6,7 @@ import {readFile, writeFile, mkdtemp, rm, stat, open} from 'node:fs/promises';
 import {join, isAbsolute} from 'node:path';
 import {tmpdir} from 'node:os';
 import {pathToFileURL} from 'node:url';
-import {build} from 'esbuild';
+import {buildWithSignal} from '../scripts/esbuild-with-signal.mjs';
 import {chromium} from 'playwright';
 import {writeArrayBuffer} from 'geotiff';
 import {buildFrameworkPreview} from '../scripts/build-framework-preview.mjs';
@@ -261,7 +261,7 @@ function createTIFFDiagnostics() {
   return {enterPhase, reportState, setPage: value => {page = value;}};
 }
 const synthetic = !nativeOutput && !existingExport && !original;
-let syntheticFixture, syntheticPreparation;
+let syntheticFixture, syntheticPreparation, syntheticController;
 async function prepareTIFFFixture(fixture, signal) {
   const {enterPhase} = fixture.diagnostics;
   const setupStarted = performance.now();
@@ -270,13 +270,14 @@ async function prepareTIFFFixture(fixture, signal) {
   fixture.directory = await mkdtemp(join(tmpdir(), 'opengeo-preview-packages-'));
   checkActive();
   enterPhase('compiler fixture bundles');
-  fixture.filename = await buildFrameworkPreview(fixture.directory);
-  fixture.compiler = await readFile(join(fixture.directory, fixture.filename));
+  fixture.filename = await buildFrameworkPreview(fixture.directory, {signal});
+  checkActive();
+  fixture.compiler = await readFile(join(fixture.directory, fixture.filename), {signal});
   checkActive();
   enterPhase('editor fixture bundle');
-  fixture.editor = await build({stdin: {contents: `export {PublicationCodeEditor} from './src/components/PublicationCodeEditor.js';
+  fixture.editor = await buildWithSignal({stdin: {contents: `export {PublicationCodeEditor} from './src/components/PublicationCodeEditor.js';
     export {createFrameworkAttachmentReader} from './src/lib/frameworkArchiveInputs.js';`,
-    resolveDir: new URL('..', import.meta.url).pathname, loader: 'js'}, bundle: true, format: 'esm', write: false});
+    resolveDir: new URL('..', import.meta.url).pathname, loader: 'js'}, bundle: true, format: 'esm', write: false}, signal);
   checkActive();
   enterPhase('Chromium launch');
   fixture.browser = await chromium.launch({headless: true,
@@ -294,10 +295,11 @@ async function cleanupTIFFFixture(fixture) {
 // Synthetic setup has its own 15-second bound; the unchanged UI behavior bound
 // below remains 18 seconds (33 seconds combined, followed by bounded cleanup).
 // Original-file and retained-output modes keep their existing test timeouts.
-before(async () => {
+before(async context => {
   if (!synthetic) return;
   syntheticFixture = {diagnostics: createTIFFDiagnostics()};
-  const signal = AbortSignal.timeout(15000);
+  syntheticController = new AbortController();
+  const signal = AbortSignal.any([context.signal, syntheticController.signal, AbortSignal.timeout(15000)]);
   const timer = setTimeout(() => void syntheticFixture.diagnostics.reportState('before setup timeout'), 12000);
   timer.unref();
   syntheticPreparation = prepareTIFFFixture(syntheticFixture, signal);
@@ -306,8 +308,9 @@ before(async () => {
 }, {timeout: 15000});
 after(async () => {
   if (!syntheticFixture) return;
-  // Let an interrupted preparation settle before removing its partial fixture,
-  // so a late launch or compiler write cannot outlive cleanup.
+  // Cancel compiler contexts before draining interrupted preparation. Each
+  // context is disposed before a late browser launch or fixture cleanup.
+  syntheticController?.abort(new Error('TIFF fixture cleanup'));
   await syntheticPreparation?.catch(() => {});
   await cleanupTIFFFixture(syntheticFixture);
 }, {timeout: 5000});

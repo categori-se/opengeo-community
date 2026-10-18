@@ -1,5 +1,17 @@
 # Resource model implementation — September 19, 2026
 
+October 18 — Preview compiler cancellation accepted locally
+
+`buildFrameworkPreview` accepts an optional signal through the existing build
+path. `esbuild-with-signal.mjs` owns context cancellation and disposal, retains
+the abort reason and removes listeners; unsignaled calls keep native build behavior.
+CSS siblings settle before failure returns. The TIFF fixture combines its hook,
+deadline and teardown signals, aborts before draining setup, and keeps its original
+browser test body and all timeouts unchanged. Ten lifecycle cases include actual
+native cancellation; the existing synthetic browser workflow passes in 3.071 seconds
+with no temporary directories remaining. This uses cooperative esbuild cancellation,
+not an OS hard-kill guarantee. Full CI and configured deployment remain separate.
+
 October 18 — Core frontend boundaries accepted locally
 
 `apiResourceContentContracts.js` owns authored content parsing/serialization;

@@ -100,10 +100,11 @@ distinguishes this connected local acceptance from independent installation and
 production delivery.
 
 Frontend validation discovers both top-level and nested test suites. Community
-core CI passes. The broader application suite currently stops at a TIFF test
-deadline after 2,457 passing tests. That workflow passes locally; compiler and
-browser setup now have a separate bounded phase, preserving every interactive
-assertion. Consolidated release validation remains pending.
+core CI passes. The broader application run stopped at a TIFF test deadline after
+2,457 passing tests. That workflow passes locally; its separate setup phase now
+cancels and disposes compiler contexts before cleanup. Ten lifecycle cases and
+the existing browser workflow pass without changing assertions or time limits.
+Consolidated release validation remains pending.
 
 The new Identify action opens Results directly. Source also restores keyboard
 focus after governed queries finish while preserving the user's choice to hide

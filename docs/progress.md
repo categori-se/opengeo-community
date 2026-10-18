@@ -1,3 +1,29 @@
+## October 18 — Cancel interrupted TIFF preview preparation before cleanup
+
+The existing setup signal previously stopped only between compiler awaits, and
+teardown waited for preparation before it could release resources. Optional
+cancellation now reaches each owning esbuild context and the editor fixture.
+Late contexts are canceled/disposed, active rebuilds and cleanup drain before
+settlement, the original abort reason survives cleanup errors, and listeners are
+removed. CSS siblings finish cleanup before failure returns. Calls without a signal
+retain the existing native build path. Teardown aborts before awaiting preparation.
+
+Ten focused lifecycle cases pass, including a small actual native cancellation.
+The unchanged synthetic TIFF browser journey passes in 3.071 seconds and leaves
+no temporary fixture directories. Static comparison preserves every browser
+assertion, mode timeout, compiler build option and embedded standalone-file verifier.
+An initial static probe expected five build expressions; the source has four,
+executed eight times through package/CSS loops. Correcting that assertion changes
+no application code. Failed-probe effort remains in the existing local manifest.
+The 15-second setup, 18-second interaction and five-second cleanup limits remain.
+Cancellation is cooperative; no process hard-kill guarantee is claimed.
+
+No dependency, full application build, AWS/KMS, Actions, provider, container,
+deployment or invalidation is used. Consolidated CI remains pending known free
+capacity. Independent operator/clean-machine and configured identity/HTTPS/CDN/
+compiler delivery acceptance remain open; prior core, study and installer evidence
+is retained.
+
 ## October 18 — Separate Publication content and map drawing from central modules
 
 Authored content parsing/serialization now lives in `apiResourceContentContracts.js`,

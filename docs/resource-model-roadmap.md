@@ -1,5 +1,16 @@
 # Resource model: active plan and continuation queue
 
+October 18 — TIFF preview preparation supports cancellation
+
+The existing compiler and editor fixture now receive the setup cancellation
+signal. Each esbuild context is canceled/disposed before preparation settles;
+parallel CSS work drains before returning a failure. Teardown cancels before
+waiting for interrupted setup. Ten lifecycle checks, including native cancellation,
+and the unchanged TIFF browser journey pass locally. All assertions and the
+15/18/5-second limits remain. No full application build, AWS/KMS or Actions run is
+used. Consolidated validation and independent installation/delivery remain open;
+reuse accepted core, study and installer results without replaying them.
+
 October 18 — Publication content and map drawing extracted
 
 Authored Publication parsing/serialization and map drawing/query interactions now
