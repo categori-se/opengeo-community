@@ -1,5 +1,18 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Current managed-analysis API and selected SQL lifecycle accepted locally
+
+The current ASGI routes pass native principal/tenant PostgreSQL checks for private
+jobs, idempotent submission and cancellation after access revocation. Updated SQL
+also verifies immutable profiles, the four-job host cap, preservation of a pending
+submission during ordinary close, and signal-close controller fencing. An isolated
+temporary database clone avoids migration replay; it is removed and the original
+study and stopped database are preserved. No AWS, Actions or build is used.
+The [progress record](progress.md) retains prior failures and cumulative usage.
+Complete managed browser/execution, concurrent interleavings, admitted-host/security
+and AWS cleanup/delivery checks remain open; activation stays disabled. Core
+installation and production-delivery requirements retain their existing priority.
+
 October 17 — Fresh public-source state imports and retains the real study
 
 The public checkout initializes an empty local database and opens the compiled
@@ -229,8 +242,9 @@ application-bucket transfers are implemented with activation disabled. Actual
 local coordinator execution passes all three languages and cancellation; selected
 earlier native SQL authority/lifecycle groups pass. Source review fixes startup
 receipt retention, four-job admission and atomic window closure before consumer
-exit. Those changed SQL paths remain native-unaccepted. Connected HTTP/database, admitted host,
-fresh-boot rootless/security and real AWS cleanup/deployment remain open. Keep these distinct from
+exit. The selected updated SQL paths and current ASGI/native database checks now
+pass as recorded above. Complete managed browser/execution, concurrent interleavings,
+admitted host, fresh-boot rootless/security and real AWS cleanup/deployment remain open. Keep these distinct from
 completed local implementation. [Contract](python-automation.md#analysis-console-in-a-map).
 
 October 17 — Identify, point clustering and readable Layer presentation

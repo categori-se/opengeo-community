@@ -19112,3 +19112,30 @@ pinned secret scanner is restored and checksum verified. Initial private finding
 text; no credentials are identified and default rules stay active. Final source
 checkpoint/remote push receipts remain pending. Existing costs and failures carry
 forward; service-mediated KMS and whole-workflow dollars remain unknown.
+## October 17 — Managed analysis reaches current API and native SQL
+
+The existing helper now runs current ASGI routes against the normal PostgreSQL
+principal and tenant repositories in one temporary clone of the accepted schema.
+Seventeen ASGI requests cover authenticated capabilities, exact request
+identity/conflict, actor/account privacy, explicit idempotent submit and owner
+cancellation after source/edit access is revoked. Three additional native SQL
+groups verify immutable profiles, four submitted jobs per host window, a pending
+submission preventing ordinary close, and signal close advancing the revision and
+fencing the earlier controller. These do not prove concurrent interleavings.
+
+The first attempt reaches two requests, then the production client's TLS requirement
+rejects the isolated plaintext database. A fixture-only exact loopback configuration
+resolves it; production settings are unchanged. Both attempts and the original
+46.371 native seconds remain counted: 19 ASGI requests, 146 counted cursor execute
+attempts, 13 orchestration SQL commands and 54.216 cumulative native seconds.
+Implicit transaction protocol commands are excluded. The changed method's explicit
+90-second ceiling carries forward earlier usage and preserves the original
+60-second plan and failures. No accepted
+core, native code-execution or prior SQL group is replayed.
+
+Both temporary databases and check containers are removed; the retained study's
+revision/file hashes are unchanged and its database is stopped. No AWS, Actions,
+build or deployment occurs. Token verification, object storage and dispatch are
+local peers. Complete managed browser/API/execution, production TLS, concurrent
+transactions, admitted-host/security and actual AWS cleanup/delivery remain open;
+managed activation stays disabled.

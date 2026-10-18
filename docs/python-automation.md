@@ -67,13 +67,21 @@ separate shared operating cost; no zero-total-idle-cost claim is made.
 Each host accepts at most four jobs. Startup waits retain the same queue receipt;
 idle, job-limit and deadline exits close that window to further submissions before
 the existing controller removes the host. A job admitted before an ordinary idle
-close keeps the consumer active. These lifecycle changes remain source-only until
-the connected database and fresh-host checks pass.
+close keeps the consumer active. Current native database checks verify profile
+matching, the four-job window cap, ordinary close preserving a pending submission,
+and signal close retiring the window and fencing the previous controller. Concurrent
+transaction interleavings and the complete fresh-host consumer lifecycle remain open.
 
 Actual local coordinator checks cover Python, JavaScript, Bash and cancellation;
-native SQL checks cover the selected permission, lease and cleanup groups.
-Connected HTTP/database acceptance, an admitted AMI, fresh-boot rootless execution,
-current image security and real AWS cleanup remain open. The optional AMI package,
+native SQL checks cover the selected permission, lease and cleanup groups. The
+current ASGI routes also pass 17 requests against the real principal and tenant
+repositories and PostgreSQL roles, including idempotent submission, account/actor
+privacy and cancellation after access revocation. Identity tokens, object storage
+and dispatch are explicit local peers; the isolated database uses a fixture-only
+loopback connection, which does not establish production TLS. No managed execution host was started.
+The complete managed browser/API/execution workflow, concurrent transactions, an
+admitted AMI, fresh-boot rootless execution, current image security and real AWS
+cleanup remain open. The optional AMI package,
 host verifier and installer are source prerequisites, not a verified baked host.
 The console never runs user code inside the API or publication compiler.
 

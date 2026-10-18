@@ -1,5 +1,16 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Current managed-analysis routes and SQL lifecycle accepted locally
+
+The existing native helper can use current API source and an isolated clone of
+the accepted schema, avoiding repeated migration setup and the older frozen HTTP
+package. Actual ASGI requests exercise native principal and tenant repositories;
+targeted SQL verifies profile binding, the four-job cap and host-close fencing.
+The fixture's plaintext exception is confined to its exact isolated loopback DSN;
+production TLS settings are unchanged. All temporary resources are removed and
+the original study is unchanged. See [progress](progress.md) for retained failure
+and cumulative usage. Managed activation and remaining host/cloud checks stay open.
+
 October 17 — Fresh-state Publication source import accepted
 
 The unchanged public development runner initializes a new local database from the
