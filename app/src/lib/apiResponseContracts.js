@@ -61,6 +61,12 @@ export function sha256(value, label) {
   return digest;
 }
 
+export function sha256Checksum(value, label) {
+  const parsed = string(value, label);
+  if (!/^[0-9a-f]{64}$/.test(parsed)) throw new TypeError(`${label} is invalid`);
+  return parsed;
+}
+
 export async function responsePayload(response) {
   if (response.status === 204) return null;
   const text = await response.text();

@@ -1,5 +1,14 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Catalog preview response contracts separated
+
+`apiPreviewContracts.js` owns the existing bounded spatial and document parsers.
+The API client retains its public exports and reuses the geometry validator for
+governed features and public previews. Its shared checksum helper moves unchanged
+to `apiResponseContracts.js`, preserving its TypeError behavior. All other parser
+bodies are unchanged; 166 existing client and Catalog tests pass. No wire format,
+permission, storage or runtime setting changes. Build and delivery remain pending.
+
 October 17 — Current managed-analysis routes and SQL lifecycle accepted locally
 
 The existing native helper can use current API source and an isolated clone of

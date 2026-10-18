@@ -1,3 +1,21 @@
+## October 17 — Catalog preview contracts separated from the API client
+
+Spatial and document preview response validation moves to `apiPreviewContracts.js`,
+reducing the API client by 560 lines. The public parser exports remain available
+from the client. Public previews and governed features reuse the same bounded
+GeoJSON validator; the checksum helper retains its distinct TypeError behavior in
+the existing shared contract module. Comparison with the prior source confirms
+unchanged validation bodies, limits, errors and all other client behavior.
+
+The first check exposed two missing shared dependencies. After diagnosis and
+repair, all 166 existing client, archive-preview and Catalog-to-Project tests pass
+in 1.044 seconds. The retained local log includes the failures; no new test suite,
+application build, AWS call or Actions run is used. This is a source checkpoint,
+not deployed acceptance. Independent installation, production delivery and broader
+frontend decomposition remain open. Private main validation awaits evidence of
+remaining free Actions capacity; the configured owner billing read also returned
+404, so further equivalent probes are stopped.
+
 ## October 17 — Real study source saved in fresh public state
 
 Public source `6f50d337` initializes a new local database and opens compiled Studio

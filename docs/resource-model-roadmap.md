@@ -1,5 +1,14 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Catalog preview response contracts separated
+
+Spatial and document preview validation now lives in a focused module, reducing
+the API client by 560 lines. Existing exports, validation bodies, limits and error
+types are preserved; 166 selected client and Catalog checks pass. This source
+change has not been built or deployed. Reuse accepted core and publication
+results; independent installation and configured production delivery remain open.
+Private main validation still awaits verified free Actions capacity.
+
 October 17 — Current managed-analysis API and selected SQL lifecycle accepted locally
 
 The current ASGI routes pass native principal/tenant PostgreSQL checks for private
@@ -126,7 +135,8 @@ The origin update/invalidation completed and the release window is closed.
 Demo `f9104ca4a640` remains live. The mixed core-browser test build is not a
 production candidate.
 
-GitHub Actions are limited to the free allowance. Two exact billing reads cannot
+GitHub Actions are limited to the free allowance. Configured billing reads,
+including the existing repository-owner profile, cannot
 establish remaining capacity, so no new runner job is admitted. Retain a release
 branch checkpoint and leave required main-branch validation pending; do not skip
 checks or assume paid minutes are available.

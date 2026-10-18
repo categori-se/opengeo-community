@@ -16,6 +16,11 @@ private account configuration is not part of the community source.
 Completed work stays completed when a later release or installation check is
 pending. We record implementation, acceptance and delivery separately:
 
+The API client's spatial and document preview contracts now live in a focused
+module. Its existing exports and validation behavior are preserved, with 166
+selected client and Catalog tests passing. This source change awaits the next
+consolidated build and delivery; broader frontend decomposition remains open.
+
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |
 | Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. | Broader portable round trips and the complete contributor-to-reviewer-to-publisher browser journey. |
