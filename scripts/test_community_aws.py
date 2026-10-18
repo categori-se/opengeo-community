@@ -422,5 +422,170 @@ class DeploymentGuards(unittest.TestCase):
             self.assertFalse(deployment.read("publication-origins.json"))
 
 
+    def github_deployment(self, root, **changes):
+        build = {"githubAppSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:independent/app-AbCd12",
+            "coordinatorDatabaseSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:independent/compiler-AbCd12",
+            "repository": {"fullName": "operator/runtime", "id": 123, "ownerId": 456, "private": False},
+            "runtimeSha": "a" * 40, "connection": {"id": "10000000-0000-4000-8000-000000000001",
+                "organizationId": "10000000-0000-4000-8000-000000000002", "installationId": 789, "workflowId": 42}, **changes}
+        path = self.config_file(root, nativeGitHubBuild=build)
+        deployment = MODULE.Deployment(MODULE.load_config(path))
+        deployment.save("web.outputs.json", {"StudioDistributionDomainName": "d123456789.cloudfront.net"})
+        deployment.save("api.outputs.json", {"ApiEndpoint": "https://abcdefghij.execute-api.us-east-1.amazonaws.com"})
+        deployment.save("images.json", {"api": "sha256:" + "a" * 64, "compiler": "sha256:" + "b" * 64})
+        deployment.save("foundation.outputs.json", {
+            "ApplicationBucketName": "my-opengeo-123456789012-us-east-1-app",
+            "GeodataBucketName": "my-opengeo-123456789012-us-east-1-data",
+            "DatabaseClusterArn": "arn:aws:rds:us-east-1:123456789012:cluster:independent",
+            "CommunityApplicationKmsKeyArn": "arn:aws:kms:us-east-1:123456789012:key/10000000-0000-4000-8000-000000000003",
+            "DatabaseSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:independent/admin-AbCd12",
+            "RuntimeDatabaseSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:independent/runtime-AbCd12",
+            "WorkerDatabaseSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:independent/worker-AbCd12",
+            "ObservableBuilderRepositoryUri": "123456789012.dkr.ecr.us-east-1.amazonaws.com/opengeo/dev/observable-builder"})
+        return path, MODULE.Deployment(MODULE.load_config(path))
+
+    def github_evidence(self):
+        return {"repository": {"id": 123, "owner": {"id": 456}, "full_name": "operator/runtime", "private": False,
+                    "archived": False, "disabled": False},
+            "oidc": {"use_default": True, "use_immutable_subject": True, "sub_claim_prefix": "repo:operator@456/runtime@123"},
+            "environment": {"name": "studio-framework-build", "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}},
+            "policies": {"total_count": 1, "branch_policies": [{"type": "branch", "name": "studio-runtime-" + "a" * 40}]},
+            "ref": {"ref": "refs/heads/studio-runtime-" + "a" * 40, "object": {"type": "commit", "sha": "a" * 40}}}
+
+    def github_connection_receipt(self):
+        return {"account": CONFIG["account"], "connectionId": "10000000-0000-4000-8000-000000000001",
+            "organizationId": "10000000-0000-4000-8000-000000000002", "status": "registered",
+            "runtimeVerification": "passed", "metadataChecks": "passed"}
+
+    def github_role_receipt(self):
+        return {"status": "configured", "configureObservableCoordinatorOnly": True,
+            "databaseRoles": ["opengeo_observable_coordinator"], "passwordsExposed": False}
+
+    def test_github_plan_and_synth_never_advertise_or_run_external_setup(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            path, deployment = self.github_deployment(Path(directory))
+            self.assertNotIn("OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG", deployment.env)
+            with patch.object(MODULE, "run", side_effect=AssertionError("offline plan")), contextlib.redirect_stdout(io.StringIO()) as output:
+                MODULE.main(["github-build", "--config", str(path)])
+            plan = json.loads(output.getvalue())
+            self.assertTrue(plan["nativeGitHubBuildConfigured"])
+            self.assertGreater(plan["order"].index("github-build"), plan["order"].index("owner"))
+            with patch.object(MODULE, "run") as execute, contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["synth", "--config", str(path), "--with-github-build"])
+            self.assertEqual(execute.call_args.args[0], ["node", "--import", "tsx", "bin/opengeo-community.ts"])
+            config = json.loads(execute.call_args.kwargs["env"]["OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG"])
+            self.assertFalse(config["enabled"])
+            self.assertNotIn("connection", config)
+            self.assertFalse(deployment.read("github-build.intent.json"))
+
+    def test_github_configuration_rejects_open_or_foreign_identity_and_unverified_admission(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            root = Path(directory); path, deployment = self.github_deployment(root)
+            original = deployment.cfg["nativeGitHubBuild"]
+            for changes in ({"privateKey": "never accept"}, {"enabled": True}, {"enabled": "true"},
+                    {"githubAppSecretArn": original["githubAppSecretArn"].replace("123456789012", "999999999999")},
+                    {"githubAppSecretArn": original["coordinatorDatabaseSecretArn"]},
+                    {"repository": {**original["repository"], "id": "123"}},
+                    {"connection": {**original["connection"], "organizationId": "not-uuid"}},
+                    {"artifactInputOrganizations": {}}, {"artifactInputOrganizations": [None]}):
+                with self.subTest(changes=changes), self.assertRaises(ValueError):
+                    MODULE.load_config(self.config_file(root, nativeGitHubBuild={**original, **changes}))
+            foundation = deployment.read("foundation.outputs.json"); foundation.pop("CommunityApplicationKmsKeyArn")
+            deployment.save("foundation.outputs.json", foundation)
+            with self.assertRaisesRegex(ValueError, "refresh Foundation"):
+                deployment.prepare_github_build()
+
+    def test_github_install_orders_dormant_role_connection_then_admission_and_reuses_receipt(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            path, deployment = self.github_deployment(Path(directory)); events = []
+            def deploy(active, *kinds):
+                intent = active.read("github-build.intent.json")
+                enabled = json.loads(active.env["OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG"])["enabled"]
+                self.assertFalse(enabled)
+                events.append(("deploy", kinds, intent["databaseConfigured"], intent["connectionConfigured"]))
+            def execute(command, **kwargs):
+                if "apply_migrations.py" in command[1]:
+                    events.append(("role",)); self.assertIn("--observable-coordinator-secret-arn", command)
+                    self.assertIn("--configure-observable-coordinator-only", command)
+                    self.assertNotIn("--runtime-secret-arn", command)
+                    self.assertNotIn("--worker-secret-arn", command)
+                    return json.dumps(self.github_role_receipt())
+                self.assertEqual(command[1], "database/scripts/bootstrap_github_build_connection.py")
+                self.assertTrue(deployment.read("github-build.intent.json")["databaseConfigured"])
+                events.append(("connection",)); return json.dumps(self.github_connection_receipt())
+            with patch.object(MODULE.Deployment, "identity", side_effect=lambda: events.append(("identity",))), patch.object(MODULE.Deployment, "deploy", autospec=True, side_effect=deploy), patch.object(MODULE, "run", side_effect=execute), contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["github-build", "--config", str(path), "--email", "OWNER@example.org", "--apply"])
+            self.assertEqual([event[0] for event in events], ["identity", "deploy", "role", "connection", "deploy"])
+            self.assertEqual(events[1][1], ("Foundation", "GitHubBuildAccess", "GitHubBuildController", "Api"))
+            self.assertEqual(events[-1][2:], (True, True))
+            self.assertTrue(deployment.read("github-build.intent.json")["complete"])
+            variables = deployment.read("github-build.repository-variables.json")
+            self.assertEqual(variables["STUDIO_GITHUB_BUILDS_ENABLED"], "false")
+            self.assertEqual(variables["STUDIO_BUILD_DATABASE_SECRET_ARN"], deployment.cfg["nativeGitHubBuild"]["coordinatorDatabaseSecretArn"])
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy", side_effect=AssertionError("do not replay")), patch.object(MODULE, "run", side_effect=AssertionError("do not replay")), contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["github-build", "--config", str(path), "--email", "owner@example.org", "--apply"])
+
+    def test_github_continuation_keeps_role_setup_and_does_not_restore_incomplete_admission(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            root = Path(directory); path, deployment = self.github_deployment(root)
+            current = deployment.prepare_github_build()
+            deployment.save("github-build.intent.json", {**current, "infrastructureConfigured": True,
+                "databaseConfigured": True, "connectionConfigured": False, "complete": False})
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy"), patch.object(MODULE, "run", return_value=json.dumps({"runtimeVerification": "failed"})), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(ValueError, "readback"):
+                    MODULE.main(["github-build", "--config", str(path), "--email", "owner@example.org", "--apply"])
+            self.assertTrue(deployment.read("github-build.intent.json")["databaseConfigured"])
+            self.assertFalse(deployment.read("github-build.intent.json")["connectionConfigured"])
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy") as deploy, patch.object(MODULE, "run", return_value=json.dumps(self.github_connection_receipt())) as execute, contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["github-build", "--config", str(path), "--email", "owner@example.org", "--apply"])
+            execute.assert_called_once(); self.assertIn("bootstrap_github_build_connection.py", execute.call_args.args[0][1])
+            deploy.assert_called_once_with("GitHubBuildAccess", "GitHubBuildController", "Api")
+            evidence = root / "trust.json"; observed = self.github_evidence()
+            observed["repository"]["unrelatedCredential"] = "DO_NOT_RETAIN"
+            evidence.write_text(json.dumps(observed))
+            cfg = {**CONFIG, "nativeGitHubBuild": {**deployment.cfg["nativeGitHubBuild"], "enabled": True, "freeExecutionVerified": True, "trustEvidencePath": str(evidence)}}
+            path.write_text(json.dumps(cfg)); changed = MODULE.Deployment(MODULE.load_config(path), allow_github_build_change=True)
+            admission = changed.prepare_github_build(); changed.save("github-build.intent.json", {**admission,
+                "infrastructureConfigured": True, "databaseConfigured": True, "connectionConfigured": True, "complete": False})
+            self.assertNotIn("DO_NOT_RETAIN", json.dumps(admission))
+            restored = MODULE.Deployment(MODULE.load_config(path))
+            self.assertFalse(json.loads(restored.env["OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG"])["enabled"])
+            bad_evidence = self.github_evidence(); bad_evidence["oidc"]["use_immutable_subject"] = False
+            evidence.write_text(json.dumps(bad_evidence))
+            with self.assertRaisesRegex(ValueError, "immutable subject"):
+                MODULE.Deployment(MODULE.load_config(path), allow_github_build_change=True)
+
+    def test_github_initial_deployment_failure_cannot_skip_dormant_setup_on_resume(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            path, deployment = self.github_deployment(Path(directory))
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy", side_effect=RuntimeError("interrupted")), patch.object(MODULE, "run", side_effect=AssertionError("no role yet")):
+                with self.assertRaisesRegex(RuntimeError, "interrupted"):
+                    MODULE.main(["github-build", "--config", str(path), "--email", "owner@example.org", "--apply"])
+            self.assertFalse(deployment.read("github-build.intent.json")["infrastructureConfigured"])
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy") as deploy, patch.object(MODULE, "run", side_effect=[json.dumps(self.github_role_receipt()), json.dumps(self.github_connection_receipt())]), contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["github-build", "--config", str(path), "--email", "owner@example.org", "--apply"])
+            self.assertEqual(deploy.call_args_list[0].args, ("Foundation", "GitHubBuildAccess", "GitHubBuildController", "Api"))
+
+    def test_github_new_activation_rechecks_authority_without_reconfiguring_the_role(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            root = Path(directory); path, deployment = self.github_deployment(root)
+            prior = deployment.prepare_github_build()
+            deployment.save("github-build.intent.json", {**prior, "infrastructureConfigured": True,
+                "databaseConfigured": True, "connectionConfigured": True, "complete": True,
+                "connectionReceipt": self.github_connection_receipt()})
+            evidence = root / "trust.json"; evidence.write_text(json.dumps(self.github_evidence()))
+            path.write_text(json.dumps({**CONFIG, "nativeGitHubBuild": {**deployment.cfg["nativeGitHubBuild"],
+                "enabled": True, "freeExecutionVerified": True, "trustEvidencePath": str(evidence)}}))
+            phases = []
+            def deploy(active, *kinds):
+                phases.append(json.loads(active.env["OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG"])["enabled"])
+            result = {**self.github_connection_receipt(), "status": "reused"}
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy", autospec=True, side_effect=deploy), patch.object(MODULE, "run", return_value=json.dumps(result)) as execute, contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["github-build", "--config", str(path), "--email", "owner@example.org", "--apply"])
+            execute.assert_called_once(); self.assertEqual(execute.call_args.args[0][1], "database/scripts/bootstrap_github_build_connection.py")
+            self.assertEqual(phases, [False, True])
+            self.assertTrue(json.loads(MODULE.Deployment(MODULE.load_config(path)).env["OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG"])["enabled"])
+
+
 if __name__ == "__main__":
     unittest.main()

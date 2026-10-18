@@ -1,5 +1,22 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Standalone GitHub compiler setup connected
+
+The explicit installer phase now connects existing controller/IAM components,
+the dedicated coordinator login and an administrator-verified account GitHub grant.
+Execution defaults off. It preserves queue exports and completed setup receipts;
+ordinary steps cannot restore admission from an incomplete cutover. New activation
+rechecks administrator/App authority and requires exact trust/free-capacity intent.
+Actual secret encryption must match runtime IAM. The existing migration runner now
+configures only the coordinator login, without replaying migrations or touching
+runtime/worker credentials, under a bounded request/deadline policy. Focused Python,
+actual helper SQL, CDK and TypeScript checks pass locally, including public source
+substitutions. No AWS/KMS, Actions, dependencies, containers or builds are used.
+Next, independent operator installation and configured identity/HTTPS/CDN/compiler
+execution acceptance remain open. GitHub variables/trust setup is explicit operator
+work; no workflow is dispatched. Reuse accepted core, preview, publisher, origin,
+compiler and Berkshire results; main validation still needs known free capacity.
+
 October 17 — Independent GitHub compiler resources supported
 
 The trusted runtime, build-only IAM and maintained manual workflow now accept

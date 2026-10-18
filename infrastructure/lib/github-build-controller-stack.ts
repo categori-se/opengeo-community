@@ -14,6 +14,8 @@ export interface GitHubBuildControllerStackProps extends StackProps {
   readonly githubAppSecretArn: string;
   /** Existing KMS key encrypting that exact secret, if customer-managed. */
   readonly githubAppSecretKeyArn?: string;
+  /** Installation-specific physical names; omission preserves existing deployments. */
+  readonly resourceNamePrefix?: string;
   readonly enabled?: boolean;
 }
 
@@ -25,18 +27,34 @@ export class GitHubBuildControllerStack extends Stack {
   constructor(scope: Construct, id: string, props: GitHubBuildControllerStackProps) {
     super(scope, id, props);
     const {config, foundation} = props;
+    if (props.resourceNamePrefix !== undefined &&
+        (props.resourceNamePrefix.length > 40 || /[\u0000-\u0020\u007f]/.test(props.resourceNamePrefix) ||
+          !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(props.resourceNamePrefix))) {
+      throw new Error("GitHub controller resource-name prefix must be a lowercase hyphenated name of at most 40 characters");
+    }
+    const resourceNamePrefix = props.resourceNamePrefix ?? `opengeo-${config.stage}`;
     if (!/^sha256:[0-9a-f]{64}$/.test(props.imageDigest)) throw new Error("Pin the controller image digest");
     const secret = /^arn:aws(?:-us-gov|-cn)?:secretsmanager:([^:]+):([0-9]{12}):secret:[A-Za-z0-9/_+=.@-]+$/.exec(props.githubAppSecretArn);
     if (secret?.[1] !== this.region || secret?.[2] !== this.account) {
       throw new Error("GitHub App secret must belong to this account and region");
     }
+    if (props.resourceNamePrefix !== undefined &&
+        (!new RegExp(`^arn:aws:secretsmanager:${this.region}:${this.account}:secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}$`).test(props.githubAppSecretArn) ||
+          /[\u0000-\u0020\u007f]/.test(props.githubAppSecretArn))) {
+      throw new Error("Independent GitHub App credential must be a complete same-account secret ARN");
+    }
+    if (props.githubAppSecretKeyArn !== undefined &&
+        (!new RegExp(`^arn:aws:kms:${this.region}:${this.account}:key/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).test(props.githubAppSecretKeyArn) ||
+          /[\u0000-\u0020\u007f]/.test(props.githubAppSecretKeyArn))) {
+      throw new Error("GitHub App encryption key must be an exact same-account regional key ARN");
+    }
     const deadLetters = new sqs.Queue(this, "DeadLetters", {
-      queueName: `opengeo-${config.stage}-github-builds-dlq`,
+      queueName: `${resourceNamePrefix}-github-builds-dlq`,
       encryption: sqs.QueueEncryption.SQS_MANAGED, enforceSSL: true,
       retentionPeriod: Duration.days(14), removalPolicy: RemovalPolicy.RETAIN
     });
     this.queue = new sqs.Queue(this, "Queue", {
-      queueName: `opengeo-${config.stage}-github-builds`,
+      queueName: `${resourceNamePrefix}-github-builds`,
       encryption: sqs.QueueEncryption.SQS_MANAGED, enforceSSL: true,
       visibilityTimeout: Duration.minutes(90), receiveMessageWaitTime: Duration.seconds(20),
       retentionPeriod: Duration.days(4),
@@ -44,11 +62,11 @@ export class GitHubBuildControllerStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN
     });
     const logGroup = new logs.LogGroup(this, "Logs", {
-      logGroupName: `/opengeo/${config.stage}/github-build-controller`,
+      logGroupName: `/opengeo/${props.resourceNamePrefix ?? config.stage}/github-build-controller`,
       retention: logs.RetentionDays.ONE_WEEK, removalPolicy: RemovalPolicy.RETAIN
     });
     this.controller = new lambda.DockerImageFunction(this, "Controller", {
-      functionName: `opengeo-${config.stage}-github-build-controller`,
+      functionName: `${resourceNamePrefix}-github-build-controller`,
       description: "On-demand GitHub source sync and run observation; no build or publisher authority",
       code: lambda.DockerImageCode.fromEcr(foundation.apiRepository, {
         tagOrDigest: props.imageDigest, cmd: ["opengeo_api.github_build_controller.handler"]

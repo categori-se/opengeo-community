@@ -300,6 +300,127 @@ function communityDisabledPublication() {
   });
 }
 
+const runtimeSha = "9".repeat(40);
+const nativeGitHubBuildConfiguration = {
+  githubAppSecretArn: `arn:aws:secretsmanager:us-east-1:${account}:secret:community/github-app-AbCd12`,
+  githubAppSecretKeyArn: `arn:aws:kms:us-east-1:${account}:key/11111111-2222-4333-8444-555555555555`,
+  coordinatorDatabaseSecretArn: `arn:aws:secretsmanager:us-east-1:${account}:secret:community/compiler-database-AbCd12`,
+  databaseClusterArn: `arn:aws:rds:us-east-1:${account}:cluster:community-entry-core`,
+  kmsKeyArn: `arn:aws:kms:us-east-1:${account}:key/22222222-3333-4444-8555-666666666666`,
+  compilerRepositoryArn: `arn:aws:ecr:us-east-1:${account}:repository/opengeo/dev/observable-builder`,
+  repository: {fullName: "independent-owner/runtime", id: 12345, ownerId: 67890, private: false}, runtimeSha
+};
+const githubBuildEvidence = {
+  repository: {id: 12345, owner: {id: 67890}, full_name: "independent-owner/runtime", private: false, archived: false, disabled: false},
+  oidc: {use_default: true, use_immutable_subject: true, sub_claim_prefix: "repo:independent-owner@67890/runtime@12345"},
+  environment: {name: "studio-framework-build", deployment_branch_policy: {protected_branches: false, custom_branch_policies: true}},
+  policies: {total_count: 1, branch_policies: [{type: "branch", name: `studio-runtime-${runtimeSha}`}]},
+  ref: {ref: `refs/heads/studio-runtime-${runtimeSha}`, object: {type: "commit", sha: runtimeSha}}
+};
+let disabledGitHubBuildEntrypoint: ReturnType<typeof synthCommunityEntrypoint> | undefined;
+function communityDisabledGitHubBuild() {
+  return disabledGitHubBuildEntrypoint ??= synthCommunityEntrypoint({
+    OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG: JSON.stringify(nativeGitHubBuildConfiguration)
+  });
+}
+
+test("community entrypoint creates the existing GitHub controller and independent build role with admission off", () => {
+  const baseline = communityBaseline(), result = communityDisabledGitHubBuild();
+  assert.equal(result.status, 0, result.stderr);
+  const templates = result.templates!, access = templates.GitHubBuildAccess!, controller = templates.GitHubBuildController!;
+  assert.ok(access); assert.ok(controller);
+  assert.ok(templates.Foundation!.toJSON().Outputs.CommunityApplicationKmsKeyArn);
+  controller.hasResourceProperties("AWS::SQS::Queue", {QueueName: "og-community-entry-github-builds"});
+  controller.hasResourceProperties("AWS::Lambda::Function", {
+    FunctionName: "og-community-entry-github-build-controller", VpcConfig: Match.absent(),
+    Environment: {Variables: Match.objectLike({OPEN_GEO_GITHUB_APP_SECRET_ARN: nativeGitHubBuildConfiguration.githubAppSecretArn})}
+  });
+  controller.hasResourceProperties("AWS::Lambda::EventSourceMapping", {Enabled: false});
+  const fn = Object.values(controller.findResources("AWS::Lambda::Function"))[0]!;
+  assert.match(JSON.stringify(fn.Properties.Code.ImageUri), new RegExp(`sha256:${"a".repeat(64)}`));
+  const role = Object.values(access.findResources("AWS::IAM::Role"))[0]!;
+  assert.equal(role.Properties.RoleName, "og-community-entry-github-framework-build");
+  assert.equal(role.Properties.AssumeRolePolicyDocument.Statement[0].Effect, "Deny");
+  assert.match(JSON.stringify(role.Properties.Policies), /community-entry-333333333333-us-east-1-app/);
+  assert.match(JSON.stringify(role.Properties.Policies), /community-entry-333333333333-us-east-1-data/);
+  assert.ok(JSON.stringify(role.Properties.Policies).includes(nativeGitHubBuildConfiguration.coordinatorDatabaseSecretArn));
+  assert.equal(JSON.stringify(role.Properties.Policies).includes(nativeGitHubBuildConfiguration.githubAppSecretArn), false);
+  assert.equal(role.Properties.Policies.some((policy: {PolicyName: string}) => policy.PolicyName === "AccountArtifactInputs"), false);
+  const api = Object.values(templates.Api!.findResources("AWS::Lambda::Function"))
+    .find(resource => resource.Properties.Environment?.Variables?.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST)!;
+  const variables = api.Properties.Environment.Variables;
+  assert.equal("OPEN_GEO_OBSERVABLE_BUILD_QUEUE_URL" in variables, false);
+  assert.equal(variables.OPEN_GEO_OBSERVABLE_BUILD_PROVIDER, "private_worker");
+  assert.equal("OPEN_GEO_PORTABLE_ARTIFACTS_ENABLED" in variables, false);
+  assert.equal("OPEN_GEO_PUBLICATION_ARTIFACT_BUILDS_ENABLED" in variables, false);
+  assert.doesNotMatch(JSON.stringify([access.toJSON(), controller.toJSON()]),
+    /source\.opengeo\.tools|storage\.opengeo\.tools|111111111111|cloudfront:|iam:PassRole|s3:DeleteObject/);
+  for (const type of ["AWS::EC2::Instance", "AWS::EC2::VPCEndpoint", "AWS::EC2::NatGateway", "AWS::ECS::Service", "AWS::ECR::Repository"]) {
+    const count = (values: Record<string, Template>) => Object.values(values)
+      .reduce((total, template) => total + Object.keys(template.findResources(type)).length, 0);
+    assert.equal(count(templates), count(baseline.templates!), `${type} must not expand for GitHub builds`);
+  }
+});
+
+test("community GitHub activation binds trust evidence and explicit Artifact authority while preserving disabled queue exports", () => {
+  const organizationId = "10000000-0000-4000-8000-000000000001";
+  const result = synthCommunityEntrypoint({OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG: JSON.stringify({
+    ...nativeGitHubBuildConfiguration, enabled: true, freeExecutionVerified: true, githubEvidence: githubBuildEvidence,
+    artifactInputOrganizations: [organizationId]
+  })});
+  assert.equal(result.status, 0, result.stderr);
+  const templates = result.templates!, controller = templates.GitHubBuildController!, access = templates.GitHubBuildAccess!;
+  controller.hasResourceProperties("AWS::Lambda::EventSourceMapping", {Enabled: true});
+  const role = Object.values(access.findResources("AWS::IAM::Role"))[0]!;
+  const trust = role.Properties.AssumeRolePolicyDocument.Statement[0];
+  assert.equal(trust.Effect, "Allow");
+  assert.equal(trust.Condition.StringEquals["token.actions.githubusercontent.com:sub"],
+    "repo:independent-owner@67890/runtime@12345:environment:studio-framework-build");
+  const artifacts = role.Properties.Policies.find((policy: {PolicyName: string}) => policy.PolicyName === "AccountArtifactInputs");
+  assert.deepEqual(artifacts.PolicyDocument.Statement[0].Action, ["s3:GetObjectVersion"]);
+  assert.deepEqual(artifacts.PolicyDocument.Statement[0].Resource,
+    [`arn:aws:s3:::community-entry-${account}-us-east-1-app/organizations/${organizationId}/projects/*/artifacts/*/uploads/*/map.html`]);
+  const api = Object.values(templates.Api!.findResources("AWS::Lambda::Function"))
+    .find(resource => resource.Properties.Environment?.Variables?.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST)!;
+  assert.match(JSON.stringify(api.Properties.Environment.Variables.OPEN_GEO_OBSERVABLE_BUILD_QUEUE_URL), /GitHubBuildController/);
+  assert.equal(api.Properties.Environment.Variables.OPEN_GEO_OBSERVABLE_BUILD_PROVIDER, "github");
+  assert.equal(api.Properties.Environment.Variables.OPEN_GEO_PORTABLE_ARTIFACTS_ENABLED, "true");
+  assert.equal(api.Properties.Environment.Variables.OPEN_GEO_PUBLICATION_ARTIFACT_BUILDS_ENABLED, "true");
+  const exports = (template: Template) => new Map(Object.values(template.toJSON().Outputs as
+    Record<string, {Value: unknown; Export?: {Name: string}}>)
+    .filter(output => output.Export !== undefined).map(output => [output.Export!.Name, output.Value] as const));
+  const enabledExports = exports(controller), disabledExports = exports(communityDisabledGitHubBuild().templates!.GitHubBuildController!);
+  const imports = new Set([...JSON.stringify(templates.Api!.toJSON())
+    .matchAll(/"Fn::ImportValue":"([^"]*GitHubBuildController[^"]*)"/g)].map(match => match[1]!));
+  assert.equal(imports.size, 2);
+  for (const name of imports) {
+    assert.ok(enabledExports.has(name)); assert.ok(disabledExports.has(name));
+    assert.deepEqual(disabledExports.get(name), enabledExports.get(name));
+  }
+});
+
+test("community GitHub declarations reject unknown settings, credential conflation and unverified admission", () => {
+  const cases: Array<[NodeJS.ProcessEnv, RegExp]> = [
+    [{OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG: JSON.stringify(nativeGitHubBuildConfiguration), OPEN_GEO_COMMUNITY_WEB_ORIGIN: undefined}, /existing concrete Studio\/API origins/],
+    ...[
+      {password: "forbidden"}, {enabled: "true"}, {githubAppSecretArn: nativeGitHubBuildConfiguration.coordinatorDatabaseSecretArn},
+      {coordinatorDatabaseSecretArn: nativeGitHubBuildConfiguration.coordinatorDatabaseSecretArn.replace(account, "444444444444")},
+      {compilerRepositoryArn: `${nativeGitHubBuildConfiguration.compilerRepositoryArn}:latest`},
+      {githubAppSecretKeyArn: nativeGitHubBuildConfiguration.githubAppSecretKeyArn.replace(account, "444444444444")},
+      {artifactInputOrganizations: ["*"]}, {enabled: true},
+      {enabled: true, freeExecutionVerified: true},
+      {enabled: true, freeExecutionVerified: true, githubEvidence: {...githubBuildEvidence,
+        repository: {...githubBuildEvidence.repository, id: 99999}}}
+    ].map(change => [{OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG: JSON.stringify({...nativeGitHubBuildConfiguration, ...change})},
+      /closed JSON object|separate complete same-account secrets|Artifact input account grants|verified free execution capacity|Live GitHub trust evidence required|GitHub build trust/] as [NodeJS.ProcessEnv, RegExp])
+  ];
+  for (const [env, expected] of cases) {
+    const result = synthCommunityEntrypoint(env);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, expected);
+  }
+});
+
 test("community entrypoint installs the existing publisher disabled without creating hosting or compiler execution", () => {
   const baseline = communityBaseline();
   assert.equal(baseline.status, 0, baseline.stderr);

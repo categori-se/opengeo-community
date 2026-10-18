@@ -8,6 +8,9 @@ import {ServerlessApiStack} from "../lib/serverless-api-stack.js";
 import {StudioWebStack} from "../lib/studio-web-stack.js";
 import {WorkerServiceStack} from "../lib/worker-service-stack.js";
 import {FrameworkPublisherStack, type PublicationDestination} from "../lib/framework-publisher-stack.js";
+import {GitHubBuildControllerStack} from "../lib/github-build-controller-stack.js";
+import {GitHubFrameworkBuildAccessStack, githubBuildSubject, verifyGitHubBuildTrust, artifactInputReadPolicy,
+  type GitHubBuildRepository} from "../lib/github-framework-build-access-stack.js";
 
 // This profile reuses the maintained platform stacks with account-local identity
 // and storage. Deploy Web first, then use its concrete CloudFront URL as the
@@ -47,11 +50,13 @@ const apiImage = process.env.OPEN_GEO_API_IMAGE;
 const compilerImage = process.env.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST;
 const nativePreview = previewConfiguration(process.env.OPEN_GEO_COMMUNITY_PREVIEW_CONFIG, account);
 const publicationRaw = process.env.OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG;
-if (nativePreview !== undefined || publicationRaw !== undefined) {
+const githubBuildRaw = process.env.OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG;
+const nativeGitHubBuild = githubBuildConfiguration(githubBuildRaw, account);
+if (nativePreview !== undefined || publicationRaw !== undefined || nativeGitHubBuild !== undefined) {
   if (webOrigin === undefined || !apiOriginDomain ||
       !/^[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com$/.test(apiOriginDomain) ||
       apiImage === undefined || compilerImage === undefined) {
-    throw new Error(`Community ${nativePreview !== undefined ? "preview" : "publication"} requires existing concrete Studio/API origins and both immutable runtime images`);
+    throw new Error(`Community ${nativePreview !== undefined ? "preview" : nativeGitHubBuild !== undefined ? "GitHub build" : "publication"} requires existing concrete Studio/API origins and both immutable runtime images`);
   }
   parseImageTagOrDigest(apiImage);
   parseImageTagOrDigest(compilerImage);
@@ -122,6 +127,7 @@ if (webOrigin !== undefined) {
       }
     }} : {})
   });
+  new CfnOutput(foundation, "CommunityApplicationKmsKeyArn", {value: foundation.dataKey.keyArn});
   if (foundation.observablePreviewEdge !== undefined) {
     new CfnOutput(foundation, "CommunityPreviewShellBucketName", {
       value: foundation.observablePreviewEdge.shellBucket.bucketName
@@ -132,6 +138,33 @@ if (webOrigin !== undefined) {
   }
   if ((apiImage === undefined) !== (compilerImage === undefined)) {
     throw new Error("Community API and Observable builder immutable digests must be supplied together");
+  }
+  if (nativeGitHubBuild !== undefined) {
+    new GitHubFrameworkBuildAccessStack(app, `${stem}-GitHubBuildAccess`, {
+      env, coordinatorSecretArn: nativeGitHubBuild.coordinatorDatabaseSecretArn,
+      compilerRepositoryArn: nativeGitHubBuild.compilerRepositoryArn,
+      independentDeployment: {
+        resourceNamePrefix: `og-${name}`, applicationBucketName: config.storageBuckets.application,
+        archiveBucketName: config.storageBuckets.data, databaseClusterArn: nativeGitHubBuild.databaseClusterArn,
+        kmsKeyArn: nativeGitHubBuild.kmsKeyArn, repository: nativeGitHubBuild.repository
+      },
+      runtimeSha: nativeGitHubBuild.runtimeSha, githubEvidence: nativeGitHubBuild.githubEvidence,
+      enabled: nativeGitHubBuild.enabled === true,
+      ...(nativeGitHubBuild.artifactInputOrganizations?.length
+        ? {artifactInputOrganizations: nativeGitHubBuild.artifactInputOrganizations} : {})
+    });
+  }
+  const githubBuildController = nativeGitHubBuild === undefined ? undefined : new GitHubBuildControllerStack(app,
+    `${stem}-GitHubBuildController`, {
+      env, config, foundation, imageDigest: parseImageTagOrDigest(apiImage),
+      githubAppSecretArn: nativeGitHubBuild.githubAppSecretArn,
+      ...(nativeGitHubBuild.githubAppSecretKeyArn ? {githubAppSecretKeyArn: nativeGitHubBuild.githubAppSecretKeyArn} : {}),
+      resourceNamePrefix: `og-${name}`, enabled: nativeGitHubBuild.enabled === true
+    });
+  if (githubBuildController !== undefined) {
+    // Retain imported identities while admission is disabled before the API drops them.
+    githubBuildController.exportValue(githubBuildController.queue.queueArn);
+    githubBuildController.exportValue(githubBuildController.queue.queueUrl);
   }
   const publisher = nativePublication === undefined ? undefined : new FrameworkPublisherStack(app, `${stem}-FrameworkPublisher`, {
     env, config, foundation, imageDigest: parseImageTagOrDigest(apiImage),
@@ -151,6 +184,11 @@ if (webOrigin !== undefined) {
       env, config, foundation,
       imageDigest: parseImageTagOrDigest(apiImage),
       observableBuilderImageDigest: parseImageTagOrDigest(compilerImage),
+      ...(nativeGitHubBuild?.enabled === true && githubBuildController ? {
+        observableBuildQueue: githubBuildController.queue, observableBuildProvider: "github" as const,
+        ...(nativeGitHubBuild.artifactInputOrganizations?.length
+          ? {enablePortableArtifacts: true, enablePublicationArtifactBuilds: true} : {})
+      } : {}),
       ...(nativePublication?.enabled === true && publisher ? {frameworkPublicationQueue: publisher.queue} : {}),
       ...(nativePreview ? {observablePreviewPrivateKeySecretArn: nativePreview.privateKeySecretArn} : {})
     });
@@ -174,6 +212,66 @@ Tags.of(app).add("Application", "OpenGeoCommunity");
 Tags.of(app).add("CommunityDeployment", name);
 Tags.of(app).add("ManagedBy", "aws-cdk");
 app.synth();
+
+interface CommunityGitHubBuildConfiguration {
+  readonly githubAppSecretArn: string;
+  readonly githubAppSecretKeyArn?: string;
+  readonly coordinatorDatabaseSecretArn: string;
+  readonly databaseClusterArn: string;
+  readonly kmsKeyArn: string;
+  readonly compilerRepositoryArn: string;
+  readonly repository: GitHubBuildRepository;
+  readonly runtimeSha: string;
+  readonly githubEvidence?: Parameters<typeof verifyGitHubBuildTrust>[0];
+  readonly enabled?: boolean;
+  readonly freeExecutionVerified?: boolean;
+  readonly artifactInputOrganizations?: readonly string[];
+}
+
+function githubBuildConfiguration(raw: string | undefined, deploymentAccount: string): CommunityGitHubBuildConfiguration | undefined {
+  if (raw === undefined) return undefined;
+  if (Buffer.byteLength(raw) > 65_536) throw new Error("Community GitHub build configuration exceeds its bound");
+  let value: CommunityGitHubBuildConfiguration;
+  try { value = JSON.parse(raw); }
+  catch { throw new Error("Community GitHub build configuration must be a closed JSON object"); }
+  const required = ["githubAppSecretArn", "coordinatorDatabaseSecretArn", "databaseClusterArn", "kmsKeyArn",
+    "compilerRepositoryArn", "repository", "runtimeSha"];
+  const allowed = [...required, "githubAppSecretKeyArn", "githubEvidence", "enabled", "freeExecutionVerified", "artifactInputOrganizations"];
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      required.some(key => !Object.hasOwn(value, key)) || Object.keys(value).some(key => !allowed.includes(key)) ||
+      [value.githubAppSecretArn, value.coordinatorDatabaseSecretArn, value.databaseClusterArn, value.kmsKeyArn,
+        value.compilerRepositoryArn, value.runtimeSha].some(item => typeof item !== "string" || /[\u0000-\u0020\u007f]/.test(item)) ||
+      ("enabled" in value && typeof value.enabled !== "boolean") ||
+      ("freeExecutionVerified" in value && typeof value.freeExecutionVerified !== "boolean") ||
+      ("githubAppSecretKeyArn" in value && typeof value.githubAppSecretKeyArn !== "string") ||
+      ("githubEvidence" in value && (value.githubEvidence === null || typeof value.githubEvidence !== "object" ||
+        Array.isArray(value.githubEvidence) || Object.keys(value.githubEvidence).sort().join(",") !== "environment,oidc,policies,ref,repository"))) {
+    throw new Error("Community GitHub build configuration must be a closed JSON object");
+  }
+  const secretPattern = new RegExp(`^arn:aws:secretsmanager:us-east-1:${deploymentAccount}:secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}$`);
+  const keyPattern = new RegExp(`^arn:aws:kms:us-east-1:${deploymentAccount}:key/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`);
+  if (!secretPattern.test(value.githubAppSecretArn) || !secretPattern.test(value.coordinatorDatabaseSecretArn) ||
+      value.githubAppSecretArn === value.coordinatorDatabaseSecretArn ||
+      !keyPattern.test(value.kmsKeyArn) ||
+      (value.githubAppSecretKeyArn !== undefined &&
+        (!keyPattern.test(value.githubAppSecretKeyArn) || /[\u0000-\u0020\u007f]/.test(value.githubAppSecretKeyArn))) ||
+      !new RegExp(`^arn:aws:rds:us-east-1:${deploymentAccount}:cluster:[A-Za-z][A-Za-z0-9-]{0,62}$`).test(value.databaseClusterArn) ||
+      value.compilerRepositoryArn !== `arn:aws:ecr:us-east-1:${deploymentAccount}:repository/opengeo/dev/observable-builder` ||
+      !/^[0-9a-f]{40}$/.test(value.runtimeSha)) {
+    throw new Error("Community GitHub build requires separate complete same-account secrets, exact core resources and the retained compiler repository");
+  }
+  githubBuildSubject(value.repository);
+  if (value.artifactInputOrganizations !== undefined) {
+    if (!Array.isArray(value.artifactInputOrganizations)) throw new Error("Invalid Artifact input account grants");
+    if (value.artifactInputOrganizations.length) artifactInputReadPolicy(value.artifactInputOrganizations);
+  }
+  if (value.enabled === true) {
+    if (value.freeExecutionVerified !== true) throw new Error("Community GitHub build activation requires verified free execution capacity");
+    if (!value.githubEvidence) throw new Error("Live GitHub trust evidence required");
+    verifyGitHubBuildTrust(value.githubEvidence, value.runtimeSha, value.repository);
+  }
+  return value;
+}
 
 interface CommunityPreviewConfiguration {
   readonly domainName: string;

@@ -1,3 +1,44 @@
+## October 17 — Standalone installer connects trusted GitHub compilation
+
+The explicit `github-build` phase reuses the existing controller, trusted workflow,
+build-only IAM and current API/compiler images. Closed configuration binds the
+installation's retained core resources and immutable GitHub identity. Dormant
+resources precede dedicated coordinator-only role setup, exact administrator/App
+verification, account grant registration/readback and explicit execution admission.
+Secret metadata must match the actual runtime KMS grants. Interrupted setup retains
+infrastructure/role/connection receipts; unrelated steps restore admission only
+from a completed cutover. New activation rechecks authority; exact completed
+reruns change no resources or connection history. Queue exports are preserved.
+Only verified trust facts are retained; no secret values enter state or output.
+
+The existing migration runner's narrow role mode checks the current ledger and
+coordinator attributes, including no role/database creation authority. It reads
+only that login's secret and applies no migrations or unrelated credential changes.
+Requests and time are bounded to 32/180 seconds. The connection helper reuses the
+existing credential/client and migration utilities, verifies exact Cognito/account
+admin and repository/workflow/ref access, and inserts or exactly reuses the grant.
+No source links, mirrors, revisions, existing resource grants or connection pins
+are changed.
+The optional Artifact path retains exact account reads and live lease authority.
+
+All 34 installer, 14 helper, 42 migration-runner, 16 CDK and 23 owning SQL cases pass
+locally. The SQL suite executes actual helper constants and proves account admin,
+revocation, tenant readback, denied runtime writes and preserved source/dispatch
+history. Public substitutions pass all 90 Python cases and the six affected CDK
+cases. TypeScript and both foundation checks pass. Review corrections cover
+incomplete admission, encryption binding, untouched logins and role-creation flags.
+All measured checks, including repeats after these corrections, total 52.091 seconds.
+No dependency/registry, AWS/KMS, Actions, container, image/application/compiler build,
+publication or invalidation occurs. Prior usage and native191.702714352 seconds
+are retained; agent/dollar usage is unavailable. Historical parity is not replayed.
+
+This closes the installer/controller/role/account-connection source prerequisite.
+Independent operator/clean-machine and configured identity/HTTPS/CDN/compiler
+execution acceptance remain open; GitHub variables and trust need explicit operator
+setup, and current activation remains off. Main/PR/dispatch stay held while free
+Actions capacity is unknown. Reuse the accepted core, preview, publisher, origin,
+native compiler and Berkshire study evidence.
+
 ## October 17 — Independent GitHub compiler boundaries connected in source
 
 The existing trusted compiler host, build-only IAM and manual workflow now accept

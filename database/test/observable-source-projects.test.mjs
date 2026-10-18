@@ -825,6 +825,70 @@ describe("0045 durable Observable source projects and credential-free build boun
     } finally {await db.exec("ROLLBACK; SET ROLE opengeo_runtime");}
   });
 
+  it("executes standalone GitHub registration queries with existing admin authority and runtime tenant isolation", async () => {
+    const extraction = spawnSync("python3", ["-c",
+      "import ast,json,sys;from pathlib import Path;t=ast.parse(Path(sys.argv[1]).read_text());print(json.dumps({n.targets[0].id:ast.literal_eval(n.value) for n in t.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id.endswith('_SQL')}))",
+      fileURLToPath(new URL("../scripts/bootstrap_github_build_connection.py", import.meta.url))],
+      {encoding: "utf8", timeout: 5000, maxBuffer: 65536});
+    assert.equal(extraction.status, 0, extraction.stderr);
+    const statements = JSON.parse(extraction.stdout);
+    const setupQuery = (name, values) => {
+      const names = [];
+      const sql = statements[name].replace(/(?<!:):([a-z_]+)/g, (_, parameter) => {
+        if (!names.includes(parameter)) names.push(parameter);
+        return `$${names.indexOf(parameter) + 1}`;
+      });
+      return db.query(sql, names.map(name => values[name]));
+    };
+    const organization = randomUUID(), connection = randomUUID(), otherConnection = randomUUID();
+    const identity = {id: connection, organization_id: organization, installation_id: 12, repository_id: 123,
+      repository: "operator/compiler-runtime", workflow_id: 34, runtime_sha: "a".repeat(40), user_id: ID.user};
+    const lookup = {id: connection, organization_id: organization, repository_id: identity.repository_id};
+    await db.exec("RESET ROLE; BEGIN");
+    try {
+      const history = async () => (await db.query(`SELECT
+        (SELECT count(*)::integer FROM app.observable_source_objects) AS source_objects,
+        (SELECT count(*)::integer FROM app.observable_source_revisions) AS revisions,
+        (SELECT count(*)::integer FROM app.observable_github_links) AS links,
+        (SELECT count(*)::integer FROM app.observable_github_revision_receipts) AS receipts,
+        (SELECT count(*)::integer FROM app.observable_github_dispatches) AS dispatches`)).rows;
+      const before = await history();
+      await db.query("INSERT INTO app.organizations(id,name,slug,created_by) VALUES($1,'Independent compiler',$2,$3)",
+        [organization, `compiler-${organization}`, ID.user]);
+      await db.query("INSERT INTO app.organization_memberships(organization_id,user_id,role,invited_by) VALUES($1,$2,'admin',$2)",
+        [organization, ID.user]);
+      const authority = {subject: "source-author", email: "source@example.test", organization_id: organization};
+      assert.deepEqual((await setupQuery("AUTHORITY_SQL", authority)).rows, [{user_id: ID.user}]);
+      assert.deepEqual((await setupQuery("AUTHORITY_SQL", {...authority, subject: "other-source-author"})).rows, []);
+      assert.deepEqual((await setupQuery("AUTHORITY_SQL", {...authority, email: "other@example.test"})).rows, []);
+      assert.deepEqual((await setupQuery("CONNECTION_SQL", lookup)).rows, []);
+      const registered = (await setupQuery("INSERT_SQL", identity)).rows[0];
+      assert.equal(registered.id, connection);
+      assert.equal(registered.enabled, true);
+      assert.equal(Number(registered.installation_id), identity.installation_id);
+      assert.equal(Number(registered.build_workflow_id), identity.workflow_id);
+      assert.deepEqual((await setupQuery("CONNECTION_SQL", lookup)).rows, [registered]);
+      await db.exec("SAVEPOINT conflicting_grant");
+      await setupQuery("INSERT_SQL", {...identity, id: otherConnection, repository_id: 124, repository: "operator/other-runtime"});
+      assert.equal((await setupQuery("CONNECTION_SQL", lookup)).rows.length, 2,
+        "The owning helper sees and rejects an ambiguous enabled account grant");
+      await db.exec("ROLLBACK TO SAVEPOINT conflicting_grant; SAVEPOINT revoked_admin");
+      await db.query("UPDATE app.organization_memberships SET role='member' WHERE organization_id=$1 AND user_id=$2", [organization, ID.user]);
+      assert.deepEqual((await setupQuery("AUTHORITY_SQL", authority)).rows, []);
+      await db.exec("ROLLBACK TO SAVEPOINT revoked_admin; SAVEPOINT runtime_cannot_create; SET LOCAL ROLE opengeo_runtime");
+      assert.deepEqual((await setupQuery("PRINCIPAL_SQL", authority)).rows,
+        [{user_id: ID.user, email: "source@example.test", role: "admin"}]);
+      await setupQuery("CONTEXT_SQL", {organization_id: organization, user_id: ID.user});
+      assert.deepEqual((await setupQuery("READBACK_SQL", lookup)).rows, [registered]);
+      await setupQuery("CONTEXT_SQL", {organization_id: ID.otherOrganization, user_id: ID.otherUser});
+      assert.deepEqual((await setupQuery("READBACK_SQL", lookup)).rows, [], "A foreign tenant cannot read the grant");
+      await assert.rejects(() => setupQuery("INSERT_SQL", {...identity, id: randomUUID(), repository_id: 125}), /permission denied/);
+      await db.exec("ROLLBACK TO SAVEPOINT runtime_cannot_create");
+      assert.deepEqual((await setupQuery("CONNECTION_SQL", lookup)).rows, [registered], "Readback preserves the original ID, verifier and timestamp");
+      assert.deepEqual(await history(), before, "Registration changes no source, mirror, dispatch or revision history");
+    } finally {await db.exec("ROLLBACK; SET ROLE opengeo_runtime");}
+  });
+
   it("claims an unlinked private OpenGeo source without GitHub commits and fails closed on account grants or revoked authority", async () => {
     await db.exec("RESET ROLE; BEGIN");
     const source = randomUUID(), revision = randomUUID(), build = randomUUID(), site = randomUUID(), siteVersion = randomUUID();

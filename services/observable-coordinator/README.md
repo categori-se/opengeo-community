@@ -16,8 +16,10 @@ Independent GitHub compilation can now use an operator-configured account,
 repository identity and immutable runtime SHA. The manual workflow, IAM access
 construct, ECR pull check and Podman adapter share those boundaries. See the
 [configuration and activation limits](../../docs/community-aws.md#trusted-github-compiler-configuration).
-The standalone installer still needs the controller and connection setup;
-configuration support does not establish an enabled or accepted runtime.
+The standalone installer's explicit `github-build` phase now connects the
+controller, dedicated database login and verified account grant with admission
+disabled by default. Local setup checks do not establish an enabled or accepted
+runtime; independent operator and live execution acceptance remain open.
 
 ## Implementation notes and retained acceptance history
 

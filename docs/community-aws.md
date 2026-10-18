@@ -218,19 +218,17 @@ Publication source editing is included. The standalone core profile deploys
 Studio/API and optional GIS processing. Native Notebook/Framework build coordination
 and public delivery use additional components in
 `services/observable-*`, `services/api/src/opengeo_api/github_build_controller.py` and
-`infrastructure/lib/*publisher*`. Admitted compiler execution remains deployment
-work. The optional phases below configure
-preview signing and an on-demand publisher; they do not install a compiler runner.
+`infrastructure/lib/*publisher*`. The optional phases below configure private
+previews, an on-demand publisher and a trusted GitHub compiler route.
 These integrations stay unadvertised until their
 runtimes are configured. Track this work in the [roadmap](../ROADMAP.md).
 
 ### Trusted GitHub compiler configuration
 
 The community source includes the manual `studio-framework-build.yml` workflow,
-the build-only IAM construct and the compiler host. They now accept independent
-account resources. The standalone installer does not yet connect the controller,
-GitHub installation and database connection, so this configuration alone does not
-activate publication builds.
+build-only IAM and compiler host. The explicit `github-build` phase now connects
+these to the existing controller, dedicated database login and an account-scoped
+GitHub App connection. Configuration alone does not activate publication builds.
 
 `GitHubFrameworkBuildAccessStack.independentDeployment` specifies the installation's
 resource prefix, separate application/archive buckets, database cluster, KMS key
@@ -270,8 +268,94 @@ OpenGeo source only (`source_mode=opengeo`); no source repository token is neede
 Execution uses the existing standard AMD64 runner with a 20-minute deadline and
 no idle compiler host. The compiler still runs without credentials, networking,
 pulls or elevated privileges. AWS storage, Data API, KMS and image-transfer costs
-remain workload costs. Actual controller/connection setup, operator installation
-and live execution acceptance remain open; do not infer them from local checks.
+remain workload costs. Independent operator installation and live execution
+acceptance remain open; do not infer them from local checks.
+
+Add `nativeGitHubBuild` to the existing installation file after the core runtime
+and account owner exist. Replace every example identity with your own:
+
+```json
+{
+  "githubAppSecretArn": "arn:aws:secretsmanager:us-east-1:333333333333:secret:example/github-app-AbCd12",
+  "coordinatorDatabaseSecretArn": "arn:aws:secretsmanager:us-east-1:333333333333:secret:example/compiler-AbCd12",
+  "repository": {"fullName": "your-organization/opengeo", "id": 123, "ownerId": 456, "private": false},
+  "runtimeSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "connection": {
+    "id": "10000000-0000-4000-8000-000000000001",
+    "organizationId": "10000000-0000-4000-8000-000000000002",
+    "installationId": 789,
+    "workflowId": 42
+  },
+  "enabled": false,
+  "freeExecutionVerified": false
+}
+```
+
+Use an existing account ID and a new stable connection UUID, or the exact identity
+of the existing matching build grant. The helper rejects conflicting pins, a
+disabled existing connection and a second enabled build grant. It never links or
+mirrors a Publication source. The App needs access to this exact repository with
+`contents: read` and `actions: write`; its secret uses the existing
+`app_id`/`private_key_pem` JSON contract. The separate database secret contains the
+`opengeo_observable_coordinator` username and a password, encrypted by the
+Foundation application key. Keep secret values out of installation files. If the
+App secret uses a customer-managed key, also supply its exact
+`githubAppSecretKeyArn`. Otherwise it must use Secrets Manager's AWS-managed key.
+Setup verifies actual secret encryption metadata against the runtime grants.
+
+The optional helper reuses the API's credential and GitHub libraries. Install the
+existing API dependencies into the operator's virtual environment, then plan the
+phase:
+
+```bash
+.venv/bin/pip install -e services/api
+.venv/bin/python scripts/community-aws.py github-build --config .opengeo/aws-config.json
+```
+
+Existing installations need refreshed Foundation outputs containing
+`CommunityApplicationKmsKeyArn`; the normal `foundation` phase supplies it.
+`synth --with-github-build` checks the configured dormant graph offline. Apply the
+explicit setup only after reviewing its resources and workload budget:
+
+```bash
+.venv/bin/python scripts/community-aws.py github-build --config .opengeo/aws-config.json \
+  --email you@example.org --apply
+```
+
+The phase verifies the account, retains intent and installs dormant resources.
+It configures only the coordinator login against the current schema, then verifies
+the exact enabled Cognito principal, existing account administrator and App access
+to the repository, workflow file and runtime branch. The database transaction
+registers or exactly reuses the grant and reads it back under runtime tenant
+authority. Completed role setup and connection registration are reused after an
+interruption; uncertain writes are reconciled without replacing history.
+Ordinary installer steps restore execution admission only from a completed setup
+receipt. Queues remain exported while admission is disabled.
+
+The retained `github-build.repository-variables.json` is a **disabled template**.
+Review and apply it to repository-scoped variables, configure the existing GitHub
+OIDC provider and immutable environment/branch policy, and verify free capacity.
+Only then set both GitHub admission variables to `true`, add `trustEvidencePath`
+to the installation configuration and explicitly set `enabled` and
+`freeExecutionVerified` to `true`. The trust file contains the five exact read-back
+objects used by the IAM verifier: `repository`, `oidc`, `environment`, `policies`
+and `ref`. Reapply `github-build` with the existing administrator's email.
+New activation rechecks administrator and App authority while reusing unchanged
+role setup. No workflow, variable, environment or GitHub permission is mutated
+by this installer. To disable dispatch, set `enabled=false` and reapply this same
+phase; existing connections and publication history remain.
+
+Optional `artifactInputOrganizations` lists up to twelve explicit account UUIDs.
+It adds exact retained-map reads and enables the API's existing Artifact build
+path only with execution admission. The variable template then supplies the
+installation's exact HTTPS API origin for live lease authorization. Page caching
+is not configured by this phase.
+
+The connection helper bounds its own work to four AWS metadata reads, one App
+secret read, four GitHub requests and 32 database requests within 180 seconds.
+The outer installer also verifies STS; coordinator-only role setup permits at most
+32 requests within 180 seconds, including its caller check and secret read. Secrets Manager and Data API can invoke KMS internally, so direct request
+counts are not a KMS usage measurement. Local checks run none of these services.
 
 ## Optional private-preview setup
 

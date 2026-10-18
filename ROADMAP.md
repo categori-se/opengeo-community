@@ -45,8 +45,12 @@ and actual SQL statements pass locally. The trusted GitHub runtime, build-only I
 and manual workflow now also accept independent account resources and immutable
 repository/owner/runtime pins. Local checks preserve managed defaults and compiler
 isolation; independent workflow admission requires verified free capacity. The
-standalone controller/database connection and actual execution activation remain
-open, alongside independent identity/HTTPS/CDN acceptance.
+standalone installer now connects the controller, dedicated coordinator login
+and verified account GitHub grant through an explicit phase. Local checks cover
+dormant provisioning, bounded role setup, secret encryption, existing administrator
+authority, tenant SQL and recovery without replaying completed setup. GitHub
+variables/trust remain explicit operator configuration. Independent installation,
+actual execution and identity/HTTPS/CDN acceptance remain open.
 
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |

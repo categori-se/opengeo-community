@@ -719,5 +719,160 @@ class BoundedSchemaUpgradeTests(unittest.TestCase):
             self.assertEqual(attempts.count("rollback"),1)
 
 
+class CoordinatorOnlyConfigurationTests(unittest.TestCase):
+    account = "333333333333"
+    coordinator_secret = f"arn:aws:secretsmanager:us-east-1:{account}:secret:community/coordinator-AbCd12"
+    password = "SYNTHETIC_COORDINATOR_PASSWORD_123"
+
+    def setUp(self):
+        self.migrations = BoundedSchemaUpgradeTests.fixture(self)
+
+    def fixture(self):
+        case = self
+        class Fixture:
+            def __init__(self):
+                self.events, self.clients, self.secret_reads = [], [], []
+                self.account, self.initialized, self.role_exists = case.account, True, True
+                self.ledger = {migration.name: migration.sha256 for migration in case.migrations}
+                self.role = {"rolcanlogin": False, "rolinherit": False, "rolbypassrls": False, "rolsuper": False,
+                    "rolcreaterole": False, "rolcreatedb": False}
+                self.fail_alter = False
+            def get_caller_identity(self):
+                self.events.append(("sts", {}))
+                return {"Account": self.account}
+            def get_secret_value(self, **kwargs):
+                self.events.append(("secret", kwargs))
+                self.secret_reads.append(kwargs["SecretId"])
+                if kwargs["SecretId"] != case.coordinator_secret:
+                    raise AssertionError("Only the coordinator secret may be read")
+                return {"SecretString": json.dumps({"username": "opengeo_observable_coordinator", "password": case.password})}
+            def begin_transaction(self, **kwargs):
+                self.events.append(("begin", kwargs))
+                return {"transactionId": "coordinator-role-transaction"}
+            def commit_transaction(self, **kwargs):
+                self.events.append(("commit", kwargs))
+                return {}
+            def rollback_transaction(self, **kwargs):
+                self.events.append(("rollback", kwargs))
+                return {}
+            def execute_statement(self, **kwargs):
+                self.events.append(("execute", kwargs))
+                sql = kwargs["sql"]
+                if sql.startswith("SELECT to_regnamespace"):
+                    rows = [{"app_schema": self.initialized, "migration_ledger": self.initialized}]
+                elif "FROM opengeo_deploy.schema_migrations" in sql:
+                    rows = [{"migration_name": name, "sha256": digest} for name, digest in self.ledger.items()]
+                elif "FROM pg_roles" in sql:
+                    rows = [dict(self.role)] if self.role_exists else []
+                elif sql == "SELECT current_user":
+                    if kwargs["secretArn"] != case.coordinator_secret:
+                        raise AssertionError("Login verification must use the coordinator credential")
+                    rows = [{"current_user": "opengeo_observable_coordinator"}]
+                elif sql.startswith("SELECT set_config('opengeo_deploy.role_password'"):
+                    if kwargs["parameters"] != [{"name": "password", "value": {"stringValue": case.password}}]:
+                        raise AssertionError("Password must be a bound parameter")
+                    rows = []
+                elif "ALTER ROLE opengeo_observable_coordinator" in sql:
+                    if self.fail_alter:
+                        raise RuntimeError("synthetic role failure")
+                    self.role["rolcanlogin"] = True
+                    rows = []
+                else:
+                    raise AssertionError("Unexpected SQL; migrations and unrelated role changes are forbidden")
+                return {"formattedRecords": json.dumps(rows)}
+        return Fixture()
+
+    def arguments(self):
+        return ["--configure-observable-coordinator-only", "--apply", "--expected-account", self.account,
+            "--cluster-arn", f"arn:aws:rds:us-east-1:{self.account}:cluster:community-core",
+            "--admin-secret-arn", f"arn:aws:secretsmanager:us-east-1:{self.account}:secret:community/admin-AbCd12",
+            "--observable-coordinator-secret-arn", self.coordinator_secret]
+
+    def invoke(self, fixture, arguments=None):
+        class Config:
+            def __init__(self, **kwargs): self.kwargs = kwargs
+        class Session:
+            def __init__(self, **kwargs): pass
+            def client(self, name, **kwargs):
+                fixture.clients.append((name, kwargs["config"].kwargs))
+                return fixture
+        with patch.dict(sys.modules, {"boto3": types.SimpleNamespace(Session=Session),
+                "botocore.config": types.SimpleNamespace(Config=Config)}), \
+             patch.object(MODULE, "load_migrations", return_value=self.migrations), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(MODULE.main(arguments or self.arguments()), 0)
+        self.assertNotIn(self.password, output.getvalue())
+        return json.loads(output.getvalue())
+
+    def test_offline_plan_needs_no_aws_client_and_rejects_incompatible_modes_before_credentials(self):
+        with patch.dict(sys.modules, {"boto3": None}), \
+             patch.object(MODULE, "load_migrations", return_value=self.migrations), contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(MODULE.main(["--configure-observable-coordinator-only"]), 0)
+        plan = json.loads(output.getvalue())
+        self.assertEqual(plan["mode"], "plan")
+        self.assertEqual(plan["databaseRoles"], ["opengeo_observable_coordinator"])
+        for arguments in [["--schema-only"], ["--through-version", "2"], ["--after-version", "1"],
+                *[[f"--{role}-secret-arn", "ignored"] for role in ("connector", "dataset-verifier", "framework-publisher", "source-archiver", "repository-copier")]]:
+            with self.subTest(arguments=arguments), patch.dict(sys.modules, {"boto3": None}), self.assertRaises(MODULE.MigrationError):
+                MODULE.main(["--configure-observable-coordinator-only", *arguments])
+
+    def test_applies_only_the_existing_coordinator_login_with_bounded_secret_and_data_api_calls(self):
+        fixture = self.fixture()
+        receipt = self.invoke(fixture)
+        self.assertEqual(receipt["status"], "configured")
+        self.assertEqual(receipt["appliedCount"], 0)
+        self.assertEqual(receipt["databaseRoles"], ["opengeo_observable_coordinator"])
+        self.assertFalse(receipt["passwordsExposed"])
+        self.assertEqual(fixture.secret_reads, [self.coordinator_secret])
+        budget = receipt["requestBudget"]
+        self.assertEqual((budget["maximumRequests"], budget["maximumSeconds"], budget["rollbackReserve"]), (32, 180, 2))
+        self.assertEqual(budget["requestsUsed"], len(fixture.events))
+        self.assertLessEqual(budget["requestsUsed"], 32)
+        self.assertEqual([name for name, _ in fixture.clients], ["sts", "rds-data", "secretsmanager"])
+        self.assertTrue(all(options == {"connect_timeout": 5, "read_timeout": 20, "retries": {"total_max_attempts": 1}}
+                            for _, options in fixture.clients))
+        self.assertEqual(sum(operation == "begin" for operation, _ in fixture.events), 1)
+        self.assertTrue(fixture.role["rolcanlogin"])
+        # Existing installer arguments remain accepted without either secret being read.
+        fixture = self.fixture()
+        self.invoke(fixture, [*self.arguments(), "--runtime-secret-arn", "unread-runtime", "--worker-secret-arn", "unread-worker"])
+        self.assertEqual(fixture.secret_reads, [self.coordinator_secret])
+
+    def test_stale_missing_schema_or_missing_unsafe_role_stops_before_secret_reads_or_mutation(self):
+        for change in ("fresh", "missing-migration", "changed-checksum", "missing-role", "rolsuper", "rolcreaterole", "rolcreatedb"):
+            fixture = self.fixture()
+            if change == "fresh": fixture.initialized = False
+            elif change == "missing-migration": fixture.ledger.pop(self.migrations[-1].name)
+            elif change == "changed-checksum": fixture.ledger[self.migrations[0].name] = "f" * 64
+            elif change == "missing-role": fixture.role_exists = False
+            else: fixture.role[change] = True
+            with self.subTest(change=change), self.assertRaises(MODULE.MigrationError):
+                self.invoke(fixture)
+            self.assertEqual(fixture.secret_reads, [])
+            self.assertFalse(any(operation in {"begin", "commit"} for operation, _ in fixture.events))
+
+    def test_foreign_identity_or_resources_stop_before_database_mutation(self):
+        fixture = self.fixture()
+        fixture.account = "444444444444"
+        with self.assertRaisesRegex(MODULE.MigrationError, "active AWS identity"):
+            self.invoke(fixture)
+        self.assertEqual(fixture.events, [("sts", {})])
+        self.assertEqual([name for name, _ in fixture.clients], ["sts"])
+        fixture = self.fixture()
+        foreign = [value.replace(self.account, "444444444444") if value == self.coordinator_secret else value for value in self.arguments()]
+        with self.assertRaisesRegex(MODULE.MigrationError, "same-account"):
+            self.invoke(fixture, foreign)
+        self.assertEqual(fixture.clients, [])
+
+    def test_role_failure_uses_the_retained_rollback_boundary(self):
+        fixture = self.fixture()
+        fixture.fail_alter = True
+        with self.assertRaisesRegex(MODULE.MigrationError, "failed to configure opengeo_observable_coordinator"):
+            self.invoke(fixture)
+        self.assertEqual(fixture.events[-1][0], "rollback")
+        self.assertFalse(any(operation == "commit" for operation, _ in fixture.events))
+        self.assertEqual(fixture.secret_reads, [self.coordinator_secret])
+
+
 if __name__ == "__main__":
     unittest.main()

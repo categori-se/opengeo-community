@@ -18,16 +18,17 @@ import subprocess
 import sys
 import tempfile
 from urllib.parse import urlsplit
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "preview", "publication", "publication-origin", "studio", "owner", "status", "rollback")
+STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "preview", "publication", "publication-origin", "github-build", "studio", "owner", "status", "rollback")
 
 
 def load_config(path: Path) -> dict:
     cfg = json.loads(path.read_text())
     required = {"account", "region", "name", "profile", "budgetAlertEmail"}
-    if not isinstance(cfg, dict) or not required <= cfg.keys() or cfg.keys() - (required | {"withWorker", "nativePreview", "nativePublication"}):
-        raise ValueError("config requires account, region, name, profile, budgetAlertEmail; optional withWorker/nativePreview/nativePublication")
+    if not isinstance(cfg, dict) or not required <= cfg.keys() or cfg.keys() - (required | {"withWorker", "nativePreview", "nativePublication", "nativeGitHubBuild"}):
+        raise ValueError("config requires account, region, name, profile, budgetAlertEmail; optional withWorker/nativePreview/nativePublication/nativeGitHubBuild")
     if not re.fullmatch(r"[0-9]{12}", str(cfg["account"])) or not isinstance(cfg["account"], str):
         raise ValueError("account must be an explicit 12-digit string")
     if cfg["region"] != "us-east-1":
@@ -84,7 +85,88 @@ def load_config(path: Path) -> dict:
         if len({target["hostname"] for target in targets}) != len(targets) or len({target["distribution_id"] for target in targets}) != len(targets):
             raise ValueError("nativePublication destinations require unique hosts and distributions")
         cfg["nativePublication"] = {**publication, "enabled": publication.get("enabled", False)}
+    if "nativeGitHubBuild" in cfg:
+        build = cfg["nativeGitHubBuild"]
+        fields = {"githubAppSecretArn", "coordinatorDatabaseSecretArn", "repository", "runtimeSha", "connection"}
+        optional = {"githubAppSecretKeyArn", "enabled", "freeExecutionVerified", "trustEvidencePath", "artifactInputOrganizations"}
+        if (not isinstance(build, dict) or not fields <= build.keys() or build.keys() - fields - optional
+                or any(type(build.get(key, False)) is not bool for key in ("enabled", "freeExecutionVerified"))):
+            raise ValueError("nativeGitHubBuild requires closed identity/secret/connection configuration and explicit boolean admission")
+        for key in ("githubAppSecretArn", "coordinatorDatabaseSecretArn"):
+            if not isinstance(build[key], str) or not re.fullmatch(r"arn:aws:secretsmanager:us-east-1:" + cfg["account"] + r":secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}", build[key]):
+                raise ValueError("nativeGitHubBuild secrets require complete same-account ARNs")
+        if build["githubAppSecretArn"] == build["coordinatorDatabaseSecretArn"]:
+            raise ValueError("nativeGitHubBuild requires separate App and coordinator secrets")
+        if "githubAppSecretKeyArn" in build and (not isinstance(build["githubAppSecretKeyArn"], str) or not re.fullmatch(
+                r"arn:aws:kms:us-east-1:" + cfg["account"] + r":key/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", build["githubAppSecretKeyArn"])):
+            raise ValueError("nativeGitHubBuild App key requires an exact same-account KMS key ARN")
+        repository = build["repository"]
+        if (not isinstance(repository, dict) or repository.keys() != {"fullName", "id", "ownerId", "private"}
+                or not isinstance(repository["fullName"], str)
+                or not re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}", repository["fullName"])
+                or any(type(repository[key]) is not int or not 0 < repository[key] <= 9007199254740991 for key in ("id", "ownerId"))
+                or type(repository["private"]) is not bool
+                or not isinstance(build["runtimeSha"], str) or not re.fullmatch(r"[0-9a-f]{40}", build["runtimeSha"])):
+            raise ValueError("nativeGitHubBuild requires exact immutable GitHub repository identity and runtime SHA")
+        connection = build["connection"]
+        if (not isinstance(connection, dict) or connection.keys() != {"id", "organizationId", "installationId", "workflowId"}
+                or any(type(connection[key]) is not int or not 0 < connection[key] <= 9007199254740991 for key in ("installationId", "workflowId"))):
+            raise ValueError("nativeGitHubBuild requires an exact existing-account connection identity")
+        organizations = build.get("artifactInputOrganizations", [])
+        if (not isinstance(organizations, list) or len(organizations) > 12
+                or any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", value) for value in organizations)
+                or len(set(organizations)) != len(organizations)):
+            raise ValueError("nativeGitHubBuild permits at most twelve distinct Artifact account grants")
+        for value in [connection["id"], connection["organizationId"], *organizations]:
+            if not isinstance(value, str) or str(UUID(value)) != value:
+                raise ValueError("nativeGitHubBuild account and connection IDs must be canonical UUIDs")
+        if build.get("enabled", False) and (not build.get("freeExecutionVerified", False) or not build.get("trustEvidencePath")):
+            raise ValueError("nativeGitHubBuild activation requires verified free capacity and exact trust evidence")
+        if "trustEvidencePath" in build and (not isinstance(build["trustEvidencePath"], str) or not build["trustEvidencePath"]
+                or len(build["trustEvidencePath"]) > 2048 or re.search(r"[\x00-\x1f\x7f]", build["trustEvidencePath"])):
+            raise ValueError("nativeGitHubBuild trust evidence must be a local JSON path")
+        cfg["nativeGitHubBuild"] = {**build, "enabled": build.get("enabled", False),
+            "freeExecutionVerified": build.get("freeExecutionVerified", False), "artifactInputOrganizations": organizations,
+            **({"trustEvidencePath": str((path.parent / build["trustEvidencePath"]).absolute())} if "trustEvidencePath" in build else {})}
     return cfg
+
+
+def validate_github_trust(evidence, build):
+    """Match the existing IAM trust verifier before admitting any stack change."""
+    try:
+        repository, oidc, environment, policies, ref = (evidence[key] for key in ("repository", "oidc", "environment", "policies", "ref"))
+        expected = build["repository"]
+        owner, name = expected["fullName"].split("/")
+        sha = build["runtimeSha"]
+        valid = (set(evidence) == {"repository", "oidc", "environment", "policies", "ref"}
+            and type(repository["id"]) is int and repository["id"] == expected["id"]
+            and type(repository["owner"]["id"]) is int and repository["owner"]["id"] == expected["ownerId"]
+            and repository["full_name"] == expected["fullName"] and repository["private"] is expected["private"]
+            and repository["archived"] is False and repository["disabled"] is False
+            and oidc["use_default"] is True and oidc["use_immutable_subject"] is True
+            and oidc["sub_claim_prefix"] == f"repo:{owner}@{expected['ownerId']}/{name}@{expected['id']}"
+            and environment["name"] == "studio-framework-build"
+            and environment["deployment_branch_policy"]["protected_branches"] is False
+            and environment["deployment_branch_policy"]["custom_branch_policies"] is True
+            and type(policies["total_count"]) is int and policies["total_count"] == 1
+            and len(policies["branch_policies"]) == 1
+            and policies["branch_policies"][0]["type"] == "branch"
+            and policies["branch_policies"][0]["name"] == f"studio-runtime-{sha}"
+            and ref["ref"] == f"refs/heads/studio-runtime-{sha}"
+            and ref["object"]["type"] == "commit" and ref["object"]["sha"] == sha)
+    except (KeyError, TypeError, AttributeError):
+        valid = False
+    if not valid:
+        raise ValueError("nativeGitHubBuild requires exact repository, immutable subject, environment and pinned runtime ref evidence")
+    # Keep only the verified public trust facts, never unrelated file contents.
+    return {"repository": {"id": expected["id"], "owner": {"id": expected["ownerId"]},
+                "full_name": expected["fullName"], "private": expected["private"], "archived": False, "disabled": False},
+        "oidc": {"use_default": True, "use_immutable_subject": True,
+            "sub_claim_prefix": f"repo:{owner}@{expected['ownerId']}/{name}@{expected['id']}"},
+        "environment": {"name": "studio-framework-build",
+            "deployment_branch_policy": {"protected_branches": False, "custom_branch_policies": True}},
+        "policies": {"total_count": 1, "branch_policies": [{"type": "branch", "name": f"studio-runtime-{sha}"}]},
+        "ref": {"ref": f"refs/heads/studio-runtime-{sha}", "object": {"type": "commit", "sha": sha}}}
 
 
 def run(args: list[str], *, env: dict | None = None, cwd: Path = ROOT, capture=False, stdin=None, timeout=1800):
@@ -102,7 +184,7 @@ def write_json(path: Path, value: dict):
 
 
 class Deployment:
-    def __init__(self, cfg: dict, *, allow_preview_change=False, allow_publication_change=False):
+    def __init__(self, cfg: dict, *, allow_preview_change=False, allow_publication_change=False, allow_github_build_change=False):
         self.cfg = cfg
         self.state = ROOT / ".opengeo" / "aws" / cfg["name"]
         self.prefix = f"OpenGeoCommunity-{cfg['name']}"
@@ -152,6 +234,151 @@ class Deployment:
             if not allow_publication_change and not matching:
                 raise ValueError("nativePublication differs from retained intent; use the explicit publication step to change it")
             self.publication_environment(matching and intent.get("databaseConfigured") is True)
+        self.github_build_manifest = None
+        intent = self.read("github-build.intent.json")
+        if intent:
+            current = self.prepare_github_build()
+            matching = current == {key: intent.get(key) for key in current}
+            if not allow_github_build_change and not matching:
+                raise ValueError("nativeGitHubBuild differs from retained intent; use the explicit github-build step to change it")
+            self.github_build_environment(matching and intent.get("complete") is True
+                                          and intent.get("databaseConfigured") is True
+                                          and intent.get("connectionConfigured") is True)
+
+    def prepare_github_build(self):
+        if self.github_build_manifest is not None:
+            return self.github_build_manifest
+        build = self.cfg.get("nativeGitHubBuild")
+        if not build:
+            raise ValueError("nativeGitHubBuild configuration is required; retained build resources cannot be silently removed")
+        self.need("web.outputs.json")
+        self.need("api.outputs.json")
+        foundation = self.need("foundation.outputs.json")
+        images = self.need("images.json")
+        account = self.cfg["account"]
+        cluster = foundation.get("DatabaseClusterArn", "")
+        key = foundation.get("CommunityApplicationKmsKeyArn", "")
+        if (not re.fullmatch(r"arn:aws:rds:us-east-1:" + account + r":cluster:[A-Za-z][A-Za-z0-9-]{0,62}", cluster)
+                or not re.fullmatch(r"arn:aws:kms:us-east-1:" + account + r":key/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", key)):
+            raise ValueError("nativeGitHubBuild requires retained same-account cluster/KMS outputs; refresh Foundation with this source")
+        core_secrets = [foundation.get(name) for name in ("DatabaseSecretArn", "RuntimeDatabaseSecretArn", "WorkerDatabaseSecretArn")]
+        if any(not isinstance(secret, str) or not re.fullmatch(r"arn:aws:secretsmanager:us-east-1:" + account + r":secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}", secret) for secret in core_secrets):
+            raise ValueError("nativeGitHubBuild requires retained database role outputs")
+        other_secrets = {*core_secrets, self.cfg.get("nativePublication", {}).get("publisherDatabaseSecretArn"),
+                         self.cfg.get("nativePreview", {}).get("privateKeySecretArn")}
+        if any(build[name] in other_secrets for name in ("coordinatorDatabaseSecretArn", "githubAppSecretArn")):
+            raise ValueError("nativeGitHubBuild needs dedicated coordinator and App credentials")
+        repository = f"{account}.dkr.ecr.us-east-1.amazonaws.com/opengeo/dev/observable-builder"
+        buckets = {"ApplicationBucketName": f"{self.cfg['name']}-{account}-us-east-1-app",
+                   "GeodataBucketName": f"{self.cfg['name']}-{account}-us-east-1-data"}
+        if (foundation.get("ObservableBuilderRepositoryUri") != repository or not {"api", "compiler"} <= images.keys()
+                or any(foundation.get(key) != value for key, value in buckets.items())):
+            raise ValueError("nativeGitHubBuild requires the retained exact compiler repository and both immutable images")
+        evidence = None
+        if "trustEvidencePath" in build:
+            path = Path(build["trustEvidencePath"])
+            if path.is_symlink() or not path.is_file() or path.stat().st_size > 65536:
+                raise ValueError("nativeGitHubBuild trust evidence must be a bounded ordinary JSON file")
+            evidence = json.loads(path.read_text())
+        if evidence is not None or build["enabled"]:
+            evidence = validate_github_trust(evidence, build)
+        configuration = {name: value for name, value in build.items() if name not in {"connection", "trustEvidencePath"}}
+        configuration.update({"databaseClusterArn": cluster, "kmsKeyArn": key,
+                              "compilerRepositoryArn": f"arn:aws:ecr:us-east-1:{account}:repository/opengeo/dev/observable-builder"})
+        if evidence is not None:
+            configuration["githubEvidence"] = evidence
+        self.github_build_manifest = {"schemaVersion": 1, "configuration": configuration, "connection": build["connection"],
+            "apiOriginDomain": self.env["OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN"],
+            "compilerImageDigest": images["compiler"], "apiImageDigest": images["api"]}
+        self.github_build_environment(False)
+        return self.github_build_manifest
+
+    def github_build_environment(self, configured):
+        self.env["OPEN_GEO_COMMUNITY_GITHUB_BUILD_CONFIG"] = json.dumps({**self.github_build_manifest["configuration"],
+            "enabled": configured and self.cfg["nativeGitHubBuild"]["enabled"]})
+
+    def github_build_variables(self):
+        build = self.cfg["nativeGitHubBuild"]
+        foundation = self.need("foundation.outputs.json")
+        configuration = self.github_build_manifest["configuration"]
+        return {"STUDIO_INDEPENDENT_BUILD_CONFIG": json.dumps({"account": self.cfg["account"], "region": self.cfg["region"],
+                    "repository": build["repository"]["fullName"], "repositoryId": build["repository"]["id"],
+                    "ownerId": build["repository"]["ownerId"], "runtimeSha": build["runtimeSha"],
+                    "compilerRepository": foundation["ObservableBuilderRepositoryUri"]}, separators=(",", ":")),
+            "STUDIO_GITHUB_BUILDS_ENABLED": "false", "STUDIO_GITHUB_FREE_EXECUTION_VERIFIED": "false",
+            "STUDIO_BUILD_STAGE": "dev", "STUDIO_BUILD_CLUSTER_ARN": configuration["databaseClusterArn"],
+            "STUDIO_BUILD_DATABASE_SECRET_ARN": build["coordinatorDatabaseSecretArn"],
+            "STUDIO_BUILD_BUCKET": f"{self.cfg['name']}-{self.cfg['account']}-us-east-1-app",
+            "STUDIO_BUILD_ARCHIVE_BUCKET": f"{self.cfg['name']}-{self.cfg['account']}-us-east-1-data",
+            "STUDIO_BUILD_KMS_KEY_ARN": configuration["kmsKeyArn"],
+            "STUDIO_BUILD_ROLE_ARN": f"arn:aws:iam::{self.cfg['account']}:role/og-{self.cfg['name']}-github-framework-build",
+            "STUDIO_COMPILER_ECR_REPOSITORY": foundation["ObservableBuilderRepositoryUri"],
+            "STUDIO_COMPILER_IMAGE_DIGEST": self.github_build_manifest["compilerImageDigest"],
+            "STUDIO_COMPILER_IMAGE_DIGESTS": self.github_build_manifest["compilerImageDigest"],
+            "STUDIO_ARTIFACT_API_ORIGIN": f"https://{self.github_build_manifest['apiOriginDomain']}" if build["artifactInputOrganizations"] else ""}
+
+    def install_github_build(self, config_path, email):
+        current = self.github_build_manifest
+        retained = self.read("github-build.intent.json")
+        same = current == {key: retained.get(key) for key in current}
+        if same and retained.get("complete") is True:
+            print("Reused the completed GitHub build setup receipt; no resources or connection changed.")
+            return
+        role_fields = ("coordinatorDatabaseSecretArn", "databaseClusterArn")
+        old_config = retained.get("configuration", {})
+        role_ready = retained.get("databaseConfigured") is True and all(old_config.get(key) == current["configuration"][key] for key in role_fields)
+        connection_fields = ("githubAppSecretArn", "githubAppSecretKeyArn", "repository", "runtimeSha")
+        connection_ready = (retained.get("connectionConfigured") is True and retained.get("connection") == current["connection"]
+            and all(old_config.get(key) == current["configuration"].get(key) for key in connection_fields))
+        # A new execution admission needs current admin/App readback; unchanged
+        # function-only role setup is still reused.
+        if current["configuration"]["enabled"] and old_config.get("enabled") is not True:
+            connection_ready = False
+        if old_config.get("enabled") is True and (not role_ready or not connection_ready):
+            raise ValueError("disable the admitted build configuration before changing its credentials or immutable connection")
+        checkpoint = {**current, "infrastructureConfigured": same and retained.get("infrastructureConfigured") is True,
+            "databaseConfigured": role_ready, "connectionConfigured": connection_ready, "complete": False}
+        if connection_ready and "connectionReceipt" in retained:
+            checkpoint["connectionReceipt"] = retained["connectionReceipt"]
+        if role_ready and "roleReceipt" in retained:
+            checkpoint["roleReceipt"] = retained["roleReceipt"]
+        self.github_build_environment(False)
+        self.save("github-build.intent.json", checkpoint)
+        if not checkpoint["infrastructureConfigured"]:
+            # Install dormant consumers and preserve all exports before API use.
+            self.deploy("Foundation", "GitHubBuildAccess", "GitHubBuildController", "Api")
+            checkpoint["infrastructureConfigured"] = True
+            self.save("github-build.intent.json", checkpoint)
+        if not role_ready:
+            role = json.loads(run([sys.executable, "database/scripts/apply_migrations.py", "--apply", "--configure-observable-coordinator-only",
+                 *self.database_args(include_runtime=False),
+                 "--observable-coordinator-secret-arn", self.cfg["nativeGitHubBuild"]["coordinatorDatabaseSecretArn"]], env=self.env, capture=True, timeout=210))
+            if (not isinstance(role, dict) or role.get("status") != "configured"
+                    or role.get("configureObservableCoordinatorOnly") is not True
+                    or role.get("databaseRoles") != ["opengeo_observable_coordinator"]
+                    or role.get("passwordsExposed") is not False):
+                raise ValueError("coordinator role setup requires its verified bounded receipt")
+            checkpoint["databaseConfigured"] = True
+            checkpoint["roleReceipt"] = role
+            self.save("github-build.intent.json", checkpoint)
+        if not connection_ready:
+            result = json.loads(run([sys.executable, "database/scripts/bootstrap_github_build_connection.py",
+                "--config", str(config_path.resolve()), "--email", email.strip().lower(), "--apply"], env=self.env, capture=True, timeout=300))
+            binding = current["connection"]
+            if (not isinstance(result, dict) or result.get("account") != self.cfg["account"]
+                    or result.get("connectionId") != binding["id"] or result.get("organizationId") != binding["organizationId"]
+                    or result.get("status") not in {"registered", "reused"}
+                    or result.get("runtimeVerification") != "passed" or result.get("metadataChecks") != "passed"):
+                raise ValueError("GitHub build connection needs authorized metadata/runtime readback; no success receipt recorded")
+            checkpoint["connectionConfigured"] = True
+            checkpoint["connectionReceipt"] = result
+            self.save("github-build.intent.json", checkpoint)
+        self.github_build_environment(True)
+        self.deploy("GitHubBuildAccess", "GitHubBuildController", "Api")
+        self.save("github-build.repository-variables.json", self.github_build_variables())
+        checkpoint["complete"] = True
+        self.save("github-build.intent.json", checkpoint)
+        print("GitHub build setup retained. Repository-variable template is disabled; apply and review it explicitly before execution admission.")
 
     def prepare_publication(self):
         if self.publication_manifest is not None:
@@ -412,11 +639,11 @@ class Deployment:
         self.save("images.json", images)
         print(f"Retained {component} image digest {found[0]}")
 
-    def database_args(self):
+    def database_args(self, *, include_runtime=True):
         foundation = self.need("foundation.outputs.json")
         return ["--profile", self.cfg["profile"], "--region", self.cfg["region"], "--expected-account", self.cfg["account"],
             "--cluster-arn", foundation["DatabaseClusterArn"], "--admin-secret-arn", foundation["DatabaseSecretArn"],
-            "--runtime-secret-arn", foundation["RuntimeDatabaseSecretArn"]]
+            *(["--runtime-secret-arn", foundation["RuntimeDatabaseSecretArn"]] if include_runtime else [])]
 
     def studio_env(self):
         web = self.need("web.outputs.json")
@@ -440,6 +667,7 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--with-preview", action="store_true", help="include configured previews in offline synthesis only")
     parser.add_argument("--with-publication", action="store_true", help="include configured on-demand publisher in offline synthesis only")
+    parser.add_argument("--with-github-build", action="store_true", help="include configured dormant GitHub build components in offline synthesis only")
     parser.add_argument("--apply", action="store_true", help="execute this one step; otherwise print an offline plan")
     parser.add_argument("--component", choices=("api", "compiler", "worker", "all"), default="all")
     parser.add_argument("--execution-policy-arn", help="explicit managed CloudFormation execution policy for bootstrap")
@@ -454,14 +682,18 @@ def main(argv=None):
         raise ValueError("--with-preview belongs only to offline synth")
     if args.with_publication and args.step != "synth":
         raise ValueError("--with-publication belongs only to offline synth")
+    if args.with_github_build and args.step != "synth":
+        raise ValueError("--with-github-build belongs only to offline synth")
     deployment = Deployment(load_config(args.config), allow_preview_change=args.step == "preview" and args.apply,
-                            allow_publication_change=args.step == "publication" and args.apply)
+                            allow_publication_change=args.step == "publication" and args.apply,
+                            allow_github_build_change=args.step == "github-build" and args.apply)
     if args.step == "plan" or (not args.apply and args.step != "synth"):
         print(json.dumps({"mode": "offline-plan", "step": args.step, "account": deployment.cfg["account"],
             "region": deployment.cfg["region"], "name": deployment.cfg["name"], "withWorker": deployment.cfg.get("withWorker", False),
             "nativePreviewConfigured": "nativePreview" in deployment.cfg,
             "nativePublicationConfigured": "nativePublication" in deployment.cfg,
-            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", *(["preview"] if "nativePreview" in deployment.cfg else []), *(["publication"] if "nativePublication" in deployment.cfg else []), "web", "studio", "owner", *(["publication-origin"] if "nativePublication" in deployment.cfg else []), "status"],
+            "nativeGitHubBuildConfigured": "nativeGitHubBuild" in deployment.cfg,
+            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", *(["preview"] if "nativePreview" in deployment.cfg else []), *(["publication"] if "nativePublication" in deployment.cfg else []), "web", "studio", "owner", *(["publication-origin"] if "nativePublication" in deployment.cfg else []), *(["github-build"] if "nativeGitHubBuild" in deployment.cfg else []), "status"],
             "next": "Read docs/community-aws.md; --apply runs only the named step. synth is offline."}, indent=2))
         return 0
     if args.step == "synth":
@@ -469,6 +701,9 @@ def main(argv=None):
             deployment.prepare_preview()
         if args.with_publication:
             deployment.prepare_publication()
+        if args.with_github_build:
+            deployment.prepare_github_build()
+            deployment.github_build_environment(False)
         # Invoke the app directly so synthesis cannot query AWS credentials/context.
         run(["node", "--import", "tsx", "bin/opengeo-community.ts"], env=deployment.env, cwd=ROOT / "infrastructure")
         print("Offline CloudFormation assembly written to infrastructure/cdk.out")
@@ -487,6 +722,10 @@ def main(argv=None):
         preview_files = deployment.preview_shell()
     if args.step == "publication":
         publication_intent = deployment.prepare_publication()
+    if args.step == "github-build":
+        if not args.email:
+            raise ValueError("github-build requires the existing account administrator's --email")
+        deployment.prepare_github_build()
     deployment.identity()
     if args.step == "bootstrap":
         deployment.cdk("bootstrap", f"aws://{deployment.cfg['account']}/{deployment.cfg['region']}", "--cloudformation-execution-policies", args.execution_policy_arn)
@@ -529,6 +768,8 @@ def main(argv=None):
             deployment.save("publication.intent.json", {**publication_intent, "databaseConfigured": True})
         deployment.publication_environment(True)
         deployment.deploy("FrameworkPublisher", "Api")
+    elif args.step == "github-build":
+        deployment.install_github_build(args.config, args.email)
     elif args.step == "studio":
         deployment.need("api.outputs.json")
         env = deployment.studio_env()
@@ -554,7 +795,8 @@ def main(argv=None):
             "--organization-name", args.organization_name, "--organization-slug", args.organization_slug,
             "--project-name", "Community content", "--project-code", "community-content"], env=deployment.env)
     elif args.step == "status":
-        for kind in ("Web", "Foundation", "Api", *(["FrameworkPublisher"] if deployment.publication_manifest else [])):
+        for kind in ("Web", "Foundation", "Api", *(["FrameworkPublisher"] if deployment.publication_manifest else []),
+                     *(["GitHubBuildAccess", "GitHubBuildController"] if deployment.github_build_manifest else [])):
             outputs = deployment.outputs(kind)
             print(json.dumps({"stack": f"{deployment.prefix}-{kind}", "outputs": outputs}, indent=2))
     return 0

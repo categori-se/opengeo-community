@@ -34,6 +34,8 @@ SCHEMA_ONLY_MAX_SECONDS = 600
 SCHEMA_ONLY_ROLLBACK_RESERVE = 2
 SCHEMA_ONLY_CLEANUP_SECONDS = 90
 BOUNDED_REQUEST_SECONDS = 45
+COORDINATOR_ROLE_MAX_REQUESTS = 32
+COORDINATOR_ROLE_MAX_SECONDS = 180
 MIGRATION_NAME = re.compile(r"^(?P<number>[0-9]{4})_[a-z0-9_]+\.sql$")
 BASELINE_SCHEMA_VERSION = "opengeo.database-baseline-manifest.1.0.0"
 BASELINE_POSTGRES_MAJOR = 16
@@ -983,7 +985,10 @@ class DataApiMigrator:
             raise MigrationError(f"{role} credential verification failed")
 
     def _read_database_secret(self, secret_arn: str, role: str) -> dict[str, str]:
+        self._check_budget("get_secret_value", claim=True)
         response = self.secrets_manager.get_secret_value(SecretId=secret_arn)
+        if self.deadline is not None and time.monotonic() > self.deadline:
+            raise MigrationError("migration time budget expired during secret read; reconcile before retrying")
         raw = response.get("SecretString")
         if not isinstance(raw, str):
             raise MigrationError(f"{role} secret has no SecretString")
@@ -997,6 +1002,17 @@ class DataApiMigrator:
         if not isinstance(password, str) or len(password) < 20:
             raise MigrationError(f"{role} secret has an invalid password")
         return {"username": role, "password": password}
+
+    def verify_observable_coordinator_role(self, *, login_required: bool = True) -> None:
+        response = self._rds_call("execute_statement", **self._base(),
+            sql="SELECT rolcanlogin, rolinherit, rolbypassrls, rolsuper, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname = 'opengeo_observable_coordinator'",
+            formatRecordsAs="JSON")
+        rows = json.loads(response.get("formattedRecords", "[]"))
+        expected = {"rolcanlogin": True, "rolinherit": False, "rolbypassrls": False, "rolsuper": False,
+            "rolcreaterole": False, "rolcreatedb": False}
+        allowed = [[expected]] if login_required else [[expected], [{**expected, "rolcanlogin": False}]]
+        if rows not in allowed:
+            raise MigrationError("existing coordinator database role violates the least-privilege contract")
 
     def verify_roles(self, *, publisher_enabled: bool = False) -> None:
         response = self._rds_call(
@@ -1129,6 +1145,8 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--connector-secret-arn")
     parser.add_argument("--dataset-verifier-secret-arn")
     parser.add_argument("--observable-coordinator-secret-arn")
+    parser.add_argument("--configure-observable-coordinator-only", action="store_true",
+        help="configure only the existing coordinator login after verifying the complete current schema; never apply migrations")
     parser.add_argument("--framework-publisher-secret-arn")
     parser.add_argument("--source-archiver-secret-arn")
     parser.add_argument("--repository-copier-secret-arn")
@@ -1136,8 +1154,71 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def configure_observable_coordinator_only(args: argparse.Namespace) -> int:
+    if args.schema_only or args.through_version is not None or args.after_version is not None or args.fresh_initialization != "baseline" or any(
+        secret is not None for secret in (args.connector_secret_arn, args.dataset_verifier_secret_arn,
+            args.framework_publisher_secret_arn, args.source_archiver_secret_arn, args.repository_copier_secret_arn)
+    ):
+        raise MigrationError("--configure-observable-coordinator-only forbids schema upgrades and unrelated optional role arguments")
+    migrations = load_migrations(args.migrations_dir.resolve())
+    plan = {"status": "validated", "mode": "plan", "configureObservableCoordinatorOnly": True,
+        "databaseRoles": ["opengeo_observable_coordinator"], "lastMigration": migrations[-1].name,
+        "schemaRequirement": "exact-current-ledger-and-existing-role", "passwordsExposed": False,
+        "requestBudget": {"maximumRequests": COORDINATOR_ROLE_MAX_REQUESTS, "maximumSeconds": COORDINATOR_ROLE_MAX_SECONDS,
+            "rollbackReserve": SCHEMA_ONLY_ROLLBACK_RESERVE}}
+    if not args.apply:
+        print(json.dumps(plan, indent=2))
+        return 0
+    required = {"expected-account": args.expected_account, "cluster-arn": args.cluster_arn,
+        "admin-secret-arn": args.admin_secret_arn, "observable-coordinator-secret-arn": args.observable_coordinator_secret_arn}
+    if missing := [name for name, value in required.items() if not value]:
+        raise MigrationError("--apply requires: " + ", ".join("--" + name for name in missing))
+    if not re.fullmatch(r"[0-9]{12}", args.expected_account) or not re.fullmatch(r"[a-z0-9-]{1,63}", args.region) or args.database != "opengeo":
+        raise MigrationError("coordinator configuration requires an exact AWS account/region and the opengeo database")
+    cluster = validate_arn(args.cluster_arn, CLUSTER_ARN, name="cluster")
+    for value in (args.admin_secret_arn, args.observable_coordinator_secret_arn):
+        secret = validate_arn(value, SECRET_ARN, name="Secrets Manager")
+        if (not re.fullmatch(r".+-[A-Za-z0-9]{6}", value) or
+            secret.group("account") != args.expected_account or secret.group("region") != args.region or
+            secret.group("partition") != cluster.group("partition")):
+            raise MigrationError("coordinator configuration requires complete same-account regional secret ARNs")
+    if cluster.group("account") != args.expected_account or cluster.group("region") != args.region:
+        raise MigrationError("coordinator cluster does not match the configured AWS account and region")
+    if args.observable_coordinator_secret_arn in (args.admin_secret_arn, args.runtime_secret_arn, args.worker_secret_arn):
+        raise MigrationError("coordinator configuration requires its own dedicated secret")
+    try:
+        import boto3
+        from botocore.config import Config
+    except ImportError as error:
+        raise MigrationError("boto3 is required for --apply") from error
+    started = time.monotonic()
+    client_options = {"config": Config(connect_timeout=5, read_timeout=20, retries={"total_max_attempts": 1})}
+    session = boto3.Session(profile_name=args.profile, region_name=args.region)
+    identity = session.client("sts", **client_options).get_caller_identity()
+    if identity.get("Account") != args.expected_account:
+        raise MigrationError("active AWS identity does not match --expected-account")
+    migrator = DataApiMigrator(rds_data=session.client("rds-data", **client_options),
+        secrets_manager=session.client("secretsmanager", **client_options), cluster_arn=args.cluster_arn,
+        admin_secret_arn=args.admin_secret_arn, database=args.database, request_limit=COORDINATOR_ROLE_MAX_REQUESTS,
+        deadline=started + COORDINATOR_ROLE_MAX_SECONDS, initial_requests=1, rollback_reserve=SCHEMA_ONLY_ROLLBACK_RESERVE)
+    if migrator.database_initialization_state() != "managed":
+        raise MigrationError("coordinator configuration requires an initialized current migration ledger")
+    if migrator.applied() != {migration.name: migration.sha256 for migration in migrations}:
+        raise MigrationError("coordinator configuration requires the exact current migration ledger; run the schema upgrade separately")
+    migrator.verify_observable_coordinator_role(login_required=False)
+    migrator.configure_role("opengeo_observable_coordinator", args.observable_coordinator_secret_arn)
+    migrator.verify_observable_coordinator_role()
+    print(json.dumps({**plan, "status": "configured", "mode": "apply", "appliedCount": 0,
+        "requestBudget": {**plan["requestBudget"], "requestsUsed": migrator.requests_used,
+            "elapsedSeconds": time.monotonic() - started, "credentialProviderInternalRequests": "unmeasured",
+            "serviceMediatedKmsRequests": "unavailable; Secrets Manager and Data API may invoke KMS"}}, indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv if argv is not None else sys.argv[1:])
+    if args.configure_observable_coordinator_only:
+        return configure_observable_coordinator_only(args)
     if args.after_version is not None and (
         not args.schema_only or args.through_version is None
         or not 1 <= args.after_version < args.through_version

@@ -1,5 +1,23 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Standalone GitHub build installer accepted offline
+
+`nativeGitHubBuild` and the explicit `github-build` phase carry retained core
+metadata through the existing entrypoint, controller, IAM and API queue/provider.
+The controller reuses the ARM64 API image; the GitHub runner uses the existing
+AMD64 compiler, with no added host or private endpoint. Foundation exports the
+application KMS ARN. Dormant resources precede bounded coordinator-only login
+setup and verified account connection registration. Matching reruns preserve the
+connection ID/verifier/time and source/dispatch history. Current enabled Cognito
+and account-admin authority, exact App repository/workflow/ref access, actual secret
+encryption and runtime tenant readback gate success. Incomplete setup never restores
+execution admission; completed roles/registrations are reused safely. Optional
+Artifact account grants remain explicit. The disabled repository-variable template
+is applied by the operator; the installer changes no GitHub permissions or settings.
+Private/public Python checks, scoped public CDK checks, actual SQL and TypeScript
+pass offline. These are setup contracts, not independent or live acceptance.
+See [operator setup](community-aws.md#trusted-github-compiler-configuration).
+
 October 17 — Independent GitHub compiler configuration accepted offline
 
 `GitHubFrameworkBuildAccessStack.independentDeployment` binds concrete local
