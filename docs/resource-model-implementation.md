@@ -1,5 +1,21 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Standalone publication-origin registration accepted locally
+
+`publication-origin` invokes one owning database helper with the existing installer
+configuration. STS, exact verified Cognito identity, same-account S3 metadata and
+deployed CloudFront/OAC/release-path checks precede database writes. The helper
+requires an existing active account administrator and uses the existing migration
+client and runtime principal/tenant context. It creates no membership or hosting.
+Parameterized registration locks the hostname and record, preserves immutable
+identity/current release/mounts/history, and treats exact reruns as reads. Mutable
+entitlements require an idle origin and current generation; prefix changes are
+rejected once addresses exist. Runtime readback gates the retained success receipt.
+Twenty-eight installer and thirteen helper checks pass. The existing PGlite suite
+passes 22 cases and executes the actual helper query bodies with runtime permissions.
+No native PostgreSQL or hosted installation claim follows. Admitted compiler and
+independent identity/HTTPS/CDN acceptance remain open.
+
 October 17 — Standalone on-demand publication phase accepted offline
 
 The existing CLI/CDK entrypoint accepts closed `nativePublication` metadata with
@@ -11,8 +27,9 @@ setting can take effect. An interrupted final deployment reuses that role receip
 Studio/private-custody destinations and the Studio distribution are rejected.
 Publisher queue exports survive disable/reconfiguration while the API transitions.
 Actual entrypoint synthesis and installer recovery checks pass; no cloud resources,
-compiler or publication job run. Origin registration/authority and admitted compiler
-execution remain incomplete, alongside independent live installation and delivery.
+compiler or publication job run. Origin registration is now connected and accepted
+locally as recorded above. Admitted compiler execution and independent live
+installation/delivery remain incomplete.
 See [operator instructions](community-aws.md#optional-publication-delivery-setup).
 
 October 17 — Standalone private-preview phase accepted offline

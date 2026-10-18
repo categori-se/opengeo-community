@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
+import {spawnSync} from "node:child_process";
 import {randomUUID} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {after, before, describe, it} from "node:test";
+import {fileURLToPath} from "node:url";
 import {PGlite} from "@electric-sql/pglite";
 
 const ID = {
@@ -1504,12 +1506,39 @@ describe("0045 durable Observable source projects and credential-free build boun
   it('reserves destinations only within explicitly delegated public prefixes, without publishing or reviving retired URLs', async () => {
     const origin = randomUUID(), mount = randomUUID(), rootMount = randomUUID();
     const ack = 'reserve-address-without-publishing';
+    // Execute the installer's actual statements against the existing schema and runtime role.
+    const extraction = spawnSync('python3', ['-c',
+      "import ast,json,sys;from pathlib import Path;t=ast.parse(Path(sys.argv[1]).read_text());print(json.dumps({n.targets[0].id:ast.literal_eval(n.value) for n in t.body if isinstance(n,ast.Assign) and isinstance(n.targets[0],ast.Name) and n.targets[0].id.endswith('_SQL')}))",
+      fileURLToPath(new URL('../scripts/bootstrap_publication_origin.py', import.meta.url))],
+      {encoding: 'utf8', timeout: 5000, maxBuffer: 65536});
+    assert.equal(extraction.status, 0, extraction.stderr);
+    const statements = JSON.parse(extraction.stdout);
+    const setupQuery = (name, values) => {
+      const names = [];
+      const sql = statements[name].replace(/(?<!:):([a-z_]+)/g, (_, parameter) => {
+        if (!names.includes(parameter)) names.push(parameter);
+        return `$${names.indexOf(parameter) + 1}`;
+      });
+      return db.query(sql, names.map(name => values[name]));
+    };
     const reserve = (id = mount, slug = 'atlas', acknowledgment = ack, source = ID.sourceProject) => db.query(
       'SELECT app.reserve_framework_publication_mount($1,$2,$3,$4,$5,$6) AS id', [id, ID.project, source, origin, slug, acknowledgment]);
     await db.exec('RESET ROLE');
-    await db.query(`INSERT INTO app.framework_publication_origins
-      (id,organization_id,hostname,bucket,distribution_id,origin_id,active_release_prefix,enabled,verified_by,verified_at)
-      VALUES ($1,$2,'publications.example.test','public-bucket','EXAMPLE','public','releases/unchanged',true,$3,now())`, [origin,ID.organization,ID.user]);
+    await db.query(`INSERT INTO app.organization_memberships (organization_id,user_id,role,invited_by)
+      VALUES ($1,$2,'member',$3) ON CONFLICT (organization_id,user_id) DO UPDATE SET role='member'`, [ID.organization,ID.otherUser,ID.user]);
+    await db.query(`INSERT INTO app.project_memberships (organization_id,project_id,user_id,role)
+      VALUES ($1,$2,$3,'viewer') ON CONFLICT (organization_id,project_id,user_id) DO UPDATE SET role='viewer'`, [ID.organization,ID.project,ID.otherUser]);
+    assert.deepEqual((await setupQuery('AUTHORITY_SQL', {subject:'source-author',email:'source@example.test',organization_id:ID.organization})).rows,
+      [{user_id:ID.user}]);
+    assert.deepEqual((await setupQuery('AUTHORITY_SQL', {subject:'other-source-author',email:'other@example.test',organization_id:ID.organization})).rows, []);
+    const registration = {id:origin,organization_id:ID.organization,hostname:'publications.example.test',bucket:'public-bucket',
+      distribution_id:'EXAMPLE',origin_id:'public',release_prefix:'releases/unchanged',enabled:false,user_id:ID.user,
+      self_service_prefix:'/publications/',project_reservation_limit:0};
+    const registered = (await setupQuery('INSERT_SQL', registration)).rows[0];
+    assert.equal(Number(registered.generation),1);
+    assert.equal(registered.active_release_prefix,'releases/unchanged');
+    assert.equal((await setupQuery('ORIGIN_SQL',{id:origin,hostname:registration.hostname})).rows.length,1);
+    assert.deepEqual((await setupQuery('MOUNTS_SQL',{id:origin})).rows,[{count:0}]);
     await db.query(`INSERT INTO app.framework_publication_mounts
       (id,organization_id,project_id,source_project_id,origin_id,mount_path,enabled,verified_by,verified_at)
       VALUES ($1,$2,$3,$4,$5,'/',true,$6,now())`, [rootMount,ID.organization,ID.project,ID.sourceProject,origin,ID.user]);
@@ -1517,7 +1546,20 @@ describe("0045 durable Observable source projects and credential-free build boun
     await assert.rejects(tenant(ID.organization,ID.user,() => reserve()), /not authorized/);
     await assert.rejects(tenant(ID.organization,ID.user,() => db.query("UPDATE app.framework_publication_origins SET self_service_prefix='/publications/',generation=generation+1 WHERE id=$1",[origin])), /permission denied/);
     await db.exec('RESET ROLE');
-    await db.query("UPDATE app.framework_publication_origins SET self_service_prefix='/publications/',generation=generation+1 WHERE id=$1",[origin]);
+    const currentGeneration = Number((await db.query('SELECT generation FROM app.framework_publication_origins WHERE id=$1',[origin])).rows[0].generation);
+    assert.equal((await setupQuery('UPDATE_SQL',{...registration,enabled:true,expected_generation:currentGeneration-1})).rows.length,0);
+    const enabled = (await setupQuery('UPDATE_SQL',{...registration,enabled:true,expected_generation:currentGeneration})).rows[0];
+    assert.equal(Number(enabled.generation),currentGeneration+1);
+    assert.equal(enabled.active_release_prefix,registration.release_prefix);
+    await db.exec('SET ROLE opengeo_runtime');
+    const principal = (await setupQuery('PRINCIPAL_SQL',{subject:'source-author',organization_id:ID.organization})).rows;
+    assert.deepEqual(principal,[{user_id:ID.user,email:'source@example.test',role:'admin'}]);
+    await tenant(ID.organization,ID.user,async () => {
+      await setupQuery('CONTEXT_SQL',{organization_id:ID.organization,user_id:ID.user});
+      assert.deepEqual((await setupQuery('READBACK_SQL',{id:origin,organization_id:ID.organization})).rows,[enabled]);
+    });
+    assert.deepEqual((await tenant(ID.otherOrganization,ID.otherUser,() => setupQuery('READBACK_SQL',{id:origin,organization_id:ID.organization}))).rows,[]);
+    await db.exec('RESET ROLE');
     const before = (await db.query('SELECT generation,active_release_prefix FROM app.framework_publication_origins WHERE id=$1',[origin])).rows[0];
     const jobs = (await db.query('SELECT count(*) AS count FROM app.framework_publication_jobs')).rows[0].count;
     await db.exec('SET ROLE opengeo_runtime');

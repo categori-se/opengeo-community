@@ -20,7 +20,7 @@ import tempfile
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "preview", "publication", "studio", "owner", "status", "rollback")
+STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "preview", "publication", "publication-origin", "studio", "owner", "status", "rollback")
 
 
 def load_config(path: Path) -> dict:
@@ -198,6 +198,28 @@ class Deployment:
         publication = self.cfg["nativePublication"]
         self.env["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"] = json.dumps({**publication,
             "enabled": database_configured and publication["enabled"]})
+
+    def register_publication_origin(self, config_path, registration_path, email):
+        self.prepare_publication()
+        if self.need("publication.intent.json").get("databaseConfigured") is not True:
+            raise ValueError("finish dedicated publisher database setup before registering an origin")
+        receipt = self.read("publication-origins.json") or {"account": self.cfg["account"], "origins": {}}
+        if receipt.get("account") != self.cfg["account"]:
+            raise ValueError("origin receipt belongs to another account")
+        # The owning helper verifies account, hosting and existing membership once.
+        result = json.loads(run([sys.executable, "database/scripts/bootstrap_publication_origin.py",
+            "--config", str(config_path.resolve()), "--registration", str(registration_path.resolve()),
+            "--email", email.strip().lower(), "--apply"], env=self.env, capture=True, timeout=300))
+        if (not isinstance(result, dict) or result.get("account") != self.cfg["account"]
+                or result.get("hostname") not in {item["hostname"] for item in self.cfg["nativePublication"]["destinations"]}
+                or result.get("status") not in {"registered", "reused", "updated"}
+                or result.get("runtimeVerification") != "passed" or result.get("metadataChecks") != "passed"
+                or type(result.get("generation")) is not int or result["generation"] < 1
+                or any(not isinstance(result.get(key), str) or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", result[key]) for key in ("originId", "organizationId"))):
+            raise ValueError("origin registration needs verified readback; no receipt recorded")
+        receipt["origins"][result["originId"]] = result
+        self.save("publication-origins.json", receipt)
+        print(json.dumps(result, indent=2))
 
     def prepare_preview(self):
         if self.preview_manifest is not None:
@@ -422,6 +444,7 @@ def main(argv=None):
     parser.add_argument("--component", choices=("api", "compiler", "worker", "all"), default="all")
     parser.add_argument("--execution-policy-arn", help="explicit managed CloudFormation execution policy for bootstrap")
     parser.add_argument("--email")
+    parser.add_argument("--registration", type=Path, help="explicit publication-origin identity and address delegation file")
     parser.add_argument("--display-name")
     parser.add_argument("--organization-name", default="Community workspace")
     parser.add_argument("--organization-slug", default="community-workspace")
@@ -438,7 +461,7 @@ def main(argv=None):
             "region": deployment.cfg["region"], "name": deployment.cfg["name"], "withWorker": deployment.cfg.get("withWorker", False),
             "nativePreviewConfigured": "nativePreview" in deployment.cfg,
             "nativePublicationConfigured": "nativePublication" in deployment.cfg,
-            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", *(["preview"] if "nativePreview" in deployment.cfg else []), *(["publication"] if "nativePublication" in deployment.cfg else []), "web", "studio", "owner", "status"],
+            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", *(["preview"] if "nativePreview" in deployment.cfg else []), *(["publication"] if "nativePublication" in deployment.cfg else []), "web", "studio", "owner", *(["publication-origin"] if "nativePublication" in deployment.cfg else []), "status"],
             "next": "Read docs/community-aws.md; --apply runs only the named step. synth is offline."}, indent=2))
         return 0
     if args.step == "synth":
@@ -452,6 +475,11 @@ def main(argv=None):
         return 0
     if args.step == "owner" and (not args.email or not args.display_name):
         raise ValueError("owner requires --email and --display-name; first invite the user and verify the email in your own Cognito pool")
+    if args.step == "publication-origin":
+        if not args.email or not args.registration:
+            raise ValueError("publication-origin requires --registration and the existing account administrator's --email")
+        deployment.register_publication_origin(args.config, args.registration, args.email)
+        return 0
     if args.step == "bootstrap" and not re.fullmatch(r"arn:aws:iam::(?:aws|" + deployment.cfg["account"] + r"):policy/[A-Za-z0-9+=,.@_/-]+", args.execution_policy_arn or ""):
         raise ValueError("bootstrap requires an explicit --execution-policy-arn in your account or AWS managed policy")
     if args.step == "preview":

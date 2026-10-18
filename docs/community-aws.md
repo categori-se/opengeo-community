@@ -218,8 +218,8 @@ Publication source editing is included. The standalone core profile deploys
 Studio/API and optional GIS processing. Native Notebook/Framework build coordination
 and public delivery use additional components in
 `services/observable-*`, `services/api/src/opengeo_api/github_build_controller.py` and
-`infrastructure/lib/*publisher*`. Compiler execution and registration of authorized
-publication origins remain deployment work. The optional phases below configure
+`infrastructure/lib/*publisher*`. Admitted compiler execution remains deployment
+work. The optional phases below configure
 preview signing and an on-demand publisher; they do not install a compiler runner.
 These integrations stay unadvertised until their
 runtimes are configured. Track this work in the [roadmap](../ROADMAP.md).
@@ -326,10 +326,9 @@ deployment, repeating the phase reuses successful role setup. Configuration chan
 require this explicit phase. Queue exports remain available while an active API
 transitions to the new settings.
 
-Before enabling delivery, an operator must register and verify the corresponding
-database publication origin and its account authority. Self-service destinations
-also need an authorized path prefix and reservation limit. This installer does
-not register those origins. The destination distribution must list the exact
+Before enabling delivery, use the registration phase below to verify the
+corresponding publication origin and its account authority. Self-service destinations
+also need an authorized path prefix and reservation limit. The destination distribution must list the exact
 hostname in its aliases and match the origin ID, bucket, OAC and active release
 prefix in that record. Use a versioned private S3 bucket with SSE-S3 and OAC for
 this profile; additional customer-managed destination KMS keys are not configured.
@@ -346,6 +345,68 @@ authorized delivery acceptance remain open. Lambda, SQS, retained logs, storage,
 delivery and potential KMS requests still have usage costs. No always-running
 compute is added; each publication retains the existing single batched wildcard
 invalidation and recovery behavior.
+
+## Register publication addresses
+
+Complete owner setup and the dormant publication phase first. Create a private
+registration file, for example `.opengeo/public-origin.json`:
+
+```json
+{
+  "id": "3fd569e5-e1c6-494a-85ed-96919cd6d002",
+  "organizationId": "c319ca82-50fc-4576-9212-583037dbab82",
+  "hostname": "public.maps.example.org",
+  "selfServicePrefix": "/publications/",
+  "projectReservationLimit": 0,
+  "enabled": true
+}
+```
+
+Choose a new UUID once for the origin and retain it. Use the existing account's
+`organizationId`, returned by owner setup; use that origin's existing ID when
+reconciling a prior registration. The hostname must select one exact destination
+from `nativePublication.destinations`. This step creates no accounts, memberships,
+hosting resources or publication jobs.
+
+```bash
+.venv/bin/python scripts/community-aws.py publication-origin \
+  --config .opengeo/aws-config.json --registration .opengeo/public-origin.json \
+  --email you@example.org --apply
+```
+
+The supplied email must identify an enabled, verified principal in this
+installation's Cognito pool and an existing administrator of the selected active
+account. AWS credentials alone do not establish application membership. The helper
+also verifies same-account hosting, versioning, SSE-S3, blocked public S3 access,
+the deployed CloudFront alias, selected REST origin, OAC and current release path.
+This profile requires a dedicated distribution with default routing; additional
+path cache behaviors are rejected. Verification preserves existing public content
+and routing.
+
+Successful registration appears in Studio's existing Publish address controls for
+authorized users. `enabled` here makes this origin available for reservations;
+publisher queue consumption remains controlled separately by
+`nativePublication.enabled`. A limit of zero permits account administrators only.
+A positive limit, up to 1000, delegates bounded reservations to existing project
+publication authorities. Retired addresses still consume capacity. Reserved paths
+and publication history remain retained.
+
+The installer saves verified readback in `publication-origins.json`. An exact
+rerun reconciles the existing record without another insert or generation change,
+including after a successful database commit with interrupted readback. It uses
+the current observed release pointer rather than resetting a bootstrap prefix.
+Changing the enabled state, prefix or limit requires `expectedGeneration` from
+the current receipt. Refresh the unchanged registration first if reservations or
+publications have advanced that generation. Busy delivery and stale generations are rejected;
+the prefix cannot change after any address has been reserved. A changed setting
+advances generation once, invalidating reviews of the previous configuration.
+
+The helper bounds metadata verification to seven AWS requests and database work
+to 32 requests with a 180-second database deadline and rollback reserve. Service-side
+KMS usage is not measured by those request counts. Registration publishes no
+build, uploads no objects and creates no CloudFront invalidation. Local fixtures
+and SQL checks qualify this implementation; independent live ownership, configured
+delivery and admitted compiler acceptance still remain open.
 
 Validation for this profile consists of local TypeScript/CDK checks, synthesized
 resource/security assertions, migration plan/tests and sealed Studio release

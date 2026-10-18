@@ -38,8 +38,11 @@ checks cover synthesis, exact shell origins and recovery after interrupted uploa
 The optional on-demand publisher now connects through that installer using the
 retained API image, explicit delivery targets and a dedicated database role.
 Consumption defaults off; local checks cover activation ordering, safe continuation
-and protected Studio/private storage. Publication-origin registration, admitted
-compiler execution and real identity/HTTPS/CDN delivery remain open.
+and protected Studio/private storage. An explicit origin-registration phase now
+checks existing hosting and account authority, preserves published state on reruns,
+and connects to the existing Studio address controls. Its installer/helper checks
+and actual SQL statements pass locally. Admitted compiler execution and independent
+identity/HTTPS/CDN delivery remain open.
 
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |

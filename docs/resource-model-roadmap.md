@@ -1,5 +1,21 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Standalone publication origins connect to existing address controls
+
+An explicit installer phase now registers verified independent hosting for an
+existing account administrator. It checks account/Cognito identity, private
+versioned SSE-S3 hosting and the deployed CloudFront/OAC/release path before
+transactional registration and runtime tenant readback. Exact retries preserve
+generation and published pointers; bounded entitlement changes require the current
+generation and idle delivery. Existing Studio address controls consume these
+records. Twenty-eight installer and thirteen helper checks pass; the owning SQL
+suite passes all 22 cases, including the helper's actual query bodies.
+No AWS, Actions, containers or application/image build is used. One exact existing
+dependency is restored from its lockfile after the initial SQL check cannot load it.
+Next, connect an admitted compiler route. The independent operator/full installation
+and actual identity/HTTPS/CDN delivery acceptance remain open; reuse the accepted
+core, preview, publisher and study results.
+
 October 17 — Standalone installer connects the on-demand publication worker
 
 The optional publication phase now reuses the retained API image and existing
@@ -9,8 +25,8 @@ changes; the dedicated database role must pass setup before explicit activation.
 Continuation reuses successful role setup and preserves queue exports during
 reconfiguration. Focused installer/CDK checks and TypeScript pass locally. No AWS,
 Actions, runtime or application/image build is used.
-Next, connect operator registration of authorized publication origins and an admitted
-compiler route. The private runner still needs its reviewed ARM64 image, host and
+Operator registration is now connected and accepted offline as recorded above.
+An admitted compiler route remains. The private runner still needs its reviewed ARM64 image, host and
 Artifact network access; GitHub execution remains bound to managed account resources.
 Independent installation and configured identity/HTTPS/CDN acceptance remain open.
 

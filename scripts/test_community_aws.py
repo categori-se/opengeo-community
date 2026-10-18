@@ -380,6 +380,47 @@ class DeploymentGuards(unittest.TestCase):
                 MODULE.main(["publication", "--apply", "--config", str(config_file)])
             self.assertFalse(deployment.read("publication.intent.json"))
 
+    def test_origin_phase_plan_is_offline_and_follows_existing_owner_setup(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            config_file, deployment = self.publication_deployment(Path(directory))
+            with patch.object(MODULE, "run", side_effect=AssertionError("No helper, cloud or build")), contextlib.redirect_stdout(io.StringIO()) as output:
+                MODULE.main(["publication-origin", "--config", str(config_file)])
+            order = json.loads(output.getvalue())["order"]
+            self.assertGreater(order.index("publication-origin"), order.index("owner"))
+            self.assertFalse(deployment.read("publication-origins.json"))
+
+    def test_origin_phase_uses_single_owning_helper_and_records_only_verified_readback(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            root = Path(directory)
+            config_file, deployment = self.publication_deployment(root)
+            deployment.save("publication.intent.json", {**deployment.prepare_publication(), "databaseConfigured": True})
+            registration = root / "origin.json"
+            registration.write_text("{}")  # The owning helper validates this file.
+            result = {"status": "registered", "account": CONFIG["account"], "hostname": "public.example.org",
+                "originId": "10000000-0000-4000-8000-000000000001", "organizationId": "10000000-0000-4000-8000-000000000002",
+                "generation": 1, "activeReleasePrefix": "releases/existing", "runtimeVerification": "passed", "metadataChecks": "passed"}
+            with patch.object(MODULE, "run", return_value=json.dumps(result)) as execute, patch.object(MODULE.Deployment, "identity", side_effect=AssertionError("Helper owns STS")), contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["publication-origin", "--config", str(config_file), "--registration", str(registration), "--email", "OWNER@example.org", "--apply"])
+            execute.assert_called_once()
+            args = execute.call_args.args[0]
+            self.assertEqual(args[1], "database/scripts/bootstrap_publication_origin.py")
+            self.assertEqual(args[args.index("--email") + 1], "owner@example.org")
+            self.assertEqual(execute.call_args.kwargs["timeout"], 300)
+            self.assertEqual(deployment.read("publication-origins.json")["origins"][result["originId"]], result)
+
+    def test_origin_phase_rejects_missing_role_and_failed_readback_without_receipt(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            root = Path(directory)
+            config_file, deployment = self.publication_deployment(root)
+            deployment.save("publication.intent.json", {**deployment.prepare_publication(), "databaseConfigured": False})
+            with patch.object(MODULE, "run", side_effect=AssertionError("No helper before role setup")), self.assertRaisesRegex(ValueError, "publisher database setup"):
+                deployment.register_publication_origin(config_file, root / "origin.json", "owner@example.org")
+            deployment.save("publication.intent.json", {**deployment.prepare_publication(), "databaseConfigured": True})
+            for result in ({"status": "registered", "runtimeVerification": "failed"}, {"account": "999999999999"}):
+                with self.subTest(result=result), patch.object(MODULE, "run", return_value=json.dumps(result)), self.assertRaisesRegex(ValueError, "verified readback"):
+                    deployment.register_publication_origin(config_file, root / "origin.json", "owner@example.org")
+            self.assertFalse(deployment.read("publication-origins.json"))
+
 
 if __name__ == "__main__":
     unittest.main()

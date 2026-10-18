@@ -1,3 +1,43 @@
+## October 17 — Standalone publication origins reach existing address controls
+
+The explicit installer registration phase verifies an existing account administrator
+and independently owned hosting before database mutation. It checks Cognito,
+expected S3 owner/versioning/SSE-S3/public-access blocking, deployed CloudFront
+alias/default REST origin/OAC and the current release path. Additional path behaviors
+are rejected after review identifies their potential to route delegated paths to
+another origin. Existing accounts, memberships and hosting are preserved.
+
+Registration uses the existing migration client, parameter binding and runtime
+principal context. Transactional locks protect immutable identity and busy delivery.
+Exact retries make no record update or generation change, preserving advanced
+published prefixes and prior verification. Entitlement changes require a current
+generation and preserve mounts/history; prefixes cannot change after addresses
+exist. A post-commit readback failure retains the committed row for reconciliation
+without replaying its write. Only successful runtime tenant readback creates the
+installer receipt. Existing Studio address selection/reservation needs no UI change.
+
+All 28 installer checks pass in 0.331 seconds. Thirteen helper checks pass initially
+in 0.006 seconds and after the routing guard in 0.007 seconds. The SQL attempt first
+stops before execution because its pinned dependency is absent. Bounded retained
+workspace/cache inspection finds no reusable package. One exact PGlite 0.5.8
+archive is retrieved: 8,791,923 bytes in one request, SHA-512 checked against the
+unchanged database lock. Its sole package restores offline without install scripts
+in 0.729 seconds; no versions change. Download takes 0.428 seconds.
+
+The next runner reports only file-level success, which is not accepted as SQL
+evidence. Explicit suite selection with TAP and no process isolation then confirms
+all 22 owning cases pass in 2.523 seconds, including the actual helper SQL for
+authority, insert, guarded update, runtime readback and tenant isolation. The existing
+case also covers delegation, retired address capacity, reservation and no publication
+jobs. Its fixture now sets its own member/project-role prerequisites. No native
+PostgreSQL or live hosting claim follows from PGlite.
+
+The existing installation manifest retains all attempts, the dependency-method
+change and cumulative usage. No AWS, KMS, Actions, runtime containers, application/
+image build or invalidation is used. Agent effort and dollar cost are unavailable.
+Next, admitted compiler execution and independent operator/identity/HTTPS/CDN
+acceptance; reuse accepted core, preview, publisher, compiler and study artifacts.
+
 ## October 17 — Standalone installer connects on-demand publication delivery
 
 The existing installer now passes explicit independent destination identities and
