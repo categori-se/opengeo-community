@@ -90,19 +90,25 @@ on:
       - docs/api/evidence/stac-ckan-export.json
       - parity/fixtures/data/**
   workflow_dispatch:
+    inputs:
+      fresh_installation:
+        description: Build public source images and run the connected local installation checks
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && '-fresh-installation' || '' }}
+  cancel-in-progress: ${{ !(github.event_name == 'workflow_dispatch' && inputs.fresh_installation) }}
 
 jobs:
   frontend-core:
     name: Catalog, map and publication workflows (Node 24)
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && 30 || 8 }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,14 +119,46 @@ jobs:
         with:
           node-version: 24.19.0
           package-manager-cache: false
+      - name: Prepare an empty local installation store
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
+        run: |
+          set -euo pipefail
+          test "$(uname -m)" = x86_64
+          command -v podman
+          test -x /usr/bin/chromium || test -x /usr/bin/chromium-browser || test -x /usr/bin/google-chrome
+          fresh="$RUNNER_TEMP/opengeo-source-install"
+          test ! -e "$fresh"
+          install -d -m 0700 "$fresh" "$fresh/graph" "$fresh/run" "$fresh/tmp" "$fresh/npm"
+          printf '[storage]\ndriver = "overlay"\nrunroot = "%s/run"\ngraphroot = "%s/graph"\n[storage.options]\nadditionalimagestores = []\n' "$fresh" "$fresh" > "$fresh/storage.conf"
+          printf '{"auths":{}}\n' > "$fresh/anonymous-auth.json"
+          chmod 0600 "$fresh/storage.conf" "$fresh/anonymous-auth.json"
+          CONTAINERS_STORAGE_CONF="$fresh/storage.conf" podman info --format json > "$fresh/podman-before.json"
+          FRESH_STORE="$fresh" python3 - <<'PYTHON'
+          import json, os
+          from pathlib import Path
+          fresh = Path(os.environ['FRESH_STORE'])
+          info = json.loads((fresh / 'podman-before.json').read_text())
+          assert info['host']['security']['rootless'] is True
+          assert info['host']['cgroupVersion'] == 'v2'
+          assert info['store']['graphRoot'] == str(fresh / 'graph')
+          assert info['store']['imageStore']['number'] == 0
+          space = os.statvfs(fresh)
+          assert space.f_bavail * space.f_frsize >= 12 * 1024**3, 'Fresh installation needs 12 GiB free before image downloads'
+          PYTHON
+          printf 'OPEN_GEO_FRESH_STORE=%s\nCONTAINERS_STORAGE_CONF=%s/storage.conf\nNPM_CONFIG_CACHE=%s/npm\n' "$fresh" "$fresh" "$fresh" >> "$GITHUB_ENV"
       - name: Restore npm downloads without saving a new cache
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.fresh_installation) }}
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ~/.npm
           key: node-cache-${{ runner.os }}-x64-npm-${{ hashFiles('app/package-lock.json') }}
           restore-keys: node-cache-${{ runner.os }}-x64-npm-
       - name: Install locked frontend dependencies
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.fresh_installation) }}
         run: npm --prefix app ci --ignore-scripts --no-audit --no-fund
+      - name: Install locked frontend dependencies with native install scripts
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
+        run: npm --prefix app ci --no-audit --no-fund
       - name: Set up Python for local runner checks
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -146,6 +184,52 @@ jobs:
             services/observable-coordinator/test/local-adapters.test.mjs; do
             node --test --test-isolation=none "$test_file"
           done
+      - name: Build the documented public source images
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
+        env:
+          TMPDIR: ${{ runner.temp }}/opengeo-source-install/tmp
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=10s 12m bash -euo pipefail <<'BUILD'
+          build_options=(--jobs=1 --no-cache --layers=false --pull=missing --retry=0 --cpu-period=100000 --cpu-quota=200000 --memory=8g --memory-swap=8g --authfile "$OPEN_GEO_FRESH_STORE/anonymous-auth.json")
+          podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/api.iid" --file services/api/Dockerfile services/api
+          podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/worker.iid" --file services/worker/Dockerfile services/worker
+          podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/compiler.iid" --file services/observable-builder/Dockerfile services/observable-builder
+          podman pull --retry=0 --authfile "$OPEN_GEO_FRESH_STORE/anonymous-auth.json" docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932
+          BUILD
+      - name: Run the canonical built Studio installation check
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=20s 6m env TMPDIR=/tmp python scripts/run-integrated-studio-local.py \
+            --built-studio \
+            --api-image "$(cat "$OPEN_GEO_FRESH_STORE/api.iid")" \
+            --worker-image "$(cat "$OPEN_GEO_FRESH_STORE/worker.iid")"
+      - name: Run the canonical native publication installation check
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
+        run: |
+          set -euo pipefail
+          timeout --signal=TERM --kill-after=20s 5m env TMPDIR=/tmp python scripts/run-integrated-studio-local.py \
+            --publication-only \
+            --publication-compiler-digest "$(cat "$OPEN_GEO_FRESH_STORE/compiler.iid")" \
+            --api-image "$(cat "$OPEN_GEO_FRESH_STORE/api.iid")" \
+            --worker-image "$(cat "$OPEN_GEO_FRESH_STORE/worker.iid")"
+      - name: Clean the isolated installation containers
+        if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
+        run: |
+          set -euo pipefail
+          expected="$RUNNER_TEMP/opengeo-source-install"
+          if test "${CONTAINERS_STORAGE_CONF:-}" != "$expected/storage.conf"; then
+            exit 0
+          fi
+          test "$(podman info --format '{{.Store.GraphRoot}}')" = "$expected/graph"
+          podman rm --all --force --volumes
+          podman ps --all --external --format json > "$expected/containers-after.json"
+          python - "$expected/containers-after.json" <<'PYTHON'
+          import json, sys
+          from pathlib import Path
+          assert json.loads(Path(sys.argv[1]).read_text()) == [], 'Isolated containers remain'
+          PYTHON
   api-contract:
     name: API contract and metadata (Python 3.14)
     runs-on: ubuntu-24.04

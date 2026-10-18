@@ -30,6 +30,12 @@ remaining temporary containers or AWS/Actions work. The worker guide includes
 the accepted rootless Podman scratch-mount form. Independent installation, native
 ARM64/release security gates and configured production delivery remain open.
 
+An opt-in fresh installation check now reuses the existing public workflow and
+canonical local runner. Static review passes; its bounded hosted run remains
+pending. Ordinary CI stays unchanged and no AWS, cache-save or artifact-upload
+path is added. Automated synthetic/local transport checks do not replace
+independent human or configured Cognito/HTTPS/CDN acceptance.
+
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and
 publishes through normal controls while retaining the original source objects.

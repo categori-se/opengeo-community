@@ -1,5 +1,19 @@
 # Resource model implementation — September 19, 2026
 
+October 18 — Fresh installation uses the maintained public workflow
+
+A boolean `fresh_installation` input defaults off on the existing two-job
+workflow. Fresh mode checks x64, system Chrome, rootless cgroup-v2 Podman and
+12 GiB free space, then uses empty isolated image/npm stores and anonymous
+registry access. The unchanged Dockerfiles build under a 12-minute cap; the
+canonical built-Studio and native-publication modes run separately with 6/5-minute
+caps and runtime `TMPDIR=/tmp`. Isolated graph-checked cleanup runs on failure too.
+Ordinary steps, API job, automatic paths and read-only permissions are preserved;
+manual frontend timeout is 30 minutes. YAML, shell syntax and source comparisons
+pass; hosted execution is pending. No new workflow, job, runner or build script.
+Existing automated browser no-sandbox behavior and synthetic/local transports
+remain acceptance limits. No AWS, cache-save or artifact-upload path is added.
+
 October 18 — Empty-cache worker source build and runtime accepted
 
 A public git archive at `cb74864` supplies the unchanged worker Dockerfile and

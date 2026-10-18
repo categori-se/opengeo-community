@@ -1,3 +1,15 @@
+## October 18 — Prepare one fresh public-source installation check
+
+The maintained public workflow now offers a default-off fresh installation input.
+It reuses the existing two jobs, Dockerfiles and canonical integration runner,
+with empty isolated npm/image stores, prerequisite/disk preflight, bounded build
+and core/native stages and graph-checked cleanup. Static YAML/source comparison,
+shell syntax and independent reviews pass. Ordinary validation is preserved.
+No application/image build is replayed locally. A fresh hosted run is still pending;
+manual job ceilings total 45 minutes. No private Actions, AWS/KMS, cache-save or
+artifact uploads are admitted. Configured identity/HTTPS/CDN, browser sandbox
+and independent human installation remain separate acceptance work.
+
 ## October 18 — Verify the public worker build without a retained image cache
 
 The current maintained full worker image builds from public source in 360.035

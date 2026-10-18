@@ -1,5 +1,17 @@
 # Resource model: active plan and continuation queue
 
+October 18 — Opt-in fresh public installation check prepared
+
+The existing two-job public workflow now has one default-off input for the
+documented source installation. Its fresh npm and rootless Podman stores, public
+Dockerfiles and canonical Studio/native-publication checks preserve ordinary CI.
+Static comparison and shell/YAML review pass; the fresh run is not yet executed.
+The manual jobs have 30/15-minute ceilings and the image/core/native stages have
+12/6/5-minute ceilings. No AWS access, cache saves or artifact uploads are added.
+This automated local-transport check does not establish independent human,
+Cognito/HTTPS/CDN or browser-sandbox acceptance. Private main remains held for
+known free Actions capacity.
+
 October 18 — Full worker builds from an empty image cache
 
 The maintained worker Dockerfile builds from public source with no retained

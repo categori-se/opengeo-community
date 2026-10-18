@@ -131,6 +131,26 @@ and restore procedures for a consistent database backup. The existing
 shows how the integrated workflow handles database and object copies; it is not
 an automatic backup service.
 
+### Optional fresh installation check
+
+In GitHub Actions, open **Core workflows and API contract**, choose **Run
+workflow**, and enable `fresh_installation`. This manual input defaults to
+`false`. It uses the existing two jobs on Ubuntu 24.04: the frontend job has a
+30-minute ceiling and the API job keeps 15 minutes, at most 45 summed job minutes.
+Image preparation, compiled Studio save/reopen and native publication stages have
+12-, 6- and 5-minute limits respectively.
+
+Preflight requires Linux x64, rootless Podman with cgroup v2, an installed system
+Chrome/Chromium executable and at least 12 GiB free disk. The run starts isolated,
+empty Podman image and npm download stores, builds the maintained public source
+images and invokes the canonical local runner. It makes no AWS account calls,
+saves no caches and uploads no artifacts.
+
+This fresh workflow run has not yet been executed. Its checks use synthetic local
+identity and local object/queue transports. The existing automated browser runs
+without Chromium's sandbox; this check does not establish sandboxed-browser,
+configured AWS/Cognito, HTTPS/CDN or independent operator acceptance.
+
 ## Native publication development
 
 The same development runner connects saved source to native compilation,
