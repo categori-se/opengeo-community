@@ -1,15 +1,18 @@
 # Resource model implementation — September 19, 2026
 
-October 17 — Ordinary local publication dispatch connected
+October 17 — Ordinary local publication delivery accepted
 
-The existing development action now consumes approved native publication jobs,
-one canonical 64-file step per review, with at most four reviews per batch. Only
-deployed reviews are acknowledged. A same-origin destination form uses the existing
-owner check and rejects replacing another source's mount. Public reads use four
-active subprocesses and at most 64 outstanding requests, preserving the canonical
-reader and returning 503 on capacity. Sixteen focused checks pass. The real study
-compiles, renders privately and publishes through normal controls; its full
-anonymous rendering remains unverified within the retained runtime budget.
+The existing development action consumes approved native publication jobs, one
+canonical 64-file step per review, with at most four reviews. Only deployed reviews
+are acknowledged. The owner-checked, same-origin destination form remains explicit.
+Public reads now coalesce at most 32 paths per process, with four active processes,
+64 outstanding assets and a 50 MB aggregate byte cap per batch. Each file retains
+canonical membership and checksum checks under the activation lock; expected
+per-file failures leave valid siblings readable. Nothing is cached across requests.
+Sixteen coordinator and fourteen public-custody checks pass. The existing Berkshire
+edition renders anonymously with 16 polygon paths and tables of five and eleven
+rows. Its build, review, source objects and release remain unchanged. Independent
+installation, production identity/delivery and private CI admission remain open.
 
 October 17 — Catalog preview response contracts separated
 

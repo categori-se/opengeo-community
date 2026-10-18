@@ -1,6 +1,8 @@
 """Exercise actual local public copies and pointer fencing without a database/cloud."""
 
 import asyncio
+import base64
+import fcntl
 import importlib.util
 import sys
 import tempfile
@@ -341,6 +343,134 @@ class LocalPublicationTests(unittest.TestCase):
         ):
             with self.assertRaises(publication.PublicationConflict):
                 asyncio.run(client.execute(statement, ()))
+
+    def test_public_batch_reads_active_retained_and_missing_without_private_fallback(self):
+        first, second, unapproved = uuid4(), uuid4(), uuid4()
+        first_prefix, _ = self.write(first, b"first public edition")
+        snapshot = asyncio.run(self.edge.prepare(self.origin, "releases/bootstrap"))
+        asyncio.run(self.edge.activate(self.origin, snapshot, first_prefix, first))
+        second_prefix, _ = self.write(second, b"second public edition")
+        snapshot = asyncio.run(self.edge.prepare(self.origin, first_prefix))
+        asyncio.run(self.edge.activate(self.origin, snapshot, second_prefix, second))
+        self.write(unapproved, b"unapproved public custody")
+        private = self.source(b"private source must remain private")
+        requests = [
+            {"path": "/"}, {"path": "/../private"},
+            {"path": "/", "reviewId": str(first)},
+            {"path": "/" + private["objectKey"]},
+            {"path": "/", "reviewId": str(unapproved)},
+            {"path": "/missing.js"},
+        ]
+        records = publication.read_publications(pilot, requests)
+        self.assertEqual(records[0]["body"], b"second public edition")
+        self.assertEqual(records[0]["release_prefix"], second_prefix)
+        self.assertEqual(records[2]["body"], b"first public edition")
+        self.assertEqual(records[2]["release_prefix"], first_prefix)
+        self.assertEqual([records[index] for index in (1, 3, 4, 5)], [None] * 4)
+        with (
+            patch.object(bridge, "pilot", pilot),
+            patch.dict(sys.modules, {"local_framework_publication": publication}),
+        ):
+            encoded = bridge.operate({"operation": "public-read-batch", "requests": requests})
+        for record, transport in zip(records, encoded, strict=True):
+            if record is None:
+                self.assertIsNone(transport)
+            else:
+                self.assertEqual(base64.b64decode(transport["body"]), record["body"])
+                self.assertEqual({**transport, "body": record["body"]}, record)
+
+    def test_public_batch_limits_and_malformed_requests_fail_closed(self):
+        for requests in (
+            None, {}, (), [], [{"path": "/"}] * 33, [None], [[]], [{}],
+            [{"path": 1}], [{"path": "/", "private": True}],
+            [{"path": "/", "reviewId": None}],
+        ):
+            with self.assertRaises((publication.PublicationConflict, ValueError)):
+                publication.read_publications(pilot, requests)
+        with (
+            patch.object(bridge, "pilot", pilot),
+            patch.dict(sys.modules, {"local_framework_publication": publication}),
+        ):
+            for request in (
+                {"operation": "public-read-batch"},
+                {"operation": "public-read-batch", "requests": [{"path": "/"}], "bucket": pilot.BUCKET},
+            ):
+                with self.assertRaises(ValueError):
+                    bridge.operate(request)
+        self.assertEqual(publication.read_publications(pilot, [{"path": "/"}] * 32), [None] * 32)
+
+    def test_public_batch_holds_the_activation_lock_for_every_canonical_read(self):
+        review = uuid4()
+        prefix, _ = self.write(review, b"stable edition")
+        snapshot = asyncio.run(self.edge.prepare(self.origin, "releases/bootstrap"))
+        asyncio.run(self.edge.activate(self.origin, snapshot, prefix, review))
+        canonical = publication.read_publication
+
+        def guarded_read(*args, **kwargs):
+            with (self.work / ".publication-active.lock").open("a") as contender:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return canonical(*args, **kwargs)
+
+        with patch.object(publication, "read_publication", side_effect=guarded_read) as read:
+            records = publication.read_publications(pilot, [
+                {"path": "/"}, {"path": "/../private"}, {"path": "/"}
+            ])
+        self.assertEqual(read.call_count, 3)
+        self.assertIsNone(records[1])
+        self.assertEqual([records[index]["release_prefix"] for index in (0, 2)], [prefix] * 2)
+        with (self.work / ".publication-active.lock").open("a") as contender:
+            fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def test_public_batch_preserves_public_membership_and_checksum_checks(self):
+        review = uuid4()
+        prefix, original = self.write(review, b"checked public edition")
+        sibling = {"kind": "copy", "path": "sibling.html", "source": self.source(b"valid sibling")}
+        asyncio.run(self.storage.apply(publication.PUBLIC_BUCKET, prefix, sibling))
+        asyncio.run(self.storage.verify({"bucket": publication.PUBLIC_BUCKET,
+                                        "targetPrefix": prefix, "files": [original, sibling]}))
+        snapshot = asyncio.run(self.edge.prepare(self.origin, "releases/bootstrap"))
+        asyncio.run(self.edge.activate(self.origin, snapshot, prefix, review))
+        objects = pilot.read_json("publication-objects.json")
+        version, record = next((version, record) for version, record in objects.items()
+                               if record["key"] == prefix + "/index.html")
+        pilot.save_json("publication-objects.json", {**objects, version: {**record, "bucket": pilot.BUCKET}})
+        records = publication.read_publications(pilot, [{"path": "/"}, {"path": "/sibling.html"}])
+        self.assertIsNone(records[0])
+        self.assertEqual(records[1]["body"], b"valid sibling")
+        pilot.save_json("publication-objects.json", objects)
+        (self.work / "publication-objects" / version).write_bytes(b"tampered public edition")
+        private = self.source(b"private source")
+        requests = [
+            {"path": "/"}, {"path": "/../private"}, {"path": "//private.invalid/"},
+            {"path": "/%2e%2e/private"}, {"path": "/", "reviewId": "not-a-review"},
+            {"path": "/" + private["objectKey"]}, {"path": "/sibling.html"},
+        ]
+        records = publication.read_publications(pilot, requests)
+        self.assertEqual(records[:-1], [None] * 6)
+        self.assertEqual(records[-1]["body"], b"valid sibling")
+        self.assertEqual(records[-1]["release_prefix"], prefix)
+        (self.work / "publication-objects" / version).unlink()
+        records = publication.read_publications(pilot, [{"path": "/"}, {"path": "/sibling.html"}])
+        self.assertIsNone(records[0])
+        self.assertEqual(records[1]["body"], b"valid sibling")
+        with patch.object(publication, "read_publication", side_effect=KeyError("unexpected")):
+            with self.assertRaisesRegex(KeyError, "unexpected"):
+                publication.read_publications(pilot, [{"path": "/"}])
+
+    def test_public_batch_caps_aggregate_bytes_including_duplicate_reads_and_releases_lock(self):
+        review = uuid4()
+        prefix, _ = self.write(review, b"four")
+        snapshot = asyncio.run(self.edge.prepare(self.origin, "releases/bootstrap"))
+        asyncio.run(self.edge.activate(self.origin, snapshot, prefix, review))
+        with patch.object(publication, "MAXIMUM_BYTES", 8):
+            self.assertEqual(len(publication.read_publications(pilot, [{"path": "/"}] * 2)), 2)
+        with patch.object(publication, "MAXIMUM_BYTES", 7):
+            with self.assertRaisesRegex(publication.PublicationConflict, "batch_bytes_exceeded"):
+                publication.read_publications(pilot, [{"path": "/"}] * 2)
+        with (self.work / ".publication-active.lock").open("a") as contender:
+            fcntl.flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        self.assertEqual(publication.read_publications(pilot, [{"path": "/"}])[0]["body"], b"four")
 
 
 if __name__ == "__main__":

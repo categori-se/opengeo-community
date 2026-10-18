@@ -30,12 +30,14 @@ browser snapshot provenance (`authoritativeBuild: false`).
 Ordinary development now processes approved publication jobs through its existing
 local action. The real Berkshire study compiles, renders all 16 polygons and both
 calculated tables privately, and publishes through normal review and approval.
-Original source objects and revision 1 remain retained. The anonymous HTML and
-individual assets return 200, but full anonymous rendering remains unfinished at
-the cumulative runtime ceiling. Four active readers and 64 outstanding requests
-now bound subprocess fanout; removing per-asset startup overhead is the next
-local delivery step. The compiled theme's remote Google font is blocked by the
-unchanged CSP and uses fallback typography. No production delivery is implied.
+Original source objects and revision 1 remain retained. Its anonymous edition now
+also renders all 16 polygons and tables of five and eleven rows. Bounded public
+batches remove per-asset process startup: all 41 requested files return 200 and
+rendering completes in 6.149 seconds. Canonical custody and checksum checks remain
+per file, fenced by the activation lock, with valid siblings preserved after an
+individual read failure. No build, review or publication is repeated. The compiled
+theme's remote Google font is blocked by the unchanged CSP and uses fallback
+typography. Independent installation and production delivery remain open.
 
 | Boundary | Implemented and accepted locally | Remaining acceptance |
 | --- | --- | --- |

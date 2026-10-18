@@ -25,28 +25,55 @@ export function localPublicationBridge(apiContainer) {
   });
 }
 
-// The local public server reads through the same canonical publication bridge.
-// Bound process fanout without caching content or changing read authorization.
+// Coalesce public assets while retaining canonical reads and active-release
+// checks. Four processes, 32 paths per batch and 64 logical reads are bounded;
+// results are never cached across requests or publication changes.
 export function boundedLocalPublicationReader(bridge) {
   if (typeof bridge !== "function") throw new CoordinatorContractError("local_configuration_invalid");
-  let active = 0, outstanding = 0;
+  let active = 0, outstanding = 0, scheduled = false;
   const waiting = [];
+  const schedule = () => {
+    if (!scheduled && waiting.length) {
+      scheduled = true;
+      setImmediate(drain);
+    }
+  };
+  const run = async batch => {
+    active++;
+    try {
+      const records = await bridge({operation: "public-read-batch", requests: batch.map(({request}) => ({
+        path: request.path,
+        ...(Object.hasOwn(request, "reviewId") ? {reviewId: request.reviewId} : {})
+      }))});
+      if (!Array.isArray(records) || records.length !== batch.length) {
+        throw new CoordinatorContractError("local_transport_invalid");
+      }
+      records.forEach((record, index) => batch[index].resolve(record));
+    } catch (error) {
+      batch.forEach(item => item.reject(error));
+    } finally {
+      active--;
+      outstanding -= batch.length;
+      schedule();
+    }
+  };
+  const drain = () => {
+    scheduled = false;
+    while (active < 4 && waiting.length) void run(waiting.splice(0, 32));
+  };
   return async request => {
     if (request === null || typeof request !== "object" || Array.isArray(request) ||
-        request.operation !== "public-read") {
+        request.operation !== "public-read" || typeof request.path !== "string" ||
+        (Object.hasOwn(request, "reviewId") && (typeof request.reviewId !== "string" || !UUID.test(request.reviewId))) ||
+        Object.keys(request).some(key => !["operation", "path", "reviewId"].includes(key))) {
       throw new CoordinatorContractError("local_publication_read_invalid");
     }
     if (outstanding >= 64) throw new CoordinatorContractError("local_publication_read_busy");
     outstanding++;
-    if (active === 4) await new Promise(resolve => waiting.push(resolve));
-    else active++;
-    try { return await bridge(request); }
-    finally {
-      outstanding--;
-      const next = waiting.shift();
-      if (next) next(); // Transfer this permit to the oldest waiting read.
-      else active--;
-    }
+    return new Promise((resolve, reject) => {
+      waiting.push({request: {...request}, resolve, reject});
+      schedule();
+    });
   };
 }
 

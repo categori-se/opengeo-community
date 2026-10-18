@@ -24,9 +24,10 @@ consolidated build and delivery; broader frontend decomposition remains open.
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and
 publishes through normal controls while retaining the original source objects.
-Full anonymous rendering remains unfinished: per-file process startup delays its
-43-asset output. Public reads are now bounded; the next step is to remove that
-startup overhead without rebuilding or republishing the completed study.
+The retained edition now also renders anonymously: 16 polygon paths and calculated
+tables of five and eleven rows. Bounded public-custody batches remove per-file
+startup overhead; all 41 requested files return 200, with no build or publication
+replayed. Independent installation and configured production delivery remain open.
 
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |

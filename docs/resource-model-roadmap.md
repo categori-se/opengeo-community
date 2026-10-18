@@ -1,16 +1,16 @@
 # Resource model: active plan and continuation queue
 
-October 17 — Ordinary local development processes native publications
+October 17 — Ordinary local publication renders the real study anonymously
 
-The development page now configures one owned local destination and processes
-approved publication jobs through the canonical publisher. The retained Berkshire
-study passes source-object reuse, native compilation, signed private rendering
-and actual review/approval/publication controls. Sixteen focused checks pass.
-Anonymous HTML and asset reads succeed, but full anonymous map rendering remains
-unfinished at the cumulative runtime ceiling. All compute is stopped. Next,
-remove the per-asset subprocess bottleneck through the existing public-custody
-reader before another readback; reuse the completed build and publication.
-Independent installation, production delivery and private CI admission remain open.
+The retained Berkshire edition now renders all 16 polygons, five designation rows
+and eleven town rows through ordinary anonymous delivery. Bounded batches remove
+per-asset process startup while preserving canonical public-custody checks,
+activation fencing and per-file failure isolation. Thirty focused checks pass.
+The single read-only opening takes 12.232 seconds including startup and cleanup;
+rendering takes 6.149 seconds. No build, review or publication is repeated, and
+source/output records remain unchanged. All compute is stopped. Next, independent
+installation and configured production identity/delivery; reuse the accepted core,
+native builds and retained study. Private main CI still needs known free capacity.
 
 October 17 — Catalog preview response contracts separated
 

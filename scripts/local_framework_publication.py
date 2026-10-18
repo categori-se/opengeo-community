@@ -403,3 +403,40 @@ def read_publication(pilot, path, review_id=None):
         "redirect": record["delivery"].get("x-amz-website-redirect-location"),
         "release_prefix": prefix,
     }
+
+
+def read_publications(pilot, requests):
+    """Read a bounded public batch while fencing the active release pointer."""
+    _require(
+        type(requests) is list and 1 <= len(requests) <= 32,
+        "local_publication_batch_invalid",
+    )
+    for request in requests:
+        _require(
+            isinstance(request, dict)
+            and set(request) in ({"path"}, {"path", "reviewId"})
+            and isinstance(request["path"], str)
+            and ("reviewId" not in request or isinstance(request["reviewId"], str)),
+            "local_publication_batch_invalid",
+        )
+    records, total_bytes = [], 0
+    # Activation uses this same lock. Each item still passes the canonical
+    # public-membership, exact-object and checksum checks; nothing is cached.
+    with pilot.local_state_lock("publication-active"):
+        for request in requests:
+            try:
+                record = read_publication(
+                    pilot, request["path"], review_id=request.get("reviewId")
+                )
+            except (PublicationConflict, ValueError, OSError):
+                # Match a failed individual HTTP read without hiding valid
+                # siblings. Programming errors and the batch cap still fail.
+                record = None
+            if record is not None:
+                total_bytes += len(record["body"])
+                _require(
+                    total_bytes <= MAXIMUM_BYTES,
+                    "local_publication_batch_bytes_exceeded",
+                )
+            records.append(record)
+    return records

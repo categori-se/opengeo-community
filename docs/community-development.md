@@ -184,11 +184,14 @@ Only exact, ticketed portable HTML uploads receive the 4 MiB file allowance plus
 to 1 MiB; ordinary API requests retain the 512 KiB JSON boundary. Expired Artifact
 upload cleanup is unconfigured in this local profile and never selects AWS storage.
 
-
 Preview and anonymous delivery run on separate loopback ports. The anonymous
-server reads only activated, separately retained public objects. The local
-canonical hostname uses an explicit browser transport mapping; it does not
-establish DNS, TLS or CDN delivery. Ordinary startup without the compiler option
+server reads only activated, separately retained public objects. It batches up to
+32 asset reads per process, with at most four active processes and 64 outstanding
+assets; each batch retains canonical file and checksum checks under the activation
+lock and a 50 MB aggregate limit. Failed individual reads leave valid siblings
+available. The retained Berkshire study passes anonymous map and calculated-table
+rendering without another build or publication. The local canonical hostname uses
+an explicit browser transport mapping; it does not establish DNS, TLS or CDN delivery. Ordinary startup without the compiler option
 leaves this profile disabled. The accepted local CC0 study demonstrates two
 revisions, private previews, publication and reopening earlier editions. Viewer
 opening, revoked grants and real capability expiry also pass. Signed-cookie

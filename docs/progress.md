@@ -1,3 +1,41 @@
+## October 17 — Real study renders anonymously through ordinary development
+
+Bounded public-read batches remove repeated Python startup while reusing the
+canonical public-custody reader. Limits remain explicit: 32 paths per process,
+four active processes, 64 outstanding assets and 50 MB of raw output per batch.
+The activation lock fences each batch. Membership, exact-object and checksum
+checks remain per file; expected failures return only that file as unavailable.
+Review caught and corrected sibling failure propagation before browser acceptance.
+Sixteen coordinator and fourteen public-custody checks pass. The latter run uses
+the cached API image with networking disabled; the final run takes 3.169 seconds.
+
+One read-only opening reuses the completed Berkshire edition and all source,
+review and publication records. The normal anonymous server delivers 41 requested
+files with HTTP 200, and the browser renders 16 polygon paths, five designation
+rows and eleven town rows in 6.149 seconds. It has no Studio access token. Existing
+public/object metadata, release pointer, queues and the accepted import receipt
+retain identical hashes. No compile, source save, review, approval or publication
+is repeated. The unchanged CSP blocks the optional remote theme font; fallback
+text remains usable. No policy is widened.
+
+Startup, readback and exact-container cleanup take 12.232 seconds within the
+admitted 30-second changed-method limit. Known cumulative native work is 191.703
+seconds against the explicit 210-second ceiling, retaining prior failures, original
+150/180-second limits and 635.301 seconds of recorded compute-off waiting. The
+preflight initially treated an absent empty-queue file as required and stopped
+before starting runtime; its observer is corrected. Browser usage totals 149.235
+seconds, API/source requests remain 84, and no new API write is made. All owned
+compute is stopped or removed; retained state survives. No AWS, Actions, image
+build or frontend build is used. Agent effort and dollar cost are unavailable.
+
+Foundation inventory and whitespace checks pass. The existing aggregate parity
+check still fails on stale hashes and missing historical screenshots; no evidence
+is relabeled passed or regenerated for this delivery fix.
+
+Next, independent installation and configured production identity/delivery; reuse
+this accepted local journey and completed builds. Private main checks and merging
+remain pending known free Actions capacity.
+
 ## October 17 — Ordinary development connects the native publisher
 
 The ordinary development page previously processed ingestion and compilation but

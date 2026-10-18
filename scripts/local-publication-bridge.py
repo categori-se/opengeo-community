@@ -70,11 +70,22 @@ def operate(request):
         return asyncio.run(repository.resolve_artifact_lease(context, job, token))
     if operation == "configure-publication":
         return pilot.configure_local_publication(request["projectId"], request["sourceProjectId"])
-    if operation in {"publish", "public-read"}:
-        from local_framework_publication import publish_local_review, read_publication
+    if operation in {"publish", "public-read", "public-read-batch"}:
+        from local_framework_publication import (
+            publish_local_review, read_publication, read_publications,
+        )
 
         if operation == "publish":
             return asyncio.run(publish_local_review(pilot, UUID(request["reviewId"]), maximum_files=64))
+        if operation == "public-read-batch":
+            if set(request) != {"operation", "requests"}:
+                raise ValueError("Invalid local public batch request")
+            return [
+                None if record is None else {
+                    **record, "body": base64.b64encode(record["body"]).decode()
+                }
+                for record in read_publications(pilot, request["requests"])
+            ]
         record = read_publication(pilot, request["path"], review_id=request.get("reviewId"))
         return None if record is None else {**record, "body": base64.b64encode(record["body"]).decode()}
     store = pilot.LocalObjects()

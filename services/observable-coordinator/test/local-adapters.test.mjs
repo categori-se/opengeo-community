@@ -212,85 +212,101 @@ test("invalid local publication configuration fails before receiving work", asyn
   await assert.rejects(processLocalPublicationQueue(), /local_configuration_invalid/);
 });
 
-test("local publication reads queue in order with four active calls and preserve exact values", async () => {
-  const calls = [], pending = [];
-  let active = 0, peak = 0;
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test("public reads coalesce assets and preserve ordered results, retained review and missing files", async () => {
+  const calls = [];
+  const response = Object.freeze({body: "ZXhhY3Q=", content_type: "text/javascript"});
   const read = boundedLocalPublicationReader(async request => {
     calls.push(request);
-    active++;
-    peak = Math.max(peak, active);
-    try { return await new Promise((resolve, reject) => pending.push({resolve, reject})); }
-    finally { active--; }
+    return [response, null, response];
   });
-  const requests = Array.from({length: 7}, (_, index) => Object.freeze({
-    operation: "public-read", path: `/assets/${index}.js`, reviewId
-  }));
-  const results = requests.map(request => read(request));
-  assert.equal(calls.length, 4);
-  for (let index = 0; index < results.length; index++) {
-    const response = Object.freeze({body: Buffer.from(String(index)), content_type: "text/javascript"});
-    pending[index].resolve(response);
-    assert.equal(await results[index], response);
-    assert.equal(calls[index], requests[index]);
-    if (index === 0) assert.equal(calls.length, 5, "A finished read admits exactly one waiting read");
-  }
-  assert.deepEqual(calls, requests);
-  assert.equal(peak, 4);
-  assert.equal(active, 0);
+  const results = await Promise.all([
+    read(Object.freeze({operation: "public-read", path: "/assets/a.js"})),
+    read(Object.freeze({operation: "public-read", path: "/missing.js"})),
+    read(Object.freeze({operation: "public-read", path: "/index.html", reviewId}))
+  ]);
+  assert.deepEqual(calls, [{operation: "public-read-batch", requests: [
+    {path: "/assets/a.js"}, {path: "/missing.js"}, {path: "/index.html", reviewId}
+  ]}]);
+  assert.equal(results[0], response);
+  assert.equal(results[1], null);
+  assert.equal(results[2], response);
 });
 
-test("local publication reads cap active plus queued work at 64 and recover after draining", async () => {
-  const pending = [];
-  const read = boundedLocalPublicationReader(request => new Promise(resolve => pending.push({request, resolve})));
-  const results = Array.from({length: 64}, (_, index) => read({operation: "public-read", path: `/${index}`}));
+test("public reads bound physical processes and outstanding assets, then recover after draining", async () => {
+  const pending = [], results = [], paths = [];
+  let active = 0, peak = 0;
+  const read = boundedLocalPublicationReader(async request => {
+    active++;
+    peak = Math.max(peak, active);
+    assert.equal(request.operation, "public-read-batch");
+    assert.ok(request.requests.length >= 1 && request.requests.length <= 32);
+    paths.push(...request.requests.map(item => item.path));
+    try { return await new Promise(resolve => pending.push({request, resolve})); }
+    finally { active--; }
+  });
+  // Separate arrival turns fill all physical slots before a later burst queues.
+  for (let index = 0; index < 4; index++) {
+    results.push(read({operation: "public-read", path: `/${index}`}));
+    await tick();
+  }
+  for (let index = 4; index < 64; index++) results.push(read({operation: "public-read", path: `/${index}`}));
+  await tick();
   assert.equal(pending.length, 4);
   await assert.rejects(read({operation: "public-read", path: "/overflow"}), /local_publication_read_busy/);
   assert.equal(pending.length, 4, "Overflow must not reach the bridge");
-  for (let index = 0; index < results.length; index++) {
-    pending[index].resolve(index);
-    assert.equal(await results[index], index);
+  let resolved = 0;
+  while (resolved < 64) {
+    const batch = pending.shift();
+    assert.ok(batch, "Queued reads must make progress without another incoming request");
+    resolved += batch.request.requests.length;
+    batch.resolve(batch.request.requests.map(item => item.path));
+    await tick();
   }
-  assert.equal(pending.length, 64);
+  assert.deepEqual(await Promise.all(results), Array.from({length: 64}, (_, index) => `/${index}`));
+  assert.deepEqual(paths, Array.from({length: 64}, (_, index) => `/${index}`));
+  assert.equal(peak, 4);
+  assert.equal(active, 0);
   const next = read({operation: "public-read", path: "/after-draining"});
-  pending[64].resolve(null);
+  await tick();
+  pending.shift().resolve([null]);
   assert.equal(await next, null);
 });
 
-test("failed local publication reads release permits and retain the original error without retry", async () => {
-  const pending = [];
-  const read = boundedLocalPublicationReader(request => new Promise((resolve, reject) => pending.push({request, resolve, reject})));
-  const results = Array.from({length: 5}, (_, index) => read({operation: "public-read", path: `/${index}`}));
+test("failed or malformed batches release capacity, retain errors and never retry", async () => {
   const failure = new Error("Canonical publication read failed");
-  const rejected = assert.rejects(results[0], error => error === failure);
-  pending[0].reject(failure);
-  await rejected;
-  assert.equal(pending.length, 5, "A failed read must admit the waiting read");
-  for (let index = 1; index < results.length; index++) {
-    pending[index].resolve(index);
-    assert.equal(await results[index], index);
+  for (const first of [() => { throw failure; }, async () => { throw failure; },
+    async () => null, async () => [], async () => [null]]) {
+    let attempts = 0;
+    const read = boundedLocalPublicationReader(request => {
+      attempts++;
+      return attempts === 1 ? first() : request.requests.map(() => null);
+    });
+    const initial = ["/a", "/b"].map(path => read({operation: "public-read", path}));
+    const settled = await Promise.allSettled(initial);
+    assert.equal(attempts, 1);
+    for (const result of settled) {
+      assert.equal(result.status, "rejected");
+      assert.ok(result.reason === failure || /local_transport_invalid/.test(result.reason.message));
+    }
+    assert.deepEqual(await Promise.all(Array.from({length: 64}, () => read({operation: "public-read", path: "/next"}))),
+      Array(64).fill(null));
+    assert.equal(attempts, 3, "The next 64 assets use two bounded batches; failed reads are not replayed");
   }
-  assert.equal(pending.length, 5, "No failed read is retried");
-
-  let attempts = 0;
-  const syncRead = boundedLocalPublicationReader(() => {
-    if (++attempts === 1) throw failure;
-    return "readable";
-  });
-  await assert.rejects(syncRead({operation: "public-read", path: "/failed"}), error => error === failure);
-  assert.deepEqual(await Promise.all(Array.from({length: 4}, () => syncRead({operation: "public-read", path: "/next"}))),
-    Array(4).fill("readable"));
-  assert.equal(attempts, 5);
 });
 
-test("bounded publication reader rejects non-read operations before reaching the bridge", async () => {
+test("bounded reader rejects invalid requests before they can affect other assets", async () => {
   let calls = 0;
-  const read = boundedLocalPublicationReader(request => { calls++; return request; });
-  for (const request of [undefined, null, [], {}, ...["sql", "receive", "acknowledge", "publish", "configure-publication"]
-    .map(operation => ({operation}))]) {
+  const read = boundedLocalPublicationReader(request => { calls++; return request.requests.map(() => null); });
+  for (const request of [undefined, null, [], {}, {operation: "public-read", path: 1},
+    {operation: "public-read", path: "/", bucket: "private"},
+    {operation: "public-read", path: "/", reviewId: null},
+    {operation: "public-read", path: "/", reviewId: "invalid"},
+    ...["sql", "receive", "acknowledge", "publish", "configure-publication"].map(operation => ({operation}))]) {
     await assert.rejects(read(request), /local_publication_read_invalid/);
   }
   assert.equal(calls, 0);
-  const request = {operation: "public-read", path: "/index.html", reviewId};
-  assert.equal(await read(request), request);
+  assert.equal(await read({operation: "public-read", path: "/index.html", reviewId}), null);
   assert.equal(calls, 1);
 });
