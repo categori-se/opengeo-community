@@ -62,7 +62,12 @@ export function localDependencies({bridge, compilerImageDigest, runner = new Pod
     throw new CoordinatorContractError("local_configuration_invalid");
   }
   return {expectedBucket: "local-pilot.invalid", expectedCompilerImageDigest: compilerImageDigest,
-    repository: new RdsDataBuildRepository({execute: (sql, parameters) => bridge({operation: "sql", sql, parameters})}),
+    repository: new RdsDataBuildRepository({execute: (sql, parameters) => bridge({operation: "sql", sql, parameters})}, {
+      artifactResolver: ({buildJobId, coordinatorToken, authority}) => bridge({
+        operation: "resolve-artifact-lease", buildJobId, coordinatorToken,
+        organizationId: authority.organizationId, userId: authority.userId
+      })
+    }),
     storage: new LocalExactVersionStorage(bridge), runner};
 }
 

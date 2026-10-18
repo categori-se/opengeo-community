@@ -21,10 +21,19 @@ actual Catalog-file controls. Its saved revision pins the exact archive and reus
 the original source object. One native compile and signed private preview show all
 five names and the strict public-access result, 4/5. No public release is created.
 
-Next, verify retained Project Artifact presentation for the saved map, reusing
-these accepted data/source/build and publication-security results. The fictional
-CC0 exercise is workflow evidence; a realistic reproducible study, independent
-operator installation and configured production identity/delivery remain open.
+The saved map now also passes retained Artifact presentation in the native local
+pipeline. Its existing map resource is reused, a portable edition is pinned, and
+the Publication reads that exact output alongside its Catalog data. The actual
+preview renders all five points with the saved blue color, 80% opacity, white
+outlines and camera. The coordinator now resolves Artifact authority for current
+v3 requests combining data and maps. One native compile is retained and reused;
+all local runtime is stopped. No AWS resources or public release are created.
+The portable map retains its reviewed browser snapshot provenance (`authoritativeBuild: false`).
+
+Next, complete the independent operator/full-stack installation and a realistic
+reproducible study, reusing these accepted core, Artifact, compiler and security
+results. Configured production identity/HTTPS/CDN delivery remains separate.
+The fictional CC0 exercise establishes the selected workflow, not all input formats.
 
 The [existing public CI workflow](https://github.com/categori-se/opengeo-community/actions/workflows/api-contract.yml)
 checks the API contract and selected frontend workflows in two standard Ubuntu

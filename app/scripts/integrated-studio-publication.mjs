@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {compilePortableMapArtifact,verifyPortableMapArtifact} from '../src/lib/portableMapArtifact.js';
+import {pointSymbolStyleParts} from '../src/lib/pointSymbols.js';
+import {opacityPaint,validateOpacityMode} from '../src/lib/layerOpacity.js';
+import {canonicalJson} from '../src/lib/artifactCanonicalJson.js';
+import {verifyManifestSeal} from './release-utils.mjs';
 import {localPublicationBridge,processLocalBuildQueue} from '../../services/observable-coordinator/src/local-adapters.mjs';
 import {PodmanRunner} from '../../services/observable-coordinator/src/podman-runner.mjs';
 import {parseExchange} from '../../services/observable-preview/authorize/preview-shell.js';
@@ -11,7 +17,8 @@ const SECURITY_QUALIFICATION='Actual API/SQL capability expiry uses real elapsed
 // One deliberately bounded real API/database/compiler/browser journey. Auth and
 // object transport use the existing isolated runner's disclosed local adapters.
 export async function exerciseNativePublication({page,browser,origin,organization,apiRequest,work,publicationProfile,
-  securityOnly=false,expirePreviewCookies,observePreviewExchange,securityPreviousRequests=[],securityReconciliation,catalogStudy=false}) {
+  securityOnly=false,expirePreviewCookies,observePreviewExchange,securityPreviousRequests=[],securityReconciliation,catalogStudy=false,mapArtifact=false}) {
+  if(mapArtifact)return exerciseMapArtifact({page,origin,organization,apiRequest,work,publicationProfile});
   if(catalogStudy){
     assert.equal(securityOnly,false,'Choose one publication journey');
     return exerciseCatalogStudy({page,origin,organization,apiRequest,work,publicationProfile});
@@ -803,4 +810,333 @@ async function exerciseCatalogStudy({page,origin,organization,apiRequest,work,pu
   facts.preview={opened:true,names:study.fixture.featureNames,publicAccess:4,total:5,path:new URL(previewUrl).pathname};
   facts.status='pass';facts.notProven=['Saved-map styling or Project Artifact embedding','Public release','Independent installation or production delivery'];
   checkpoint();return facts;
+}
+
+// Extend the accepted Catalog study only at its retained map-output boundary.
+async function exerciseMapArtifact({page,origin,organization,apiRequest,work,publicationProfile}) {
+  const progress=join(work,'publication-progress.json');
+  const catalog=JSON.parse(readFileSync(progress));
+  assert.equal(catalog.mode,'catalog-study');assert.equal(catalog.status,'pass');
+  assert.equal(catalog.apiRequestAttempts,82,'Preserve the accepted Catalog attempt ledger');
+  const study=JSON.parse(readFileSync(join(work,'development-smoke.json')));
+  assert.equal(study.databaseRestartReopened,true);assert.equal(study.map.version,2);
+  const compiler='sha256:1af497123e03dff1dd6ca13f09f5810b27c554b0cd55754ff376d7179bea41bf';
+  assert.equal(publicationProfile.compilerImageDigest,compiler);
+  const facts=catalog.mapArtifact??{nativeCompilerInvocations:0};
+  const checkpoint=()=>{
+    const retained=JSON.parse(readFileSync(progress));
+    Object.assign(facts,{apiRequestAttempts:retained.mapArtifact?.apiRequestAttempts??0,
+      activeMilliseconds:retained.mapArtifact?.activeMilliseconds??0});
+    writeFileSync(progress,JSON.stringify({...retained,mapArtifact:facts},null,2)+'\n');
+  };
+  checkpoint();
+  const request=async(path,method='GET',body,expected=200)=>{
+    const response=await apiRequest(path,{method,headers:{authorization:'Bearer synthetic-local-owner',
+      'x-opengeo-organization':organization,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+    assert.equal(response.status,expected,`${method} ${path}: ${response.body.toString().slice(0,400)}`);
+    return JSON.parse(response.body);
+  };
+  const base=`/projects/${catalog.projectId}`,sourceBase=`${base}/source-projects/${catalog.sourceProjectId}`;
+  const view=study.map.definition.mapViews[0];
+  const sourceId=`dataset_${catalog.datasetId}_version_${catalog.datasetVersionId}-source`;
+  const paintId=`${study.map.definition.layers[0].layerId}-points`;
+  const installMapWitness=async()=>page.context().addInitScript(()=>{
+    let library;window.__opengeoArtifactMapErrors=[];
+    Object.defineProperty(window,'maplibregl',{configurable:true,get:()=>library,set:value=>{
+      const Map=value.Map;
+      const observed=new Proxy(Map,{construct(target,args,newTarget){const map=Reflect.construct(target,args,newTarget);
+        window.__opengeoAcceptedArtifactMap=map;
+        map.on('error',event=>{if(window.__opengeoArtifactMapErrors.length<10)
+          window.__opengeoArtifactMapErrors.push(String(event.error?.message??event.error??'Map error').slice(0,300));});
+        return map;}});
+      library=new Proxy(value,{get:(target,key)=>key==='Map'?observed:Reflect.get(target,key)});
+    }});
+  });
+  const inspectPublication=async publication=>{
+    const map=publication.frameLocator('iframe[title="Project Artifact"]');
+    const diagnose=async()=>{
+      facts.mapFrameDiagnostics=await map.locator('html').evaluate(()=>({status:document.querySelector('#status')?.textContent??null,
+        errors:window.__opengeoArtifactMapErrors??[],mapObserved:Boolean(window.__opengeoAcceptedArtifactMap)}))
+        .catch(error=>({unavailable:error.message.slice(0,300)}));checkpoint();
+    };
+    try {
+      await publication.getByText('Public access: 4/5',{exact:true}).waitFor();
+      for(const name of study.fixture.featureNames)await publication.getByText(name,{exact:true}).waitFor();
+      await map.locator('canvas.maplibregl-canvas').waitFor();
+      await diagnose();
+      const witness=await map.locator('html').evaluate(async(_,{sourceId,paintId,names})=>{
+        const map=window.__opengeoAcceptedArtifactMap;if(!map)throw Error('Native map constructor was not observed');
+        await new Promise((resolve,reject)=>{const deadline=performance.now()+5000;const inspect=()=>{
+          const rendered=map.isStyleLoaded()?new Set(map.queryRenderedFeatures({layers:[paintId]}).map(feature=>feature.properties.name)):new Set();
+          if(names.every(name=>rendered.has(name)))return resolve();
+          if(performance.now()>deadline)return reject(Error('All retained features must actually render'));
+          requestAnimationFrame(inspect);};inspect();});
+        return {features:map.getStyle().sources[sourceId].data.features.length,color:map.getPaintProperty(paintId,'circle-color'),
+          opacity:map.getPaintProperty(paintId,'circle-opacity'),strokeColor:map.getPaintProperty(paintId,'circle-stroke-color'),
+          strokeWidth:map.getPaintProperty(paintId,'circle-stroke-width'),center:map.getCenter().toArray(),zoom:map.getZoom(),
+          pitch:map.getPitch(),bearing:map.getBearing(),canvasWidth:map.getCanvas().width,canvasHeight:map.getCanvas().height};
+      },{sourceId,paintId,names:study.fixture.featureNames});
+      assert.equal(witness.features,5);assert.equal(witness.color,'#2563eb');assert.equal(witness.opacity,0.8);
+      assert.equal(witness.strokeColor,'#ffffff');assert.equal(witness.strokeWidth,1.25);
+      assert.ok(witness.canvasWidth>0&&witness.canvasHeight>0);assert.equal(witness.zoom,view.zoom);
+      for(let i=0;i<2;i++)assert.ok(Math.abs(witness.center[i]-view.center[i])<1e-9);
+      assert.equal(witness.pitch,view.pitch);assert.equal(witness.bearing,view.bearing);
+      assert.deepEqual(await request(`${base}/maps/${catalog.mapId}`),study.map);
+      facts.preview=witness;facts.status='pass';facts.notProven=['Server-attested saved-Project build','Independent operator installation','Production identity or delivery'];
+      await diagnose();checkpoint();return {...catalog,mapArtifact:facts};
+    }catch(error){await diagnose();throw error;}
+  };
+  if(facts.compilerOutcome==='succeeded'&&facts.buildChecksum&&facts.status!=='pass'){
+    assert.equal(facts.nativeCompilerInvocations,1);
+    const job=await request(`${base}/observable-build-jobs/${facts.buildId}`);
+    assert.equal(job.state,'succeeded');assert.equal(job.source_revision_id,facts.revisionId);
+    assert.equal(job.request.artifactInputsChecksumSha256,facts.inputChecksum);
+    assert.equal(job.result_checksum_sha256,facts.buildChecksum);
+    const capability=await request(`${base}/observable-build-jobs/${facts.buildId}/preview-capabilities`,'POST',{runtime_profile:'local_only'},201);
+    assert.equal(new URL(capability.authorize_url).origin,publicationProfile.previewOrigin);
+    facts.readOnlyPreviewContinuation=true;facts.reusedBuild=true;checkpoint();await installMapWitness();
+    await page.goto(capability.authorize_url);
+    return inspectPublication(page);
+  }
+
+  assert.deepEqual(await request(`${base}/maps/${catalog.mapId}`),study.map);
+  const fixture=readFileSync(fileURLToPath(new URL('../src/data/sample-public-facilities.geojson',import.meta.url)));
+  assert.equal(createHash('sha256').update(fixture).digest('hex'),study.fixture.sha256);
+  const geometry=JSON.parse(fixture);assert.equal(geometry.features.length,5);
+  const [layer]=study.map.definition.layers;assert.equal(study.map.definition.layers.length,1);
+  assert.equal(layer.style.circleColor,'#2563eb');assert.equal(layer.opacity,0.8);
+  assert.equal(layer.geometryType,'Point');assert.equal(layer.style.renderer,'single');
+  // Invoke the owning Workbench paint code verbatim. Ordinary circles have no
+  // pointSymbolStyleParts; their stroke/defaults belong to featurePaintForLayer.
+  const owningSource=readFileSync(fileURLToPath(new URL('../src/components/WorkbenchView.js',import.meta.url)),'utf8');
+  const paintStart=owningSource.indexOf('function paintForLayer(layer, geojson) {');
+  const featureStart=owningSource.indexOf('function featurePaintForLayer(layer, geojson) {',paintStart);
+  const paintEnd=owningSource.indexOf('\nfunction ',featureStart+1);
+  assert.ok(paintStart>=0&&featureStart>paintStart&&paintEnd>featureStart,'Resolve the maintained Workbench paint functions');
+  const paintSource=owningSource.slice(paintStart,paintEnd);
+  const owningPaint=new Function('pointSymbolStyleParts','opacityPaint','validateOpacityMode',
+    `${paintSource};return paintForLayer;`)(pointSymbolStyleParts,opacityPaint,validateOpacityMode);
+  const paints=owningPaint(layer,geometry).map(part=>({...part,source:sourceId}));
+  assert.equal(paints.length,1);assert.equal(paints[0].type,'circle');
+  assert.equal(paints[0].id,paintId);
+  assert.equal(paints[0].paint['circle-stroke-color'],'#ffffff');
+  assert.equal(paints[0].paint['circle-stroke-width'],1.25);
+  const paintCompilerChecksum=createHash('sha256').update(paintSource).digest('hex');
+  if(facts.paintCompilerChecksum)assert.equal(facts.paintCompilerChecksum,paintCompilerChecksum);
+  facts.paintCompilerChecksum=paintCompilerChecksum;
+  const runtimeManifest=JSON.parse(readFileSync(join(work,'studio-build-manifest.json'),'utf8'));
+  verifyManifestSeal(runtimeManifest);
+  assert.equal(runtimeManifest.artifactTree.digest,'caa9f49ccac0b29c2919d28187ed86590b56b55abf3c5388d207ca2d84d752b2',
+    'Reuse the already accepted packaged viewer, without rebuilding');
+  const runtimeFiles={},runtimeEvidence={treeDigest:runtimeManifest.artifactTree.digest,
+    manifestSha256:runtimeManifest.manifestSha256,files:[]};
+  for(const name of ['maplibre-gl.js','maplibre-gl.css','LICENSE.txt']){
+    const path=`export-runtime/${name}`;
+    const entries=runtimeManifest.artifactTree.files.filter(file=>file.path===path);
+    assert.equal(entries.length,1,'Exactly one sealed packaged viewer asset');
+    const [entry]=entries,bytes=readFileSync(join(work,'built-studio/app/dist',path));
+    assert.equal(bytes.length,entry.bytes);assert.equal(createHash('sha256').update(bytes).digest('hex'),entry.sha256);
+    runtimeFiles[name]=bytes.toString('utf8');runtimeEvidence.files.push({path,bytes:entry.bytes,sha256:entry.sha256});
+  }
+  if(facts.viewerRuntime)assert.deepEqual(facts.viewerRuntime,runtimeEvidence);
+  facts.viewerRuntime=runtimeEvidence;
+  const htmlPath=join(work,'map-artifact.html'),manifestPath=join(work,'map-artifact.manifest.json');
+  let artifact;
+  if(existsSync(htmlPath)&&existsSync(manifestPath)){
+    assert.equal(facts.portableCompilations,1,'Reuse the single retained portable compilation');
+    artifact={html:readFileSync(htmlPath,'utf8'),manifest:JSON.parse(readFileSync(manifestPath,'utf8'))};
+    await verifyPortableMapArtifact(new Blob([artifact.html],{type:'text/html'}),artifact.manifest);
+    const marker='<script>const publication=';
+    const start=artifact.html.indexOf(marker),end=artifact.html.indexOf(';\nconst status=',start);
+    assert.ok(start>=0&&end>start,'Retained canonical portable payload must be present');
+    artifact.payload=JSON.parse(artifact.html.slice(start+marker.length,end));
+  }else{
+    assert.ok(!facts.portableCompilationAttempted&&!existsSync(htmlPath)&&!existsSync(manifestPath),
+      'Portable compilation unresolved; reconcile the retained HTML/manifest pair before continuing');
+    facts.portableCompilationAttempted=true;facts.portableCompilations=1;checkpoint();
+    artifact=await compilePortableMapArtifact({title:'Retained community facilities map',mode:'offline',
+      runtimeJs:runtimeFiles['maplibre-gl.js'],runtimeCss:runtimeFiles['maplibre-gl.css'],runtimeLicense:runtimeFiles['LICENSE.txt'],
+      savedProjectOrigin:{id:study.map.id,version:study.map.version,definition:study.map.definition},
+      view:{center:view.center,zoom:view.zoom,bearing:view.bearing,pitch:view.pitch},selectedIds:[layer.layerId],
+      candidates:[{id:layer.layerId,title:layer.title,visible:true,sourceId,source:{type:'geojson',data:geometry,
+        attribution:study.fixture.metadata.attribution},paintOrder:Object.fromEntries(paints.map((part,index)=>[part.id,index])),paints}]});
+    writeFileSync(htmlPath,artifact.html,{flag:'wx',mode:0o600});
+    writeFileSync(manifestPath,JSON.stringify(artifact.manifest,null,2)+'\n',{flag:'wx',mode:0o600});
+  }
+  assert.deepEqual(artifact.manifest.build.runtime,{javascriptSha256:runtimeEvidence.files[0].sha256,
+    cssSha256:runtimeEvidence.files[1].sha256,licenseTextSha256:runtimeEvidence.files[2].sha256});
+  assert.equal(artifact.manifest.build.inputScope,'reviewed-browser-snapshot');
+  assert.equal(artifact.manifest.provenance.authoritativeBuild,false);
+  assert.deepEqual(artifact.manifest.provenance.originatingProject,{id:study.map.id,version:study.map.version,
+    definitionChecksumSha256:createHash('sha256').update(canonicalJson(study.map.definition)).digest('hex')});
+  assert.deepEqual(artifact.payload.style.sources[sourceId].data,geometry);
+  const retainedPaint=artifact.payload.style.layers.filter(part=>part.id!== 'export-background');
+  assert.deepEqual(retainedPaint,paints.map(part=>({...part,layout:{...part.layout,visibility:'visible'}})));
+  assert.deepEqual(artifact.payload.view,{center:view.center,zoom:view.zoom,bearing:view.bearing,pitch:view.pitch});
+  assert.ok(Buffer.byteLength(artifact.html)<=4_194_304);
+  if(facts.outputChecksum)assert.equal(facts.outputChecksum,artifact.manifest.output.checksumSha256);
+  if(facts.manifestChecksum)assert.equal(facts.manifestChecksum,artifact.manifest.manifestChecksumSha256);
+  facts.outputChecksum=artifact.manifest.output.checksumSha256;facts.manifestChecksum=artifact.manifest.manifestChecksumSha256;
+  facts.outputBytes=artifact.manifest.output.sizeBytes;facts.provenance=artifact.manifest.provenance;
+  checkpoint();
+  if(!facts.resourceId){
+    const existing=await request(`${base}/resources?kind=map&limit=100`);
+    assert.ok(existing.length<100,'Resolve the finite map-resource inventory before creation');
+    const matches=existing.filter(resource=>resource.map_id===catalog.mapId);
+    assert.ok(matches.length<=1,'The saved map must have one governed resource identity');
+    if(matches.length){
+      facts.resourceId=matches[0].id;facts.resourceReused=true;checkpoint();
+    }else{
+      assert.ok(!facts.resourceAttempted,'Map resource write unresolved; reconcile its retained response before retrying');
+      facts.resourceAttempted=true;checkpoint();
+      const resource=await request(`${base}/resources`,'POST',{kind:'map',slug:'catalog-study-map',visibility:'restricted',
+        map_id:catalog.mapId,expected_map_version:2,metadata:{title:'Retained community facilities map',language:'en',
+          abstract:'Reviewed portable snapshot of the existing saved facilities map.',keywords:[],profile:'opengeo.core.v1'},provenance:{}},201);
+      assert.equal(resource.map_snapshot.map_version,2);facts.resourceId=resource.id;checkpoint();
+    }
+  }
+  let resource=await request(`${base}/resources/${facts.resourceId}`);
+  assert.equal(resource.map_id,catalog.mapId);
+  await installMapWitness();
+  if(!facts.artifactId||!facts.currentSelected||resource.map_snapshot?.map_version!==2){
+    await page.goto(`${origin}/workspaces?project=${catalog.projectId}&manage=resources`);
+    await page.locator(`#resource-${facts.resourceId}`).getByRole('button',{name:'Open resource',exact:true}).click();
+    if(resource.map_snapshot?.map_version!==2){
+      assert.ok(!facts.resourceMapSelectionAttempted,'Resource map selection unresolved; read its retained snapshot before retrying');
+      const panel=page.locator('.project-resource-map-version');
+      await panel.getByRole('button',{name:'Refresh saved map version',exact:true}).click();
+      const preserved=Object.fromEntries(['slug','dataset_id','map_id','visibility','state','title','abstract','language',
+        'license','attribution','keywords','spatial_extent','temporal_start','temporal_end','content','provenance',
+        'metadata_profile','metadata_extensions','translations'].map(key=>[key,resource[key]]));
+      const selected=page.waitForResponse(r=>r.url().endsWith(`${base}/resources/${facts.resourceId}`)&&r.request().method()==='PUT');
+      facts.resourceMapSelectionAttempted=true;checkpoint();
+      await panel.getByRole('button',{name:'Use saved map v2 in a new resource version',exact:true}).click();
+      const response=await selected;assert.equal(response.status(),200);resource=await response.json();
+      assert.equal(resource.map_snapshot.map_version,2);assert.equal(resource.map_snapshot.map_id,catalog.mapId);
+      assert.deepEqual(Object.fromEntries(Object.keys(preserved).map(key=>[key,resource[key]])),preserved,'Map revision selection preserves existing metadata');
+      facts.resourceMapSelected=true;facts.resourceVersion=resource.version_number;checkpoint();
+    }
+    const panel=page.locator('.project-artifact-versions');
+    await panel.getByLabel('Artifact representation',{exact:true}).selectOption('portable-map-html');
+    await panel.getByRole('button',{name:'Load Artifact state',exact:true}).click();
+    if(!facts.artifactId){
+      assert.ok(!facts.artifactRegistrationAttempted,'Portable registration unresolved; inspect its retained edition before retrying');
+      await panel.getByText(/No portable Artifact is registered/).waitFor();
+      await panel.getByLabel('Portable Artifact HTML',{exact:true}).setInputFiles({name:'map.html',mimeType:'text/html',buffer:Buffer.from(artifact.html)});
+      await panel.getByLabel('Portable Artifact manifest',{exact:true}).setInputFiles({name:'map.html.artifact.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(artifact.manifest))});
+      const registered=page.waitForResponse(r=>r.url().endsWith('/artifact/portable-editions')&&r.request().method()==='POST');
+      facts.artifactRegistrationAttempted=true;checkpoint();
+      await panel.getByRole('button',{name:'Upload and register portable edition',exact:true}).click();
+      const response=await registered;assert.equal(response.status(),200);const edition=await response.json();
+      facts.artifactId=edition.id;facts.artifactVersion=edition.version_number;checkpoint();
+    }
+    assert.equal(facts.artifactVersion,1);
+    if(!facts.currentSelected){
+      assert.ok(!facts.currentSelectionAttempted,'Current selection unresolved; read retained Artifact state before retrying');
+      const selected=page.waitForResponse(r=>r.url().includes('/artifact/current')&&r.request().method()==='PUT');
+      facts.currentSelectionAttempted=true;checkpoint();
+      await panel.getByRole('button',{name:'Use inspected edition as current',exact:true}).click();
+      const response=await selected;assert.equal(response.status(),200);const current=await response.json();
+      assert.equal(current.current_version_number,1);facts.currentSelected=true;checkpoint();
+    }
+  }
+  if(facts.revisionAttempted&&!facts.revisionId){
+    const revisions=await request(`${sourceBase}/revisions`);
+    const matches=revisions.filter(revision=>revision.files?.length===1
+      &&revision.files[0].relative_path==='index.md'&&revision.files[0].checksum_sha256===facts.sourceChecksum);
+    assert.equal(matches.length,1,'Source save response unresolved; reconcile the unique exact authored revision, never upload or save again');
+    const [revision]=matches;assert.equal(revision.entry_path,'index.md');assert.equal(revision.rights_status,'approved');
+    assert.deepEqual(revision.manifest.dataAttachments,[catalog.revisionDataPin],'Reconciled source retains the exact accepted Catalog archive');
+    facts.revisionId=revision.id;facts.sourceManifest=revision.manifest_checksum_sha256;
+    facts.sourceRevisionReconciled=true;checkpoint();
+  }
+  await page.goto(`${origin}/workspaces?project=${catalog.projectId}&manage=publishing`);
+  const card=page.locator('.observable-source-project:visible');await card.waitFor();assert.equal(await card.count(),1);
+  if(!facts.revisionId){
+    assert.ok(!facts.revisionAttempted,'Map source revision unresolved; reconcile revisions before another save');
+    const editor=card.getByLabel('Framework source editor',{exact:true});await editor.waitFor();
+    await page.waitForFunction(()=>document.querySelector('.observable-source-project textarea[aria-label="Framework source editor"]')?.value.includes('Public access:'));
+    const original=await editor.inputValue();
+    assert.equal(createHash('sha256').update(original).digest('hex'),catalog.sourceChecksum);
+    assert.ok(!original.includes('maps/facilities.html'),'The map embed must be added once');
+    const source=original+'\n<iframe src="maps/facilities.html" title="Project Artifact" sandbox="allow-scripts" referrerpolicy="no-referrer" style="width:100%;height:480px;border:0"></iframe>\n';
+    const rights=card.getByLabel('Source publication rights',{exact:true});
+    const draftSettings=rights.locator('xpath=ancestor::details[1]');
+    if(await draftSettings.getAttribute('open')===null)await draftSettings.locator('summary').first().click();
+    if(await rights.inputValue()!=='approved')await rights.selectOption('approved');
+    const saved=page.waitForResponse(r=>r.url().endsWith(`${sourceBase}/revisions`)&&r.request().method()==='POST');
+    facts.revisionAttempted=true;facts.sourceChecksum=createHash('sha256').update(source).digest('hex');checkpoint();
+    await editor.fill(source);
+    await card.getByRole('button',{name:'Save draft',exact:true}).click();
+    const response=await saved;assert.equal(response.status(),201);const revision=await response.json();
+    assert.equal(revision.manifest.dataAttachments[0].attachmentId,catalog.attachmentId);
+    facts.revisionId=revision.id;facts.sourceManifest=revision.manifest_checksum_sha256;checkpoint();
+  }
+  await card.getByRole('tab',{name:'Settings',exact:true}).click();
+  const refs=card.locator('.publication-artifact-references');
+  await refs.getByRole('button',{name:'Load saved references',exact:true}).click();
+  if(!facts.referenceRevision){
+    assert.ok(!facts.referenceSaveAttempted,'Artifact reference save unresolved; read saved references before retrying');
+    await refs.getByRole('button',{name:'Load map resources',exact:true}).click();
+    await refs.getByLabel('Map resource in this workspace',{exact:true}).selectOption(facts.resourceId);
+    await refs.getByRole('button',{name:'Load retained editions',exact:true}).click();
+    await refs.getByLabel('Retained Artifact edition to add',{exact:true}).selectOption('1');
+    await refs.getByRole('button',{name:'Add retained Artifact',exact:true}).click();
+    await refs.getByLabel('Artifact asset path',{exact:true}).fill('maps/facilities.html');
+    const saved=page.waitForResponse(r=>r.url().endsWith(`${sourceBase}/artifact-references`)&&r.request().method()==='PUT');
+    facts.referenceSaveAttempted=true;checkpoint();await refs.getByRole('button',{name:'Save Artifact references',exact:true}).click();
+    const response=await saved;assert.equal(response.status(),200);const selection=await response.json();
+    assert.deepEqual(selection.references,[{path:'maps/facilities.html',artifact_id:facts.artifactId,mode:'pinned',version:1}]);
+    facts.referenceRevision=selection.revision;checkpoint();
+  }
+  await card.getByRole('tab',{name:'Preview',exact:true}).click();
+  await card.getByLabel('Preview mode',{exact:true}).selectOption('saved');
+  const prepared=page.waitForResponse(r=>r.url().endsWith(`/revisions/${facts.revisionId}/artifact-inputs`)&&r.request().method()==='POST');
+  await card.getByRole('button',{name:'Prepare current Artifact selection',exact:true}).click();
+  const preparation=await prepared;assert.equal(preparation.status(),200);const inputs=await preparation.json();
+  const [pin]=inputs.manifest.artifacts;assert.equal(pin.artifactId,facts.artifactId);assert.equal(pin.version,1);
+  assert.equal(pin.output.checksumSha256,facts.outputChecksum);facts.inputId=inputs.id;facts.inputChecksum=inputs.manifest_checksum_sha256;checkpoint();
+  if(!facts.buildId){
+    assert.ok(!facts.buildAttempted,'Map build request unresolved; reconcile the retained job before requesting another');
+    const queued=page.waitForResponse(r=>r.url().endsWith(`/revisions/${facts.revisionId}/build-jobs`)&&r.request().method()==='POST');
+    facts.buildAttempted=true;checkpoint();await card.getByRole('button',{name:'Build saved revision',exact:true}).click();
+    const response=await queued;assert.equal(response.status(),201);facts.buildId=(await response.json()).id;checkpoint();
+  }
+  let job=await request(`${base}/observable-build-jobs/${facts.buildId}`);
+  if(job.state==='failed'){
+    assert.equal(job.id,'4ef203f9-1ddd-42fc-8ec4-f71c1ed9d20c','Only the diagnosed failed staging job may be replaced');
+    assert.equal(job.error_code,'request_invalid');assert.equal(facts.nativeCompilerInvocations,0);
+    assert.ok(!facts.replacementBuildAttempted,'Replacement build request unresolved; read its retained response before any further write');
+    facts.failedStagingBuild={id:job.id,error:job.error_code,attempt:job.attempt_count};checkpoint();
+    const queued=page.waitForResponse(r=>r.url().endsWith(`/revisions/${facts.revisionId}/build-jobs`)&&r.request().method()==='POST');
+    facts.replacementBuildAttempted=true;checkpoint();
+    await card.getByRole('button',{name:'Build saved revision',exact:true}).click();
+    const response=await queued;assert.equal(response.status(),201);const replacement=await response.json();
+    assert.notEqual(replacement.id,facts.failedStagingBuild.id,'Normal UI retry creates a distinct job');
+    facts.buildId=replacement.id;checkpoint();
+    job=await request(`${base}/observable-build-jobs/${facts.buildId}`);
+  }
+  if(job.state!=='succeeded'){
+    if(facts.failedStagingBuild){
+      assert.notEqual(job.id,facts.failedStagingBuild.id);
+      assert.ok(!facts.coordinatorContinuationAttempted,'Replacement coordinator already attempted; inspect its retained job before another dispatch');
+      facts.coordinatorContinuationAttempted=true;
+    }else{
+      assert.ok(!facts.coordinatorAttempted,'Map compiler dispatch attempted; inspect its retained job before retrying');
+      facts.coordinatorAttempted=true;
+    }
+    checkpoint();const native=new PodmanRunner();
+    const runner={run:async options=>{assert.equal(facts.nativeCompilerInvocations,0);facts.nativeCompilerInvocations++;checkpoint();return native.run(options);}};
+    const bridge=localPublicationBridge(JSON.parse(readFileSync(join(work,'local-api-container.json'))));
+    const outcomes=await processLocalBuildQueue({bridge,compilerImageDigest:compiler,maximumJobs:1,runner});
+    facts.compilerOutcome=outcomes[0]?.status;checkpoint();assert.equal(facts.compilerOutcome,'succeeded');
+    job=await request(`${base}/observable-build-jobs/${facts.buildId}`);
+  }
+  assert.equal(job.state,'succeeded');assert.equal(job.source_revision_id,facts.revisionId);
+  assert.equal(job.request.artifactInputsChecksumSha256,facts.inputChecksum);
+  facts.buildChecksum=job.result_checksum_sha256;checkpoint();
+  await card.getByRole('button',{name:'Check saved preview',exact:true}).click();
+  await card.getByRole('button',{name:'Show preview',exact:true}).click();
+  const publication=page.frameLocator('iframe[title="Saved publication preview"]');
+  return inspectPublication(publication);
 }

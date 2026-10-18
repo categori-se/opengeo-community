@@ -384,8 +384,14 @@ def serve(restored=False):
     async def upload(request: Request):
         assert request.method == "POST"
         assert not request.headers.get("authorization")
-        body = await request.body()
-        assert len(body) <= 1_048_576
+        publication_enabled = bool(pilot.read_json("publication-profile.json", {}))
+        maximum = 4_259_840 if publication_enabled else 1_048_576
+        chunks, size = [], 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            assert size <= maximum
+            chunks.append(chunk)
+        body = b"".join(chunks)
         message = BytesParser(policy=default).parsebytes(
             b"Content-Type: "
             + request.headers["content-type"].encode()
@@ -403,9 +409,14 @@ def serve(restored=False):
                 assert name not in fields
                 fields[name] = value.decode()
         assert len(files) == 1
+        assert len(body) <= local_upload_body_limit(
+            fields["key"], publication_enabled=publication_enabled
+        )
         issued = pilot.read_json("issued-uploads.json", {})
         ticket = issued.pop(fields["key"])
         assert fields == ticket["fields"] and len(files[0]) == ticket["size"]
+        if len(body) > 1_048_576:
+            assert fields["Content-Type"] == "text/html" and ticket["size"] <= 4_194_304
         assert (
             base64.b64encode(bytes.fromhex(pilot.digest(files[0]))).decode()
             == fields["x-amz-checksum-sha256"]
@@ -441,7 +452,34 @@ def serve(restored=False):
 
     # Only this isolated harness exposes the local transport seam.
     app.add_api_route("/__local/upload", upload, methods=["POST"])
+    from opengeo_api.body_limit import RequestBodyLimitMiddleware
+
+    class LocalUploadBodyLimit(RequestBodyLimitMiddleware):
+        async def __call__(self, scope, receive, send):
+            if scope["type"] == "http" and scope["path"] == "/__local/upload":
+                maximum = (4_259_840 if pilot.read_json("publication-profile.json", {})
+                           else 1_048_576)
+                await RequestBodyLimitMiddleware(self.app, max_bytes=maximum)(scope, receive, send)
+            else:
+                await super().__call__(scope, receive, send)
+
+    # The synthetic object transport substitutes for S3 multipart, outside the
+    # production JSON body boundary. Every ordinary API path keeps that boundary.
+    for middleware in app.user_middleware:
+        if middleware.cls is RequestBodyLimitMiddleware:
+            middleware.cls = LocalUploadBodyLimit
     uvicorn.run(app, uds="/work/api.sock", access_log=False, log_level="warning")
+
+
+def local_upload_body_limit(key, *, publication_enabled):
+    # Only an exact, issued portable HTML intent gets the API's 4 MiB file
+    # allowance plus bounded multipart fields. Dataset/source limits stay 1 MiB.
+    identity = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+    portable = re.fullmatch(
+        rf"organizations/{identity}/projects/{identity}/artifacts/{identity}/"
+        rf"uploads/{identity}/map\.html", key
+    )
+    return 4_259_840 if publication_enabled and portable else 1_048_576
 
 
 def is_dataset_upload(key):

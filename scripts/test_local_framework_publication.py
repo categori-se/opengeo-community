@@ -2,10 +2,13 @@
 
 import asyncio
 import importlib.util
+import sys
 import tempfile
 import unittest
+from collections import namedtuple
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 SCRIPT = Path(__file__).with_name("local_framework_publication.py")
@@ -17,6 +20,137 @@ PILOT_SPEC = importlib.util.spec_from_file_location(
 )
 pilot = importlib.util.module_from_spec(PILOT_SPEC)
 PILOT_SPEC.loader.exec_module(pilot)
+BRIDGE_SPEC = importlib.util.spec_from_file_location(
+    "local_publication_bridge", Path(__file__).with_name("local-publication-bridge.py")
+)
+bridge = importlib.util.module_from_spec(BRIDGE_SPEC)
+BRIDGE_SPEC.loader.exec_module(bridge)
+STUDIO_SPEC = importlib.util.spec_from_file_location(
+    "local_publication_studio", Path(__file__).with_name("run-integrated-studio-local.py")
+)
+studio = importlib.util.module_from_spec(STUDIO_SPEC)
+STUDIO_SPEC.loader.exec_module(studio)
+
+
+class LocalArtifactProfileTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.work = Path(self.directory.name)
+        for module in (pilot, studio.pilot):
+            temporary = patch.object(module, "WORK", self.work)
+            temporary.start()
+            self.addCleanup(temporary.stop)
+        pilot.save_json("publication-profile.json", {
+            "compilerImageDigest": "sha256:" + "a" * 64,
+            "previewOrigin": "http://127.0.0.1:58001",
+            "previewKeyPairId": "LOCALPREVIEW123",
+            "previewPrivateKeyPath": "publication-preview-private.pem",
+        })
+        key = self.work / "publication-preview-private.pem"
+        key.write_bytes(b"local wiring fixture; signing is tested separately")
+        key.chmod(0o600)
+        signer = patch("opengeo_api.observable_previews.CloudFrontPreviewCookieSigner")
+        signer.start()
+        self.addCleanup(signer.stop)
+
+    def test_artifacts_opt_in_uses_tenant_repository_and_local_transports(self):
+        from opengeo_api.rendering import PostgresRenderRepository
+        from opengeo_api.tenant_database import PostgresTenantQueryExecutor
+
+        uploads, downloads = pilot.LocalObjects(), pilot.LocalObjects()
+        app = pilot.local_app(page_source_upload_storage=uploads,
+                              page_source_download_storage=downloads)
+        self.assertTrue(app.state.settings.portable_artifacts_enabled)
+        self.assertTrue(app.state.settings.publication_artifact_builds_enabled)
+        repository = app.state.render_repository
+        self.assertIsInstance(repository, PostgresRenderRepository)
+        self.assertIsInstance(repository._executor, PostgresTenantQueryExecutor)
+        self.assertIs(repository._artifact_uploads, uploads)
+        self.assertIs(repository._artifact_downloads, downloads)
+        self.assertIsNone(repository._artifact_cleanup, "Local mode must never select AWS cleanup")
+        (self.work / "publication-profile.json").unlink()
+        ordinary = pilot.local_app()
+        self.assertFalse(ordinary.state.settings.portable_artifacts_enabled)
+        self.assertFalse(ordinary.state.settings.publication_artifact_builds_enabled)
+        self.assertIsNone(ordinary.state.render_repository._artifact_uploads)
+
+    def test_portable_multipart_accepts_exact_large_html_and_rejects_other_custody(self):
+        import httpx2
+        from opengeo_api.s3_uploads import UploadSpec
+
+        with patch("uvicorn.run") as server:
+            studio.serve(restored=True)
+        app = server.call_args.args[0]
+        storage = app.state.render_repository._artifact_uploads
+        identity = "10000000-0000-4000-8000-000000000001"
+        prefix = f"organizations/{identity}/projects/{identity}/"
+        body = b"<!doctype html><title>Local portable map</title>" + b" " * 2_097_152
+
+        async def exercise():
+            async with httpx2.AsyncClient(transport=httpx2.ASGITransport(app=app),
+                                          base_url="http://local.invalid") as client:
+                key = f"{prefix}artifacts/{identity}/uploads/{identity}/map.html"
+                form = await storage.create_upload_form(UploadSpec(
+                    key, "text/html", len(body), pilot.digest(body)))
+                response = await client.post("/__local/upload", data=form.fields,
+                    files={"file": ("map.html", body, "text/html")})
+                self.assertEqual(response.status_code, 204)
+                records = pilot.read_json("objects.json", {})
+                self.assertEqual(len(records), 1)
+                record = next(iter(records.values()))
+                self.assertEqual(storage.exact(pilot.BUCKET, key, record["version_id"])[1], body)
+                self.assertEqual(pilot.read_json("queue.json", []), [], "Artifact HTML is not GIS ingestion")
+                for other in (f"{prefix}datasets/{identity}/uploads/{identity}/original/map.html",
+                              f"{prefix}source-projects/{identity}/uploads/{identity}/files/map.html"):
+                    form = await storage.create_upload_form(UploadSpec(
+                        other, "text/html", len(body), pilot.digest(body)))
+                    with self.assertRaises(AssertionError):
+                        await client.post("/__local/upload", data=form.fields,
+                            files={"file": ("map.html", body, "text/html")})
+                    self.assertIn(other, pilot.read_json("issued-uploads.json", {}))
+                    self.assertEqual(pilot.read_json("objects.json", {}), records)
+                oversized = b" " * (4_194_304 + 65_537)
+                rejected = await client.post("/__local/upload", content=oversized,
+                    headers={"Content-Type": "multipart/form-data; boundary=invalid"})
+                self.assertEqual(rejected.status_code, 413)
+                ordinary = await client.post("/ordinary-api-path", content=b" " * 524_289)
+                self.assertEqual(ordinary.status_code, 413)
+                self.assertEqual(pilot.read_json("objects.json", {}), records)
+
+        asyncio.run(exercise())
+
+
+class LocalArtifactLeaseBridgeTests(unittest.TestCase):
+    def test_resolution_calls_canonical_repository_with_exact_actor_job_and_token(self):
+        organization, user, job, token = (uuid4() for _ in range(4))
+        context_type = namedtuple("TenantContext", "user_id organization_id")
+        request = {
+            "operation": "resolve-artifact-lease", "organizationId": str(organization),
+            "userId": str(user), "buildJobId": str(job), "coordinatorToken": str(token),
+        }
+        files = [{"path": "maps/retained.html"}]
+        resolve = AsyncMock(return_value=files)
+        app = SimpleNamespace(state=SimpleNamespace(
+            observable_source_repository=SimpleNamespace(resolve_artifact_lease=resolve)
+        ))
+        # Only transport forwarding is isolated here. Repository lease and source
+        # authorization retain their existing database/HTTP acceptance checks.
+        with (
+            patch.dict(sys.modules, {"opengeo_api.tenant_database": SimpleNamespace(TenantContext=context_type)}),
+            patch.object(bridge.pilot, "local_app", return_value=app) as local_app,
+        ):
+            self.assertEqual(bridge.operate(request), files)
+            resolve.assert_awaited_once_with(context_type(user, organization), job, token)
+            resolve.reset_mock()
+            resolve.side_effect = PermissionError("publication_artifact_lease_unavailable")
+            with self.assertRaises(PermissionError):
+                bridge.operate(request)
+            resolve.assert_awaited_once_with(context_type(user, organization), job, token)
+            for invalid in ({**request, "objectKey": "arbitrary"}, {**request, "userId": "invalid"}):
+                with self.assertRaises(ValueError):
+                    bridge.operate(invalid)
+            self.assertEqual(local_app.call_count, 2, "Malformed requests cannot reach the repository")
 
 
 class LocalPublicationTests(unittest.TestCase):

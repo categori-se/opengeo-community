@@ -99,6 +99,44 @@ function response(status, headers = {}, body = "") {
 }
 
 describe("production Observable coordinator adapters", () => {
+  it("loads leased Artifact authority for distribution requests only when they carry Artifact inputs", async () => {
+    const user = "20000000-0000-4000-8000-000000000451";
+    const authority = {organizationId: ID.organization, userId: user, projectId: ID.project,
+      sourceProjectId: ID.sourceProject, inputId: ID.upload, manifest: {artifacts: []}};
+    for (const checksum of [undefined, null, "a".repeat(64), "invalid-checksum"]) {
+      const request = {schemaVersion: "opengeo.observable-build-request.3.0.0",
+        ...(checksum === undefined ? {} : {artifactInputsChecksumSha256: checksum})};
+      const calls = [], resolutions = [];
+      const repository = new RdsDataBuildRepository({async execute(sql, parameters) {
+        calls.push({sql, parameters});
+        if (sql.includes("claim_observable_build_runtime")) return [["claimed", ID.build, ID.organization,
+          ID.project, ID.sourceProject, ID.revision, 1, "preview", request, "b".repeat(64), {},
+          "c".repeat(64), "prefix/", 1]];
+        assert.equal(sql, "SELECT app.read_observable_artifact_lease(:job, :token)");
+        assert.deepEqual(parameters, [
+          {name: "job", value: {stringValue: ID.build}, typeHint: "UUID"},
+          {name: "token", value: {stringValue: ID.token}, typeHint: "UUID"}
+        ]);
+        return [[authority]];
+      }}, {artifactResolver: async value => {resolutions.push(value); return [];} });
+      const claim = await repository.claim(ID.build, ID.token, 900);
+      assert.deepEqual(claim.request, request, "The request remains unchanged for canonical parser validation");
+      if (checksum != null) {
+        assert.equal(calls.length, 2);
+        assert.deepEqual(claim.artifactInputs, authority.manifest);
+        await assert.rejects(repository.resolveArtifactInputs(ID.build, ID.upload), /artifact_staging_unavailable/);
+        assert.equal(resolutions.length, 0);
+        assert.deepEqual(await repository.resolveArtifactInputs(ID.build, ID.token), []);
+        assert.deepEqual(resolutions, [{buildJobId: ID.build, coordinatorToken: ID.token, authority}]);
+      } else {
+        assert.equal(calls.length, 1, "Distribution without Artifacts never requests Artifact authority");
+        assert.equal(Object.hasOwn(claim, "artifactInputs"), false);
+        await assert.rejects(repository.resolveArtifactInputs(ID.build, ID.token), /artifact_staging_unavailable/);
+        assert.equal(resolutions.length, 0);
+      }
+    }
+  });
+
   it("resolves archives only through the fixed leased function and reads tenant-scoped exact versions", async () => {
     const calls = [];
     const repository = new RdsDataBuildRepository({execute: async (sql, parameters) => {

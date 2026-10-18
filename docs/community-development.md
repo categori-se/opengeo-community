@@ -149,6 +149,16 @@ cloud service. Add `--publication-only` to run the bounded two-edition check
 through the actual source and Publish controls. Keep the same private state
 directory to retain source, jobs, output and release history.
 
+The compiler profile also enables retaining portable map Artifacts and using pinned
+editions in native private previews. The local coordinator resolves each Artifact
+through the normal live lease and tenant permissions, using the retained local
+object versions. Uploading or selecting an edition does not compile or publish it.
+Only exact, ticketed portable HTML uploads receive the 4 MiB file allowance plus
+64 KiB for multipart fields. Dataset and source multipart uploads remain limited
+to 1 MiB; ordinary API requests retain the 512 KiB JSON boundary. Expired Artifact
+upload cleanup is unconfigured in this local profile and never selects AWS storage.
+
+
 Preview and anonymous delivery run on separate loopback ports. The anonymous
 server reads only activated, separately retained public objects. The local
 canonical hostname uses an explicit browser transport mapping; it does not

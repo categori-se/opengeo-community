@@ -54,6 +54,20 @@ def operate(request):
     operation = request["operation"]
     if operation == "sql":
         return execute_sql(request)
+    if operation == "resolve-artifact-lease":
+        from opengeo_api.tenant_database import TenantContext
+
+        if set(request) != {
+            "operation", "buildJobId", "coordinatorToken", "organizationId", "userId"
+        }:
+            raise ValueError("Invalid local Artifact lease request")
+        # The normal repository verifies the live coordinator token, original
+        # actor/tenant and all current upstream permissions on every resolution.
+        # No saved manifest or caller-supplied object coordinates authorize a read.
+        context = TenantContext(UUID(request["userId"]), UUID(request["organizationId"]))
+        job, token = UUID(request["buildJobId"]), UUID(request["coordinatorToken"])
+        repository = pilot.local_app().state.observable_source_repository
+        return asyncio.run(repository.resolve_artifact_lease(context, job, token))
     if operation == "configure-publication":
         return pilot.configure_local_publication(request["projectId"], request["sourceProjectId"])
     if operation in {"publish", "public-read"}:

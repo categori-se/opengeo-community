@@ -122,7 +122,10 @@ export class RdsDataBuildRepository {
     }
     const record = claimRecord(rows[0], buildJobId);
     this.artifactAuthority.delete(buildJobId);
-    if (record.claimStatus === "claimed" && record.request?.schemaVersion === "opengeo.observable-build-request.2.0.0") {
+    const withArtifacts = record.request?.schemaVersion === "opengeo.observable-build-request.2.0.0"
+      || (record.request?.schemaVersion === "opengeo.observable-build-request.3.0.0"
+        && record.request.artifactInputsChecksumSha256 != null);
+    if (record.claimStatus === "claimed" && withArtifacts) {
       try {
         const resolved = await this.client.execute("SELECT app.read_observable_artifact_lease(:job, :token)",
           [uuidParameter("job", buildJobId), uuidParameter("token", coordinatorToken)]);

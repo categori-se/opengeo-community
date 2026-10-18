@@ -1,3 +1,30 @@
+## October 17 — Retained map and Catalog data share a native preview
+
+The existing saved-map resource now retains portable Artifact v1 and supplies a
+pinned edition to the Catalog-connected Publication. Its saved source revision
+reuses the completed autosave and exact GeoJSON binding. The actual private preview
+renders five blue points, 80% opacity, white outlines and the original camera,
+alongside all five names and the 4/5 public-access count.
+
+Local Artifact admission, exact storage and live lease resolution are connected.
+The shared coordinator now loads Artifact authority for current v3 requests that
+combine data and maps; 15 owning adapter cases pass. Six local-adapter cases and
+three actual API-profile/upload checks also pass. The synthetic multipart seam
+admits only exact ticketed portable HTML up to 4 MiB plus 64 KiB of fields; normal
+API, source and dataset limits remain bounded. AWS cleanup is not selected.
+
+The failed duplicate-resource transaction, hidden-control autosave and failed v3
+staging job remain recorded. Their completed writes are reused. Exactly one
+portable compilation and one native compiler invocation occur. The final preview
+readback repeats neither. Cumulative selected API attempts are 107 and active
+browser/controller time is 80.737 seconds. Known local pilot stages total 1,181.209
+seconds including failures and missing-viewer recovery; agent effort and a dollar
+total are unavailable. The missing viewer file is regenerated once through its
+existing builder and matches the original sealed bytes exactly; Studio is not
+rebuilt. All temporary runtime is stopped. This increment uses no AWS, Actions or
+public release. Independent operator installation and production delivery remain
+open; this is selected local acceptance, not a new deployment.
+
 ## October 17 — Catalog-backed native publication preview accepted
 
 The registered CC0 facilities Layer now feeds an authored native Publication

@@ -17,6 +17,36 @@ test("local configuration keeps SQL lease repository and refuses mutable compile
   assert.equal(dependencies.expectedCompilerImageDigest, pin);
 });
 
+test("local Artifact resolution uses the claimed actor and checks each lease through the API repository", async () => {
+  const [job, token, organization, user, project, source, revision, input] = Array.from({length: 8},
+    (_, index) => `10000000-0000-4000-8000-${String(index + 10).padStart(12, "0")}`);
+  const authority = {organizationId: organization, userId: user, projectId: project,
+    sourceProjectId: source, inputId: input, manifest: {artifacts: []}};
+  const files = [{path: "maps/retained.html"}], resolutions = [];
+  let denied = false;
+  const bridge = async request => {
+    if (request.operation === "sql" && request.sql.includes("claim_observable_build_runtime")) {
+      return [["claimed", job, organization, project, source, revision, 1, "preview",
+        {schemaVersion: "opengeo.observable-build-request.2.0.0"}, "a".repeat(64), {}, "b".repeat(64), "prefix/", 1]];
+    }
+    if (request.operation === "sql" && request.sql.includes("read_observable_artifact_lease")) return [[authority]];
+    assert.equal(request.operation, "resolve-artifact-lease");
+    resolutions.push(request);
+    if (denied) throw new Error("publication_artifact_lease_unavailable");
+    return files;
+  };
+  const {repository} = localDependencies({bridge, compilerImageDigest: pin});
+  await repository.claim(job, token, 900);
+  await assert.rejects(repository.resolveArtifactInputs(job, id), /artifact_staging_unavailable/);
+  assert.equal(resolutions.length, 0);
+  assert.deepEqual(await repository.resolveArtifactInputs(job, token), files);
+  assert.deepEqual(resolutions[0], {operation: "resolve-artifact-lease", buildJobId: job,
+    coordinatorToken: token, organizationId: organization, userId: user});
+  denied = true;
+  await assert.rejects(repository.resolveArtifactInputs(job, token), /publication_artifact_lease_unavailable/);
+  assert.equal(resolutions.length, 2, "Retained authority must not cache a prior access decision");
+});
+
 test("source staging verifies exact identity, returned size, bytes and checksum", async () => {
   const bytes = Buffer.from("# Saved edition\n");
   const source = {bucket: "local-pilot.invalid", key: "source/index.md", version_id: id,

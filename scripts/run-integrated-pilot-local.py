@@ -462,6 +462,8 @@ def local_app(**overrides):
             application_bucket=BUCKET,
             observable_builder_image_digest=publication.get("compilerImageDigest"),
             observable_preview_origin=publication.get("previewOrigin"),
+            portable_artifacts_enabled=bool(publication),
+            publication_artifact_builds_enabled=bool(publication),
             aws_region="us-east-1",
             geodata_kms_key_arn="arn:aws:kms:us-east-1:000000000000:key/local-only",
             database_url=SecretStr("postgresql://opengeo_runtime@127.0.0.1/opengeo"),
@@ -494,6 +496,19 @@ def local_app(**overrides):
         dependencies["observable_build_dispatcher"] = LocalObservableDispatcher()
         dependencies["framework_publication_dispatcher"] = LocalFrameworkPublicationDispatcher()
     dependencies.update(overrides)
+    if publication and "render_repository" not in overrides:
+        from opengeo_api.rendering import PostgresRenderRepository
+        from opengeo_api.tenant_database import PostgresTenantQueryExecutor
+
+        # Use the normal tenant-authorized repository with the same local
+        # transports as source uploads. Never select AWS cleanup in this profile;
+        # expired upload cleanup remains explicitly unconfigured.
+        dependencies["render_repository"] = PostgresRenderRepository(
+            PostgresTenantQueryExecutor(dependencies["settings"]),
+            dependencies["download_storage"],
+            artifact_uploads=dependencies["page_source_upload_storage"],
+            artifact_downloads=dependencies["page_source_download_storage"],
+        )
     return create_app(**dependencies)
 
 

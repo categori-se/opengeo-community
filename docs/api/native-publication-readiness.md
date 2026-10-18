@@ -19,9 +19,17 @@ presentation, Notebook execution or independent deployment. The existing
 [exercise](../community-examples.md#use-the-registered-layer-in-a-publication)
 provides the input and reader code.
 
+The retained facilities map also passes the local native path. Its existing map
+resource, portable edition and pinned reference feed the same Publication as its
+Catalog GeoJSON. The actual preview renders all five points with the saved color,
+opacity, outlines and camera. The shared coordinator now loads Artifact authority
+for current v3 requests combining data and maps. One native compile is reused;
+no public release or production deployment is implied. The map retains reviewed
+browser snapshot provenance (`authoritativeBuild: false`).
+
 | Boundary | Implemented and accepted locally | Remaining acceptance |
 | --- | --- | --- |
-| Saved authored source | Actual Studio/API saves two approved revisions with retained input bytes and checksums. The local API supplies exact source storage, compiler identity and durable dispatch. | One archived GeoJSON input is accepted. Independent operator installation, Project Artifact and broader selected-input round trips remain. |
+| Saved authored source | Actual Studio/API saves two approved revisions with retained input bytes and checksums. The local API supplies exact source storage, compiler identity and durable dispatch. | One archived GeoJSON input and one retained saved-map Artifact are accepted locally. Independent operator installation and broader selected-input round trips remain. |
 | Native build and retained output | The existing coordinator, real SQL leases and exact-version object store execute the isolated native compiler twice. Completed output survives reopening and is reused without replaying builds. | The current default compiler image builds and passes its isolated compilation fixture. Independent installation and deployment remain open. |
 | Authorized private preview | Separate-origin signed previews display both builds; Build history reopens the earlier edition. Missing/cross-build cookies and capability replay are denied. The connected local viewer workflow verifies opening, revoked grants, real 60-second capability expiry and signed-cookie expiry with a qualified local verifier clock. Installation-specific origins are validated. | Independent installation, configured production identity/delivery and production activation. Immediate revocation of issued cookies is not implemented. |
 | Publication and earlier editions | Actual review, acknowledgment and approval controls dispatch the existing canonical publisher. Its restricted SQL role, separate public custody and atomic prefix activation publish both editions. Both public links open and permit anonymous reads; the previous public edition remains readable after replacement. | Independent HTTPS/DNS/CDN delivery and production release. |

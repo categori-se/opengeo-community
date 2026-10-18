@@ -1,5 +1,32 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Saved-map Artifact reaches the native Publication
+
+The local compiler profile now enables portable Artifact retention through local
+storage and the normal tenant repository. The coordinator resolves exact Artifact
+inputs through the live lease and current permissions. A shared adapter defect is
+fixed: current v3 requests combining Catalog data and Artifacts now load their
+Artifact authority, as v2 already did. Requests without Artifacts retain their
+existing behavior; request/checksum validation is unchanged.
+
+The existing map resource is reused and explicitly advances to map v2. Portable
+edition v1 and reference revision 1 retain the 2,126,629-byte output. The Source
+editor's completed autosave is reconciled, preserving its Catalog data binding.
+One replacement request follows the diagnosed staging failure; only one native
+compiler invocation occurs. Its private preview renders all five points with
+#2563eb color, 0.8 opacity, white 1.25-pixel outlines and the exact saved camera.
+The final read-only opening reuses that successful build. The portable map
+retains reviewed browser snapshot provenance (`authoritativeBuild: false`).
+
+Fifteen adapter cases, six local-adapter cases and three actual API-profile/upload
+checks pass. The selected journey totals 107 API attempts and 80.737 seconds of
+active browser/controller time, including failures. Known local pilot stages total
+1,181.209 seconds; agent effort and a dollar total are unavailable. Original limits,
+explicit revised ceilings and failed attempts remain retained. All API, worker,
+compiler and diagnostic containers are absent; the database is stopped. No AWS call,
+Actions run or public release is used for this local increment. Independent operator
+installation, a realistic study and configured production delivery remain open.
+
 October 17 — Registered Catalog input reaches a native private preview
 
 The existing Source editor connects the retained 1,472-byte CC0 GeoJSON through

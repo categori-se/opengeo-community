@@ -50,6 +50,22 @@ class InitializationTests(unittest.TestCase):
         self.assertTrue(studio.is_dataset_upload(
             f"{prefix}datasets/{identity}/uploads/{identity}/original/features.geojson"))
 
+    def test_only_portable_intents_receive_the_opt_in_html_transport_limit(self):
+        identity = "10000000-0000-4000-8000-000000000001"
+        prefix = f"organizations/{identity}/projects/{identity}/"
+        portable = f"{prefix}artifacts/{identity}/uploads/{identity}/map.html"
+        self.assertEqual(studio.local_upload_body_limit(portable, publication_enabled=True),
+                         4_194_304 + 65_536)
+        self.assertEqual(studio.local_upload_body_limit(portable, publication_enabled=False),
+                         1_048_576)
+        self.assertFalse(studio.is_dataset_upload(portable))
+        for key in [f"{prefix}datasets/{identity}/uploads/{identity}/original/map.html",
+                    f"{prefix}source-projects/{identity}/uploads/{identity}/files/map.html",
+                    portable + "/other", portable.replace("map.html", "map.js"),
+                    portable.replace(identity, "x" * 36)]:
+            self.assertEqual(studio.local_upload_body_limit(key, publication_enabled=True),
+                             1_048_576)
+
     def test_publication_opt_in_requires_cached_exact_compiler_and_preserves_queues(self):
         with tempfile.TemporaryDirectory() as temporary:
             work = Path(temporary)

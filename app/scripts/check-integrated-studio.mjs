@@ -31,11 +31,14 @@ const rendererPersistenceMode=process.env.OPENGEO_RENDERER_PERSISTENCE_ONLY === 
 const geolibreImportMode=process.env.OPENGEO_GEOLIBRE_IMPORT_ONLY === "1";
 const publicationSecurityOnly=process.env.OPENGEO_PUBLICATION_SECURITY_ONLY === "1";
 const catalogStudyMode=process.env.OPENGEO_PUBLICATION_CATALOG_STUDY_ONLY === "1";
+const mapArtifactMode=process.env.OPENGEO_PUBLICATION_MAP_ARTIFACT_ONLY === "1";
 const publicationSecurityReconciliationPin=process.env.OPENGEO_PUBLICATION_SECURITY_RECONCILED;
 if(publicationSecurityReconciliationPin!==undefined)assert.ok(publicationSecurityOnly,
   'Reconciled security acceptance requires the exact retained security-only mode.');
 if(publicationSecurityOnly)assert.ok(publicationOnlyMode&&developmentMode&&!builtStudio,
   "Publication security acceptance requires the retained development publication-only mode.");
+if(mapArtifactMode)assert.ok(publicationOnlyMode&&developmentMode&&!builtStudio&&!publicationSecurityOnly&&!catalogStudyMode,
+  "Map Artifact acceptance requires only the retained local publication mode.");
 if(catalogStudyMode)assert.ok(publicationOnlyMode&&developmentMode&&!builtStudio&&!publicationSecurityOnly,
   "Catalog study acceptance requires only the existing local publication mode.");
 if (rendererPersistenceMode || geolibreImportMode) assert.ok(builtStudio && !pinnedFontMode && !restoreCheckpoint && !serviceClientsMode && !analysisOnlyMode);
@@ -86,6 +89,11 @@ let catalogStudyApiAttempts=0;
 const catalogStudyProgressPath=join(work,'publication-progress.json');
 const catalogStudyPriorApiAttempts=catalogStudyMode&&existsSync(catalogStudyProgressPath)
   ? JSON.parse(readFileSync(catalogStudyProgressPath)).apiRequestAttempts??0 : 0;
+const mapArtifactPrior=mapArtifactMode?JSON.parse(readFileSync(catalogStudyProgressPath)).mapArtifact??{}:{};
+const mapArtifactPriorApiAttempts=mapArtifactPrior.apiRequestAttempts??0;
+const mapArtifactPriorMilliseconds=mapArtifactPrior.activeMilliseconds??0;
+const mapArtifactStarted=Date.now();let mapArtifactApiAttempts=0;
+const requestReceiptPath=join(work,mapArtifactMode?'map-artifact-requests.json':'requests.json');
 let publicationSecurityRegularRequests=0,publicationSecurityCleanupRequests=0,securityInvitationId=null;
 const securityFacts=publicationSecurityOnly?JSON.parse(readFileSync(join(work,'publication-progress.json'))):null;
 const securityPreviousRequests=securityFacts?.previewSecurity
@@ -99,6 +107,16 @@ const securityCumulativeApiRequests=securityResume?.cumulativeApiRequests??42;
 const securityReviewer='20000000-0000-4000-8000-000000000002';
 
 function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} = {}) {
+  if(mapArtifactMode){
+    assert.ok(mapArtifactPriorApiAttempts+mapArtifactApiAttempts<110,"Map Artifact: at most 110 cumulative API attempts (revised from 100; prior attempts retained)");
+    assert.ok(mapArtifactPriorMilliseconds+Date.now()-mapArtifactStarted<90_000,"Map Artifact: at most 90 cumulative active seconds");
+    mapArtifactApiAttempts++;
+    const facts=JSON.parse(readFileSync(catalogStudyProgressPath));
+    assert.equal(facts.mode,'catalog-study');assert.equal(facts.status,'pass');
+    writeFileSync(catalogStudyProgressPath,JSON.stringify({...facts,mapArtifact:{...facts.mapArtifact,
+      apiRequestAttempts:mapArtifactPriorApiAttempts+mapArtifactApiAttempts,
+      activeMilliseconds:mapArtifactPriorMilliseconds+Date.now()-mapArtifactStarted}},null,2)+'\n');
+  }
   if(catalogStudyMode){
     assert.ok(catalogStudyPriorApiAttempts+catalogStudyApiAttempts < 100,
       "Catalog study: at most 100 API attempts across retained attempts");
@@ -186,7 +204,7 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} 
           ...(headers["user-agent"] === "OpenGeo-Integrated-QGIS/1.0" ? {client:"qgis"}
             : headers["user-agent"] === "OpenGeo-Integrated-HTTP/1.0" ? {client:"independent-http"}
             : headers["user-agent"] === "OpenGeo-Integrated-GDAL/1.0" ? {client:"gdal"} : {})});
-        if (developmentSmoke || catalogStudyMode) writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
+        if (developmentSmoke || catalogStudyMode || mapArtifactMode) writeFileSync(requestReceiptPath, JSON.stringify(requests, null, 2) + "\n");
         done({status: response.statusCode, headers: response.headers, body});
       });
       response.on("error", reject);
@@ -388,12 +406,12 @@ try {
   const executablePath = ["/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"].find(existsSync);
   assert.ok(executablePath, "Cached system Chromium is required");
   browser = await chromium.launch({headless: publicationOnlyMode || !developmentMode || developmentSmoke, chromiumSandbox: Boolean(developmentMode && !developmentSmoke && !publicationOnlyMode), executablePath, args: [...(developmentMode && !developmentSmoke && !publicationOnlyMode ? [] : ["--no-sandbox"]),
-    ...(pinnedFontMode || developmentSmoke ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
+    ...(pinnedFontMode || developmentSmoke || mapArtifactMode ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--disable-background-networking", "--disable-dev-shm-usage"] : [])]});
   if (developmentSmoke) developmentBrowserTimer = setTimeout(() => void browser.close(),
     Math.max(1, developmentActiveTimeLimit - developmentPriorMilliseconds - (Date.now() - developmentStarted)));
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
   if (publicationOnlyMode) {
-    publicationBrowserTimer=setTimeout(()=>void browser.close(),catalogStudyMode?90_000:publicationSecurityOnly?75_000:60_000);
+    publicationBrowserTimer=setTimeout(()=>void browser.close(),mapArtifactMode?Math.max(1,90_000-mapArtifactPriorMilliseconds-(Date.now()-mapArtifactStarted)):catalogStudyMode?90_000:publicationSecurityOnly?75_000:60_000);
     let browserRequests=0;
     context.on('request',()=>assert.ok(++browserRequests<=(publicationSecurityOnly?120:500),'Publication browser request ceiling'));
   }
@@ -423,7 +441,8 @@ try {
       const target=new URL(request.url());
       const result=await fetch(publicOrigin+target.pathname+target.search,{method:request.method(),redirect:'manual'});
       await route.fulfill({status:result.status,headers:Object.fromEntries(result.headers),body:Buffer.from(await result.arrayBuffer())});
-    } else if (request.url().startsWith(`${origin}/`) || (previewOrigin && request.url().startsWith(`${previewOrigin}/`)) || (publicOrigin && request.url().startsWith(`${publicOrigin}/`))) await route.continue();
+    } else if (mapArtifactMode && ['blob:','data:'].includes(new URL(request.url()).protocol)) await route.continue();
+    else if (request.url().startsWith(`${origin}/`) || (previewOrigin && request.url().startsWith(`${previewOrigin}/`)) || (publicOrigin && request.url().startsWith(`${publicOrigin}/`))) await route.continue();
     else if (rendererPersistenceMode || geolibreImportMode) await route.fulfill({contentType:"application/json",body:JSON.stringify(
       new URL(request.url()).hostname.includes("mapbox") ? {} : {version:8,sources:{},layers:[{id:"background",type:"background",paint:{"background-color":"#ffffff"}}]})});
     else await route.abort();
@@ -436,7 +455,7 @@ try {
     const {exerciseNativePublication} = await import('./integrated-studio-publication.mjs');
     const publication = await exerciseNativePublication({page, browser, context, origin, organization,
       apiRequest, work, publicationProfile,securityOnly:publicationSecurityOnly,
-      catalogStudy:catalogStudyMode,
+      catalogStudy:catalogStudyMode,mapArtifact:mapArtifactMode,
       ...(publicationSecurityOnly?{expirePreviewCookies,observePreviewExchange,securityPreviousRequests,securityReconciliation}:{})});
     assert.deepEqual(errors,[], 'Publication source UI and native preview page errors');
     writeFileSync(join(work,"browser-result.json"),JSON.stringify({status:"pass",publication,
@@ -444,6 +463,8 @@ try {
         priorApiRequestAttempts:securityPriorApiRequests,
         cumulativeApiRequestAttempts:securityPriorApiRequests+publicationSecurityRequests,
         regularApiAttempts:publicationSecurityRegularRequests,cleanupApiAttempts:publicationSecurityCleanupRequests}:{}),
+      ...(mapArtifactMode?{apiRequestAttempts:mapArtifactApiAttempts,priorApiRequestAttempts:mapArtifactPriorApiAttempts,
+        cumulativeApiRequestAttempts:mapArtifactPriorApiAttempts+mapArtifactApiAttempts}:{}),
       ...(catalogStudyMode?{apiRequestAttempts:catalogStudyApiAttempts,priorApiRequestAttempts:catalogStudyPriorApiAttempts,
         cumulativeApiRequestAttempts:catalogStudyPriorApiAttempts+catalogStudyApiAttempts}:{}),
       applicationShell:builtShell?.evidence ?? {mode:publicationSecurityOnly?'retained private preview bootstrap; no application build':'existing source UI bundle'},
@@ -1697,7 +1718,9 @@ try {
   }
 } catch (error) {
   writeFileSync(join(work,"failure.json"),JSON.stringify({stage,error:error.stack,pageErrors:errors,
-    ...(catalogStudyMode?{apiRequestAttempts:catalogStudyApiAttempts,priorApiRequestAttempts:catalogStudyPriorApiAttempts,
+    ...(mapArtifactMode?{apiRequestAttempts:mapArtifactApiAttempts,priorApiRequestAttempts:mapArtifactPriorApiAttempts,
+        cumulativeApiRequestAttempts:mapArtifactPriorApiAttempts+mapArtifactApiAttempts}:{}),
+      ...(catalogStudyMode?{apiRequestAttempts:catalogStudyApiAttempts,priorApiRequestAttempts:catalogStudyPriorApiAttempts,
       cumulativeApiRequestAttempts:catalogStudyPriorApiAttempts+catalogStudyApiAttempts}:{})},null,2)+"\n");
   if (page) {
     const diagnosticPages = browser.contexts().flatMap(context => context.pages());
@@ -1729,7 +1752,13 @@ try {
     if(facts.mode==='catalog-study')writeFileSync(catalogStudyProgressPath,JSON.stringify({...facts,
       apiRequestAttempts:catalogStudyPriorApiAttempts+catalogStudyApiAttempts},null,2)+'\n');
   }
-  writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
+  if(mapArtifactMode&&existsSync(catalogStudyProgressPath)){
+    const facts=JSON.parse(readFileSync(catalogStudyProgressPath));
+    writeFileSync(catalogStudyProgressPath,JSON.stringify({...facts,mapArtifact:{...facts.mapArtifact,
+      apiRequestAttempts:mapArtifactPriorApiAttempts+mapArtifactApiAttempts,
+      activeMilliseconds:mapArtifactPriorMilliseconds+Date.now()-mapArtifactStarted}},null,2)+'\n');
+  }
+  writeFileSync(requestReceiptPath, JSON.stringify(requests, null, 2) + "\n");
   if (browser) await browser.close();
   if (previewServer) await new Promise((done) => previewServer.close(done));
   if (publicServer) await new Promise((done) => publicServer.close(done));
