@@ -1,5 +1,18 @@
 # Resource model implementation — September 19, 2026
 
+October 18 — Pure tile-cache contracts extracted
+
+`apiTileCacheContracts.js` owns the existing seed selector and six response
+parsers, with their two private coordinate/bbox helpers. Its imports come only
+from `apiResponseContracts.js`. `apiClient.js` retains the same six parser exports;
+the selector stays internal to that client. Static comparison preserves nine
+moved declarations, 289 retained declarations and all 169 public exports. The
+existing client suite passes all 154 cases. This reduces the central file by
+479 lines without changing request, authorization or processing behavior.
+The capability guide also distinguishes accepted local Berkshire native publishing
+from unverified independent installation and production identity/HTTPS/CDN delivery.
+No build, deployment, cloud call or Actions run is used.
+
 October 18 — Community validation has no cache-save path
 
 The canonical `community/.github/workflows/api-contract.yml` is copied by the

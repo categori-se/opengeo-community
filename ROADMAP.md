@@ -16,12 +16,15 @@ private account configuration is not part of the community source.
 Completed work stays completed when a later release or installation check is
 pending. We record implementation, acceptance and delivery separately:
 
-The API client's preview and authored Publication content contracts now live in
-focused modules. Map drawing/query interactions and guides also have their own
-module. Existing exports and behavior are preserved; 259 selected existing cases
-pass for content saves, map authoring, queries, local projects and printing.
-These source changes await the next consolidated build and delivery; broader
-frontend decomposition remains open.
+The API client's preview, authored Publication content and tile-cache contracts
+now live in focused modules. Map drawing/query interactions and guides also have
+their own module. Existing exports and behavior are preserved; the earlier 259
+selected cases cover content saves, map authoring, queries, local projects and
+printing. The latest tile-cache extraction passes all 154 existing client cases.
+Application build and delivery remain separate; broader frontend decomposition
+remains open. The capability guide now reflects accepted local native publishing.
+A source review found no private installation input, while a cold full-worker
+build and independent installation remain unverified.
 
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and

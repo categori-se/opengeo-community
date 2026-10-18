@@ -1,5 +1,18 @@
 # Resource model: active plan and continuation queue
 
+October 18 — Tile-cache contracts separated and capability status corrected
+
+The API client's existing tile-cache request/response contracts now live in a
+focused module. All public client exports, request methods and moved function
+bodies are preserved. The existing 154 client cases pass. The capability guide
+now records the accepted local Berkshire Framework compilation, private preview,
+reviewed publication and anonymous rendering separately from general Notebook
+execution and configured production delivery. No application/image build, cloud
+call or Actions run is used. Independent installation remains open: the documented
+source path uses public inputs, but a cold full-worker build has not been measured.
+Reuse existing core/native acceptance and passing public CI; private main still
+needs known free capacity. These changes join the next consolidated integration.
+
 October 18 — Public core validation avoids cache-storage growth
 
 The community workflow restores existing npm/pip downloads without saving new

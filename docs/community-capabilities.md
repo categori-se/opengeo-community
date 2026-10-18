@@ -6,9 +6,11 @@ tools. This guide describes supported operations, demonstrated workflows and
 their boundaries.
 
 Local checks cover uploaded data, map styling and save/reopen across database
-restart, access rules, selected GIS processing and static publication. Fresh
-installation, independent AWS deployment and the
-complete native Notebook/Framework publishing workflow still need verification.
+restart, access rules, selected GIS processing and static publication. Local Studio
+checks also cover Framework compilation, private preview and reviewed publishing
+of the Berkshire study, including anonymous map and table rendering. General
+Notebook execution, clean independent installation, configured production identity
+and HTTPS/CDN delivery remain open.
 See the [development guide](community-development.md), [AWS guide](community-aws.md)
 and [deployment examples](community-deployments.md).
 
@@ -34,8 +36,8 @@ They do not establish compatibility with every upstream feature.
 | Group dense Point Layers | Local source includes per-Layer zoom-dependent clustering and saved preferences, preserving underlying features and symbols. | Focused source checks are separate from compiled, deployed and independent-community acceptance. Unsupported publication or export paths must disclose clustering. |
 | Know which input supported a finding | Immutable object versions, checksums, lineage and explicit referenced, hosted, cached, mirrored and derived custody. | The pilot connects uploads, worker outputs and a reopened map. Preserving a URL or source definition alone does not preserve the remote bytes, and a bounded capture does not establish source completeness. |
 | Keep producer facts separate from interpretation | Separate source, normalized, curated and inferred metadata, with rights, license, provenance and selected import/export mappings. | The [STAC-to-CKAN exporter](api/stac-ckan.md) produces a deterministic `package_create` dry-run payload with stable identity, retained source and explicit import/export reports. Local structural and regression checks and a [disposable CKAN 2.11.6 create/readback/purge round trip](api/stac-ckan.md#disposable-server-check) for one synthetic fixture pass; harvesting, ordinary-user permissions, synchronization and production deployment remain unverified. Metadata does not grant access or establish redistribution rights. |
-| Explore a bounded analytical question | Browser vector operations, PostGIS vector-analysis previews, and explicit worker jobs for selected spatial derivatives. Parameters, source identities and limits accompany results. | Real worker PMTiles and PNG outputs pass in the pilot. This does not demonstrate every algorithm, large input or remote runtime. Native publication compilation remains outside that pilot. |
-| Explain results with maps, tables, charts and methods | Publication source editing, Notebook/Framework compiler components, previews, versioned artifacts and publishing interfaces. | The pilot packages a two-page Publication ZIP and checks anonymous delivery/revocation. Complete native Notebook/Framework compilation, built-browser publication and standalone delivery acceptance remain open. |
+| Explore a bounded analytical question | Browser vector operations, PostGIS vector-analysis previews, and explicit worker jobs for selected spatial derivatives. Parameters, source identities and limits accompany results. | Real worker PMTiles and PNG outputs pass in the pilot. This does not demonstrate every algorithm, large input or remote runtime. Local native publication checks are described below. |
+| Explain results with maps, tables, charts and methods | Publication source editing, Notebook/Framework compiler components, previews, versioned artifacts and publishing interfaces. | The static pilot packages a two-page Publication ZIP and checks anonymous delivery/revocation. Local Studio checks also compile the Berkshire study with Framework, preview it privately, approve its release and render its map and tables anonymously. General Notebook execution, clean independent installation and configured production identity/HTTPS/CDN delivery remain open. |
 | Share work under explicit access rules | Memberships, resource roles, activity records, publication audiences and selected interoperability adapters. | The [PostGIS authorization checks](api/authorization-local.md) verify viewer edit/publication denials, editor edits, stale-version conflicts and revoked reads; denied/stale writes leave site, editions, render state and queue unchanged. Anonymous delivery/revocation also passes in the local pilot. Synthetic identities and transports leave real sign-in, production tenant administration and independent AWS operation unverified. |
 
 For a screening study, record the input version, whether it was preserved, the

@@ -1,3 +1,19 @@
+## October 18 — Separate tile-cache contracts and correct native publication status
+
+The client tile-cache contracts now have their own module. Nine moved and 289
+retained declarations, including request methods, match the previous source;
+all 169 public exports are preserved. The existing 154 client cases pass.
+No new behavior, dependency or runtime is introduced. The capability guide no
+longer labels the accepted local Berkshire Framework/native publishing workflow
+unfinished; independent installation and configured delivery remain open.
+
+A bounded source review found no private input in the documented installation
+path. It also confirmed that prior receipts reuse the full GIS worker image,
+so they do not prove a cold installation or bound its time/download costs.
+No speculative build or new CI path was started. Previous core/native results
+and passing public main CI are reused. This batch uses no application/image
+build, AWS, KMS or Actions run; it awaits consolidated integration.
+
 ## October 18 — Keep public core validation within free execution and storage
 
 Verified repository identity is public, with standard Ubuntu runners and no active
