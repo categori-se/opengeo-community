@@ -1,5 +1,18 @@
 # Resource model implementation — September 19, 2026
 
+October 18 — Core frontend boundaries accepted locally
+
+`apiResourceContentContracts.js` owns authored content parsing/serialization;
+the unchanged public-URL validator joins existing shared response contracts.
+`WorkbenchMapDrawing.js` owns drawing, completion/cancellation, query geometry
+and guides, using existing Workbench actions and per-view context. The original
+API client and Workbench exports remain. Static comparison preserves 965 function
+bodies/parameters and existing classes; the two central files shrink by 1,113 lines.
+The six selected existing suites pass all 259 cases. UI suites require separate
+processes because their global JSDOM fixtures conflict in a combined run.
+No dependency, cloud, build or deployment changes. Broader decomposition and
+independent installation/delivery acceptance remain open.
+
 October 17 — Standalone GitHub build installer accepted offline
 
 `nativeGitHubBuild` and the explicit `github-build` phase carry retained core

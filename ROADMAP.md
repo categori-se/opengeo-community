@@ -6,7 +6,7 @@ carry forward into the next report, notebook or website. Low idle infrastructure
 cost is a design goal; workload costs depend on storage, processing, traffic and
 deployment choices.
 
-## Development status — October 17, 2026
+## Development status — October 18, 2026
 
 The community edition contains the full suite of tools. Community installations,
 the public Demo and managed Studio use the same core with their own configuration,
@@ -16,10 +16,12 @@ private account configuration is not part of the community source.
 Completed work stays completed when a later release or installation check is
 pending. We record implementation, acceptance and delivery separately:
 
-The API client's spatial and document preview contracts now live in a focused
-module. Its existing exports and validation behavior are preserved, with 166
-selected client and Catalog tests passing. This source change awaits the next
-consolidated build and delivery; broader frontend decomposition remains open.
+The API client's preview and authored Publication content contracts now live in
+focused modules. Map drawing/query interactions and guides also have their own
+module. Existing exports and behavior are preserved; 259 selected existing cases
+pass for content saves, map authoring, queries, local projects and printing.
+These source changes await the next consolidated build and delivery; broader
+frontend decomposition remains open.
 
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and

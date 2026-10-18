@@ -1,3 +1,24 @@
+## October 18 — Separate Publication content and map drawing from central modules
+
+Authored content parsing/serialization now lives in `apiResourceContentContracts.js`,
+with the existing URL validator in shared response contracts. Drawing/query gestures,
+completion, previews and guides move to `WorkbenchMapDrawing.js`; Workbench supplies
+its existing surrounding editor/persistence actions. No request, permission, saved
+state, gesture or public-export behavior changes. Static comparison checks 965
+unchanged function bodies/parameters and existing classes. The central files shrink
+by 1,113 lines; wider decomposition remains open.
+
+All 259 selected existing cases pass. The initial combined run has three failures
+from conflicting file-level JSDOM hooks; four UI suites then pass in separate
+processes. Passed API and pure-interaction cases are reused. The initial read-only
+Node/Git comparison encounters sandbox process restrictions; shell-materialized
+originals allow the same comparison without child processes. Costs and failed runs
+remain in the existing local manifest. No new tests, dependencies, framework,
+application build, AWS/KMS, Actions, container, publication or invalidation is used.
+This source checkpoint awaits the consolidated release. Independent operator and
+configured identity/HTTPS/CDN/compiler acceptance remain open; main checks await
+verified free capacity. Accepted core, study and installer results are retained.
+
 ## October 17 — Standalone installer connects trusted GitHub compilation
 
 The explicit `github-build` phase reuses the existing controller, trusted workflow,

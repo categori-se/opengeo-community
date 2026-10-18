@@ -1,5 +1,17 @@
 # Resource model: active plan and continuation queue
 
+October 18 — Publication content and map drawing extracted
+
+Authored Publication parsing/serialization and map drawing/query interactions now
+have separate modules. Existing bodies, public exports, request and authority paths
+are preserved. All 259 selected existing cases pass, with UI suites in separate
+processes to avoid shared browser-fixture interference. No build, AWS/KMS or
+Actions run is used. This source change joins the next consolidated release;
+broader frontend decomposition remains open. Independent operator installation
+and configured identity/HTTPS/CDN/compiler acceptance remain the next delivery
+requirements. Reuse accepted core/study/installer evidence; main checks still need
+known free capacity.
+
 October 17 — Standalone GitHub compiler setup connected
 
 The explicit installer phase now connects existing controller/IAM components,

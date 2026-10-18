@@ -241,3 +241,60 @@ export function isObject(value) {
 export function contract(message, cause) {
   throw new ApiContractError(message, {cause});
 }
+
+export function publicSourceUrl(value, sourceType) {
+  const raw = string(value, "external source.source_url");
+  if (raw.length > 2048 || /[\u0000-\u001f\u007f\\]/.test(raw)) contract("external source.source_url is invalid");
+  let parsed;
+  try {
+    parsed = new URL(raw);
+  } catch (cause) {
+    contract("external source.source_url is invalid", cause);
+  }
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
+  if (
+    parsed.protocol !== "https:"
+    || parsed.username
+    || parsed.password
+    || (parsed.port && parsed.port !== "443")
+    || parsed.hash
+    || !hostname
+    || hostname === "localhost"
+    || hostname === "localhost.localdomain"
+    || [".localhost", ".local", ".internal", ".home.arpa"].some((suffix) => hostname.endsWith(suffix))
+    || hostname.includes(":")
+    || /^\d+(?:\.\d+){3}$/.test(hostname)
+  ) {
+    contract("external source.source_url is not an allowed public HTTPS URL");
+  }
+  if (["wms", "arcgis", "wfs", "imageserver", "mapserver", "cog"].includes(sourceType) && parsed.search) {
+    contract(`${sourceType.toUpperCase()} source URL must not contain a query`);
+  }
+  if (sourceType === "cog" && !/\.tiff?$/i.test(parsed.pathname)) contract("COG source URL must name a TIFF object");
+  if (sourceType === "arcgis" && !/\/(?:FeatureServer|MapServer)\/[0-9]{1,5}\/?$/.test(parsed.pathname)) {
+    contract("ArcGIS source URL must identify one FeatureServer or MapServer layer");
+  }
+  if (sourceType === "mapserver" && !/\/MapServer\/?$/.test(parsed.pathname)) {
+    contract("Use a MapServer service endpoint");
+  }
+  if (sourceType === "imageserver" && !/\/ImageServer\/?$/.test(parsed.pathname)) {
+    contract("ImageServer source URL must identify an image service, not an operation");
+  }
+  if (sourceType === "pmtiles" && (parsed.search || !parsed.pathname.toLowerCase().endsWith(".pmtiles"))) {
+    contract("PMTiles source URL must name a query-free .pmtiles object");
+  }
+  if (sourceType === "geojson" && (
+    parsed.search
+    || !parsed.pathname.toLowerCase().endsWith(".geojson")
+      && !parsed.pathname.toLowerCase().endsWith(".geojson.gz")
+  )) {
+    contract("GeoJSON source URL must name a query-free .geojson or .geojson.gz object");
+  }
+  if (sourceType === "xyz") {
+    const placeholders = [...raw.matchAll(/\{([^{}]+)\}/g)].map((match) => match[1]);
+    if (placeholders.length !== 3 || new Set(placeholders).size !== 3 || !["z", "x", "y"].every((name) => placeholders.includes(name))) {
+      contract("XYZ source URL placeholders are invalid");
+    }
+  }
+  return raw;
+}
