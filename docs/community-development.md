@@ -146,8 +146,9 @@ empty Podman image and npm download stores, builds the maintained public source
 images and invokes the canonical local runner. It makes no AWS account calls,
 saves no caches and uploads no artifacts.
 
-This fresh workflow run has not yet been executed. Its checks use synthetic local
-identity and local object/queue transports. The existing automated browser runs
+The first fresh run stops before downloads at the exact storage-path assertion.
+Physical-path normalization now preserves that assertion; its targeted retry is
+pending. These checks use synthetic local identity and local object/queue transports. The existing automated browser runs
 without Chromium's sandbox; this check does not establish sandboxed-browser,
 configured AWS/Cognito, HTTPS/CDN or independent operator acceptance.
 

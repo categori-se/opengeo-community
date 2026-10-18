@@ -5,7 +5,10 @@ It reuses the existing two jobs, Dockerfiles and canonical integration runner,
 with empty isolated npm/image stores, prerequisite/disk preflight, bounded build
 and core/native stages and graph-checked cleanup. Static YAML/source comparison,
 shell syntax and independent reviews pass. Ordinary validation is preserved.
-No application/image build is replayed locally. A fresh hosted run is still pending;
+No application/image build is replayed locally. Ordinary hosted CI passes. The
+first fresh preflight stops before downloads at the exact graph path assertion.
+An offline symlinked-store probe reproduces Podman physical-path normalization;
+using the physical root preserves the assertion. The targeted retry is pending;
 manual job ceilings total 45 minutes. No private Actions, AWS/KMS, cache-save or
 artifact uploads are admitted. Configured identity/HTTPS/CDN, browser sandbox
 and independent human installation remain separate acceptance work.

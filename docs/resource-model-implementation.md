@@ -10,7 +10,9 @@ canonical built-Studio and native-publication modes run separately with 6/5-minu
 caps and runtime `TMPDIR=/tmp`. Isolated graph-checked cleanup runs on failure too.
 Ordinary steps, API job, automatic paths and read-only permissions are preserved;
 manual frontend timeout is 30 minutes. YAML, shell syntax and source comparisons
-pass; hosted execution is pending. No new workflow, job, runner or build script.
+pass. Ordinary hosted CI passes; the first fresh preflight fails its exact graph
+path assertion before downloads. Storage-path normalization and diagnostic messages
+now preserve every preflight requirement; the targeted retry is pending. No new workflow, job, runner or build script.
 Existing automated browser no-sandbox behavior and synthetic/local transports
 remain acceptance limits. No AWS, cache-save or artifact-upload path is added.
 

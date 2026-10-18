@@ -126,7 +126,7 @@ jobs:
           test "$(uname -m)" = x86_64
           command -v podman
           test -x /usr/bin/chromium || test -x /usr/bin/chromium-browser || test -x /usr/bin/google-chrome
-          fresh="$RUNNER_TEMP/opengeo-source-install"
+          fresh="$(realpath -- "$RUNNER_TEMP")/opengeo-source-install"
           test ! -e "$fresh"
           install -d -m 0700 "$fresh" "$fresh/graph" "$fresh/run" "$fresh/tmp" "$fresh/npm"
           printf '[storage]\ndriver = "overlay"\nrunroot = "%s/run"\ngraphroot = "%s/graph"\n[storage.options]\nadditionalimagestores = []\n' "$fresh" "$fresh" > "$fresh/storage.conf"
@@ -138,11 +138,12 @@ jobs:
           from pathlib import Path
           fresh = Path(os.environ['FRESH_STORE'])
           info = json.loads((fresh / 'podman-before.json').read_text())
-          assert info['host']['security']['rootless'] is True
-          assert info['host']['cgroupVersion'] == 'v2'
-          assert info['store']['graphRoot'] == str(fresh / 'graph')
-          assert info['store']['imageStore']['number'] == 0
           space = os.statvfs(fresh)
+          print(json.dumps({'podmanVersion': info['version']['Version'], 'configFile': info['store']['configFile'], 'graphRoot': info['store']['graphRoot'], 'runRoot': info['store']['runRoot'], 'expectedGraphRoot': str(fresh / 'graph'), 'expectedRunRoot': str(fresh / 'run'), 'initialImages': info['store']['imageStore']['number'], 'availableBytes': space.f_bavail * space.f_frsize}))
+          assert info['host']['security']['rootless'] is True, 'Podman must run rootless'
+          assert info['host']['cgroupVersion'] == 'v2', 'Podman requires cgroup v2'
+          assert info['store']['graphRoot'] == str(fresh / 'graph'), f"Unexpected image store: {info['store']['graphRoot']} != {fresh / 'graph'}"
+          assert info['store']['imageStore']['number'] == 0, 'Fresh image store must be empty'
           assert space.f_bavail * space.f_frsize >= 12 * 1024**3, 'Fresh installation needs 12 GiB free before image downloads'
           PYTHON
           printf 'OPEN_GEO_FRESH_STORE=%s\nCONTAINERS_STORAGE_CONF=%s/storage.conf\nNPM_CONFIG_CACHE=%s/npm\n' "$fresh" "$fresh" "$fresh" >> "$GITHUB_ENV"
@@ -218,7 +219,7 @@ jobs:
         if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
         run: |
           set -euo pipefail
-          expected="$RUNNER_TEMP/opengeo-source-install"
+          expected="$(realpath -- "$RUNNER_TEMP")/opengeo-source-install"
           if test "${CONTAINERS_STORAGE_CONF:-}" != "$expected/storage.conf"; then
             exit 0
           fi

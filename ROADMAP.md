@@ -31,8 +31,9 @@ the accepted rootless Podman scratch-mount form. Independent installation, nativ
 ARM64/release security gates and configured production delivery remain open.
 
 An opt-in fresh installation check now reuses the existing public workflow and
-canonical local runner. Static review passes; its bounded hosted run remains
-pending. Ordinary CI stays unchanged and no AWS, cache-save or artifact-upload
+canonical local runner. Static review and ordinary hosted CI pass. The first fresh
+preflight stops before downloads on a storage-path mismatch; physical-path
+normalization preserves the assertion and awaits its targeted retry. Ordinary CI stays unchanged and no AWS, cache-save or artifact-upload
 path is added. Automated synthetic/local transport checks do not replace
 independent human or configured Cognito/HTTPS/CDN acceptance.
 

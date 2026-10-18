@@ -5,7 +5,9 @@ October 18 — Opt-in fresh public installation check prepared
 The existing two-job public workflow now has one default-off input for the
 documented source installation. Its fresh npm and rootless Podman stores, public
 Dockerfiles and canonical Studio/native-publication checks preserve ordinary CI.
-Static comparison and shell/YAML review pass; the fresh run is not yet executed.
+Static comparison and shell/YAML review pass. The first hosted preflight stops
+before downloads on a storage-path mismatch; physical-path normalization now
+preserves the exact empty-store assertion. The targeted retry is pending.
 The manual jobs have 30/15-minute ceilings and the image/core/native stages have
 12/6/5-minute ceilings. No AWS access, cache saves or artifact uploads are added.
 This automated local-transport check does not establish independent human,
