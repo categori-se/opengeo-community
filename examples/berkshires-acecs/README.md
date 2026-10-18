@@ -32,7 +32,8 @@ and actual browser render its map, legend and calculated tables locally. The
 editable map also passes actual backup import, opacity revision, Save and reload
 with its geometry and category styles preserved. These checks reuse cached
 software and do not establish real sign-in, independent installation or hosted
-delivery.
+delivery. The Publication ZIP also passes import, Save draft and reopening in a
+fresh public-source workspace, with all four saved file hashes unchanged.
 
 ## Open and revise the map
 
@@ -52,9 +53,11 @@ no provider service. Choose **Layer → Layer properties** to change colors,
 opacity or the categorization field, then save and reopen the Project. Download
 an updated backup to carry your revision to another device.
 
-In an authored Publication's Files editor, choose **OpenGeo Studio source project
-ZIP** and review `berkshires-acecs.publication-source.zip`. **Use imported source**
-loads the working draft; review rights before saving or publishing. The bundle
+In an authored Publication's **Files** editor, expand the **Files** tray, then
+**Import files or a project folder**. Choose **OpenGeo Studio source project ZIP** and review
+`berkshires-acecs.publication-source.zip`. **Use imported source** loads the working
+draft. Review rights, choose **Save draft**, then reopen the Publication to continue
+editing. Publishing is a separate action. The bundle
 includes the original input, method and provenance, with no hosted dependency
 binding or credentials. Native Framework rendering uses the compiler's pinned
 D3 cache for the map. Compiler and Studio software are not bundled in these input

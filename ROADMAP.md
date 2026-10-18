@@ -97,6 +97,14 @@ installation and production delivery remain open. Identify presentation is also
 separated from Workbench, with three existing interaction/focus checks passing.
 These source changes await release validation.
 
+A fresh public-source checkout also initializes an empty local database and opens
+Studio through Home and New Project. The real Berkshire study's Publication ZIP
+passes reviewed import, Save draft and reopening, with all four file hashes
+unchanged. Rights remain unreviewed and nothing is published. This reuses cached
+software and synthetic local sign-in; independent clean-machine/operator and
+production identity/delivery acceptance remain open. See the
+[development guide](docs/community-development.md) and [progress record](docs/progress.md).
+
 ## Planning and delivery
 
 Follow the [community GitHub project](https://github.com/orgs/categori-se/projects/2)

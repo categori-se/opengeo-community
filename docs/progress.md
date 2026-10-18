@@ -1,3 +1,27 @@
+## October 17 — Real study source saved in fresh public state
+
+Public source `6f50d337` initializes a new local database and opens compiled Studio
+through Home and New Project. The actual source ZIP controls import the Berkshire
+study, save draft revision 1 and reopen all four files with exact hashes: 299,370
+source bytes, including the unchanged 284,185-byte GeoJSON. Rights remain unreviewed;
+no compile, processing or publication is requested. The guide now names both import
+disclosures and the supported Node.js minimum.
+
+Five missing cached frontend files are restored to their exact sealed bytes before
+continuation. Private verification-driver failures around response readback,
+disclosures and select labels are retained and corrected; completed creation writes
+are never replayed. Cumulative usage is 74 local API/source requests and 57.969
+browser seconds. Known measured or conservatively charged stages total 156.121
+seconds within the original 180-second runtime budget; the first attempt is charged
+60 seconds rather than presented as measured. Agent effort and a dollar total are
+unavailable. API/worker containers are removed, the database is stopped, and its
+volume and source files are retained. No AWS call, Actions run or deployment occurs.
+
+This uses current public source with cached dependencies/images, a previously sealed
+frontend, synthetic identity and local transports. It verifies fresh state, not a
+clean-machine installation by another operator or production identity/HTTPS/CDN
+delivery. Those remaining checks must reuse the accepted core and native builds.
+
 ## October 17 — Real Berkshire study and planner reconciliation
 
 The [Berkshire conservation example](../examples/berkshires-acecs/README.md)

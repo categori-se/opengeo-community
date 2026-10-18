@@ -1,5 +1,15 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Fresh-state Publication source import accepted
+
+The unchanged public development runner initializes a new local database from the
+current public checkout. Studio opens and creates a Project/map through its normal
+controls. The Files editor imports the real Berkshire source ZIP, deliberately
+saves draft revision 1 and reopens all four exact files. Source rights remain
+unreviewed. Cached software and synthetic local sign-in qualify this result;
+independent operator/clean-machine and production delivery acceptance remain open.
+The [progress record](progress.md) retains failures, usage and verified cleanup.
+
 October 17 — Real study input packages and native rendering
 
 The Berkshire ACEC example preserves the exact 284,185-byte historical GeoJSON

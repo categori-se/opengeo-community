@@ -26,6 +26,15 @@ Independent full-stack installation, production identity/delivery and large
 uploads remain separate acceptance work.
 See the [release record](../COMMUNITY-RELEASE.json) for detailed results.
 
+A fresh public-source checkout and initially empty local database now also pass
+Studio opening, Project/map creation and the [real Berkshire study's](../examples/berkshires-acecs/README.md)
+Publication ZIP import. The actual Files editor saves draft revision 1 and reopens
+all four files with unchanged hashes. Rights remain unreviewed; nothing is built
+or published during this import check. It reuses cached dependencies, images and
+a sealed frontend, with synthetic sign-in and local transports. This is fresh-state
+acceptance by the same operator; a clean-machine installation by another operator
+and configured production identity/HTTPS delivery remain open.
+
 The [deployment guide](community-deployments.md) explains how local development,
 the public site, hosted Studio and the anonymous demo relate.
 
@@ -38,7 +47,7 @@ transports are development substitutes, not Cognito, S3 encryption or AWS eviden
 
 ## Prepare dependencies
 
-Use Linux, Node.js 24/npm, Python 3.13, rootless Podman, and system Chromium at
+Use Linux, Node.js `>=24.19.0 <25`/npm, Python 3.13, rootless Podman, and system Chromium at
 `/usr/bin/chromium`, `/usr/bin/chromium-browser` or `/usr/bin/google-chrome`.
 Interactive development requires a graphical session and a functioning Chromium
 sandbox. Internet access is required to install dependencies, build the initial

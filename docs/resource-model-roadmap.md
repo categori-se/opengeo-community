@@ -1,5 +1,17 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Fresh public-source state imports and retains the real study
+
+The public checkout initializes an empty local database and opens the compiled
+Studio through its normal front door. The existing Project/map and Publication
+are preserved across interrupted verification. The actual source ZIP controls
+then save revision 1 and reopen all four Berkshire study files with exact hashes.
+Rights remain unreviewed; no build, processing or publication is requested.
+API/worker containers are removed and the retained database is stopped. No AWS
+or Actions work occurs. The [progress record](progress.md) retains prior attempts
+and limits. Next, independent clean-machine/operator installation and configured
+production identity/delivery remain; reuse the accepted local workflows and builds.
+
 October 17 — Real Berkshire study packaged and accepted locally
 
 The [real conservation study](../examples/berkshires-acecs/README.md) now includes
