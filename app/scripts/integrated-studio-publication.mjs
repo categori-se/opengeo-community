@@ -11,7 +11,11 @@ const SECURITY_QUALIFICATION='Actual API/SQL capability expiry uses real elapsed
 // One deliberately bounded real API/database/compiler/browser journey. Auth and
 // object transport use the existing isolated runner's disclosed local adapters.
 export async function exerciseNativePublication({page,browser,origin,organization,apiRequest,work,publicationProfile,
-  securityOnly=false,expirePreviewCookies,observePreviewExchange,securityPreviousRequests=[],securityReconciliation}) {
+  securityOnly=false,expirePreviewCookies,observePreviewExchange,securityPreviousRequests=[],securityReconciliation,catalogStudy=false}) {
+  if(catalogStudy){
+    assert.equal(securityOnly,false,'Choose one publication journey');
+    return exerciseCatalogStudy({page,origin,organization,apiRequest,work,publicationProfile});
+  }
   const resuming=existsSync(join(work,'publication-progress.json'));
   const facts=resuming?JSON.parse(readFileSync(join(work,'publication-progress.json')))
     :{revisions:[],builds:[],publications:[],coordinatorAttempts:0,nativeCompilerInvocations:0,browserOutputReads:0};
@@ -619,4 +623,184 @@ async function exercisePublicationSecurity({page,organization,apiRequest,publica
       throw new Error('Publication security fixture cleanup is unproved; reconcile the recorded invitation before another run.');
     }
   }
+}
+
+async function exerciseCatalogStudy({page,origin,organization,apiRequest,work,publicationProfile}) {
+  const compiler='sha256:1af497123e03dff1dd6ca13f09f5810b27c554b0cd55754ff376d7179bea41bf';
+  const checksum='b384b0990bc62a8a5339e801098f995989bd6a770fdbf5fe7f58025a2351c96c';
+  assert.equal(publicationProfile?.compilerImageDigest,compiler);
+  const study=JSON.parse(readFileSync(join(work,'development-smoke.json')));
+  assert.equal(study.map.version,2);assert.equal(study.databaseRestartReopened,true);
+  assert.equal(study.fixture.sha256,checksum);assert.equal(study.fixture.metadata.license,'CC0-1.0');
+  assert.equal(study.fixture.featureNames.length,5);
+  const progress=join(work,'publication-progress.json');
+  const facts=existsSync(progress)?JSON.parse(readFileSync(progress))
+    :{mode:'catalog-study',projectId:study.project,mapId:study.map.id,mapVersion:2,
+      datasetId:study.datasetId,datasetVersionId:study.datasetVersionId,nativeCompilerInvocations:0};
+  assert.equal(facts.mode,'catalog-study','Retain other publication journeys in their original state');
+  for(const [key,value] of Object.entries({projectId:study.project,mapId:study.map.id,mapVersion:2,
+    datasetId:study.datasetId,datasetVersionId:study.datasetVersionId}))assert.equal(facts[key],value);
+  const checkpoint=()=>{
+    if(existsSync(progress))facts.apiRequestAttempts=JSON.parse(readFileSync(progress)).apiRequestAttempts??0;
+    writeFileSync(progress,JSON.stringify(facts,null,2)+'\n');
+  };
+  checkpoint();
+  const request=async(path,method='GET',body,expected=200)=>{
+    const response=await apiRequest(path,{method,headers:{authorization:'Bearer synthetic-local-owner',
+      'x-opengeo-organization':organization,'content-type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)});
+    assert.equal(response.status,expected,`${method} ${path}: ${response.body.toString().slice(0,500)}`);
+    return JSON.parse(response.body);
+  };
+  const base=`/projects/${facts.projectId}`;
+  assert.deepEqual(await request(`${base}/maps/${facts.mapId}`),study.map);
+  const versions=await request(`${base}/datasets/${facts.datasetId}/versions`);
+  const version=versions.find(item=>item.id===facts.datasetVersionId);
+  assert.equal(version?.state,'active');
+  const originals=version.objects.filter(item=>item.role==='original'&&item.checksum_sha256===checksum&&item.size_bytes===1472);
+  assert.equal(originals.length,1,'Use the exact retained original, never upload another copy');
+  const original=originals[0];
+  if(facts.dataObjectId)assert.equal(facts.dataObjectId,original.id);
+  facts.dataObjectId=original.id;checkpoint();
+  const dataset=await request(`${base}/datasets/${facts.datasetId}`);
+  const createOnce=async(key,path,body)=>{
+    if(facts[key])return facts[key];
+    assert.ok(!facts[`${key}Attempted`],`${key} write unresolved; reconcile the retained response before retrying`);
+    facts[`${key}Attempted`]=true;checkpoint();
+    facts[key]=(await request(path,'POST',body,201)).id;checkpoint();return facts[key];
+  };
+  await createOnce('homeId',`${base}/resources`,{kind:'document',slug:'catalog-study-home',visibility:'restricted',
+    metadata:{title:'Catalog-connected study',abstract:'Five fictional CC0 facilities from the retained Catalog Layer.',
+      language:'en',keywords:[],profile:'opengeo.core.v1'},
+    content:{blocks:[{id:'introduction',type:'markdown',markdown:'Private Catalog-connected study.'}]},provenance:{}});
+  const home=await request(`${base}/resources/${facts.homeId}`);
+  await createOnce('siteId',`${base}/sites`,{slug:'catalog-study',title:'Catalog-connected study',theme:'minimal',
+    pages:[{slug:'home',navigation_label:'Home',resource_id:home.id,resource_version:home.version_number,is_home:true}]});
+  await createOnce('sourceProjectId',`${base}/sites/${facts.siteId}/source-project`,{title:'Catalog-connected study source'});
+  const sourceBase=`${base}/source-projects/${facts.sourceProjectId}`;
+  if(facts.attachmentAttempted&&!facts.attachmentId){
+    const registered=await request(`${sourceBase}/data-attachments`);
+    const matches=registered.filter(item=>item.dataset_id===facts.datasetId
+      &&item.dataset_version_id===facts.datasetVersionId&&item.data_object_id===facts.dataObjectId);
+    assert.equal(matches.length,1,'Read back the exact committed reference before any registration retry');
+    assert.equal(matches[0].available,true);assert.equal(matches[0].checksum_sha256,checksum);
+    assert.equal(matches[0].size_bytes,1472);
+    facts.attachmentId=matches[0].id;facts.dataPin=matches[0];facts.attachmentReconciled=true;checkpoint();
+  }
+  await page.goto(`${origin}/workspaces?project=${facts.projectId}&manage=publishing`);
+  const card=page.locator('.observable-source-project:visible');await card.waitFor();
+  assert.equal(await card.count(),1,'Select the retained study source without opening another source');
+  const title='Catalog-connected community facilities';
+  if(!facts.revisionId){
+    assert.ok(!facts.revisionAttempted,'Draft save unresolved; read back retained revisions before another save');
+    const source=Buffer.from(`# ${title}\n\nFive fictional CC0-1.0 facilities; this study reads the exact connected Catalog archive.\n\n`+
+      `Source: ${study.fixture.metadata.attribution}. SHA-256: ${checksum}.\n\n`+
+      '```js\nconst facilities = await FileAttachment("./data/facilities.geojson").json();\n'+
+      'const count = facilities.features.filter(feature => feature.properties.public_access === true).length;\n'+
+      'const summary = document.createElement("p"); summary.textContent = `Public access: ${count}/${facilities.features.length}`; display(summary);\n'+
+      'const list = document.createElement("ul"); for (const feature of facilities.features) { const item = document.createElement("li"); item.textContent = feature.properties.name; list.append(item); } display(list);\n```\n');
+    assert.ok(source.length<=20_000,'Keep the authored study within its admitted source-byte bound');
+    const retained=await request(`${sourceBase}/revisions`);
+    if(retained.length){
+      assert.equal(retained.length,1,'Reconcile the exact initial autosave before continuing');
+      assert.equal(retained[0].entry_path,'index.md');assert.equal(retained[0].files.length,1);
+      assert.equal(retained[0].files[0].checksum_sha256,createHash('sha256').update(source).digest('hex'));
+      assert.equal((retained[0].manifest.dataAttachments??[]).length,0);
+      facts.initialAutosavedRevision={id:retained[0].id,sourceFile:retained[0].files[0]};checkpoint();
+      // The existing editor automatically reopens its current saved revision.
+    }else await card.getByLabel('Source files',{exact:true}).and(card.locator('input[type="file"]'))
+      .setInputFiles({name:'index.md',mimeType:'text/markdown',buffer:source});
+    const editor=card.getByLabel('Framework source editor',{exact:true});
+    await page.waitForFunction(value=>document.querySelector('.observable-source-project textarea[aria-label="Framework source editor"]')?.value===value,source.toString());
+    await card.getByText('Draft settings and data references',{exact:true}).click();
+    const data=card.locator('.framework-revision-data');
+    await data.locator('summary').filter({hasText:'Data files'}).click();
+    if(!facts.attachmentId){
+      assert.ok(!facts.attachmentAttempted,'Catalog registration unresolved; read back its existing attachment before retrying');
+      const connection=data.locator('.observable-data-attachments');
+      await connection.getByText('Connect a Catalog file',{exact:true}).click();
+      await connection.getByLabel('Find a registered dataset',{exact:true}).fill(dataset.name);
+      await connection.getByRole('button',{name:'Search Catalog',exact:true}).click();
+      await connection.getByLabel('Dataset',{exact:true}).selectOption(facts.datasetId);
+      await connection.getByLabel('Dataset version',{exact:true}).selectOption(facts.datasetVersionId);
+      await connection.getByLabel('Archived file',{exact:true}).selectOption(facts.dataObjectId);
+      const connected=page.waitForResponse(response=>response.url().endsWith(`${sourceBase}/data-attachments`)
+        &&response.request().method()==='POST');
+      facts.attachmentAttempted=true;checkpoint();
+      await connection.getByRole('button',{name:/^(?:Connect file|Link dataset and use file)$/}).click();
+      const response=await connected;assert.equal(response.status(),200);
+      const attachment=await response.json();
+      facts.attachmentId=attachment.id;facts.dataPin=attachment;checkpoint();
+    }
+    const attachments=await request(`${sourceBase}/data-attachments`);
+    const attachment=attachments.find(item=>item.id===facts.attachmentId);
+    assert.equal(attachment?.available,true);assert.equal(attachment.dataset_id,facts.datasetId);
+    assert.equal(attachment.dataset_version_id,facts.datasetVersionId);assert.equal(attachment.data_object_id,facts.dataObjectId);
+    assert.equal(attachment.checksum_sha256,checksum);assert.equal(attachment.size_bytes,1472);
+    facts.dataPin=attachment;checkpoint();
+    await data.getByLabel('Registered archive file',{exact:true}).selectOption(facts.attachmentId);
+    await data.getByLabel('FileAttachment path',{exact:true}).fill('data/facilities.geojson');
+    await data.getByRole('button',{name:'Insert file',exact:true}).click();
+    await data.getByLabel('Archive file path 1',{exact:true}).waitFor();
+    assert.equal(await data.getByLabel('Archive file path 1',{exact:true}).inputValue(),'data/facilities.geojson');
+    // The authored page already has its reader; retain those saved source bytes.
+    await editor.fill(source.toString());
+    await card.getByLabel('Source publication rights',{exact:true}).selectOption('approved');
+    facts.sourceChecksum=createHash('sha256').update(await editor.inputValue()).digest('hex');
+    const saved=page.waitForResponse(response=>response.url().endsWith(`${sourceBase}/revisions`)
+      &&response.request().method()==='POST');
+    facts.revisionAttempted=true;checkpoint();
+    await card.getByRole('button',{name:'Save draft',exact:true}).click();
+    const response=await saved;assert.equal(response.status(),201);
+    const revision=await response.json();facts.revisionId=revision.id;facts.sourceManifest=revision.manifest_checksum_sha256;checkpoint();
+  }
+  const revisions=await request(`${sourceBase}/revisions`);
+  const revision=revisions.find(item=>item.id===facts.revisionId);
+  assert.ok(revision);assert.equal(revision.manifest_checksum_sha256,facts.sourceManifest);
+  assert.equal(revision.files.length,1);assert.equal(revision.files[0].relative_path,'index.md');
+  assert.equal(revision.files[0].checksum_sha256,facts.sourceChecksum);facts.sourceFile=revision.files[0];
+  if(facts.initialAutosavedRevision)assert.equal(revision.files[0].source_object_id,
+    facts.initialAutosavedRevision.sourceFile.source_object_id,'Adding a data pin must reuse unchanged authored source');
+  const pins=revision.manifest.dataAttachments;
+  assert.equal(pins.length,1);assert.equal(pins[0].path,'data/facilities.geojson');
+  assert.equal(pins[0].attachmentId,facts.attachmentId);assert.equal(pins[0].datasetId,facts.datasetId);
+  assert.equal(pins[0].datasetVersionId,facts.datasetVersionId);assert.equal(pins[0].dataObjectId,facts.dataObjectId);
+  assert.equal(pins[0].checksumSha256,checksum);assert.equal(pins[0].sizeBytes,1472);
+  assert.equal(pins[0].s3VersionId,facts.dataPin.s3_version_id);
+  facts.revisionDataPin=pins[0];checkpoint();
+  await card.getByLabel('Preview mode',{exact:true}).selectOption('saved');
+  await card.getByRole('button',{name:'Check saved preview',exact:true}).click();
+  if(!facts.buildId){
+    assert.ok(!facts.buildAttempted,'Build request unresolved; reconcile the existing job before requesting another');
+    const queued=page.waitForResponse(response=>response.url().endsWith(`/revisions/${facts.revisionId}/build-jobs`)
+      &&response.request().method()==='POST');
+    facts.buildAttempted=true;checkpoint();
+    await card.getByRole('button',{name:'Build saved revision',exact:true}).click();
+    const response=await queued;assert.equal(response.status(),201);facts.buildId=(await response.json()).id;checkpoint();
+  }
+  let job=await request(`${base}/observable-build-jobs/${facts.buildId}`);
+  if(job.state!=='succeeded'){
+    assert.ok(!facts.coordinatorAttempted,'Compiler dispatch already attempted; inspect the retained job without replaying it');
+    facts.coordinatorAttempted=true;checkpoint();
+    const native=new PodmanRunner();
+    const runner={run:async options=>{assert.equal(facts.nativeCompilerInvocations,0,'Compile exactly once');
+      facts.nativeCompilerInvocations++;checkpoint();return native.run(options);}};
+    const bridge=localPublicationBridge(JSON.parse(readFileSync(join(work,'local-api-container.json'))));
+    const outcomes=await processLocalBuildQueue({bridge,compilerImageDigest:compiler,maximumJobs:1,runner});
+    facts.compilerOutcome=outcomes[0]?.status;checkpoint();assert.equal(facts.compilerOutcome,'succeeded');
+    job=await request(`${base}/observable-build-jobs/${facts.buildId}`);
+  }
+  assert.equal(job.state,'succeeded');assert.equal(job.source_revision_id,facts.revisionId);
+  assert.equal(job.request.compilerImageDigest,compiler);facts.buildChecksum=job.result_checksum_sha256;checkpoint();
+  await card.getByRole('button',{name:'Check saved preview',exact:true}).click();
+  await card.getByRole('button',{name:'Show preview',exact:true}).click();
+  const frame=page.frameLocator('iframe[title="Saved publication preview"]');
+  await frame.getByRole('heading',{name:title,exact:true}).waitFor();
+  for(const name of study.fixture.featureNames)await frame.getByText(name,{exact:true}).waitFor();
+  await frame.getByText('Public access: 4/5',{exact:true}).waitFor();
+  const previewUrl=await frame.locator('html').evaluate(()=>location.href);
+  assert.equal(new URL(previewUrl).origin,publicationProfile.previewOrigin);
+  assert.deepEqual(await request(`${base}/maps/${facts.mapId}`),study.map,'Publication must preserve the saved map');
+  facts.preview={opened:true,names:study.fixture.featureNames,publicAccess:4,total:5,path:new URL(previewUrl).pathname};
+  facts.status='pass';facts.notProven=['Saved-map styling or Project Artifact embedding','Public release','Independent installation or production delivery'];
+  checkpoint();return facts;
 }

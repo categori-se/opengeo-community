@@ -1,5 +1,26 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Registered Catalog input reaches a native private preview
+
+The existing Source editor connects the retained 1,472-byte CC0 GeoJSON through
+Catalog search and exact dataset/version/file selection. Saving the data-binding
+revision reuses the original 803-byte authored source object. The revision pins
+archive identity, S3 version, size and SHA-256. One real coordinator/compiler job
+succeeds; its signed private preview executes FileAttachment and displays all five
+names and the strict boolean result, 4/5. Exact map readback remains unchanged.
+
+The helper reconciles a completed registration before continuing and preserves
+initial autosave, source-object reuse and cumulative request counts. The accepted
+continuation takes 21.314 seconds; all selected-study attempts total 82 API calls.
+Known community pilot stages total 1,052.201 seconds, including failed attempts and
+local prerequisite recovery, under the explicit 1,100-second ceiling. Prior
+publication/history/security evidence is reused without replay. All local runtime
+containers are stopped. No AWS call, Actions run or public release occurs.
+
+This verifies archived Layer input through the existing source component and
+native pipeline. Retained Project Artifact presentation, a realistic reproducible
+study, independent operator installation and production delivery remain open.
+
 October 17 — Compiled local core Save and restart/reopen accepted
 
 The existing five-point CC0 study now passes the complete selected local core:
@@ -20,16 +41,16 @@ database is stopped. No AWS or new Actions runs are used.
 The smoke retains completed writes, cumulative elapsed time/API attempts and
 incremental response/worker logs. Current native menu/row labels replace obsolete
 test selectors. Once styled Save succeeds, API admission permits only reads and
-exact-source download grants. Final cumulative usage is 174 API attempts and
+exact-source download grants. The core-only cumulative usage is 174 API attempts and
 159.346 seconds of browser/controller time, against explicit revised bounds of
 185 and 180 seconds; earlier failed attempts are retained. Measured local pilot
 stages total 965.508 seconds, below the existing 1,000-second ceiling. Agent/tool
 overhead is not represented as measured runtime or a dollar estimate.
 
 The public opening flag and installed pinned-CLI builder fixes remain accepted;
-Catalog's blank-background fallback and two focused cases pass. Public main
-b5afc3d passes both existing CI jobs. Follow-up harness changes are not covered by
-that run. Broader selected-input Publication round trips, independent full-stack
+Catalog's blank-background fallback and two focused cases pass. Earlier public
+validation at b5afc3d passes both existing CI jobs; follow-up source has separate
+[CI receipts](https://github.com/categori-se/opengeo-community/actions/workflows/api-contract.yml). Broader selected-input Publication round trips, independent full-stack
 installation and configured production identity/delivery remain open.
 
 October 17 — Standalone images and frontend

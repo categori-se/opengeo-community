@@ -88,6 +88,42 @@ The facility names, coordinates and verification dates are invented. The
 exercise teaches inspection and styling, rather than assessment of a real
 community. Its data license is separate from the software's Apache-2.0 license.
 
+### Use the registered Layer in a Publication
+
+In a connected Studio workspace, reuse the registered GeoJSON Layer rather than
+uploading another copy. The [local setup](community-development.md) supplies a
+connected API and the optional native compiler profile; browser-only Demo storage
+does not provide a Catalog file to another workspace.
+
+Open an authored Publication's Files editor with a root `index.md` page. Under
+**Draft settings and data references → Data files → Connect a Catalog file**, use
+**Search Catalog**, select the Layer, its exact version and original GeoJSON, then
+choose **Connect file** or **Link dataset and use file**. Set **FileAttachment path**
+to `data/facilities.geojson` and insert the file. Keep one reader cell in your page:
+
+```js
+const facilities = await FileAttachment("./data/facilities.geojson").json();
+const count = facilities.features.filter(f => f.properties.public_access === true).length;
+const summary = document.createElement("p");
+summary.textContent = `Public access: ${count}/${facilities.features.length}`;
+display(summary);
+const names = document.createElement("ul");
+for (const f of facilities.features) {
+  const item = document.createElement("li");
+  item.textContent = f.properties.name;
+  names.append(item);
+}
+display(names);
+```
+
+Retain the CC0 source attribution, Save draft, choose Saved preview, then Build
+saved revision and Show preview. Expect all five names and **Public access: 4/5**.
+This archived-file workflow passes locally through the Source editor, API, native
+compiler and signed preview. The saved revision pins the selected input; it does
+not follow later dataset versions automatically. Publishing remains a separate
+action. Reusing a saved map's styling requires its retained Project Artifact;
+this file-based example does not embed that map.
+
 See the [workflow guide](community-workflow.md) for account-backed saving,
 shared-Layer reuse and the recurring-study publication acceptance target. To add
 a worked example, follow the

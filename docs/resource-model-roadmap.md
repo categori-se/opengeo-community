@@ -16,19 +16,22 @@ and all prior request/time usage. Its final restart phase admits only reads and
 exact-source download grants; it performs no new upload, ingest, style or Save.
 The selected local core is accepted, not a full independent installation.
 
-Next, connect this exact Catalog file/version to one authored native Publication,
-build it once and inspect its private preview. Reuse the accepted compiler and
-previous two-edition/history/preview-security evidence. This consumes the Layer
-without another map-rendering job; saved-map presentation requires a retained
-Project Artifact and remains separate acceptance. Independent operator installation
-and configured production identity/delivery remain open.
+The same registered Layer now feeds one authored native Publication through the
+actual Catalog-file controls. Its saved revision pins the exact archive and reuses
+the original source object. One native compile and signed private preview show all
+five names and the strict public-access result, 4/5. No public release is created.
 
-The approved public main b5afc3d passes its
-[existing two-job validation](https://github.com/categori-se/opengeo-community/actions/runs/39058926252).
-Follow-up harness/docs changes remain on release branches for consolidated
-validation; that run does not cover them. Public standard-runner compute is free
-under GitHub's current terms; verified cache usage is 297,010,310 bytes, with no
-artifact uploads. Private Actions remain gated on verified allowance.
+Next, verify retained Project Artifact presentation for the saved map, reusing
+these accepted data/source/build and publication-security results. The fictional
+CC0 exercise is workflow evidence; a realistic reproducible study, independent
+operator installation and configured production identity/delivery remain open.
+
+The [existing public CI workflow](https://github.com/categori-se/opengeo-community/actions/workflows/api-contract.yml)
+checks the API contract and selected frontend workflows in two standard Ubuntu
+jobs. The connected compiler/browser acceptance above runs locally and is separate
+from those checks. Consolidate main pushes and verify public-runner/cache eligibility
+before starting validation. Private Actions remain gated on verified remaining
+allowance. Keep required merge checks pending when that allowance is unknown.
 
 October 17 — Standalone installation prerequisites accepted
 

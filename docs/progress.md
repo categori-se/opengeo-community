@@ -1,3 +1,29 @@
+## October 17 — Catalog-backed native publication preview accepted
+
+The registered CC0 facilities Layer now feeds an authored native Publication
+through the actual Source editor controls. Catalog search selects the exact
+version and archived object; a new data-binding revision reuses the original
+source object and retains archive/S3-version/checksum pins. One native compiler
+invocation succeeds. Its signed private preview reads the connected file and
+shows all five names plus Public access: 4/5. The saved map remains unchanged.
+
+An interrupted registration is reconciled rather than repeated. The accepted
+continuation takes 21.314 seconds; all selected-study attempts total 82 API calls.
+Known community pilot stages total 1,052.201 seconds including failed attempts.
+Missing local prerequisites are restored with the same locked graph and a supported
+Node binary from the cached compiler. Public registry recovery totals 17 requests
+including one HEAD and 58,876,607 body bytes across this and the earlier installation;
+failed partial bytes remain counted against an explicitly revised byte ceiling.
+Agent effort and a dollar total are unavailable. The local journey starts no AWS
+or Actions work. Consolidated public validation is tracked separately in the
+existing two-job workflow after verifying free eligibility; private Actions remain
+pending verified allowance. API/worker/compiler containers are absent or stopped;
+the database is stopped.
+
+The existing two-edition/history/security flow remains unchanged and is not rerun.
+This increment proves archived Layer input and private native preview, not map
+Artifact presentation, independent installation or production delivery.
+
 ## October 17 — Connected local core workflow accepted
 
 The compiled community app completes one retained Project/map and pinned five-point
@@ -27,9 +53,9 @@ these measurements are not a full cost total. No more core replay is needed.
 The public opening flag and normal pinned-CLI builder fixes remain accepted.
 Public main b5afc3d passes
 [both existing jobs](https://github.com/categori-se/opengeo-community/actions/runs/39058926252),
-including the Catalog/form regression suites. Follow-up harness/docs changes remain
-on release branches and are not covered by that run. No additional CI is triggered;
-private Actions remain gated on verified allowance. Next, carry the inspected
+including the Catalog/form regression suites. Follow-up harness/docs changes were
+checkpointed on release branches and were not covered by that run. Current
+consolidated CI receipts are separate; private Actions remain gated on verified allowance. Next, carry the inspected
 Catalog file/version into one native Publication using Connect a Catalog file.
 This verifies retained Layer input, not saved-map Artifact presentation. Independent
 operator installation and production identity/delivery remain open.

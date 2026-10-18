@@ -30,11 +30,14 @@ const serviceClientsMode=allServicesMode||wcsOnlyMode;
 const rendererPersistenceMode=process.env.OPENGEO_RENDERER_PERSISTENCE_ONLY === "1";
 const geolibreImportMode=process.env.OPENGEO_GEOLIBRE_IMPORT_ONLY === "1";
 const publicationSecurityOnly=process.env.OPENGEO_PUBLICATION_SECURITY_ONLY === "1";
+const catalogStudyMode=process.env.OPENGEO_PUBLICATION_CATALOG_STUDY_ONLY === "1";
 const publicationSecurityReconciliationPin=process.env.OPENGEO_PUBLICATION_SECURITY_RECONCILED;
 if(publicationSecurityReconciliationPin!==undefined)assert.ok(publicationSecurityOnly,
   'Reconciled security acceptance requires the exact retained security-only mode.');
 if(publicationSecurityOnly)assert.ok(publicationOnlyMode&&developmentMode&&!builtStudio,
   "Publication security acceptance requires the retained development publication-only mode.");
+if(catalogStudyMode)assert.ok(publicationOnlyMode&&developmentMode&&!builtStudio&&!publicationSecurityOnly,
+  "Catalog study acceptance requires only the existing local publication mode.");
 if (rendererPersistenceMode || geolibreImportMode) assert.ok(builtStudio && !pinnedFontMode && !restoreCheckpoint && !serviceClientsMode && !analysisOnlyMode);
 assert.ok(!(rendererPersistenceMode && geolibreImportMode), "Choose one scoped renderer journey");
 if (developmentMode) assert.equal(JSON.parse(readFileSync(join(work,"development-state.json"))).schemaVersion,"opengeo.community-development.1");
@@ -79,6 +82,10 @@ const publicationProfile = existsSync(join(work, "publication-profile.json"))
   ? JSON.parse(readFileSync(join(work, "publication-profile.json"), "utf8")) : null;
 let localAnalysisBridge;
 let publicationSecurityRequests=0;
+let catalogStudyApiAttempts=0;
+const catalogStudyProgressPath=join(work,'publication-progress.json');
+const catalogStudyPriorApiAttempts=catalogStudyMode&&existsSync(catalogStudyProgressPath)
+  ? JSON.parse(readFileSync(catalogStudyProgressPath)).apiRequestAttempts??0 : 0;
 let publicationSecurityRegularRequests=0,publicationSecurityCleanupRequests=0,securityInvitationId=null;
 const securityFacts=publicationSecurityOnly?JSON.parse(readFileSync(join(work,'publication-progress.json'))):null;
 const securityPreviousRequests=securityFacts?.previewSecurity
@@ -92,6 +99,15 @@ const securityCumulativeApiRequests=securityResume?.cumulativeApiRequests??42;
 const securityReviewer='20000000-0000-4000-8000-000000000002';
 
 function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} = {}) {
+  if(catalogStudyMode){
+    assert.ok(catalogStudyPriorApiAttempts+catalogStudyApiAttempts < 100,
+      "Catalog study: at most 100 API attempts across retained attempts");
+    catalogStudyApiAttempts++;
+    const facts=JSON.parse(readFileSync(catalogStudyProgressPath));
+    assert.equal(facts.mode,'catalog-study','Initialize the study checkpoint before API attempts');
+    writeFileSync(catalogStudyProgressPath,JSON.stringify({...facts,
+      apiRequestAttempts:catalogStudyPriorApiAttempts+catalogStudyApiAttempts},null,2)+'\n');
+  }
   if (developmentSmoke) {
     if (developmentProgress.styledSaved) assert.ok(method === "GET" || method === "HEAD"
       || method === "POST" && path.startsWith(`/projects/${developmentProgress.project}/datasets/${developmentProgress.datasetId}/versions/${developmentProgress.datasetVersionId}/objects/`)
@@ -170,7 +186,7 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false} 
           ...(headers["user-agent"] === "OpenGeo-Integrated-QGIS/1.0" ? {client:"qgis"}
             : headers["user-agent"] === "OpenGeo-Integrated-HTTP/1.0" ? {client:"independent-http"}
             : headers["user-agent"] === "OpenGeo-Integrated-GDAL/1.0" ? {client:"gdal"} : {})});
-        if (developmentSmoke) writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
+        if (developmentSmoke || catalogStudyMode) writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
         done({status: response.statusCode, headers: response.headers, body});
       });
       response.on("error", reject);
@@ -377,7 +393,7 @@ try {
     Math.max(1, developmentActiveTimeLimit - developmentPriorMilliseconds - (Date.now() - developmentStarted)));
   const context = await browser.newContext({viewport: {width: 1440, height: 1000}, acceptDownloads: true});
   if (publicationOnlyMode) {
-    publicationBrowserTimer=setTimeout(()=>void browser.close(),publicationSecurityOnly?75_000:60_000);
+    publicationBrowserTimer=setTimeout(()=>void browser.close(),catalogStudyMode?90_000:publicationSecurityOnly?75_000:60_000);
     let browserRequests=0;
     context.on('request',()=>assert.ok(++browserRequests<=(publicationSecurityOnly?120:500),'Publication browser request ceiling'));
   }
@@ -420,6 +436,7 @@ try {
     const {exerciseNativePublication} = await import('./integrated-studio-publication.mjs');
     const publication = await exerciseNativePublication({page, browser, context, origin, organization,
       apiRequest, work, publicationProfile,securityOnly:publicationSecurityOnly,
+      catalogStudy:catalogStudyMode,
       ...(publicationSecurityOnly?{expirePreviewCookies,observePreviewExchange,securityPreviousRequests,securityReconciliation}:{})});
     assert.deepEqual(errors,[], 'Publication source UI and native preview page errors');
     writeFileSync(join(work,"browser-result.json"),JSON.stringify({status:"pass",publication,
@@ -427,6 +444,8 @@ try {
         priorApiRequestAttempts:securityPriorApiRequests,
         cumulativeApiRequestAttempts:securityPriorApiRequests+publicationSecurityRequests,
         regularApiAttempts:publicationSecurityRegularRequests,cleanupApiAttempts:publicationSecurityCleanupRequests}:{}),
+      ...(catalogStudyMode?{apiRequestAttempts:catalogStudyApiAttempts,priorApiRequestAttempts:catalogStudyPriorApiAttempts,
+        cumulativeApiRequestAttempts:catalogStudyPriorApiAttempts+catalogStudyApiAttempts}:{}),
       applicationShell:builtShell?.evidence ?? {mode:publicationSecurityOnly?'retained private preview bootstrap; no application build':'existing source UI bundle'},
       notProven:["Compiled Studio delivery","Fresh installation","Production authentication and transport"]},null,2)+"\n");
     break scopedJourney;
@@ -1677,7 +1696,9 @@ try {
   }, null, 2) + "\n");
   }
 } catch (error) {
-  writeFileSync(join(work,"failure.json"),JSON.stringify({stage,error:error.stack,pageErrors:errors},null,2)+"\n");
+  writeFileSync(join(work,"failure.json"),JSON.stringify({stage,error:error.stack,pageErrors:errors,
+    ...(catalogStudyMode?{apiRequestAttempts:catalogStudyApiAttempts,priorApiRequestAttempts:catalogStudyPriorApiAttempts,
+      cumulativeApiRequestAttempts:catalogStudyPriorApiAttempts+catalogStudyApiAttempts}:{})},null,2)+"\n");
   if (page) {
     const diagnosticPages = browser.contexts().flatMap(context => context.pages());
     for (const [index, diagnosticPage] of diagnosticPages.entries()) {
@@ -1703,6 +1724,11 @@ try {
   clearTimeout(publicationBrowserTimer);
   clearTimeout(developmentBrowserTimer);
   if (developmentSmoke) checkpointDevelopment();
+  if(catalogStudyMode&&existsSync(catalogStudyProgressPath)){
+    const facts=JSON.parse(readFileSync(catalogStudyProgressPath));
+    if(facts.mode==='catalog-study')writeFileSync(catalogStudyProgressPath,JSON.stringify({...facts,
+      apiRequestAttempts:catalogStudyPriorApiAttempts+catalogStudyApiAttempts},null,2)+'\n');
+  }
   writeFileSync(join(work, "requests.json"), JSON.stringify(requests, null, 2) + "\n");
   if (browser) await browser.close();
   if (previewServer) await new Promise((done) => previewServer.close(done));
