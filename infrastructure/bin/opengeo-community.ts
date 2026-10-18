@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import {App, Fn, Tags} from "aws-cdk-lib";
+import {App, CfnOutput, Fn, Tags} from "aws-cdk-lib";
 import {environmentConfig, parseBudgetAlertEmail, parseImageTagOrDigest} from "../lib/config.js";
 import {PlatformFoundationStack} from "../lib/platform-foundation-stack.js";
 import {PrivateRuntimeEndpointsStack} from "../lib/private-runtime-endpoints-stack.js";
@@ -41,6 +41,19 @@ const stem = `OpenGeoCommunity-${name}`;
 const webOrigin = process.env.OPEN_GEO_COMMUNITY_WEB_ORIGIN;
 const certificateArn = process.env.OPEN_GEO_COMMUNITY_CERTIFICATE_ARN;
 const releaseOriginPath = process.env.OPEN_GEO_COMMUNITY_RELEASE_ORIGIN_PATH;
+const apiOriginDomain = process.env.OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN;
+const apiImage = process.env.OPEN_GEO_API_IMAGE;
+const compilerImage = process.env.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST;
+const nativePreview = previewConfiguration(process.env.OPEN_GEO_COMMUNITY_PREVIEW_CONFIG, account);
+if (nativePreview !== undefined) {
+  if (webOrigin === undefined || !apiOriginDomain ||
+      !/^[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com$/.test(apiOriginDomain) ||
+      apiImage === undefined || compilerImage === undefined) {
+    throw new Error("Community preview requires existing concrete Studio/API origins and both immutable runtime images");
+  }
+  parseImageTagOrDigest(apiImage);
+  parseImageTagOrDigest(compilerImage);
+}
 let hostname = `${name}.community.invalid`;
 if (webOrigin !== undefined) {
   let url: URL;
@@ -64,8 +77,9 @@ new StudioWebStack(app, `${stem}-Web`, {
   dnsZone: zoneParts.join("."),
   ...(certificateArn ? {certificateArn} : {}),
   ...(releaseOriginPath ? {releaseOriginPath} : {}),
-  ...(process.env.OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN
-    ? {apiOriginDomain: process.env.OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN} : {})
+  ...(apiOriginDomain ? {apiOriginDomain} : {}),
+  ...(nativePreview ? {independentPreviewOrigins: [`https://${nativePreview.domainName}`,
+    ...(nativePreview.publicMapsDomainName ? [`https://${nativePreview.publicMapsDomainName}`] : [])]} : {})
 });
 
 if (webOrigin !== undefined) {
@@ -83,10 +97,26 @@ if (webOrigin !== undefined) {
     budgetAlertEmail: parseBudgetAlertEmail(process.env.OPEN_GEO_BUDGET_ALERT_EMAIL),
     standaloneAuthDomainPrefix: `${name}-${account}`,
     availabilityZones,
-    retainData: true
+    retainData: true,
+    ...(nativePreview ? {observablePreview: {
+      apiOriginDomain: apiOriginDomain!, certificateArn: nativePreview.certificateArn,
+      publicKeyPem: nativePreview.publicKeyPem, deployShell: false,
+      enablePublicMapsPreview: nativePreview.publicMapsDomainName !== undefined,
+      independentDeployment: {
+        previewDomainName: nativePreview.domainName, studioOrigin: webOrigin,
+        shellBucketName: `${name}-${account}-preview-shell`, resourceNamePrefix: `og-${name}-preview`,
+        ...(nativePreview.publicMapsDomainName ? {publicMapsPreviewDomainName: nativePreview.publicMapsDomainName} : {})
+      }
+    }} : {})
   });
-  const apiImage = process.env.OPEN_GEO_API_IMAGE;
-  const compilerImage = process.env.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST;
+  if (foundation.observablePreviewEdge !== undefined) {
+    new CfnOutput(foundation, "CommunityPreviewShellBucketName", {
+      value: foundation.observablePreviewEdge.shellBucket.bucketName
+    });
+    new CfnOutput(foundation, "CommunityPreviewOrigin", {
+      value: foundation.observablePreviewEdge.previewOrigin
+    });
+  }
   if ((apiImage === undefined) !== (compilerImage === undefined)) {
     throw new Error("Community API and Observable builder immutable digests must be supplied together");
   }
@@ -94,7 +124,8 @@ if (webOrigin !== undefined) {
     new ServerlessApiStack(app, `${stem}-Api`, {
       env, config, foundation,
       imageDigest: parseImageTagOrDigest(apiImage),
-      observableBuilderImageDigest: parseImageTagOrDigest(compilerImage)
+      observableBuilderImageDigest: parseImageTagOrDigest(compilerImage),
+      ...(nativePreview ? {observablePreviewPrivateKeySecretArn: nativePreview.privateKeySecretArn} : {})
     });
   }
   const workerImage = process.env.OPEN_GEO_WORKER_IMAGE;
@@ -116,3 +147,36 @@ Tags.of(app).add("Application", "OpenGeoCommunity");
 Tags.of(app).add("CommunityDeployment", name);
 Tags.of(app).add("ManagedBy", "aws-cdk");
 app.synth();
+
+interface CommunityPreviewConfiguration {
+  readonly domainName: string;
+  readonly certificateArn: string;
+  readonly publicKeyPem: string;
+  readonly privateKeySecretArn: string;
+  readonly publicMapsDomainName?: string;
+}
+
+function previewConfiguration(raw: string | undefined, deploymentAccount: string): CommunityPreviewConfiguration | undefined {
+  if (raw === undefined) return undefined;
+  if (Buffer.byteLength(raw) > 16_384) throw new Error("Community preview configuration exceeds its bound");
+  let value: CommunityPreviewConfiguration;
+  try { value = JSON.parse(raw); }
+  catch { throw new Error("Community preview configuration must be a closed JSON object"); }
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      !["certificateArn,domainName,privateKeySecretArn,publicKeyPem",
+        "certificateArn,domainName,privateKeySecretArn,publicKeyPem,publicMapsDomainName"]
+        .includes(Object.keys(value).sort().join(",")) ||
+      Object.values(value).some(item => typeof item !== "string" || item.length < 1)) {
+    throw new Error("Community preview configuration must be a closed JSON object");
+  }
+  const certificateAccount = /^arn:aws:acm:us-east-1:([0-9]{12}):certificate\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.exec(value.certificateArn)?.[1];
+  const secretAccount = /^arn:aws:secretsmanager:us-east-1:([0-9]{12}):secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}$/.exec(value.privateKeySecretArn)?.[1];
+  if (certificateAccount !== deploymentAccount || secretAccount !== deploymentAccount) {
+    throw new Error("Community preview certificate and private-key secret must be exact same-account us-east-1 ARNs with a complete secret suffix");
+  }
+  if (value.publicKeyPem.length > 8192 ||
+      !/^-----BEGIN (?:RSA )?PUBLIC KEY-----\r?\n[A-Za-z0-9+/=\r\n]+-----END (?:RSA )?PUBLIC KEY-----\r?\n$/.test(value.publicKeyPem)) {
+    throw new Error("Community preview configuration accepts only a public-key PEM, never private key material");
+  }
+  return value;
+}

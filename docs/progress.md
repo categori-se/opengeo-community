@@ -1,3 +1,34 @@
+## October 17 — Standalone installer connects private-preview configuration
+
+The existing CLI now offers an explicit optional preview phase after the core
+runtime. It passes closed account-local configuration through the actual CDK
+entrypoint, API signing settings, Studio policy and browser configuration. Public
+RSA-key validation and shell rendering precede cloud access. Account verification
+precedes retained intent and stack changes, so continuation preserves configuration
+after a partial failure. The generated draft shell accepts only its installation's
+Studio origin. No private secret is fetched by the installer.
+
+The four authorization-shell files use exact owner-checked, checksum-verified,
+versioned writes. Completed writes are reused. Review caught a pending-upload
+readback mismatch falling through to another write; it now stops with the receipt
+preserved. Matching readback recovers the committed version without replaying it.
+Authentication/read failures also stop. Scoped review finds no remaining blocker.
+
+All 18 Python checks pass initially in 0.326 seconds and after that correction in
+0.307 seconds. Six of seven CDK cases pass initially in 7.075 seconds; the remaining
+new fixture assumes CDK always writes a stack name into the manifest. Its corrected
+artifact-ID fallback passes the targeted actual-entrypoint case in 3.875 seconds;
+the six unchanged passing cases are reused. TypeScript passes. Baseline/preview
+synthesis confirms no added execution service, instance, interface endpoint or
+Lambda, including deployment Lambdas. The default profile enables no preview.
+
+The existing installation manifest retains all attempts and prior usage. No
+dependency install, package request, frontend/image/compiler build, runtime,
+AWS, KMS, Actions or invalidation is used. Agent effort and dollar cost are
+unavailable. Native build/publisher and publication-destination installation,
+independent operator acceptance and configured cloud delivery remain open. Main
+merging still awaits known free Actions capacity; reuse accepted core/study builds.
+
 ## October 17 — Independent private-preview infrastructure configuration
 
 The shared preview edge previously required the managed production bucket,

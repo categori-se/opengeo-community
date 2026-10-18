@@ -215,38 +215,72 @@ worker enabled, process one small upload and verify the resulting Layer renders.
 Keep source custody and data licenses explicit.
 
 Publication source editing is included. The standalone core profile deploys
-Studio/API and GIS processing. Native Notebook/Framework build coordination,
-isolated publication preview and public delivery use additional components in
+Studio/API and optional GIS processing. Native Notebook/Framework build coordination
+and public delivery use additional components in
 `services/observable-*`, `services/api/src/opengeo_api/github_build_controller.py` and
 `infrastructure/lib/*publisher*`. Their operator-owned GitHub App, build execution,
-preview signing and publication destination configuration is the next deployment
-increment. The core installer leaves these integrations unadvertised until their
+and publication destination configuration remain deployment work. The optional
+private-preview phase below configures delivery and signing infrastructure; it does
+not install a compiler runner or publisher. These integrations stay unadvertised until their
 runtimes are configured. Track this work in the [roadmap](../ROADMAP.md).
 
-The existing private-preview constructs also support independent installations.
-`ObservablePreviewEdge` accepts an explicit `independentDeployment` containing
-`previewDomainName`, `studioOrigin`, `shellBucketName` and `resourceNamePrefix`.
-The application bucket must have an explicit physical name matching its configured
-KMS identity. The Studio and preview must use distinct HTTPS origins. An optional
-`publicMapsPreviewDomainName` requires explicit maps-profile enablement and the
-same certificate must cover both aliases. Certificate and WAF resources remain
-restricted to the deployment account. Keep the private signing key in its separate
-operator-owned secret; only the public key belongs in infrastructure configuration.
+## Optional private-preview setup
 
-Pass that descriptor through `PlatformFoundationStack.observablePreview`, with
-`studioOrigin` equal to `config.webOrigin`. Both API stacks use the edge's configured
-origin. Set `StudioWebStack.independentPreviewOrigins` to the exact enabled origins
-alongside `communityDeployment: true`. Generate browser configuration with
-`OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN` and, when using the maps profile,
-`OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN`. These values pass through the
-existing auth-config validator before writing. Supply both origins explicitly for
-independent public-map previews; omitted profiles retain the existing defaults.
+After the core runtime exists, add `nativePreview` to your existing configuration:
 
-These are construct and configuration interfaces. The core `community-aws.py`
-installer does not yet configure native previews or runtimes automatically. The
-local checks verify synthesized permissions, routing and browser configuration;
-they do not prove domain ownership, issued certificate coverage or live delivery.
-No additional compute, endpoint or service is enabled by the default profile.
+```json
+{
+  "domainName": "preview.maps.example.org",
+  "certificateArn": "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012",
+  "publicKeyPath": "preview-public.pem",
+  "privateKeySecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:opengeo-preview-AbCd12"
+}
+```
+
+This object is the value of `nativePreview`, alongside `account`, `name` and the
+other existing settings. `publicKeyPath` is relative to the configuration file.
+Supply one RSA public SPKI PEM of at least 2048 bits. The certificate and complete
+secret ARN must belong to your installation account in `us-east-1`. The preview
+hostname must be independent of OpenGeo's managed domains and distinct from Studio
+and the API. An optional `publicMapsDomainName` enables a second preview alias;
+the certificate must cover both names. Adding the object alone enables no resources.
+
+Keep the matching private key in the referenced operator-owned secret, encrypted
+with the Foundation data key. Its JSON has exactly `key_pair_id` and
+`private_key_pem`. CloudFront assigns the public-key ID during deployment: initially
+use a valid nonmatching placeholder, then update the secret with the
+`ObservablePreviewCloudFrontKeyPairId` Foundation output. The API refuses signing
+until the IDs match. Keep key material out of the repository, command arguments,
+environment and logs. The installer validates the public key without fetching
+the private secret. Key rotation requires a maintenance window; stop issuance and
+allow existing 15-minute cookies to expire before replacement.
+
+```bash
+.venv/bin/python scripts/community-aws.py synth --config .opengeo/aws-config.json --with-preview
+.venv/bin/python scripts/community-aws.py preview --config .opengeo/aws-config.json --apply
+```
+
+Review the offline assembly first. The explicit apply verifies your AWS account,
+records preview intent, updates Foundation, API and Web in order, and uploads the
+four authorization-shell files to the installation's versioned private bucket.
+The shell accepts messages from that Studio origin only. The next normal `studio`
+release includes the exact preview origins in browser configuration. Review the
+emitted DNS handoff and verify certificate coverage, signer availability and
+authorized/revoked access before directing your hostname to the distribution.
+
+Retain `preview.intent.json` and `preview-shell.json` with the other deployment
+records. Subsequent commands preserve the enabled configuration; removing or
+changing it cannot silently remove preview resources. Use the explicit `preview`
+phase for a deliberate configuration change. Repeating that phase reuses completed
+shell writes and reconciles uncertain writes by checksum and object version before
+continuing. A conflicting object or access failure stops without rewriting it.
+
+The optional phase adds CloudFront delivery, private versioned S3 storage and
+signing configuration, with their storage, request, secret and potential KMS costs.
+It adds no compiler execution, running service or private interface endpoint.
+The default core profile remains unchanged. Local checks exercise the real CDK
+entrypoint, shell origins and interrupted-step recovery; they do not prove domain
+ownership, issued certificate coverage or live delivery.
 
 Validation for this profile consists of local TypeScript/CDK checks, synthesized
 resource/security assertions, migration plan/tests and sealed Studio release

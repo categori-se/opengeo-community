@@ -1,5 +1,20 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Standalone private-preview phase accepted offline
+
+`community-aws.py` accepts closed optional `nativePreview` metadata and a separate
+`preview --apply` phase after the core runtime. It uses retained immutable images
+and concrete origins through the existing CDK app, without implicitly enabling
+the phase from configuration alone. Account verification precedes durable intent
+and stack changes; later commands preserve that intent after interruption.
+The exact four generated shell files use the installation's Studio authority and
+owner-checked, checksum-verified, versioned writes. Completed writes are reused;
+an uncertain write is reconciled or stopped without overwriting conflicting content.
+Eighteen Python checks, seven CDK cases and TypeScript pass, including actual
+entrypoint synthesis and the draft message handler. No cloud resources or runtime
+are started. Native runner/publisher installation and live identity/HTTPS/CDN
+acceptance remain open. See [installation instructions](community-aws.md#optional-private-preview-setup).
+
 October 17 — Private preview can use independent installation resources
 
 `ObservablePreviewEdge.independentDeployment` supplies a separate preview hostname,
@@ -11,8 +26,9 @@ key groups, cache policies and all CSP directives except framing authority remai
 Foundation binds the preview to its configured Studio; both API variants consume
 its origin. Community Studio permits only explicit independent preview origins.
 The normal browser configuration generator now supplies the existing trusted-origin
-map from operator environment settings. Selected CDK and browser checks pass;
-standalone installer wiring and configured cloud delivery are not yet accepted.
+map from operator environment settings. Selected CDK and browser checks pass.
+Standalone installer wiring is now accepted offline as recorded above; configured
+cloud delivery remains unaccepted.
 
 October 17 — Ordinary local publication delivery accepted
 

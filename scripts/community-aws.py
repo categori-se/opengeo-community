@@ -8,6 +8,7 @@ No credentials or secret values are saved in deployment state.
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -19,14 +20,14 @@ import tempfile
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "studio", "owner", "status", "rollback")
+STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "preview", "studio", "owner", "status", "rollback")
 
 
 def load_config(path: Path) -> dict:
     cfg = json.loads(path.read_text())
     required = {"account", "region", "name", "profile", "budgetAlertEmail"}
-    if not isinstance(cfg, dict) or not required <= cfg.keys() or cfg.keys() - (required | {"withWorker"}):
-        raise ValueError("config requires account, region, name, profile, budgetAlertEmail; optional withWorker")
+    if not isinstance(cfg, dict) or not required <= cfg.keys() or cfg.keys() - (required | {"withWorker", "nativePreview"}):
+        raise ValueError("config requires account, region, name, profile, budgetAlertEmail; optional withWorker/nativePreview")
     if not re.fullmatch(r"[0-9]{12}", str(cfg["account"])) or not isinstance(cfg["account"], str):
         raise ValueError("account must be an explicit 12-digit string")
     if cfg["region"] != "us-east-1":
@@ -39,6 +40,25 @@ def load_config(path: Path) -> dict:
         raise ValueError("budgetAlertEmail must be an email address")
     if type(cfg.get("withWorker", False)) is not bool:
         raise ValueError("withWorker must be a boolean")
+    if "nativePreview" in cfg:
+        preview = cfg["nativePreview"]
+        fields = {"domainName", "certificateArn", "publicKeyPath", "privateKeySecretArn"}
+        if (not isinstance(preview, dict) or not fields <= preview.keys()
+                or preview.keys() - (fields | {"publicMapsDomainName"})
+                or any(not isinstance(value, str) or not value or len(value) > 2048
+                       or re.search(r"[\r\n]", value) for value in preview.values())):
+            raise ValueError("nativePreview requires only domainName, certificateArn, publicKeyPath, privateKeySecretArn and optional publicMapsDomainName")
+        for domain in (preview["domainName"], preview.get("publicMapsDomainName")):
+            if domain is not None and (not re.fullmatch(r"(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", domain)
+                    or domain == "opengeo.tools" or domain.endswith(".opengeo.tools")):
+                raise ValueError("nativePreview requires independent DNS hostnames")
+        if preview.get("publicMapsDomainName") == preview["domainName"]:
+            raise ValueError("nativePreview profiles require distinct hostnames")
+        if not re.fullmatch(r"arn:aws:acm:us-east-1:" + cfg["account"] + r":certificate/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", preview["certificateArn"]):
+            raise ValueError("nativePreview certificate must belong to this account and us-east-1")
+        if not re.fullmatch(r"arn:aws:secretsmanager:us-east-1:" + cfg["account"] + r":secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}", preview["privateKeySecretArn"]):
+            raise ValueError("nativePreview signing secret must be a complete same-account us-east-1 ARN")
+        cfg["nativePreview"] = {**preview, "publicKeyPath": str((path.parent / preview["publicKeyPath"]).resolve())}
     return cfg
 
 
@@ -57,7 +77,7 @@ def write_json(path: Path, value: dict):
 
 
 class Deployment:
-    def __init__(self, cfg: dict):
+    def __init__(self, cfg: dict, *, allow_preview_change=False):
         self.cfg = cfg
         self.state = ROOT / ".opengeo" / "aws" / cfg["name"]
         self.prefix = f"OpenGeoCommunity-{cfg['name']}"
@@ -89,6 +109,116 @@ class Deployment:
             if not re.fullmatch(r"[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com", host):
                 raise ValueError("invalid retained API endpoint")
             self.env["OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN"] = host
+        self.preview_manifest = None
+        intent = self.read("preview.intent.json")
+        if intent:
+            current = self.prepare_preview()
+            if not allow_preview_change and intent != current:
+                raise ValueError("nativePreview differs from retained intent; use the explicit preview step to change it")
+
+    def prepare_preview(self):
+        if self.preview_manifest is not None:
+            return self.preview_manifest
+        preview = self.cfg.get("nativePreview")
+        if not preview:
+            raise ValueError("nativePreview configuration is required; retained previews cannot be silently disabled")
+        self.need("web.outputs.json")
+        self.need("api.outputs.json")
+        images = self.need("images.json")
+        if not {"api", "compiler"} <= images.keys():
+            raise ValueError("nativePreview requires both retained immutable images")
+        studio = self.env["OPEN_GEO_COMMUNITY_WEB_ORIGIN"]
+        if urlsplit(studio).hostname in {preview["domainName"], preview.get("publicMapsDomainName")}:
+            raise ValueError("nativePreview must be separate from Studio")
+        if self.env["OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN"] in {preview["domainName"], preview.get("publicMapsDomainName")}:
+            raise ValueError("nativePreview must be separate from the API")
+        with Path(preview["publicKeyPath"]).open("rb") as source:
+            header = source.readline(128)
+            if header.rstrip(b"\r\n") != b"-----BEGIN PUBLIC KEY-----":
+                raise ValueError("nativePreview accepts only a public SPKI PEM; private key values are never configured here")
+            body = header + source.read(8193)
+        if len(body) > 8192:
+            raise ValueError("nativePreview public key exceeds 8192 bytes")
+        pem = body.decode("ascii")
+        if not re.fullmatch(r"-----BEGIN PUBLIC KEY-----\r?\n[A-Za-z0-9+/=\r\n]+-----END PUBLIC KEY-----\r?\n?", pem):
+            raise ValueError("nativePreview requires one public SPKI PEM")
+        run(["node", "--input-type=module", "-e", "import {createPublicKey} from 'node:crypto';let p='';for await(const b of process.stdin)p+=b;const k=createPublicKey(p);if(k.asymmetricKeyType!=='rsa'||k.asymmetricKeyDetails.modulusLength<2048)throw Error('Preview requires RSA >=2048 bits');"],
+            env=self.env, capture=True, stdin=pem, timeout=10)
+        descriptor = {key: value for key, value in preview.items() if key != "publicKeyPath"}
+        self.env["OPEN_GEO_COMMUNITY_PREVIEW_CONFIG"] = json.dumps({**descriptor, "publicKeyPem": pem})
+        self.env["OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN"] = "https://" + preview["domainName"]
+        if "publicMapsDomainName" in preview:
+            self.env["OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN"] = "https://" + preview["publicMapsDomainName"]
+        self.preview_manifest = {"schemaVersion": 1, "configuration": descriptor,
+                                 "studioOrigin": studio, "apiOriginDomain": self.env["OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN"],
+                                 "publicKeySha256": hashlib.sha256(body).hexdigest()}
+        return self.preview_manifest
+
+    def preview_shell(self):
+        studio = self.env["OPEN_GEO_COMMUNITY_WEB_ORIGIN"]
+        files = {}
+        types = {"index.html": "text/html; charset=utf-8", "draft.html": "text/html; charset=utf-8",
+                 "preview-shell.js": "text/javascript; charset=utf-8", "style.css": "text/css; charset=utf-8"}
+        for name, content_type in types.items():
+            with (ROOT / "services/observable-preview/authorize" / name).open("rb") as source:
+                body = source.read(65537)
+            if len(body) > 65536:
+                raise ValueError("Preview shell file exceeds 64 KiB")
+            if name == "draft.html":
+                original = b"['https://studio.opengeo.tools', 'https://demo.studio.opengeo.tools']"
+                if body.count(original) != 1:
+                    raise ValueError("Preview draft origin template changed; review before deployment")
+                body = body.replace(original, json.dumps([studio]).encode())
+            if name == "index.html":
+                original = b"frame-ancestors https://studio.opengeo.tools;"
+                if body.count(original) != 1:
+                    raise ValueError("Preview shell origin template changed; review before deployment")
+                body = body.replace(original, ("frame-ancestors " + studio + ";").encode())
+            files[name] = {"body": body, "contentType": content_type, "sha256": hashlib.sha256(body).hexdigest()}
+        return files
+
+    def upload_preview_shell(self, files):
+        foundation = self.need("foundation.outputs.json")
+        bucket = foundation.get("CommunityPreviewShellBucketName")
+        if bucket != f"{self.cfg['name']}-{self.cfg['account']}-preview-shell" or foundation.get("CommunityPreviewOrigin") != self.env["OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN"]:
+            raise ValueError("Preview outputs differ from the configured destination")
+        receipt = self.read("preview-shell.json")
+        if receipt and (receipt.get("bucket") != bucket or receipt.get("account") != self.cfg["account"]):
+            raise ValueError("Preview shell receipt belongs to a different destination")
+        receipt = receipt or {"bucket": bucket, "account": self.cfg["account"], "files": {}}
+        with tempfile.TemporaryDirectory(prefix="opengeo-preview-shell-") as directory:
+            for name, item in files.items():
+                previous = receipt["files"].get(name)
+                if previous and previous.get("sha256") == item["sha256"] and previous.get("versionId"):
+                    continue
+                # Preserve an uncertain upload and resolve only that object before another write.
+                if previous and previous.get("pending"):
+                    result = subprocess.run(["aws", "s3api", "head-object", "--bucket", bucket, "--key", "authorize/" + name, "--checksum-mode", "ENABLED",
+                        "--expected-bucket-owner", self.cfg["account"], "--profile", self.cfg["profile"], "--region", self.cfg["region"], "--output", "json"],
+                        env=self.env, capture_output=True, text=True, timeout=120)
+                    if result.returncode == 0:
+                        actual = json.loads(result.stdout)
+                        if actual.get("ChecksumSHA256") == base64.b64encode(hashlib.sha256(item["body"]).digest()).decode() and actual.get("Metadata", {}).get("opengeo-sha256") == item["sha256"] and actual.get("ContentLength") == len(item["body"]) and actual.get("ContentType") == item["contentType"] and actual.get("CacheControl") == "no-store, max-age=0" and actual.get("VersionId"):
+                            receipt["files"][name] = {"sha256": item["sha256"], "versionId": actual["VersionId"]}
+                            self.save("preview-shell.json", receipt)
+                            continue
+                        raise ValueError("Pending preview shell content differs; no write replayed")
+                    elif "(404)" not in result.stderr and "(NoSuchKey)" not in result.stderr:
+                        raise ValueError("Could not reconcile the pending preview shell upload; no write replayed")
+                path = Path(directory) / name
+                path.write_bytes(item["body"])
+                path.chmod(0o600)
+                receipt["files"][name] = {"sha256": item["sha256"], "pending": True}
+                self.save("preview-shell.json", receipt)
+                checksum = base64.b64encode(hashlib.sha256(item["body"]).digest()).decode()
+                result = self.aws(["s3api", "put-object", "--bucket", bucket, "--key", "authorize/" + name,
+                    "--body", str(path), "--expected-bucket-owner", self.cfg["account"], "--content-type", item["contentType"],
+                    "--cache-control", "no-store, max-age=0", "--metadata", "opengeo-sha256=" + item["sha256"],
+                    "--checksum-sha256", checksum])
+                if result.get("ChecksumSHA256") != checksum or not result.get("VersionId"):
+                    raise ValueError("Preview shell write needs readback; its pending receipt is preserved")
+                receipt["files"][name] = {"sha256": item["sha256"], "versionId": result["VersionId"]}
+                self.save("preview-shell.json", receipt)
 
     def read(self, name: str):
         path = self.state / name
@@ -203,6 +333,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("step", choices=STEPS)
     parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--with-preview", action="store_true", help="include configured previews in offline synthesis only")
     parser.add_argument("--apply", action="store_true", help="execute this one step; otherwise print an offline plan")
     parser.add_argument("--component", choices=("api", "compiler", "worker", "all"), default="all")
     parser.add_argument("--execution-policy-arn", help="explicit managed CloudFormation execution policy for bootstrap")
@@ -212,14 +343,19 @@ def main(argv=None):
     parser.add_argument("--organization-slug", default="community-workspace")
     parser.add_argument("--release-origin", help="exact previous /releases/opengeo-studio-* pointer for rollback")
     args = parser.parse_args(argv)
-    deployment = Deployment(load_config(args.config))
+    if args.with_preview and args.step != "synth":
+        raise ValueError("--with-preview belongs only to offline synth")
+    deployment = Deployment(load_config(args.config), allow_preview_change=args.step == "preview" and args.apply)
     if args.step == "plan" or (not args.apply and args.step != "synth"):
         print(json.dumps({"mode": "offline-plan", "step": args.step, "account": deployment.cfg["account"],
             "region": deployment.cfg["region"], "name": deployment.cfg["name"], "withWorker": deployment.cfg.get("withWorker", False),
-            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "web", "studio", "owner", "status"],
+            "nativePreviewConfigured": "nativePreview" in deployment.cfg,
+            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", *(["preview"] if "nativePreview" in deployment.cfg else []), "web", "studio", "owner", "status"],
             "next": "Read docs/community-aws.md; --apply runs only the named step. synth is offline."}, indent=2))
         return 0
     if args.step == "synth":
+        if args.with_preview:
+            deployment.prepare_preview()
         # Invoke the app directly so synthesis cannot query AWS credentials/context.
         run(["node", "--import", "tsx", "bin/opengeo-community.ts"], env=deployment.env, cwd=ROOT / "infrastructure")
         print("Offline CloudFormation assembly written to infrastructure/cdk.out")
@@ -228,6 +364,9 @@ def main(argv=None):
         raise ValueError("owner requires --email and --display-name; first invite the user and verify the email in your own Cognito pool")
     if args.step == "bootstrap" and not re.fullmatch(r"arn:aws:iam::(?:aws|" + deployment.cfg["account"] + r"):policy/[A-Za-z0-9+=,.@_/-]+", args.execution_policy_arn or ""):
         raise ValueError("bootstrap requires an explicit --execution-policy-arn in your account or AWS managed policy")
+    if args.step == "preview":
+        preview_intent = deployment.prepare_preview()
+        preview_files = deployment.preview_shell()
     deployment.identity()
     if args.step == "bootstrap":
         deployment.cdk("bootstrap", f"aws://{deployment.cfg['account']}/{deployment.cfg['region']}", "--cloudformation-execution-policies", args.execution_policy_arn)
@@ -251,6 +390,11 @@ def main(argv=None):
         # it with the complete assembly to create their cross-stack exports.
         kinds = ["Foundation", "PrivateRuntimeEndpoints", "Worker", "Api"] if deployment.cfg.get("withWorker") else ["Foundation", "Api"]
         deployment.deploy(*kinds)
+    elif args.step == "preview":
+        # Save intent before the first stack change; continuation must retain it.
+        deployment.save("preview.intent.json", preview_intent)
+        deployment.deploy("Foundation", "Api", "Web")
+        deployment.upload_preview_shell(preview_files)
     elif args.step == "studio":
         deployment.need("api.outputs.json")
         env = deployment.studio_env()

@@ -32,9 +32,10 @@ replayed. Independent installation and configured production delivery remain ope
 Independent private-preview configuration is now supported by the existing
 infrastructure constructs: account-local buckets and domains, matching API origin
 settings and exact Studio framing authority. Managed defaults and private delivery
-controls remain unchanged. Local synthesis and browser-configuration checks pass.
-Connecting these settings through the standalone installer and verifying real
-identity/HTTPS/CDN delivery remain open.
+controls remain unchanged. The standalone installer now connects these settings
+through its existing entrypoint and an explicit optional preview phase. Local
+checks cover synthesis, exact shell origins and recovery after interrupted uploads.
+Native runner/publisher installation and real identity/HTTPS/CDN delivery remain open.
 
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |

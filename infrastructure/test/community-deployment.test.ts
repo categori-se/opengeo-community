@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {generateKeyPairSync} from "node:crypto";
+import {spawnSync} from "node:child_process";
+import {mkdtempSync, readFileSync, rmSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+import {fileURLToPath} from "node:url";
 import {App, Fn} from "aws-cdk-lib";
 import {Match, Template} from "aws-cdk-lib/assertions";
 import {environmentConfig} from "../lib/config.js";
@@ -183,4 +188,109 @@ test("independent preview cannot name a different Studio installation", () => {
       certificateArn: previewCertificate, publicKeyPem: previewKey, deployShell: false,
       independentDeployment: {...independentPreview, studioOrigin: "https://another.example.net"}}
   }), /Independent preview must use this installation's Studio origin/);
+});
+
+function synthCommunityEntrypoint(overrides: NodeJS.ProcessEnv = {}) {
+  const output = mkdtempSync(join(tmpdir(), "opengeo-community-preview-"));
+  try {
+    const env: NodeJS.ProcessEnv = {
+      ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(?:OPEN_GEO_|CDK_|AWS_)/.test(key))),
+      CDK_OUTDIR: output, AWS_EC2_METADATA_DISABLED: "true",
+      OPEN_GEO_COMMUNITY_ACCOUNT: account, OPEN_GEO_COMMUNITY_REGION: "us-east-1",
+      OPEN_GEO_COMMUNITY_NAME: "community-entry", OPEN_GEO_COMMUNITY_WEB_ORIGIN: origin,
+      OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN: "abcdefghij.execute-api.us-east-1.amazonaws.com",
+      OPEN_GEO_BUDGET_ALERT_EMAIL: "maintainer@example.invalid",
+      OPEN_GEO_API_IMAGE: `sha256:${"a".repeat(64)}`,
+      OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST: `sha256:${"b".repeat(64)}`,
+      ...overrides
+    };
+    const result = spawnSync(process.execPath, ["--import", "tsx", "bin/opengeo-community.ts"], {
+      cwd: fileURLToPath(new URL("../", import.meta.url)), env, encoding: "utf8",
+      timeout: 10_000, maxBuffer: 2_000_000
+    });
+    if (result.error) throw result.error;
+    let templates: Record<string, Template> | undefined;
+    if (result.status === 0) {
+      const manifest = JSON.parse(readFileSync(join(output, "manifest.json"), "utf8")) as {
+        artifacts: Record<string, {type: string; properties?: {stackName?: string; templateFile?: string}}>
+      };
+      templates = Object.fromEntries(["Web", "Foundation", "Api"].map(kind => {
+        const artifact = Object.entries(manifest.artifacts).find(([artifactId, item]) =>
+          item.type === "aws:cloudformation:stack" &&
+          (item.properties?.stackName ?? artifactId) === `OpenGeoCommunity-community-entry-${kind}`)?.[1];
+        assert.ok(artifact?.properties?.templateFile, `Missing ${kind} assembly artifact`);
+        return [kind, Template.fromJSON(JSON.parse(readFileSync(join(output, artifact.properties.templateFile), "utf8")))];
+      }));
+    }
+    return {status: result.status, stderr: result.stderr, templates};
+  } finally { rmSync(output, {recursive: true, force: true}); }
+}
+
+const nativePreviewConfiguration = {
+  domainName: "preview.community.example.net", certificateArn: previewCertificate,
+  publicKeyPem: previewKey, privateKeySecretArn: `${previewSecret}12`,
+  publicMapsDomainName: "maps-preview.community.example.net"
+};
+
+test("community entrypoint opts into native preview across Foundation, API and Web without adding execution", () => {
+  const baseline = synthCommunityEntrypoint();
+  assert.equal(baseline.status, 0, baseline.stderr);
+  const enabled = synthCommunityEntrypoint({OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify(nativePreviewConfiguration)});
+  assert.equal(enabled.status, 0, enabled.stderr);
+  const templates = enabled.templates!;
+  const foundation = templates.Foundation!;
+  baseline.templates!.Foundation!.resourceCountIs("AWS::CloudFront::Distribution", 0);
+  foundation.resourceCountIs("AWS::CloudFront::Distribution", 1);
+  const distribution = Object.values(foundation.findResources("AWS::CloudFront::Distribution"))[0]!;
+  assert.deepEqual(distribution.Properties.DistributionConfig.Aliases,
+    [nativePreviewConfiguration.domainName, nativePreviewConfiguration.publicMapsDomainName]);
+  const shell = Object.entries(foundation.findResources("AWS::S3::Bucket"))
+    .find(([, resource]) => resource.Properties.BucketName === `community-entry-${account}-preview-shell`);
+  assert.ok(shell);
+  assert.deepEqual(foundation.toJSON().Outputs.CommunityPreviewShellBucketName.Value, {Ref: shell[0]});
+  assert.equal(foundation.toJSON().Outputs.CommunityPreviewOrigin.Value, previewOrigin);
+  const api = Object.values(templates.Api!.findResources("AWS::Lambda::Function"))
+    .find(resource => resource.Properties.Environment?.Variables?.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST);
+  assert.ok(api);
+  const variables = api.Properties.Environment.Variables;
+  assert.equal(variables.OPEN_GEO_OBSERVABLE_PREVIEW_ORIGIN, previewOrigin);
+  assert.equal(variables.OPEN_GEO_OBSERVABLE_PUBLIC_MAPS_PREVIEW_ORIGIN,
+    `https://${nativePreviewConfiguration.publicMapsDomainName}`);
+  assert.equal(variables.OPEN_GEO_OBSERVABLE_PREVIEW_PRIVATE_KEY_SECRET_ARN, nativePreviewConfiguration.privateKeySecretArn);
+  assert.equal("OPEN_GEO_OBSERVABLE_BUILD_QUEUE_URL" in variables, false);
+  assert.equal("OPEN_GEO_FRAMEWORK_PUBLICATION_QUEUE_URL" in variables, false);
+  const webPolicies = templates.Web!.findResources("AWS::CloudFront::ResponseHeadersPolicy");
+  const studio = Object.entries(webPolicies).find(([id]) => id.startsWith("StudioSecurityHeaders"))![1];
+  const csp = studio.Properties.ResponseHeadersPolicyConfig.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy;
+  assert.ok(csp.includes(`frame-src 'self' ${previewOrigin} https://${nativePreviewConfiguration.publicMapsDomainName};`));
+  assert.doesNotMatch(JSON.stringify(Object.values(templates).map(template => template.toJSON())),
+    /source\.opengeo\.tools|storage\.opengeo\.tools|preview\.studio\.opengeo\.tools/);
+  for (const type of ["AWS::EC2::Instance", "AWS::EC2::VPCEndpoint", "AWS::ECS::Service",
+    "AWS::Lambda::Function", "Custom::CDKBucketDeployment"]) {
+    const count = (values: Record<string, Template>) => Object.values(values)
+      .reduce((total, template) => total + Object.keys(template.findResources(type)).length, 0);
+    assert.equal(count(templates), count(baseline.templates!), `${type} must not expand for preview`);
+  }
+});
+
+test("community entrypoint refuses incomplete runtime prerequisites and credential-bearing preview declarations", () => {
+  const valid = JSON.stringify(nativePreviewConfiguration);
+  const cases: Array<[NodeJS.ProcessEnv, RegExp]> = [
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: valid, OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN: undefined}, /existing concrete Studio\/API origins/],
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: valid, OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST: undefined}, /both immutable runtime images/],
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: valid, OPEN_GEO_API_IMAGE: "latest"}, /immutable sha256 digest/],
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: "{"}, /closed JSON object/],
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify({...nativePreviewConfiguration, privateKeyPem: "forbidden"})}, /closed JSON object/],
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify({...nativePreviewConfiguration,
+      privateKeySecretArn: nativePreviewConfiguration.privateKeySecretArn.replace(account, "444444444444")})}, /same-account us-east-1 ARNs/],
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify({...nativePreviewConfiguration,
+      privateKeySecretArn: previewSecret})}, /complete secret suffix/],
+    [{OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify({...nativePreviewConfiguration,
+      publicKeyPem: "-----BEGIN PRIVATE KEY-----\nnot-a-private-key\n-----END PRIVATE KEY-----\n"})}, /only a public-key PEM/]
+  ];
+  for (const [env, expected] of cases) {
+    const result = synthCommunityEntrypoint(env);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, expected);
+  }
 });

@@ -1,5 +1,18 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Standalone installer connects optional private previews
+
+The existing installer now carries an explicit account-local preview descriptor
+through its real CDK entrypoint, API signing settings, Studio policy and browser
+configuration. The optional phase validates public inputs before cloud access,
+verifies the account, retains intent before deployment and preserves interrupted
+shell uploads without replaying completed writes. The uploaded draft shell accepts
+only the configured Studio origin. Eighteen Python checks, seven selected CDK
+cases and TypeScript pass offline. No AWS, Actions, runtime or build is used.
+Next, finish native runtime and publication-destination setup through this installer.
+Independent operator installation and configured identity/HTTPS/CDN delivery remain
+open; reuse accepted core, compiler and study results.
+
 October 17 — Independent private-preview configuration supported
 
 The existing preview infrastructure now accepts explicit account-local buckets,
@@ -8,8 +21,8 @@ origin, and Studio can permit its exact independent origins. Browser configurati
 passes operator origins through the existing validator. Managed defaults and signed
 output restrictions are preserved. Selected infrastructure/browser checks and
 TypeScript pass; no AWS, Actions, runtime or image/frontend build is used.
-Next, connect this configuration through the standalone installer and finish its
-native runtime/destination setup. Independent installation and configured HTTPS/CDN
+The standalone installer connection is now accepted offline as recorded above;
+native runtime/destination setup remains. Independent installation and configured HTTPS/CDN
 acceptance remain open; reuse the accepted core and real-study builds.
 
 October 17 — Ordinary local publication renders the real study anonymously
