@@ -198,6 +198,7 @@ function synthCommunityEntrypoint(overrides: NodeJS.ProcessEnv = {}) {
       CDK_OUTDIR: output, AWS_EC2_METADATA_DISABLED: "true",
       OPEN_GEO_COMMUNITY_ACCOUNT: account, OPEN_GEO_COMMUNITY_REGION: "us-east-1",
       OPEN_GEO_COMMUNITY_NAME: "community-entry", OPEN_GEO_COMMUNITY_WEB_ORIGIN: origin,
+      OPEN_GEO_COMMUNITY_WEB_DISTRIBUTION_ID: "ESTUDIOCOMMUNITY",
       OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN: "abcdefghij.execute-api.us-east-1.amazonaws.com",
       OPEN_GEO_BUDGET_ALERT_EMAIL: "maintainer@example.invalid",
       OPEN_GEO_API_IMAGE: `sha256:${"a".repeat(64)}`,
@@ -214,16 +215,24 @@ function synthCommunityEntrypoint(overrides: NodeJS.ProcessEnv = {}) {
       const manifest = JSON.parse(readFileSync(join(output, "manifest.json"), "utf8")) as {
         artifacts: Record<string, {type: string; properties?: {stackName?: string; templateFile?: string}}>
       };
-      templates = Object.fromEntries(["Web", "Foundation", "Api"].map(kind => {
-        const artifact = Object.entries(manifest.artifacts).find(([artifactId, item]) =>
-          item.type === "aws:cloudformation:stack" &&
-          (item.properties?.stackName ?? artifactId) === `OpenGeoCommunity-community-entry-${kind}`)?.[1];
-        assert.ok(artifact?.properties?.templateFile, `Missing ${kind} assembly artifact`);
-        return [kind, Template.fromJSON(JSON.parse(readFileSync(join(output, artifact.properties.templateFile), "utf8")))];
-      }));
+      const prefix = "OpenGeoCommunity-community-entry-";
+      templates = Object.fromEntries(Object.entries(manifest.artifacts)
+        .filter(([artifactId, item]) => item.type === "aws:cloudformation:stack" &&
+          (item.properties?.stackName ?? artifactId).startsWith(prefix))
+        .map(([artifactId, artifact]) => {
+          assert.ok(artifact.properties?.templateFile);
+          return [(artifact.properties.stackName ?? artifactId).slice(prefix.length),
+            Template.fromJSON(JSON.parse(readFileSync(join(output, artifact.properties.templateFile), "utf8")))];
+        }));
+      for (const kind of ["Web", "Foundation", "Api"]) assert.ok(templates[kind], `Missing ${kind} assembly artifact`);
     }
     return {status: result.status, stderr: result.stderr, templates};
   } finally { rmSync(output, {recursive: true, force: true}); }
+}
+
+let baselineEntrypoint: ReturnType<typeof synthCommunityEntrypoint> | undefined;
+function communityBaseline() {
+  return baselineEntrypoint ??= synthCommunityEntrypoint();
 }
 
 const nativePreviewConfiguration = {
@@ -233,7 +242,7 @@ const nativePreviewConfiguration = {
 };
 
 test("community entrypoint opts into native preview across Foundation, API and Web without adding execution", () => {
-  const baseline = synthCommunityEntrypoint();
+  const baseline = communityBaseline();
   assert.equal(baseline.status, 0, baseline.stderr);
   const enabled = synthCommunityEntrypoint({OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify(nativePreviewConfiguration)});
   assert.equal(enabled.status, 0, enabled.stderr);
@@ -270,6 +279,152 @@ test("community entrypoint opts into native preview across Foundation, API and W
     const count = (values: Record<string, Template>) => Object.values(values)
       .reduce((total, template) => total + Object.keys(template.findResources(type)).length, 0);
     assert.equal(count(templates), count(baseline.templates!), `${type} must not expand for preview`);
+  }
+});
+
+const nativePublicationConfiguration = {
+  publisherDatabaseSecretArn: `arn:aws:secretsmanager:us-east-1:${account}:secret:community/publisher-AbCd12`,
+  destinations: [{
+    hostname: "research.community.example.net", bucket: "community-publications", distribution_id: "EPUBLICATIONS",
+    origin_id: "community-publications", origin_access_control_id: "ECOMMUNITYOAC"
+  }, {
+    hostname: "studies.community.example.net", bucket: "community-studies", distribution_id: "ESTUDIES",
+    origin_id: "community-studies"
+  }]
+};
+
+let disabledPublicationEntrypoint: ReturnType<typeof synthCommunityEntrypoint> | undefined;
+function communityDisabledPublication() {
+  return disabledPublicationEntrypoint ??= synthCommunityEntrypoint({
+    OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: JSON.stringify(nativePublicationConfiguration)
+  });
+}
+
+test("community entrypoint installs the existing publisher disabled without creating hosting or compiler execution", () => {
+  const baseline = communityBaseline();
+  assert.equal(baseline.status, 0, baseline.stderr);
+  assert.equal(baseline.templates!.FrameworkPublisher, undefined);
+  const result = communityDisabledPublication();
+  assert.equal(result.status, 0, result.stderr);
+  const templates = result.templates!;
+  const publisher = templates.FrameworkPublisher!;
+  assert.ok(publisher);
+  publisher.hasResourceProperties("AWS::Lambda::EventSourceMapping", {Enabled: false, BatchSize: 1});
+  publisher.hasResourceProperties("AWS::Lambda::Function", {
+    FunctionName: "og-community-entry-publisher", VpcConfig: Match.absent(),
+    ImageConfig: {Command: ["opengeo_api.framework_publication_controller.handler"]},
+    Environment: {Variables: Match.objectLike({
+      OPEN_GEO_DATA_API_SECRET_ARN: nativePublicationConfiguration.publisherDatabaseSecretArn,
+      OPEN_GEO_FRAMEWORK_PUBLICATION_PUBLIC_BUCKET: "community-publications",
+      OPEN_GEO_FRAMEWORK_PUBLICATION_DISTRIBUTION_ID: "EPUBLICATIONS",
+      OPEN_GEO_FRAMEWORK_PUBLICATION_DESTINATIONS: JSON.stringify(nativePublicationConfiguration.destinations),
+      OPEN_GEO_FRAMEWORK_PUBLICATION_PROTECTED_HOSTS: JSON.stringify([
+        "d123456789.cloudfront.net", "abcdefghij.execute-api.us-east-1.amazonaws.com"
+      ])
+    })}
+  });
+  const functions = Object.values(publisher.findResources("AWS::Lambda::Function"));
+  assert.ok(JSON.stringify(functions[0]!.Properties.Code.ImageUri).includes(`sha256:${"a".repeat(64)}`));
+  publisher.hasResourceProperties("AWS::SQS::Queue", {QueueName: "og-community-entry-framework-publications"});
+  const api = Object.values(templates.Api!.findResources("AWS::Lambda::Function"))
+    .find(resource => resource.Properties.Environment?.Variables?.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST)!;
+  assert.equal("OPEN_GEO_FRAMEWORK_PUBLICATION_QUEUE_URL" in api.Properties.Environment.Variables, false);
+  assert.equal("OPEN_GEO_OBSERVABLE_BUILD_QUEUE_URL" in api.Properties.Environment.Variables, false);
+  assert.doesNotMatch(JSON.stringify(templates.Api!.findResources("AWS::IAM::Policy")), /FrameworkPublisher/);
+  const statements = Object.values(publisher.findResources("AWS::IAM::Policy"))
+    .flatMap(resource => resource.Properties.PolicyDocument.Statement);
+  const matching = (action: string) => statements.filter(statement =>
+    (Array.isArray(statement.Action) ? statement.Action : [statement.Action]).includes(action));
+  assert.deepEqual(matching("secretsmanager:GetSecretValue").map(statement => statement.Resource),
+    [nativePublicationConfiguration.publisherDatabaseSecretArn]);
+  const writes = matching("s3:PutObject");
+  assert.equal(writes.length, 1);
+  assert.match(JSON.stringify(writes[0].Resource), /community-publications\/releases\/framework-\*\/\*/);
+  assert.match(JSON.stringify(writes[0].Resource), /community-studies\/releases\/framework-\*\/\*/);
+  assert.deepEqual(writes[0].Condition, {StringEquals: {"s3:if-none-match": "*"}});
+  assert.match(JSON.stringify(matching("cloudfront:UpdateDistribution")[0].Resource), /EPUBLICATIONS/);
+  assert.match(JSON.stringify(matching("cloudfront:UpdateDistribution")[0].Resource), /ESTUDIES/);
+  assert.doesNotMatch(JSON.stringify(statements), /s3:DeleteObject|sts:AssumeRole|iam:PassRole/);
+  for (const type of ["AWS::S3::Bucket", "AWS::CloudFront::Distribution", "AWS::EC2::Instance",
+    "AWS::EC2::VPCEndpoint", "AWS::EC2::NatGateway", "AWS::ECS::Service"]) {
+    const count = (values: Record<string, Template>) => Object.values(values)
+      .reduce((total, template) => total + Object.keys(template.findResources(type)).length, 0);
+    assert.equal(count(templates), count(baseline.templates!), `${type} must not expand for publishing`);
+  }
+});
+
+test("community entrypoint enables publication dispatch only with explicit true and protects configured preview hosts", () => {
+  const result = synthCommunityEntrypoint({
+    OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify(nativePreviewConfiguration),
+    OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: JSON.stringify({...nativePublicationConfiguration, enabled: true})
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const publisher = result.templates!.FrameworkPublisher!;
+  publisher.hasResourceProperties("AWS::Lambda::EventSourceMapping", {Enabled: true});
+  publisher.hasResourceProperties("AWS::Lambda::Function", {Environment: {Variables: Match.objectLike({
+    OPEN_GEO_FRAMEWORK_PUBLICATION_PROTECTED_HOSTS: JSON.stringify([
+      "d123456789.cloudfront.net", "abcdefghij.execute-api.us-east-1.amazonaws.com",
+      nativePreviewConfiguration.domainName, nativePreviewConfiguration.publicMapsDomainName
+    ])
+  })}});
+  const api = Object.values(result.templates!.Api!.findResources("AWS::Lambda::Function"))
+    .find(resource => resource.Properties.Environment?.Variables?.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST)!;
+  assert.match(JSON.stringify(api.Properties.Environment.Variables.OPEN_GEO_FRAMEWORK_PUBLICATION_QUEUE_URL), /FrameworkPublisher/);
+  assert.equal("OPEN_GEO_OBSERVABLE_BUILD_QUEUE_URL" in api.Properties.Environment.Variables, false);
+  result.templates!.Api!.hasResourceProperties("AWS::IAM::Policy", {PolicyDocument: {Statement: Match.arrayWith([
+    Match.objectLike({Action: ["sqs:SendMessage", "sqs:GetQueueAttributes", "sqs:GetQueueUrl"],
+      Resource: Match.objectLike({"Fn::ImportValue": Match.stringLikeRegexp("FrameworkPublisher")})})
+  ])}});
+  const disabled = communityDisabledPublication();
+  assert.equal(disabled.status, 0, disabled.stderr);
+  const exports = (template: Template) => new Map(Object.values(template.toJSON().Outputs as
+    Record<string, {Value: unknown; Export?: {Name: string}}>)
+    .filter(output => output.Export !== undefined).map(output => [output.Export!.Name, output.Value] as const));
+  const enabledExports = exports(publisher);
+  const disabledExports = exports(disabled.templates!.FrameworkPublisher!);
+  const currentImports = new Set([...JSON.stringify(result.templates!.Api!.toJSON())
+    .matchAll(/"Fn::ImportValue":"([^"]*FrameworkPublisher[^"]*)"/g)].map(match => match[1]!));
+  assert.equal(currentImports.size, 2, "The enabled API imports the queue ARN and URL");
+  for (const name of currentImports) {
+    assert.ok(enabledExports.has(name), `Missing enabled export ${name}`);
+    assert.ok(disabledExports.has(name), `Disabling must retain the imported export ${name}`);
+    assert.deepEqual(disabledExports.get(name), enabledExports.get(name));
+  }
+});
+
+test("community publication declarations reject incomplete credentials, execution inputs and protected destinations", () => {
+  const valid = JSON.stringify(nativePublicationConfiguration);
+  const cases: Array<[NodeJS.ProcessEnv, RegExp]> = [
+    [{OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: valid, OPEN_GEO_COMMUNITY_WEB_ORIGIN: undefined}, /existing concrete Studio\/API origins/],
+    [{OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: valid, OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST: undefined}, /both immutable runtime images/],
+    [{OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: valid, OPEN_GEO_COMMUNITY_WEB_DISTRIBUTION_ID: undefined}, /concrete Studio distribution ID/],
+    [{OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: JSON.stringify({...nativePublicationConfiguration, enabled: "true"})}, /closed JSON object/],
+    [{OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: JSON.stringify({...nativePublicationConfiguration, password: "forbidden"})}, /closed JSON object/],
+    [{OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: JSON.stringify({...nativePublicationConfiguration,
+      publisherDatabaseSecretArn: nativePublicationConfiguration.publisherDatabaseSecretArn.replace(account, "444444444444")})}, /same-account us-east-1 secret ARN/],
+    [{OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: JSON.stringify({...nativePublicationConfiguration,
+      publisherDatabaseSecretArn: nativePublicationConfiguration.publisherDatabaseSecretArn.slice(0, -1)})}, /complete secret suffix/]
+  ];
+  const target = nativePublicationConfiguration.destinations[0]!;
+  const invalidTargets = [
+    {...target, hostname: "opengeo.tools"}, {...target, hostname: "pages.studio.opengeo.tools"},
+    {...target, hostname: "d123456789.cloudfront.net"},
+    {...target, hostname: "abcdefghij.execute-api.us-east-1.amazonaws.com"},
+    {...target, hostname: nativePreviewConfiguration.domainName},
+    {...target, hostname: nativePreviewConfiguration.publicMapsDomainName},
+    {...target, distribution_id: "ESTUDIOCOMMUNITY"},
+    ...["app", "data", "studio"].map(suffix => ({...target, bucket: `community-entry-${account}-us-east-1-${suffix}`})),
+    {...target, bucket: `community-entry-${account}-preview-shell`},
+    {...target, origin_access_control_id: "*"}
+  ];
+  for (const destination of invalidTargets) cases.push([{
+    OPEN_GEO_COMMUNITY_PREVIEW_CONFIG: JSON.stringify(nativePreviewConfiguration),
+    OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG: JSON.stringify({...nativePublicationConfiguration, destinations: [destination]})
+  }, /distinct independent hosting targets/]);
+  for (const [env, expected] of cases) {
+    const result = synthCommunityEntrypoint(env);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, expected);
   }
 });
 

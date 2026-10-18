@@ -35,7 +35,11 @@ settings and exact Studio framing authority. Managed defaults and private delive
 controls remain unchanged. The standalone installer now connects these settings
 through its existing entrypoint and an explicit optional preview phase. Local
 checks cover synthesis, exact shell origins and recovery after interrupted uploads.
-Native runner/publisher installation and real identity/HTTPS/CDN delivery remain open.
+The optional on-demand publisher now connects through that installer using the
+retained API image, explicit delivery targets and a dedicated database role.
+Consumption defaults off; local checks cover activation ordering, safe continuation
+and protected Studio/private storage. Publication-origin registration, admitted
+compiler execution and real identity/HTTPS/CDN delivery remain open.
 
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |

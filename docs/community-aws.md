@@ -218,10 +218,10 @@ Publication source editing is included. The standalone core profile deploys
 Studio/API and optional GIS processing. Native Notebook/Framework build coordination
 and public delivery use additional components in
 `services/observable-*`, `services/api/src/opengeo_api/github_build_controller.py` and
-`infrastructure/lib/*publisher*`. Their operator-owned GitHub App, build execution,
-and publication destination configuration remain deployment work. The optional
-private-preview phase below configures delivery and signing infrastructure; it does
-not install a compiler runner or publisher. These integrations stay unadvertised until their
+`infrastructure/lib/*publisher*`. Compiler execution and registration of authorized
+publication origins remain deployment work. The optional phases below configure
+preview signing and an on-demand publisher; they do not install a compiler runner.
+These integrations stay unadvertised until their
 runtimes are configured. Track this work in the [roadmap](../ROADMAP.md).
 
 ## Optional private-preview setup
@@ -281,6 +281,71 @@ It adds no compiler execution, running service or private interface endpoint.
 The default core profile remains unchanged. Local checks exercise the real CDK
 entrypoint, shell origins and interrupted-step recovery; they do not prove domain
 ownership, issued certificate coverage or live delivery.
+
+## Optional publication delivery setup
+
+The publisher copies an approved build to an existing public delivery origin. It
+uses the retained API image, its own function-only database login, SQS and Lambda.
+It creates no compiler host, network endpoint, destination bucket or distribution.
+Add a `nativePublication` object to the installation configuration, for example:
+
+```json
+{
+  "publisherDatabaseSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:opengeo-publisher-AbCd12",
+  "destinations": [{
+    "hostname": "public.maps.example.org",
+    "bucket": "my-opengeo-public-pages",
+    "distribution_id": "EXAMPLEDISTRIBUTION",
+    "origin_id": "publication-pages",
+    "origin_access_control_id": "EXAMPLEOAC"
+  }],
+  "enabled": false
+}
+```
+
+Use a separate, existing secret in this account and region for
+`opengeo_framework_publisher`, encrypted with the Foundation data key. Use the
+normal database credential JSON described by the migration runner. API,
+administrator and GIS worker credentials cannot substitute for this role.
+Keep secret values out of the configuration. Destinations contain exact reviewed
+hosting identities; the Studio distribution, private application/data/Studio
+buckets, preview shell bucket and Studio/API/preview hosts are protected.
+
+```bash
+.venv/bin/python scripts/community-aws.py synth --config .opengeo/aws-config.json --with-publication
+.venv/bin/python scripts/community-aws.py publication --config .opengeo/aws-config.json --apply
+```
+
+The initial offline synthesis shows a dormant consumer. Apply verifies your
+account, records intent, deploys Foundation and the dormant publisher, then uses
+the existing migration runner to configure and verify the dedicated login. Only
+after that succeeds can an explicit `enabled: true` attach API dispatch and enable
+queue consumption. The default is false. Subsequent commands retain these settings.
+Keep `publication.intent.json` with deployment records: after an interrupted final
+deployment, repeating the phase reuses successful role setup. Configuration changes
+require this explicit phase. Queue exports remain available while an active API
+transitions to the new settings.
+
+Before enabling delivery, an operator must register and verify the corresponding
+database publication origin and its account authority. Self-service destinations
+also need an authorized path prefix and reservation limit. This installer does
+not register those origins. The destination distribution must list the exact
+hostname in its aliases and match the origin ID, bucket, OAC and active release
+prefix in that record. Use a versioned private S3 bucket with SSE-S3 and OAC for
+this profile; additional customer-managed destination KMS keys are not configured.
+Retain existing paths, release history and source custody when setting up delivery.
+
+Enabling consumption can process already approved queued work. First complete the
+origin and compiler-runtime checks and review the intended configuration, then set
+`enabled: true` and repeat the explicit `publication --apply` phase. The initial
+offline synthesis describes dormant resources; changed configuration must pass
+through the explicit phase before ordinary commands can use it.
+Configuring this publisher alone does not establish a
+working compilation or publication journey. Independent installation and real
+authorized delivery acceptance remain open. Lambda, SQS, retained logs, storage,
+delivery and potential KMS requests still have usage costs. No always-running
+compute is added; each publication retains the existing single batched wildcard
+invalidation and recovery behavior.
 
 Validation for this profile consists of local TypeScript/CDK checks, synthesized
 resource/security assertions, migration plan/tests and sealed Studio release

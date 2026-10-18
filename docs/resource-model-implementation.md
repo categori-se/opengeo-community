@@ -1,5 +1,20 @@
 # Resource model implementation — September 19, 2026
 
+October 17 — Standalone on-demand publication phase accepted offline
+
+The existing CLI/CDK entrypoint accepts closed `nativePublication` metadata with
+complete independent delivery tuples and a dedicated local database secret.
+The retained API digest also supplies the existing publisher. Explicit installation
+names leave managed defaults unchanged. API dispatch and queue consumption default
+off; successful function-only role setup is checkpointed before an explicit enable
+setting can take effect. An interrupted final deployment reuses that role receipt.
+Studio/private-custody destinations and the Studio distribution are rejected.
+Publisher queue exports survive disable/reconfiguration while the API transitions.
+Actual entrypoint synthesis and installer recovery checks pass; no cloud resources,
+compiler or publication job run. Origin registration/authority and admitted compiler
+execution remain incomplete, alongside independent live installation and delivery.
+See [operator instructions](community-aws.md#optional-publication-delivery-setup).
+
 October 17 — Standalone private-preview phase accepted offline
 
 `community-aws.py` accepts closed optional `nativePreview` metadata and a separate

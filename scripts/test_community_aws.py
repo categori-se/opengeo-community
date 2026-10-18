@@ -255,6 +255,131 @@ class DeploymentGuards(unittest.TestCase):
             with patch.object(deployment, "aws", side_effect=AssertionError("No writes")), self.assertRaisesRegex(ValueError, "configured destination"):
                 deployment.upload_preview_shell({"index.html": item})
 
+    def publication_deployment(self, root, enabled=False):
+        publication = {"publisherDatabaseSecretArn": "arn:aws:secretsmanager:us-east-1:123456789012:secret:community/publisher-AbCdEf",
+            "destinations": [{"hostname": "public.example.org", "bucket": "my-publication-pages", "distribution_id": "EPUBLIC",
+                              "origin_id": "publication-pages", "origin_access_control_id": "EOAC"}], "enabled": enabled}
+        config_file = self.config_file(root, nativePublication=publication)
+        deployment = MODULE.Deployment(MODULE.load_config(config_file))
+        deployment.save("web.outputs.json", {"StudioDistributionDomainName": "d123456789.cloudfront.net", "StudioDistributionId": "ESTUDIO"})
+        deployment.save("api.outputs.json", {"ApiEndpoint": "https://abcdefghij.execute-api.us-east-1.amazonaws.com"})
+        deployment.save("images.json", {"api": "sha256:" + "a" * 64, "compiler": "sha256:" + "b" * 64})
+        deployment.save("foundation.outputs.json", {"DatabaseClusterArn": "arn:aws:rds:us-east-1:123456789012:cluster:community",
+            **{key: f"arn:aws:secretsmanager:us-east-1:123456789012:secret:community/{key}-AbCdEf" for key in
+               ("DatabaseSecretArn", "RuntimeDatabaseSecretArn", "WorkerDatabaseSecretArn")}})
+        return config_file, MODULE.Deployment(deployment.cfg)
+
+    def test_publication_config_is_closed_with_unique_explicit_destinations_and_dedicated_arn(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            root = Path(directory)
+            config_file, deployment = self.publication_deployment(root)
+            good = deployment.cfg["nativePublication"]
+            for change in ({"enabled": "false"}, {"privateKey": "never"}, {"destinations": []},
+                           {"publisherDatabaseSecretArn": good["publisherDatabaseSecretArn"].replace("123456789012", "999999999999")},
+                           {"publisherDatabaseSecretArn": good["publisherDatabaseSecretArn"][:-7]},
+                           {"destinations": good["destinations"] * 2},
+                           *[{"destinations": [{**good["destinations"][0], **fields}]} for fields in
+                             ({"hostname": "public.opengeo.tools"}, {"hostname": "public.example.org; img-src *"},
+                              {"distribution_id": "*"}, {"origin_id": "../private"}, {"credential": "never"})]):
+                config_file.write_text(json.dumps({**CONFIG, "nativePublication": {**good, **change}}))
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    MODULE.load_config(config_file)
+
+    def test_publication_metadata_plan_and_offline_synth_do_not_enable_consumption(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            config_file, deployment = self.publication_deployment(Path(directory), enabled=True)
+            self.assertNotIn("OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG", deployment.env)
+            with patch.object(MODULE, "run", side_effect=AssertionError("No external operation in plan")), contextlib.redirect_stdout(io.StringIO()) as output:
+                MODULE.main(["publication", "--config", str(config_file)])
+            self.assertTrue(json.loads(output.getvalue())["nativePublicationConfigured"])
+            with patch.object(MODULE, "run", return_value="") as execute, patch.object(MODULE.Deployment, "identity", side_effect=AssertionError("No cloud")), contextlib.redirect_stdout(io.StringIO()):
+                MODULE.main(["synth", "--with-publication", "--config", str(config_file)])
+            execute.assert_called_once()
+            descriptor = json.loads(execute.call_args.kwargs["env"]["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"])
+            self.assertFalse(descriptor["enabled"])
+            self.assertEqual(execute.call_args.args[0], ["node", "--import", "tsx", "bin/opengeo-community.ts"])
+            self.assertFalse((deployment.state / "publication.intent.json").exists())
+
+    def test_publication_preflight_protects_private_custody_studio_distribution_and_credentials(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            config_file, deployment = self.publication_deployment(Path(directory))
+            good = deployment.cfg["nativePublication"]
+            invalid_targets = [{"hostname": "d123456789.cloudfront.net"}, {"distribution_id": "ESTUDIO"},
+                               *[{"bucket": "my-opengeo-123456789012-" + suffix} for suffix in
+                                 ("us-east-1-app", "us-east-1-data", "us-east-1-studio", "preview-shell")]]
+            invalid = [{"destinations": [{**good["destinations"][0], **target}]} for target in invalid_targets]
+            invalid.append({"publisherDatabaseSecretArn": deployment.read("foundation.outputs.json")["RuntimeDatabaseSecretArn"]})
+            # This fits without the legacy protected hosts but exceeds the real Lambda budget.
+            invalid.append({"destinations": [{"hostname": f"pub{i}." + ".".join(["x" * 60] * 3) + ".example.org",
+                "bucket": "b" * 63, "distribution_id": f"E{i}" + "X" * 30, "origin_id": "o" * 128,
+                "origin_access_control_id": "A" * 32} for i in range(3)]})
+            for change in invalid:
+                config_file.write_text(json.dumps({**CONFIG, "nativePublication": {**good, **change}}))
+                with self.subTest(change=change), patch.object(MODULE.Deployment, "identity", side_effect=AssertionError("No cloud")), self.assertRaises(ValueError):
+                    MODULE.main(["publication", "--apply", "--config", str(config_file)])
+            self.assertFalse((deployment.state / "publication.intent.json").exists())
+
+    def test_publication_identity_dormant_deploy_role_setup_then_explicit_activation(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            config_file, deployment = self.publication_deployment(Path(directory), enabled=True)
+            events = []
+            def identity(instance):
+                self.assertFalse(instance.read("publication.intent.json"))
+                events.append("identity")
+            def deploy(instance, *kinds):
+                intent = instance.read("publication.intent.json")
+                enabled = json.loads(instance.env["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"])["enabled"]
+                events.append((kinds, intent["databaseConfigured"], enabled))
+            def migrate(args, **kwargs):
+                self.assertEqual(args[1], "database/scripts/apply_migrations.py")
+                self.assertIn("--framework-publisher-secret-arn", args)
+                self.assertEqual(args[-1], deployment.cfg["nativePublication"]["publisherDatabaseSecretArn"])
+                self.assertFalse(json.loads(kwargs["env"]["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"])["enabled"])
+                events.append("role-verified")
+            with patch.object(MODULE.Deployment, "identity", identity), patch.object(MODULE.Deployment, "deploy", deploy), patch.object(MODULE, "run", side_effect=migrate):
+                MODULE.main(["publication", "--apply", "--config", str(config_file)])
+            self.assertEqual(events, ["identity", (("Foundation", "FrameworkPublisher"), False, False), "role-verified", (("FrameworkPublisher", "Api"), True, True)])
+            resumed = MODULE.Deployment(MODULE.load_config(config_file))
+            self.assertTrue(json.loads(resumed.env["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"])["enabled"])
+
+    def test_publication_role_failure_preserves_dormant_intent_and_verified_retry_skips_role_write(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            config_file, deployment = self.publication_deployment(Path(directory), enabled=True)
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy"), patch.object(MODULE, "run", side_effect=RuntimeError("role setup failed")), self.assertRaisesRegex(RuntimeError, "role setup failed"):
+                MODULE.main(["publication", "--apply", "--config", str(config_file)])
+            resumed = MODULE.Deployment(MODULE.load_config(config_file))
+            self.assertFalse(resumed.read("publication.intent.json")["databaseConfigured"])
+            self.assertFalse(json.loads(resumed.env["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"])["enabled"])
+            # A successful role setup is checkpointed before the final deployment.
+            def fail_activation(instance, *kinds):
+                if kinds == ("FrameworkPublisher", "Api"):
+                    raise RuntimeError("activation deployment interrupted")
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy", fail_activation), patch.object(MODULE, "run", return_value=""), self.assertRaisesRegex(RuntimeError, "activation deployment interrupted"):
+                MODULE.main(["publication", "--apply", "--config", str(config_file)])
+            self.assertTrue(resumed.read("publication.intent.json")["databaseConfigured"])
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy") as deploy, patch.object(MODULE, "run", side_effect=AssertionError("No repeated role setup")):
+                MODULE.main(["publication", "--apply", "--config", str(config_file)])
+            deploy.assert_called_once_with("FrameworkPublisher", "Api")
+
+    def test_publication_stays_disabled_by_default_and_configuration_changes_are_explicit(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            config_file, deployment = self.publication_deployment(Path(directory))
+            with patch.object(MODULE.Deployment, "identity"), patch.object(MODULE.Deployment, "deploy"), patch.object(MODULE, "run", return_value=""):
+                MODULE.main(["publication", "--apply", "--config", str(config_file)])
+            resumed = MODULE.Deployment(MODULE.load_config(config_file))
+            self.assertFalse(json.loads(resumed.env["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"])["enabled"])
+            for cfg in ({**CONFIG}, {**deployment.cfg, "nativePublication": {**deployment.cfg["nativePublication"], "enabled": True}}):
+                config_file.write_text(json.dumps(cfg))
+                with self.subTest(cfg=cfg), self.assertRaises(ValueError):
+                    MODULE.Deployment(MODULE.load_config(config_file))
+
+    def test_wrong_account_cannot_record_publication_intent_or_configure_role(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
+            config_file, deployment = self.publication_deployment(Path(directory))
+            with patch.object(MODULE.Deployment, "aws", return_value={"Account": "999999999999"}), patch.object(MODULE.Deployment, "deploy", side_effect=AssertionError("No deploy")), patch.object(MODULE, "run", side_effect=AssertionError("No role configuration")), self.assertRaisesRegex(ValueError, "no changes made"):
+                MODULE.main(["publication", "--apply", "--config", str(config_file)])
+            self.assertFalse(deployment.read("publication.intent.json"))
+
 
 if __name__ == "__main__":
     unittest.main()

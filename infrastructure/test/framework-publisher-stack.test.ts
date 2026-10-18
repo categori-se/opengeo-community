@@ -6,7 +6,7 @@ import {environmentConfig} from "../lib/config.js";
 import {FrameworkPublisherStack} from "../lib/framework-publisher-stack.js";
 import {PlatformFoundationStack} from "../lib/platform-foundation-stack.js";
 
-function multiHostTemplate(destinations: any[], protectedHosts: string[] = []) {
+function multiHostTemplate(destinations: any[], protectedHosts: string[] = [], resourceNamePrefix?: string) {
   const app = new App();
   const config = environmentConfig("dev", "http://localhost:3000");
   const env = {account: "111111111111", region: "us-east-1"};
@@ -17,7 +17,7 @@ function multiHostTemplate(destinations: any[], protectedHosts: string[] = []) {
   return Template.fromStack(new FrameworkPublisherStack(app, "Publisher", {
     config, foundation, env, imageDigest: `sha256:${"a".repeat(64)}`,
     publisherDatabaseSecretArn: "arn:aws:secretsmanager:us-east-1:111111111111:secret:opengeo/publisher-Abc123",
-    publicBucket: "opengeo.tools", distributionId: "EXAMPLE", destinations, protectedHosts
+    publicBucket: "opengeo.tools", distributionId: "EXAMPLE", destinations, protectedHosts, resourceNamePrefix
   }));
 }
 
@@ -29,6 +29,7 @@ const targets = [
 test("multi-host configuration and permissions contain only explicitly paired targets", () => {
   const template = multiHostTemplate(targets);
   template.hasResourceProperties("AWS::Lambda::Function", {
+    FunctionName: "opengeo-dev-framework-publisher",
     Environment: {Variables: {
       OPEN_GEO_FRAMEWORK_PUBLICATION_DESTINATIONS: JSON.stringify(targets),
       OPEN_GEO_FRAMEWORK_PUBLICATION_PROTECTED_HOSTS: "[]"
@@ -86,6 +87,8 @@ test("publisher is on-demand, defaults off and cannot overwrite existing release
   template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
     Enabled: false, BatchSize: 1, FunctionResponseTypes: ["ReportBatchItemFailures"]
   });
+  template.hasResourceProperties("AWS::SQS::Queue", {QueueName: "opengeo-dev-framework-publications"});
+  template.hasResourceProperties("AWS::Logs::LogGroup", {LogGroupName: "/opengeo/dev/framework-publisher"});
   for (const type of ["AWS::EC2::Instance", "AWS::EC2::VPCEndpoint", "AWS::EC2::NatGateway", "AWS::ECS::Service", "AWS::Lambda::Version"]) {
     template.resourceCountIs(type, 0);
   }
@@ -100,4 +103,17 @@ test("publisher is on-demand, defaults off and cannot overwrite existing release
   const edge = statements.filter(statement => actions(statement).includes("cloudfront:UpdateDistribution"));
   assert.equal(edge.length, 1);
   assert.match(JSON.stringify(edge[0].Resource), /distribution\/EXAMPLE/);
+});
+
+test("publisher physical names can belong to an independent installation without changing legacy names", () => {
+  const prefix = `community-${"a".repeat(38)}`;
+  assert.equal(prefix.length, 48);
+  const template = multiHostTemplate(targets, [], prefix);
+  template.hasResourceProperties("AWS::Lambda::Function", {FunctionName: `${prefix}-publisher`});
+  template.hasResourceProperties("AWS::SQS::Queue", {QueueName: `${prefix}-framework-publications`});
+  template.hasResourceProperties("AWS::SQS::Queue", {QueueName: `${prefix}-framework-publications-dlq`});
+  template.hasResourceProperties("AWS::Logs::LogGroup", {LogGroupName: `/opengeo/${prefix}/framework-publisher`});
+  for (const invalid of ["", "Uppercase", "9community", "community-", "community--one", "a".repeat(49)]) {
+    assert.throws(() => multiHostTemplate(targets, [], invalid), /Publisher resource-name prefix/);
+  }
 });

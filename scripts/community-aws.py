@@ -20,14 +20,14 @@ import tempfile
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "preview", "studio", "owner", "status", "rollback")
+STEPS = ("plan", "synth", "bootstrap", "web", "foundation", "images", "database", "runtime", "preview", "publication", "studio", "owner", "status", "rollback")
 
 
 def load_config(path: Path) -> dict:
     cfg = json.loads(path.read_text())
     required = {"account", "region", "name", "profile", "budgetAlertEmail"}
-    if not isinstance(cfg, dict) or not required <= cfg.keys() or cfg.keys() - (required | {"withWorker", "nativePreview"}):
-        raise ValueError("config requires account, region, name, profile, budgetAlertEmail; optional withWorker/nativePreview")
+    if not isinstance(cfg, dict) or not required <= cfg.keys() or cfg.keys() - (required | {"withWorker", "nativePreview", "nativePublication"}):
+        raise ValueError("config requires account, region, name, profile, budgetAlertEmail; optional withWorker/nativePreview/nativePublication")
     if not re.fullmatch(r"[0-9]{12}", str(cfg["account"])) or not isinstance(cfg["account"], str):
         raise ValueError("account must be an explicit 12-digit string")
     if cfg["region"] != "us-east-1":
@@ -59,6 +59,31 @@ def load_config(path: Path) -> dict:
         if not re.fullmatch(r"arn:aws:secretsmanager:us-east-1:" + cfg["account"] + r":secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}", preview["privateKeySecretArn"]):
             raise ValueError("nativePreview signing secret must be a complete same-account us-east-1 ARN")
         cfg["nativePreview"] = {**preview, "publicKeyPath": str((path.parent / preview["publicKeyPath"]).resolve())}
+    if "nativePublication" in cfg:
+        publication = cfg["nativePublication"]
+        if (not isinstance(publication, dict) or not {"publisherDatabaseSecretArn", "destinations"} <= publication.keys()
+                or publication.keys() - {"publisherDatabaseSecretArn", "destinations", "enabled"}
+                or type(publication.get("enabled", False)) is not bool
+                or not isinstance(publication.get("publisherDatabaseSecretArn"), str)
+                or not re.fullmatch(r"arn:aws:secretsmanager:us-east-1:" + cfg["account"] + r":secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}", publication["publisherDatabaseSecretArn"])):
+            raise ValueError("nativePublication requires a dedicated complete same-account secret ARN, destinations and optional boolean enabled")
+        targets = publication["destinations"]
+        fields = {"hostname", "bucket", "distribution_id", "origin_id"}
+        if not isinstance(targets, list) or not 1 <= len(targets) <= 12:
+            raise ValueError("nativePublication requires 1–12 explicit destinations")
+        for target in targets:
+            if (not isinstance(target, dict) or not fields <= target.keys() or target.keys() - (fields | {"origin_access_control_id"})
+                    or any(not isinstance(value, str) or not value or len(value) > 253 for value in target.values())
+                    or not re.fullmatch(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?", target["hostname"])
+                    or target["hostname"] == "opengeo.tools" or target["hostname"].endswith(".opengeo.tools")
+                    or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", target["bucket"])
+                    or not re.fullmatch(r"[A-Z0-9]{1,32}", target["distribution_id"])
+                    or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", target["origin_id"])
+                    or ("origin_access_control_id" in target and not re.fullmatch(r"[A-Z0-9]{1,32}", target["origin_access_control_id"]))):
+                raise ValueError("nativePublication destination identity is invalid")
+        if len({target["hostname"] for target in targets}) != len(targets) or len({target["distribution_id"] for target in targets}) != len(targets):
+            raise ValueError("nativePublication destinations require unique hosts and distributions")
+        cfg["nativePublication"] = {**publication, "enabled": publication.get("enabled", False)}
     return cfg
 
 
@@ -77,7 +102,7 @@ def write_json(path: Path, value: dict):
 
 
 class Deployment:
-    def __init__(self, cfg: dict, *, allow_preview_change=False):
+    def __init__(self, cfg: dict, *, allow_preview_change=False, allow_publication_change=False):
         self.cfg = cfg
         self.state = ROOT / ".opengeo" / "aws" / cfg["name"]
         self.prefix = f"OpenGeoCommunity-{cfg['name']}"
@@ -97,6 +122,10 @@ class Deployment:
             if not re.fullmatch(r"d[a-z0-9]{5,30}\.cloudfront\.net", domain):
                 raise ValueError("invalid retained CloudFront domain")
             self.env["OPEN_GEO_COMMUNITY_WEB_ORIGIN"] = f"https://{domain}"
+            if "StudioDistributionId" in web:
+                if not re.fullmatch(r"[A-Z0-9]{1,32}", web["StudioDistributionId"]):
+                    raise ValueError("invalid retained Studio distribution ID")
+                self.env["OPEN_GEO_COMMUNITY_WEB_DISTRIBUTION_ID"] = web["StudioDistributionId"]
         images = self.read("images.json")
         for key, variable in (("api", "OPEN_GEO_API_IMAGE"), ("compiler", "OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST"), ("worker", "OPEN_GEO_WORKER_IMAGE")):
             if key in images and (key != "worker" or cfg.get("withWorker")):
@@ -115,6 +144,60 @@ class Deployment:
             current = self.prepare_preview()
             if not allow_preview_change and intent != current:
                 raise ValueError("nativePreview differs from retained intent; use the explicit preview step to change it")
+        self.publication_manifest = None
+        intent = self.read("publication.intent.json")
+        if intent:
+            current = self.prepare_publication()
+            matching = current == {key: intent.get(key) for key in current}
+            if not allow_publication_change and not matching:
+                raise ValueError("nativePublication differs from retained intent; use the explicit publication step to change it")
+            self.publication_environment(matching and intent.get("databaseConfigured") is True)
+
+    def prepare_publication(self):
+        if self.publication_manifest is not None:
+            return self.publication_manifest
+        publication = self.cfg.get("nativePublication")
+        if not publication:
+            raise ValueError("nativePublication configuration is required; retained publication resources cannot be silently disabled")
+        web = self.need("web.outputs.json")
+        self.need("api.outputs.json")
+        foundation = self.need("foundation.outputs.json")
+        if not all(isinstance(foundation.get(key), str) and foundation[key] for key in
+                   ("DatabaseClusterArn", "DatabaseSecretArn", "RuntimeDatabaseSecretArn", "WorkerDatabaseSecretArn")):
+            raise ValueError("nativePublication requires retained database and role outputs")
+        images = self.need("images.json")
+        if not {"api", "compiler"} <= images.keys():
+            raise ValueError("nativePublication requires both retained immutable images")
+        distribution_id = web.get("StudioDistributionId")
+        if not isinstance(distribution_id, str) or not re.fullmatch(r"[A-Z0-9]{1,32}", distribution_id):
+            raise ValueError("nativePublication requires the retained Studio distribution ID")
+        secret = publication["publisherDatabaseSecretArn"]
+        if secret in {foundation.get(key) for key in ("DatabaseSecretArn", "RuntimeDatabaseSecretArn", "WorkerDatabaseSecretArn")}:
+            raise ValueError("nativePublication requires a dedicated publisher credential")
+        protected_hosts = {urlsplit(self.env["OPEN_GEO_COMMUNITY_WEB_ORIGIN"]).hostname,
+                           self.env["OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN"]}
+        preview = self.cfg.get("nativePreview", {})
+        protected_hosts.update(value for key, value in preview.items() if key in {"domainName", "publicMapsDomainName"})
+        stem = f"{self.cfg['name']}-{self.cfg['account']}"
+        protected_buckets = {f"{stem}-{self.cfg['region']}-{suffix}" for suffix in ("app", "data", "studio")}
+        protected_buckets.add(stem + "-preview-shell")
+        for target in publication["destinations"]:
+            if target["hostname"] in protected_hosts or target["bucket"] in protected_buckets or target["distribution_id"] == distribution_id:
+                raise ValueError("nativePublication cannot target Studio, API, preview or private data custody")
+        budget_hosts = sorted(protected_hosts | {"studio.opengeo.tools", "preview.studio.opengeo.tools", "demo.studio.opengeo.tools"})
+        if len(json.dumps(publication["destinations"], separators=(",", ":")).encode()) + len(json.dumps(budget_hosts, separators=(",", ":")).encode()) > 1800:
+            raise ValueError("nativePublication destinations exceed the environment budget")
+        self.publication_manifest = {"schemaVersion": 1, "configuration": publication,
+            "studioOrigin": self.env["OPEN_GEO_COMMUNITY_WEB_ORIGIN"],
+            "studioDistributionId": distribution_id, "apiOriginDomain": self.env["OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN"],
+            "databaseClusterArn": foundation["DatabaseClusterArn"]}
+        self.publication_environment(False)
+        return self.publication_manifest
+
+    def publication_environment(self, database_configured):
+        publication = self.cfg["nativePublication"]
+        self.env["OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG"] = json.dumps({**publication,
+            "enabled": database_configured and publication["enabled"]})
 
     def prepare_preview(self):
         if self.preview_manifest is not None:
@@ -334,6 +417,7 @@ def main(argv=None):
     parser.add_argument("step", choices=STEPS)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--with-preview", action="store_true", help="include configured previews in offline synthesis only")
+    parser.add_argument("--with-publication", action="store_true", help="include configured on-demand publisher in offline synthesis only")
     parser.add_argument("--apply", action="store_true", help="execute this one step; otherwise print an offline plan")
     parser.add_argument("--component", choices=("api", "compiler", "worker", "all"), default="all")
     parser.add_argument("--execution-policy-arn", help="explicit managed CloudFormation execution policy for bootstrap")
@@ -345,17 +429,23 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.with_preview and args.step != "synth":
         raise ValueError("--with-preview belongs only to offline synth")
-    deployment = Deployment(load_config(args.config), allow_preview_change=args.step == "preview" and args.apply)
+    if args.with_publication and args.step != "synth":
+        raise ValueError("--with-publication belongs only to offline synth")
+    deployment = Deployment(load_config(args.config), allow_preview_change=args.step == "preview" and args.apply,
+                            allow_publication_change=args.step == "publication" and args.apply)
     if args.step == "plan" or (not args.apply and args.step != "synth"):
         print(json.dumps({"mode": "offline-plan", "step": args.step, "account": deployment.cfg["account"],
             "region": deployment.cfg["region"], "name": deployment.cfg["name"], "withWorker": deployment.cfg.get("withWorker", False),
             "nativePreviewConfigured": "nativePreview" in deployment.cfg,
-            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", *(["preview"] if "nativePreview" in deployment.cfg else []), "web", "studio", "owner", "status"],
+            "nativePublicationConfigured": "nativePublication" in deployment.cfg,
+            "order": ["synth", "bootstrap", "web", "foundation", "images", "database", "runtime", *(["preview"] if "nativePreview" in deployment.cfg else []), *(["publication"] if "nativePublication" in deployment.cfg else []), "web", "studio", "owner", "status"],
             "next": "Read docs/community-aws.md; --apply runs only the named step. synth is offline."}, indent=2))
         return 0
     if args.step == "synth":
         if args.with_preview:
             deployment.prepare_preview()
+        if args.with_publication:
+            deployment.prepare_publication()
         # Invoke the app directly so synthesis cannot query AWS credentials/context.
         run(["node", "--import", "tsx", "bin/opengeo-community.ts"], env=deployment.env, cwd=ROOT / "infrastructure")
         print("Offline CloudFormation assembly written to infrastructure/cdk.out")
@@ -367,6 +457,8 @@ def main(argv=None):
     if args.step == "preview":
         preview_intent = deployment.prepare_preview()
         preview_files = deployment.preview_shell()
+    if args.step == "publication":
+        publication_intent = deployment.prepare_publication()
     deployment.identity()
     if args.step == "bootstrap":
         deployment.cdk("bootstrap", f"aws://{deployment.cfg['account']}/{deployment.cfg['region']}", "--cloudformation-execution-policies", args.execution_policy_arn)
@@ -395,6 +487,20 @@ def main(argv=None):
         deployment.save("preview.intent.json", preview_intent)
         deployment.deploy("Foundation", "Api", "Web")
         deployment.upload_preview_shell(preview_files)
+    elif args.step == "publication":
+        retained = deployment.read("publication.intent.json")
+        ready = retained.get("databaseConfigured") is True and publication_intent == {key: retained.get(key) for key in publication_intent}
+        if not ready:
+            # Install a dormant consumer before configuring its function-only login.
+            deployment.publication_environment(False)
+            deployment.save("publication.intent.json", {**publication_intent, "databaseConfigured": False})
+            deployment.deploy("Foundation", "FrameworkPublisher")
+            run([sys.executable, "database/scripts/apply_migrations.py", "--apply", *deployment.database_args(),
+                 "--worker-secret-arn", deployment.need("foundation.outputs.json")["WorkerDatabaseSecretArn"],
+                 "--framework-publisher-secret-arn", deployment.cfg["nativePublication"]["publisherDatabaseSecretArn"]], env=deployment.env)
+            deployment.save("publication.intent.json", {**publication_intent, "databaseConfigured": True})
+        deployment.publication_environment(True)
+        deployment.deploy("FrameworkPublisher", "Api")
     elif args.step == "studio":
         deployment.need("api.outputs.json")
         env = deployment.studio_env()
@@ -420,7 +526,7 @@ def main(argv=None):
             "--organization-name", args.organization_name, "--organization-slug", args.organization_slug,
             "--project-name", "Community content", "--project-code", "community-content"], env=deployment.env)
     elif args.step == "status":
-        for kind in ("Web", "Foundation", "Api"):
+        for kind in ("Web", "Foundation", "Api", *(["FrameworkPublisher"] if deployment.publication_manifest else [])):
             outputs = deployment.outputs(kind)
             print(json.dumps({"stack": f"{deployment.prefix}-{kind}", "outputs": outputs}, indent=2))
     return 0

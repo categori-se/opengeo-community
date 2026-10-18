@@ -1,5 +1,19 @@
 # Resource model: active plan and continuation queue
 
+October 17 — Standalone installer connects the on-demand publication worker
+
+The optional publication phase now reuses the retained API image and existing
+publisher with explicit independent destinations and installation-specific names.
+Consumption defaults off. Account verification and retained intent precede stack
+changes; the dedicated database role must pass setup before explicit activation.
+Continuation reuses successful role setup and preserves queue exports during
+reconfiguration. Focused installer/CDK checks and TypeScript pass locally. No AWS,
+Actions, runtime or application/image build is used.
+Next, connect operator registration of authorized publication origins and an admitted
+compiler route. The private runner still needs its reviewed ARM64 image, host and
+Artifact network access; GitHub execution remains bound to managed account resources.
+Independent installation and configured identity/HTTPS/CDN acceptance remain open.
+
 October 17 — Standalone installer connects optional private previews
 
 The existing installer now carries an explicit account-local preview descriptor
@@ -9,7 +23,8 @@ verifies the account, retains intent before deployment and preserves interrupted
 shell uploads without replaying completed writes. The uploaded draft shell accepts
 only the configured Studio origin. Eighteen Python checks, seven selected CDK
 cases and TypeScript pass offline. No AWS, Actions, runtime or build is used.
-Next, finish native runtime and publication-destination setup through this installer.
+The on-demand publisher connection is now accepted offline as recorded above;
+native runtime and publication-origin registration remain.
 Independent operator installation and configured identity/HTTPS/CDN delivery remain
 open; reuse accepted core, compiler and study results.
 

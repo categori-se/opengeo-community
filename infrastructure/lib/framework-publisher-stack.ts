@@ -23,6 +23,8 @@ export interface FrameworkPublisherStackProps extends StackProps {
   readonly publicBucket: string;
   readonly distributionId: string;
   readonly enabled?: boolean;
+  /** Installation-specific physical names; omission preserves existing deployments. */
+  readonly resourceNamePrefix?: string;
   /** Explicit reviewed targets; omitted retains the legacy single-host worker. */
   readonly destinations?: readonly PublicationDestination[];
   readonly protectedHosts?: readonly string[];
@@ -36,6 +38,11 @@ export class FrameworkPublisherStack extends Stack {
   constructor(scope: Construct, id: string, props: FrameworkPublisherStackProps) {
     super(scope, id, props);
     const {config, foundation} = props;
+    if (props.resourceNamePrefix !== undefined &&
+        (props.resourceNamePrefix.length > 48 || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(props.resourceNamePrefix))) {
+      throw new Error("Publisher resource-name prefix must be a lowercase hyphenated name of at most 48 characters");
+    }
+    const resourceNamePrefix = props.resourceNamePrefix ?? `opengeo-${config.stage}`;
     if (props.protectedHosts !== undefined && (!Array.isArray(props.protectedHosts) ||
         props.protectedHosts.some(host => typeof host !== "string" || !host))) {
       throw new Error("Invalid protected publication hosts");
@@ -76,23 +83,24 @@ export class FrameworkPublisherStack extends Stack {
     const secret = /^arn:aws:secretsmanager:([^:]+):([0-9]{12}):secret:[A-Za-z0-9/_+=.@-]+$/.exec(props.publisherDatabaseSecretArn);
     if (secret?.[1] !== this.region || secret?.[2] !== this.account) throw new Error("Publisher credential must be local to this account and region");
     const deadLetters = new sqs.Queue(this, "DeadLetters", {
-      queueName: `opengeo-${config.stage}-framework-publications-dlq`,
+      queueName: `${resourceNamePrefix}-framework-publications-dlq`,
       encryption: sqs.QueueEncryption.SQS_MANAGED, enforceSSL: true,
       retentionPeriod: Duration.days(14), removalPolicy: RemovalPolicy.RETAIN
     });
     this.queue = new sqs.Queue(this, "Queue", {
-      queueName: `opengeo-${config.stage}-framework-publications`,
+      queueName: `${resourceNamePrefix}-framework-publications`,
       encryption: sqs.QueueEncryption.SQS_MANAGED, enforceSSL: true,
       visibilityTimeout: Duration.minutes(90), receiveMessageWaitTime: Duration.seconds(20),
       retentionPeriod: Duration.days(4), deadLetterQueue: {queue: deadLetters, maxReceiveCount: 100},
       removalPolicy: RemovalPolicy.RETAIN
     });
     const logGroup = new logs.LogGroup(this, "Logs", {
-      logGroupName: `/opengeo/${config.stage}/framework-publisher`,
+      logGroupName: `/opengeo/${props.resourceNamePrefix ?? config.stage}/framework-publisher`,
       retention: logs.RetentionDays.ONE_WEEK, removalPolicy: RemovalPolicy.RETAIN
     });
     this.publisher = new lambda.DockerImageFunction(this, "Publisher", {
-      functionName: `opengeo-${config.stage}-framework-publisher`,
+      functionName: props.resourceNamePrefix === undefined
+        ? `${resourceNamePrefix}-framework-publisher` : `${resourceNamePrefix}-publisher`,
       description: "Publishes exact approved Framework artifacts; does not compile or access GitHub",
       code: lambda.DockerImageCode.fromEcr(foundation.apiRepository, {
         tagOrDigest: props.imageDigest, cmd: ["opengeo_api.framework_publication_controller.handler"]

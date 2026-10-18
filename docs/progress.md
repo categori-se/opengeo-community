@@ -1,3 +1,36 @@
+## October 17 — Standalone installer connects on-demand publication delivery
+
+The existing installer now passes explicit independent destination identities and
+a dedicated publisher secret through its real CDK entrypoint. It reuses the API
+image and existing Lambda/SQS publisher; optional installation names preserve the
+managed defaults. Configuration alone creates no resources. Consumption defaults
+off, and the API receives dispatch authority only after verified database-role
+setup and an explicit enable setting. Retained intent precedes stack changes;
+continuation reuses successful role setup after an interrupted final deployment.
+Studio distribution/hosts and private storage destinations are rejected.
+
+Initial checks pass: 25 Python cases in 0.374 seconds and 14 CDK cases in 21.177
+seconds, plus TypeScript. Review finds that disabling an active publisher could
+remove queue exports before its API consumer stops importing them. Explicitly
+retaining the same exports fixes that transition. The two owning entrypoint cases
+pass in 6.324 seconds and verify identical export identities; twelve unchanged
+passing cases are reused. Python's size preflight also now includes all fixed
+protected hosts, stopping an oversized descriptor before account access. The
+reviewed Python suite passes in 0.338 seconds; final TypeScript takes 3.825 seconds.
+
+The installer does not register publication origins or supply an admitted compiler.
+The private runner still requires a reviewed ARM64 AMI/compiler, host acceptance
+and Artifact network access; the current standalone compiler image is AMD64.
+GitHub execution still binds managed account resources and cannot simply be enabled
+for another account. These remain concrete unfinished installation requirements,
+alongside independent operator and real identity/HTTPS/CDN delivery acceptance.
+
+The existing installation manifest retains this finite scope, review corrections
+and cumulative usage. No dependency install, package request, application/image
+build, runtime container, AWS, KMS, Actions or invalidation is used. Agent effort
+and dollar cost are unavailable. Reuse accepted core/compiler/study results;
+main merging still awaits known free Actions capacity.
+
 ## October 17 — Standalone installer connects private-preview configuration
 
 The existing CLI now offers an explicit optional preview phase after the core

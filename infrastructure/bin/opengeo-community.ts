@@ -7,6 +7,7 @@ import {PrivateRuntimeEndpointsStack} from "../lib/private-runtime-endpoints-sta
 import {ServerlessApiStack} from "../lib/serverless-api-stack.js";
 import {StudioWebStack} from "../lib/studio-web-stack.js";
 import {WorkerServiceStack} from "../lib/worker-service-stack.js";
+import {FrameworkPublisherStack, type PublicationDestination} from "../lib/framework-publisher-stack.js";
 
 // This profile reuses the maintained platform stacks with account-local identity
 // and storage. Deploy Web first, then use its concrete CloudFront URL as the
@@ -45,11 +46,12 @@ const apiOriginDomain = process.env.OPEN_GEO_COMMUNITY_API_ORIGIN_DOMAIN;
 const apiImage = process.env.OPEN_GEO_API_IMAGE;
 const compilerImage = process.env.OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST;
 const nativePreview = previewConfiguration(process.env.OPEN_GEO_COMMUNITY_PREVIEW_CONFIG, account);
-if (nativePreview !== undefined) {
+const publicationRaw = process.env.OPEN_GEO_COMMUNITY_PUBLICATION_CONFIG;
+if (nativePreview !== undefined || publicationRaw !== undefined) {
   if (webOrigin === undefined || !apiOriginDomain ||
       !/^[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com$/.test(apiOriginDomain) ||
       apiImage === undefined || compilerImage === undefined) {
-    throw new Error("Community preview requires existing concrete Studio/API origins and both immutable runtime images");
+    throw new Error(`Community ${nativePreview !== undefined ? "preview" : "publication"} requires existing concrete Studio/API origins and both immutable runtime images`);
   }
   parseImageTagOrDigest(apiImage);
   parseImageTagOrDigest(compilerImage);
@@ -67,6 +69,17 @@ if (webOrigin !== undefined) {
   }
 }
 const [dnsRecordHost, ...zoneParts] = hostname.split(".");
+const protectedPublicationHosts = [...new Set([hostname, apiOriginDomain,
+  nativePreview?.domainName, nativePreview?.publicMapsDomainName]
+  .filter((value): value is string => value !== undefined))];
+const nativePublication = publicationConfiguration(publicationRaw, account, {
+  distributionId: process.env.OPEN_GEO_COMMUNITY_WEB_DISTRIBUTION_ID,
+  protectedHosts: protectedPublicationHosts,
+  protectedBuckets: [
+    `${name}-${account}-${region}-app`, `${name}-${account}-${region}-data`,
+    `${name}-${account}-${region}-studio`, `${name}-${account}-preview-shell`
+  ]
+});
 new StudioWebStack(app, `${stem}-Web`, {
   env,
   communityDeployment: true,
@@ -120,11 +133,25 @@ if (webOrigin !== undefined) {
   if ((apiImage === undefined) !== (compilerImage === undefined)) {
     throw new Error("Community API and Observable builder immutable digests must be supplied together");
   }
+  const publisher = nativePublication === undefined ? undefined : new FrameworkPublisherStack(app, `${stem}-FrameworkPublisher`, {
+    env, config, foundation, imageDigest: parseImageTagOrDigest(apiImage),
+    publisherDatabaseSecretArn: nativePublication.publisherDatabaseSecretArn,
+    publicBucket: nativePublication.destinations[0]!.bucket,
+    distributionId: nativePublication.destinations[0]!.distribution_id,
+    destinations: nativePublication.destinations, protectedHosts: protectedPublicationHosts,
+    resourceNamePrefix: `og-${name}`, enabled: nativePublication.enabled === true
+  });
+  if (publisher !== undefined) {
+    // Keep exports while disabling the publisher before the API drops its imports.
+    publisher.exportValue(publisher.queue.queueArn);
+    publisher.exportValue(publisher.queue.queueUrl);
+  }
   if (apiImage !== undefined) {
     new ServerlessApiStack(app, `${stem}-Api`, {
       env, config, foundation,
       imageDigest: parseImageTagOrDigest(apiImage),
       observableBuilderImageDigest: parseImageTagOrDigest(compilerImage),
+      ...(nativePublication?.enabled === true && publisher ? {frameworkPublicationQueue: publisher.queue} : {}),
       ...(nativePreview ? {observablePreviewPrivateKeySecretArn: nativePreview.privateKeySecretArn} : {})
     });
   }
@@ -177,6 +204,62 @@ function previewConfiguration(raw: string | undefined, deploymentAccount: string
   if (value.publicKeyPem.length > 8192 ||
       !/^-----BEGIN (?:RSA )?PUBLIC KEY-----\r?\n[A-Za-z0-9+/=\r\n]+-----END (?:RSA )?PUBLIC KEY-----\r?\n$/.test(value.publicKeyPem)) {
     throw new Error("Community preview configuration accepts only a public-key PEM, never private key material");
+  }
+  return value;
+}
+
+interface CommunityPublicationConfiguration {
+  readonly publisherDatabaseSecretArn: string;
+  readonly destinations: readonly PublicationDestination[];
+  readonly enabled?: boolean;
+}
+
+function publicationConfiguration(raw: string | undefined, deploymentAccount: string, boundary: {
+  distributionId: string | undefined;
+  protectedHosts: readonly string[];
+  protectedBuckets: readonly string[];
+}): CommunityPublicationConfiguration | undefined {
+  if (raw === undefined) return undefined;
+  if (Buffer.byteLength(raw) > 16_384) throw new Error("Community publication configuration exceeds its bound");
+  let value: CommunityPublicationConfiguration;
+  try { value = JSON.parse(raw); }
+  catch { throw new Error("Community publication configuration must be a closed JSON object"); }
+  if (value === null || typeof value !== "object" || Array.isArray(value) ||
+      !["destinations,publisherDatabaseSecretArn", "destinations,enabled,publisherDatabaseSecretArn"]
+        .includes(Object.keys(value).sort().join(",")) ||
+      typeof value.publisherDatabaseSecretArn !== "string" ||
+      ("enabled" in value && typeof value.enabled !== "boolean")) {
+    throw new Error("Community publication configuration must be a closed JSON object");
+  }
+  if (!new RegExp(`^arn:aws:secretsmanager:us-east-1:${deploymentAccount}:secret:[A-Za-z0-9/_+=.@-]+-[A-Za-z0-9]{6}$`)
+      .test(value.publisherDatabaseSecretArn)) {
+    throw new Error("Community publisher credential must be a complete same-account us-east-1 secret ARN with a complete secret suffix");
+  }
+  if (!/^[A-Z0-9]{1,32}$/.test(boundary.distributionId ?? "")) {
+    throw new Error("Community publication requires the retained concrete Studio distribution ID");
+  }
+  const targets = value.destinations;
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > 12 ||
+      targets.some(target => target === null || typeof target !== "object" || Array.isArray(target) ||
+        !["bucket,distribution_id,hostname,origin_id", "bucket,distribution_id,hostname,origin_access_control_id,origin_id"]
+          .includes(Object.keys(target).sort().join(",")) ||
+        Object.values(target).some(item => typeof item !== "string" || !item) ||
+        !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(target.hostname) ||
+        target.hostname === "opengeo.tools" || target.hostname.endsWith(".opengeo.tools") ||
+        boundary.protectedHosts.includes(target.hostname) ||
+        !/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(target.bucket) ||
+        boundary.protectedBuckets.includes(target.bucket) ||
+        !/^[A-Z0-9]{1,32}$/.test(target.distribution_id) || target.distribution_id === boundary.distributionId ||
+        !/^[A-Za-z0-9_.-]{1,128}$/.test(target.origin_id) ||
+        (target.origin_access_control_id !== undefined && !/^[A-Z0-9]{1,32}$/.test(target.origin_access_control_id))) ||
+      new Set(targets.map(target => target.hostname)).size !== targets.length ||
+      new Set(targets.map(target => target.distribution_id)).size !== targets.length) {
+    throw new Error("Community publication destinations must be complete, distinct independent hosting targets outside Studio, API, previews and private storage");
+  }
+  const protectedHosts = ["studio.opengeo.tools", "preview.studio.opengeo.tools", "demo.studio.opengeo.tools",
+    ...boundary.protectedHosts];
+  if (Buffer.byteLength(JSON.stringify(targets)) + Buffer.byteLength(JSON.stringify(protectedHosts)) > 1800) {
+    throw new Error("Publication destination configuration exceeds environment budget");
   }
   return value;
 }
