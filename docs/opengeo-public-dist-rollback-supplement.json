@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "opengeo.public-legacy-rollback-supplement.1.0.0",
+  "bucket": "opengeo.tools",
+  "originPath": "/dist",
+  "baseManifestPath": "dist/opengeo-public-bundle.json",
+  "expectedBaseArtifactCount": 106,
+  "expectedBaseAliasCount": 34,
+  "objects": [
+    {
+      "path": "_observablehq/minisearch.d4811155.json",
+      "bytes": 71067,
+      "sha256": "d48111555a8e6dd7d38cbcd2a9399542f4d6acd089ac24b679444b9e2af7a98c"
+    },
+    {
+      "path": "_observablehq/search.9890d3ec.js",
+      "bytes": 32664,
+      "sha256": "26388a850f5c42ee907dc30cf2aad4d57b4945f650bb70f32fef3011570facb7"
+    }
+  ],
+  "manifestSha256": "d590361f6103b9bcd5d291f9cf5dfd744d5558cdf8037e5dcba1caa741da12b1"
+}

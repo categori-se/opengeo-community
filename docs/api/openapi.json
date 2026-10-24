@@ -172,7 +172,8 @@
               "intersection",
               "measure",
               "join-summary",
-              "select-by-location"
+              "select-by-location",
+              "building-reconcile"
             ],
             "title": "Operation",
             "type": "string"

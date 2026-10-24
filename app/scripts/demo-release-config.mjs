@@ -4,6 +4,7 @@ import {sha256} from './release-utils.mjs';
 import {CESIUM_RUNTIME, CESIUM_FRAME_PATH} from '../src/lib/cesiumRuntime.js';
 import {CESIUM_FONT_ROOT, CESIUM_FONT_SHA256} from '../src/lib/cesiumLabels.js';
 import {MAPBOX_RUNTIME} from '../src/lib/mapboxRuntime.js';
+import {withoutRendererFrameBehavior} from './studio-edge-boundary.mjs';
 
 // Shared Workbench adapters are part of the core; optional SDKs have a separate,
 // exact source inventory. The shared publication editor/compilers add 29 files;
@@ -49,6 +50,36 @@ export function demoSurface(environment, requested) {
     throw Error('Demo surface must be browser or production managed');
   }
   return surface;
+}
+
+// Shared rollback policy; operator identities and execution stay in the private CLI.
+export function assertDemoRollbackDistribution({config, staticOrigin, managed = false, apiOriginDomain}) {
+  const origins = config?.Origins?.Items ?? [];
+  const behaviors = withoutRendererFrameBehavior({config, staticOrigin});
+  if (config?.DefaultCacheBehavior?.TargetOriginId !== staticOrigin.Id) {
+    throw new Error('Demo rollback root is outside its reviewed static origin');
+  }
+  if (!managed) {
+    if (origins.length !== 1 || behaviors.length !== 0) {
+      throw new Error('Demo rollback edge is outside its static boundary');
+    }
+    return;
+  }
+  if (!/^[a-z0-9]{10}\.execute-api\.us-east-1\.amazonaws\.com$/.test(apiOriginDomain ?? '')) {
+    throw new Error('Managed demo rollback requires its exact API Gateway origin domain');
+  }
+  const apiOrigins = origins.filter(({DomainName}) => DomainName === apiOriginDomain);
+  const authBehaviors = behaviors.filter(({PathPattern}) => PathPattern === 'auth-config.json');
+  const apiBehaviors = behaviors.filter(({PathPattern}) => PathPattern === 'api/*');
+  if (origins.length !== 2
+    || behaviors.length !== 2
+    || apiOrigins.length !== 1
+    || authBehaviors.length !== 1
+    || authBehaviors[0].TargetOriginId !== staticOrigin.Id
+    || apiBehaviors.length !== 1
+    || apiBehaviors[0].TargetOriginId !== apiOrigins[0].Id) {
+    throw new Error('Managed demo rollback edge is outside its reviewed static, auth, and API paths');
+  }
 }
 
 export function assertBrowserDemoRelease(manifest) {

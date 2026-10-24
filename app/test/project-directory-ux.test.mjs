@@ -626,8 +626,9 @@ describe("project directory interaction", () => {
       const nav = root.querySelector('nav[aria-label="Studio navigation"]');
       assert.ok(nav);
       assert.deepEqual([...nav.querySelectorAll("a")].map(a => a.textContent),
-        ["OpenGeo Studio", "Home", "Projects", "Catalog", "Styles", "Geographic tags", "Collections", "Publications"]);
+        ["OpenGeo Studio", "Home", "Projects", "Catalog", "Styles", "Geographic tags", "Collections", "Publications", "Credits"]);
       assert.equal(nav.querySelector('a[href="/workspaces?view=publishing"]')?.textContent, "Publications");
+      assert.equal(nav.querySelector('a[href="/credits"]')?.textContent, "Credits");
       assert.equal(root.querySelector('select[aria-label="Catalog layout"]'), null);
     }
   });
