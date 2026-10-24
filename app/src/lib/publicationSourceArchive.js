@@ -1,5 +1,5 @@
 import {zipSync, unzipSync, strToU8} from 'fflate';
-import {normalizeObservableSourceFiles, normalizeObservableRevisionAttachments, parsePublicationArtifactReferences} from './apiClient.js';
+import {normalizeObservableSourceFiles, normalizeObservableRevisionAttachments, parsePublicationArtifactReferences} from './apiResourceContentContracts.js';
 
 const MAX_CONTEXT_BYTES = 256 * 1024;
 const MAX_MANIFEST_BYTES = 1024 * 1024;

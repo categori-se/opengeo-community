@@ -1,8 +1,13 @@
 // Project appearance only. Provider configuration and raster values stay intact.
+export function isCogLayer(layer) {
+  return layer?.sourceType === "cog-raster" || layer?.sourceType === "governed-dataset"
+    && Boolean(layer.datasetVersionId) && String(layer.geometryType).toLowerCase() === "raster";
+}
+
 export function cogDisplayOptions(layer) {
   if (!Object.hasOwn(layer.style ?? {}, "cogDisplay")) return {};
   const value = layer.style.cogDisplay, range = value?.displayRange;
-  if (layer.sourceType !== "cog-raster" || layer.sourceConfiguration?.bands?.length !== 1
+  if (!isCogLayer(layer) || layer.sourceConfiguration?.bands?.length !== 1
     || !value || typeof value !== "object" || Array.isArray(value)
     || Object.keys(value).some(key => !["displayRange", "noDataValue"].includes(key))
     || !range || typeof range !== "object" || Array.isArray(range)

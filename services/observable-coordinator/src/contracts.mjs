@@ -637,14 +637,14 @@ export function verifyPublicRead(file, stored) {
 
 function parseReportFile(file, claim) {
   exactKeys(file, REPORT_FILE_KEYS, "compiler_output_invalid");
-  const referencedTiff = claim.inputManifest.schemaVersion === REFERENCED_MANIFEST_SCHEMA
+  const pinnedTiff = [DATA_MANIFEST_SCHEMA, REFERENCED_MANIFEST_SCHEMA].includes(claim.inputManifest.schemaVersion)
     && [REQUEST_SCHEMA, DISTRIBUTION_REQUEST_SCHEMA].includes(claim.request.schemaVersion)
     && ["image/tiff", "image/geotiff"].includes(file.contentType)
     && typeof file.path === "string" && /\.tiff?$/i.test(file.path)
     && dataInputPins(claim).some(pin => pin.sizeBytes === file.sizeBytes
       && pin.checksumSha256 === file.checksumSha256
       && pin.path.split(".").at(-1).toLowerCase() === file.path.split(".").at(-1).toLowerCase());
-  if (!outputPath(file.path) || (!OUTPUT_MEDIA.has(file.contentType) && !referencedTiff)) {
+  if (!outputPath(file.path) || (!OUTPUT_MEDIA.has(file.contentType) && !pinnedTiff)) {
     fail("compiler_output_invalid");
   }
   integer(file.sizeBytes, 1, maximumOutputFileBytes(file, claim.request,

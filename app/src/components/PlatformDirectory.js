@@ -21,6 +21,7 @@ import {PublicationWorkspaceDirectory} from "./PublicationWorkspaceDirectory.js"
 import {createCatalogPreviewLoader} from "../lib/catalogLayerPreview.js";
 import {LayerCatalogResults} from "./LayerCatalogResults.js";
 import {StaticItemSearch} from "./StaticItemSearch.js";
+import {StacItemSearch} from "./StacItemSearch.js";
 import {StaticItemCatalogRegistration} from "./StaticItemCatalogRegistration.js";
 import {CatalogSourceRegistration} from "./CatalogSourceRegistration.js";
 import {CkanCatalog} from "./CkanCatalog.js";
@@ -2898,11 +2899,17 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
       ? reference => StaticItemCatalogRegistration({adapter: state.adapter, reference, projects: state.projects, organization: state.organization}) : null
   }) : null;
   if (staticSearch) section.append(staticSearch);
+  const stacSearch = !state.directoryDetailsLoading && !publicResourceTarget ? StacItemSearch({
+    adapter: state.adapter,
+    onReference: ["searchDatasets", "getSource", "createSource"].every(key => typeof state.adapter[key] === "function")
+      ? reference => StaticItemCatalogRegistration({adapter: state.adapter, reference, projects: state.projects, organization: state.organization}) : null
+  }) : null;
+  if (stacSearch) section.append(stacSearch);
   const ckan = !state.directoryDetailsLoading && !publicResourceTarget ? CkanCatalog({
     adapter: state.adapter, projects: state.projects, organization: state.organization
   }) : null;
   if (ckan) section.append(ckan);
-  section.dispose = () => {searchGeneration++; loadPreview?.dispose?.(); disposeResults(); staticSearch?.dispose(); ckan?.dispose();};
+  section.dispose = () => {searchGeneration++; loadPreview?.dispose?.(); disposeResults(); staticSearch?.dispose(); stacSearch?.dispose(); ckan?.dispose();};
   section.shouldBlockNavigation = options => Boolean(ckan?.shouldBlockNavigation(options));
   if(state.directoryDetailsLoading) {
     form.inert=true;

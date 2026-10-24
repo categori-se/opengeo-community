@@ -10,6 +10,17 @@ on:
       - app/scripts/build-framework-preview.mjs
       - app/scripts/esbuild-with-signal.mjs
       - app/test/esbuild-with-signal.test.mjs
+      - app/scripts/build-third-party-notices.mjs
+      - app/test/third-party-notices.test.mjs
+      - app/test/publication-source-archive.test.mjs
+      - app/scripts/application-route-inventory.mjs
+      - app/scripts/demo-release-config.mjs
+      - app/scripts/static-release-aws.mjs
+      - app/test/application-route-coherence.test.mjs
+      - app/test/demo-release-config.test.mjs
+      - app/test/release-safety.test.mjs
+      - scripts/check-open-source-foundations.mjs
+      - governance/open-source-foundations.json
       - app/test/framework-preview-packages.test.mjs
       - app/scripts/integrated-studio-*.mjs
       - scripts/run-integrated-*-local.py
@@ -26,6 +37,8 @@ on:
       - app/test/catalog-project-save.test.mjs
       - app/test/cog-preview.test.mjs
       - app/test/project-directory-ux.test.mjs
+      - app/test/project-resource-creation.test.mjs
+      - app/test/map-resource-version.test.mjs
       - app/test/project-dataset-map-handoff.test.mjs
       - app/test/geomoose-query-ui.test.mjs
       - app/test/publication-panels.test.mjs
@@ -54,6 +67,17 @@ on:
       - app/scripts/build-framework-preview.mjs
       - app/scripts/esbuild-with-signal.mjs
       - app/test/esbuild-with-signal.test.mjs
+      - app/scripts/build-third-party-notices.mjs
+      - app/test/third-party-notices.test.mjs
+      - app/test/publication-source-archive.test.mjs
+      - app/scripts/application-route-inventory.mjs
+      - app/scripts/demo-release-config.mjs
+      - app/scripts/static-release-aws.mjs
+      - app/test/application-route-coherence.test.mjs
+      - app/test/demo-release-config.test.mjs
+      - app/test/release-safety.test.mjs
+      - scripts/check-open-source-foundations.mjs
+      - governance/open-source-foundations.json
       - app/test/framework-preview-packages.test.mjs
       - app/scripts/integrated-studio-*.mjs
       - scripts/run-integrated-*-local.py
@@ -70,6 +94,8 @@ on:
       - app/test/catalog-project-save.test.mjs
       - app/test/cog-preview.test.mjs
       - app/test/project-directory-ux.test.mjs
+      - app/test/project-resource-creation.test.mjs
+      - app/test/map-resource-version.test.mjs
       - app/test/project-dataset-map-handoff.test.mjs
       - app/test/geomoose-query-ui.test.mjs
       - app/test/publication-panels.test.mjs
@@ -108,7 +134,7 @@ jobs:
   frontend-core:
     name: Catalog, map and publication workflows (Node 24)
     runs-on: ubuntu-24.04
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && 30 || 8 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && 28 || 8 }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -125,6 +151,7 @@ jobs:
           set -euo pipefail
           test "$(uname -m)" = x86_64
           command -v podman
+          command -v setfacl
           test -x /usr/bin/chromium || test -x /usr/bin/chromium-browser || test -x /usr/bin/google-chrome
           fresh="$(realpath -- "$RUNNER_TEMP")/opengeo-source-install"
           test ! -e "$fresh"
@@ -171,9 +198,16 @@ jobs:
           set -euo pipefail
           # Each JSDOM suite owns its globals and lifecycle hooks.
           for test_file in \
+            app/test/third-party-notices.test.mjs \
+            app/test/publication-source-archive.test.mjs \
+            app/test/application-route-coherence.test.mjs \
+            app/test/demo-release-config.test.mjs \
+            app/test/release-safety.test.mjs \
             app/test/catalog-project-save.test.mjs \
             app/test/cog-preview.test.mjs \
             app/test/project-directory-ux.test.mjs \
+            app/test/project-resource-creation.test.mjs \
+            app/test/map-resource-version.test.mjs \
             app/test/project-dataset-map-handoff.test.mjs \
             app/test/geomoose-query-ui.test.mjs \
             app/test/publication-panels.test.mjs \
@@ -185,6 +219,7 @@ jobs:
             services/observable-coordinator/test/local-adapters.test.mjs; do
             node --test --test-isolation=none "$test_file"
           done
+          node scripts/check-open-source-foundations.mjs
       - name: Build the documented public source images
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
         env:
@@ -203,6 +238,7 @@ jobs:
           build_options=(--jobs=1 --no-cache --layers=false --pull=missing --retry=0 --cpu-period=100000 --cpu-quota=200000 --memory=8g --memory-swap=8g --authfile "$OPEN_GEO_FRESH_STORE/anonymous-auth.json")
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/api.iid" --file services/api/Dockerfile services/api
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/worker.iid" --file services/worker/Dockerfile services/worker
+          podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/pmtiles.iid" --file services/worker/Dockerfile.pmtiles services/worker
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/compiler.iid" --file services/observable-builder/Dockerfile services/observable-builder
           BUILD
       - name: Run the canonical built Studio installation check
@@ -212,7 +248,8 @@ jobs:
           timeout --signal=TERM --kill-after=20s 6m env TMPDIR=/tmp python scripts/run-integrated-studio-local.py \
             --built-studio \
             --api-image "$(cat "$OPEN_GEO_FRESH_STORE/api.iid")" \
-            --worker-image "$(cat "$OPEN_GEO_FRESH_STORE/worker.iid")"
+            --worker-image "$(cat "$OPEN_GEO_FRESH_STORE/worker.iid")" \
+            --pmtiles-worker-image "$(cat "$OPEN_GEO_FRESH_STORE/pmtiles.iid")"
       - name: Run the canonical native publication installation check
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation }}
         run: |
@@ -241,7 +278,7 @@ jobs:
   api-contract:
     name: API contract and metadata (Python 3.14)
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.fresh_installation && 10 || 15 }}
     defaults:
       run:
         working-directory: services/api

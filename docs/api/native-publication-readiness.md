@@ -6,9 +6,8 @@ approved source, builds it with the isolated native compiler, opens the signed
 private preview, and prepares and approves a release through the Publish controls.
 Repeating that workflow creates a second edition. Build history reopens the first
 private edition, and anonymous readers can retrieve the earlier public edition
-while the second remains current. The ten retained compiler outputs total
-175,040 bytes. The [earlier inspection receipt](evidence/task-5.json) remains
-historical; its missing-adapter findings describe the source inspected then.
+while the second remains current. Earlier missing-adapter findings describe
+historical source and do not establish the current workflow's acceptance.
 
 An additional local journey connects the registered facilities GeoJSON through
 **Data files → Connect a Catalog file**, saves its exact version/object binding,
@@ -31,11 +30,9 @@ Ordinary development now processes approved publication jobs through its existin
 local action. The real Berkshire study compiles, renders all 16 polygons and both
 calculated tables privately, and publishes through normal review and approval.
 Original source objects and revision 1 remain retained. Its anonymous edition now
-also renders all 16 polygons and tables of five and eleven rows. Bounded public
-batches remove per-asset process startup: all 41 requested files return 200 and
-rendering completes in 6.149 seconds. Canonical custody and checksum checks remain
-per file, fenced by the activation lock, with valid siblings preserved after an
-individual read failure. No build, review or publication is repeated. The compiled
+also renders all 16 polygons and tables of five and eleven rows. Canonical custody
+and checksum checks remain per file, fenced by the activation lock, with valid
+siblings preserved after an individual read failure. The compiled
 theme's remote Google font is blocked by the unchanged CSP and uses fallback
 typography. Independent installation and production delivery remain open.
 
@@ -65,11 +62,9 @@ removal, and refusal of a capability after its real 60-second expiry. The cookie
 expiry check sends the unchanged issued cookies while advancing only the local
 verifier clock; it does not claim a real 15-minute wait or CloudFront acceptance.
 
-Forward migration0176 preserves capability audit records while allowing
-offboarding. The database regression and connected workflow preserve consumed
-and unconsumed history, accepted invitations, both editions and unrelated grants.
-Temporary reviewer memberships are removed and the local API/database are stopped.
-Production activation, identity and delivery acceptance remain open.
+Offboarding preserves capability audit records, invitation history, retained
+editions and unrelated grants. Production activation, identity and delivery
+acceptance remain open.
 
 This check uses cached images, synthetic sign-in and three separate loopback
 origins. The canonical local hostname is explicitly mapped to an anonymous HTTP

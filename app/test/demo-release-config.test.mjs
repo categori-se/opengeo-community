@@ -8,6 +8,21 @@ function manifest(paths=['index.html'], bytes=4) {
  const files=[...paths].sort().map(path=>({path,bytes,sha256:sha256('demo')}));
  return sealManifest({schemaVersion:'opengeo.demo-build.1.0.0',demoOrigin:'https://demo.studio.opengeo.tools',artifactTree:{algorithm:'sha256',digest:digestFileRecords(files),files},routes:[{path:'/'}],aliases:[]});
 }
+it('includes public credits while retaining the historical anonymous one-page release',()=>{
+ const reseal=({manifestSha256,...payload})=>sealManifest(payload);
+ const previous=manifest();
+ assertBrowserDemoRelease(previous);
+ const current=manifest(['index.html','credits.html']);
+ current.routes.push({path:'/credits',htmlPath:'credits.html'});
+ const file=current.artifactTree.files.find(file=>file.path==='credits.html');
+ current.aliases.push({key:'credits',sourcePath:'credits.html',bytes:file.bytes,sha256:file.sha256,contentType:'text/html; charset=utf-8'});
+ assertBrowserDemoRelease(reseal(current));
+ const missing=manifest();missing.routes.push({path:'/credits',htmlPath:'credits.html'});
+ assert.throws(()=>assertBrowserDemoRelease(reseal(missing)));
+ const unexpected=manifest(['index.html','credits.html']);
+ unexpected.routes.push({path:'/admin',htmlPath:'credits.html'});
+ assert.throws(()=>assertBrowserDemoRelease(reseal(unexpected)));
+});
 it('keeps historical defaults and requires explicit production browser selection',()=>{
  assert.equal(demoSurface('production'),'managed');assert.equal(demoSurface('dev'),'browser');assert.equal(demoSurface('production','browser'),'browser');
  for(const args of [['dev','managed'],['production','invalid'],['unknown','browser']])assert.throws(()=>demoSurface(...args));

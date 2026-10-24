@@ -15,11 +15,22 @@ AnalysisOperation = Literal[
     "measure",
     "join-summary",
     "select-by-location",
+    "building-reconcile",
 ]
 MAX_FEATURES = 1000
 MAX_COORDINATES = 50000
 MAX_OUTPUT_BYTES = 2_097_152
-PAIR_OPERATIONS = {"clip", "join", "intersection", "join-summary", "select-by-location"}
+PAIR_OPERATIONS = {
+    "clip",
+    "join",
+    "intersection",
+    "join-summary",
+    "select-by-location",
+    "building-reconcile",
+}
+BUILDING_IOU_THRESHOLD = 0.5
+BUILDING_SPAN_DEGREES = 6
+BUILDING_MAX_ABSOLUTE_LATITUDE = 80
 ANALYSIS_QUERY_MARKER = "/* opengeo analysis preview */"
 
 
@@ -65,6 +76,7 @@ def analysis_statement(
         "measure",
         "join-summary",
         "select-by-location",
+        "building-reconcile",
     }:
         raise ValueError("unsupported analysis operation")
     paired = request.operation in PAIR_OPERATIONS
@@ -87,6 +99,9 @@ def analysis_statement(
         raise ValueError("operation does not use a buffer distance")
     if request.source_generation < 1 or (paired and (request.target_generation or 0) < 1):
         raise ValueError("generation must be positive")
+    reconcile = request.operation == "building-reconcile"
+    if reconcile and request.target_dataset_id == dataset_id:
+        raise ValueError("building reconciliation requires two distinct inventories")
     target = request.target_dataset_id or dataset_id
     target_generation = request.target_generation if paired else request.source_generation
     operations = {
@@ -142,6 +157,39 @@ def analysis_statement(
             "properties FROM a JOIN b ON ST_Intersects(a.geometry,b.geometry)"
         ),
     }
+    inventory_extent = ""
+    inventory_facts = ""
+    inventory_gate = ""
+    reconciliation = ""
+    if reconcile:
+        inventory_extent = """inventory_extent AS MATERIALIZED (
+          SELECT ST_Extent(geometry) AS bounds FROM (
+            SELECT geometry FROM source UNION ALL SELECT geometry FROM target
+          ) inventories
+        ), """
+        inventory_facts = """,
+          (SELECT coalesce(bool_and(ST_GeometryType(geometry) IN
+            ('ST_Polygon','ST_MultiPolygon') AND NOT ST_IsEmpty(geometry)
+            AND ST_IsValid(geometry) AND ST_Area(geometry)>0),true)
+            FROM (SELECT geometry FROM source UNION ALL SELECT geometry FROM target)
+              inventories) AS building_polygon_inputs,
+          (SELECT coalesce(ST_XMax(bounds)-ST_XMin(bounds),0)
+            FROM inventory_extent) AS building_longitude_span,
+          (SELECT coalesce(ST_YMax(bounds)-ST_YMin(bounds),0)
+            FROM inventory_extent) AS building_latitude_span,
+          (SELECT coalesce(ST_YMin(bounds),0) FROM inventory_extent) AS building_min_latitude,
+          (SELECT coalesce(ST_YMax(bounds),0) FROM inventory_extent) AS building_max_latitude
+        """
+        inventory_gate = f"""
+          AND building_polygon_inputs AND source_count+target_count<={MAX_FEATURES}
+          AND building_longitude_span<={BUILDING_SPAN_DEGREES}
+          AND building_latitude_span<={BUILDING_SPAN_DEGREES}
+          AND building_min_latitude>=-{BUILDING_MAX_ABSOLUTE_LATITUDE}
+          AND building_max_latitude<={BUILDING_MAX_ABSOLUTE_LATITUDE}
+        """
+        reconciliation = _building_reconciliation_ctes()
+        operations["building-reconcile"] = "SELECT id,geom,properties FROM building_result"
+    geometry_json = "ST_AsGeoJSON(geom,17)" if reconcile else "ST_AsGeoJSON(geom)"
     sql = f"""
     WITH source AS MATERIALIZED (
       SELECT id,geometry,properties FROM app.dataset_features
@@ -151,7 +199,7 @@ def analysis_statement(
       SELECT id,geometry,properties FROM app.dataset_features
       WHERE organization_id=%s AND dataset_id=%s AND deleted_at IS NULL
       ORDER BY id LIMIT {MAX_FEATURES + 1}
-    ), facts AS MATERIALIZED (
+    ), {inventory_extent}facts AS MATERIALIZED (
       SELECT
         (SELECT generation FROM app.feature_collections
           WHERE organization_id=%s AND dataset_id=%s) AS source_generation,
@@ -162,15 +210,15 @@ def analysis_statement(
         (SELECT coalesce(sum(ST_NPoints(geometry)),0) FROM source) AS source_points,
         (SELECT coalesce(sum(ST_NPoints(geometry)),0) FROM target) AS target_points,
         (SELECT coalesce(ST_XMax(ST_Extent(geometry))-ST_XMin(ST_Extent(geometry)),0)
-          FROM source) AS longitude_span
+          FROM source) AS longitude_span {inventory_facts}
     ), gate AS MATERIALIZED (
       SELECT *, source_generation=%s AND target_generation=%s
         AND source_count<={MAX_FEATURES} AND target_count<={MAX_FEATURES}
         AND source_points<={MAX_COORDINATES} AND target_points<={MAX_COORDINATES}
-        AND (%s::boolean IS FALSE OR longitude_span<=6) AS allowed FROM facts
+        AND (%s::boolean IS FALSE OR longitude_span<=6) {inventory_gate} AS allowed FROM facts
     ), a AS MATERIALIZED (SELECT source.* FROM source WHERE (SELECT allowed FROM gate)),
        b AS MATERIALIZED (SELECT target.* FROM target WHERE (SELECT allowed FROM gate)),
-    result AS MATERIALIZED (
+    {reconciliation}result AS MATERIALIZED (
       SELECT * FROM ({operations[request.operation]}) candidates
       WHERE geom IS NOT NULL AND NOT ST_IsEmpty(geom) LIMIT {MAX_FEATURES + 1}
     ),
@@ -181,7 +229,7 @@ def analysis_statement(
       SELECT count(*) AS count, coalesce(sum(ST_NPoints(geom)),0) AS points FROM bounded
     ), encoded AS MATERIALIZED (
       SELECT jsonb_build_object('type','Feature','id',id,'properties',properties,
-        'geometry',ST_AsGeoJSON(geom)::jsonb) AS feature FROM bounded
+        'geometry',{geometry_json}::jsonb) AS feature FROM bounded
       WHERE (SELECT count<={MAX_FEATURES} AND points<={MAX_COORDINATES} FROM output_facts)
       ORDER BY id
     ), bytes AS (SELECT coalesce(sum(octet_length(feature::text)),0) AS size FROM encoded)
@@ -206,3 +254,60 @@ def analysis_statement(
     if request.operation == "buffer":
         parameters += (request.distance_meters,)
     return ANALYSIS_QUERY_MARKER + sql, parameters
+
+
+def _building_reconciliation_ctes() -> str:
+    """Preserve every footprint; positive-area adjacency exposes splits and merges.
+
+    Geography intersection chooses PostGIS's local projected overlay; its returned
+    geography and original footprints use spheroidal area. The separate input gate
+    limits this profile to small, nonpolar inventories without date-line crossings.
+    Neither a candidate nor a source confidence value establishes a validated count.
+    """
+    return f"""
+    building_a AS MATERIALIZED (
+      SELECT *, ST_Area(geometry::geography) AS area FROM a
+    ), building_b AS MATERIALIZED (
+      SELECT *, ST_Area(geometry::geography) AS area FROM b
+    ), building_overlaps AS MATERIALIZED (
+      SELECT a.id AS source_id,b.id AS target_id,a.area AS source_area,b.area AS target_area,
+        ST_Area(ST_Intersection(a.geometry::geography,b.geometry::geography)) AS overlap_area
+      FROM building_a a JOIN building_b b ON ST_Intersects(a.geometry,b.geometry)
+    ), building_edges AS MATERIALIZED (
+      SELECT source_id,target_id,
+        least(1.0,overlap_area/nullif(source_area+target_area-overlap_area,0)) AS iou
+      FROM building_overlaps WHERE overlap_area>0
+    ), building_degrees AS MATERIALIZED (
+      SELECT 'source' AS side,source_id AS id,count(*) AS degree
+        FROM building_edges GROUP BY source_id
+      UNION ALL
+      SELECT 'target' AS side,target_id AS id,count(*) AS degree
+        FROM building_edges GROUP BY target_id
+    ), building_inventory AS MATERIALIZED (
+      SELECT 'source' AS side,id,geometry,properties FROM a
+      UNION ALL SELECT 'target' AS side,id,geometry,properties FROM b
+    ), building_neighbors AS MATERIALIZED (
+      SELECT 'source' AS side,e.source_id AS id,e.target_id AS neighbor_id,e.iou,d.degree
+      FROM building_edges e JOIN building_degrees d ON d.side='target' AND d.id=e.target_id
+      UNION ALL
+      SELECT 'target' AS side,e.target_id AS id,e.source_id AS neighbor_id,e.iou,d.degree
+      FROM building_edges e JOIN building_degrees d ON d.side='source' AND d.id=e.source_id
+    ), building_result AS MATERIALIZED (
+      SELECT i.side || ':' || i.id::text AS id,i.geometry AS geom,
+        jsonb_build_object(
+          'input',jsonb_build_object('side',i.side,'featureId',i.id,'properties',i.properties),
+          'reconciliation',jsonb_build_object(
+            'status',CASE WHEN n.count=0 THEN 'unmatched'
+              WHEN n.count>1 OR n.max_degree>1 THEN 'ambiguous'
+              WHEN n.max_iou>={BUILDING_IOU_THRESHOLD} THEN 'one-to-one-candidate'
+              ELSE 'boundary-disagreement' END,
+            'reviewStatus','unreviewed','neighbors',n.neighbors)) AS properties
+      FROM building_inventory i CROSS JOIN LATERAL (
+        SELECT count(*) AS count,max(degree) AS max_degree,max(iou) AS max_iou,
+          coalesce(jsonb_agg(jsonb_build_object('featureId',neighbor_id,
+            'intersectionOverUnion',iou,'overlapCount',degree) ORDER BY neighbor_id),
+            '[]'::jsonb) AS neighbors
+        FROM building_neighbors WHERE side=i.side AND id=i.id
+      ) n
+    ),
+    """

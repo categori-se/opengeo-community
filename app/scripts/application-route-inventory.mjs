@@ -10,8 +10,19 @@ export const canonicalStudioRoutes = Object.freeze([
   ["/login", "login.html"],
   ["/workspaces", "workspaces.html"],
   ["/layers", "layers.html"],
-  ["/admin", "admin.html"]
+  ["/admin", "admin.html"],
+  ["/credits", "credits.html"]
 ]);
+
+export const canonicalBrowserDemoRoutes = Object.freeze([
+  ["/", "index.html"], ["/credits", "credits.html"]
+]);
+
+// Exact seven-page predecessor remains available to sealed-release rollback.
+export const PRE_CREDITS_ROUTE_CONTRACT_VERSION = "opengeo.application-route-inventory.pre-credits.1.0.0";
+export const preCreditsStudioRoutes = Object.freeze(
+  canonicalStudioRoutes.filter(([path]) => path !== "/credits")
+);
 
 // Exact six-route predecessor retained only for rollback of sealed releases.
 export const PRE_LAYER_ROUTE_CONTRACT_VERSION = "opengeo.application-route-inventory.pre-layer.1.0.0";

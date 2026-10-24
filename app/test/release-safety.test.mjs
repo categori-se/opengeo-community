@@ -22,6 +22,8 @@ import {
 } from "../scripts/release-utils.mjs";
 import {
   canonicalStudioRoutes,
+  PRE_CREDITS_ROUTE_CONTRACT_VERSION,
+  preCreditsStudioRoutes,
   PRE_LAYER_ROUTE_CONTRACT_VERSION,
   preLayerStudioRoutes,
   LEGACY_APPLICATION_ROUTE_CONTRACT_VERSION,
@@ -439,5 +441,20 @@ it("retains the exact pre-layer inventory only for explicitly versioned rollback
     assert.equal(assertSurfaceReleaseManifest(previous, surface, {
       preLayerRouteContractVersion: PRE_LAYER_ROUTE_CONTRACT_VERSION
     }), previous);
+  }
+});
+
+it("preserves sealed releases from before public credits without accepting route substitutions", () => {
+  for (const surface of ["studio", "demo"]) {
+    const previous = applicationReleaseManifest(surface, preCreditsStudioRoutes);
+    assert.throws(() => assertSurfaceReleaseManifest(previous, surface));
+    assert.equal(assertSurfaceReleaseManifest(previous, surface, {
+      preCreditsRouteContractVersion: PRE_CREDITS_ROUTE_CONTRACT_VERSION
+    }), previous);
+    const changed = structuredClone(previous);
+    changed.routes[1].path = "/unreviewed";
+    assert.throws(() => assertSurfaceReleaseManifest(sealManifest(withoutSeal(changed)), surface, {
+      preCreditsRouteContractVersion: PRE_CREDITS_ROUTE_CONTRACT_VERSION
+    }));
   }
 });

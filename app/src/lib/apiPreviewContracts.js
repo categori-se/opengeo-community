@@ -76,6 +76,74 @@ export function spatialPreviewGeojson(value) {
   return structuredClone({...collection, features});
 }
 
+/** Check the complete, symmetric review graph before showing inventory counts. */
+export function validateBuildingReconciliationPreview(collection, receipt) {
+  const method = object(receipt.buildingReconciliation, "building reconciliation method");
+  const expected = {
+    minimumIntersectionOverUnion: 0.5,
+    intersectionMethod: "PostGIS local projected geography overlay",
+    areaMethod: "PostGIS spheroidal geography",
+    candidateRule: "one positive-area neighbor on each side",
+    ambiguityRule: "multiple positive-area neighbors on either side",
+    unmatched: "retained on both sides",
+    reviewStatus: "unreviewed",
+    validatedCount: null,
+    maximumSpanDegrees: 6,
+    maximumAbsoluteLatitude: 80
+  };
+  if (Object.entries(expected).some(([key, value]) => method[key] !== value)
+    || receipt.sourceDatasetId === receipt.targetDatasetId || receipt.building_polygon_inputs !== true
+    || receipt.allowed !== true) contract("building reconciliation method is inconsistent");
+  const sourceCount = integerBetween(receipt.source_count, 0, 1_000, "building source count");
+  const targetCount = integerBetween(receipt.target_count, 0, 1_000, "building target count");
+  const rows = new Map(), counts = {source: 0, target: 0};
+  for (const feature of collection.features) {
+    const properties = object(feature.properties, "building result properties");
+    const input = object(properties.input, "building input");
+    const side = oneOf(input.side, ["source", "target"], "building input side");
+    const id = uuid(input.featureId, "building input feature ID");
+    object(input.properties, "building source properties");
+    const review = object(properties.reconciliation, "building reconciliation");
+    if (!["Polygon", "MultiPolygon"].includes(feature.geometry?.type)
+      || feature.id !== `${side}:${id}` || rows.has(feature.id)
+      || review.reviewStatus !== "unreviewed" || !Array.isArray(review.neighbors)
+      || review.neighbors.length > 1_000) contract("building result is inconsistent");
+    const neighborIds = new Set();
+    for (const neighbor of review.neighbors) {
+      object(neighbor, "building neighbor");
+      const neighborId = uuid(neighbor.featureId, "building neighbor feature ID");
+      integerBetween(neighbor.overlapCount, 1, 1_000, "building neighbor overlap count");
+      if (neighborIds.has(neighborId) || !Number.isFinite(neighbor.intersectionOverUnion)
+        || neighbor.intersectionOverUnion <= 0 || neighbor.intersectionOverUnion > 1) {
+        contract("building neighbor is inconsistent");
+      }
+      neighborIds.add(neighborId);
+    }
+    const neighbors = review.neighbors;
+    const status = !neighbors.length ? "unmatched"
+      : neighbors.length > 1 || neighbors.some(row => row.overlapCount > 1) ? "ambiguous"
+        : neighbors[0].intersectionOverUnion >= 0.5 ? "one-to-one-candidate" : "boundary-disagreement";
+    if (review.status !== status) contract("building reconciliation status is inconsistent");
+    rows.set(feature.id, {input, review});
+    counts[side]++;
+  }
+  if (counts.source !== sourceCount || counts.target !== targetCount) {
+    contract("building reconciliation omitted input footprints");
+  }
+  for (const {input, review} of rows.values()) {
+    const opposite = input.side === "source" ? "target" : "source";
+    for (const neighbor of review.neighbors) {
+      const other = rows.get(`${opposite}:${neighbor.featureId}`);
+      const reverse = other?.review.neighbors.find(row => row.featureId === input.featureId);
+      if (!reverse || other.review.neighbors.length !== neighbor.overlapCount
+        || reverse.intersectionOverUnion !== neighbor.intersectionOverUnion
+        || reverse.overlapCount !== review.neighbors.length) {
+        contract("building reconciliation graph is inconsistent");
+      }
+    }
+  }
+}
+
 function spatialPreviewFeature(value, budget) {
   const feature = object(value, "spatial preview feature");
   if (Object.keys(feature).some(

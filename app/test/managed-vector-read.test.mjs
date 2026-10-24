@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {test} from 'node:test';
 import {loadManagedVectorData} from '../src/lib/managedVectorRead.js';
+import {buildingReconciliationGroups,buildReviewedBuildingInventory} from '../src/lib/buildingReconciliation.js';
+import {buildingReviewComparison,buildingReviewerId} from './fixtures/building-review.js';
 
 const datasetId='306184fa-dff5-4ada-8066-4470713caa4a',versionId='f3491ac3-ac25-46b4-8209-0a7787f9fde4';
 function fixture() {
@@ -17,6 +19,23 @@ test('explicit map read verifies every feature of the exact private original abo
  const f=fixture(),result=await loadManagedVectorData(f.options);
  assert.equal(result.numberReturned,5001);assert.equal(result.mayBeTruncated,false);assert.deepEqual(result.geojson,f.geojson);
  assert.deepEqual(f.calls,{tickets:1,reads:1,previews:0,authorize:2});
+});
+
+test('managed review originals render selected geometry without adding audit metadata reads or exposing the archive receipt as map data',async()=>{
+ const native=buildingReviewComparison(),decisions=buildingReconciliationGroups(native).map(group=>({componentId:group.id,
+  selectedFeatureIds:group.features.filter(feature=>feature.properties.input.side==='source').map(feature=>feature.id),reason:'Prefer source geometry for this reviewed selection.'}));
+ const reviewed=buildReviewedBuildingInventory({collection:native,decisions,reviewerId:buildingReviewerId,timestamp:'2026-10-23T12:00:00Z'});
+ const original={type:'FeatureCollection',features:reviewed.features,properties:{'opengeo:analysis':reviewed['opengeo:analysis']}};
+ const bytes=Buffer.from(JSON.stringify(original)),f=fixture();
+ Object.assign(f.version,{featureCount:reviewed.features.length,geometryType:'Polygon'});f.options.geometryType='Polygon';
+ Object.assign(f.version.objects[0],{sizeBytes:bytes.length,checksumSha256:createHash('sha256').update(bytes).digest('hex')});
+ f.options.fetchImpl=async()=>{f.calls.reads++;return new Response(bytes);};
+ const read=await loadManagedVectorData(f.options);
+ assert.deepEqual(read.geojson,{type:'FeatureCollection',features:reviewed.features});
+ assert.equal(read.geojson.properties,undefined);assert.equal(read.geojson['opengeo:analysis'],undefined);
+ assert(read.geojson.features.every(feature=>feature.properties.reconciliation.review.reviewerId===buildingReviewerId));
+ assert.deepEqual(f.calls,{tickets:1,reads:1,previews:0,authorize:2});
+ assert.equal(JSON.parse(bytes).properties['opengeo:analysis'].buildingReview.decisions.length,2);
 });
 for(const kind of ['checksum','count','short','oversized','wrong-version','wrong-ticket','scope-change','download-denied'])test(`full private read rejects ${kind}`,async()=>{
  const f=fixture();

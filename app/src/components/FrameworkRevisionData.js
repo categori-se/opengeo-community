@@ -46,6 +46,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
   const selectionValue = record => isPublic(record) ? `public:${record.id}` : record.id;
   const selectedRecord = () => [...records, ...publicRecords].find(record => selectionValue(record) === choose.value);
   const allBindings = () => [...getBindings(), ...getReferencedFiles()];
+  const insertsCode = () => typeof onInsert === "function" && !["html", "jupyter"].includes(getFormat());
   const supported = frameworkArchiveIsSupported;
   const describe = record => {
     const name = record.datasetName ?? state.datasets?.find(dataset => dataset.id === record.datasetId)?.name ?? "Registered dataset";
@@ -72,7 +73,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
   function insertCode(binding) {
     const record = binding.referenceId ? publicRecords.find(item => item.id === binding.referenceId)
       : records.find(item => item.id === binding.attachmentId);
-    if (getFormat() === "jupyter" || !onInsert || !record?.available || isLocked()) return;
+    if (!insertsCode() || !record?.available || isLocked()) return;
     validate(getBindings());
     const readMethod = /\.(?:json|geojson)$/i.test(binding.relativePath) ? "json"
       : /\.csv$/i.test(binding.relativePath) ? "csv" : /\.txt$/i.test(binding.relativePath) ? "text" : "arrayBuffer";
@@ -102,10 +103,12 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
     return normalized;
   }
   function reflectSelection() {
-    const jupyter = getFormat() === "jupyter";
-    notice.textContent = jupyter ? "Link exact registered file versions for provenance. Jupyter displays saved outputs; it does not execute Python or refresh data. Execute your notebook locally before importing it." : "Give a registered file a name for FileAttachment, then insert it into your code. Save draft keeps the chosen version and file.";
+    const jupyter = getFormat() === "jupyter", html = getFormat() === "html";
+    notice.textContent = jupyter ? "Link exact registered file versions for provenance. Jupyter displays saved outputs; it does not execute Python or refresh data. Execute your notebook locally before importing it." : html
+      ? "Link exact registered files, then use their paths in your HTML. Save draft keeps the chosen versions and files."
+      : "Give a registered file a name for FileAttachment, then insert it into your code. Save draft keeps the chosen version and file.";
     limits.textContent = jupyter ? "JSON, GeoJSON, CSV, text, PNG, JPEG and TIFF · Jupyter source and referenced files together are limited to 16 MiB, with 4 MiB per source file." : "JSON, GeoJSON, CSV, text, PNG, JPEG and TIFF · up to 64 MiB total.";
-    path.setAttribute("aria-label", jupyter ? "Referenced data path" : "FileAttachment path");
+    path.setAttribute("aria-label", jupyter || html ? "Referenced data path" : "FileAttachment path");
     const record = selectedRecord();
     choose.disabled = !loaded || loading || isLocked();
     path.disabled = !canLoad || isLocked();
@@ -114,7 +117,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
     const reconnecting = importedPath === path.value.trim();
     const alreadyBound = allBindings().some(binding => binding.relativePath === path.value.trim()
       && (isPublic(record) ? binding.referenceId : binding.attachmentId) === record?.id);
-    add.textContent = reconnecting ? "Reconnect file" : alreadyBound && onInsert && !jupyter ? "Insert code" : onInsert && !jupyter ? "Insert file" : "Add file";
+    add.textContent = reconnecting ? "Reconnect file" : alreadyBound && insertsCode() ? "Insert code" : insertsCode() ? "Insert file" : "Add file";
     if (reconnecting) {
       const previous = getBindings().find(binding => binding.relativePath === importedPath);
       if (previous) review.textContent += ` · Replaces the draft reference at ${importedPath}. Earlier revisions stay unchanged.`;
@@ -228,7 +231,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
       const insert = button("Insert code");
       insert.setAttribute("aria-label", `Insert FileAttachment for ${binding.relativePath}`);
       insert.disabled = isLocked() || !record?.available;
-      insert.hidden = typeof onInsert !== "function" || getFormat() === "jupyter";
+      insert.hidden = !insertsCode();
       insert.addEventListener("click", () => {
         try { insertCode({...binding, relativePath: input.value.trim()}); status.textContent = "FileAttachment code inserted in the current page."; }
         catch (error) { status.textContent = error.message; }
@@ -315,7 +318,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
         && (isPublic(record) ? binding.referenceId : binding.attachmentId) === record.id);
       if (existing && !reconnecting) {
         insertCode(existing);
-        status.textContent = onInsert ? "FileAttachment code inserted. The existing file reference is reused." : "This file is already in your draft.";
+        status.textContent = insertsCode() ? "FileAttachment code inserted. The existing file reference is reused." : "This file is already in your draft.";
         path.value = "";
         reflectSelection();
         return;
@@ -329,7 +332,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
       importedPath = null;
       reflectSelection();
       status.textContent = reconnecting ? "Imported file reconnected. Save draft to keep it."
-        : onInsert ? "File linked and FileAttachment code inserted. Save draft to keep your changes." : "File linked. Save draft to keep it.";
+        : insertsCode() ? "File linked and FileAttachment code inserted. Save draft to keep your changes." : "File linked. Save draft to keep it.";
       path.focus();
     } catch (error) { status.textContent = error.message; }
   });

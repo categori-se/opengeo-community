@@ -186,6 +186,7 @@ async function until(check) {
 async function openResource(overrides = {}, current = resource()) {
   const adapter = {async getResource() { return current; },
     async getResourceCapabilities() { return {canRead: true, canUpdate: true, canPublish: true, canManagePermissions: false}; },
+    async getCompositionVersion(_id, version) { return {version, definition: {layers: []}}; },
     async requestSavedMapRender() { return parseRenderJob(rawJob()); }, ...overrides};
   const root = ProjectResources({state: state(adapter, current)});
   document.body.append(root);
@@ -198,6 +199,35 @@ async function openResource(overrides = {}, current = resource()) {
 }
 
 describe("deliberate pinned-map image interaction", () => {
+  it("checks the exact pinned revision deliberately and blocks clustering before creating any render attempt", async () => {
+    const reads = [], requests = [];
+    const {panel} = await openResource({
+      async getCompositionVersion(...args) {
+        reads.push(args);
+        return {version: 3, definition: {layers: [{pointClustering: {enabled: true, radius: 44, maxZoom: 12}}]}};
+      },
+      async requestSavedMapRender(...args) { requests.push(args); }
+    });
+    assert.deepEqual(reads, []);
+    button(panel, "Create map image").click();
+    await until(() => panel.textContent.includes("Point clustering is not supported"));
+    assert.deepEqual(reads, [[IDS.map, 3]]);
+    assert.deepEqual(requests, []);
+    assert.match(panel.textContent, /Print Studio/);
+    assert.equal(button(panel, "Create map image").disabled, false);
+  });
+
+  it("rejects unverifiable revisions before render transport", async () => {
+    for (const getCompositionVersion of [undefined, async () => ({version: 4, definition: {layers: []}}),
+      async () => { throw Object.assign(Error("Access changed"), {status: 403}); }]) {
+      let writes = 0;
+      const {panel} = await openResource({getCompositionVersion, async requestSavedMapRender() { writes++; }});
+      button(panel, "Create map image").click();
+      await until(() => panel.textContent.includes("Map image request was not sent"));
+      assert.equal(writes, 0);
+    }
+  });
+
   it("does not create work on inspection and renders the pin, not the latest map or metadata draft", async () => {
     const requests = [], reads = [], downloads = [], manifests = [];
     let resolveRequest;
@@ -225,6 +255,7 @@ describe("deliberate pinned-map image interaction", () => {
     create.click();
     create.click();
     assert.equal(create.disabled, true);
+    await until(() => requests.length === 1);
     assert.equal(requests.length, 1);
     const [projectId, resourceId, sent] = requests[0];
     assert.deepEqual([projectId, resourceId], [IDS.project, IDS.resource]);

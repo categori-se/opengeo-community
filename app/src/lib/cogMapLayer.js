@@ -34,8 +34,9 @@ export function installCogMapLayer(map, {sourceId, layerId, source, opacity = 1,
       const next = cogPreviewCanvas(result);
       if (!canvas) {
         canvas = next;
-        map.addSource(sourceId, {type: "canvas", canvas, coordinates: result.coordinates, animate: false,
-          ...(source.configuration.attribution ? {attribution: source.configuration.attribution} : {})});
+        // MapLibre canvas sources do not expose source attribution. Workbench
+        // renders the saved credit as text in its map attribution footer.
+        map.addSource(sourceId, {type: "canvas", canvas, coordinates: result.coordinates, animate: false});
         map.addLayer({id: layerId, type: "raster", source: sourceId, layout: {visibility: visible ? "visible" : "none"},
           paint: {"raster-opacity": opacity, "raster-fade-duration": 0}});
       } else {

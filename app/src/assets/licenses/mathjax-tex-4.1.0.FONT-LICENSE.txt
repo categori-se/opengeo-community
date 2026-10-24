@@ -1,0 +1,54 @@
+@mathjax/mathjax-tex-font@4.1.0 — supplied font name-table notices
+
+Source: exact installed package WOFF2 files. The text below retains the original Unicode name-table values for name IDs 0 (copyright), 13 (license description) and 14 (license URL). These metadata descriptions are not a substitute for the complete referenced license text.
+
+Files:
+chtml/woff2/mjx-tex-b.woff2
+chtml/woff2/mjx-tex-bi.woff2
+chtml/woff2/mjx-tex-c.woff2
+chtml/woff2/mjx-tex-cb.woff2
+chtml/woff2/mjx-tex-f.woff2
+chtml/woff2/mjx-tex-fb.woff2
+chtml/woff2/mjx-tex-i.woff2
+chtml/woff2/mjx-tex-lo.woff2
+chtml/woff2/mjx-tex-m.woff2
+chtml/woff2/mjx-tex-mi.woff2
+chtml/woff2/mjx-tex-n.woff2
+chtml/woff2/mjx-tex-ob.woff2
+chtml/woff2/mjx-tex-os.woff2
+chtml/woff2/mjx-tex-s3.woff2
+chtml/woff2/mjx-tex-s4.woff2
+chtml/woff2/mjx-tex-so.woff2
+chtml/woff2/mjx-tex-ss.woff2
+chtml/woff2/mjx-tex-ssb.woff2
+chtml/woff2/mjx-tex-ssi.woff2
+chtml/woff2/mjx-tex-v.woff2
+
+Original name ID 0:
+Copyright (c) 2022, MathJax, Inc. (&lt;www.mathjax.org&gt;)
+
+Original name ID 13:
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license available with a FAQ at:
+http://scripts.sil.org/OFL
+
+Original name ID 14:
+http://scripts.sil.org/OFL
+
+Files:
+chtml/woff2/mjx-tex-brk.woff2
+chtml/woff2/mjx-tex-zero.woff2
+
+Original name ID 0:
+Copyright (c) 2009-2010 Design Science, Inc.
+
+Original name ID 13:
+Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>),
+with Reserved Font Name MathJax_Main.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license available with a FAQ at:
+http://scripts.sil.org/OFL
+
+Original name ID 14:
+http://scripts.sil.org/OFL

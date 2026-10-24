@@ -830,7 +830,7 @@ describe("public reference preview contracts", () => {
     for (const files of wrongOrders) assert.throws(() => parseResolvedDataFiles(files, parsed, BUCKET));
   });
 
-  it("admits only exact TIFF output pins for request1 public reference previews within the 32 MiB cap", () => {
+  it("admits only exact TIFF output pins for request1 archive and public reference previews within the 32 MiB cap", () => {
     const claim = parseClaim(publicReferenceClaim(), BUCKET);
     const reportWithTiff = (targetClaim, media = "image/tiff") => {
       const execution = compilerExecution(targetClaim, {outputs: new Map([...OUTPUTS, ["dist/exact.tif", PUBLIC_TIFF]])});
@@ -848,9 +848,19 @@ describe("public reference preview contracts", () => {
     const legacyArchive = publicReferenceClaim({archives: true});
     legacyArchive.inputManifest.schemaVersion = DATA_MANIFEST_SCHEMA;
     delete legacyArchive.inputManifest.referencedFiles;
-    for (const legacy of [parseClaim(fixtureClaim(), BUCKET), parseClaim(sealClaim(legacyArchive), BUCKET)]) {
-      assert.throws(() => parseCompilerReport(reportWithTiff(legacy), legacy), /compiler_output_invalid/);
+    const archive = parseClaim(sealClaim(legacyArchive), BUCKET);
+    for (const media of ["image/tiff", "image/geotiff"]) assert.doesNotThrow(() => parseCompilerReport(reportWithTiff(archive, media), archive));
+    for (const changes of [{sizeBytes: PUBLIC_TIFF.length + 1}, {checksumSha256: "a".repeat(64)}, {path: "dist/exact.png"}]) {
+      const report = reportWithTiff(archive);
+      Object.assign(report.outputManifest.files.find(file => file.path === "dist/exact.tif"), changes);
+      assert.throws(() => parseCompilerReport(report, archive), /compiler_output_invalid/);
     }
+    const sourceOnly = parseClaim(fixtureClaim(), BUCKET);
+    assert.throws(() => parseCompilerReport(reportWithTiff(sourceOnly), sourceOnly), /compiler_output_invalid/);
+    legacyArchive.inputManifest.dataAttachments[0].sizeBytes = 33 * 1024 * 1024;
+    const largeArchive = parseClaim(sealClaim(legacyArchive), BUCKET), archiveReport = reportWithTiff(largeArchive);
+    archiveReport.outputManifest.files.find(file => file.path === "dist/exact.tif").sizeBytes = 33 * 1024 * 1024;
+    assert.throws(() => parseCompilerReport(archiveReport, largeArchive), /compiler_output_invalid/);
     const large = publicReferenceClaim(); large.inputManifest.referencedFiles[0].sizeBytes = 33 * 1024 * 1024;
     const parsedLarge = parseClaim(sealClaim(large), BUCKET), report = reportWithTiff(parsedLarge);
     report.outputManifest.files.find(file => file.path === "dist/exact.tif").sizeBytes = 33 * 1024 * 1024;
@@ -1055,7 +1065,7 @@ describe("public reference distribution contracts", () => {
     const legacy = publicReferenceReleaseClaim({archives: true});
     legacy.inputManifest.schemaVersion = DATA_MANIFEST_SCHEMA; delete legacy.inputManifest.referencedFiles;
     const parsedLegacy = parseClaim(sealClaim(legacy), BUCKET);
-    assert.throws(() => parseCompilerReport(reportFor(parsedLegacy, PUBLIC_TIFF.length), parsedLegacy), /compiler_output_invalid/);
+    assert.doesNotThrow(() => parseCompilerReport(reportFor(parsedLegacy, PUBLIC_TIFF.length), parsedLegacy));
   });
 
   it("coordinates exact public reference releases and rejects current approval or publish-authority withdrawal", async () => {

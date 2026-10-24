@@ -19,8 +19,12 @@ installation and publishing limits.
 [LinkedIn](https://www.linkedin.com/in/akdennis/) ·
 [Observable community profile](https://talk.observablehq.com/u/aaronkyle/activity) ·
 [Explore published work](https://opengeo.tools/projects/) ·
-[Choose an installation](docs/community-deployments.md) ·
-[API documentation](docs/api/README.md)
+[Choose an installation](docs/community-deployments.md)
+
+Built on [MapLibre](https://maplibre.org/), [Observable](https://observablehq.com/),
+[OpenLayers](https://openlayers.org/) and the wider open GIS community.
+Meet the people and projects behind Studio in [Open source and credits](ACKNOWLEDGEMENTS.md).
+Every built installation also includes a public `/credits` page and local notices.
 
 ## Choose how to use it
 
@@ -86,6 +90,7 @@ your device; connected Studio provides account-backed saving.
 | --- | --- | --- |
 | Shared geographic library | [Curate sources and reuse Layers](docs/community-workflow.md#work-through-the-steps); start with the [facilities exercise](docs/community-examples.md#try-it-community-facilities). | [Supported data interfaces](docs/community-interoperability.md); [capabilities and limits](docs/community-capabilities.md). |
 | Saved map Projects | [Compose, save and reopen](docs/community-workflow.md#work-through-the-steps); [inspect and modify a sample](docs/community-examples.md#try-it-community-facilities). | [Project exchange and services](docs/community-interoperability.md); [persistence boundaries](docs/community-workflow.md#choose-a-workspace). |
+| Baseline evidence and review | [Inspect input Layers, compare sources, discover STAC assets, review class samples, field confidence and forest-history labels, compare surface/terrain heights, reconcile buildings and screen receptors](docs/community-baseline.md). | Explicit source/method scope, bounded loaded data and portable reports; local acceptance and delivery limits remain separate. |
 | Reusable map outputs | [Print or reuse a selected map](docs/community-workflow.md#a-recurring-study-to-verify); explore [Map Folio](https://opengeo.tools/map-folio/). | [Export and access interfaces](docs/community-interoperability.md); [current acceptance limits](RELEASE_NOTES.md). |
 | Analytical Publications | [Prepare, review and revise](docs/community-workflow.md#work-through-the-steps); examine [NOAA imagery analysis](https://opengeo.tools/noaa-coastal-imagery/reading-beyond-visible/). | [Build profiles and delivery](docs/community-publication-destinations.md); [current acceptance limits](RELEASE_NOTES.md). |
 | Project websites and publication Collections | [Configure a publishing destination](docs/community-publication-destinations.md); explore [published work](https://opengeo.tools/projects/). | [Delivery configuration](docs/community-publication-destinations.md) and [supported resource relationships](docs/community-capabilities.md); [release limits](RELEASE_NOTES.md). |
@@ -149,14 +154,6 @@ This frontend command does not start the connected platform.
 
 Follow the [roadmap](ROADMAP.md), [make a first contribution](CONTRIBUTING.md#make-a-first-contribution)
 or ask a question through [community support](SUPPORT.md#community-help).
-
-## API documentation
-
-Use Studio's HTTP API to work with sources, versioned maps and publication
-preparation and review. The [API guide](docs/api/README.md) explains authentication,
-tenant headers, pagination, revisions and errors. Browse the generated
-[OpenAPI contract](docs/api/openapi.json) and [validated examples](docs/api/examples.json),
-or follow the guide to check the contract offline and open local Swagger docs.
 
 ## License and support
 

@@ -139,3 +139,15 @@ test("developer ZIP and local print retain the same Point representation and cap
     assert.deepEqual(layout.frames[0].presentation[0].style, value.layers[0].style);
   } finally {globalThis.document = previous;dom.window.close();}
 });
+
+test("enabled point clustering is rejected visibly for live and offline HTML export", () => {
+  const value = fixture();
+  value.layers[0].pointClustering = {enabled: true, radius: 44, maxZoom: 12};
+  for (const mode of ["live", "offline"]) {
+    const candidates = inspectStaticMapLayers({...value, mode});
+    assert.match(candidates[0].reason, /Point clustering.*not supported.*Print Studio/);
+    assert.throws(() => compileStaticMapDocument({...runtime, candidates, mode, selectedIds: ["health"]}), /Select supported/);
+  }
+  value.layers[0].pointClustering.enabled = false;
+  assert.equal(inspectStaticMapLayers(value)[0].reason, null);
+});

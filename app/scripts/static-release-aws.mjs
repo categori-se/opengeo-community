@@ -18,6 +18,8 @@ import {
 } from "./release-utils.mjs";
 import {
   canonicalStudioRoutes,
+  PRE_CREDITS_ROUTE_CONTRACT_VERSION,
+  preCreditsStudioRoutes,
   PRE_LAYER_ROUTE_CONTRACT_VERSION,
   preLayerStudioRoutes,
   LEGACY_APPLICATION_ROUTE_CONTRACT_VERSION,
@@ -562,6 +564,8 @@ async function verifyRemoteRollbackTarget({
             : null,
         preLayerRouteContractVersion: immutable && ["studio", "demo"].includes(surface)
           ? PRE_LAYER_ROUTE_CONTRACT_VERSION : null,
+        preCreditsRouteContractVersion: immutable && ["studio", "demo"].includes(surface)
+          ? PRE_CREDITS_ROUTE_CONTRACT_VERSION : null,
         expectedStudioOrigin: expectedManifestOrigin
       }
     );
@@ -632,6 +636,7 @@ export function assertSurfaceReleaseManifest(
     allowLegacyPublic = false,
     legacyApplicationRouteContractVersion = null,
     preLayerRouteContractVersion = null,
+    preCreditsRouteContractVersion = null,
     expectedStudioOrigin = "https://studio.opengeo.tools"
   } = {}
 ) {
@@ -641,6 +646,9 @@ export function assertSurfaceReleaseManifest(
   }
   if (preLayerRouteContractVersion !== null && preLayerRouteContractVersion !== PRE_LAYER_ROUTE_CONTRACT_VERSION) {
     throw new Error("Rollback pre-layer route compatibility version is not reviewed");
+  }
+  if (preCreditsRouteContractVersion !== null && preCreditsRouteContractVersion !== PRE_CREDITS_ROUTE_CONTRACT_VERSION) {
+    throw new Error("Rollback pre-credits route compatibility version is not reviewed");
   }
   if (surface === "studio" && !isReviewedStudioOrigin(expectedStudioOrigin)) {
     throw new Error("Studio rollback expected origin is outside the reviewed boundary");
@@ -656,7 +664,18 @@ export function assertSurfaceReleaseManifest(
     && (surface === "studio" || managedDemo) && matchesApplicationRouteContract(manifest, preLayerStudioRoutes);
   const applicationRoutes = legacyApplicationRoutes
     ? legacyStudioRoutes
-    : preLayerRoutes ? preLayerStudioRoutes : canonicalStudioRoutes;
+    : preLayerRoutes ? preLayerStudioRoutes
+      : preCreditsRouteContractVersion === PRE_CREDITS_ROUTE_CONTRACT_VERSION
+        && (surface === "studio" || managedDemo)
+        && matchesApplicationRouteContract(manifest, preCreditsStudioRoutes)
+        ? preCreditsStudioRoutes : canonicalStudioRoutes;
+  // Browser Demo releases before public credits retain their exact one-page
+  // contract. New builds seal both pages; no authenticated route is admitted.
+  const browserDemoRouteCount = manifest.routes?.length === 2
+    && manifest.routes[0]?.path === "/"
+    && manifest.routes[1]?.path === "/credits"
+    && manifest.routes[1]?.htmlPath === "credits.html"
+    ? 2 : 1;
   const contracts = {
     public: {
       schemaVersion: allowLegacyPublic
@@ -680,8 +699,8 @@ export function assertSurfaceReleaseManifest(
         : "opengeo.demo-build.1.0.0",
       originKey: "demoOrigin",
       origin: "https://demo.studio.opengeo.tools",
-      routes: managedDemo ? applicationRoutes.length : 1,
-      aliases: managedDemo ? applicationRoutes.length - 1 : 0
+      routes: managedDemo ? applicationRoutes.length : browserDemoRouteCount,
+      aliases: managedDemo ? applicationRoutes.length - 1 : browserDemoRouteCount - 1
     }
   };
   const contract = contracts[surface];

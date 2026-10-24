@@ -1,4 +1,5 @@
-import {isRendererHostHtml} from "./application-route-inventory.mjs";
+import {preparePrintMathRuntimeAsset} from "./build-print-math-runtime.mjs";
+import {isRendererHostHtml, canonicalBrowserDemoRoutes} from "./application-route-inventory.mjs";
 import {prepareCesiumRuntime} from "./prepare-cesium-runtime.mjs";
 import {prepareMapboxRuntime} from "./prepare-mapbox-runtime.mjs";
 import {writeMaplibreExportAssets, prepareMapWorkerAsset} from "./build-maplibre-render-bundle.mjs";
@@ -18,6 +19,7 @@ import {
 } from "./release-utils.mjs";
 import {writeStudioPwaAssets} from "./studio-pwa-assets.mjs";
 import {buildPublicationEditor} from "./build-publication-editor.mjs";
+import {writeThirdPartyNotices} from "./build-third-party-notices.mjs";
 
 const DEMO_ORIGIN = "https://demo.studio.opengeo.tools";
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -37,6 +39,7 @@ const demoCacheRoot = resolve(sourceRoot, ".observablehq/cache");
 await copyDirectoryStructure(sharedCacheRoot, demoCacheRoot);
 await copyTree(sharedCacheRoot, demoCacheRoot);
 await prepareMapWorkerAsset(sourceRoot);
+await preparePrintMathRuntimeAsset(sourceRoot, {appRoot});
 try {
   runObservableBuild();
 } finally {
@@ -50,19 +53,13 @@ const pwa = await writeStudioPwaAssets({
   applicationId: "opengeo-browser-demo",
   name: "OpenGeo Studio GIS Workbench Demo",
   description: "A browser GIS with personal device Projects, print layouts and portable exports.",
-  routes: ["/"]
+  routes: canonicalBrowserDemoRoutes.map(([path]) => path)
 });
 
 await writeMaplibreExportAssets(outputRoot);
 await prepareMapboxRuntime(outputRoot);
 await prepareCesiumRuntime(outputRoot);
-await writeFile(resolve(outputRoot, "third-party-notices.txt"), [
-  "earcut · ISC",
-  await readFile(resolve(appRoot, "node_modules/earcut/LICENSE"), "utf8"),
-  "@categori/workspace-contracts · Apache-2.0",
-  await readFile(resolve(appRoot, "vendor/workspace-contracts/LICENSE"), "utf8"),
-  await readFile(resolve(appRoot, "vendor/workspace-contracts/NOTICE"), "utf8")
-].join("\n\n"));
+await writeThirdPartyNotices({appRoot, outputRoot});
 
 const artifactTree = await snapshotTree(outputRoot);
 const requiredDemoArtifacts = [
@@ -86,8 +83,9 @@ for (const [label, pattern] of requiredDemoArtifacts) {
   }
 }
 const html = artifactTree.files.filter(({path}) => path.endsWith(".html") && path !== "offline.html" && !isRendererHostHtml(path));
-if (html.length !== 1 || html[0].path !== "index.html") {
-  throw new Error("Demo build must contain exactly one root index.html page");
+if (JSON.stringify(html.map(({path}) => path).sort())
+  !== JSON.stringify(canonicalBrowserDemoRoutes.map(([, path]) => path).sort())) {
+  throw new Error("Demo build must contain only its workbench and public credits pages");
 }
 const demoHome = await readFile(resolve(outputRoot, "index.html"), "utf8");
 if (!/_observablehq\/theme-near-midnight,wide\.[0-9a-f]+\.css/.test(demoHome)
@@ -114,6 +112,15 @@ const configuration = await Promise.all([
   const body = await readFile(resolve(workspaceRoot, path));
   return {path, bytes: body.length, sha256: sha256(body)};
 }));
+const routes = canonicalBrowserDemoRoutes.map(([path, htmlPath]) => {
+  const file = html.find(file => file.path === htmlPath);
+  return {path, htmlPath, bytes: file.bytes, sha256: file.sha256,
+    aliases: path === "/" ? [] : [path.slice(1)]};
+});
+const aliases = routes.flatMap(route => route.aliases.map(key => ({
+  key, sourcePath: route.htmlPath, bytes: route.bytes, sha256: route.sha256,
+  contentType: "text/html; charset=utf-8"
+})));
 const manifest = sealManifest({
   schemaVersion: "opengeo.demo-build.1.0.0",
   demoOrigin: DEMO_ORIGIN,
@@ -124,14 +131,8 @@ const manifest = sealManifest({
     sourceTree
   },
   artifactTree,
-  routes: [{
-    path: "/",
-    htmlPath: "index.html",
-    bytes: html[0].bytes,
-    sha256: html[0].sha256,
-    aliases: []
-  }],
-  aliases: []
+  routes,
+  aliases
 });
 await writeJson(manifestPath, manifest);
 
@@ -139,8 +140,8 @@ console.log(JSON.stringify({
   outputRoot,
   manifestPath,
   files: artifactTree.files.length,
-  htmlPages: 1,
-  aliases: 0,
+  htmlPages: html.length,
+  aliases: aliases.length,
   pwaCache: pwa.cacheName,
   pwaShellBytes: pwa.shellBytes,
   observableTheme: "near-midnight",
@@ -159,6 +160,7 @@ function runObservableBuild() {
 async function stageDemoSource() {
   const paths = [
     ["../demo/index.md", "index.md"],
+    ["credits.md", "credits.md"],
     ["style.css", "style.css"],
     ["components/PublicDemoWorkbench.js", "components/PublicDemoWorkbench.js"],
     ["components/PublicDemoPublication.js", "components/PublicDemoPublication.js"],
@@ -179,14 +181,55 @@ async function stageDemoSource() {
     ["lib/cogReaderAsset.js", "lib/cogReaderAsset.js"],
     ["assets/cog-reader-3.1.0-beta.0.js.js", "assets/cog-reader-3.1.0-beta.0.js.js"],
     ["assets/licenses/geotiff-3.1.0-beta.0.LICENSE.txt", "assets/licenses/geotiff-3.1.0-beta.0.LICENSE.txt"],
+    ["assets/licenses/mathjax-4.1.3.LICENSE.txt", "assets/licenses/mathjax-4.1.3.LICENSE.txt"],
+    ["assets/licenses/mathjax-4.1.3.SOURCE-NOTICE.txt", "assets/licenses/mathjax-4.1.3.SOURCE-NOTICE.txt"],
+    ["assets/licenses/mathjax-tex-4.1.0.FONT-LICENSE.txt", "assets/licenses/mathjax-tex-4.1.0.FONT-LICENSE.txt"],
+    ["assets/licenses/mathjax-newcm-4.1.3.FONT-LICENSE.txt", "assets/licenses/mathjax-newcm-4.1.3.FONT-LICENSE.txt"],
+    ["assets/licenses/SIL-OFL-1.1.txt", "assets/licenses/SIL-OFL-1.1.txt"],
+    ["assets/licenses/GUST-FONT-LICENSE.txt", "assets/licenses/GUST-FONT-LICENSE.txt"],
+    ["assets/licenses/LPPL-1.3c.txt", "assets/licenses/LPPL-1.3c.txt"],
     ["lib/projectFileFormat.js", "lib/projectFileFormat.js"],
     ["components/ProjectVersionExport.js", "components/ProjectVersionExport.js"],
     ["components/WorkbenchView.js", "components/WorkbenchView.js"],
+    ["components/AnalysisConsole.js", "components/AnalysisConsole.js"],
+    ["components/IdentifyResultsPanel.js", "components/IdentifyResultsPanel.js"],
+    ["components/PmtilesConversionEditor.js", "components/PmtilesConversionEditor.js"],
+    ["components/SymbologyGallery.js", "components/SymbologyGallery.js"],
+    ["components/WorkbenchMapDrawing.js", "components/WorkbenchMapDrawing.js"],
+    ["lib/analysisConsole.js", "lib/analysisConsole.js"],
+    ["lib/analysisLocalRuntime.js", "lib/analysisLocalRuntime.js"],
+    ["lib/landCoverStyle.js", "lib/landCoverStyle.js"],
+    ["lib/massgisSymbology.js", "lib/massgisSymbology.js"],
+    ["lib/pmtilesOptions.js", "lib/pmtilesOptions.js"],
+    ["lib/pointClustering.js", "lib/pointClustering.js"],
+    ["lib/pointSymbolPixels.js", "lib/pointSymbolPixels.js"],
+    ["lib/pointSymbolRegistry.js", "lib/pointSymbolRegistry.js"],
+    ["lib/referenceSymbolPixels.js", "lib/referenceSymbolPixels.js"],
+    ["lib/symbologyCatalog.js", "lib/symbologyCatalog.js"],
+    ["lib/symbologyReferences.js", "lib/symbologyReferences.js"],
+    ["lib/workbenchFeatureQuery.js", "lib/workbenchFeatureQuery.js"],
     ["components/LocalProjectLibrary.js", "components/LocalProjectLibrary.js"],
     ["components/BrowserPrintStudio.js", "components/BrowserPrintStudio.js"],
     ["components/ProjectPrintEditor.js", "components/ProjectPrintEditor.js"],
     ["lib/localProjectStore.js", "lib/localProjectStore.js"],
     ["lib/printLayouts.js", "lib/printLayouts.js"],
+    ["lib/printTemplates.js", "lib/printTemplates.js"],
+    ["lib/qgisPrintTemplates.js", "lib/qgisPrintTemplates.js"],
+    ["lib/printDataFrames.js", "lib/printDataFrames.js"],
+    ["lib/continuousStyle.js", "lib/continuousStyle.js"],
+    ["lib/printContinuousLegend.js", "lib/printContinuousLegend.js"],
+    ["lib/printVectorScene.js", "lib/printVectorScene.js"],
+    ["lib/printRasterLegend.js", "lib/printRasterLegend.js"],
+    ["lib/printTextFrames.js", "lib/printTextFrames.js"],
+    ["lib/printTextSvg.js", "lib/printTextSvg.js"],
+    ["lib/printMathSvg.js", "lib/printMathSvg.js"],
+    ["lib/printMathAttachment.js", "lib/printMathAttachment.js"],
+    ["assets/print-math-runtime.js.js", "assets/print-math-runtime.js.js"],
+    ["lib/printMathRuntime.js", "lib/printMathRuntime.js"],
+    ["lib/printMathNotices.js", "lib/printMathNotices.js"],
+    ["lib/printVectorPdf.js", "lib/printVectorPdf.js"],
+    ["lib/printGeoPdf.js", "lib/printGeoPdf.js"],
+    ["lib/printFontAttachments.js", "lib/printFontAttachments.js"],
     ["lib/figurePrintPack.js", "lib/figurePrintPack.js"],
     ["components/RendererPanel.js", "components/RendererPanel.js"],
     ["components/LayerFolders.js", "components/LayerFolders.js"],

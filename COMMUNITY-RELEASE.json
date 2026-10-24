@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "repository": "categori-se/opengeo-community",
   "author": {
     "name": "Aaron Kyle Dennis",
@@ -7,164 +7,84 @@
     "github": "aaronkyle"
   },
   "license": "Apache-2.0",
-  "closes": [
-    "Reviewed community application source",
-    "Public development roadmap",
-    "Preserved foundation licenses and contributions",
-    "Fresh-source Studio build and local Project persistence",
-    "Local GIS processing and publication/access pilot",
-    "Independent-account AWS infrastructure and deployment scripts",
-    "Public developer support and deployment operations guide",
-    "Staged parity roadmap and consistent OpenGeo Studio / OpenGeo.Tools presentation"
-  ],
-  "reuses": [
-    "Existing Studio/API/database/worker/compiler source",
-    "Existing local integration runner",
-    "Existing foundation register and upstream notices"
-  ],
-  "limits": {
-    "awsRequests": 0,
-    "deployments": 0,
-    "remoteBuilds": 0,
-    "githubPublication": "One consolidated reviewed Community update; no remote workflow dispatch"
-  },
-  "stop_condition": "Publish the reviewed source update after local core workflow, offline infrastructure, attribution and credential checks; record remaining independent-install and native-publication acceptance explicitly.",
-  "result": {
-    "state": "community-evaluation-and-self-hosting-source-reviewed",
-    "closedOutcomes": 8,
-    "requiredExceptions": [
-      "Clean-machine dependency and API/worker/compiler image builds",
-      "Live new-account AWS acceptance of the standalone profile",
-      "Standalone native Notebook/Framework build, preview and publication integration",
-      "Full built-browser publication acceptance after legacy helper drift",
-      "Exact future binary-distribution license review"
-    ]
-  },
-  "verification": {
-    "ckanCapabilitiesCorrection": {
-      "closes": [
-        "Stale unverified CKAN server-round-trip sentence in the public capabilities summary"
-      ],
-      "reuses": "Published CKAN 2.11.6 local server receipt and documented test limits",
-      "limits": "One sentence; no runtime tests, builds, AWS/provider calls, deployment or CI dispatch",
-      "stop_condition": "Publish the corrected sentence and verify exact public readback",
-      "result": "One sentence published at 2eb3b3e089bfb147bf146e7313983f95b69a5d0b; harvesting, ordinary-user permissions, synchronization and production deployment remain unverified",
-      "verification": "Exact main-branch readback; 15 local links/anchors and scoped whitespace pass",
-      "usage": "Four GitHub connector calls and two web opens, including the failed initial public-page fetch; agent effort unmetered, estimate unavailable. Existing workflow costs and failures retained."
+  "artifactKind": "source",
+  "releaseState": "source-prepared",
+  "scope": "Community application, local development and optional self-hosting source. This is a source preparation record; delivery is separate. It summarizes selected retained acceptance and does not establish independent installation, deployed acceptance or full reference-application parity.",
+  "verification": [
+    {
+      "capability": "Source packaging and credential scanning",
+      "status": "passed-local",
+      "scope": "The exporter omits operator state, credentials and execution history and emits an explicit public summary. Local packaging and scoped credential checks have retained acceptance. Every source candidate needs an exact full or covering-delta default-rule scan. Earlier frozen publication approval does not cover newer source; preparation alone does not authorize publication."
     },
-    "credentials": {
-      "tool": "Gitleaks 8.30.1",
-      "result": "no remaining findings with default rules and narrow reviewed false-positive allowlists",
-      "reviewedFalsePositives": 68
+    {
+      "capability": "Attribution and source-asset notices",
+      "status": "reviewed-source-only",
+      "scope": "Public Studio/demo credits, structured foundations and retained PMTiles, font/glyph and GeoTIFF-generator notices were checked. This is not whole-transitive, container or native-binary license approval."
     },
-    "foundations": {
-      "directPackages": 55,
-      "platformFoundations": 17,
-      "referenceProducts": 7,
-      "registryReviewPending": 1
+    {
+      "capability": "Core Studio and publishing workflow",
+      "status": "passed-local",
+      "scope": "Compiled Studio exercised local API, SQL and worker paths, save/reopen, publication, exact exports and source withdrawal. Identity and cloud transport used local substitutes; independent two-person and deployed acceptance remain open."
     },
-    "localPersistence": {
-      "result": "Studio create Project/map, stop/restart retained database, exact map reopen through Studio and authorized API",
-      "seconds": 43.873,
-      "secondsIncludingCleanup": 44.48,
-      "reuses": "Existing sealed Studio tree and cached container images; fresh install and graphical sandbox not established"
+    {
+      "capability": "PostGIS and QGIS connections",
+      "status": "passed-local",
+      "scope": "Selected PostGIS Services-to-Catalog browser behavior and a stock QGIS saved APIHeader connection/fresh-process read passed locally. Connection provisioning/cloud transport used substitutes; desktop sign-in and bearer refresh remain open."
     },
-    "focusedChecks": {
-      "runnerTests": {
-        "passed": 23,
-        "skipped": 1
-      },
-      "frontendFilesPassed": 2,
-      "apiConnectionCasesPassed": 20,
-      "publicGuideLinks": "pass",
-      "catalogPreviewSaveNavigationFilesPassed": 3
+    {
+      "capability": "CKAN source recovery",
+      "status": "passed-offline",
+      "scope": "Recovered pinned source and offline CLI output matched retained peer bytes. Historical matching-source tests were reused because fresh pytest was unavailable; ordinary-user, browser and deployed acceptance remain open."
     },
-    "retainedFailures": [
-      "Initial candidate runner checks lacked installed dependencies; reused existing local dependencies, then passed",
-      "Two smoke-helper response-body eviction failures; changed readback method to API proxy bytes before successful restart check",
-      "Fresh-source staging omitted three transitive Notebook modules; fixed module closure and reused initial cache",
-      "Two built-browser checks stopped on stale access-helper selectors; corrected selectors, used bounded durable browser smoke and existing API/worker pilot instead of repeated full-browser retries",
-      "Pilot fixture used baseline85 without forward migrations; shared current initializer",
-      "Pilot fixture duplicated the canonical map resource; changed fixture to reuse its governed identity"
-    ],
-    "freshSourceStudio": {
-      "files": 819,
-      "routes": 7,
-      "treeSha256": "d619c381f79a37a3d0d33364e570f0741f89d0dea0742d0e67687dcbb79cf7d1",
-      "reuses": "Existing installed dependencies and cached runtime images; initial Observable cache populated through network",
-      "browserPersistenceSeconds": 39.811,
-      "result": "Project/map creation, database stop/start, exact map reopen passed; temporary containers and volume removed"
+    {
+      "capability": "Print layouts and source-bound data frames",
+      "status": "passed-local",
+      "scope": "Local acceptance covers main/inset API persistence/reopen, physical editing, reusable/classed/continuous legends, bounded source tables/bar/line charts and named source-free templates. Compiled Workbench/Print recaptures loaded vectors at96/300DPI with unchanged camera/bounds and independent inset. Annotation halos, explicit scale endpoints and grid collision avoidance pass retained-scene dark/light inspection with unchanged images/rights. Raster/tile source detail remains original. A QGIS3.44.14 source-free profile passes native maps/tables/edited-file import and fitted furniture. Broader sources/devices/providers/interpolation/typography/native layouts, vectorPDF/GeoPDF and independent/configured delivery remain open. Current Print increments are newer than the frozen publication candidate; original failures remain recorded."
     },
-    "localPublicationPilot": {
-      "seconds": 57.952,
-      "result": "Real upload/features, worker PMTiles/PNG, canonical map compose/reopen, metadata export, sealed two-page ZIP, anonymous publication read/revocation, reviewer permissions/conflict/revocation passed",
-      "reuses": "Cached API and GIS worker images, synthetic identities, existing pilot and local database",
-      "cleanup": "All temporary containers and volumes removed"
+    {
+      "capability": "Baseline analysis and review",
+      "status": "passed-local",
+      "scope": "Local acceptance covers fixed WorldCover/FTW source suitability, categorical raster inventory/comparison/reference agreement/patches, bounded mapped-field areas, explicit building review/reference agreement and footprint/receptor screening. Source facts, methods, input identities and unknowns accompany portable results. Selected compiled/device and local account Catalog/worker/Project/native-publication paths pass within retained scopes. Independent source/reference quality, actual ecological/crop/change findings, complete integration breadth, clean installation and production delivery remain open. Shared tools add no idle service; data reads, analysis and publication follow deliberate user actions."
     },
-    "independentAws": {
-      "result": "Offline Web/Foundation/API/optional-worker synthesis passes with no missing context; TypeScript passes",
-      "ownIdentityRetentionChecks": 2,
-      "studioWebCases": 12,
-      "foundationApiSuites": "pass",
-      "deploymentAccountGuards": 7,
-      "migrationCases": 35,
-      "migrationPlanVersions": 167,
-      "sealedStudioRelease": "Own Cognito/CloudFront config prepare/check/deploy --local-check passes:820files,7pages,6aliases,827objects",
-      "liveAwsAcceptance": false
+    {
+      "capability": "Stratified reference review and conditional area uncertainty",
+      "status": "passed-local",
+      "scope": "Frozen stratified whole-cell sampling, append-only reference review/corrections, weighted confusion and conditional class-area uncertainty pass focused and compiled checks. Complete drafts/reports/maps, original archives and exact source/object identities survive selected local account Catalog registration and Project save/fresh reopening. Synthetic labels do not establish independent reference quality or classification accuracy; sampling assumptions and non-sampling limits remain explicit."
     },
-    "presentationCopy": {
-      "state": "published-source-update",
-      "outcomesClosed": 3,
-      "guideLinks": "pass",
-      "scope": "Documentation, display copy and guide packaging only; existing runtime evidence reused",
-      "published": true,
-      "deployed": false
+    {
+      "capability": "External STAC analytical references",
+      "status": "passed-local",
+      "scope": "Bounded explicit anonymous Item search retains original Items, query/response hashes and distribution-specific unknown terms. Selected compatible TIFF/bands reuse referenced Catalog Layers and temporary maps. One actual public metadata query and bounded native overview ranges were retained; source/revision readback and matching native pixels survive local account Project save/fresh reopening using replayed provider bytes. No imagery copy or ingestion job. Candidate bounds do not prove full coverage; source rights, snapshot consistency and production access remain separate."
     },
-    "reviewResponse": {
-      "state": "published-source-update",
-      "publicFiles": 36,
-      "localLinksAndAnchors": 329,
-      "screenshot": "Actual retained anonymous Demo, explicit release/date/custody limits",
-      "connectedAcceptance": "Unchanged prior evidence reused; existing required exceptions remain open",
-      "sourcePublished": true,
-      "githubAboutAndTopicsUpdated": true
+    {
+      "capability": "Published forest-history interpretation",
+      "status": "passed-local",
+      "scope": "An explicitly confirmed JRC TMF 2025 main-class profile retains the exact primary legend/hash and separate source/profile/custom meanings in bounded inventory JSON/CSV. Focused and compiled synthetic controls and one authoritative native16x16 derivative decoded from a bounded tile prefix pass without extra analytical reads. Unknown codes, missing coverage and recent-class ambiguity remain explicit. Original download ignores byte ranges and is unsupported as a direct analytical reference. Product identity remains user-declared; full original-object identity, distribution terms, study-area coverage, independent accuracy and ecological findings remain unverified."
     },
-    "editorialRevision": {
-      "scope": "Concise public documentation, published examples and image removal; source implementation unchanged.",
-      "changedTextFiles": 17,
-      "localLinks": 266,
-      "embeddedImages": 0,
-      "result": "Published; 18 exact public files and image removal verified on main, anonymous README bytes match."
+    {
+      "capability": "Mapped-field confidence review",
+      "status": "passed-local",
+      "scope": "Raw published FTW scores, missingness, optional strict below-threshold review and separate versioned JSON/CSV pass focused and compiled desktop/phone checks without filtering query geometry. One retained real field has a missing score; positive scores and threshold equality use synthetic controls. A regional reliability layer is not boundary accuracy or independent field probability. No provider reverification, new account persistence or independent accuracy claim."
     },
-    "authorshipAndVoice": {
-      "credit": "Developed and maintained by Aaron Kyle Dennis for categori.se",
-      "scope": "Contributors, README, NOTICE and licensing credit; project purpose and ongoing maintenance priorities use a professional corporate voice",
-      "verification": "Scoped local links/whitespace; documentation only; no runtime or deployment changes"
+    {
+      "capability": "Declared surface-minus-terrain height comparison",
+      "status": "passed-local",
+      "scope": "Compatible loaded elevation windows require declared surface/terrain roles, units and vertical/method review. Continuous differences preserve missing, negative and zero values; JSON/CSV summaries and complete bounded all-cell GeoJSON accompany source lineage. Focused checks and one compiled synthetic float32 journey cover calculation, exports, temporary map addition and checked device save/fresh Workbench reopening. Restricted archive/metadata registration contracts pass using existing transport evidence; no new account/worker/provider acceptance or independent height accuracy. No resampling, inference or new idle service."
     },
-    "roadmapAndContactPrivacy": {
-      "date": "2026-10-17",
-      "scope": "Correct current roadmap states and tracker links; replace personal email contacts with LinkedIn and Observable profiles; use synthetic fixture identities and GitHub no-reply metadata.",
-      "sourceChanges": 13,
-      "scopedChecks": "Whitespace, affected syntax and ten root/public bootstrap fixture cases pass. Existing accepted application evidence retained.",
-      "history": "Published history cleanup prepared separately; no remote history rewrite claimed.",
-      "builds": 0,
-      "AWS": 0,
-      "manualCI": 0
-    },
-    "analysisConsole": {
-      "scope": "Browser and opt-in local script editor/runners; managed authenticated execution remains in progress.",
-      "focusedCases": 37,
-      "browserSecondsCumulative": 78.583,
-      "nativeSecondsCumulative": 12.87,
-      "nativeJobsIncludingFailedAttempt": 7,
-      "actualNativeHTTP": "Run/Add/Stop with exact container/staging cleanup passes; original stop-grace failure and changed-method correction retained privately.",
-      "fullBuilds": 0,
-      "AWS": 0,
-      "deployment": "Not claimed",
-      "secretScan": "Gitleaks8.30.1 with existing default-extended public configuration;19 reviewed paths;zero findings. Initial missing-config command failed before scanning; corrected config reused, no suppression added."
+    {
+      "capability": "Catalog inspection of managed GeoJSON originals",
+      "status": "passed-local",
+      "scope": "Eligible uploaded GeoJSON resources and saved governed Layer presentations reuse exact-version managed authorization/checksum and scope/disposal guards. Listing remains metadata-only; Open map renders only the selected original without a persistent Project change. Owning checks cover both entrypoints. One compiled local account Resources journey renders two retained synthetic inputs with every feature matched, prior saved Project unchanged and services stopped. The retained failed private-field predicate is corrected with public MapLibre getData() on the same app build. No content writes, workers or provider calls; other formats, provider rights/reference quality, independent installation and production/public delivery remain open."
     }
+  ],
+  "requiredExceptions": {
+    "independentInstallation": "Fresh clean-machine complete-stack dependencies, images and independent human installation remain unaccepted.",
+    "productionDelivery": "Real production identity, two-person authorization, configured cloud/TLS delivery and new-account AWS acceptance remain open.",
+    "binaryLicensing": "Exact native ARM64, transitive/container redistribution and Python BiDi whole-wheel licensing remain unresolved; no native binaries are included in this source offer.",
+    "releaseSecurity": "Source credential scanning is scoped evidence, not full release-security or legal approval.",
+    "fullParity": "Full version-pinned reference parity remains incomplete. Broader source/device/provider/cartographic/typography acceptance, vector formats, source/chart/interpolation/LaTeX coverage, native QGIS linked north/rotation/charts/layouts and retained roadmap requirements remain open."
   },
-  "sourceMapping": "Reviewed current community checkout source update, preserving existing public contribution history and public-only API documentation, CI and regression fixes. Includes regenerated API contract and final selected clustering source. Private Git history and operational state are excluded.",
+  "sourceMapping": "Fresh reviewed workspace snapshot; original private Git history retained separately.",
   "exportOnlyChanges": [
     "First-party package license declarations",
     "Public root documentation and scripts",
@@ -173,6 +93,7 @@
   ],
   "syntheticFixturePaths": [
     "docs/community-examples.md",
+    "docs/community-baseline.md",
     "docs/community-aws.md",
     "docs/community-workflow.md",
     "docs/community-deployments.md",
@@ -194,10 +115,8 @@
     "app/src/lib/fixturePlatform.js",
     "app/src/lib/massgisDemo.js",
     "app/src/data/massgis-enviroscreen.json",
-    "app/src/components/PlatformDirectory.js",
     "services/observable-builder/README.md",
     "services/observable-coordinator/src/compiler-policy.mjs",
-    "services/observable-coordinator/src/podman-runner.mjs",
     "services/api/tests/test_dataset_repository_browser_runtime.py",
     "services/api/tests/test_user_connection_routes.py",
     "services/api/tests/test_ingestion.py",
@@ -208,6 +127,7 @@
     "services/api/tests/test_ingestion_routes.py",
     "services/api/tests/test_archive_upload_storage.py",
     "services/api/tests/test_user_basemap_connections.py",
+    ".github/workflows/studio-framework-build.yml",
     "database/scripts/bootstrap_managed_login_browser.py",
     "database/scripts/verify_m1_collaboration.py",
     "database/scripts/bootstrap_massgis_project.py",
@@ -221,7 +141,9 @@
     "database/test/repository-object-protected-copies.test.mjs",
     "database/test/user-dataset-repository-browser.test.mjs",
     "database/test/user-dataset-connections.test.mjs",
+    "infrastructure/lib/github-framework-build-access-stack.ts",
     "infrastructure/lib/config.ts",
+    "infrastructure/lib/observable-preview-edge.ts",
     "infrastructure/lib/demo-web-stack.ts",
     "infrastructure/lib/studio-web-stack.ts",
     "infrastructure/bootstrap/run-opengeo-container-build-controller.sh",
@@ -235,67 +157,17 @@
     "infrastructure/test/dataset-connection-bootstrap.test.ts",
     "infrastructure/test/reviewer-recovery-inspection.test.ts",
     "infrastructure/test/serverless-api-stack.test.ts",
+    "infrastructure/test/github-framework-build-access-stack.test.ts",
     "infrastructure/test/platform-foundation-stack.test.ts",
     "infrastructure/test/dev-cdk-bootstrap.test.ts",
+    "infrastructure/test/community-deployment.test.ts",
     "infrastructure/test/production-static-operator.test.ts",
     "infrastructure/test/web-auth-stack.test.ts",
     "infrastructure/test/config.test.ts",
     "infrastructure/test/studio-web-stack.test.ts",
-    "infrastructure/test/demo-pilot-operator.test.ts"
+    "infrastructure/test/demo-pilot-operator.test.ts",
+    "infrastructure/test/fixtures/demo-runtime-20260907.json"
   ],
-  "fileCount": 2283,
-  "sourceTreeSha256": "d5dcafde4ca4c208058fa94d0b2e870047adcc1f0a686de6905d59eb723500c4",
-  "sourceSyncPreparation": {
-    "status": "local-source-update-verified-not-published",
-    "changedPaths": 316,
-    "trackedChangedPaths": 211,
-    "newPaths": 105,
-    "deletions": 0,
-    "sourceFileCount": 2272,
-    "sourceTreeSha256": "07b67d6efaf9029b88516d91b12b7768b3f1d07744f75bdf14a26c9916b0663f",
-    "sourceBytes": 74925092,
-    "verification": {
-      "pointClustering": "Final selected source and focused standalone test file included; local/source checks and saved configuration do not establish a published build or independent community deployment.",
-      "pmtilesV2": "Activation remains disabled pending current security scanning, native ARM64 execution and hosted owner acceptance; shared worker security hold remains.",
-      "APIContract": {
-        "credentials": "empty environment",
-        "examples": 8,
-        "fresh_processes": 2,
-        "network": "blocked",
-        "openapi": "3.1.0",
-        "paths": 406,
-        "result": "pass",
-        "schemas": 460,
-        "sha256": "61b6dea70d181230030cc874920d6349907c37505a044ed099ec4cffced9b6b9",
-        "verificationReuse": "Contract evidence remains valid after whitespace-only normalization; no equivalent runner replay."
-      },
-      "secrets": {
-        "tool": "Gitleaks8.30.1",
-        "findings": 0,
-        "scope": "Copied changed source tree with existing community rules and100%redaction; one whitespace-only changed-file followup also zero. This final metadata-only manifest update receives its own scoped scan.",
-        "currentSourceChangesBeforeManifest": 316
-      },
-      "whitespace": "Scoped source diff passes after one trailing-space normalization; metadata-only finalization adds no application build.",
-      "fullPublicBuild": "Not run and not claimed; source publication does not establish full build/deployment acceptance."
-    },
-    "sourceFreshness": {
-      "app/src/lib/pointClustering.js": {
-        "sha256": "c8612d61d60ee9dcc58d8e65400f1f95aac50c4ba13c9bdf80d4b0f12cbd3207",
-        "matchesSelectedMaintainerSource": true
-      },
-      "app/test/point-clustering.test.mjs": {
-        "sha256": "bd9ec884e061d15d371e53c672b5927a29b5f028d08846e74de21ec0a3f299bd",
-        "matchesSelectedMaintainerSource": true
-      },
-      "app/src/components/WorkbenchView.js": {
-        "sha256": "666e64fe08575b67db78b4a682415d04f31e5796aad5dbb2fd7d5898cc4759e0",
-        "matchesSelectedMaintainerSource": true
-      },
-      "app/src/style.css": {
-        "sha256": "1e05b98001482f643acd16e22d52615d7e0f5d52375b6540c7d99c6fb66ddfa2",
-        "matchesSelectedMaintainerSource": true
-      }
-    }
-  },
-  "sourceTreeHashScope": "Sorted Git cached plus untracked nonignored source files; excludes COMMUNITY-RELEASE.json itself, Git metadata, ignored dependency/build directories and private runtime state. Hash input is relative path, NUL, file SHA-256 and newline for each file."
+  "fileCount": 2444,
+  "sourceTreeSha256": "49ed51a581f05e498d1c18337c9d0e5c316fa920378e1307dbc6973cc658e15a"
 }

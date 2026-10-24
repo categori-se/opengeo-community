@@ -8,7 +8,7 @@ import {ProjectSites} from "../src/components/ProjectSites.js";
 import {ProjectWorkspacePage} from "../src/components/ProjectWorkspacePage.js";
 import {FixturePlatformAdapter, FIXTURE_PROJECTS} from "../src/lib/fixturePlatform.js";
 import {ProjectPrintEditor, capturePrintMap, printPageSvg} from "../src/components/ProjectPrintEditor.js";
-import {definitionWithPrintLayouts, definitionForPrintFrame, newProjectPrintLayout, printLayerPresentation, projectPrintLayouts, validateProjectPrintLayouts} from "../src/lib/printLayouts.js";
+import {alignPrintFrame, definitionWithPrintLayouts, definitionForPrintFrame, movePrintFrame, newProjectPrintLayout, printLayerPresentation, projectPrintLayouts, resizePrintFrame, validateProjectPrintLayouts} from "../src/lib/printLayouts.js";
 import {canonicalJson} from "../src/lib/artifactCanonicalJson.js";
 
 const IDS = Object.freeze({
@@ -33,6 +33,27 @@ afterEach(() => {
 });
 
 describe("publication project surfaces", () => {
+  it("Print retains explicit composite opacity separately from feature alpha and legacy frame behavior", () => {
+    const map = printProjectFixture(), layer = map.definition.layers[0];
+    layer.sourceType = "geojson-object";layer.geometryType = "Polygon";delete layer.sourceUrl;
+    const legacy = newProjectPrintLayout(map, "legacy");
+    assert.equal(Object.hasOwn(legacy.frames[0].presentation[0], "opacityMode"), false);
+    layer.opacityMode = "composite";
+    const layout = newProjectPrintLayout(map, "composite"), value = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
+    assert.equal(layout.frames[0].presentation[0].opacityMode, "composite");
+    const stored = JSON.parse(JSON.stringify(definitionWithPrintLayouts(map, value)));
+    const fresh = projectPrintLayouts({...map, definition: stored});
+    const edited = {...map, definition: {...stored, layers: stored.layers.map(item => ({...item, opacityMode: "feature"}))}};
+    assert.equal(definitionForPrintFrame(edited, fresh.layouts[0].frames[0]).layers[0].opacityMode, "composite");
+    assert.equal(definitionForPrintFrame(map, legacy.frames[0]).layers[0].opacityMode, "composite", "old frames keep existing inheritance behavior");
+    assert.notEqual(canonicalJson(layout.frames[0].presentation), canonicalJson(legacy.frames[0].presentation));
+    const invalid = structuredClone(value);invalid.layouts[0].frames[0].presentation[0].opacityMode = "flatten";
+    assert.throws(() => validateProjectPrintLayouts(invalid, map), /opacity blending/);
+    const unsupported = {...map, definition: {...map.definition, layers: [{...layer, geometryType: "Point"}]}};
+    assert.throws(() => validateProjectPrintLayouts(value, unsupported), /Composite opacity requires/);
+    assert.equal(edited.definition.layers[0].opacityMode, "feature");
+  });
+
   it("retains exact Project print bindings and preserves canonical data and other extensions", () => {
     const map = printProjectFixture(), layout = newProjectPrintLayout(map, "layout-one");
     const value = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
@@ -40,6 +61,19 @@ describe("publication project surfaces", () => {
     const definition = definitionWithPrintLayouts(map, value);
     assert.deepEqual(definition.layers, map.definition.layers);assert.deepEqual(definition.extensions.kept, {answer: 42});
     const reopened = projectPrintLayouts({...map, definition});assert.equal(reopened.layouts[0].frames[0].presentation[0].style.fill, "#00aa00");
+    assert.equal(Object.hasOwn(layout, "legendFormat"), false);assert.deepEqual(reopened, value);
+    assert.equal(JSON.stringify(projectPrintLayouts({...map, definition: JSON.parse(JSON.stringify(definition))})), JSON.stringify(value));
+    for (const legendFormat of ["swatches", "classed-bars"]) {
+      const chosen = structuredClone(value);chosen.layouts[0].legendFormat = legendFormat;
+      const savedDefinition = definitionWithPrintLayouts(map, chosen);
+      const fresh = projectPrintLayouts({...map, definition: JSON.parse(JSON.stringify(savedDefinition))});
+      assert.deepEqual(fresh, chosen);assert.deepEqual(savedDefinition.layers, map.definition.layers);
+      assert.deepEqual(savedDefinition.extensions.kept, {answer: 42});assert.equal(Object.hasOwn(layout, "legendFormat"), false);
+    }
+    for (const legendFormat of [null, undefined, "continuous", "", 1, {}, ["classed-bars"], "https://example.org/legend", "data:image/svg+xml,private", "javascript:alert(1)"]) {
+      const rejected = structuredClone(value);rejected.layouts[0].legendFormat = legendFormat;
+      assert.throws(() => validateProjectPrintLayouts(rejected, map), /Invalid print legend format/);
+    }
     const view = definitionForPrintFrame(map, reopened.layouts[0].frames[0]);
     assert.equal(view.layers[0].style.fill, "#00aa00");assert.equal(view.layers[0].sourceUrl, map.definition.layers[0].sourceUrl);
     assert.equal(Object.hasOwn(view.layers[0], "filter"), false);assert.equal(Object.hasOwn(view.layers[0], "styleReference"), false);
@@ -51,6 +85,105 @@ describe("publication project surfaces", () => {
       draft => {draft.layouts[0].frames[0].image = "data:image/png;base64,private";}]) {
       const rejected = structuredClone(value);mutate(rejected);assert.throws(() => validateProjectPrintLayouts(rejected, map));
     }
+  });
+
+  it("retains source-bound print table and chart frames through exact layout save/reopen without copied data", () => {
+    const map = printProjectFixture(), layout = newProjectPrintLayout(map, "data-layout");
+    const legacy = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
+    const legacyBytes = JSON.stringify(legacy), canonical = structuredClone(map.definition);
+    assert.equal(Object.hasOwn(layout, "dataFrames"), false);
+    assert.equal(JSON.stringify(validateProjectPrintLayouts(legacy, map)), legacyBytes);
+    const source = {layerId: "wetlands", datasetId: map.definition.layers[0].datasetId, datasetVersionId: null, sourceVersion: 2};
+    layout.dataFrames = [
+      {id: "table", type: "table", title: "Wetland areas", xMm: 20, yMm: 30, widthMm: 100, heightMm: 50,
+        mapFrameId: "main", source, rowLimit: 12, columns: ["Site name", "area.total", "reading[0]", "面積"]},
+      {id: "chart", type: "chart", title: "Observed area", xMm: 140, yMm: 30, widthMm: 100, heightMm: 60,
+        mapFrameId: "main", source: {...source}, rowLimit: 1, chartType: "bar", labelField: "Site name", valueField: "area.total", altText: "Observed area for the selected sites."}
+    ];
+    const before = structuredClone(legacy), definition = definitionWithPrintLayouts(map, legacy);
+    assert.deepEqual(projectPrintLayouts({...map, definition: JSON.parse(JSON.stringify(definition))}), legacy);
+    assert.deepEqual(definition.layers, canonical.layers);assert.deepEqual(definition.extensions.kept, canonical.extensions.kept);
+    assert.deepEqual(map.definition, canonical);assert.deepEqual(legacy, before);
+    const serialized = JSON.stringify(definition.extensions.opengeoPrintLayouts);
+    assert.doesNotMatch(serialized, /sourceUrl|sourceConfiguration|data:image|ImageServer|"rows"|"values"/);
+    layout.dataFrames[1].chartType = "line";
+    assert.deepEqual(validateProjectPrintLayouts(legacy, map), legacy);
+    delete map.definition.layers[0].datasetId;delete map.definition.layers[0].sourceVersion;
+    layout.frames[0].presentation = map.definition.layers.map(printLayerPresentation);
+    layout.dataFrames.forEach(frame => {frame.source.datasetId = null;frame.source.sourceVersion = null;});
+    assert.deepEqual(validateProjectPrintLayouts(legacy, map), legacy, "local Layers retain explicit null source pins");
+  });
+
+  it("rejects unsafe print data-frame fields, stale or invisible bindings and unchanged collection bounds", () => {
+    const map = printProjectFixture(), layout = newProjectPrintLayout(map, "data-bounds");
+    layout.dataFrames = [{id: "table", type: "table", title: "Wetland areas", xMm: 20, yMm: 30, widthMm: 100, heightMm: 50,
+      mapFrameId: "main", source: {layerId: "wetlands", datasetId: map.definition.layers[0].datasetId, datasetVersionId: null, sourceVersion: 2}, rowLimit: 12, columns: ["name", "area"]}];
+    const value = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
+    const reject = (change, expected) => {
+      const draft = structuredClone(value);change(draft.layouts[0], draft);assert.throws(() => validateProjectPrintLayouts(draft, map), expected);
+    };
+    for (const change of [
+      item => {item.dataFrames = null;}, item => {item.dataFrames = undefined;}, item => {item.dataFrames = {};},
+      item => {item.dataFrames[0].id = "main";}, item => {item.dataFrames.push({...item.dataFrames[0]});},
+      item => {item.dataFrames[0].mapFrameId = "unknown";}, item => {item.frames[0].presentation[0].visible = false;},
+      item => {item.frames[0].presentation = [];}, item => {item.dataFrames[0].source.layerId = "unknown";},
+      item => {item.dataFrames[0].source.datasetId = "other";}, item => {item.dataFrames[0].source.datasetVersionId = "other";},
+      item => {item.dataFrames[0].source.sourceVersion = 3;}, item => {delete item.dataFrames[0].source.datasetVersionId;},
+      item => {item.dataFrames[0].source.sourceUrl = "https://example.org/data";}, item => {item.dataFrames[0].source.loader = "fetch";},
+      item => {item.dataFrames[0].rows = [["copied"]];}, item => {item.dataFrames[0].values = [1];},
+      item => {item.dataFrames[0].type = "image";}, item => {item.dataFrames[0].xMm = -1;},
+      item => {item.dataFrames[0].yMm = Infinity;}, item => {item.dataFrames[0].widthMm = 19.999;},
+      item => {item.dataFrames[0].heightMm = 19.999;}, item => {item.dataFrames[0].xMm = 250;},
+      item => {item.dataFrames[0].heightMm = 200;}, item => {item.dataFrames[0].title = "";},
+      item => {item.dataFrames[0].id = "x".repeat(101);}, item => {item.dataFrames[0].columns = [];},
+      item => {item.dataFrames[0].columns = ["name", "name"];}, item => {item.dataFrames[0].columns = ["1", "2", "3", "4", "5"];},
+      item => {item.dataFrames[0].columns = ["__proto__"];}, item => {item.dataFrames[0].columns = ["Constructor"];},
+      item => {item.dataFrames[0].columns = ["prototype"];}, item => {item.dataFrames[0].columns = ["line\nbreak"];},
+      item => {item.dataFrames[0].columns = ["tab\tfield"];}, item => {item.dataFrames[0].columns = ["c1\u0085field"];},
+      item => {item.dataFrames[0].columns = [" "];}, item => {item.dataFrames[0].columns = ["x".repeat(101)];},
+      ...[0, 13, 1.5, "2", NaN].map(rowLimit => item => {item.dataFrames[0].rowLimit = rowLimit;})
+    ]) reject(change);
+    for (const change of [
+      frame => {frame.chartType = "pie";}, frame => {frame.labelField = "__proto__";}, frame => {frame.valueField = "area\r";},
+      frame => {frame.valueField = frame.labelField;},
+      frame => {frame.altText = "";}, frame => {frame.altText = "x".repeat(301);}, frame => {frame.columns = ["name"];}
+    ]) reject(item => {
+      const frame = item.dataFrames[0];delete frame.columns;
+      Object.assign(frame, {type: "chart", chartType: "line", labelField: "name", valueField: "area", altText: "Area by site."});change(frame);
+    });
+    const four = structuredClone(value);
+    four.layouts[0].dataFrames = Array.from({length: 4}, (_, index) => ({...structuredClone(layout.dataFrames[0]), id: `table-${index}`}));
+    assert.deepEqual(validateProjectPrintLayouts(four, map), four);
+    const five = structuredClone(four);five.layouts[0].dataFrames.push({...structuredClone(layout.dataFrames[0]), id: "table-5"});
+    assert.throws(() => validateProjectPrintLayouts(five, map), /up to four data frames/);
+    reject(item => {item.frames.push({...structuredClone(item.frames[0]), id: "inset", parentId: "main"}, {...structuredClone(item.frames[0]), id: "third", parentId: "main"});}, /one main map and one inset/);
+    reject((_item, collection) => {collection.layouts = Array.from({length: 9}, (_, index) => ({...structuredClone(layout), id: `layout-${index}`}));}, /unsupported format/);
+    reject((_item, collection) => {collection.layouts = Array.from({length: 6}, (_, index) => ({...structuredClone(layout), id: `layout-${index}`, caption: "水".repeat(2000)}));}, /32 KiB/);
+  });
+
+  it("moves resizes aligns and snaps print data frames with map peers while preserving source and capture inputs", () => {
+    const map = printProjectFixture(), layout = newProjectPrintLayout(map, "data-geometry");
+    layout.dataFrames = [{id: "table", type: "table", title: "Areas", xMm: 240, yMm: 30, widthMm: 40, heightMm: 30,
+      mapFrameId: "main", source: {layerId: "wetlands", datasetId: map.definition.layers[0].datasetId, datasetVersionId: null, sourceVersion: 2}, rowLimit: 12, columns: ["name", "area"]},
+    {id: "chart", type: "chart", title: "Area chart", xMm: 80, yMm: 70, widthMm: 60, heightMm: 40,
+      mapFrameId: "main", source: {layerId: "wetlands", datasetId: map.definition.layers[0].datasetId, datasetVersionId: null, sourceVersion: 2}, rowLimit: 12,
+      chartType: "bar", labelField: "name", valueField: "area", altText: "Area by site."}];
+    const original = structuredClone(layout), signature = canonicalJson({view: layout.frames[0].view, presentation: layout.frames[0].presentation});
+    assert.deepEqual(movePrintFrame(layout, "table", {xMm: 999, yMm: -5}), {xMm: 257, yMm: 0, snapLines: []});
+    assert.deepEqual(resizePrintFrame(layout, "table", {widthMm: 1, heightMm: 1}), {widthMm: 20, heightMm: 20, snapLines: []});
+    assert.deepEqual(resizePrintFrame(layout, "table", {widthMm: 999, heightMm: 999}), {widthMm: 57, heightMm: 180, snapLines: []});
+    assert.deepEqual(alignPrintFrame(layout, "table", "right"), {xMm: 247, yMm: 30});
+    assert.deepEqual(alignPrintFrame(layout, "chart", "middle"), {xMm: 80, yMm: 85});
+    assert.equal(movePrintFrame(layout, "chart", {xMm: 180.4, yMm: 70, snap: true}).xMm, 180, "data peers supply snap targets");
+    assert.equal(movePrintFrame(layout, "main", {xMm: 25.4, yMm: 27, snap: true}).xMm, 25, "map frames snap to data frames");
+    assert.equal(movePrintFrame(layout, "table", {xMm: 225.4, yMm: 30, snap: true}).xMm, 225, "data frames snap to map frames");
+    assert.equal(resizePrintFrame(layout, "chart", {widthMm: 159.6, heightMm: 40, snap: true}).widthMm, 160, "data resizing snaps to a peer edge");
+    assert.equal(movePrintFrame(layout, "chart", {xMm: 180.4, yMm: 70, snap: false}).xMm, 180.4);
+    assert.equal(resizePrintFrame(layout, "main", {widthMm: 1, heightMm: 1}).widthMm, 10, "legacy map minimum remains 10 mm");
+    assert.throws(() => resizePrintFrame(layout, "table", {widthMm: NaN, heightMm: 50}), /finite numbers/);
+    assert.throws(() => movePrintFrame(layout, "missing", {xMm: 1, yMm: 1}), /existing print frame/);
+    assert.deepEqual(layout, original);
+    assert.equal(canonicalJson({view: layout.frames[0].view, presentation: layout.frames[0].presentation}), signature);
   });
 
   it("captures and explicitly saves/reopens main and inset layouts without changing canonical Layer styling", async () => {
@@ -123,10 +256,152 @@ describe("publication project surfaces", () => {
     assert.equal(captured.legend[0].color, "#06b6d4");
     assert(captured.attribution.includes("Original survey credit"));assert(captured.attribution.includes("Reviewed survey credit"));
     const layout = newProjectPrintLayout(mapRecord, "layout-one");layout.graticule = true;layout.sourceNotes = false;
+    layout.frames[0].view = captured.view;layout.frames[0].presentation = captured.presentation;
     const svg = printPageSvg(layout, new Map([["layout-one:main", captured]]), "layout-one");
     assert.match(svg.textContent, /Basemap credit/);assert.equal(svg.getAttribute("width"), "297mm");
     assert.ok(svg.getElementsByTagNameNS("http://www.w3.org/2000/svg", "clipPath").length);assert.ok(svg.querySelector('g[clip-path] polyline'));
     assert.equal(svg.querySelector("image").getAttribute("width"), "215");
+  });
+
+  it("keeps print editor units and aids local while inch edits save millimeter geometry and retain captures", async () => {
+    let map = printProjectFixture(), writes = 0;
+    const original = newProjectPrintLayout(map, "physical-layout");
+    Object.assign(original.frames[0], {xMm: 10.12345, widthMm: 200.12345});
+    map.definition = definitionWithPrintLayouts(map, {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [original]});
+    const canonical = structuredClone(map.definition), captured = printCaptureFixture(map);
+    const adapter = {organizationProvider: async () => IDS.organization, updateMap: async (_project, _id, {changes}) => {
+      writes++;map = {...map, version: map.version + 1, definition: changes.definition};return structuredClone(map);
+    }};
+    const workbench = document.createElement("section");workbench.getPrintContext = () => ({layers: map.definition.layers});
+    const root = ProjectPrintEditor({state: {adapter, project: {id: IDS.project}, organization: {id: IDS.organization}, selectedMap: map},
+      workbench, canSave: true, captureMap: async () => captured});document.body.append(root);
+    for (const units of ["in", "mm", "in", "mm"]) changePrintField(root, "Layout units", units);
+    assert.equal(root.hasUnsavedChanges(), false);assert.equal(writes, 0);
+    assert.equal(root.querySelector('[aria-label="Frame left (mm)"]').value, "10.12345");
+    await findButton(root, "Save layout").onclick();
+    assert.deepEqual(projectPrintLayouts(map).layouts[0], original);
+
+    await findButton(root, "Capture map frame").onclick();
+    changePrintField(root, "Layout units", "in");changePrintField(root, "Frame width (in)", "8.125");
+    assert.equal(root.querySelector('.print-stage image'), null, "physical resizing requires a new output-sized capture");
+    await findButton(root, "Capture map frame").onclick();
+    changePrintField(root, "Frame left (in)", "0.5");
+    assert.ok(root.querySelector('.print-stage image'), "moving a frame retains its unchanged sizing/view/presentation capture");
+    assert.equal(root.querySelectorAll(".print-ruler").length, 2);
+    assert.ok(root.querySelector("[data-print-editing-aids]"));
+    await findButton(root, "Save layout").onclick();
+    const saved = projectPrintLayouts(map), frame = saved.layouts[0].frames[0];
+    assert.equal(writes, 2);assert.equal(frame.xMm, 12.7);assert.equal(frame.widthMm, 206.375);
+    assert.deepEqual(frame.view, original.frames[0].view);assert.deepEqual(frame.presentation, original.frames[0].presentation);
+    assert.deepEqual(map.definition.layers, canonical.layers);assert.deepEqual(map.definition.mapViews, canonical.mapViews);
+    assert.deepEqual(map.definition.extensions.kept, canonical.extensions.kept);
+    assert.doesNotMatch(JSON.stringify(saved), /units|ruler|snap|editing|guides|data:image/);
+    const exported = printPageSvg(saved.layouts[0], new Map([["physical-layout:main", captured]]), "physical-layout");
+    assert.ok(exported.querySelector("image"));
+    assert.equal(exported.querySelector("[data-print-editing-aids], [data-print-frame], [tabindex], .print-ruler, .print-snap-line"), null);
+    assert.deepEqual(JSON.parse(exported.querySelector("metadata").textContent).layout, saved.layouts[0]);
+    assert.equal(exported.querySelector('[stroke-dasharray="2 2"]'), null, "page margin guides are excluded from export");
+    root.dispose();
+  });
+
+  it("commits one print pointer gesture with snapped bounded geometry and restores canceled drafts and selected-frame history", async () => {
+    const map = printProjectFixture(), layout = newProjectPrintLayout(map, "pointer-layout");
+    layout.frames[0].xMm = 9.5;
+    layout.frames.push({...structuredClone(layout.frames[0]), id: "inset", parentId: "main", title: "Inset map", xMm: 165, yMm: 35, widthMm: 40, heightMm: 40});
+    map.definition = definitionWithPrintLayouts(map, {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]});
+    let writes = 0;
+    const root = ProjectPrintEditor({state: {adapter: {updateMap: async () => {writes++;}}, project: {id: IDS.project}, organization: {id: IDS.organization}, selectedMap: map},
+      workbench: document.createElement("section"), canSave: true});document.body.append(root);
+    const stage = root.querySelector(".print-stage"), outline = () => stage.querySelector('[data-print-frame="inset"]:not([data-print-resize])');
+    const position = () => ["x", "y"].map(name => Number(outline().getAttribute(name)));
+    stage.querySelector("svg").getBoundingClientRect = () => ({left: 0, top: 0, width: 594, height: 420});
+    printPointer(stage, "pointerdown", stage.querySelector('[data-print-frame="main"]'));
+    printPointer(stage, "pointerup", stage);
+    assert.equal(Number(stage.querySelector('[data-print-frame="main"]').getAttribute("x")), 9.5);
+    assert.equal(root.hasUnsavedChanges(), false, "click-only selection does not snap a nearby edge or dirty the layout");
+    const begin = () => {
+      stage.querySelector("svg").getBoundingClientRect = () => ({left: 0, top: 0, width: 594, height: 420});
+      printPointer(stage, "pointerdown", outline(), {clientX: 330, clientY: 70});
+    };
+    begin();
+    printPointer(stage, "pointermove", stage, {clientX: 1130, clientY: -330});
+    assert.deepEqual(position(), [257, 0]);assert.ok(stage.querySelector(".print-snap-line"));
+    printPointer(stage, "pointermove", stage, {clientX: 21.6, clientY: 21});
+    assert.deepEqual(position(), [10, 10]);
+    printPointer(stage, "pointerup", stage, {clientX: 21.6, clientY: 21});
+    assert.equal(root.querySelector('[aria-label="Map frame"]').value, "inset");
+    await findButton(root, "Undo layout change").onclick();
+    assert.deepEqual(position(), [165, 35]);assert.equal(findButton(root, "Undo layout change").disabled, true, "all pointer moves form one undo entry");
+    assert.equal(outline().getAttribute("aria-pressed"), "true");
+    await findButton(root, "Redo layout change").onclick();assert.deepEqual(position(), [10, 10]);
+    assert.equal(root.querySelector('[aria-label="Map frame"]').value, "inset");
+    begin();printPointer(stage, "pointermove", stage, {clientX: 410, clientY: 150, altKey: true});
+    assert.deepEqual(position(), [50, 50]);
+    stage.dispatchEvent(new harness.dom.window.KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+    assert.deepEqual(position(), [10, 10]);assert.match(root.textContent, /Frame adjustment canceled/);
+    begin();printPointer(stage, "pointermove", stage, {clientX: 410, clientY: 150, altKey: true});
+    printPointer(stage, "pointercancel", stage);assert.deepEqual(position(), [10, 10]);
+    await findButton(root, "Undo layout change").onclick();
+    assert.deepEqual(position(), [165, 35]);assert.equal(findButton(root, "Undo layout change").disabled, true);
+    assert.equal(root.querySelector('[aria-label="Map frame"]').value, "inset");assert.equal(writes, 0);
+    stage.querySelector("svg").getBoundingClientRect = () => ({left: 0, top: 0, width: 594, height: 420});
+    printPointer(stage, "pointerdown", stage.querySelector("[data-print-resize]"));
+    printPointer(stage, "pointermove", stage, {clientX: 1000, clientY: 1000});
+    assert.ok(outline(), stage.textContent);
+    assert.equal(Number(outline().getAttribute("width")), 132);assert.equal(Number(outline().getAttribute("height")), 175);
+    const fullPageLayout = JSON.parse(stage.querySelector("svg > metadata").textContent).layout;
+    assert.throws(() => printPageSvg(fullPageLayout, new Map([[`${fullPageLayout.id}:inset`, printCaptureFixture(map)]]), fullPageLayout.id), /Source notes need more page space/);
+    printPointer(stage, "pointermove", stage, {clientX: -1000, clientY: -1000});
+    printPointer(stage, "pointerup", stage, {clientX: -1000, clientY: -1000});
+    assert.deepEqual(position(), [165, 35]);assert.equal(Number(outline().getAttribute("width")), 10);assert.equal(Number(outline().getAttribute("height")), 10);
+    await findButton(root, "Undo layout change").onclick();
+    assert.equal(Number(outline().getAttribute("width")), 40);assert.equal(Number(outline().getAttribute("height")), 40);
+    assert.equal(findButton(root, "Undo layout change").disabled, true, "a resize gesture has one history entry");
+    root.dispose();
+  });
+
+  it("scopes print keyboard edits and blocks writes and gestures during busy or unconfirmed saves", async () => {
+    let map = printProjectFixture(), writes = 0, releaseSave;
+    const gate = new Promise(resolve => {releaseSave = resolve;});
+    const adapter = {organizationProvider: async () => IDS.organization, updateMap: async (_project, _id, {changes}) => {
+      writes++;await gate;map = {...map, version: map.version + 1, definition: changes.definition};return structuredClone(map);
+    }};
+    const root = ProjectPrintEditor({state: {adapter, project: {id: IDS.project}, organization: {id: IDS.organization}, selectedMap: map},
+      workbench: document.createElement("section"), canSave: true});document.body.append(root);
+    const stage = root.querySelector(".print-stage"), outline = () => stage.querySelector(".print-frame-outline"), handle = () => stage.querySelector("[data-print-resize]");
+    const field = label => Number(root.querySelector(`[aria-label="${label} (mm)"]`).value);
+    changePrintField(root, "Frame width (mm)", "-5");
+    assert.equal(root.hasUnsavedChanges(), false);assert.equal(Number(outline().getAttribute("width")), 215);assert.equal(writes, 0);
+    const key = (target, value, modifiers = {}) => {
+      const event = new harness.dom.window.KeyboardEvent("keydown", {key: value, bubbles: true, cancelable: true, ...modifiers});
+      target.dispatchEvent(event);return event;
+    };
+    key(outline(), "ArrowRight");key(outline(), "ArrowDown", {shiftKey: true});key(outline(), "ArrowRight", {altKey: true});
+    assert.equal(field("Frame left"), 11.1);assert.equal(field("Frame top"), 37);
+    handle().focus();key(handle(), "ArrowLeft", {altKey: true});
+    assert.equal(field("Frame width"), 214.9);assert.equal(document.activeElement, handle(), "keyboard resize retains handle focus after rendering");
+    const outsideUndo = key(root.querySelector('[aria-label="Layout title"]'), "z", {ctrlKey: true});
+    assert.equal(outsideUndo.defaultPrevented, false);assert.equal(field("Frame width"), 214.9);
+    key(stage, "z", {ctrlKey: true});assert.equal(field("Frame width"), 215);
+    key(stage, "z", {ctrlKey: true, shiftKey: true});assert.equal(field("Frame width"), 214.9);
+    const saving = findButton(root, "Save layout").onclick();await waitFor(() => findButton(root, "Save layout").disabled);
+    key(outline(), "ArrowRight");
+    stage.querySelector("svg").getBoundingClientRect = () => ({left: 0, top: 0, width: 594, height: 420});
+    printPointer(stage, "pointerdown", outline());printPointer(stage, "pointermove", stage, {clientX: 100, clientY: 100});printPointer(stage, "pointerup", stage, {clientX: 100, clientY: 100});
+    await findButton(root, "Save layout").onclick();assert.equal(writes, 1);assert.equal(field("Frame left"), 11.1);
+    releaseSave();await saving;assert.equal(root.hasUnsavedChanges(), false);
+    key(outline(), "ArrowRight");adapter.updateMap = async () => {writes++;throw Error("save response interrupted");};
+    await findButton(root, "Save layout").onclick();assert.match(root.textContent, /save could not be confirmed/);
+    assert.equal(findButton(root, "Save layout").disabled, true);
+    key(outline(), "ArrowRight");key(stage, "z", {ctrlKey: true});
+    stage.querySelector("svg").getBoundingClientRect = () => ({left: 0, top: 0, width: 594, height: 420});
+    printPointer(stage, "pointerdown", outline());printPointer(stage, "pointermove", stage, {clientX: 100, clientY: 100});printPointer(stage, "pointerup", stage, {clientX: 100, clientY: 100});
+    await findButton(root, "Save layout").onclick();assert.equal(field("Frame left"), 12.1);assert.equal(writes, 2);
+    const readonly = ProjectPrintEditor({state: {adapter, project: {id: IDS.project}, organization: {id: IDS.organization}, selectedMap: map},
+      workbench: document.createElement("section"), canSave: false});document.body.append(readonly);
+    key(readonly.querySelector(".print-frame-outline"), "ArrowRight");
+    assert.equal(readonly.hasUnsavedChanges(), true);await findButton(readonly, "Save layout").onclick();assert.equal(writes, 2);
+    root.dispose();readonly.dispose();
   });
 
   it("keeps the legacy Print URL useful through deliberate exact-map choices", async () => {
@@ -1321,6 +1596,18 @@ function printCaptureFixture(map) {
   return {dataUrl: "data:image/png;base64,aW1hZ2U=", width: 1024, height: 640, cssWidth: 512, cssHeight: 320, view, presentation,
     signature: canonicalJson({view, presentation}), legend: [{label: "Wetlands", color: "#123456"}], attribution: ["Provider credit"],
     lines: [], metresPerPixel: 100, flat: true, projectId: map.id, projectVersion: map.version, imageSha256: "a".repeat(64)};
+}
+
+function changePrintField(root, label, value) {
+  const input = root.querySelector(`[aria-label="${label}"]`);assert.ok(input, label);
+  input.value = value;input.dispatchEvent(new harness.dom.window.Event("change"));
+}
+
+function printPointer(stage, type, target, options = {}) {
+  const event = new harness.dom.window.MouseEvent(type, {button: 0, cancelable: true, ...options});
+  Object.defineProperties(event, {target: {value: target}, pointerId: {value: 7}, isPrimary: {value: true}});
+  // jsdom lacks PointerEvent dispatch; exercise the installed delegated handler with a synthetic pointer identity.
+  stage[`on${type}`](event);
 }
 
 function printSite(slug, title, themeOptions) {

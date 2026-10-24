@@ -682,7 +682,8 @@ function datasetMapHandoff({state, dataset, externalSource, reviewedDisplay = nu
   const displayAllowed=reviewedDisplay?.displayId&&reviewedDisplay.datasetId===dataset.id
     &&reviewedDisplay.datasetVersionId===dataset.currentVersionId&&dataset.capabilities.edit
     &&dataset.sourceType==='upload'&&['active','draft'].includes(dataset.status);
-  if (!canUpload(state) || (!displayAllowed && !spatialPreviewAllowed(state, dataset, externalSource))) return null;
+  if (!canUpload(state) || (!displayAllowed && !spatialPreviewAllowed(state, dataset, externalSource)
+    && !managedCogMapAllowed(state, dataset, externalSource))) return null;
   const disclosure = document.createElement("details");
   disclosure.className = "project-dataset-map-handoff";
   const summary = text("summary", "Add to map…", "platform-button secondary");
@@ -4308,6 +4309,25 @@ function spatialPreviewAllowed(state, dataset, externalSource) {
     && !["document", "image", "raster"].includes(dataset.geometryType)
     && SPATIAL_PREVIEW_FORMATS.has(dataset.format)
     && typeof state.adapter.getDatasetSpatialPreview === "function";
+}
+
+// Metadata admission only. The exact original and its private range transport
+// are checked when the user deliberately adds this version in the map editor.
+function managedCogMapAllowed(state, dataset, externalSource) {
+  return !externalSource
+    && dataset.sourceType === "upload"
+    && dataset.capabilities.read === true
+    && dataset.capabilities.download === true
+    && dataset.status === "active"
+    && dataset.currentVersionState === "active"
+    && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(dataset.currentVersionId ?? "")
+    && dataset.format === "cog"
+    && String(dataset.geometryType).toLowerCase() === "raster"
+    && Array.isArray(dataset.extent) && dataset.extent.length === 4
+    && dataset.extent.every(Number.isFinite)
+    && dataset.extent[0] < dataset.extent[2] && dataset.extent[1] < dataset.extent[3]
+    && typeof state.adapter.listDatasetVersions === "function"
+    && typeof state.adapter.requestDatasetDownload === "function";
 }
 
 function fieldCaptureAllowed(dataset, externalSource) {

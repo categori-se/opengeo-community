@@ -6,7 +6,35 @@ carry forward into the next report, notebook or website. Low idle infrastructure
 cost is a design goal; workload costs depend on storage, processing, traffic and
 deployment choices.
 
-## Development status — October 18, 2026
+## Development status — October 23, 2026
+
+The shared [Baseline tools](docs/community-baseline.md) now include source
+suitability, categorical inventory/comparison/patches, stratified reference review
+with conditional class-area uncertainty, mapped fields and raw confidence review,
+declared surface-minus-terrain height comparison, building agreement and receptor
+screening. Bounded external STAC search preserves reproducible analytical
+references; a declared JRC TMF 2025 legend supports forest-history interpretation.
+Focused/compiled checks and selected local account Catalog/Project/native-
+publication paths remain scoped. Source coverage, reference quality, unknown
+rights and real ecological/crop/change findings require their own evidence.
+These tools add no idle service. Current source preparation includes the new
+shared tools; public publication, independent installation and production delivery
+remain separate. Expert/private/managed work stays separately scoped.
+
+Catalog now opens eligible uploaded GeoJSON originals and saved governed Layer
+presentations through the existing exact-version authorized reader. The Resources
+path renders retained synthetic inputs individually without changing their saved
+Project. Listing stays metadata-only; no idle service is added. Broader formats,
+provider quality and production/public delivery remain separately scoped.
+
+The browser Demo now builds locally with its public credits page and local notices.
+Its source-package bundle uses the existing pure validation contracts directly,
+reducing unminified output from 96,953 to 38,353 bytes under the unchanged 64 KiB
+limit. The explicit Demo stage list includes the existing Workbench dependencies.
+The maintained browser check verifies anonymous credits, eight local notice links,
+375-pixel layout and the offline Demo shell, with provider requests blocked.
+This source increment is not yet published or deployed; formal parity remains
+24 pass, 25 partial and one exclusion. Independent acceptance remains open.
 
 The community edition contains the full suite of tools. Community installations,
 the public Demo and managed Studio use the same core with their own configuration,
@@ -30,15 +58,30 @@ remaining temporary containers or AWS/Actions work. The worker guide includes
 the accepted rootless Podman scratch-mount form. Independent installation, native
 ARM64/release security gates and configured production delivery remain open.
 
-An opt-in fresh installation check reuses the existing public workflow and
-canonical local runner. On a fresh standard Ubuntu runner, all three maintained
-API/worker/compiler images build and API checks pass. An unsupported Podman 4
-pull flag stops the database preparation, so connected Studio/native-publication
-checks remain open; isolated cleanup succeeds. A local version-compatible pull
-correction preserves the existing time/security limits and moves the database pull
-before source builds. Another remote run has not been admitted. No AWS, cache-save
-or artifact-upload path is added. Independent operator and configured delivery
-acceptance remain open. See the [run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675).
+The opt-in fresh installation check passes three maintained source image builds,
+pinned database preparation and API checks, then stops at an obsolete Data access
+test selector. The fixtures now follow current navigation. The corrected compiled
+local journey completes authorization, uploads, saved-map styling/reopening,
+dedicated PMTiles v2 conversion, PNG rendering and both dataset publications. It
+preserves the governed map identity and exact saved-revision pins, then accepts a
+collaborator invitation and saves that editor's site changes. The editor cannot
+publish; the owner submits, reviews and publishes the exact edition. Anonymous
+pages and the portable ZIP carry the exact PNGs, with pixel checks proving both
+source Layers and their order. Later map-head changes preserve those outputs.
+Withdrawing a required source returns 404 for public delivery, and removing the
+collaborator returns the canonical Publication 404. Edition revocation is exercised
+after source withdrawal; it does not independently prove the readable-to-revoked transition.
+
+The cause-corrected retry passes in 183.347 seconds, reusing the sealed 884-file
+frontend and cached images through the real API, SQL and worker. Four containers
+and one database volume are removed. Identity and cloud transport are synthetic;
+the dedicated converter uses emulated ARM64. No source build, AWS, GitHub, Actions
+or deployment is used. Production, two-person, full-pilot and fresh-installation
+acceptance remain open. The existing fresh image stage includes the maintained
+converter; its 38 summed job-minute cap and ordinary checks remain. No further
+remote run is started. Independent operator, native ARM64/release security and
+configured identity/HTTPS/CDN/compiler delivery remain open. See the earlier
+[fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665).
 
 Ordinary local development now connects its processing action to the canonical
 native publisher. The real Berkshire study compiles, renders privately and
@@ -73,14 +116,14 @@ actual execution and identity/HTTPS/CDN acceptance remain open.
 
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |
-| Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. | Broader portable round trips and the complete contributor-to-reviewer-to-publisher browser journey. |
+| Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. The current compiled local journey also accepts editor invitation/editing, separate owner publication, exact anonymous PNG/ZIP delivery and source/access withdrawal. | Broader portable round trips, independent two-person/full-pilot acceptance and configured production delivery. |
 | Local authoring and print | Personal device saves, editable Project exports, a dedicated Print Studio, figure/print packs and interactive HTML are delivered on configured Studio/Demo. Print opens directly from a map without requiring a Publication. | Additional cartographic layout tools and higher-fidelity vector/georeferenced output. |
 | Reuse on other websites | Native JavaScript delivery, developer bundles and an Observable Framework example are implemented. Local checks cover a separate origin, map events, filtering, selection, inherited styling and cleanup. | Independent installation acceptance and expanded content compatibility. Existing native delivery is not limited to the iframe helper. |
 | Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. Studio now delivers the 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides. Local checks cover navigation, rendering and memory save/reopen. | Hosted account save/reopen, individual-feature overrides and separate icon/label controls. |
 | Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. Studio and Demo deliver immediate Identify-panel opening, local feature attributes and Hide/Escape/reopening, verified on compiled artifacts and served files. Studio also preserves Results focus after native popups and governed-query completion. | Hosted persistence and visual paper-layout acceptance. |
-| External PostGIS Layers | Connection verification, relation discovery, stable live Layer registration and bounded feature preview are implemented. A real local PostGIS journey verifies feature queries, exact numeric values, paging limits, revocation and cleanup. | Connected-browser and configured-provider acceptance, followed by deployment. The new source path defaults off. |
-| Native authored publications | Two saved revisions compile through the native runner, open signed previews and publish through actual review/approval controls. Current/earlier public editions and private Build history pass locally. Missing/cross-build cookies, replay, viewer revocation and real capability expiry are verified; signed-cookie expiry uses a qualified local verifier clock. Preview origins are installation-configured. | Clean independent installation, AWS identity/delivery and production activation. Issued cookies remain valid until their 15-minute expiry. [Readiness](docs/api/native-publication-readiness.md). |
-| API and CKAN exchange | The API contract has reproducible offline validation. The STAC-to-CKAN exporter and disposable CKAN 2.11.6 create/read/purge check are complete for their documented scope. | Complete harvesting, synchronization and live portal integration. |
+| External PostGIS Layers | The compiled local Services-to-Catalog journey registers one Layer and renders 100 of 123 real Points for owner and viewer, preserving exact bigint/decimal text and disclosed truncation. The viewer needs no connection management; removing its project grant through the authenticated API produces 404 without another secret read or query. No managed data copy or Project is created, and temporary resources are removed. | The path defaults off and supports ordinary tables with at most 64 columns, one supported 2D EPSG:4326 geometry and a stable unique key. Connection verification, identity, secrets and external DNS/TLS/cloud transport are synthetic in this local check. Configured-provider, AWS and deployment acceptance remain open. |
+| Native authored publications | Two saved revisions compile through the native runner, open signed previews and publish through actual review/approval controls. Current/earlier public editions and private Build history pass locally. Missing/cross-build cookies, replay, viewer revocation and real capability expiry are verified; signed-cookie expiry uses a qualified local verifier clock. Preview origins are installation-configured. | Clean independent installation, AWS identity/delivery and production activation. Issued cookies remain valid until their 15-minute expiry. [Readiness and scope](docs/community-capabilities.md). |
+| API and CKAN exchange | The API contract, authorization checks, bounded CKAN discovery/metadata registration and standalone STAC-to-CKAN dry-run exporter are included. The recovered exporter reproduces the selected payload byte-for-byte offline. The guide, fixture, tests and scoped historical CKAN 2.11.6 create/read/purge receipt are included. | The historical peer uses a disposable sysadmin. Ordinary-user/destination policy, connected-provider acceptance, harvesting, synchronization and update merging remain open. Fresh pytest was unavailable in the recovery environment; matching-source historical evidence is reused. |
 | Configurable PMTiles intake | The dedicated conversion lane, parameter review, preserved-original path and completed-display handoff are implemented locally. The pinned worker converts GeoJSON and rejects disguised VRT input. | Current security review, successful native ARM64 execution and real-data hosted acceptance before activation. The corrected native API probe passes; the worker remains unexecuted because the host rejects a launcher mount option. Both temporary stacks and containers are cleaned up. The large global KBA conversion has not completed. |
 | Analysis console | The docked JavaScript/Python/Bash editor, isolated browser JavaScript and opt-in local runners are implemented and accepted locally. Managed source connects private jobs, application storage, explicit queue/controller wake and a bounded host; local coordinator checks execute all three languages and cancellation. Current ASGI/native PostgreSQL checks also verify private jobs, idempotent submit, cancellation after access revocation, profile matching, the four-job cap and host-close fencing. | Managed activation stays disabled. Complete managed browser/API/execution, concurrent transaction interleavings, admitted AMI, fresh-boot rootless security, actual AWS cleanup and production delivery remain open. |
 
@@ -88,12 +131,15 @@ The [capability matrix](docs/community-capabilities.md) describes operation-leve
 limits. The [workflow guide](docs/community-workflow.md),
 [development guide](docs/community-development.md) and
 [release record](COMMUNITY-RELEASE.json) retain the checks behind each claim.
-The [API contract](docs/api/README.md),
-[resource authorization checks](docs/api/authorization-local.md) and
-[STAC-to-CKAN exporter](docs/api/stac-ckan.md) document their supported scope.
-The [disposable CKAN check](docs/api/stac-ckan.md#disposable-server-check)
-uses the real Action API and verifies cleanup. These completed checks do not
-establish harvesting or synchronization.
+The [API contract](services/api/README.md),
+[authorization checks](services/api/tests/test_authorization.py) and
+[CKAN connector](services/api/src/opengeo_api/ckan.py) expose their supported scope.
+The [STAC-to-CKAN reproduction](docs/api/stac-ckan.md) includes preserved source,
+explicit mapping losses and the pinned peer receipt. Destination ownership,
+visibility, permissions and license selection remain deliberate separate decisions.
+The [capability guide](docs/community-capabilities.md) distinguishes implemented
+source from connected acceptance; the scoped peer does not establish harvesting
+or synchronization.
 
 The same local Studio candidate groups the desktop visibility controls and closes
 site/account menus on outside clicks or Escape, restoring keyboard focus. Site
@@ -105,14 +151,14 @@ A separate Demo/startup update is implemented and accepted locally. The compact
 Demo introduction keeps the map visible and its home route opens the map; About
 this map contains source details and secondary actions. Startup failures show one
 friendly retry/home state, and normal Studio entry does not request the fixture
-Catalog. Existing browser, parser and focused checks pass. This update has not
-been built as an application release or deployed.
+Catalog. Existing browser, parser and focused checks pass. Current local builds
+include this update; hosted delivery remains pending.
 
 Existing application checks use cached dependencies/images and explicit local
 substitutes; fresh installation, clean image builds and independent-account AWS
 acceptance remain separate work. The local native Framework publication journey now
 passes source save, compilation, private preview, publication and earlier-edition
-reopening for two revisions. The [readiness review](docs/api/native-publication-readiness.md)
+reopening for two revisions. The [capability guide](docs/community-capabilities.md)
 distinguishes this connected local acceptance from independent installation and
 production delivery.
 
@@ -161,7 +207,7 @@ passes reviewed import, Save draft and reopening, with all four file hashes
 unchanged. Rights remain unreviewed and nothing is published. This reuses cached
 software and synthetic local sign-in; independent clean-machine/operator and
 production identity/delivery acceptance remain open. See the
-[development guide](docs/community-development.md) and [progress record](docs/progress.md).
+[development guide](docs/community-development.md) and [release record](COMMUNITY-RELEASE.json).
 
 ## Planning and delivery
 
@@ -181,7 +227,7 @@ status reports.
 | Priority | Next useful outcome |
 | --- | --- |
 | 1. Finish selected delivery | Nepal's layer ordering, clustering and colors are saved and read back; the Berkshires update remains blocked by the current account's access. Complete hosted Style/Print acceptance and the outstanding PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
-| 2. Finish the shared-data journey | Exercise contributor review and publication through the actual interface, then accept the implemented PostGIS Layer source with a connected browser and configured provider. Preserve identity, permissions and history when replacing data. |
+| 2. Finish the shared-data journey | Reuse accepted local editorial publishing and connected PostGIS registration/preview. Complete independent contributor/reviewer acceptance and configured-provider checks, preserving identity, permissions and history when replacing data. |
 | 3. Accept managed analytical sessions | Preserve the accepted browser/local console and finish connected managed-runner acceptance and delivery. Opening the console must not allocate managed compute. |
 | 4. Verify installation and reuse | Reproduce the small reference workspace and the accepted two-revision Framework publication journey on an independent installation, then verify delivery to another website. |
 | 5. Extend proven workflows | Add service operations, source adapters and cartographic tools where a specific recurring task requires them. |
@@ -198,7 +244,7 @@ source inspection and version recovery. Preserve Layer identities, references,
 Styles and geographic context. Keep personal device saves separate from
 resettable sample drafts and account storage.
 
-Complete the PostGIS browser/provider checks and make source status and refresh
+Complete configured-provider PostGIS checks and make source status and refresh
 trustworthy. A failed refresh must preserve the last successful version. Retained
 source definitions and metadata imports remain distinct from executable readers.
 

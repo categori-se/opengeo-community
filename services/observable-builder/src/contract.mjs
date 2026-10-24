@@ -82,6 +82,8 @@ const OUTPUT_MEDIA = new Map([
   [".png", "image/png"],
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
+  [".tif", "image/tiff"],
+  [".tiff", "image/tiff"],
   [".zip", "application/zip"]
 ]);
 
@@ -546,6 +548,11 @@ function contentType(path) {
   return OUTPUT_MEDIA.get(extension(path)) ?? "application/octet-stream";
 }
 
+function outputMediaMatches(path, type) {
+  const expected = OUTPUT_MEDIA.get(extension(path));
+  return expected === type || expected === "image/tiff" && type === "image/geotiff";
+}
+
 function routeForOutput(path) {
   if (path === "dist/index.html") return "/";
   if (!path.endsWith(".html")) return null;
@@ -687,7 +694,7 @@ export function runBuild({
       if (file.path === prefix + PUBLICATION_CONFIG) continue;
       const targetPath = `dist/${file.path.slice(prefix.length)}`;
       if (!file.path.startsWith(prefix) || !outputPathIsSafe(targetPath)
-        || OUTPUT_MEDIA.get(extension(targetPath)) !== file.contentType
+        || !outputMediaMatches(targetPath, file.contentType)
         || /(^|\/)(package(?:-lock)?\.json|observablehq\.config\.[cm]?js|opengeo\.observable\.json)$/i.test(file.path)) {
         fail("static_html_public_tree_invalid");
       }

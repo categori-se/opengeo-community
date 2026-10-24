@@ -39,9 +39,26 @@ import {
 } from "./apiResponseContracts.js";
 
 export {ApiClientError, ApiContractError} from "./apiResponseContracts.js";
-import {parseSpatialPreview, parseDocumentPreview, spatialPreviewGeojson} from "./apiPreviewContracts.js";
+import {parseSpatialPreview, parseDocumentPreview, spatialPreviewGeojson,
+  validateBuildingReconciliationPreview} from "./apiPreviewContracts.js";
 export {parseSpatialPreview, parseDocumentPreview} from "./apiPreviewContracts.js";
-import {parseResourceContent, serializeResourceContent} from "./apiResourceContentContracts.js";
+import {
+  parseResourceContent,
+  serializeResourceContent,
+  OBSERVABLE_SOURCE_MEDIA,
+  assertObservableSourcePath,
+  parseObservableSourcePath,
+  observableSourceFileInput,
+  normalizeObservableSourceFiles,
+  normalizeObservableRevisionAttachments,
+  parsePublicationArtifactReferences
+} from "./apiResourceContentContracts.js";
+export {
+  canReuseDeferredObservableSourceFile,
+  normalizeObservableSourceFiles,
+  normalizeObservableRevisionAttachments,
+  parsePublicationArtifactReferences
+} from "./apiResourceContentContracts.js";
 import {
   tileSeedSelectorBody,
   parseTileCachePolicy,
@@ -4973,6 +4990,7 @@ export class OpenGeoApiClient {
     }
     const collection = spatialPreviewGeojson({type: result.type, features: result.features});
     if (collection.features.length > 1_000) contract("analysis preview exceeds its feature limit");
+    if (request.operation === "building-reconcile") validateBuildingReconciliationPreview(collection, receipt);
     return {...collection, "opengeo:analysis": structuredClone(receipt)};
   }
 
@@ -11142,26 +11160,6 @@ export function parseObservableSourceFileUpload(value) {
   };
 }
 
-export function normalizeObservableRevisionAttachments(value, files = []) {
-  if (!Array.isArray(value) || value.length + files.length > 128) {
-    throw new TypeError("Source and archive bindings are limited to 128 files");
-  }
-  const bindings = value.map(item => {
-    const relativePath = assertObservableSourcePath(item.relativePath, "archive binding path");
-    if (!/\.(json|geojson|csv|txt|png|jpe?g|tiff?)$/i.test(relativePath)
-      || /(^|\/)(package\.json|package-lock\.json)$/i.test(relativePath)) {
-      throw new TypeError("Archive bindings must be data files, not executable source or package configuration");
-    }
-    return {attachmentId: assertUuid(item.attachmentId, "archive reference id"), relativePath};
-  }).sort((left, right) => left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0);
-  const paths = [...files, ...bindings].map(item => item.relativePath.toLowerCase());
-  if (paths.some((path, index) => paths.slice(index + 1).some(other =>
-    path === other || path.startsWith(other + "/") || other.startsWith(path + "/")))) {
-    throw new TypeError("Source and archive paths must not collide");
-  }
-  return bindings;
-}
-
 export function normalizeObservableRevisionReferencedFiles(value, files = []) {
   if (!Array.isArray(value) || value.length + files.length > 128) {
     throw new TypeError("Source and data bindings are limited to 128 files");
@@ -11502,7 +11500,7 @@ export function parseObservableBuildJob(value) {
     record.request_checksum_sha256,
     "Observable build request checksum"
   );
-  const result = record.result === null ? null : parseObservableBuildResult(record.result);
+  const result = record.result === null ? null : parseObservableBuildResult(record.result, request);
   const resultChecksumSha256 = record.result_checksum_sha256 === null
     ? null
     : sha256Checksum(record.result_checksum_sha256, "Observable build result checksum");
@@ -11539,24 +11537,6 @@ export function parseObservableBuildJob(value) {
     executionAvailable,
     coordinationStatus
   };
-}
-
-export function parsePublicationArtifactReferences(value) {
-  const record = object(value, "Publication Artifact references");
-  exactKeys(record, ["revision", "references"], "Publication Artifact references");
-  const revision = nonNegativeInteger(record.revision, "Artifact reference revision");
-  if (revision > 2147483647 || !Array.isArray(record.references) || record.references.length > 32) contract("Invalid Artifact reference set");
-  const references = record.references.map(item => {
-    exactKeys(object(item, "Artifact reference"), ["path", "artifact_id", "mode", "version"], "Artifact reference");
-    const path = parseObservableSourcePath(item.path, "Artifact path");
-    if (!path.endsWith(".html")) contract("Artifact path must end in .html");
-    const mode = oneOf(item.mode, ["current", "pinned"], "Artifact selection");
-    if (mode === "current" ? item.version !== null : !Number.isInteger(item.version) || item.version < 1 || item.version > 2147483647) contract("Invalid Artifact edition selection");
-    return {path, artifact_id: uuid(item.artifact_id, "Artifact identity"), mode, version: item.version};
-  });
-  const paths = references.map(item => item.path.toLowerCase());
-  if (paths.some((a, i) => paths.some((b, j) => i !== j && (a === b || a.startsWith(b + "/"))))) contract("Artifact paths overlap");
-  return {revision, references};
 }
 
 export function parsePublicationArtifactBackupInputs(value, projectId, sourceProjectId, expectedReferenceRevision) {
@@ -11884,7 +11864,7 @@ function parseObservableResourceLimits(value) {
   ]));
 }
 
-function parseObservableBuildResult(value) {
+function parseObservableBuildResult(value, request) {
   const result = object(value, "Observable build result");
   exactKeys(result, [
     "schemaVersion", "buildJobId", "requestChecksumSha256", "compilerImageDigest",
@@ -11933,12 +11913,25 @@ function parseObservableBuildResult(value) {
     exactKeys(file, [
       "path", "contentType", "sizeBytes", "checksumSha256"
     ], `Observable build output file ${index + 1}`);
+    const tiff = ["image/tiff", "image/geotiff"].includes(file.contentType);
+    const expandedArchive = request.schemaVersion === "opengeo.observable-build-request.3.0.0"
+      && request.outputProfile === "archive-96m" && request.sizeAcknowledgment === "allow-up-to-96-mib-output";
+    const tiffLimit = expandedArchive ? 64 * 1024 * 1024 : Math.min(request.resourceLimits.maxOutputBytes, 32 * 1024 * 1024);
+    // The client DTO omits source pins. Coordinator/database attestations below
+    // establish exact input/output verification; this parser bounds their shape.
+    if (tiff && (!/\.tiff?$/i.test(file.path ?? "")
+      || !(request.schemaVersion === "opengeo.observable-build-request.1.0.0" && request.purpose === "preview"
+        || request.schemaVersion === "opengeo.observable-build-request.3.0.0")
+      || !Number.isSafeInteger(file.sizeBytes) || file.sizeBytes < 1
+      || file.sizeBytes > tiffLimit)) {
+      contract("Observable TIFF output does not match its saved build policy");
+    }
     return {
       path: observableOutputPath(file.path, "Observable build output path"),
       contentType: oneOf(file.contentType, [
         "text/html", "text/css", "text/javascript", "application/json", "text/plain",
         "text/csv", "application/geo+json", "image/svg+xml", "image/png", "image/jpeg",
-        "application/octet-stream", "application/zip"
+        "application/octet-stream", "application/zip", ...(tiff ? [file.contentType] : [])
       ], "Observable build output content type"),
       sizeBytes: positiveInteger(file.sizeBytes, "Observable build output size"),
       checksumSha256: sha256(file.checksumSha256, "Observable build output checksum")
@@ -11969,6 +11962,14 @@ function parseObservableBuildResult(value) {
     || validationReport.outputFileCount !== outputFiles.length
     || validationReport.outputBytes !== outputFiles.reduce((sum, file) => sum + file.sizeBytes, 0)) {
     contract("Observable build validation report is invalid");
+  }
+  if (outputFiles.some(file => ["image/tiff", "image/geotiff"].includes(file.contentType))) {
+    const outputLimit = request.schemaVersion === "opengeo.observable-build-request.3.0.0"
+      && request.outputProfile === "archive-96m" && request.sizeAcknowledgment === "allow-up-to-96-mib-output"
+      ? 96 * 1024 * 1024 : Math.min(request.resourceLimits.maxOutputBytes, 32 * 1024 * 1024);
+    if (validationReport.outputBytes > outputLimit || outputFiles.length > request.resourceLimits.maxOutputFiles) {
+      contract("Observable TIFF output exceeds its saved build policy");
+    }
   }
   const expectedRoutes = outputFiles
     .filter((file) => file.path.endsWith(".html"))
@@ -14823,45 +14824,6 @@ function inputOneOf(value, choices, label) {
   return value;
 }
 
-const OBSERVABLE_SOURCE_PATH_PATTERN =
-  /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(?:\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,7}$/;
-const OBSERVABLE_SOURCE_FORBIDDEN_DIRECTORY =
-  /(^|\/)(?:node_modules|dist|build|cache|\.git|\.aws|\.ssh)(?:\/|$)/i;
-const OBSERVABLE_SOURCE_SECRET_FILE =
-  /(^|\/)(?:\.env(?:\..*)?|credentials?(?:\..*)?|secrets?(?:\..*)?|tokens?(?:\..*)?|id_rsa|[^/]+\.(?:pem|key|p12|pfx))$/i;
-const OBSERVABLE_SOURCE_MEDIA = Object.freeze([
-  [/\.ipynb$/i, ["application/x-ipynb+json", "application/json"]],
-  [/\.md$/i, ["text/markdown"]],
-  [/\.(?:js|mjs)$/i, ["text/javascript"]],
-  [/\.css$/i, ["text/css"]],
-  [/\.geojson$/i, ["application/json", "application/geo+json"]],
-  [/\.json$/i, ["application/json"]],
-  [/\.csv$/i, ["text/csv"]],
-  [/\.txt$/i, ["text/plain"]],
-  [/\.html$/i, ["text/html"]],
-  [/\.svg$/i, ["image/svg+xml"]],
-  [/\.png$/i, ["image/png"]],
-  [/\.(?:jpg|jpeg)$/i, ["image/jpeg"]]
-]);
-
-function assertObservableSourcePath(value, label) {
-  if (typeof value !== "string" || value.length > 512
-    || !OBSERVABLE_SOURCE_PATH_PATTERN.test(value)
-    || OBSERVABLE_SOURCE_FORBIDDEN_DIRECTORY.test(value)
-    || OBSERVABLE_SOURCE_SECRET_FILE.test(value)) {
-    throw new TypeError(`${label} is invalid`);
-  }
-  return value;
-}
-
-function parseObservableSourcePath(value, label) {
-  try {
-    return assertObservableSourcePath(value, label);
-  } catch (cause) {
-    contract(`${label} is invalid`, cause);
-  }
-}
-
 function observableSourceContentType(value, label) {
   return oneOf(value, [
     "application/x-ipynb+json",
@@ -14887,62 +14849,6 @@ export function validateStaticPublicationTree(entryPath, lockfilePath, files, at
     || /(^|\/)(package(?:-lock)?\.json|observablehq\.config\.[cm]?js|opengeo\.observable\.json)$/i.test(relativePath))) {
     throw new TypeError("Static HTML accepts only public files under its entry directory, without package or build configuration");
   }
-}
-
-/** Only unread, unchanged files from the server-supported exact parent can skip a byte read. */
-export function canReuseDeferredObservableSourceFile(file, {sourceProjectId, expectedRevision, reuseRevision} = {}) {
-  if (file?.blob != null || reuseRevision?.supportsFileReuse !== true
-    || reuseRevision.sourceProjectId !== sourceProjectId
-    || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1
-    || reuseRevision.revisionNumber !== expectedRevision || !Array.isArray(reuseRevision.files)) return false;
-  const parent = reuseRevision.files.find(item => item.relativePath === file?.relativePath);
-  return !!parent && typeof file.sourceObjectId === 'string' && UUID_PATTERN.test(file.sourceObjectId)
-    && /^[0-9a-f]{64}$/.test(file.checksumSha256)
-    && Number.isSafeInteger(file.sizeBytes) && file.sizeBytes >= 1 && file.sizeBytes <= 4_194_304
-    && ['relativePath', 'contentType', 'sizeBytes', 'checksumSha256', 'sourceObjectId']
-      .every(key => file[key] === parent[key]);
-}
-
-export function normalizeObservableSourceFiles(values, reuseContext = {}) {
-  if (!Array.isArray(values) || !values.length || values.length > 128) {
-    throw new TypeError("Observable source files must contain one to 128 entries");
-  }
-  const files = values.map(value => {
-    if (!canReuseDeferredObservableSourceFile(value, reuseContext)) return observableSourceFileInput(value);
-    // Use the same path/media validation and byte ceilings as materialized files.
-    const relativePath = assertObservableSourcePath(value.relativePath, "Observable source relative path");
-    const media = OBSERVABLE_SOURCE_MEDIA.find(([pattern]) => pattern.test(relativePath));
-    if (!media?.[1].includes(value.contentType)) throw new TypeError("Observable source content type does not match its path");
-    return {relativePath, blob: null, contentType: value.contentType, sizeBytes: value.sizeBytes,
-      checksumSha256: value.checksumSha256, sourceObjectId: value.sourceObjectId};
-  }).sort((left, right) => (
-    left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0
-  ));
-  if (new Set(files.map(({relativePath}) => relativePath.toLowerCase())).size !== files.length) {
-    throw new TypeError("Observable source paths must be case-insensitively unique");
-  }
-  if (files.reduce((bytes, file) => bytes + (file.blob?.size ?? file.sizeBytes), 0) > 16_777_216) {
-    throw new TypeError("Source tree exceeds 16 MiB; move large data attachments into datasets");
-  }
-  return files;
-}
-
-function observableSourceFileInput(value) {
-  const record = object(value, "Observable source file");
-  const relativePath = assertObservableSourcePath(
-    record.relativePath,
-    "Observable source relative path"
-  );
-  if (!(record.blob instanceof Blob) || record.blob.size < 1 || record.blob.size > 4_194_304) {
-    throw new TypeError("Observable source file must be a non-empty Blob of at most 4 MiB");
-  }
-  const media = OBSERVABLE_SOURCE_MEDIA.find(([pattern]) => pattern.test(relativePath));
-  if (!media) throw new TypeError("Observable source file type is unsupported");
-  const contentType = record.contentType || record.blob.type || media[1][0];
-  if (!media[1].includes(contentType)) {
-    throw new TypeError("Observable source content type does not match its path");
-  }
-  return {relativePath, blob: record.blob, contentType};
 }
 
 function observableSourceFile(value) {

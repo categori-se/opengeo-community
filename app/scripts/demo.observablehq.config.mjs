@@ -9,7 +9,10 @@ export default {
   output: "dist/demo-build",
   theme: ["near-midnight", "wide"],
   head: studioPwaHead,
-  pages: [{name: "GIS Workbench Demo", path: "/"}],
+  pages: [
+    {name: "GIS Workbench Demo", path: "/"},
+    {name: "Open Source & Credits", path: "/credits"}
+  ],
   sidebar: false,
   search: false,
   pager: false,

@@ -83,7 +83,9 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
       if (!previewStarted && !blankBasemap) {useBlankBasemap(true); return;}
       failed = true; setStatus("Some layer imagery could not load. Pan or zoom to try another area, or reopen the preview.");
     });
-    map.on("dataloading", () => {if (!failed) setStatus("Loading visible layer area…");});
+    // The bounded COG reader owns its loading/ready/error state. Canvas source
+    // uploads can emit dataloading after it has reported readiness and warnings.
+    map.on("dataloading", () => {if (!failed && !cog) setStatus("Loading visible layer area…");});
     map.on("idle", () => {if (!failed && !cog) setStatus(xyz && !xyzActive ? "Choose an area to load provider tiles." : "Layer view ready. Pan and zoom to explore.");});
 
     map.on("load", () => {

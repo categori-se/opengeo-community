@@ -6,6 +6,7 @@ import {POINT_SYMBOLS, pointSymbolPreviewSvg, ensurePointSymbolAssets} from '../
 import {pointSymbolStyleDefinition, savedPointSymbolStyle} from '../lib/layerStyleReference.js';
 import {SymbologyGallery} from './SymbologyGallery.js';
 import {symbologyCatalog, symbologyPreview} from '../lib/symbologyCatalog.js';
+import {continuousStyleDefinition, normalizeContinuousScale} from '../lib/continuousStyle.js';
 
 export function StyleLibrary({adapter, containers}) {
   const node=(tag,text='')=>{const e=document.createElement(tag);e.textContent=text;return e;};
@@ -212,21 +213,39 @@ export function StyleLibrary({adapter, containers}) {
   const presetName=node('input');presetName.ariaLabel='Preset Style name';presetName.maxLength=240;
   const presetField=node('input');presetField.ariaLabel='Preset numeric field';presetField.maxLength=100;
   const presetFieldLabel=label('Numeric field',presetField);
+  const presetScale=node('select');presetScale.ariaLabel='Palette scale';
+  presetScale.append(new Option('Classed','classed'),new Option('Continuous','continuous'));
+  const presetScaleLabel=label('Palette scale',presetScale),presetStops=node('div');
+  presetStops.setAttribute('aria-label','Continuous palette stops');
   const presetPreview=node('div');presetPreview.className='symbology-gallery-preset-preview';
   const presetDefinition=node('pre');presetDefinition.setAttribute('aria-label','Preset Style definition');
   const presetDefinitionDetails=node('details');presetDefinitionDetails.append(node('summary','Inspect Style definition'),presetDefinition);
   const presetSave=button('Save as new Style'),presetDiscard=button('Discard preset changes');
   const presetStatus=node('p');presetStatus.setAttribute('role','status');
-  const presetSettings=node('div');presetSettings.className='symbology-gallery-preset-fields';presetSettings.append(label('Name',presetName),presetFieldLabel);
+  const presetSettings=node('div');presetSettings.className='symbology-gallery-preset-fields';presetSettings.append(label('Name',presetName),presetFieldLabel,presetScaleLabel,presetStops);
   const presetActions=node('div');presetActions.className='symbology-gallery-preset-actions';presetActions.append(presetSave,presetDiscard);
   presetDesigner.append(node('h2','Line and area Style'),node('p','Customize this template, choose the resource linked to your Layer, and save a new Style. Select its saved version in the Layer’s Style panel.'),presetSettings,presetPreview,presetDefinitionDetails,presetActions,presetStatus);
-  let presetEntry=null,presetBaseline='';
-  const presetSignature=()=>JSON.stringify({entry:presetEntry?.id,name:presetName.value,field:presetField.value});
+  let presetEntry=null,presetBaseline='',presetStopInputs=[],presetValidationError=false;
+  const presetSignature=()=>JSON.stringify({entry:presetEntry?.id,name:presetName.value,field:presetField.value,
+    scale:presetScale.value,stops:presetStopInputs.map(input=>input.value)});
   hasPresetDraft=()=>Boolean(presetEntry)&&presetSignature()!==presetBaseline;
+  const continuousPreset=()=>{
+    const original=JSON.parse(presetEntry.recipe.definition),geometry=presetEntry.recipe.geometry;
+    const primary=original.layers.find(part=>part.type===geometry),outline=original.layers.find(part=>part.type==='line');
+    const paint=primary.paint;
+    const scale=normalizeContinuousScale({field:presetField.value.trim(),
+      stops:presetStopInputs.map((input,index)=>({value:input.value.trim()===''?NaN:Number(input.value),color:presetEntry.recipe.colors[index]})),
+      noDataColor:paint[`${geometry}-color`][2]});
+    return {geometry,stops:scale.stops,opacity:paint[`${geometry}-opacity`]??1,
+      outlineColor:paint['fill-outline-color']??outline?.paint?.['line-color']??'#ffffff',
+      outlineWidth:outline?.paint?.['line-width']??.5,nullColor:scale.noDataColor};
+  };
   const presetBytes=()=>{
     if(!presetEntry)throw Error('Choose a Style template');
+    if(!presetName.value.trim())throw Error('Enter a Style name.');
     const field=presetField.value.trim(),original=presetEntry.recipe.field;
     if(original&&(!/^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$/.test(field)||['__proto__','constructor','prototype'].includes(field)))throw Error('Enter a valid numeric field name.');
+    if(presetEntry.kind==='palette'&&presetScale.value==='continuous')return continuousStyleDefinition(continuousPreset(),field,presetName.value.trim());
     const definition=JSON.parse(presetEntry.recipe.definition);
     const bind=value=>{
       if(Array.isArray(value))return value.length===2&&value[0]==='get'&&value[1]===original?['get',field]:value.map(bind);
@@ -237,12 +256,39 @@ export function StyleLibrary({adapter, containers}) {
   };
   updatePresetActions=()=>{
     let valid=true;
-    if(presetEntry){try{presetDefinition.textContent=presetBytes();presetField.setCustomValidity('');}catch(error){valid=false;presetField.setCustomValidity(error.message);presetDefinition.textContent=error.message;}}
+    const palette=presetEntry?.kind==='palette',continuous=palette&&presetScale.value==='continuous';
+    presetScaleLabel.hidden=!palette;presetStops.hidden=!continuous;
+    if(presetEntry)presetFieldLabel.firstChild.textContent=continuous?'Numeric field':presetEntry.recipe.fieldLabel?'Numeric field · '+presetEntry.recipe.fieldLabel:'Numeric field';
+    if(presetEntry){try{
+      presetDefinition.textContent=presetBytes();presetField.setCustomValidity('');
+      const scale=continuous?continuousPreset():null;
+      const entry=continuous?{...presetEntry,recipe:{...presetEntry.recipe,
+        continuousScale:{field:presetField.value.trim(),stops:scale.stops,noDataColor:scale.nullColor}}}:presetEntry;
+      presetPreview.replaceChildren(symbologyPreview(entry));
+      if(presetValidationError){presetStatus.textContent='';presetValidationError=false;}
+    }catch(error){
+      valid=false;presetField.setCustomValidity(error.message);presetDefinition.textContent=error.message;
+      presetPreview.replaceChildren();presetStatus.textContent=error.message;presetValidationError=true;
+    }}
     presetSave.disabled=busy||!current?.canUpdate||!presetEntry||!presetName.value.trim()||!valid||!hasPresetDraft();
-    presetDiscard.disabled=busy;presetName.disabled=presetField.disabled=busy;
+    presetDiscard.disabled=busy;presetName.disabled=presetField.disabled=presetScale.disabled=busy;
+    for(const input of presetStopInputs)input.disabled=busy;
   };
   for(const control of [presetName,presetField])control.addEventListener('input',updatePresetActions);
-  const clearPresetDraft=()=>{presetEntry=null;presetBaseline='';presetDesigner.hidden=true;updatePresetActions();};
+  presetScale.addEventListener('change',updatePresetActions);
+  const setPaletteStops=entry=>{
+    presetScale.value='classed';presetStopInputs=[];presetStops.replaceChildren();
+    if(entry.kind!=='palette')return;
+    presetStops.append(node('p','Set each color’s numeric value. Colors interpolate between stops; values outside the range use its endpoint colors. Missing and nonnumeric values use the no-data color. Units are not inferred.'));
+    entry.recipe.colors.forEach((color,index,colors)=>{
+      const input=node('input');input.type='number';input.step='any';input.min='-1000000000000000';input.max='1000000000000000';
+      input.ariaLabel=`Palette stop ${index+1}`;input.value=String(index*100/(colors.length-1));
+      input.addEventListener('input',updatePresetActions);presetStopInputs.push(input);
+      const row=label(`${color} value`,input),swatch=node('span');swatch.style.cssText=`display:inline-block;width:1em;height:1em;background:${color}`;
+      row.prepend(swatch);presetStops.append(row);
+    });
+  };
+  const clearPresetDraft=()=>{presetEntry=null;presetBaseline='';presetValidationError=false;presetStatus.textContent='';presetDesigner.hidden=true;updatePresetActions();};
   presetDiscard.addEventListener('click',()=>{if(!busy){clearPresetDraft();feedback.textContent='Unsaved preset changes discarded.';}});
   presetSave.addEventListener('click',async()=>{
     if(busy||!current?.canUpdate||!presetEntry||!presetName.value.trim()||!hasPresetDraft())return;
@@ -275,6 +321,7 @@ export function StyleLibrary({adapter, containers}) {
       editing=null;needsReview=false;useLatest.hidden=true;setPattern(recipe.pattern,entry.title);editor=designer;
     }else if(recipe?.kind==='maplibre'){
       presetEntry=entry;presetBaseline='';presetName.value=recipe.title??entry.title;presetField.value=recipe.field??'';
+      setPaletteStops(entry);
       presetFieldLabel.hidden=!recipe.field;presetFieldLabel.firstChild.textContent=recipe.fieldLabel?'Numeric field · '+recipe.fieldLabel:'Numeric field';
       presetPreview.replaceChildren(symbologyPreview(entry));presetDesigner.hidden=false;presetStatus.textContent='';updatePresetActions();editor=presetDesigner;
     }else{

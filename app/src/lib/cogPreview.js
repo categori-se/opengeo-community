@@ -22,11 +22,29 @@ function projectionFor(keys) {
 
 // Read a bounded current-view raster directly from its public COG. No HEAD,
 // full-file fallback, worker pool, persistent copy or provider polling.
-export async function readCogPreview(source, {bounds = source.configuration.bounds, signal,
-  displayRange = null, noDataValue = null,
-  fetchImplementation = globalThis.fetch, libraryLoader = loadLibraries, onStatus = () => {}} = {}) {
-  const url = publicItemUrl(source.sourceUrl), parsed = new URL(url), config = source.configuration;
+export async function readCogPreview(source, options = {}) {
+  const url = publicItemUrl(source.sourceUrl), parsed = new URL(url);
   if (parsed.search || !/\.tiff?$/i.test(parsed.pathname)) throw failure("A query-free public TIFF reference is required.");
+  return readCogWindow(source, options, {url});
+}
+
+/** Explicit managed transport. Authorization and its private exact-object ticket
+ * belong to the caller; the decoder only sees the stable logical identity.
+ */
+export async function readAuthorizedCogPreview(source, options = {}) {
+  if (!/^urn:opengeo:dataset:[0-9a-f-]{36}:version:[0-9a-f-]{36}:original$/i.test(source?.sourceUrl ?? "")
+    || !Number.isSafeInteger(source.configuration?.sizeBytes) || source.configuration.sizeBytes < 1
+    || typeof options.fetchImplementation !== "function" || typeof options.assertCurrent !== "function") {
+    throw failure("An authorized exact-version COG transport is required.");
+  }
+  return readCogWindow(source, options, {url: source.sourceUrl, managed: true});
+}
+
+async function readCogWindow(source, {bounds = source.configuration.bounds, signal,
+  displayRange = null, noDataValue = null,
+  fetchImplementation = globalThis.fetch, libraryLoader = loadLibraries, onStatus = () => {},
+  assertCurrent = async () => {}} = {}, {url, managed = false}) {
+  const config = source.configuration;
   const bbox = itemBounds(bounds);
   if (bbox[1] <= -85 || bbox[3] >= 85) throw failure("This MapLibre preview supports latitudes between 85° south and north.");
   const bands = config.bands;
@@ -47,9 +65,10 @@ export async function readCogPreview(source, {bounds = source.configuration.boun
   const timer = setTimeout(() => controller.abort(failure("COG preview time limit reached.")), COG_PREVIEW_LIMITS.milliseconds);
   const usage = {requests: 0, bytes: 0, reservedBytes: 0}, begin = performance.now();
   let size = config.sizeBytes ?? null, etag = null, tiff, snapshotVerified = true, rangeHeadersExposed = true;
+  const check = async () => {controller.signal.throwIfAborted(); await assertCurrent(); controller.signal.throwIfAborted();};
   const active = new Set();
   const client = {url, async request(options) {
-    controller.signal.throwIfAborted();
+    await check();
     const range = new Headers(options.headers).get("range"), match = /^bytes=(\d+)-(\d+)$/.exec(range ?? "");
     if (!match) throw failure("The COG reader requested an unsupported byte range.");
     const start = Number(match[1]), end = Number(match[2]);
@@ -62,14 +81,16 @@ export async function readCogPreview(source, {bounds = source.configuration.boun
     const operation = (async () => {
       const response = await fetchImplementation(url, {signal: controller.signal, credentials: "omit", redirect: "error",
         cache: "no-store", referrerPolicy: "no-referrer", headers: {Range: range}});
+      try {await check();} catch (error) {await response.body?.cancel(); throw error;}
       const contentRange = response.headers.get("content-range"), observedEtag = response.headers.get("etag");
       const header = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(contentRange ?? "");
       // Some public S3 CORS policies expose neither range nor ETag headers. A
       // known-size asset can still use 206 plus exact Content-Length and bounded
       // body checks. This view explicitly cannot verify an atomic snapshot.
-      const hiddenRange = contentRange === null && Number.isSafeInteger(size) && size > 0
+      const hiddenRange = !managed && contentRange === null && Number.isSafeInteger(size) && size > 0
         && response.headers.get("content-length") === String(length);
-      if (response.status !== 206 || !header && !hiddenRange
+      if (response.status !== 206 || !response.body || !header && !hiddenRange
+        || managed && !observedEtag
         || header && (Number(header[1]) !== start || Number(header[2]) !== Math.min(end, Number(header[3]) - 1)
           || size !== null && Number(header[3]) !== size)
         || etag && etag !== observedEtag) {
@@ -81,7 +102,8 @@ export async function readCogPreview(source, {bounds = source.configuration.boun
       const reader = response.body.getReader(), chunks = []; let bytes = 0;
       try {
         while (true) {
-          const {done, value} = await reader.read(); if (done) break;
+          await check();
+          const {done, value} = await reader.read(); await check(); if (done) break;
           bytes += value.byteLength; usage.bytes += value.byteLength;
           if (bytes > length || usage.bytes > COG_PREVIEW_LIMITS.bytes) throw failure("COG preview byte limit reached.");
           chunks.push(value);
@@ -99,7 +121,7 @@ export async function readCogPreview(source, {bounds = source.configuration.boun
     finally {active.delete(operation);}
   }};
   try {
-    controller.signal.throwIfAborted();
+    await check();
     onStatus("Reading COG metadata…");
     const reader = await libraryLoader(); controller.signal.throwIfAborted();
     tiff = await reader.fromCustomClient(client, {allowFullFile: false, blockSize: 65536, cacheSize: 64, maxRanges: 0}, controller.signal);
@@ -179,11 +201,12 @@ export async function readCogPreview(source, {bounds = source.configuration.boun
     }
     const result = {width: 512, height: 512, pixels, coordinates: [[bbox[0], bbox[3]], [bbox[2], bbox[3]], [bbox[2], bbox[1]], [bbox[0], bbox[1]]],
       bounds: bbox, snapshot: {url, etag, size, verified: snapshotVerified, rangeHeadersExposed}, usage, sourceWindow: window, overviewScale: scaleX,
-      display: "bounded-current-view", displayRange: range, noDataValue, custody: "referenced"};
+      display: "bounded-current-view", displayRange: range, noDataValue, custody: managed ? "hosted" : "referenced"};
     grid.snapshot = {etag, verified: snapshotVerified};
     grid.sourceRecord = {url, etag, size, verified: snapshotVerified,
       license:typeof config.license === "string"?config.license:null,
-      attribution:typeof config.attribution === "string"?config.attribution:null};sampleWindows.set(result, grid);
+      attribution:typeof config.attribution === "string"?config.attribution:null};
+    await check(); sampleWindows.set(result, grid);
     return result;
   } finally {
     controller.abort(); clearTimeout(timer); signal?.removeEventListener("abort", abort);

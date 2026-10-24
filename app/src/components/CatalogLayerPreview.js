@@ -16,7 +16,7 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
     renderedMap = map;
     return map;
   };
-  panel.append(node("h4", `${record.title} · ${result.referencedArchive ? "referenced archive preview" : "live source preview"}`));
+  panel.append(node("h4", `${record.title} · ${result.managedArchive ? "archived data preview" : result.referencedArchive ? "referenced archive preview" : "live source preview"}`));
   if (interactive) panel.append(node("p", "Temporary Layer view. Exploring this map does not change a saved Project."));
   if (result.kind === "xyz") {
     panel.append(await render({xyz: {endpoint: result.endpoint, configuration: result.layer.sourceConfiguration}, height: interactive ? "60vh" : "20rem"}));
@@ -42,6 +42,12 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
   panel.append(node("p", result.attribution));
   if (interactive && adapter && result.layer) panel.append(CatalogProjectSave({adapter, record, layer: result.layer, getView: () => panel.querySelector(".map-frame")?.__view?.()}));
   const access = node("section", "", "catalog-layer-access");
+  if (result.managedArchive) {
+    access.append(node("h4", "Archived source"),
+      node("p", `Dataset version ${result.managedArchive.datasetVersionId}. This temporary view reads the authorized original without changing a saved Project.`));
+    panel.append(access);
+    return panel;
+  }
   if (result.referencedArchive) {
     const source = result.referencedArchive;
     access.append(node("h4", "Referenced archive"),

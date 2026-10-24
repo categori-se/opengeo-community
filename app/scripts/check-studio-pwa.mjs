@@ -7,13 +7,18 @@ import {fileURLToPath} from "node:url";
 
 import {chromium} from "playwright";
 
-import {canonicalStudioRoutes} from "./application-route-inventory.mjs";
+import {canonicalStudioRoutes, canonicalBrowserDemoRoutes} from "./application-route-inventory.mjs";
 
 const appRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const previewOnly = process.env.OPENGEO_ATTACHMENT_PREVIEW_ONLY === "1" || process.env.OPENGEO_ATTACHMENT_DEVICE_UI_ONLY === "1" || process.env.OPENGEO_ATTACHMENT_RECOVERY_UI_ONLY === "1" || process.env.OPENGEO_ATTACHMENT_RECONCILE_UI_ONLY === "1";
 const attachmentOnly = process.env.OPENGEO_ATTACHMENT_INDEXEDDB_ONLY === "1";
-const distRoot = resolve(appRoot, "dist");
-const aliases = new Map(canonicalStudioRoutes.map(([path, htmlPath]) => [path, htmlPath]));
+const surface = process.env.OPEN_GEO_PWA_SURFACE ?? "studio";
+if (!["studio", "demo"].includes(surface)) throw new Error("PWA check surface must be studio or demo");
+const demoSurface = surface === "demo";
+const distRoot = resolve(appRoot, demoSurface ? "dist/demo-build" : "dist");
+const shellRoute = demoSurface ? "/" : "/workspaces";
+const aliases = new Map((demoSurface ? canonicalBrowserDemoRoutes : canonicalStudioRoutes)
+  .map(([path, htmlPath]) => [path, htmlPath]));
 const server = createServer(async (request, response) => {
   try {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
@@ -56,6 +61,11 @@ const baseUrl = `http://127.0.0.1:${address.port}`;
 const browser = await chromium.launch({headless: true, ...chromiumExecutable(),
   ...(process.env.OPENGEO_PUBLIC_DEMO_CAPTURE_COMPILED_ROOT ? {args:["--enable-unsafe-swiftshader"]} : {})});
 const context = await browser.newContext({serviceWorkers: "allow"});
+if (demoSurface) {
+  // The maintained Demo check must not visit basemap/provider or account services.
+  await context.route("**/*", route => new URL(route.request().url()).origin === baseUrl
+    ? route.continue() : route.abort());
+}
 const page = await context.newPage();
 const pageErrors = [];
 page.on("pageerror", (error) => pageErrors.push(error.message));
@@ -118,7 +128,23 @@ try {
       databaseV1Upgrade:true,fileBytesSurviveReload:true,deviceFileIsolationAndRemoval:true,
       limits:'Actual headless Chromium IndexedDB; simulated submit refusal/acknowledgement. No installed PWA, device, offline binary upload or live API claim.'}));
   } else {
-  await page.goto(`${baseUrl}/workspaces`, {waitUntil: "domcontentloaded"});
+  // Credits and required notices must be readable before any sign-in workflow.
+  await page.goto(`${baseUrl}/credits`, {waitUntil: "domcontentloaded"});
+  await page.getByRole("heading", {level: 1, name: "Open source & credits", exact: true}).waitFor();
+  const creditLinks = await page.locator('main a[href]').evaluateAll(links => links
+    .map(link => new URL(link.href))
+    .filter(url => url.pathname.startsWith('/notices/') || url.pathname.startsWith('/third-party-'))
+    .map(url => url.pathname));
+  assert.equal(new Set(creditLinks).size, 8);
+  for (const path of creditLinks) {
+    const response = await context.request.get(`${baseUrl}${path}`);
+    assert.equal(response.status(), 200, `Missing public credit document: ${path}`);
+    assert.ok((await response.body()).length > 0, `Empty public credit document: ${path}`);
+  }
+  await page.setViewportSize({width: 375, height: 812});
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "Credits overflow the mobile viewport");
+  await page.setViewportSize({width: 1280, height: 720});
+  await page.goto(`${baseUrl}${shellRoute}`, {waitUntil: "domcontentloaded"});
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload({waitUntil: "domcontentloaded"});
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
@@ -149,7 +175,8 @@ try {
     return {names, urls: [...new Set(urls)].sort()};
   });
   if (cacheState.names.length !== 1
-    || !cacheState.urls.includes("/workspaces")
+    || !cacheState.urls.includes(shellRoute)
+    || !cacheState.urls.includes("/credits")
     || !cacheState.urls.includes("/offline.html")
     || cacheState.urls.some((path) => path.startsWith("/api/") || path.includes("auth-config"))) {
     throw new Error("Installed shell cache crossed its reviewed boundary");
@@ -168,11 +195,11 @@ try {
   });
   if (offlineApi === "unexpected-response") throw new Error("API response was cached by the service worker");
   const offlineResponse = await page.goto(
-    `${baseUrl}/workspaces?project=00000000-0000-4000-8000-000000000001`,
+    `${baseUrl}${shellRoute}?project=00000000-0000-4000-8000-000000000001`,
     {waitUntil: "domcontentloaded"}
   );
   if (!offlineResponse || offlineResponse.status() !== 200 || !offlineResponse.fromServiceWorker()) {
-    throw new Error("Installed Studio shell did not recover an offline project navigation");
+    throw new Error("Installed application shell did not recover its offline navigation");
   }
   await context.setOffline(false);
   if (pageErrors.some((message) => /SyntaxError|service-worker/i.test(message))) {
@@ -181,14 +208,17 @@ try {
 
   console.log(JSON.stringify({
     status: "passed",
+    surface,
     browser: await browser.version(),
     manifestUrl: appManifest.url,
     manifestStartUrl: manifest.start_url,
     serviceWorkerControlled: true,
+    publicCredits: {anonymous: true, localDocuments: creditLinks.length, mobileWidth: 375},
     cacheNames: cacheState.names,
     cachedShellRequests: cacheState.urls.length,
     credentialedApiCached: false,
-    offlineProjectNavigation: true,
+    offlineProjectNavigation: demoSurface ? undefined : true,
+    offlineNavigationRoute: shellRoute,
     backgroundSyncContract: "authenticated-open-client",
     installedOsWindowTested: false
   }, null, 2));

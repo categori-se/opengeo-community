@@ -3191,6 +3191,50 @@ describe("OpenGeo API client", () => {
     }
   });
 
+  it('accepts attested TIFF build results within the saved preview or archive policy', () => {
+    const completed = (changes = {}, requestChanges = {}) => {
+      const result = observableBuildClientResult();
+      result.outputManifest.files.unshift({path: 'dist/data/landcover.tif', contentType: 'image/tiff',
+        sizeBytes: 810, checksumSha256: 'b'.repeat(64), ...changes});
+      result.validationReport.outputFileCount = 2;
+      result.validationReport.outputBytes += result.outputManifest.files[0].sizeBytes;
+      return observableBuildPayload({state: 'succeeded', request: {...observableBuildPayload().request, ...requestChanges},
+        result, result_checksum_sha256: 'f'.repeat(64), attempt_count: 1,
+        started_at: '2026-08-22T18:06:01Z', finished_at: '2026-08-22T18:06:05Z'});
+    };
+    for (const contentType of ['image/tiff', 'image/geotiff']) {
+      for (const path of ['dist/data/landcover.tif', 'dist/data/landcover.TIFF']) {
+        const job = parseObservableBuildJob(completed({contentType, path}));
+        assert.equal(job.result.outputManifest.files[0].contentType, contentType);
+        assert.equal(job.result.validationReport.outputBytesReverified, true);
+      }
+    }
+    for (const change of [{path: 'dist/data/landcover.png'}, {contentType: 'image/jp2'},
+      {sizeBytes: 0}, {sizeBytes: 32 * 1024 * 1024 + 1}, {checksumSha256: 'invalid'}]) {
+      assert.throws(() => parseObservableBuildJob(completed(change)), ApiContractError);
+    }
+    assert.throws(() => parseObservableBuildJob(completed({sizeBytes: 32 * 1024 * 1024})), ApiContractError,
+      'The TIFF plus generated HTML must fit the total output allowance');
+    for (const edit of [
+      job => {job.result.validationReport.inputObjectsReverified = false;},
+      job => {job.result.validationReport.outputBytesReverified = false;},
+      job => {job.result.validationReport.outputObjectsReverified = false;},
+      job => {job.result.validationReport.outputBytes++;},
+      job => {job.result.publicationAuthorized = true;},
+      job => {job.result.requestChecksumSha256 = 'a'.repeat(64);},
+      job => {job.purpose = job.request.purpose = 'release_candidate';},
+      job => {job.request.schemaVersion = 'opengeo.observable-build-request.2.0.0'; job.request.artifactInputsChecksumSha256 = 'a'.repeat(64);}
+    ]) {
+      const job = completed(); edit(job);
+      assert.throws(() => parseObservableBuildJob(job), ApiContractError);
+    }
+    const archive = {schemaVersion: 'opengeo.observable-build-request.3.0.0', outputProfile: 'archive-96m',
+      sizeAcknowledgment: 'allow-up-to-96-mib-output', distributionApprovalId: null, distributionApprovalChecksumSha256: null};
+    assert.doesNotThrow(() => parseObservableBuildJob(completed({sizeBytes: 64 * 1024 * 1024}, archive)));
+    assert.throws(() => parseObservableBuildJob(completed({sizeBytes: 64 * 1024 * 1024 + 1}, archive)), ApiContractError);
+    assert.throws(() => parseObservableBuildJob(completed({}, {...archive, sizeAcknowledgment: null})), ApiContractError);
+  });
+
   it("rejects widened Observable source and compiler boundary responses", async () => {
     assert.throws(
       () => parseObservableSourceProject({

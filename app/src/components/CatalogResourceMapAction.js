@@ -1,13 +1,14 @@
 import {CatalogLayerPreview} from "./CatalogLayerPreview.js";
-import {createCatalogPreviewLoader} from "../lib/catalogLayerPreview.js";
+import {canPreviewCatalogManagedVector, createCatalogPreviewLoader} from "../lib/catalogLayerPreview.js";
 
 const PREVIEW_SOURCES = new Set(["arcgis", "wfs", "imageserver", "mapserver", "cog", "xyz", "geojson", "postgis"]);
 let previewSequence = 0;
 
 // Catalog listing is metadata-only. The source and provider are read after a deliberate click.
 export function CatalogResourceMapAction({dataset, adapter, load = null, beforeOpen = null, renderMap}) {
-  if (dataset.status !== "active" || !dataset.capabilities?.read || !dataset.projectId
-    || !PREVIEW_SOURCES.has(dataset.sourceType) || typeof adapter?.getSource !== "function") return null;
+  const managed = canPreviewCatalogManagedVector(dataset, adapter);
+  if (!managed && (dataset.status !== "active" || !dataset.capabilities?.read || !dataset.projectId
+    || !PREVIEW_SOURCES.has(dataset.sourceType) || typeof adapter?.getSource !== "function")) return null;
 
   const button = document.createElement("button");
   button.type = "button";
@@ -23,7 +24,8 @@ export function CatalogResourceMapAction({dataset, adapter, load = null, beforeO
     datasetId: dataset.id, projectId: dataset.projectId, title: dataset.name,
     geometryType: dataset.geometryType, resourcePreview: true,
     sourceType: dataset.sourceType, bbox: dataset.extent ?? null,
-    sourceVersion: dataset.preservationSummary?.sourceVersion ?? null
+    sourceVersion: managed ? dataset.currentVersionNumber : dataset.preservationSummary?.sourceVersion ?? null,
+    ...(managed ? {datasetVersionId: dataset.currentVersionId} : {})
   };
   const loadPreview = load ?? createCatalogPreviewLoader({adapter});
   const controller = new AbortController();
@@ -56,7 +58,7 @@ export function CatalogResourceMapAction({dataset, adapter, load = null, beforeO
       panel.replaceChildren(preview);
       loaded = true;
     } catch (error) {
-      if (!controller.signal.aborted) status.textContent = `${error?.message || "Map preview unavailable"} ${dataset.sourceType === "geojson" ? "No other copy was used." : "No archived copy was used."}`;
+      if (!controller.signal.aborted) status.textContent = `${error?.message || "Map preview unavailable"} ${managed || dataset.sourceType === "geojson" ? "No other copy was used." : "No archived copy was used."}`;
     } finally {
       if (!controller.signal.aborted) button.disabled = false;
     }

@@ -3,6 +3,7 @@ import {it} from "node:test";
 import {JSDOM} from "jsdom";
 import {catalogSaveBlocksNavigation} from "../src/lib/catalogSaveNavigation.js";
 import {CatalogSourceRegistration} from "../src/components/CatalogSourceRegistration.js";
+import {worldCoverReferences} from "../src/lib/publishedBaselineSources.js";
 it("retains pending save on navigation/back and releases the guard after completion", () => {
   const dom = new JSDOM('<main><dialog open class="catalog-project-save" data-save-pending="true"><p role="status"></p></dialog></main>', {url:'https://studio.opengeo.tools/workspaces?view=data'});
   const root=dom.window.document.querySelector('main'), dialog=root.querySelector('dialog');
@@ -183,6 +184,97 @@ it("refuses invalid public TIFF URLs, unknown bounds and invalid band selections
       assert.equal(await reviewTiff(fixture, input), null);
     }
     assert.equal(writes, 0);
+  } finally {fixture.close();}
+});
+
+function chooseWorldCover(fixture, {bounds = "3.1, 51.1, 3.2, 51.2", start = "2025-01-01", end = "2025-12-31"} = {}) {
+  const {root} = fixture;
+  root.querySelector('[aria-label="Study bounds (west, south, east, north)"]').value = bounds;
+  root.querySelector('[aria-label="Requested period start (optional)"]').value = start;
+  root.querySelector('[aria-label="Requested period end (optional)"]').value = end;
+  [...root.querySelectorAll("button")].find(button => button.textContent === "Find WorldCover 2021 tiles").click();
+  return [...root.querySelectorAll("button")].filter(button => /^Use [NS]\d{2}[EW]\d{3}$/.test(button.textContent));
+}
+async function submitReviewedReference(fixture) {
+  fixture.root.querySelector("form").dispatchEvent(new fixture.dom.window.Event("submit", {cancelable: true}));
+  for (let n = 0; n < 20 && (!fixture.root.querySelector('[data-action="register-referenced-layer"]')
+    || fixture.root.querySelector('[data-action="register-referenced-layer"]').disabled); n++) await new Promise(resolve => setTimeout(resolve, 0));
+  return fixture.root.querySelector('[data-action="register-referenced-layer"]');
+}
+
+it("finds and stages WorldCover references offline, then saves native metadata and requested dates through existing review", async () => {
+  const writes = []; let providerReads = 0, sourceReads = 0;
+  const fixture = registrationFixture({async createSource(id, input) {writes.push({id, input}); return {datasetId: layerId};},
+    async listSources() {sourceReads++; return [];}, initiateUpload() {assert.fail("Published selection cannot upload");},
+    createMap() {assert.fail("Published selection cannot create Projects");}}, "owner", async () => {providerReads++; assert.fail("Published selection cannot read provider objects");});
+  try {
+    const expected = worldCoverReferences({bounds: [3.1, 51.1, 3.2, 51.2], periodStart: "2025-01-01", periodEnd: "2025-12-31"})[0];
+    fixture.root.querySelector('[aria-label="Source edition (optional)"]').value = "Unrelated edition";
+    fixture.root.querySelector('[aria-label="Edition notes (optional)"]').value = "Unrelated notes";
+    const choices = chooseWorldCover(fixture); assert.equal(choices.length, 1); choices[0].click();
+    assert.equal(writes.length, 0); assert.equal(providerReads, 0); assert.equal(sourceReads, 0);
+    assert.equal(fixture.root.querySelector('[aria-label="TIFF URL"]').value, expected.source.url);
+    assert.equal(fixture.root.querySelector('[aria-label="WGS84 bounds (west, south, east, north)"]').value, "3, 51, 6, 54");
+    assert.equal(fixture.root.querySelector('[aria-label="Display bands (one or three)"]').value, "1");
+    assert.equal(fixture.root.querySelector('[aria-label="Source edition (optional)"]').value, "");
+    assert.equal(fixture.root.querySelector('[aria-label="Edition notes (optional)"]').value, "");
+    assert.match(fixture.root.textContent, /date suitability: disjoint/);
+    fixture.root.querySelector('[aria-label="Layer title"]').value = "Local study land cover";
+    fixture.root.querySelector('[aria-label="Source description and terms"]').value = "A reviewed description";
+    fixture.root.querySelector('[aria-label="Attribution"]').value = "Reviewed ESA credit";
+    const confirm = await submitReviewedReference(fixture);
+    assert(confirm); assert.equal(writes.length, 0); assert.equal(providerReads, 0); assert.equal(sourceReads, 0);
+    assert.match(fixture.root.textContent, /observation period 2021-01-01 to 2021-12-31/);
+    assert.match(fixture.root.textContent, /Requested period 2025-01-01 to 2025-12-31/);
+    confirm.click(); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(writes.length, 1); assert.equal(sourceReads, 1); assert.equal(providerReads, 0);
+    assert.equal(writes[0].id, workspaceId); assert.equal(writes[0].input.name, "Local study land cover");
+    assert.equal(writes[0].input.description, "A reviewed description");
+    assert.equal(writes[0].input.source.attribution, "Reviewed ESA credit");
+    assert.equal(writes[0].input.source.license, "CC-BY-4.0");
+    assert.deepEqual(writes[0].input.source.referenceMetadata, expected.source.referenceMetadata);
+    assert.equal(writes[0].input.classification, "internal"); assert.equal(fixture.root.dataset.registered, layerId);
+  } finally {fixture.close();}
+});
+
+it("clears the staged published metadata and unchanged helper prose when source URL, type, bands or bounds change", async () => {
+  for (const setting of ["url", "type", "bands", "bounds", "silent-url"]) {
+    const writes = [], fixture = registrationFixture({async createSource(_id, input) {writes.push(input); return {datasetId: layerId};}});
+    try {
+      chooseWorldCover(fixture)[0].click();
+      const controls = {url: fixture.root.querySelector('[aria-label="TIFF URL"]'), type: fixture.root.querySelector('[aria-label="Source type"]'),
+        bands: fixture.root.querySelector('[aria-label="Display bands (one or three)"]'), bounds: fixture.root.querySelector('[aria-label="WGS84 bounds (west, south, east, north)"]')};
+      if (setting === "url" || setting === "silent-url") controls.url.value = "https://other.example/classes.tif";
+      if (setting === "bands") controls.bands.value = "2";
+      if (setting === "bounds") controls.bounds.value = "3, 51, 5, 53";
+      if (setting === "type") controls.type.value = "xyz";
+      if (setting !== "silent-url") controls[setting].dispatchEvent(new fixture.dom.window.Event(setting === "type" ? "change" : "input"));
+      if (setting === "type") controls.url.value = "https://other.example/{z}/{x}/{y}";
+      if (setting !== "silent-url") {
+        assert.equal(fixture.root.querySelector('[aria-label="Attribution"]').value, "");
+        assert.equal(fixture.root.querySelector('[aria-label="Source description and terms"]').value, "");
+      }
+      fixture.root.querySelector('[aria-label="Layer title"]').value = "My current source";
+      const confirm = await submitReviewedReference(fixture); assert(confirm, setting); confirm.click();
+      await new Promise(resolve => setTimeout(resolve, 0)); assert.equal(writes.length, 1, setting);
+      assert.equal(writes[0].name, "My current source");
+      if (setting !== "type") {assert.equal(writes[0].source.license, null); assert.deepEqual(writes[0].source.referenceMetadata, {});}
+      assert.equal(writes[0].source.attribution, null);
+    } finally {fixture.close();}
+  }
+});
+
+it("bounds WorldCover candidate selection and refuses incomplete dates without provider or account requests", () => {
+  let reads = 0, writes = 0;
+  const fixture = registrationFixture({async listSources() {reads++; return [];}, async createSource() {writes++;}}, "owner", async () => {assert.fail("No provider reads");});
+  try {
+    assert.equal(chooseWorldCover(fixture, {bounds: "0, 0, 6, 6", start: "", end: ""}).length, 4);
+    assert.equal(chooseWorldCover(fixture, {bounds: "0.1, 0.1, 6.1, 6.1"}).length, 0);
+    assert.match(fixture.root.textContent, /at most four WorldCover tiles/);
+    assert.equal(chooseWorldCover(fixture, {start: "2021-01-01", end: ""}).length, 0);
+    assert.match(fixture.root.textContent, /Enter both study dates/);
+    assert.equal(reads, 0); assert.equal(writes, 0); assert.equal(fixture.root.querySelectorAll("form").length, 1);
+    fixture.root.dispose(); assert.equal(chooseWorldCover(fixture).length, 0);
   } finally {fixture.close();}
 });
 

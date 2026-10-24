@@ -690,7 +690,9 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
     canManage: canManage(state),
     getBindings: () => dataAttachments, getFiles: () => workingFiles,
     getReferencedFiles: () => referencedFiles,
-    getFormat: () => entry.control.value.endsWith(".ipynb") ? "jupyter" : "framework",
+    getFormat: () => entry.control.value.endsWith(".ipynb") ? "jupyter"
+      : /\.html$/i.test(entry.control.value) && !(activePath === entry.control.value && /<notebook(?:\s|>)/i.test(sourceText.value))
+        ? "html" : "framework",
     getSourceRoot: () => publicationSourceRoot(entry.control.value, workingFiles.map(file => file.relativePath)),
     onInsert: ({relativePath, readMethod}) => {
       if (/\.ipynb$/i.test(entry.control.value)) throw Error("Jupyter publishes saved outputs. Execute Python locally with the selected data version, then import the executed notebook.");

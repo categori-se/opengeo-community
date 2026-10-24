@@ -574,6 +574,81 @@ describe("project durable-job hydration", () => {
     assert.equal(adapter.calls.createPmtiles.length, 0);
     assert.equal(adapter.calls.cancelPmtiles.length, 0);
   });
+
+  it("adds and saves a lowercase native COG through the exact-version production binding without a ticket", async () => {
+    const {adapter, reads, saved} = managedCogAdapter();
+    const page = mountPage(adapter, {mapDatasetTarget: {mapId: IDS.map,
+      datasetId: IDS.dataset, datasetVersionId: IDS.version}});
+    await waitFor(() => findButton(page, "Add exact v4"));
+    assert.deepEqual(reads, {versions: 0, tickets: 0, previews: 0});
+    clickButton(page, "Add exact v4");
+    const editor = await waitFor(() => {
+      const view = page.querySelector(".opengeo-workbench");
+      return view?.__opengeoLayers.length === 1 && view;
+    });
+    const layer = editor.__opengeoLayers[0];
+    assert.equal(layer.geometryType, "Raster");
+    assert.equal(layer.sourceType, "governed-dataset");
+    assert.equal(layer.datasetVersionId, IDS.version);
+    assert.equal(layer.sourceVersion, 4);
+    assert.equal(layer.sourceUrl, undefined);
+    assert.equal(layer.sourceConfiguration.license, undefined);
+    assert.deepEqual(reads, {versions: 1, tickets: 0, previews: 0});
+    clickButton(page, "Save");
+    await waitFor(() => saved.length === 1);
+    assert.equal(saved[0].layers[0].datasetVersionId, IDS.version);
+    assert.doesNotMatch(JSON.stringify(saved[0]), /X-Amz/);
+    assert.doesNotMatch(JSON.stringify(saved[0].layers[0]), /https:\/\/|CC-BY|ESA WorldCover/);
+    assert.equal(reads.tickets, 0);
+    page.dispose(); page.remove();
+  });
+
+  it("reuses an exact COG descriptor within one editor after removal and a deliberate second Add", async () => {
+    const {adapter, reads} = managedCogAdapter();
+    const page = mountPage(adapter, {mapDatasetTarget: {mapId: IDS.map,
+      datasetId: IDS.dataset, datasetVersionId: IDS.version}});
+    await waitFor(() => findButton(page, "Add exact v4"));
+    clickButton(page, "Add exact v4");
+    const editor = await waitFor(() => {
+      const view = page.querySelector(".opengeo-workbench");
+      return view?.__opengeoLayers.length === 1 && view;
+    });
+    editor.querySelector(".gis-layer-more > summary").click();
+    editor.querySelector('[aria-label="Remove layer from this project"]').click();
+    assert.equal(editor.__opengeoLayers.length, 0);
+    clickButton(page, "Add data");
+    clickButton(page, "Add exact v4");
+    await waitFor(() => editor.__opengeoLayers.length === 1);
+    assert.deepEqual(reads, {versions: 1, tickets: 0, previews: 0});
+    page.dispose(); page.remove();
+  });
+
+  for (const changedScope of ["account", "signed-in user"]) it(`rejects a COG descriptor when the ${changedScope} changes while exact-version metadata resolves`, async () => {
+    const {adapter, reads} = managedCogAdapter();
+    const listVersions = adapter.listDatasetVersions;
+    const getSession = adapter.getSession;
+    let release, changedUser = false, organization = IDS.organization;
+    adapter.getSession = async (...args) => ({...await getSession(...args),
+      ...(changedUser ? {userId: "10000000-0000-4000-8000-000000000098"} : {})});
+    adapter.organizationProvider = async () => organization;
+    adapter.listDatasetVersions = async (...args) => {
+      await new Promise(resolve => {release = resolve;});
+      return listVersions(...args);
+    };
+    const page = mountPage(adapter, {mapDatasetTarget: {mapId: IDS.map,
+      datasetId: IDS.dataset, datasetVersionId: IDS.version}});
+    await waitFor(() => findButton(page, "Add exact v4"));
+    clickButton(page, "Add exact v4");
+    await waitFor(() => release);
+    if (changedScope === "account") organization = "10000000-0000-4000-8000-000000000099";
+    else changedUser = true;
+    release();
+    await waitFor(() => findButton(page, "Add exact v4")?.disabled === false);
+    assert.equal(page.querySelector(".opengeo-workbench").__opengeoLayers.length, 0);
+    assert.deepEqual(reads, {versions: 1, tickets: 0, previews: 0});
+    page.dispose(); page.remove();
+  });
+
   it("deduplicates omitted preserved dataset metadata before refusing any raw preview", async () => {
     const adapter = projectAdapter({kind: "managed"});
     const dataset = {...(await adapter.listDatasets())[0], format: "geojson", status: "draft", currentVersionState: "preserved", geometryType: null, featureCount: null, extent: null};
@@ -736,6 +811,35 @@ describe("project durable-job hydration", () => {
   });
 
 });
+
+function managedCogAdapter() {
+  const adapter = projectAdapter({kind: "managed", format: "cog"});
+  const reads = {versions: 0, tickets: 0, previews: 0}, saved = [];
+  const datasetPromise = adapter.listDatasets().then(([dataset]) => ({...dataset,
+    name: "Native land cover", geometryType: "raster", featureCount: null,
+    capabilities: {read: true, edit: true, download: true}}));
+  const mapPromise = adapter.listMaps().then(([map]) => ({...map,
+    definition: {...map.definition, activeLayerId: null, layers: []}}));
+  adapter.organizationProvider = async () => IDS.organization;
+  adapter.listDatasets = async () => [await datasetPromise];
+  adapter.listMaps = async () => [await mapPromise];
+  adapter.listDatasetVersions = async (project, dataset, options) => {
+    assert.deepEqual([project, dataset, options.limit, options.offset], [IDS.project, IDS.dataset, 100, 0]);
+    reads.versions++;
+    return [{id: IDS.version, versionNumber: 4, state: "active", format: "cog", geometryType: "raster",
+      extent: [-73.5, 41.2, -69.8, 43.1],
+      qualityResults: {checks: [{code: "cog_layout_verified", status: "passed"}]},
+      objects: [{id: IDS.job, role: "original", filename: "native-land-cover.tif", contentType: "image/tiff", sizeBytes: 4096}]}];
+  };
+  adapter.requestDatasetDownload = async () => {reads.tickets++; assert.fail("No raster read was requested");};
+  adapter.getDatasetSpatialPreview = async () => {reads.previews++; assert.fail("COGs cannot use vector previews");};
+  adapter.updateMap = async (project, map, update) => {
+    assert.deepEqual([project, map], [IDS.project, IDS.map]);
+    saved.push(structuredClone(update.changes.definition));
+    return {...await mapPromise, version: 4, definition: update.changes.definition};
+  };
+  return {adapter, reads, saved};
+}
 
 function mountPage(adapter, options = {}) {
   const page = ProjectWorkspacePage({

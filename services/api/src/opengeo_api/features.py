@@ -1404,6 +1404,24 @@ class PostgresFeatureRepository:
                         if request.operation == "measure"
                         else {}
                     ),
+                    **(
+                        {
+                            "buildingReconciliation": {
+                                "minimumIntersectionOverUnion": 0.5,
+                                "intersectionMethod": "PostGIS local projected geography overlay",
+                                "areaMethod": "PostGIS spheroidal geography",
+                                "candidateRule": "one positive-area neighbor on each side",
+                                "ambiguityRule": "multiple positive-area neighbors on either side",
+                                "unmatched": "retained on both sides",
+                                "reviewStatus": "unreviewed",
+                                "validatedCount": None,
+                                "maximumSpanDegrees": 6,
+                                "maximumAbsoluteLatitude": 80,
+                            }
+                        }
+                        if request.operation == "building-reconcile"
+                        else {}
+                    ),
                     "limits": {
                         "features": MAX_FEATURES,
                         "coordinates": MAX_COORDINATES,

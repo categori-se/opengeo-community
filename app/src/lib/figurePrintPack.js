@@ -1,5 +1,9 @@
 import {zipSync, strToU8} from "fflate";
 import {canonicalJson} from "./artifactCanonicalJson.js";
+import {assertPrintDataFrameSnapshot} from "./printDataFrames.js";
+import {continuousLegendGroups} from "./printContinuousLegend.js";
+import {rasterLegendGroups} from "./printRasterLegend.js";
+import {printCaptureOutputSignature} from "./printLayouts.js";
 
 const LIMIT = 32 * 1024 * 1024;
 const sha = async bytes => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
@@ -49,14 +53,20 @@ export async function compileFigurePrintPack({layout, layoutId, captures, svg, h
   for (const [index, frame] of layout.frames.entries()) {
     const capture = captures.get(`${layoutId}:${frame.id}`);
     if (!capture || capture.signature !== canonicalJson({view: frame.view, presentation: frame.presentation})
+      || capture.outputSignature !== undefined && capture.outputSignature !== printCaptureOutputSignature(frame, layout.dpi)
       || !/^data:image\/png;base64,/.test(capture.dataUrl) || capture.dataUrl.length > 11_184_836) throw Error("Capture every map frame with its current settings before downloading the pack.");
     const path = `frames/${index + 1}.png`, bytes = Uint8Array.from(atob(capture.dataUrl.split(",")[1]), char => char.charCodeAt(0));
     if (await sha(bytes) !== capture.imageSha256) throw Error("A captured map image changed. Capture the frame again.");
     files[path] = bytes;
+    const dataFrames = (layout.dataFrames ?? []).filter(item => item.mapFrameId === frame.id).map(item =>
+      assertPrintDataFrameSnapshot(item, capture.dataFrames?.find(snapshot => snapshot.frameId === item.id), capture.presentation));
     frames.push({frameId: frame.id, path, projectId: capture.projectId, projectVersion: capture.projectVersion,
       width: capture.width, height: capture.height, cssWidth: capture.cssWidth, cssHeight: capture.cssHeight,
       view: capture.view, presentation: capture.presentation, imageSha256: capture.imageSha256,
-      legend: capture.legend, attribution: capture.attribution, sourceMetadata: capture.sourceMetadata ?? [],
+      legend: capture.legend, numericLegends: capture.numericLegends ?? [],
+      continuousLegends: [...continuousLegendGroups(capture).values()], dataFrames,
+      ...(capture.rasterLegends?.length ? {rasterLegends: [...rasterLegendGroups(capture).values()]} : {}),
+      attribution: capture.attribution, sourceMetadata: capture.sourceMetadata ?? [],
       flat: capture.flat, metresPerPixel: capture.metresPerPixel, graticule: capture.lines});
   }
   files["map-context.json"] = strToU8(JSON.stringify({schemaVersion: "opengeo.figure-context.1.0.0", frames}, null, 2));
@@ -70,8 +80,8 @@ map detail remains limited to its original pixels. JPEG uses quality0.92.
 
 Open print.html locally to view or print the self-contained SVG page. page.svg,
 layout.json, map-context.json and frames/ retain the layout, frame pixels, camera,
-presentation, source metadata and attribution needed to reproduce this captured
-figure. System fonts may differ between devices; the supplied PNG/JPEG/PDF have
+presentation, source metadata, captured table/chart values and attribution needed
+to reproduce this captured figure. System fonts may differ between devices; the supplied PNG/JPEG/PDF have
 fixed pixels. Keep recorded credits and review data/styling rights before sharing.
 
 This pack contains captured output, not the original data, editable Project,

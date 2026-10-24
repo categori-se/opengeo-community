@@ -1,6 +1,7 @@
 import {opacityPaint} from "./layerOpacity.js";
 import {savedPattern, rasterizePattern} from "./cartographicPatterns.js";
 import {normalizePointSymbolStyle, pointSymbolImages, pointSymbolStyleParts, ensurePointSymbolAssets} from "./pointSymbols.js";
+import {parseContinuousColorExpression} from "./continuousStyle.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const FIELDS = ["projectId", "resourceId", "styleId", "versionNumber", "checksumSha256", "format"];
 export function validateLayerStyleReference(value) {
@@ -97,7 +98,8 @@ export async function resolveLayerStyle(adapter, layer) {
       const value = part.paint[field];
       if (field.endsWith("opacity") && value === undefined) continue;
       if (field.endsWith("color")) {
-        if (!validColor(value)) throw new Error("Unsupported Style color");
+        if (!validColor(value, (part.type === "fill" && field === "fill-color")
+          || (part.type === "line" && field === "line-color"))) throw new Error("Unsupported Style color");
       } else if (typeof value !== "number" || !Number.isFinite(value) || value < 0
         || (field.endsWith("opacity") && value > 1)) throw new Error("Unsupported Style dimension or opacity");
     }
@@ -143,8 +145,9 @@ export function savedPointSymbolStyle(style) {
       ? selected : null;
   } catch {return null;}
 }
-function validColor(value) {
+function validColor(value, allowContinuous = false) {
   if (typeof value === "string") return /^#[a-f\d]{6}(?:[a-f\d]{2})?$/i.test(value);
+  if (allowContinuous && parseContinuousColorExpression(value)) return true;
   // Closed numeric classification used by the MassGIS/palette library. This
   // admits a bounded step over one field, without a general expression editor.
   if (Array.isArray(value) && value[0] === "step") {

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import {readFileSync} from "node:fs";
+import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from "node:fs";
+import {tmpdir} from "node:os";
+import {dirname, join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {describe, it} from "node:test";
 import {
@@ -225,7 +227,29 @@ describe("demo pilot release boundary", () => {
   });
 
   it("verifies source bytes and resumes only a matching contiguous 0063–0082 ledger", () => {
-    const migrations = readReviewedMigrations(repository);
+    // This closed release window excludes subsequent forward migrations.
+    assert.throws(() => readReviewedMigrations(repository), /Source migration set changed/);
+    const historical = mkdtempSync(join(tmpdir(), "opengeo-demo-pilot-source-test-"));
+    let migrations: ReturnType<typeof readReviewedMigrations>;
+    try {
+      const manifest = JSON.parse(readFileSync(join(repository, contract.migrationManifest), "utf8"));
+      mkdirSync(dirname(join(historical, contract.migrationManifest)), {recursive: true});
+      mkdirSync(join(historical, "database/migrations"), {recursive: true});
+      copyFileSync(join(repository, contract.migrationManifest), join(historical, contract.migrationManifest));
+      for (const {name} of manifest.migrations) {
+        copyFileSync(join(repository, "database/migrations", name), join(historical, "database/migrations", name));
+      }
+      migrations = readReviewedMigrations(historical);
+      const extra = join(historical, "database/migrations/0083_unreviewed.sql");
+      writeFileSync(extra, "BEGIN; SELECT 1; COMMIT;\n");
+      assert.throws(() => readReviewedMigrations(historical), /Source migration set changed/);
+      rmSync(extra);
+      const first = join(historical, "database/migrations", migrations[0]!.name);
+      writeFileSync(first, `${readFileSync(first, "utf8")}\n-- Unreviewed change.\n`);
+      assert.throws(() => readReviewedMigrations(historical), /Migration checksum mismatch/);
+    } finally {
+      rmSync(historical, {recursive: true, force: true});
+    }
     const ledger = migrations.map(({name, sha256}) => ({migration_name: name, sha256}));
     assert.equal(validateMigrationLedger(ledger.slice(0, 63), migrations).length, 19);
     assert.equal(validateMigrationLedger(ledger.slice(0, 70), migrations).length, 12);

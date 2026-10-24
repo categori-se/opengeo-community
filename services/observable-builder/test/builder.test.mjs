@@ -344,6 +344,25 @@ describe("credential-free Observable builder contract", () => {
     } finally {rmSync(sample.root, {recursive: true, force: true});}
   });
 
+  for (const [name, type] of [["landcover.tif", "image/tiff"], ["landcover.TIFF", "image/geotiff"]]) {
+    it(`packages static HTML with an exact pinned TIFF ${name} and canonical output media type`, () => {
+      const path = `data/${name}`, bytes = Buffer.from([73, 73, 42, 0, 8, 0, 0, 0, 0, 0]);
+      const sample = fixture({"index.html": `<!doctype html><a href="${path}">Original raster</a>`});
+      sample.invocation.entryPath = "index.html";
+      sample.invocation.schemaVersion = DATA_INVOCATION_SCHEMA;
+      sample.invocation.dataFiles = [{path, contentType: type, sizeBytes: bytes.length, checksumSha256: sha256(bytes)}];
+      mkdirSync(join(sample.inputRoot, "data"));writeFileSync(join(sample.inputRoot, path), bytes);
+      try {
+        const report = runBuild({invocation: sample.invocation, inputRoot: sample.inputRoot,
+          workspaceRoot: join(sample.root, "workspace"), observableCliPath: "/missing/compiler", frameworkCacheRoot: "/missing/cache"});
+        assert.deepEqual(readFileSync(join(sample.root, "workspace/dist", path)), bytes);
+        assert.deepEqual(report.outputManifest.files.find(file => file.path === `dist/${path}`),
+          {path: `dist/${path}`, contentType: "image/tiff", sizeBytes: bytes.length, checksumSha256: sha256(bytes)});
+        assert.equal(report.validationReport.publicationAuthorized, false);
+      } finally {rmSync(sample.root, {recursive: true, force: true});}
+    });
+  }
+
   for (const extra of ["private.txt", "site/README.md", "site/observablehq.config.js"]) {
     it(`rejects a static tree containing non-public source ${extra}`, () => {
       const sample = fixture({"site/index.html": "<!doctype html><h1>Map</h1>", [extra]: "not public"});

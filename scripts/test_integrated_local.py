@@ -1,13 +1,16 @@
 """Check initialization and cleanup without starting containers."""
 
 import importlib.util
+import asyncio
 import io
 import json
 import os
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -28,6 +31,626 @@ PUBLICATION_SPEC = importlib.util.spec_from_file_location(
 )
 publication = importlib.util.module_from_spec(PUBLICATION_SPEC)
 PUBLICATION_SPEC.loader.exec_module(publication)
+
+
+class PmtilesRuntimeTests(unittest.TestCase):
+    def building_input_preview_state(self, directory, tree="a" * 64):
+        root, work, helper = self.building_review_state(directory)
+        path = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+        document = json.loads(path.read_text())
+        document["batches"].append({"id": "BI-02-retained-building-input-preview", "inventory": {"appTree": tree}, "limits": {
+            "localAccountApiRequests": 80, "localAccountMillisecondsIncludingShutdown": 120_000,
+            "localAccountWorkMilliseconds": 110_000, "localAccountInitialAttempts": 1, "localAccountMaximumAttempts": 2,
+            "catalogWrites": 0, "projectWrites": 0, "originalUploads": 0, "workerBatches": 0, "nativeComputations": 0,
+            "exactOriginalReadbacks": 6, "exactOriginalBytes": 20_000, "automaticRetries": 0, "AWSAccountCalls": 0,
+            "SecretsDataApiKmsCalls": 0, "GitHubAccountApiCalls": 0, "Actions": 0, "providerRequests": 0,
+            "applicationBuilds": 1, "newDependencies": 0, "newInfrastructure": 0, "newAnalysisRuntimes": 0}})
+        path.write_text(json.dumps(document))
+        pins = {"source": ("2b53931f-1c74-4190-9174-56b502b65a3b", "0db0f821-65a0-4846-9204-6cffd0f0bead"),
+                "comparison": ("466da7fc-36ce-4b9c-8909-c1292c2deaf3", "d5f6c478-7a4e-4c3a-86c3-554e29ede4ac"),
+                "output": ("fd40ec51-601c-4180-b235-070fb2be186f", "4b711032-952d-411f-9cf1-ddf4ca6d3a1f")}
+        records = {key: {"datasetId": dataset, "datasetVersionId": version, "versionNumber": 1,
+                         "uploadCompleted": True, "retainedHistory": {"oldAttempt": True}}
+                   for key, (dataset, version) in pins.items()}
+        project_id, map_id = "1938b127-af37-4c1e-8a90-c1d12282a172", "e4df81ea-9cac-4809-ad80-87a391ce9dd5"
+        accepted = {"status": "pass", "projectId": project_id, "mapId": map_id, "records": records,
+                    "map": {"id": map_id, "project_id": project_id, "version": 3, "definition": {"layers": [
+                        {"datasetId": dataset, "datasetVersionId": version} for dataset, version in pins.values()]}},
+                    "mapSaved": True, "mapReopened": True, "exactFeaturesReopened": True, "archiveVerified": True,
+                    "apiRequestAttempts": 144, "activeMilliseconds": 52_049}
+        (work / "building-review-progress.json").write_text(json.dumps(accepted, indent=2) + "\n")
+        for name in ("stac-items-progress.json", "stac-items-profile.json", "building-review-browser-result.json",
+                     "receptor-screening-browser-result.json", "raster-catalog-browser-result.json", "raster-validation-browser-result.json"):
+            (work / name).write_text("retained historical receipt\n")
+        (work / "worker-command.json").write_text('["retained-worker-command"]\n')
+        return root, work, helper, accepted
+
+    def test_building_input_preview_cli_is_exclusive_and_requires_retained_development(self):
+        selected = ["--development", "--state-directory", "/tmp/building-input-preview-state",
+                    "--reuse-studio-tree", "a" * 64, "--building-input-preview-smoke"]
+        self.assertTrue(studio.parse_args(selected).building_input_preview_smoke)
+        self.assertEqual(studio.parse_args(selected + ["--building-input-preview-continuation-sha256", "b" * 64])
+                         .building_input_preview_continuation_sha256, "b" * 64)
+        for arguments in (["--building-input-preview-smoke"], selected + ["--stac-items-smoke"],
+                          selected + ["--building-review-smoke"], selected + ["--rebuild-studio"],
+                          selected + ["--analysis-only"], selected + ["--worker-image", "a" * 64],
+                          ["--building-input-preview-continuation-sha256", "b" * 64]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(arguments)
+
+    def test_building_input_preview_copies_exact_seed_and_preserves_prior_tree_and_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, _, accepted = self.building_input_preview_state(directory, tree="b" * 64)
+            old_bytes = (work / "building-review-progress.json").read_bytes()
+            (work / "built-studio/app/dist/index.html").write_text("accepted STAC tree")
+            def stage(work, tree):
+                (work / "built-studio/app/dist").mkdir(parents=True)
+                (work / "studio-build-manifest.json").write_text(json.dumps({"artifactTree": {"digest": tree}}))
+            with patch.object(studio, "ROOT", root), patch.object(studio, "stage_built_studio", side_effect=stage) as staging, \
+                    patch.object(studio.subprocess, "run") as external:
+                result = studio.stage_building_review(work, "b" * 64, building_input_preview=True)
+                staging.assert_called_once_with(work, "b" * 64); external.assert_not_called()
+            self.assertEqual((work / f"building-input-preview-prior-studio-{'a' * 64}/app/dist/index.html").read_text(), "accepted STAC tree")
+            profile = json.loads((work / "building-input-preview-profile.json").read_text())
+            self.assertEqual(profile["schemaVersion"], "opengeo.integrated-building-input-preview.1")
+            self.assertEqual((profile["maximumApiRequests"], profile["maximumMilliseconds"], profile["maximumWorkMilliseconds"]), (80, 120_000, 110_000))
+            self.assertEqual((profile["maximumOriginalUploads"], profile["maximumWorkerBatches"], profile["maximumNativeComputations"]), (0, 0, 0))
+            self.assertEqual((profile["maximumOriginalReadbacks"], profile["maximumOriginalReadbackBytes"]), (6, 20_000))
+            for key in ("projectId", "mapId", "map", "records"):
+                self.assertEqual(result[key], accepted[key]); self.assertEqual(profile[key], accepted[key])
+            self.assertEqual(result["acceptedBuildingReceiptSha256"], pilot.digest(old_bytes))
+            self.assertEqual((work / "building-review-progress.json").read_bytes(), old_bytes)
+            self.assertIn("stac-items-progress.json", result["preservedReceipts"])
+            self.assertIn("worker-command.json", result["preservedReceipts"])
+            self.assertEqual((work / "worker-command.json").read_text(), '["retained-worker-command"]\n')
+
+    def test_building_input_preview_rejects_noncurrent_or_widened_admission_and_wrong_tree(self):
+        for changed in ("tree", "native", "readbacks", "not-last"):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as directory:
+                root, work, _, _ = self.building_input_preview_state(directory)
+                admission = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+                data = json.loads(admission.read_text())
+                if changed == "native": data["batches"][-1]["limits"]["nativeComputations"] = 1
+                if changed == "readbacks": data["batches"][-1]["limits"]["exactOriginalReadbacks"] = 7
+                if changed == "not-last": data["batches"].append({"id": "another-workflow"})
+                admission.write_text(json.dumps(data))
+                with patch.object(studio, "ROOT", root), patch.object(studio, "stage_built_studio") as stage, self.assertRaisesRegex(ValueError, "admitted|admission"):
+                    studio.stage_building_review(work, "b" * 64 if changed == "tree" else "a" * 64, building_input_preview=True)
+                stage.assert_not_called(); self.assertFalse((work / "building-input-preview-progress.json").exists())
+
+    def test_building_input_preview_requires_successful_exact_building_record_and_map_pins(self):
+        for changed in ("status", "version", "record", "map-pin"):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as directory:
+                root, work, _, accepted = self.building_input_preview_state(directory)
+                if changed == "status": accepted["status"] = "failed"
+                if changed == "version": accepted["map"]["version"] = 4
+                if changed == "record": accepted["records"]["source"]["datasetVersionId"] = "changed"
+                if changed == "map-pin": accepted["map"]["definition"]["layers"].pop()
+                (work / "building-review-progress.json").write_text(json.dumps(accepted))
+                with patch.object(studio, "ROOT", root), self.assertRaisesRegex(ValueError, "accepted|identity|pins"):
+                    studio.stage_building_review(work, "a" * 64, building_input_preview=True)
+                self.assertFalse((work / "building-input-preview-progress.json").exists())
+
+    def test_building_input_preview_continuation_preserves_costs_and_seed_and_requires_one_changed_helper(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper, accepted = self.building_input_preview_state(directory)
+            with patch.object(studio, "ROOT", root):
+                first = studio.stage_building_review(work, "a" * 64, building_input_preview=True)
+                with self.assertRaisesRegex(ValueError, "diagnosis"):
+                    studio.stage_building_review(work, "a" * 64, building_input_preview=True)
+                first.update(apiRequestAttempts=34, activeMilliseconds=22_000, exactOriginalReadbacks=2, exactOriginalReadbackBytes=1040,
+                             retainedProof={"source": True})
+                path = work / "building-input-preview-progress.json"; path.write_text(json.dumps(first))
+                helper.write_text("changed helper addressing the diagnosed rendering failure"); pin = pilot.digest(helper.read_bytes())
+                bad = json.loads(path.read_text()); bad["records"]["source"]["retainedHistory"] = {}; path.write_text(json.dumps(bad))
+                with self.assertRaisesRegex(ValueError, "seed changed"):
+                    studio.stage_building_review(work, "a" * 64, pin, building_input_preview=True)
+                path.write_text(json.dumps(first))
+                resumed = studio.stage_building_review(work, "a" * 64, pin, building_input_preview=True)
+                self.assertEqual((resumed["serviceAttempts"], resumed["apiRequestAttempts"], resumed["activeMilliseconds"]), (2, 34, 22_000))
+                self.assertEqual((resumed["exactOriginalReadbacks"], resumed["exactOriginalReadbackBytes"]), (2, 1040))
+                self.assertEqual(resumed["records"], accepted["records"]); self.assertTrue(resumed["retainedProof"]["source"])
+                with self.assertRaisesRegex(ValueError, "budget"):
+                    studio.stage_building_review(work, "a" * 64, pin, building_input_preview=True)
+
+    def test_building_input_preview_rejects_queued_work_writes_and_exhausted_cumulative_limits(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper, _ = self.building_input_preview_state(directory)
+            with patch.object(studio, "ROOT", root):
+                (work / "queue.json").write_text('[{"unrelated":"job"}]')
+                with self.assertRaisesRegex(ValueError, "unrelated queued"):
+                    studio.stage_building_review(work, "a" * 64, building_input_preview=True)
+                (work / "queue.json").write_text("[]")
+                first = studio.stage_building_review(work, "a" * 64, building_input_preview=True)
+                helper.write_text("changed helper diagnosing cumulative closure"); pin = pilot.digest(helper.read_bytes())
+                path = work / "building-input-preview-progress.json"
+                for key, value in (("apiRequestAttempts", 80), ("activeMilliseconds", 110_000),
+                                   ("exactOriginalReadbacks", 6), ("exactOriginalReadbackBytes", 20_000), ("catalogWrites", 1), ("workerBatches", 1)):
+                    bad = {**first, key: value}; path.write_text(json.dumps(bad))
+                    with self.subTest(key=key), self.assertRaisesRegex(ValueError, "budget|writes or jobs"):
+                        studio.stage_building_review(work, "a" * 64, pin, building_input_preview=True)
+                path.write_text(json.dumps(first)); (work / "pmtiles-v2.json").write_text('[{"unrelated":"job"}]')
+                with self.assertRaisesRegex(ValueError, "unrelated queued"):
+                    studio.stage_building_review(work, "a" * 64, pin, building_input_preview=True)
+
+    def test_raster_catalog_requires_one_retained_exclusive_scope(self):
+        selected = ["--development", "--state-directory", "/tmp/raster-catalog-state",
+                    "--reuse-studio-tree", "a" * 64, "--raster-catalog-smoke"]
+        self.assertTrue(studio.parse_args(selected).raster_catalog_smoke)
+        self.assertEqual(studio.parse_args(selected + ["--raster-catalog-continuation-sha256", "b" * 64])
+                         .raster_catalog_continuation_sha256, "b" * 64)
+        for extra in (["--rebuild-studio"], ["--receptor-screening-smoke"], ["--building-review-smoke"],
+                      ["--postgis-fixture"], ["--publication-only"], ["--print-smoke"], ["--analysis-only"],
+                      ["--baseline-study", "/tmp/baseline.json"], ["--analysis-profile", "/tmp/profile.json"],
+                      ["--raster-catalog-continuation-sha256", "unreviewed"]):
+            with self.subTest(extra=extra), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(selected + extra)
+        for arguments in (["--raster-catalog-smoke"], ["--raster-catalog-continuation-sha256", "b" * 64]):
+            with self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(arguments)
+
+    def raster_catalog_state(self, directory):
+        root, work, helper = self.receptor_screening_state(directory)
+        admission = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+        document = json.loads(admission.read_text())
+        document["batches"].append({"id": "BI-04-07-raster-output-catalog", "limits": {
+            "localAccountApiRequestAttempts": 240, "localAccountCumulativeMillisecondsIncludingShutdown": 180_000,
+            "localAccountServiceAttempts": 2, "initialLocalAccountAttempts": 1, "derivedOriginalUploads": 2,
+            "ingestionJobs": 2, "workerBatches": 1, "nativeComputations": 0, "originalArchiveReadbacks": 2,
+            "sourceExports": 0, "automaticRetries": 0, "newSourceTransfers": 0, "AWSAccountCalls": 0,
+            "SecretsDataApiKmsCalls": 0, "GitHubCalls": 0, "Actions": 0, "providerCalls": 0,
+            "metadataWebCalls": 0, "newDependencies": 0, "newInfrastructure": 0, "newAnalysisRuntimes": 0,
+            "localRetainedCogRangeRequests": 8, "localRetainedCogRangeBytes": 6480,
+            "localOriginalArchiveReadbackBytes": 4_400_000, "localOutputDisplayTickets": 4,
+            "localOutputDisplayOriginalReads": 4, "localOutputDisplayBytes": 305_244}})
+        admission.write_text(json.dumps(document))
+        (work / "receptor-screening-progress.json").write_text("retained prior screening receipt")
+        return root, work, helper
+
+    def test_raster_catalog_preserves_source_history_and_cumulative_changed_helper_continuation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper = self.raster_catalog_state(directory)
+            source = {"datasetId": "exact-retained-source", "datasetVersionId": "exact-version", "dataObjectId": "exact-original"}
+            with patch.object(studio, "ROOT", root), patch.object(studio, "retained_raster_catalog_source", return_value=source):
+                first = studio.stage_raster_catalog(work, "a" * 64)
+                profile = json.loads((work / "raster-catalog-profile.json").read_text())
+                self.assertEqual(profile["maximumApiRequests"], 240)
+                self.assertEqual(profile["maximumWorkMilliseconds"], 170_000)
+                self.assertEqual(profile["maximumNativeComputations"], 0)
+                self.assertEqual(profile["maximumWorkerBatches"], 1)
+                self.assertEqual(profile["maximumCogRangeBytes"], 6480)
+                self.assertEqual(profile["source"], source)
+                self.assertIn("receptor-screening-progress.json", first["preservedReceipts"])
+                with self.assertRaisesRegex(ValueError, "diagnosis"):
+                    studio.stage_raster_catalog(work, "a" * 64)
+                first.update(apiRequestAttempts=90, activeMilliseconds=35_000,
+                             records={"comparison": {"datasetId": "derived", "uploadCompleted": True}})
+                (work / "raster-catalog-progress.json").write_text(json.dumps(first))
+                helper.write_text("changed helper addressing diagnosed raster failure")
+                resumed = studio.stage_raster_catalog(work, "a" * 64, pilot.digest(helper.read_bytes()))
+                self.assertEqual(resumed["serviceAttempts"], 2)
+                self.assertEqual(resumed["apiRequestAttempts"], 90)
+                self.assertEqual(resumed["activeMilliseconds"], 35_000)
+                self.assertTrue(resumed["records"]["comparison"]["uploadCompleted"])
+                self.assertEqual((work / "receptor-screening-progress.json").read_text(), "retained prior screening receipt")
+                with self.assertRaisesRegex(ValueError, "exhausted"):
+                    studio.stage_raster_catalog(work, "a" * 64, pilot.digest(helper.read_bytes()))
+
+    def test_raster_catalog_rejects_widened_admission_and_unrelated_continuation_jobs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper = self.raster_catalog_state(directory)
+            with patch.object(studio, "ROOT", root), patch.object(studio, "retained_raster_catalog_source", return_value={"pin": "fixed"}):
+                admission = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+                document = json.loads(admission.read_text())
+                document["batches"][-1]["limits"]["nativeComputations"] = 1
+                admission.write_text(json.dumps(document))
+                with self.assertRaisesRegex(ValueError, "exact finite batch"):
+                    studio.stage_raster_catalog(work, "a" * 64)
+                self.assertFalse((work / "raster-catalog-progress.json").exists())
+                document["batches"][-1]["limits"]["nativeComputations"] = 0
+                admission.write_text(json.dumps(document))
+                first = studio.stage_raster_catalog(work, "a" * 64)
+                first["records"] = {"comparison": {"datasetId": "derived", "uploadCompleted": True}}
+                (work / "raster-catalog-progress.json").write_text(json.dumps(first))
+                helper.write_text("diagnosed changed raster helper")
+                pin = pilot.digest(helper.read_bytes())
+                message = lambda value: {"body": json.dumps({"Records": [{"s3": {"object": {"key": f"organizations/a/datasets/{value}/original"}}}]})}
+                for queue in ([message("unrelated")], [message("derived"), message("derived")]):
+                    (work / "queue.json").write_text(json.dumps(queue))
+                    with self.assertRaisesRegex(ValueError, "unrelated or duplicate"):
+                        studio.stage_raster_catalog(work, "a" * 64, pin)
+                (work / "queue.json").write_text("[]")
+                with patch.object(studio, "retained_raster_catalog_source", return_value={"pin": "changed"}):
+                    with self.assertRaisesRegex(ValueError, "source changed"):
+                        studio.stage_raster_catalog(work, "a" * 64, pin)
+                for update in ({"status": "pass"}, {"apiRequestAttempts": 240}, {"activeMilliseconds": 170_000}):
+                    (work / "raster-catalog-progress.json").write_text(json.dumps({**first, **update}))
+                    with self.assertRaises(ValueError):
+                        studio.stage_raster_catalog(work, "a" * 64, pin)
+
+    def test_raster_catalog_source_requires_exact_owned_original_and_accepted_map_pins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            native = b"retained native fixture"
+            (work / "landcover.tif").write_bytes(native)
+            (work / "baseline-progress.json").write_text(json.dumps({"status": "pass", "records": {"landcover": {}}}))
+            with self.assertRaisesRegex(ValueError, "exact accepted source"):
+                studio.retained_raster_catalog_source(work)
+            (work / "landcover.tif").unlink()
+            (work / "landcover.tif").symlink_to(work / "baseline-progress.json")
+            with self.assertRaisesRegex(ValueError, "owned retained native"):
+                studio.retained_raster_catalog_source(work)
+
+    def test_receptor_screening_requires_one_retained_exclusive_scope(self):
+        selected = ["--development", "--state-directory", "/tmp/receptor-screening-state",
+                    "--reuse-studio-tree", "a" * 64, "--receptor-screening-smoke"]
+        self.assertTrue(studio.parse_args(selected).receptor_screening_smoke)
+        self.assertEqual(studio.parse_args(selected + ["--receptor-screening-continuation-sha256", "b" * 64])
+                         .receptor_screening_continuation_sha256, "b" * 64)
+        for arguments in (["--receptor-screening-smoke"], selected + ["--rebuild-studio"],
+                          selected + ["--building-review-smoke"], selected + ["--postgis-fixture"],
+                          selected + ["--publication-only"], selected + ["--print-smoke"],
+                          selected + ["--baseline-study", "/tmp/baseline.json"],
+                          selected + ["--analysis-profile", "/tmp/profile.json"],
+                          selected + ["--receptor-screening-continuation-sha256", "unreviewed"],
+                          ["--receptor-screening-continuation-sha256", "b" * 64]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(arguments)
+
+    def receptor_screening_state(self, directory):
+        root, work, helper = self.building_review_state(directory)
+        admission = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+        document = json.loads(admission.read_text())
+        document["batches"].append({"id": "BI-05-main-account-receptor-screening", "limits": {
+            "apiRequestAttempts": 180, "cumulativeServiceMillisecondsIncludingShutdown": 180_000,
+            "shutdownReserveMilliseconds": 10_000, "serviceAttempts": 2, "initialServiceAttempts": 1,
+            "originalUploads": 4, "ingestionJobs": 4, "workerBatches": 2, "nativeClips": 2,
+            "nativeCollections": 3, "originalArchiveReadbacks": 1, "syntheticProjects": 1, "syntheticMaps": 1,
+            "AWSAccountCalls": 0, "SecretsDataApiKmsCalls": 0, "GitHubCalls": 0, "Actions": 0,
+            "providerCalls": 0, "metadataWebCalls": 0, "newBuilds": 0, "downloads": 0,
+            "installs": 0, "newDependencies": 0, "newInfrastructure": 0}})
+        admission.write_text(json.dumps(document))
+        for name in ("building-review-progress.json", "building-review-browser-result.json", "building-review-requests.json",
+                     "building-review-saved-project-reopened.png", "browser-result.json", "requests.json", "development-smoke.json"):
+            (work / name).write_text("retained historical receipt")
+        return root, work, helper
+
+    def test_receptor_profile_preserves_history_and_cumulative_changed_helper_continuation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper = self.receptor_screening_state(directory)
+            with patch.object(studio, "ROOT", root):
+                first = studio.stage_receptor_screening(work, "a" * 64)
+                profile = json.loads((work / "receptor-screening-profile.json").read_text())
+                self.assertEqual(profile["schemaVersion"], "opengeo.integrated-receptor-screening.1")
+                self.assertEqual(profile["maximumApiRequests"], 180)
+                self.assertEqual(profile["maximumWorkMilliseconds"], 170_000)
+                self.assertEqual(profile["maximumNativeClips"], 2)
+                self.assertEqual(first["serviceAttempts"], 1)
+                self.assertIn("building-review-saved-project-reopened.png", first["preservedReceipts"])
+                with self.assertRaisesRegex(ValueError, "diagnosis"):
+                    studio.stage_receptor_screening(work, "a" * 64)
+                first.update(apiRequestAttempts=73, activeMilliseconds=24_000, nativePreviews={"footprint": {"retained": True}},
+                             records={"receptors": {"datasetId": "owned-dataset", "uploadCompleted": True}})
+                (work / "receptor-screening-progress.json").write_text(json.dumps(first))
+                helper.write_text("changed helper addressing the diagnosed failure")
+                resumed = studio.stage_receptor_screening(work, "a" * 64, pilot.digest(helper.read_bytes()))
+                self.assertEqual(resumed["serviceAttempts"], 2)
+                self.assertEqual(resumed["apiRequestAttempts"], 73)
+                self.assertEqual(resumed["activeMilliseconds"], 24_000)
+                self.assertEqual(resumed["nativePreviews"], {"footprint": {"retained": True}})
+                self.assertTrue(resumed["records"]["receptors"]["uploadCompleted"])
+                self.assertEqual((work / "building-review-progress.json").read_text(), "retained historical receipt")
+                self.assertEqual((work / "publication-profile.json").read_text(), "retained")
+                with self.assertRaisesRegex(ValueError, "budget"):
+                    studio.stage_receptor_screening(work, "a" * 64, pilot.digest(helper.read_bytes()))
+
+    def test_receptor_continuation_accepts_only_its_owned_nonduplicate_queue(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper = self.receptor_screening_state(directory)
+            with patch.object(studio, "ROOT", root):
+                first = studio.stage_receptor_screening(work, "a" * 64)
+                first["records"] = {"receptors": {"datasetId": "owned-dataset", "uploadCompleted": True}}
+                (work / "receptor-screening-progress.json").write_text(json.dumps(first))
+                helper.write_text("changed queue continuation helper")
+                pin = pilot.digest(helper.read_bytes())
+                message = lambda dataset: {"body": json.dumps({"Records": [{"s3": {"object": {
+                    "key": f"organizations/owner/projects/project/datasets/{dataset}/uploads/original.geojson"}}}]})}
+                for messages in ([message("unrelated")], [message("owned-dataset"), message("owned-dataset")]):
+                    (work / "queue.json").write_text(json.dumps(messages))
+                    with self.assertRaisesRegex(ValueError, "unrelated or duplicate"):
+                        studio.stage_receptor_screening(work, "a" * 64, pin)
+                    self.assertEqual(json.loads((work / "receptor-screening-progress.json").read_text())["serviceAttempts"], 1)
+                owned = [message("owned-dataset")]
+                (work / "queue.json").write_text(json.dumps(owned))
+                resumed = studio.stage_receptor_screening(work, "a" * 64, pin)
+                self.assertEqual(resumed["serviceAttempts"], 2)
+                self.assertEqual(json.loads((work / "queue.json").read_text()), owned)
+
+    def test_receptor_admission_budget_and_success_cannot_be_silently_reset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper = self.receptor_screening_state(directory)
+            with patch.object(studio, "ROOT", root):
+                admission = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+                original = json.loads(admission.read_text())
+                changed = json.loads(admission.read_text());changed["batches"][-1]["limits"]["nativeClips"] = 3
+                admission.write_text(json.dumps(changed))
+                with self.assertRaisesRegex(ValueError, "finite batch admission"):
+                    studio.stage_receptor_screening(work, "a" * 64)
+                self.assertFalse((work / "receptor-screening-progress.json").exists())
+                admission.write_text(json.dumps(original))
+                progress = studio.stage_receptor_screening(work, "a" * 64)
+                helper.write_text("diagnosed changed helper")
+                pin = pilot.digest(helper.read_bytes())
+                for field, value in (("apiRequestAttempts", 180), ("activeMilliseconds", 170_000)):
+                    exhausted = {**progress, field: value}
+                    (work / "receptor-screening-progress.json").write_text(json.dumps(exhausted))
+                    with self.assertRaisesRegex(ValueError, "budget"):
+                        studio.stage_receptor_screening(work, "a" * 64, pin)
+                (work / "receptor-screening-progress.json").write_text(json.dumps({**progress, "status": "pass"}))
+                with self.assertRaisesRegex(ValueError, "already passed"):
+                    studio.stage_receptor_screening(work, "a" * 64, pin)
+
+    def test_receptor_preserves_prior_studio_and_rejects_changed_building_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper = self.receptor_screening_state(directory)
+            old = work / "built-studio/app/dist/index.html";old.write_text("retained prior Studio")
+            with patch.object(studio, "ROOT", root), patch.object(studio, "stage_built_studio") as staged:
+                studio.stage_receptor_screening(work, "b" * 64)
+                staged.assert_called_once_with(work, "b" * 64)
+                self.assertEqual((work / f"receptor-screening-prior-studio-{'a' * 64}/app/dist/index.html").read_text(), "retained prior Studio")
+                self.assertTrue((work / "receptor-screening-prior-studio-manifest.json").is_file())
+                (work / "building-review-progress.json").write_text("changed historical receipt")
+                helper.write_text("changed reviewed helper")
+                with self.assertRaisesRegex(ValueError, "unrelated receipt"):
+                    studio.stage_receptor_screening(work, "b" * 64, pilot.digest(helper.read_bytes()))
+
+    def test_building_review_requires_one_persistent_sealed_scope(self):
+        selected = ["--development", "--state-directory", "/tmp/building-review-state",
+                    "--reuse-studio-tree", "a" * 64, "--building-review-smoke"]
+        self.assertTrue(studio.parse_args(selected).building_review_smoke)
+        for arguments in (["--building-review-smoke"], selected + ["--rebuild-studio"],
+                          selected + ["--postgis-fixture"], selected + ["--publication-only"],
+                          selected + ["--baseline-study", "/tmp/baseline.json"],
+                          selected + ["--analysis-profile", "/tmp/profile.json"],
+                          selected + ["--building-review-continuation-sha256", "unreviewed"]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(arguments)
+
+    def building_review_state(self, directory):
+        root, work = Path(directory) / "repo", Path(directory) / "state"
+        work.mkdir()
+        helper = root / "app/scripts/integrated-studio-analysis.mjs"
+        helper.parent.mkdir(parents=True)
+        helper.write_text("first reviewed helper")
+        admission = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+        admission.parent.mkdir(parents=True)
+        admission.write_text(json.dumps({"batches": [{"id": "BI-02-07-main-account-building-review", "limits": {
+            "apiRequestAttempts": 160, "cumulativeServiceMillisecondsIncludingShutdown": 180_000,
+            "originalUploads": 3, "ingestionJobs": 3,
+            "AWSAccountCalls": 0, "GitHubCalls": 0, "providerCalls": 0, "newBuilds": 0}}]}))
+        for name in ("development-state.json", "identities-seeded", "baseline-progress.json", "publication-profile.json"):
+            (work / name).write_text("retained")
+        (work / "queue.json").write_text("[]")
+        (work / "studio-build-manifest.json").write_text(json.dumps({"artifactTree": {"digest": "a" * 64}}))
+        (work / "built-studio/app/dist").mkdir(parents=True)
+        return root, work, helper
+
+    def test_building_review_preserves_receipts_and_requires_diagnosed_bounded_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper = self.building_review_state(directory)
+            with patch.object(studio, "ROOT", root):
+                first = studio.stage_building_review(work, "a" * 64)
+                self.assertEqual(first["serviceAttempts"], 1)
+                self.assertEqual((work / "publication-profile.json").read_text(), "retained")
+                with self.assertRaisesRegex(ValueError, "diagnosis"):
+                    studio.stage_building_review(work, "a" * 64)
+                helper.write_text("changed helper addressing the diagnosed failure")
+                resumed = studio.stage_building_review(work, "a" * 64, pilot.digest(helper.read_bytes()))
+                self.assertEqual(resumed["serviceAttempts"], 2)
+                with self.assertRaisesRegex(ValueError, "budget"):
+                    studio.stage_building_review(work, "a" * 64, pilot.digest(helper.read_bytes()))
+
+    def test_building_review_rejects_unrelated_queue_and_retains_prior_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, _ = self.building_review_state(directory)
+            with patch.object(studio, "ROOT", root):
+                (work / "queue.json").write_text('[{"unrelated":"committed"}]')
+                with self.assertRaisesRegex(ValueError, "unrelated queued"):
+                    studio.stage_building_review(work, "b" * 64)
+                self.assertFalse((work / "building-review-progress.json").exists())
+                (work / "queue.json").write_text("[]")
+                old_artifact = work / "built-studio/app/dist/index.html"
+                old_artifact.write_text("accepted prior artifact")
+                with patch.object(studio, "stage_built_studio") as stage:
+                    studio.stage_building_review(work, "b" * 64)
+                stage.assert_called_once_with(work, "b" * 64)
+                self.assertEqual((work / f"building-review-prior-studio-{'a' * 64}/app/dist/index.html").read_text(),
+                                 "accepted prior artifact")
+
+    def test_building_cleanup_removes_only_temporary_compute_with_bounded_waits(self):
+        process = Mock()
+        with patch.object(studio.subprocess, "run") as run:
+            studio.cleanup_development_api("owned-api", "owned-worker", process, bounded=True)
+        run.assert_called_once_with(["podman", "rm", "--force", "owned-api", "owned-worker"],
+                                    capture_output=True, check=False, timeout=2)
+        process.wait.assert_called_once_with(timeout=1)
+
+    def test_print_acceptance_only_reopens_exact_retained_development_build(self):
+        pin = "a" * 64
+        selected = ["--development", "--state-directory", "/tmp/private-print-state",
+                    "--reuse-studio-tree", pin, "--print-smoke"]
+        self.assertTrue(studio.parse_args(selected).print_smoke)
+        self.assertEqual(studio.parse_args(selected + ["--print-smoke-continuation-sha256", pin])
+                         .print_smoke_continuation_sha256, pin)
+        for arguments in (["--print-smoke"], selected + ["--rebuild-studio"],
+                          selected + ["--postgis-fixture"], selected + ["--publication-only"],
+                          selected + ["--analysis-profile", "/tmp/profile.json"]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(arguments)
+        for arguments in (["--print-smoke-continuation-sha256", pin],
+                          selected + ["--print-smoke-continuation-sha256", "unreviewed"]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(arguments)
+
+    def profile(self):
+        return {"imageDigest": "sha256:" + "a" * 64, "architecture": "arm64",
+                "baseImage": pilot.PMTILES_BASE, "queueUrl": pilot.PMTILES_QUEUE_URL,
+                "expectedOwner": "000000000000"}
+
+    def test_dedicated_pmtiles_is_an_explicit_fresh_built_studio_option(self):
+        pin = "a" * 64
+        self.assertIsNone(studio.parse_args([]).pmtiles_worker_image)
+        self.assertEqual(studio.parse_args(["--built-studio", "--pmtiles-worker-image", pin]).pmtiles_worker_image, pin)
+        for arguments in (["--pmtiles-worker-image", pin],
+                ["--built-studio", "--pmtiles-worker-image", "worker:latest"],
+                ["--built-studio", "--restore-checkpoint", "--pmtiles-worker-image", pin],
+                ["--development", "--state-directory", "/tmp/local-state", "--pmtiles-worker-image", pin]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", new=io.StringIO()):
+                studio.parse_args(arguments)
+
+    def test_dedicated_image_inspection_preserves_exact_small_base_and_architecture(self):
+        labels = {"org.opencontainers.image.title": "GDAL osgeo/gdal:ubuntu-small",
+                  "org.opencontainers.image.version": "3.13.1", "org.opencontainers.image.revision": "v3.13.1",
+                  "org.opencontainers.image.source": "https://github.com/OSGeo/gdal"}
+        image = {"Id": self.profile()["imageDigest"], "Architecture": "arm64", "Labels": labels}
+        with patch.object(studio.subprocess, "run", return_value=Mock(stdout=json.dumps([image]).encode())) as run:
+            self.assertEqual(studio.inspect_pmtiles_worker_image("a" * 64), self.profile())
+            run.assert_called_once_with(["podman", "image", "inspect", self.profile()["imageDigest"]],
+                                        capture_output=True, check=True, timeout=15)
+        for changed in ({**image, "Id": "b" * 64}, {**image, "Architecture": "unknown"},
+                {**image, "Labels": {**labels, "org.opencontainers.image.title": "GDAL osgeo/gdal:ubuntu-full"}}):
+            with self.subTest(image=changed), patch.object(studio.subprocess, "run", return_value=Mock(stdout=json.dumps([changed]).encode())), self.assertRaises(ValueError):
+                studio.inspect_pmtiles_worker_image("a" * 64)
+
+    def test_local_binding_is_exact_and_cannot_replace_a_retained_control_ledger(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)):
+            work = Path(temporary)
+            init = work / "init"
+            init.mkdir()
+            studio.stage_pmtiles_runtime(work, init, self.profile())
+            self.assertEqual(pilot.local_pmtiles_profile(), self.profile())
+            self.assertEqual(stat.S_IMODE((work / "pmtiles-runtime.json").stat().st_mode), 0o640)
+            sql = (init / "zzz-local-pmtiles-runtime.sql").read_text()
+            self.assertIn("configuration='{\"enabled\":false}'::jsonb AND revision=0", sql)
+            self.assertIn("AND starts_today=0 AND total_windows=0 AND reserved_seconds=0", sql)
+            self.assertIn("RAISE EXCEPTION 'Local PMTiles requires pristine runtime control'", sql)
+            self.assertNotIn("SET starts_today", sql)
+            with self.assertRaisesRegex(ValueError, "once"):
+                studio.stage_pmtiles_runtime(work, init, self.profile())
+            for invalid in (None, {**self.profile(), "imageDigest": None},
+                    {**self.profile(), "queueUrl": "https://other.invalid"}, {**self.profile(), "extra": True}):
+                (work / "pmtiles-runtime.json").write_text(json.dumps(invalid))
+                with self.subTest(profile=invalid), self.assertRaises(ValueError):
+                    pilot.local_pmtiles_profile()
+
+    def test_pmtiles_dispatch_is_separate_from_shared_render_and_legacy_work(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)):
+            legacy = pilot.LocalDispatcher("legacy", "job_id")
+            pmtiles = pilot.LocalDispatcher("opengeo.pmtiles-derivative.command.v1", "pmtiles_derivative_job_id",
+                                            queue=pilot.PMTILES_QUEUE, recipe="gdal-pmtiles-v2")
+            render = pilot.LocalDispatcher("opengeo.render.command.v1", "render_job_id")
+            self.assertTrue(legacy.supports_recipe("gdal-pmtiles-v1"))
+            self.assertFalse(legacy.supports_recipe("gdal-pmtiles-v2"))
+            self.assertTrue(pmtiles.supports_recipe("gdal-pmtiles-v2"))
+            self.assertFalse(pmtiles.supports_recipe("gdal-pmtiles-v1"))
+            asyncio.run(pmtiles.dispatch_pmtiles_derivative("dedicated"))
+            asyncio.run(render.dispatch_render("png"))
+            self.assertEqual(json.loads(pilot.read_json("pmtiles-v2.json")[0]["body"])["pmtiles_derivative_job_id"], "dedicated")
+            self.assertEqual(json.loads(pilot.read_json("queue.json")[0]["body"])["render_job_id"], "png")
+
+    def test_dedicated_worker_keeps_nonroot_private_scratch_without_affecting_shared_command(self):
+        shared = studio.container_command("database", "/tmp/work", "shared", "a" * 64,
+                                          "python3", "scripts/run-integrated-pilot-local.py", "--stage", "worker")
+        dedicated = studio.container_command("database", "/tmp/work", "pmtiles", "b" * 64,
+                                             "python3", "scripts/run-integrated-pilot-local.py",
+                                             "--stage", "worker-pmtiles", pmtiles_worker=True)
+        self.assertIn("--user=0", shared)
+        self.assertNotIn("--mount", shared)
+        self.assertIn("--user=10001:10001", dedicated)
+        self.assertIn("type=tmpfs,target=/tmp/opengeo-worker,tmpfs-size=1073741824,tmpfs-mode=0700,U=true,noexec,nosuid,nodev", dedicated)
+        for option in ("--read-only", "--pull=never", "--cap-drop=all", "--security-opt=no-new-privileges"):
+            self.assertIn(option, shared)
+            self.assertIn(option, dedicated)
+
+    def test_worker_stage_uses_dedicated_v2_and_keeps_shared_v1_settings(self):
+        seen = []
+
+        class Settings:
+            def __init__(self, *args, **kwargs):
+                self.arguments = args
+                self.__dict__.update(kwargs)
+
+        class Repository:
+            def __init__(self, settings, *, pmtiles_profile):
+                self.profile = pmtiles_profile
+
+        class Shared:
+            def __init__(self, settings, queue, repository, storage):
+                self.queue = queue
+                seen.append((type(self), settings, queue.name, repository.profile))
+
+            def process_once(self):
+                self.queue.delete(pilot.read_json(f"{self.queue.name}.json")[0]["id"])
+
+        class Dedicated(Shared):
+            pass
+
+        modules = {"opengeo_worker.config": SimpleNamespace(Settings=Settings),
+                   "opengeo_worker.processor": SimpleNamespace(WorkerProcessor=Shared),
+                   "opengeo_worker.repository": SimpleNamespace(WorkerRepository=Repository),
+                   "opengeo_worker.pmtiles_main": SimpleNamespace(PmtilesWorkerProcessor=Dedicated)}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)), patch.dict(sys.modules, modules):
+            pilot.save_json("pmtiles-runtime.json", self.profile())
+            pilot.LocalQueue(pilot.PMTILES_QUEUE).push({"pmtiles": True})
+            pilot.LocalQueue().push({"png": True})
+            with patch("sys.stdout", new=io.StringIO()):
+                pilot.worker(pmtiles=True)
+                self.assertEqual(len(pilot.read_json("queue.json")), 1)
+                pilot.worker()
+        self.assertEqual([(entry[0], entry[2], entry[3]) for entry in seen],
+                         [(Dedicated, "pmtiles-v2", "v2"), (Shared, "queue", "v1")])
+        self.assertEqual(seen[0][1].pmtiles_worker_image_digest, self.profile()["imageDigest"])
+        self.assertEqual(seen[0][1].geodata_expected_owner, "000000000000")
+        self.assertIsNone(seen[1][1].pmtiles_worker_image_digest)
+
+    def test_local_settings_keep_intake_and_png_shared_with_exact_separate_pmtiles_binding(self):
+        class Settings:
+            def __init__(self, **values):
+                self.processing_queue_url = None
+                self.__dict__.update(values)
+
+        modules = {"opengeo_api.app": SimpleNamespace(create_app=lambda **values: values),
+                   "opengeo_api.auth_models": SimpleNamespace(VerifiedAccessToken=Mock()),
+                   "opengeo_api.config": SimpleNamespace(Settings=Settings),
+                   "pydantic": SimpleNamespace(SecretStr=lambda value: value)}
+        with tempfile.TemporaryDirectory() as temporary, patch.object(pilot, "WORK", Path(temporary)), patch.dict(sys.modules, modules):
+            default = pilot.local_app()
+            self.assertEqual(default["settings"].worker_processing_mode, "shared")
+            self.assertFalse(default["settings"].pmtiles_derivative_dispatch_configured)
+            pilot.save_json("pmtiles-runtime.json", self.profile())
+            configured = pilot.local_app()
+            settings = configured["settings"]
+            dispatcher = configured["pmtiles_derivative_dispatcher"]
+            render = configured["render_dispatcher"]
+            self.assertEqual(settings.worker_processing_mode, "shared")
+            self.assertTrue(settings.pmtiles_derivative_dispatch_configured)
+            self.assertEqual(render.queue, "queue")
+            self.assertNotEqual(render.queue, dispatcher.queue)
+            for target, field, changed in (
+                    (settings, "worker_processing_mode", "pmtiles-v2"),
+                    (settings, "pmtiles_worker_image_digest", "sha256:" + "b" * 64),
+                    (settings, "pmtiles_derivative_queue_url", "https://other.invalid"),
+                    (settings, "processing_queue_url", self.profile()["queueUrl"]),
+                    (settings, "aws_region", "us-west-2"),
+                    (dispatcher, "available", False), (dispatcher, "recipe", "gdal-pmtiles-v1"),
+                    (dispatcher, "queue", "queue"), (dispatcher, "schema", "other"),
+                    (dispatcher, "field", "other"), (render, "queue", pilot.PMTILES_QUEUE)):
+                original = getattr(target, field)
+                setattr(target, field, changed)
+                with self.subTest(field=field, changed=changed):
+                    self.assertFalse(settings.pmtiles_derivative_dispatch_configured)
+                setattr(target, field, original)
+            self.assertFalse(pilot.local_app(pmtiles_derivative_dispatcher=None)["settings"].pmtiles_derivative_dispatch_configured)
 
 
 class InitializationTests(unittest.TestCase):
@@ -197,6 +820,40 @@ class InitializationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "review an upgrade"):
                     studio.development_state(work, "image")
                 self.assertEqual((reopened / "objects.json").read_text(), '{"preserved":true}')
+
+    def test_postgis_fixture_is_only_explicit_built_development_configuration(self):
+        base = ["--development", "--state-directory", "/tmp/community"]
+        self.assertFalse(studio.parse_args(base).postgis_fixture)
+        configured = studio.parse_args([*base, "--postgis-fixture", "--reuse-studio-tree", "a" * 64])
+        self.assertTrue(configured.postgis_fixture)
+        self.assertTrue(configured.built_studio)
+        for argv in (["--postgis-fixture"], ["--built-studio", "--postgis-fixture"],
+                     [*base, "--postgis-fixture", "--analysis-profile", "/tmp/profile.json"],
+                     [*base, "--postgis-fixture", "--publication-compiler-digest", "sha256:" + "a" * 64],
+                     [*base, "--postgis-fixture", "--publication-only", "--publication-compiler-digest", "sha256:" + "a" * 64]):
+            with self.subTest(argv=argv), self.assertRaises(SystemExit), patch("sys.stderr", new=io.StringIO()):
+                studio.parse_args(argv)
+
+    def test_postgis_fixture_requires_owned_state_and_omitted_opt_in_removes_activation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            work = Path(temporary)
+            with self.assertRaisesRegex(ValueError, "development state marker"):
+                studio.stage_postgis_fixture(work, True)
+            marker = work / "development-state.json"
+            marker.write_text(json.dumps({"schemaVersion": "opengeo.community-development.1",
+                                          "database": "opengeo-community-" + "a" * 32}))
+            (work / "objects.json").write_text('{"preserved":true}')
+            studio.stage_postgis_fixture(work, True)
+            profile = work / "postgis-fixture.json"
+            self.assertEqual(json.loads(profile.read_text()), {"schemaVersion": "opengeo.local-postgis-fixture.1"})
+            self.assertEqual(profile.stat().st_mode & 0o777, 0o600)
+            studio.stage_postgis_fixture(work)
+            self.assertFalse(profile.exists())
+            self.assertEqual((work / "objects.json").read_text(), '{"preserved":true}')
+            profile.symlink_to(marker)
+            with self.assertRaisesRegex(ValueError, "symlink"):
+                studio.stage_postgis_fixture(work, True)
+            self.assertTrue(marker.is_file())
 
     def test_development_rejects_shared_or_symlink_state(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -853,6 +1510,33 @@ class RuntimeSourceBindingTests(unittest.TestCase):
 
 
 class CleanupTests(unittest.TestCase):
+    def test_postgis_api_stops_gracefully_before_removal_even_when_stop_times_out(self):
+        process = Mock()
+        for postgis, timeout in [(False, False), (True, False), (True, True)]:
+            events = []
+
+            def stop(command, **options):
+                events.append(("stop", command, options))
+                if timeout:
+                    raise subprocess.TimeoutExpired(command, options["timeout"])
+
+            with (
+                self.subTest(postgis=postgis, timeout=timeout),
+                patch.object(studio.subprocess, "run", side_effect=stop),
+                patch.object(studio.pilot, "cleanup_resources", side_effect=lambda *args: events.append(("remove", args))),
+            ):
+                if timeout:
+                    with self.assertRaises(subprocess.TimeoutExpired):
+                        studio.cleanup_development_api("owned-api", "owned-worker", process, postgis_fixture=postgis)
+                else:
+                    studio.cleanup_development_api("owned-api", "owned-worker", process, postgis_fixture=postgis)
+            self.assertEqual(events[-1], ("remove", (["owned-api", "owned-worker"], [], process)))
+            if postgis:
+                self.assertEqual(events[0], ("stop", ["podman", "stop", "--time=5", "owned-api"],
+                                            {"capture_output": True, "check": False, "timeout": 10}))
+            else:
+                self.assertEqual(len(events), 1)
+
     def test_all_owned_resources_are_checked_after_an_earlier_failure(self):
         process = Mock()
         with (

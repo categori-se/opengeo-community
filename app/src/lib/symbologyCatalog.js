@@ -4,6 +4,7 @@ import {cartographicPatterns, patternSvg, normalizePattern} from './cartographic
 import {landCoverPresets} from './landCoverStyle.js';
 import {STYLE_PALETTES} from './workbenchConfig.js';
 import {MASSGIS_SYMBOLOGY} from './massgisSymbology.js';
+import {normalizeContinuousScale} from './continuousStyle.js';
 
 const ownSource = Object.freeze({title:'OpenGeo',version:'1',url:'https://github.com/categori-se/opengeo-community',license:'Original OpenGeo cartography'});
 const titleCase = value => value.replace(/[-_]/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
@@ -105,6 +106,12 @@ export function symbologyPreview(entry) {
   }
   let svg;
   if (entry.recipe.kind==='pattern') svg=patternSvg(entry.recipe.pattern,true);
+  else if(entry.recipe.continuousScale){
+    const scale=normalizeContinuousScale(entry.recipe.continuousScale),first=scale.stops[0].value,last=scale.stops.at(-1).value;
+    const stops=scale.stops.map(stop=>`<stop offset="${(stop.value-first)/(last-first)}" stop-color="${stop.color}"/>`).join('');
+    const ticks=scale.stops.map(stop=>{const x=14+152*(stop.value-first)/(last-first);return `<path d="M${x} 58v4" stroke="#17212b"/>`;}).join('');
+    svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 86"><title>${xml(entry.title)} · ${xml(scale.field)} continuous scale</title><defs><linearGradient id="scale" color-interpolation="sRGB">${stops}</linearGradient></defs><rect x="14" y="14" width="152" height="44" fill="url(#scale)"/>${ticks}<text x="14" y="75" font-size="10">${first}</text><text x="166" y="75" text-anchor="end" font-size="10">${last}</text></svg>`;
+  }
   else {
     const colors=entry.recipe.colors??['#2563eb'];
     const cells=colors.map((fill,i)=>entry.recipe.geometry==='line'

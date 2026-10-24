@@ -5,11 +5,25 @@ import {loadLiveFeaturePage} from "./liveFeatureSource.js";
 import {captureExternalDatabaseScope} from "./externalDatabaseCatalog.js";
 import {postgisBounds} from "./postgisLayers.js";
 import {loadArchivedGeojson} from "./archivedGeojson.js";
+import {loadManagedVectorData} from "./managedVectorRead.js";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const VECTOR_GEOMETRIES = new Set(["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"]);
+const vectorFamily = value => String(value ?? "").replace(/^3D /, "").replace(/ ?Z$/, "");
+
+export function canPreviewCatalogManagedVector(dataset, adapter) {
+  return dataset.status === "active" && dataset.capabilities?.read === true && dataset.sourceType === "upload"
+    && dataset.format === "geojson" && dataset.currentVersionState === "active"
+    && UUID.test(dataset.id) && UUID.test(dataset.projectId) && UUID.test(dataset.currentVersionId)
+    && VECTOR_GEOMETRIES.has(vectorFamily(dataset.geometryType))
+    && ["getDataset", "listDatasetVersions", "requestDatasetDownload", "tokenProvider", "organizationProvider", "assertCollectionContext"]
+      .every(method => typeof adapter?.[method] === "function");
+}
 
 // Session-memory only. Nothing is requested until the reader opens a preview.
 export function createCatalogPreviewLoader({adapter, fetchImplementation = globalThis.fetch}) {
   const maps = new Map(), sources = new Map(), connections = new Map();
-  let privateScope = null;
+  let privateScope = null, managedScope = null;
   const lifetime = new AbortController();
   async function retained(cache, key, operation) {
     lifetime.signal.throwIfAborted();
@@ -22,19 +36,22 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
     lifetime.signal.throwIfAborted();
     return result;
   }
-  async function bounded(milliseconds, operation) {
+  async function bounded(milliseconds, operation, requestSignal = null) {
     lifetime.signal.throwIfAborted();
     const controller = new AbortController(), timer = setTimeout(() => controller.abort(), milliseconds);
-    const signal = AbortSignal.any([lifetime.signal, controller.signal]);
+    const signal = AbortSignal.any([lifetime.signal, controller.signal, ...(requestSignal ? [requestSignal] : [])]);
     try {
       const result = await operation(signal);
       signal.throwIfAborted();
       return result;
     } finally {clearTimeout(timer);}
   }
-  const loadRecord = async record => {
+  const loadRecord = async (record, requestSignal) => {
     lifetime.signal.throwIfAborted();
     if (!record.mapId) {
+      if (record.resourcePreview && record.sourceType === "upload") {
+        return managedPreview(record, record.datasetVersionId, record.geometryType, null, requestSignal);
+      }
       if ((!record.service && !record.resourcePreview) || typeof adapter.getSource !== "function") throw new Error("No registered live preview is available. Open metadata and access.");
       const expectedVersion = record.service?.sourceVersion ?? record.sourceVersion;
       const isPrivate = record.sourceType === "postgis";
@@ -94,6 +111,9 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
     const layer = map.definition?.layers?.find(layer => layer.layerId === record.layerId
       && layer.datasetId === record.datasetId);
     if (!layer) throw new Error("This layer is no longer in the saved map. Reload the catalog.");
+    if (layer.sourceType === "governed-dataset") {
+      return managedPreview(record, layer.datasetVersionId, layer.geometryType, layer.attribution, requestSignal);
+    }
     if (layer.sourceType === "xyz-raster") return {kind: "xyz", endpoint: layer.sourceUrl, metadata: {},
       attribution: layer.sourceConfiguration.attribution, layer: structuredClone(layer)};
     if (layer.sourceType === "cog-raster") return {kind: "cog", endpoint: layer.sourceUrl, metadata: {},
@@ -105,17 +125,57 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
       .filter(field => typeof field === "string" && /^[a-zA-Z_][a-zA-Z_0-9]*$/.test(field)))].sort();
     return {...await preview(endpoint, fields, layer.sourceConfiguration?.attribution || layer.attribution, layer.sourceConfiguration), layer: structuredClone(layer)};
   };
-  const load = async record => {
-    const result = await loadRecord(record);
+  const load = async (record, {signal} = {}) => {
+    signal?.throwIfAborted();
+    const result = await loadRecord(record, signal);
     lifetime.signal.throwIfAborted();
+    signal?.throwIfAborted();
     return result;
   };
   load.dispose = () => {
     lifetime.abort();
     maps.clear(); sources.clear(); connections.clear();
-    privateScope = null;
+    privateScope = null; managedScope = null;
   };
   return load;
+
+  async function managedPreview(record, versionId, geometryType, attribution, requestSignal) {
+    if (!UUID.test(record.projectId) || !UUID.test(record.datasetId) || !UUID.test(versionId)
+      || !VECTOR_GEOMETRIES.has(vectorFamily(geometryType))) {
+      throw Error("The selected Layer needs an exact vector dataset version. Reload its Catalog record.");
+    }
+    managedScope ??= await captureExternalDatabaseScope(adapter);
+    const assertScope = async () => {
+      lifetime.signal.throwIfAborted(); requestSignal?.throwIfAborted();
+      await adapter.assertCollectionContext(managedScope);
+      lifetime.signal.throwIfAborted(); requestSignal?.throwIfAborted();
+    };
+    await assertScope();
+    const dataset = await adapter.getDataset(record.projectId, record.datasetId);
+    await assertScope();
+    if (dataset.id !== record.datasetId || dataset.projectId !== record.projectId || dataset.status !== "active"
+      || dataset.capabilities?.read !== true || dataset.sourceType !== "upload" || dataset.format !== "geojson"
+      || vectorFamily(dataset.geometryType) !== vectorFamily(geometryType)
+      || !record.mapId && (dataset.currentVersionId !== versionId || dataset.currentVersionState !== "active")) {
+      throw Error("The selected Layer changed or is unavailable. Reload its Catalog record.");
+    }
+    const result = await bounded(90_000, signal => loadManagedVectorData({
+      adapter: {
+        listDatasetVersions: (...args) => adapter.listDatasetVersions(...args),
+        requestDatasetDownload: (...args) => adapter.requestDatasetDownload(...args),
+        getDatasetSpatialPreview: async () => {throw Error("The exact original GeoJSON is unavailable for this Layer map.");}
+      }, projectId: record.projectId, datasetId: record.datasetId, versionId, geometryType,
+      assertScope, authorize: assertScope, fetchImpl: fetchImplementation, signal
+    }), requestSignal);
+    await assertScope();
+    if (result.datasetVersionId !== versionId || result.schemaVersion !== "opengeo.managed-vector-data.1") {
+      throw Error("The selected Layer's exact original could not be verified.");
+    }
+    return {kind: "features", geojson: result.geojson, metadata: {}, complete: true,
+      managedArchive: {datasetId: record.datasetId, datasetVersionId: versionId},
+      attribution: attribution || "Source credit not recorded",
+      geometryNote: "Complete original GeoJSON verified for the selected dataset version. Original attributes and geometry are retained."};
+  }
 
   async function previewWfs(endpoint, configuration, bounds = [-180, -90, 180, 90]) {
     const geojson = await retained(sources, JSON.stringify(["wfs", endpoint, configuration, bounds]), () =>

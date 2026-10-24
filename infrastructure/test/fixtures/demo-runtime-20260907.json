@@ -1,0 +1,1226 @@
+{
+  "schemaVersion": "opengeo.historical-demo-runtime-fixture.1",
+  "sourceCommit": "923ed61a7140a1cfbb5c4c70ad13d9a06a68fdd6",
+  "contract": "infrastructure/bootstrap/opengeo-demo-runtime-release-contract.json",
+  "awsCdkVersion": "2.265.0",
+  "origin": "One offline cached synthesis of the recorded September 7 source; original contract hashes matched without changes.",
+  "normalizedTemplateSha256": {
+    "Worker": "e3501f5f7ca205265d3bffd914f3af95cd47f0c8d726b8051ceeaf7283a45c4f",
+    "PrivateRuntimeEndpoints": "3d6f3649a660072b5b575d54c99bb27c6afc3381113b711678fc6e0a0d13ca3e"
+  },
+  "templates": {
+    "Worker": {
+      "Resources": {
+        "TaskSecurityGroup2D2EA438": {
+          "Type": "AWS::EC2::SecurityGroup",
+          "Properties": {
+            "GroupDescription": "OpenGeo GIS workers; no public or general internet egress",
+            "SecurityGroupEgress": [
+              {
+                "CidrIp": "0.0.0.0/0",
+                "Description": "HTTPS follows isolated-subnet routes; only the S3 gateway endpoint is routable",
+                "FromPort": 443,
+                "IpProtocol": "tcp",
+                "ToPort": 443
+              },
+              {
+                "Description": "GIS workers to PostgreSQL",
+                "DestinationSecurityGroupId": {
+                  "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttDatabaseSecurityGroup5C91FDCBGroupId8DCC9244"
+                },
+                "FromPort": 5432,
+                "IpProtocol": "tcp",
+                "ToPort": 5432
+              }
+            ],
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-processing-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        },
+        "TaskSecurityGrouptoOpenGeodemoPrivateRuntimeEndpointsWorkerEndpointSecurityGroup4FE13AC6443891AA79F": {
+          "Type": "AWS::EC2::SecurityGroupEgress",
+          "Properties": {
+            "Description": "GIS workers to shared private AWS APIs",
+            "DestinationSecurityGroupId": {
+              "Fn::ImportValue": "OpenGeo-demo-PrivateRuntimeEndpoints:ExportsOutputFnGetAttWorkerEndpointSecurityGroup28608118GroupIdCD369E0B"
+            },
+            "FromPort": 443,
+            "GroupId": {
+              "Fn::GetAtt": [
+                "TaskSecurityGroup2D2EA438",
+                "GroupId"
+              ]
+            },
+            "IpProtocol": "tcp",
+            "ToPort": 443
+          }
+        },
+        "WorkerEndpointIngress": {
+          "Type": "AWS::EC2::SecurityGroupIngress",
+          "Properties": {
+            "Description": "GIS workers to shared private AWS APIs",
+            "FromPort": 443,
+            "GroupId": {
+              "Fn::ImportValue": "OpenGeo-demo-PrivateRuntimeEndpoints:ExportsOutputFnGetAttWorkerEndpointSecurityGroup28608118GroupIdCD369E0B"
+            },
+            "IpProtocol": "tcp",
+            "SourceSecurityGroupId": {
+              "Fn::GetAtt": [
+                "TaskSecurityGroup2D2EA438",
+                "GroupId"
+              ]
+            },
+            "ToPort": 443
+          }
+        },
+        "WorkerDatabaseIngress": {
+          "Type": "AWS::EC2::SecurityGroupIngress",
+          "Properties": {
+            "Description": "OpenGeo GIS workers to PostgreSQL",
+            "FromPort": 5432,
+            "GroupId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttDatabaseSecurityGroup5C91FDCBGroupId8DCC9244"
+            },
+            "IpProtocol": "tcp",
+            "SourceSecurityGroupId": {
+              "Fn::GetAtt": [
+                "TaskSecurityGroup2D2EA438",
+                "GroupId"
+              ]
+            },
+            "ToPort": 5432
+          }
+        },
+        "TaskDefinitionTaskRoleFD40A61D": {
+          "Type": "AWS::IAM::Role",
+          "Properties": {
+            "AssumeRolePolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "sts:AssumeRole",
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "ecs-tasks.amazonaws.com"
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-processing-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ]
+          }
+        },
+        "TaskDefinitionTaskRoleDefaultPolicy282E8624": {
+          "Type": "AWS::IAM::Policy",
+          "Properties": {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "sqs:ReceiveMessage",
+                    "sqs:DeleteMessage",
+                    "sqs:ChangeMessageVisibility",
+                    "sqs:GetQueueAttributes"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttProcessingQueue6DC600C3ArnEF236E7B"
+                  }
+                },
+                {
+                  "Action": "s3:GetObjectVersion",
+                  "Effect": "Allow",
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttGeodataBucket72B89CFCArn23678CF3"
+                          },
+                          "/organizations/*/projects/*/datasets/*/uploads/*/original/*"
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttGeodataBucket72B89CFCArn23678CF3"
+                          },
+                          "/organizations/*/projects/*/datasets/*/versions/*/derivatives/*"
+                        ]
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "Action": "s3:PutObject",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttGeodataBucket72B89CFCArn23678CF3"
+                        },
+                        "/organizations/*/projects/*/datasets/*/versions/*/derivatives/*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Action": "s3:DeleteObjectVersion",
+                  "Effect": "Allow",
+                  "Resource": [
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttGeodataBucket72B89CFCArn23678CF3"
+                          },
+                          "/organizations/*/projects/*/datasets/*/versions/*/derivatives/coverages/*.tif"
+                        ]
+                      ]
+                    },
+                    {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttGeodataBucket72B89CFCArn23678CF3"
+                          },
+                          "/organizations/*/projects/*/datasets/*/versions/*/derivatives/renders/*"
+                        ]
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "Action": [
+                    "kms:Decrypt",
+                    "kms:GenerateDataKey"
+                  ],
+                  "Condition": {
+                    "StringEquals": {
+                      "kms:ViaService": "s3.us-east-1.amazonaws.com",
+                      "kms:EncryptionContext:aws:s3:arn": {
+                        "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttGeodataBucket72B89CFCArn23678CF3"
+                      }
+                    }
+                  },
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttDataKey17AFBB84ArnCE2A1BC6"
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "TaskDefinitionTaskRoleDefaultPolicy282E8624",
+            "Roles": [
+              {
+                "Ref": "TaskDefinitionTaskRoleFD40A61D"
+              }
+            ]
+          }
+        },
+        "TaskDefinitionB36D86D9": {
+          "Type": "AWS::ECS::TaskDefinition",
+          "Properties": {
+            "ContainerDefinitions": [
+              {
+                "Environment": [
+                  {
+                    "Name": "OPEN_GEO_AWS_REGION",
+                    "Value": "us-east-1"
+                  },
+                  {
+                    "Name": "OPEN_GEO_GEODATA_BUCKET",
+                    "Value": {
+                      "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefGeodataBucket72B89CFC37693465"
+                    }
+                  },
+                  {
+                    "Name": "OPEN_GEO_GEODATA_KMS_KEY_ARN",
+                    "Value": {
+                      "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttDataKey17AFBB84ArnCE2A1BC6"
+                    }
+                  },
+                  {
+                    "Name": "OPEN_GEO_PROCESSING_QUEUE_URL",
+                    "Value": {
+                      "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefProcessingQueue6DC600C3BF6B2149"
+                    }
+                  },
+                  {
+                    "Name": "OPEN_GEO_DB_SSLROOTCERT",
+                    "Value": "/etc/ssl/certs/aws-rds-global-bundle.pem"
+                  },
+                  {
+                    "Name": "OPEN_GEO_MAX_ATTEMPTS",
+                    "Value": "3"
+                  },
+                  {
+                    "Name": "OPEN_GEO_WORKSPACE_ROOT",
+                    "Value": "/tmp/opengeo-worker"
+                  }
+                ],
+                "Essential": true,
+                "Image": "OPEN_GEO_REVIEWED_WORKER_IMAGE",
+                "LinuxParameters": {
+                  "Capabilities": {
+                    "Drop": [
+                      "ALL"
+                    ]
+                  },
+                  "InitProcessEnabled": true
+                },
+                "LogConfiguration": {
+                  "LogDriver": "awslogs",
+                  "Options": {
+                    "awslogs-group": {
+                      "Fn::Select": [
+                        6,
+                        {
+                          "Fn::Split": [
+                            ":",
+                            {
+                              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttWorkerLogGroup31FDBE4AArnA516DF84"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    "awslogs-stream-prefix": "worker",
+                    "awslogs-region": {
+                      "Fn::Select": [
+                        3,
+                        {
+                          "Fn::Split": [
+                            ":",
+                            {
+                              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttWorkerLogGroup31FDBE4AArnA516DF84"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                },
+                "MountPoints": [
+                  {
+                    "ContainerPath": "/tmp/opengeo-worker",
+                    "ReadOnly": false,
+                    "SourceVolume": "Workspace"
+                  }
+                ],
+                "Name": "opengeo-gis-worker",
+                "ReadonlyRootFilesystem": true,
+                "Secrets": [
+                  {
+                    "Name": "OPEN_GEO_DB_HOST",
+                    "ValueFrom": {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefWorkerDatabaseSecret1F03418DF75D87A7"
+                          },
+                          ":host::"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "Name": "OPEN_GEO_DB_PORT",
+                    "ValueFrom": {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefWorkerDatabaseSecret1F03418DF75D87A7"
+                          },
+                          ":port::"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "Name": "OPEN_GEO_DB_NAME",
+                    "ValueFrom": {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefWorkerDatabaseSecret1F03418DF75D87A7"
+                          },
+                          ":dbname::"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "Name": "OPEN_GEO_DB_USER",
+                    "ValueFrom": {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefWorkerDatabaseSecret1F03418DF75D87A7"
+                          },
+                          ":username::"
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "Name": "OPEN_GEO_DB_PASSWORD",
+                    "ValueFrom": {
+                      "Fn::Join": [
+                        "",
+                        [
+                          {
+                            "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefWorkerDatabaseSecret1F03418DF75D87A7"
+                          },
+                          ":password::"
+                        ]
+                      ]
+                    }
+                  }
+                ],
+                "StopTimeout": 120,
+                "User": "10001:10001"
+              }
+            ],
+            "Cpu": "2048",
+            "EphemeralStorage": {
+              "SizeInGiB": 50
+            },
+            "ExecutionRoleArn": {
+              "Fn::GetAtt": [
+                "TaskDefinitionExecutionRole8D61C2FB",
+                "Arn"
+              ]
+            },
+            "Family": "OpenGeodemoWorkerTaskDefinition8FB674A3",
+            "Memory": "4096",
+            "NetworkMode": "awsvpc",
+            "RequiresCompatibilities": [
+              "FARGATE"
+            ],
+            "RuntimePlatform": {
+              "CpuArchitecture": "ARM64",
+              "OperatingSystemFamily": "LINUX"
+            },
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-processing-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "TaskRoleArn": {
+              "Fn::GetAtt": [
+                "TaskDefinitionTaskRoleFD40A61D",
+                "Arn"
+              ]
+            },
+            "Volumes": [
+              {
+                "Name": "Workspace"
+              }
+            ]
+          }
+        },
+        "TaskDefinitionExecutionRole8D61C2FB": {
+          "Type": "AWS::IAM::Role",
+          "Properties": {
+            "AssumeRolePolicyDocument": {
+              "Statement": [
+                {
+                  "Action": "sts:AssumeRole",
+                  "Effect": "Allow",
+                  "Principal": {
+                    "Service": "ecs-tasks.amazonaws.com"
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-processing-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ]
+          }
+        },
+        "TaskDefinitionExecutionRoleDefaultPolicy1F3406F5": {
+          "Type": "AWS::IAM::Policy",
+          "Properties": {
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:GetDownloadUrlForLayer",
+                    "ecr:BatchGetImage"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttWorkerRepository770852D6Arn0E6C90D3"
+                  }
+                },
+                {
+                  "Action": "ecr:GetAuthorizationToken",
+                  "Effect": "Allow",
+                  "Resource": "*"
+                },
+                {
+                  "Action": [
+                    "logs:CreateLogStream",
+                    "logs:PutLogEvents"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::Join": [
+                      "",
+                      [
+                        {
+                          "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttWorkerLogGroup31FDBE4AArnA516DF84"
+                        },
+                        ":*"
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "Action": [
+                    "secretsmanager:GetSecretValue",
+                    "secretsmanager:DescribeSecret"
+                  ],
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefWorkerDatabaseSecret1F03418DF75D87A7"
+                  }
+                },
+                {
+                  "Action": "kms:Decrypt",
+                  "Effect": "Allow",
+                  "Resource": {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttDataKey17AFBB84ArnCE2A1BC6"
+                  }
+                }
+              ],
+              "Version": "2012-10-17"
+            },
+            "PolicyName": "TaskDefinitionExecutionRoleDefaultPolicy1F3406F5",
+            "Roles": [
+              {
+                "Ref": "TaskDefinitionExecutionRole8D61C2FB"
+              }
+            ]
+          }
+        },
+        "ServiceD69D759B": {
+          "Type": "AWS::ECS::Service",
+          "Properties": {
+            "Cluster": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefClusterEB0386A796A0E3FE"
+            },
+            "DeploymentConfiguration": {
+              "Alarms": {
+                "AlarmNames": [],
+                "Enable": false,
+                "Rollback": false
+              },
+              "DeploymentCircuitBreaker": {
+                "Enable": true,
+                "Rollback": true
+              },
+              "MaximumPercent": 200,
+              "MinimumHealthyPercent": 0
+            },
+            "DeploymentController": {
+              "Type": "ECS"
+            },
+            "DesiredCount": 0,
+            "EnableECSManagedTags": false,
+            "EnableExecuteCommand": false,
+            "LaunchType": "FARGATE",
+            "NetworkConfiguration": {
+              "AwsvpcConfiguration": {
+                "AssignPublicIp": "DISABLED",
+                "SecurityGroups": [
+                  {
+                    "Fn::GetAtt": [
+                      "TaskSecurityGroup2D2EA438",
+                      "GroupId"
+                    ]
+                  }
+                ],
+                "Subnets": [
+                  {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet1SubnetE2B009FBB55CA7F1"
+                  },
+                  {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet2SubnetAD08DFFF32CBCD48"
+                  }
+                ]
+              }
+            },
+            "PlatformVersion": "LATEST",
+            "PropagateTags": "SERVICE",
+            "ServiceName": "opengeo-demo-gis-worker",
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-processing-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "TaskDefinition": {
+              "Ref": "TaskDefinitionB36D86D9"
+            }
+          },
+          "DependsOn": [
+            "TaskDefinitionTaskRoleDefaultPolicy282E8624",
+            "TaskDefinitionTaskRoleFD40A61D"
+          ]
+        },
+        "ServiceTaskCountTarget23E25614": {
+          "Type": "AWS::ApplicationAutoScaling::ScalableTarget",
+          "Properties": {
+            "MaxCapacity": 2,
+            "MinCapacity": 0,
+            "ResourceId": {
+              "Fn::Join": [
+                "",
+                [
+                  "service/",
+                  {
+                    "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefClusterEB0386A796A0E3FE"
+                  },
+                  "/",
+                  {
+                    "Fn::GetAtt": [
+                      "ServiceD69D759B",
+                      "Name"
+                    ]
+                  }
+                ]
+              ]
+            },
+            "RoleARN": {
+              "Fn::Join": [
+                "",
+                [
+                  "arn:",
+                  {
+                    "Ref": "AWS::Partition"
+                  },
+                  ":iam::111111111111:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService"
+                ]
+              ]
+            },
+            "ScalableDimension": "ecs:service:DesiredCount",
+            "ServiceNamespace": "ecs"
+          },
+          "DependsOn": [
+            "TaskDefinitionTaskRoleDefaultPolicy282E8624",
+            "TaskDefinitionTaskRoleFD40A61D"
+          ]
+        },
+        "ServiceTaskCountTargetQueueBacklogTargetB22FB704": {
+          "Type": "AWS::ApplicationAutoScaling::ScalingPolicy",
+          "Properties": {
+            "PolicyName": "OpenGeodemoWorkerServiceTaskCountTargetQueueBacklogTarget729B6885",
+            "PolicyType": "TargetTrackingScaling",
+            "ScalingTargetId": {
+              "Ref": "ServiceTaskCountTarget23E25614"
+            },
+            "TargetTrackingScalingPolicyConfiguration": {
+              "CustomizedMetricSpecification": {
+                "Dimensions": [
+                  {
+                    "Name": "QueueName",
+                    "Value": {
+                      "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttProcessingQueue6DC600C3QueueName24DE4376"
+                    }
+                  }
+                ],
+                "MetricName": "ApproximateNumberOfMessagesVisible",
+                "Namespace": "AWS/SQS",
+                "Statistic": "Maximum"
+              },
+              "ScaleInCooldown": 300,
+              "ScaleOutCooldown": 30,
+              "TargetValue": 1
+            }
+          },
+          "DependsOn": [
+            "TaskDefinitionTaskRoleDefaultPolicy282E8624",
+            "TaskDefinitionTaskRoleFD40A61D"
+          ]
+        },
+        "OldestMessageAlarm96719BF1": {
+          "Type": "AWS::CloudWatch::Alarm",
+          "Properties": {
+            "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+            "DatapointsToAlarm": 2,
+            "Dimensions": [
+              {
+                "Name": "QueueName",
+                "Value": {
+                  "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttProcessingQueue6DC600C3QueueName24DE4376"
+                }
+              }
+            ],
+            "EvaluationPeriods": 2,
+            "MetricName": "ApproximateAgeOfOldestMessage",
+            "Namespace": "AWS/SQS",
+            "Period": 300,
+            "Statistic": "Maximum",
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-processing-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "Threshold": 900,
+            "TreatMissingData": "notBreaching"
+          }
+        },
+        "DeadLetterQueueAlarm48D9D867": {
+          "Type": "AWS::CloudWatch::Alarm",
+          "Properties": {
+            "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+            "Dimensions": [
+              {
+                "Name": "QueueName",
+                "Value": {
+                  "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputFnGetAttProcessingDeadLetterQueueE13B1352QueueName4F3DCC5D"
+                }
+              }
+            ],
+            "EvaluationPeriods": 1,
+            "MetricName": "ApproximateNumberOfMessagesVisible",
+            "Namespace": "AWS/SQS",
+            "Period": 300,
+            "Statistic": "Maximum",
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-processing-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "Threshold": 1,
+            "TreatMissingData": "notBreaching"
+          }
+        }
+      },
+      "Outputs": {
+        "WorkerServiceName": {
+          "Value": {
+            "Fn::GetAtt": [
+              "ServiceD69D759B",
+              "Name"
+            ]
+          }
+        }
+      },
+      "Parameters": {
+        "BootstrapVersion": {
+          "Type": "AWS::SSM::Parameter::Value<String>",
+          "Default": "/cdk-bootstrap/hnb659fds/version",
+          "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+        }
+      },
+      "Rules": {
+        "CheckBootstrapVersion": {
+          "Assertions": [
+            {
+              "Assert": {
+                "Fn::Not": [
+                  {
+                    "Fn::Contains": [
+                      [
+                        "1",
+                        "2",
+                        "3",
+                        "4",
+                        "5"
+                      ],
+                      {
+                        "Ref": "BootstrapVersion"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+            }
+          ]
+        }
+      }
+    },
+    "PrivateRuntimeEndpoints": {
+      "Resources": {
+        "WorkerEndpointSecurityGroup28608118": {
+          "Type": "AWS::EC2::SecurityGroup",
+          "Properties": {
+            "GroupDescription": "Shared private APIs accepting only OpenGeo GIS worker traffic",
+            "SecurityGroupEgress": [
+              {
+                "CidrIp": "255.255.255.255/32",
+                "Description": "Disallow all traffic",
+                "FromPort": 252,
+                "IpProtocol": "icmp",
+                "ToPort": 86
+              }
+            ],
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-private-runtime-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        },
+        "EcrApiEndpointB01DFFD7": {
+          "Type": "AWS::EC2::VPCEndpoint",
+          "Properties": {
+            "PrivateDnsEnabled": true,
+            "SecurityGroupIds": [
+              {
+                "Fn::GetAtt": [
+                  "WorkerEndpointSecurityGroup28608118",
+                  "GroupId"
+                ]
+              }
+            ],
+            "ServiceName": "com.amazonaws.us-east-1.ecr.api",
+            "SubnetIds": [
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet1SubnetE2B009FBB55CA7F1"
+              },
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet2SubnetAD08DFFF32CBCD48"
+              }
+            ],
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-private-runtime-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcEndpointType": "Interface",
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        },
+        "EcrDockerEndpointE4437377": {
+          "Type": "AWS::EC2::VPCEndpoint",
+          "Properties": {
+            "PrivateDnsEnabled": true,
+            "SecurityGroupIds": [
+              {
+                "Fn::GetAtt": [
+                  "WorkerEndpointSecurityGroup28608118",
+                  "GroupId"
+                ]
+              }
+            ],
+            "ServiceName": "com.amazonaws.us-east-1.ecr.dkr",
+            "SubnetIds": [
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet1SubnetE2B009FBB55CA7F1"
+              },
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet2SubnetAD08DFFF32CBCD48"
+              }
+            ],
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-private-runtime-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcEndpointType": "Interface",
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        },
+        "LogsEndpointF332AD3D": {
+          "Type": "AWS::EC2::VPCEndpoint",
+          "Properties": {
+            "PrivateDnsEnabled": true,
+            "SecurityGroupIds": [
+              {
+                "Fn::GetAtt": [
+                  "WorkerEndpointSecurityGroup28608118",
+                  "GroupId"
+                ]
+              }
+            ],
+            "ServiceName": "com.amazonaws.us-east-1.logs",
+            "SubnetIds": [
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet1SubnetE2B009FBB55CA7F1"
+              },
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet2SubnetAD08DFFF32CBCD48"
+              }
+            ],
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-private-runtime-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcEndpointType": "Interface",
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        },
+        "SecretsEndpointE4AF69EA": {
+          "Type": "AWS::EC2::VPCEndpoint",
+          "Properties": {
+            "PrivateDnsEnabled": true,
+            "SecurityGroupIds": [
+              {
+                "Fn::GetAtt": [
+                  "WorkerEndpointSecurityGroup28608118",
+                  "GroupId"
+                ]
+              }
+            ],
+            "ServiceName": "com.amazonaws.us-east-1.secretsmanager",
+            "SubnetIds": [
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet1SubnetE2B009FBB55CA7F1"
+              },
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet2SubnetAD08DFFF32CBCD48"
+              }
+            ],
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-private-runtime-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcEndpointType": "Interface",
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        },
+        "SqsEndpoint763DE34C": {
+          "Type": "AWS::EC2::VPCEndpoint",
+          "Properties": {
+            "PrivateDnsEnabled": true,
+            "SecurityGroupIds": [
+              {
+                "Fn::GetAtt": [
+                  "WorkerEndpointSecurityGroup28608118",
+                  "GroupId"
+                ]
+              }
+            ],
+            "ServiceName": "com.amazonaws.us-east-1.sqs",
+            "SubnetIds": [
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet1SubnetE2B009FBB55CA7F1"
+              },
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet2SubnetAD08DFFF32CBCD48"
+              }
+            ],
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-private-runtime-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcEndpointType": "Interface",
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        },
+        "S3GatewayEndpointE8BAF1BC": {
+          "Type": "AWS::EC2::VPCEndpoint",
+          "Properties": {
+            "RouteTableIds": [
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet1RouteTableAF5F53E0EC33A92D"
+              },
+              {
+                "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpcdataSubnet2RouteTable94FA483ACA1BDFC0"
+              }
+            ],
+            "ServiceName": {
+              "Fn::Join": [
+                "",
+                [
+                  "com.amazonaws.",
+                  {
+                    "Ref": "AWS::Region"
+                  },
+                  ".s3"
+                ]
+              ]
+            },
+            "Tags": [
+              {
+                "Key": "Application",
+                "Value": "OpenGeo"
+              },
+              {
+                "Key": "CostCenter",
+                "Value": "opengeo-private-runtime-active"
+              },
+              {
+                "Key": "Environment",
+                "Value": "demo"
+              },
+              {
+                "Key": "ManagedBy",
+                "Value": "aws-cdk"
+              }
+            ],
+            "VpcEndpointType": "Gateway",
+            "VpcId": {
+              "Fn::ImportValue": "OpenGeo-demo-Foundation:ExportsOutputRefVpc8378EB38272D6E3A"
+            }
+          }
+        }
+      },
+      "Outputs": {
+        "InterfaceEndpointCount": {
+          "Value": "5"
+        },
+        "ExportsOutputFnGetAttWorkerEndpointSecurityGroup28608118GroupIdCD369E0B": {
+          "Value": {
+            "Fn::GetAtt": [
+              "WorkerEndpointSecurityGroup28608118",
+              "GroupId"
+            ]
+          },
+          "Export": {
+            "Name": "OpenGeo-demo-PrivateRuntimeEndpoints:ExportsOutputFnGetAttWorkerEndpointSecurityGroup28608118GroupIdCD369E0B"
+          }
+        }
+      },
+      "Parameters": {
+        "BootstrapVersion": {
+          "Type": "AWS::SSM::Parameter::Value<String>",
+          "Default": "/cdk-bootstrap/hnb659fds/version",
+          "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+        }
+      },
+      "Rules": {
+        "CheckBootstrapVersion": {
+          "Assertions": [
+            {
+              "Assert": {
+                "Fn::Not": [
+                  {
+                    "Fn::Contains": [
+                      [
+                        "1",
+                        "2",
+                        "3",
+                        "4",
+                        "5"
+                      ],
+                      {
+                        "Ref": "BootstrapVersion"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+            }
+          ]
+        }
+      }
+    }
+  }
+}

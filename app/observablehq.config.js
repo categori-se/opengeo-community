@@ -25,6 +25,7 @@ export default {
     {name: "Login", path: "/login"},
     {name: "Projects", path: "/workspaces"},
     {name: "Layer", path: "/layers"},
-    {name: "Admin", path: "/admin"}
+    {name: "Admin", path: "/admin"},
+    {name: "Open Source & Credits", path: "/credits"}
   ]
 };

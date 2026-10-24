@@ -1,5 +1,5 @@
 import {cesiumWorkbenchContent, prepareCesiumWorkbench, cesiumWorkbenchAdapter, rendererTitle} from "../lib/cesiumWorkbench.js";
-import {cogDisplayOptions} from "../lib/cogDisplay.js";
+import {cogDisplayOptions, isCogLayer} from "../lib/cogDisplay.js";
 import {AnalysisConsole} from "./AnalysisConsole.js";
 import {createLocalAnalysisRuntime} from "../lib/analysisLocalRuntime.js";
 import {RendererPanel} from "./RendererPanel.js";
@@ -25,7 +25,7 @@ import {archivePaintLayers} from "../lib/reviewedArchivePresentation.js";
 import {LayerArchiveControl} from "./LayerArchiveControl.js";
 import {matchesReviewedDisplay} from "../lib/reviewedDisplayIdentity.js";
 import {readBrowserProjectFile, BROWSER_PROJECT_FILE_BYTES} from "../lib/browserProjectFile.js";
-import {projectPrintLayouts} from "../lib/printLayouts.js";
+import {projectPrintLayouts, printLayerPresentation} from "../lib/printLayouts.js";
 import {identifyProjectFileFormat, readSavedProjectVersionFile} from "../lib/projectFileFormat.js";
 import {ProjectVersionExport, savedProjectVersionFile} from "./ProjectVersionExport.js";
 import {readBrowserLayerCatalog, writeBrowserLayerCatalog, clearBrowserLayerCatalog} from "../lib/browserLayerCatalogStore.js";
@@ -43,6 +43,16 @@ import {installCogMapLayer} from "../lib/cogMapLayer.js";
 import {IdentifyResultsPanel, identifyResultsSummary} from "./IdentifyResultsPanel.js";
 import {ProfileLineOfSight} from "./ProfileLineOfSight.js";
 import {RasterViewshed} from "./RasterViewshed.js";
+import {RasterBaseline} from "./RasterBaseline.js";
+import {RasterComparison} from "./RasterComparison.js";
+import {RasterHeightDifference} from "./RasterHeightDifference.js";
+import {RasterPatches} from "./RasterPatches.js";
+import {RasterValidation} from "./RasterValidation.js";
+import {FieldsOfTheWorld} from "./FieldsOfTheWorld.js";
+import {mappedFieldSourceEvidence} from "../lib/fieldInventory.js";
+import {rasterAnalysisEvidence} from "../lib/rasterAnalysisArchive.js";
+import {buildingReconciliationSummary, buildingReconciliationGroups, evaluateBuildingComparison, buildReviewedBuildingInventory} from "../lib/buildingReconciliation.js";
+import {buildReceptorScreening, receptorScreeningCsv} from "../lib/receptorScreening.js";
 import {polygon3DGeojson} from "../lib/polygon3dMeasurement.js";
 import {geojsonBounds} from "../lib/mapLayers.js";
 import {mapGraticule} from "../lib/mapGraticule.js";
@@ -467,6 +477,8 @@ function createWorkbenchView({
   reviewPmtilesDisplay = null,
   admitPmtilesDisplay = null,
   loadManagedDatasetMetadata = null,
+  loadManagedDatasetCredit = null,
+  loadManagedCog = null,
   protectedCopyJobs = [],
   pmtilesDerivativeJobs = [],
   refreshDurableJobs = null,
@@ -479,6 +491,7 @@ function createWorkbenchView({
   previewVectorAnalysis = null,
   cancelVectorAnalysis = null,
   createAnalysisRegistration = null,
+  analysisReviewerId = null,
   getAnalysisCollection = null,
   onProjectSaved = null,
   refreshKmlNetworkLink = null,
@@ -541,6 +554,7 @@ function createWorkbenchView({
 
   const storedUi = publicDemo ? null : readWorkspaceUiState(workspace?.workspaceId);
   const state = {
+    managedCogBindings: new Map(),
     mapFontSession: createMapFontSession(mapFontAttachments),
     activeLayerId: project?.activeLayerId ?? workingLayers[0]?.layerId ?? null,
     activePanel: initialDatasetTarget
@@ -830,6 +844,8 @@ function createWorkbenchView({
     reviewPmtilesDisplay,
     admitPmtilesDisplay,
     loadManagedDatasetMetadata,
+    loadManagedDatasetCredit,
+    loadManagedCog,
     protectedCopyJobs,
     pmtilesDerivativeJobs,
     refreshDurableJobs,
@@ -841,6 +857,7 @@ function createWorkbenchView({
     previewVectorAnalysis,
     cancelVectorAnalysis,
     createAnalysisRegistration,
+    analysisReviewerId,
     getAnalysisCollection,
     onProjectSaved,
     refreshKmlNetworkLink,
@@ -933,6 +950,8 @@ function createWorkbenchView({
     renderer: context.rendererAdapter.id,
     layers: context.layers,
     handles: state.layerHandles,
+    withPrintResolution: (options, capture) => withPrintResolution(context, options, capture),
+    getPrintDataSource: layerId => analysisInputLayers(context).find(item => item.id === layerId) ?? null,
     basemap: activeBasemap(context),
     project: currentProjectDefinition(context),
     savedProjectOrigin: context.savedProjectOrigin,
@@ -974,7 +993,22 @@ function createWorkbenchView({
   const accountNavigation = () => {
     context.analysisConsole?.dispose();
     context.analysisConsole = null;
+    context.rasterBaseline?.view.dispose();
+    context.rasterBaseline = null;
+    context.rasterComparison?.view.dispose();
+    context.rasterComparison = null;
+    context.rasterPatches?.view.dispose();
+    context.rasterPatches = null;
+    context.rasterValidation?.dispose();
+    context.rasterValidation = null;
+    context.rasterHeightDifference?.dispose();
+    context.rasterHeightDifference = null;
+    context.fieldsOfTheWorld?.dispose();
+    context.fieldsOfTheWorld = null;
     context.queryLocationScopeInvalid = true;
+    for (const panel of shell.querySelectorAll(".building-reconciliation-review, .building-inventory-evaluation")) panel.disabled = true;
+    for (const layer of context.layers) if (isManagedCogLayer(layer)) removeMapLayer(state, layer.layerId);
+    state.managedCogBindings.clear();
     cancelDrillDownIdentify(context);
     cancelQueryLocationRequest(context);
     releaseRendererCredentials(context);
@@ -989,6 +1023,12 @@ function createWorkbenchView({
     context.localProjectDialog?.dispose?.();
     context.pointSymbolDialog?.dispose?.();
     context.rasterViewshed?.view.dispose();
+    context.rasterBaseline?.view.dispose();
+    context.rasterComparison?.view.dispose();
+    context.rasterPatches?.view.dispose();
+    context.rasterValidation?.dispose();
+    context.rasterHeightDifference?.dispose();
+    context.fieldsOfTheWorld?.dispose();
     context.polygon3dDialog?.dispose();
     state.managedDatasetMetadataRequest?.controller.abort();
     for (const choice of context.preservedDatasetDisplays.values()) choice.controller?.abort();
@@ -1042,6 +1082,12 @@ function createWorkbenchView({
   const attribution = document.createElement("div");
   attribution.className = "gis-map-attribution maplibregl-map";
   attribution.setAttribute("aria-label", "Map attribution");
+  const nativeAttribution = document.createElement("div");
+  nativeAttribution.className = "gis-native-attribution";
+  const cogAttribution = document.createElement("div");
+  cogAttribution.className = "gis-cog-attribution";
+  cogAttribution.hidden = true;
+  attribution.append(nativeAttribution, cogAttribution);
   mapColumn.append(mapContainer, attribution, statusbar);
   context.mapColumn = mapColumn;
   shell.append(topbar, leftPanel, mapColumn, rightPanel, mobileToolbar, modalLayer);
@@ -1054,6 +1100,13 @@ function createWorkbenchView({
     panelAfterAdd
   });
   context.render = () => {
+    const cogCredits = context.rendererAdapter.id === "maplibre"
+      ? context.layers.filter(layer => isCogLayer(layer) && layer.visible !== false)
+        .map(layer => layer.attribution ?? layer.sourceConfiguration?.attribution)
+        .filter(credit => typeof credit === "string" && credit.trim())
+      : [];
+    cogAttribution.textContent = [...new Set(cogCredits)].join(" | ");
+    cogAttribution.hidden = !cogAttribution.textContent;
     context.analysisConsole?.setTheme(state.colorMode === "dark");
     if(context.rasterObserverPick&&state.activePanel!=="style")context.rasterViewshed?.view.cancelPick();
     const area = state.queryLocationState;
@@ -1251,7 +1304,7 @@ function initializeMap(container, context) {
   }
   context.shell.__opengeoMap = state.map;
   const attribution = container.querySelector(".maplibregl-ctrl-attrib");
-  if (attribution) context.shell.querySelector(".gis-map-attribution").append(attribution);
+  if (attribution) context.shell.querySelector(".gis-native-attribution").append(attribution);
   context.localDraftBaseline = localDraftSignature(context);
 
   let resizeObserver = null;
@@ -1263,6 +1316,7 @@ function initializeMap(container, context) {
   }
 
   context.disposeResources = () => {
+    context.cancelPrintResolution?.();
     context.disconnectionObserver?.disconnect();
     context.disposeMapEvents?.();
     state.analysisPreviewController?.abort();
@@ -1309,6 +1363,111 @@ function rendererSnapshot(context, map) {
   if (preparedImages.reduce((sum,image)=>sum+(image.pixels.data?.byteLength ?? 0),0)>32_000_000) throw Error("renderer_snapshot_limit");
   return {style, camera:captureMapView(map), images:preparedImages,
     sky:context.rendererAdapter.id === "maplibre" ? style.sky : context.rendererSky};
+}
+
+// Re-rasterize the installed scene at the paper frame's resolution. Keeping the
+// CSS viewport fixed preserves its geographic footprint, source tiles, glyphs,
+// feature state and pinned styling; this does not request higher-zoom source data.
+export async function withPrintResolution(context, {maxWidth, maxHeight, signal, onPhase} = {}, capture) {
+  const current = context.shell.getPrintContext(), map = current?.map;
+  if (context.printResolutionCapture) throw Error("A map capture is already running. Wait for it to finish.");
+  if (current?.renderer !== "maplibre" || !current.ready || !map?.isStyleLoaded?.()
+    || map.areTilesLoaded?.() === false || map.isMoving?.() || !map.setPixelRatio || !map.getPixelRatio) {
+    throw Error("Wait for the MapLibre map and its visible Layers and Styles to finish loading and moving before capture.");
+  }
+  if (![maxWidth, maxHeight].every(value => Number.isSafeInteger(value) && value > 0)
+    || maxWidth * maxHeight > 20_000_000) throw Error("Map capture exceeds its 20 megapixel limit.");
+  if (typeof capture !== "function") throw Error("Map capture is unavailable.");
+  const canvas = map.getCanvas(), cssWidth = canvas.clientWidth, cssHeight = canvas.clientHeight;
+  if (!(cssWidth > 0 && cssHeight > 0)) throw Error("Open the map frame before capturing its print resolution.");
+  const ratio = Math.min(maxWidth / cssWidth, maxHeight / cssHeight);
+  const width = Math.floor(cssWidth * ratio), height = Math.floor(cssHeight * ratio);
+  if (width < 1 || height < 1 || width * height > 20_000_000) throw Error("Map capture exceeds its 20 megapixel limit.");
+  // MapLibre 6.4.1's public getter returns the effective DPR, losing whether it
+  // was automatic. Preserve its pinned SDK field so restoration does not pin an
+  // automatic map to this monitor's DPR. Refuse if that mode is unavailable.
+  if (!Object.hasOwn(map, "_overridePixelRatio")) throw Error("This renderer cannot preserve its pixel ratio mode for print capture.");
+  const previousRatio = map._overridePixelRatio ?? null, camera = captureMapView(map);
+  const padding = JSON.stringify(map.getPadding?.() ?? null), style = JSON.stringify(map.getStyle());
+  const presentation = JSON.stringify(current.layers.map(printLayerPresentation));
+  if (style.length > 40_000_000) throw Error("The installed map is too large to capture safely.");
+  const controller = new AbortController(), token = {};
+  const phase = value => {try {onPhase?.(value);} catch { /* Progress must not prevent buffer restoration. */ }};
+  const abort = () => controller.abort(Error("Map capture was cancelled. Capture again when the frame is ready."));
+  if (signal?.aborted) throw Error("Map capture was cancelled. Capture again when the frame is ready.");
+  const assertCurrent = () => {
+    const latest = context.shell.getPrintContext();
+    if (context.disposed || latest?.map !== map || latest.renderer !== "maplibre" || !latest.ready
+      || map.getCanvas() !== canvas || canvas.clientWidth !== cssWidth || canvas.clientHeight !== cssHeight
+      || !sameRendererCamera(camera, captureMapView(map)) || padding !== JSON.stringify(map.getPadding?.() ?? null)
+      || style !== JSON.stringify(map.getStyle()) || presentation !== JSON.stringify(latest.layers.map(printLayerPresentation))) {
+      throw Error("The map changed while capturing. Wait for it to settle, then capture again.");
+    }
+    if (canvas.width !== width || canvas.height !== height) {
+      throw Error("This browser cannot render the requested map resolution. Choose a lower DPI or smaller map frame.");
+    }
+  };
+  let rejectAborted;
+  const aborted = new Promise((resolve, reject) => {rejectAborted = () => reject(controller.signal.reason);});
+  controller.signal.addEventListener("abort", rejectAborted, {once:true});
+  signal?.addEventListener("abort", abort, {once:true});
+  const deadline = setTimeout(() => controller.abort(Error("The print map did not settle in time. Wait for it to load, then capture again.")), 7000);
+  context.printResolutionCapture = token;
+  context.cancelPrintResolution = abort;
+  try {
+    phase("rendering");
+    const rendered = nextPrintResolutionRender(map, controller.signal, 7000, () => map.setPixelRatio(ratio));
+    const operation = async () => {
+      await rendered;
+      assertCurrent();
+      phase("capturing");
+      const result = await capture({...current, printCaptureSignal: controller.signal});
+      if (controller.signal.aborted) throw controller.signal.reason;
+      assertCurrent();
+      return result;
+    };
+    return await Promise.race([operation(), aborted]);
+  } finally {
+    clearTimeout(deadline);
+    signal?.removeEventListener("abort", abort);
+    controller.signal.removeEventListener("abort", rejectAborted);
+    // Teardown may already have removed this SDK map. Otherwise restore its
+    // backing buffer before releasing the event guard, including failed captures.
+    try {
+      if (!context.disposed && context.state.map === map) {
+        phase("restoring");
+        await nextPrintResolutionRender(map, null, 2000, () => map.setPixelRatio(previousRatio));
+      }
+    } finally {
+      if (context.printResolutionCapture === token) {
+        context.printResolutionCapture = null;
+        context.cancelPrintResolution = null;
+      }
+    }
+  }
+}
+
+function nextPrintResolutionRender(map, signal, timeoutMs = 7000, resize = () => {}) {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      clearTimeout(timer);
+      map.off("render", rendered);map.off("error", failed);map.off("remove", removed);
+      signal?.removeEventListener("abort", aborted);
+    };
+    const finish = error => {cleanup();error ? reject(error) : resolve();};
+    const aborted = () => finish(signal.reason);
+    const failed = () => finish(Error("The map could not render its print resolution. Its source access is unchanged."));
+    const removed = () => finish(Error("The map frame was closed during capture."));
+    const rendered = () => {
+      if (map.isMoving?.() || !map.isStyleLoaded?.() || map.areTilesLoaded?.() === false || map.loaded?.() === false) return;
+      finish();
+    };
+    const timer = setTimeout(() => finish(Error("The map did not produce a print frame. Wait for it to settle, then capture again.")), timeoutMs);
+    if (signal?.aborted) return aborted();
+    signal?.addEventListener("abort", aborted, {once:true});
+    map.on("render", rendered);map.on("error", failed);map.on("remove", removed);
+    try {resize();map.triggerRepaint();} catch {failed();}
+  });
 }
 
 function releaseRendererCredentials(context) {
@@ -1486,8 +1645,8 @@ async function switchRenderingEngine(context, engineId, {resume = false, automat
       syncLayerOrder(context);
     }
     const attribution = surface.querySelector(".maplibregl-ctrl-attrib, .mapboxgl-ctrl-attrib");
-    if (attribution) context.shell.querySelector(".gis-map-attribution").replaceChildren(attribution);
-    if (engineId === "cesium") context.shell.querySelector(".gis-map-attribution").textContent =
+    if (attribution) context.shell.querySelector(".gis-native-attribution").replaceChildren(attribution);
+    if (engineId === "cesium") context.shell.querySelector(".gis-native-attribution").textContent =
       context.layers.map(layer=>layer.attribution).filter(Boolean).join(" | ");
     surface.inert = false; surface.removeAttribute("aria-hidden"); delete surface.dataset.pending;
     try { previousAdapter.disposeMap(original); } catch { /* Candidate is already usable. */ }
@@ -1618,6 +1777,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   });
 
   on("moveend", () => {
+    if (context.printResolutionCapture) return;
     syncGraticule(state);
     updateStatusbar(context.shell.querySelector(".gis-statusbar"), context);
     recordGlobeCamera(state.globeTelemetry, state.map);
@@ -1628,6 +1788,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   });
 
   on("move", () => {
+    if (context.printResolutionCapture) return;
     context.updateCameraControls?.();
     if (state.kmlRegionFrame) return;
     state.kmlRegionFrame = requestAnimationFrame(() => {
@@ -1637,6 +1798,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   });
 
   on("idle", () => {
+    if (context.printResolutionCapture) return;
     installCachedDatasetLayers(context);
     syncPinnedMapFonts(context);
     if (Number.isFinite(state.globeTelemetry.terrainStartedAt)) {
@@ -1832,7 +1994,7 @@ function renderTopbar(topbar, context) {
   appNav.className = "gis-app-nav";
   appNav.ariaLabel = "Application navigation";
   appNav.append(...(context.demoSurface ? demoNavigationItems() : studioNavigationItems(context.persistenceMode === "fixture" ? "fixture" : null))
-    .filter(item => !context.projectSwitcher || ["projects", "data", "styles", "collections", "publishing"].includes(item.id))
+    .filter(item => !context.projectSwitcher || ["projects", "data", "styles", "collections", "publishing", "credits"].includes(item.id))
     .map(item => navLink(item.label, item.href)));
 
   const publicWorkspaceOptions = context.demoSurface && Array.isArray(context.projectNavigation?.workspaceOptions)
@@ -2482,7 +2644,7 @@ function toolbarMenus(context) {
             state.rightOpen = true;
             setStatus(context, "Layer properties opened.");
           }),
-          ...(activeLayer(context)?.sourceType === "cog-raster" ? [
+          ...(isCogLayer(activeLayer(context)) ? [
             menuAction("Refresh raster window", () => refreshCogWindow(context, activeLayer(context)))
           ] : []),
           ...projectManagementActions(context, activeLayer(context)),
@@ -2520,6 +2682,27 @@ function toolbarMenus(context) {
       id: "processing",
       label: "Processing",
       sections: [[menuAction("Analysis console…", () => toggleAnalysisConsole(context)),
+        menuAction("Compare surface and terrain heights…", () => {
+          if (isMobileWorkbenchViewport()) state.leftOpen = false;
+          state.activePanel = "processing";
+          state.rightOpen = true;
+          rasterHeightDifferencePanel(context).open = true;
+          setStatus(context, "Choose loaded surface and terrain elevation bands, units and a comparison basis.");
+        }),
+        menuAction("Validate categorical raster classes…", () => {
+          if (isMobileWorkbenchViewport()) state.leftOpen = false;
+          state.activePanel = "processing";
+          state.rightOpen = true;
+          rasterValidationPanel(context).open = true;
+          setStatus(context, "Choose a loaded categorical raster or open a saved validation assessment.");
+        }),
+        menuAction("Find mapped agricultural fields…", () => {
+          if (isMobileWorkbenchViewport()) state.leftOpen = false;
+          state.activePanel = "processing";
+          state.rightOpen = true;
+          fieldsOfTheWorldPanel(context).open = true;
+          setStatus(context, "Choose a country, observation year and study rectangle.");
+        }),
         menuAction("Project processing jobs", () => openProjectCatalog(context))], ...groupedTools().map(([category, tools]) => [
         menuLabel(category),
         ...tools.map((tool) => menuAction(`${tool.title} (${tool.engine})`, () => {
@@ -5210,6 +5393,76 @@ function panelBody(context) {
   return stylePanel(context);
 }
 
+export function managedLayerCreditPanel(context, layer) {
+  if (layer?.sourceType !== "governed-dataset" || !layer.datasetVersionId
+    || typeof context.loadManagedDatasetCredit !== "function") return null;
+  const section = editorSection("Source credit", "Reviewed Catalog credit is separate from distribution permissions. Save the Project to retain an applied credit.");
+  section.classList.add("gis-managed-layer-credit");
+  section.append(textElement("p", layer.attribution ? `Saved credit: ${layer.attribution}` : "No source credit is saved on this Layer."));
+  const records = context.managedCreditReviews ??= new WeakMap();
+  const identity = persistedLayerSourceIdentity(layer);
+  let record = records.get(layer);
+  if (!record || record.identity !== identity) {
+    record = {identity, busy: false}; records.set(layer, record);
+  }
+  const editable = ["admin", "owner", "editor"].includes(context.role) && !context.queryLocationScopeInvalid;
+  const review = actionButton("Review Catalog credit", () => void reviewManagedLayerCredit(context, layer, record));
+  review.disabled = !editable || record.busy; section.append(review);
+  if (record.result?.attribution) {
+    section.append(textElement("p", `Reviewed Catalog credit: ${record.result.attribution}`));
+    const apply = actionButton("Use reviewed credit", () => {
+      if (!editable || record.busy || !isCurrentPersistedLayer(context, layer, record.identity)
+        || context.queryLocationScopeInvalid || layer.attribution !== record.previousAttribution) {
+        record.message = "This Layer or its credit changed. Review the Catalog credit again.";
+      } else {
+        const previous = layer.attribution;
+        const map = context.state.map;
+        const ids = new Set(context.state.layerHandles.get(layer.layerId)?.layerIds ?? []);
+        const filters = (map?.getStyle()?.layers ?? []).filter(part => ids.has(part.id) && part.filter).map(part => [part.id, part.filter]);
+        const repaint = () => {
+          repaintLayer(context, layer);
+          for (const [id, filter] of filters) if (map?.getLayer(id)) map.setFilter(id, filter);
+        };
+        try {
+          layer.attribution = record.result.attribution; repaint();
+          record.previousAttribution = layer.attribution;
+          record.message = "Reviewed credit applied. Save the Project to retain it.";
+        } catch {
+          if (previous === undefined) delete layer.attribution; else layer.attribution = previous;
+          try {repaint();} catch { /* The existing map error remains recoverable by reopening. */ }
+          record.message = "The credit could not be applied. The saved wording is retained.";
+        }
+      }
+      context.render();
+    });
+    apply.disabled = !editable || record.busy || layer.attribution === record.result.attribution;
+    section.append(apply);
+  }
+  if (record.message) {
+    const status = textElement("p", record.message); status.role = "status"; section.append(status);
+  }
+  return section;
+}
+
+export async function reviewManagedLayerCredit(context, layer, record) {
+  if (record.busy || context.disposed || context.queryLocationScopeInvalid
+    || !["admin", "owner", "editor"].includes(context.role)) return;
+  record.busy = true; record.result = null; record.message = "Reading reviewed Catalog credit…";
+  record.previousAttribution = layer.attribution;
+  context.render();
+  try {
+    const result = await context.loadManagedDatasetCredit(layer.datasetId, layer.datasetVersionId, {refresh: true});
+    if (!isCurrentPersistedLayer(context, layer, record.identity) || context.queryLocationScopeInvalid
+      || layer.attribution !== record.previousAttribution) throw Error("This Layer or its credit changed. Review it again.");
+    if (result.datasetId !== layer.datasetId || result.datasetVersionId !== layer.datasetVersionId) throw Error("The Catalog credit belongs to another data version.");
+    record.result = result;
+    record.message = result.attribution ? "Review the Catalog wording before applying it. Your current credit is retained."
+      : result.status === "conflict" ? "Catalog credit claims conflict. Resolve them in Resource knowledge before applying a credit."
+        : "No reviewed credit is recorded for this exact data version. Your current credit is retained.";
+  } catch (error) {record.message = error.message || "Catalog credit is unavailable. Your current credit is retained.";}
+  finally {record.busy = false; if (!context.disposed) context.render();}
+}
+
 function stylePanel(context) {
   const {state} = context;
   const layer = activeLayer(context);
@@ -5226,8 +5479,10 @@ function stylePanel(context) {
   // Keep the map and unsaved edits available while inspecting reusable Styles.
   libraryLink.target = "_blank"; libraryLink.rel = "noopener";
   panel.append(libraryLink);
+  const credit = managedLayerCreditPanel(context, layer);
+  if (credit) panel.append(credit);
 
-  if (layer.sourceType === "cog-raster") {
+  if (isCogLayer(layer)) {
     panel.append(layerNameEditor(context, layer),
       textElement("p", layer.sourceConfiguration?.license ? `Distribution terms: ${layer.sourceConfiguration.license}` : "Distribution terms were not supplied."),
       textElement("p", "The map reads a bounded image window from the original raster. Pan or zoom, then refresh to read another window."),
@@ -6058,7 +6313,7 @@ function identifyPanel(context) {
 }
 
 function visibleCogLayers(context) {
-  return context.layers.filter(layer => layer.sourceType === "cog-raster" && layer.visible !== false
+  return context.layers.filter(layer => isCogLayer(layer) && layer.visible !== false
     && context.state.layerHandles?.get(layer.layerId)?.cog);
 }
 
@@ -7879,6 +8134,27 @@ function hasGovernedDatasetLayer(layers, datasetId, datasetVersionId = null) {
     && (layer.datasetVersionId ?? null) === datasetVersionId);
 }
 
+function isManagedCogLayer(layer) {
+  return layer?.sourceType === "governed-dataset" && isCogLayer(layer);
+}
+
+function managedCogBinding(context, layer, binding) {
+  const config = binding?.source?.configuration;
+  if (binding?.datasetId !== layer.datasetId || binding.datasetVersionId !== layer.datasetVersionId
+    || binding.source?.sourceUrl !== `urn:opengeo:dataset:${layer.datasetId}:version:${layer.datasetVersionId}:original`
+    || typeof binding.read !== "function" || !/^[a-f0-9-]{36}$/i.test(binding.objectId ?? "")
+    || binding.versionNumber !== layer.sourceVersion || layer.objectId && layer.objectId !== binding.objectId
+    || !Array.isArray(config?.bounds) || config.bounds.length !== 4 || !config.bounds.every(Number.isFinite)
+    || !Number.isSafeInteger(config.sizeBytes) || config.sizeBytes < 1) throw Error("The exact raster original is unavailable.");
+  const bands = layer.sourceConfiguration?.bands ?? config.bands;
+  if (!Array.isArray(bands) || ![1, 3].includes(bands.length) || bands.some(value => !Number.isInteger(value) || value < 1 || value > 64))
+    throw Error("Choose one or three raster bands.");
+  layer.objectId = binding.objectId;
+  layer.sourceConfiguration = {...layer.sourceConfiguration, bands: [...bands], bounds: [...config.bounds], sizeBytes: config.sizeBytes};
+  layer.bbox = [...config.bounds];
+  context.state.managedCogBindings.set(layer.layerId, binding);
+}
+
 function projectDatasetChoices(context) {
   const section = editorSection(
     "Project datasets",
@@ -8101,8 +8377,9 @@ async function addProjectDatasetToMap(
     setStatus(context, `${dataset.title} added from its governed source revision. Save the map to persist its independent presentation.`);
     return;
   }
+  const managedRaster = expectedVersionId && String(dataset.geometryType).toLowerCase() === "raster" && dataset.format === "cog";
   const exactPreviewUnavailable = expectedVersionId
-    && typeof context.loadDatasetVersionPreview !== "function";
+    && typeof (managedRaster ? context.loadManagedCog : context.loadDatasetVersionPreview) !== "function";
   const currentFeaturesUnavailable = !expectedVersionId
     && typeof context.loadDatasetFeatures !== "function";
   if (exactPreviewUnavailable || currentFeaturesUnavailable) {
@@ -8122,7 +8399,14 @@ async function addProjectDatasetToMap(
     let count;
     let geometryType = dataset.geometryType ?? "Point";
     let layer;
-    if (expectedVersionId) {
+    let rasterBinding;
+    if (managedRaster) {
+      rasterBinding = await context.loadManagedCog(dataset.datasetId, expectedVersionId);
+      geometryType = "Raster";
+      layer = layerFromGovernedDataset(dataset, geometryType, expectedVersionId);
+      layer.style = {};
+      managedCogBinding(context, layer, rasterBinding);
+    } else if (expectedVersionId) {
       const preview = await context.loadDatasetVersionPreview(dataset.datasetId, expectedVersionId, dataset.geometryType);
       if (preview.datasetVersionId !== expectedVersionId) {
         setStatus(context, `${dataset.title} returned a different dataset version and was not added.`);
@@ -8148,16 +8432,29 @@ async function addProjectDatasetToMap(
       geojson = {type: "FeatureCollection", features: page.features};
       count = page.numberReturned;
     }
-    if (context.disposed) return;
+    let creditUnavailable = false;
+    if (expectedVersionId && typeof context.loadManagedDatasetCredit === "function") {
+      try {
+        const credit = await context.loadManagedDatasetCredit(dataset.datasetId, expectedVersionId);
+        if (credit.datasetId !== dataset.datasetId || credit.datasetVersionId !== expectedVersionId) throw Error("Credit identity changed.");
+        if (credit.attribution) layer.attribution = credit.attribution;
+        else creditUnavailable = true;
+      } catch {creditUnavailable = true;}
+    }
+    if (context.disposed || context.queryLocationScopeInvalid) return;
+    if (expectedVersionId && dataset.currentVersionId !== expectedVersionId) {
+      setStatus(context, `${dataset.title} changed before it was added. Review its current version.`);
+      return;
+    }
     if (hasGovernedDatasetLayer(context.layers, dataset.datasetId, expectedVersionId)) {
       setStatus(context, `${dataset.title} ${expectedVersionId ? "exact saved version" : "editable collection"} is already in this map.`);
       return;
     }
     context.addLayer(
       layer,
-      geojson
+      geojson ?? null
     );
-    setStatus(context, `${dataset.title} added from ${count} governed features${expectedVersionId ? ` at exact dataset v${dataset.currentVersionNumber}` : ""}. Save the map to persist its independent presentation.`);
+    setStatus(context, `${dataset.title} added ${managedRaster ? "as a bounded native raster" : `from ${count} governed features`}${expectedVersionId ? ` at exact dataset v${dataset.currentVersionNumber}` : ""}. Save the map to persist its independent presentation.${creditUnavailable ? " Review the Layer's source credit before publishing." : ""}`);
   } catch (error) {
     setStatus(context, liveCollection && (error?.status === 404 || error?.code === "feature_collection_not_found")
       ? `${dataset.title} has no available editable feature collection. Use its exact saved version instead; no collection was created.`
@@ -8244,6 +8541,27 @@ async function loadPersistedDatasetLayers(context) {
       setStatus(context, `${layer.title} has a preserved original without a raw map preview. Choose an admitted tiled display under Map display.`);
       continue;
     }
+    if (isManagedCogLayer(layer)) {
+      if (context.state.managedCogBindings.has(layer.layerId)) {installCachedDatasetLayers(context); continue;}
+      if (typeof context.loadManagedCog !== "function") continue;
+      context.loadingDatasetLayerIds.add(layer.layerId);
+      context.failedDatasetLayerIds.delete(layer.layerId);
+      try {
+        const binding = await context.loadManagedCog(layer.datasetId, layer.datasetVersionId);
+        if (!isCurrentPersistedLayer(context, layer, sourceIdentity) || context.queryLocationScopeInvalid) continue;
+        managedCogBinding(context, layer, binding);
+        installCachedDatasetLayers(context);
+      } catch {
+        if (isCurrentPersistedLayer(context, layer, sourceIdentity)) {
+          context.failedDatasetLayerIds.add(layer.layerId);
+          setStatus(context, `${layer.title} could not open its exact raster original. Turn it off and on to retry, or review its Catalog record.`);
+        }
+      } finally {
+        context.loadingDatasetLayerIds.delete(layer.layerId);
+        if (!context.disposed) context.render();
+      }
+      continue;
+    }
     const exactVersion = layer.datasetVersionId ?? null;
     if (exactVersion && typeof context.loadDatasetVersionPreview !== "function") continue;
     if (!exactVersion && typeof context.loadDatasetFeatures !== "function") continue;
@@ -8283,6 +8601,12 @@ function installCachedDatasetLayers(context) {
   if (context.disposed || context.installingCachedDatasetLayers) return;
   context.installingCachedDatasetLayers = true;
   try {
+    if (context.state.map?.isStyleLoaded?.()) for (const layer of context.layers) {
+      if (isManagedCogLayer(layer) && layer.visible !== false && !context.layerArchiveModes.has(layer.layerId)
+        && context.state.managedCogBindings.has(layer.layerId) && !context.state.layerHandles.has(layer.layerId)) {
+        addMapLayer(context.state, layer, null, context.datasets);
+      }
+    }
     installLoadedMapLayers({
       getMap: () => context.disposed ? null : context.state.map,
       layers: context.layers,
@@ -9104,7 +9428,7 @@ function awsRegistrationForm(context, source) {
   return box;
 }
 
-function nativeAnalysisPanel(context) {
+export function nativeAnalysisPanel(context) {
   const {state} = context;
   const section = editorSection("Spatial analysis", "Preview a result before adding it to this map.");
   if (!context.previewVectorAnalysis || !context.getAnalysisCollection) {
@@ -9119,31 +9443,77 @@ function nativeAnalysisPanel(context) {
   const draft = state.analysisPreviewDraft ??= {operation: "centroid", source: sources[0].layerId, target: sources[0].layerId, distance: "100"};
   const running = Boolean(state.analysisPreviewController);
   const controls = document.createElement("fieldset");
-  controls.disabled = running || Boolean(state.analysisRegistrationSession);
+  const locked = () => Boolean(state.analysisPreviewController || state.analysisRegistrationSession) || context.disposed || context.queryLocationScopeInvalid;
+  controls.disabled = locked();
   const choices = sources.map((layer) => [layer.layerId, layer.title]);
-  const update = (key, value) => {draft[key] = value; state.analysisPreviewResult = null; context.render();};
+  const update = (key, value) => {
+    if (locked()) return;
+    draft[key] = value; state.analysisPreviewResult = null;
+    state.analysisPreviewAdded = false; state.analysisRegistrationReview = null; context.render();
+  };
   controls.append(
-    selectField("Operation", draft.operation, [["centroid", "Centroid"], ["measure", "Measure area and length"], ["buffer", "Buffer"], ["clip", "Clip"], ["select-by-location", "Select by location"], ["dissolve", "Dissolve"], ["join-summary", "Spatial join (source summary)"], ["join", "Spatial join (matching pairs)"], ["intersection", "Intersection"]], (value) => update("operation", value)),
-    selectField("Source layer", draft.source, choices, (value) => update("source", value))
+    selectField("Operation", draft.operation, [["centroid", "Centroid"], ["measure", "Measure area and length"], ["building-reconcile", "Reconcile building footprints"], ["receptor-screen", "Screen footprint and influence area"], ["buffer", "Buffer"], ["clip", "Clip"], ["select-by-location", "Select by location"], ["dissolve", "Dissolve"], ["join-summary", "Spatial join (source summary)"], ["join", "Spatial join (matching pairs)"], ["intersection", "Intersection"]], (value) => update("operation", value)),
+    selectField(draft.operation === "receptor-screen" ? "Receptor layer" : "Source layer", draft.source, choices, (value) => update("source", value))
   );
-  if (["clip", "join", "intersection", "join-summary", "select-by-location"].includes(draft.operation)) {
+  if (draft.operation === "receptor-screen") {
+    controls.append(selectField("Project footprint", draft.target, choices, value => update("target", value)),
+      selectField("Influence area", draft.influence ?? "", [["", "Choose an influence area"], ...choices], value => update("influence", value)));
+    for (const [key, label] of [["question", "Screening question"], ["influenceBasis", "Influence area basis"]]) {
+      const field = textField(label, draft[key] ?? "", value => {if (draft[key] !== value) update(key, value);});
+      const input = field.querySelector("input"); input.required = true; input.maxLength = 500;
+      input.addEventListener("input", () => {
+        if (locked()) return;
+        const hadResult = Boolean(state.analysisPreviewResult), selection = [input.selectionStart, input.selectionEnd];
+        draft[key] = input.value.trim(); state.analysisPreviewResult = null;
+        state.analysisPreviewAdded = false; state.analysisRegistrationReview = null;
+        if (hadResult) {
+          context.render();
+          const current = document.querySelector(`input[aria-label="${label}"]`);
+          if (current) {current.focus(); current.setSelectionRange(...selection);}
+        }
+      });
+      controls.append(field);
+    }
+    controls.append(textElement("p", "Choose stored receptor features and two explicit polygon areas. Describe the screening question and the basis for the influence area. No distance or impact significance is assumed."));
+  }
+  if (["clip", "join", "intersection", "join-summary", "select-by-location", "building-reconcile"].includes(draft.operation)) {
     controls.append(selectField("Target layer", draft.target, choices, (value) => update("target", value)));
   }
   if (draft.operation === "buffer") controls.append(textField("Distance (meters, up to 100,000)", draft.distance, (value) => update("distance", value)));
+  if (draft.operation === "building-reconcile") controls.append(textElement("p", "Choose two polygon building inventories. A single overlap on each side with intersection-over-union of at least 0.5 is a candidate agreement. Multiple overlaps need review. Both inventories are retained; no validated building total is inferred. The combined result is limited to 1,000 footprints within a 6° span and ±80° latitude."));
   controls.append(actionButton("Preview analysis", () => {void runNativeAnalysisPreview(context);}));
   section.append(controls);
   if (running) section.append(actionButton("Cancel preview", () => {
     void cancelNativeAnalysisPreview(context);
   }));
-  const status = textElement("p", state.analysisPreviewMessage ?? "Up to 1,000 features per input. Buffer distance is in meters. Measurement uses spheroidal square meters and meters; overlays and centroids use planar CRS84 geometry.");
+  const status = textElement("p", state.analysisPreviewMessage ?? (draft.operation === "receptor-screen"
+    ? "Receptors are clipped using planar CRS84 geometry. Areas and lengths use a mean-sphere method. The combined result is limited to 1,000 records and 50,000 positions."
+    : "Up to 1,000 features per input. Buffer distance is in meters. Measurement uses spheroidal square meters and meters; overlays and centroids use planar CRS84 geometry."));
   status.role = "status";
   status.setAttribute("aria-live", "polite");
   section.append(status);
-  const result = state.analysisPreviewResult;
-  if (result && !state.analysisPreviewAdded) section.append(actionButton("Add preview to map", () => {
+  const preview = state.analysisPreviewResult;
+  const result = preview?.buildingReview?.result ?? preview;
+  if (result) {
+    if (result.operation === "receptor-screen") section.append(receptorScreeningPanel(context, result));
+    const summary = buildingReconciliationSummary(preview.collection);
+    if (summary) {
+      section.append(buildingComparisonTable(summary), textElement("p", `${summary.candidatePairs} candidate pairs. The original comparison is unreviewed; decisions are recorded separately. Unmatched footprints may reflect source coverage or date differences. These results do not establish missing buildings, households or impacts.`));
+      section.append(buildingEvaluationPanel(context, preview), buildingReviewPanel(context, preview));
+    }
+    section.append(actionButton(result === preview ? "Download analysis GeoJSON" : "Download reviewed inventory GeoJSON", () => {
+      if (result.operation === "receptor-screen" && receptorScreeningLocked(context)) return;
+      downloadBlob(`${slug(result.source.title)}-${result.operation}.geojson`, JSON.stringify(result.collection), "application/geo+json");
+    }));
+    if (result !== preview) section.append(actionButton("Download comparison GeoJSON", () => {
+      downloadBlob(`${slug(preview.source.title)}-building-comparison.geojson`, JSON.stringify(preview.collection), "application/geo+json");
+    }));
+  }
+  if (result && !state.analysisPreviewAdded && (result === preview || result.collection.features.length)) section.append(actionButton(result === preview ? "Add preview to map" : "Add reviewed inventory to map", () => {
+    if (result.operation === "receptor-screen" && receptorScreeningLocked(context)) return;
     addProcessingOutputLayer(context, result.source, result.operation, result.collection, `${result.source.title} — ${result.operation} preview`);
     state.analysisPreviewAdded = true;
-    state.analysisPreviewMessage = "Added a temporary result. It has not been registered as a catalog Layer.";
+    state.analysisPreviewMessage = "Added a temporary result. Register it as a catalog Layer to retain its data.";
     context.render();
   }));
   if (result && context.createAnalysisRegistration && result.collection.features.length) {
@@ -9156,7 +9526,7 @@ function nativeAnalysisPanel(context) {
     section.append(fields, textElement("p", "Saving creates a restricted catalog Layer with input lineage. Source licenses are not automatically inherited. Processing must finish before adding the saved Layer from the catalog."));
     if (!state.analysisRegistrationComplete) {
       const save = actionButton(state.analysisRegistrationSession ? "Resume Layer registration" : "Save as catalog Layer", () => {void saveNativeAnalysis(context);});
-      save.disabled = Boolean(state.analysisRegistrationRunning);
+      save.disabled = Boolean(state.analysisRegistrationRunning || result.operation === "receptor-screen" && (context.disposed || context.queryLocationScopeInvalid));
       section.append(save);
     } else section.append(textElement("p", `Catalog Layer ${state.analysisRegistrationComplete.dataset.id} registered; version ${state.analysisRegistrationComplete.versionNumber} is queued for processing.`));
     if (state.analysisRegistrationComplete) section.append(actionButton("Start another analysis", () => {
@@ -9170,15 +9540,230 @@ function nativeAnalysisPanel(context) {
   return section;
 }
 
+function receptorScreeningLocked(context) {
+  return Boolean(context.state.analysisRegistrationSession) || context.disposed || context.queryLocationScopeInvalid;
+}
+
+function receptorScreeningPanel(context, result) {
+  const report = result.collection["opengeo:analysis"].screening;
+  const panel = document.createElement("fieldset"); panel.className = "receptor-screening-results";
+  panel.disabled = receptorScreeningLocked(context);
+  panel.append(textElement("legend", "Receptor screening results"), textElement("p", `Question: ${report.question}`),
+    textElement("p", `Influence area basis: ${report.influenceBasis}`));
+  const table = document.createElement("table"); table.className = "gis-compact-table";
+  table.append(textElement("caption", "Receptor screening by area"));
+  const header = document.createElement("tr");
+  for (const title of ["Area", "Feature records", "Polygon records", "Line records", "Point records", "Polygon area (m²)", "Line length (m)", "Point coordinates"]) {
+    const cell = textElement("th", title); cell.scope = "col"; header.append(cell);
+  }
+  const head = document.createElement("thead"); head.append(header); table.append(head);
+  const body = document.createElement("tbody");
+  const number = value => new Intl.NumberFormat("en-US", {maximumFractionDigits: 2}).format(value);
+  for (const [key, title] of [["footprint", "Project footprint"], ["influence", "Influence area"]]) {
+    const summary = report.scopes[key], row = document.createElement("tr"), label = textElement("th", title); label.scope = "row";
+    row.append(label);
+    for (const value of [summary.featureCount, summary.polygonFeatureCount, summary.lineFeatureCount, summary.pointFeatureCount,
+      summary.polygonFeatureCount ? number(summary.areaSquareMeters) : "Not applicable",
+      summary.lineFeatureCount ? number(summary.lengthMeters) : "Not applicable", summary.pointCount]) row.append(textElement("td", value));
+    body.append(row);
+  }
+  table.append(body);
+  const scroll = document.createElement("div"); scroll.className = "receptor-screening-table-scroll";
+  scroll.append(table);
+  panel.append(scroll, textElement("p", "Each row summarizes clipped feature records within that area. Areas summarize polygons, lengths summarize lines, and point totals count point coordinates. A receptor can occur in both areas; these rows have no combined total. Coverage, source quality and impact significance remain unknown. Expert impact assessment requires separate evidence."));
+  panel.append(actionButton("Download screening table CSV", () => {
+    if (receptorScreeningLocked(context)) return;
+    downloadBlob(`${slug(result.source.title)}-receptor-screening.csv`, receptorScreeningCsv(result.collection), "text/csv");
+  }), actionButton("Download screening methods JSON", () => {
+    if (receptorScreeningLocked(context)) return;
+    downloadBlob(`${slug(result.source.title)}-receptor-screening-methods.json`, JSON.stringify(report, null, 2), "application/json");
+  }));
+  return panel;
+}
+
+function buildingEvaluationPanel(context, preview) {
+  const panel = document.createElement("fieldset");
+  panel.className = "building-inventory-evaluation";
+  const locked = () => Boolean(context.state.analysisRegistrationSession) || context.disposed || context.queryLocationScopeInvalid;
+  panel.disabled = locked();
+  panel.append(textElement("legend", "Evaluate building inventory agreement"));
+  const evaluation = preview.buildingEvaluation ??= {referenceSide: "", result: null};
+  const invalidate = () => {
+    if (preview.buildingReview) preview.buildingReview.result = null;
+    context.state.analysisPreviewAdded = false;
+    context.state.analysisRegistrationReview = null;
+  };
+  const target = context.layers.find(layer => layer.datasetId === preview.collection["opengeo:analysis"].targetDatasetId)
+    ?? context.layers.find(layer => layer.layerId === context.state.analysisPreviewDraft?.target);
+  panel.append(selectField("Reference inventory", evaluation.referenceSide,
+    [["", "Choose a reference inventory"], ["source", `${preview.source.title} (Source)`], ["target", `${target?.title ?? "Comparison inventory"} (Comparison)`]], value => {
+      if (locked()) return;
+      evaluation.referenceSide = value;
+      evaluation.result = null;
+      invalidate();
+      context.state.analysisPreviewMessage = "Reference choice changed. Evaluate inventory agreement before including it in a reviewed inventory.";
+      context.render();
+    }));
+  const evaluate = actionButton("Evaluate inventory agreement", () => {
+    if (locked()) return;
+    try {
+      const result = evaluateBuildingComparison({collection: preview.collection, referenceSide: evaluation.referenceSide});
+      evaluation.result = result;
+      invalidate();
+      context.state.analysisPreviewMessage = "Input inventory agreement evaluated using the selected reference. Review selections remain available.";
+    } catch (error) {context.state.analysisPreviewMessage = error.message;}
+    context.render();
+  });
+  evaluate.disabled = !["source", "target"].includes(evaluation.referenceSide);
+  panel.append(evaluate, textElement("p", "These metrics compare the two input inventories. Review selections do not change them. Coverage, dates, reference completeness and reference accuracy remain unknown. Agreement does not establish ground truth or a validated building total."));
+  if (evaluation.result) {
+    const result = evaluation.result, table = document.createElement("table");
+    table.className = "gis-compact-table";
+    table.append(textElement("caption", "Building inventory agreement"));
+    const header = document.createElement("tr");
+    for (const title of ["Metric", "Value"]) {
+      const cell = textElement("th", title); cell.scope = "col"; header.append(cell);
+    }
+    const head = document.createElement("thead"); head.append(header); table.append(head);
+    const body = document.createElement("tbody");
+    const percent = value => value === null ? "Unavailable" : new Intl.NumberFormat("en-US", {style: "percent", maximumFractionDigits: 2}).format(value);
+    for (const [title, value] of [
+      ["Reference footprints", result.counts.reference], ["Prediction footprints", result.counts.prediction],
+      ["True positives (matched pairs)", result.counts.truePositives], ["False positives (unmatched predictions)", result.counts.falsePositives],
+      ["False negatives (unmatched reference)", result.counts.falseNegatives], ["Precision", percent(result.metrics.precision)],
+      ["Recall", percent(result.metrics.recall)], ["F1", percent(result.metrics.f1)],
+      ["Signed count difference (prediction − reference)", result.metrics.signedCountDifference],
+      ["Absolute count difference", result.metrics.absoluteCountDifference], ["Relative count difference", percent(result.metrics.relativeCountDifference)],
+      ["Mean matched intersection over union", percent(result.metrics.meanIntersectionOverUnion)],
+      ["Mean matched geometry disagreement (1 − IoU)", percent(result.metrics.meanOneMinusIntersectionOverUnion)]
+    ]) {
+      const row = document.createElement("tr"), label = textElement("th", title); label.scope = "row";
+      row.append(label, textElement("td", value)); body.append(row);
+    }
+    table.append(body);
+    panel.append(table, actionButton("Download inventory agreement JSON", () => {
+      if (locked()) return;
+      downloadBlob(`${slug(preview.source.title)}-building-inventory-agreement.json`, JSON.stringify(result, null, 2), "application/json");
+    }));
+  }
+  return panel;
+}
+
+function buildingReviewPanel(context, preview) {
+  const panel = document.createElement("fieldset");
+  panel.className = "building-reconciliation-review";
+  const locked = () => Boolean(context.state.analysisRegistrationSession) || context.disposed || context.queryLocationScopeInvalid;
+  panel.disabled = locked();
+  panel.append(textElement("legend", "Review building footprints"));
+  const review = preview.buildingReview ??= {decisions: {}, drafts: {}, result: null};
+  try {review.groups ??= buildingReconciliationGroups(preview.collection);}
+  catch (error) {panel.append(textElement("p", `Review unavailable: ${error.message}`)); return panel;}
+  if (!review.groups.length) {panel.append(textElement("p", "There are no footprints to review.")); return panel;}
+  const groups = review.groups;
+  review.selectedGroupId ??= groups[0].id;
+  const group = groups.find(item => item.id === review.selectedGroupId);
+  const titles = {unmatched: "Unmatched", "one-to-one-candidate": "Candidate agreement", "boundary-disagreement": "Boundary disagreement", ambiguous: "Split or merge candidate"};
+  panel.append(textElement("p", "Choose which original footprints to retain in each overlap group. Record a reason, including when excluding a whole group. Choices do not repair geometry or establish the true number of buildings."));
+  const completed = groups.filter(item => review.decisions[item.id]).length;
+  panel.append(textElement("p", `${completed} of ${groups.length} groups reviewed.`), selectField("Review group", group.id,
+    groups.map((item, index) => [item.id, `${index + 1}. ${titles[item.status]} · ${item.sourceCount} source / ${item.targetCount} comparison${review.decisions[item.id] ? " · reviewed" : ""}`]), value => {
+      review.selectedGroupId = value; context.render();
+    }));
+  const draft = review.drafts[group.id] ??= {
+    selectedFeatureIds: [...(review.decisions[group.id]?.selectedFeatureIds ?? [])],
+    reason: review.decisions[group.id]?.reason ?? ""
+  };
+  const table = document.createElement("table"); table.className = "gis-compact-table";
+  table.append(textElement("caption", "Original footprints in this group"));
+  const header = document.createElement("tr");
+  for (const label of ["Retain", "Inventory", "Feature identity", "Overlapping neighbors"]) {
+    const cell = textElement("th", label); cell.scope = "col"; header.append(cell);
+  }
+  const head = document.createElement("thead"); head.append(header); table.append(head);
+  const body = document.createElement("tbody");
+  for (const feature of group.features) {
+    const input = feature.properties.input, row = document.createElement("tr"), choice = document.createElement("input");
+    choice.type = "checkbox"; choice.checked = draft.selectedFeatureIds.includes(feature.id);
+    choice.ariaLabel = `Retain ${input.side} footprint ${input.featureId}`;
+    choice.addEventListener("change", () => {
+      draft.selectedFeatureIds = choice.checked ? [...new Set([...draft.selectedFeatureIds, feature.id])]
+        : draft.selectedFeatureIds.filter(id => id !== feature.id);
+    });
+    const cell = document.createElement("td"); cell.append(choice);
+    row.append(cell, textElement("td", input.side === "source" ? "Source" : "Comparison"),
+      textElement("td", input.featureId), textElement("td", feature.properties.reconciliation.neighbors.length));
+    body.append(row);
+  }
+  table.append(body); panel.append(table);
+  const reasonLabel = document.createElement("label"), reason = document.createElement("textarea");
+  reasonLabel.className = "gis-field";
+  reasonLabel.append(textElement("span", "Reason for this group decision"));
+  reason.ariaLabel = "Reason for this group decision"; reason.maxLength = 500; reason.rows = 2; reason.value = draft.reason;
+  reason.addEventListener("input", () => {draft.reason = reason.value;});
+  reasonLabel.append(reason); panel.append(reasonLabel);
+  panel.append(actionButton("Record group decision", () => {
+    if (locked()) return;
+    const reason = draft.reason.trim();
+    if (!reason || reason.length > 500) {
+      context.state.analysisPreviewMessage = "Enter a reason of at most 500 characters for this group decision.";
+    } else {
+      review.decisions[group.id] = {componentId: group.id, selectedFeatureIds: [...draft.selectedFeatureIds], reason};
+      review.result = null;
+      context.state.analysisPreviewAdded = false;
+      context.state.analysisRegistrationReview = null;
+      context.state.analysisPreviewMessage = "Group decision recorded. Create the reviewed inventory after reviewing every group.";
+    }
+    context.render();
+  }));
+  const create = actionButton("Create reviewed inventory", () => {
+    if (locked()) return;
+    try {
+      const collection = buildReviewedBuildingInventory({collection: preview.collection,
+        decisions: Object.values(review.decisions), reviewerId: context.analysisReviewerId, timestamp: new Date().toISOString(),
+        ...(preview.buildingEvaluation?.result ? {evaluationReferenceSide: preview.buildingEvaluation.referenceSide} : {})});
+      review.result = {collection, source: preview.source, operation: "building-reconcile-reviewed"};
+      context.state.analysisPreviewAdded = false;
+      context.state.analysisRegistrationReview = {title: `${preview.source.title} reviewed building inventory`.slice(0, 160), description: "", license: "", attribution: ""};
+      const summary = collection["opengeo:analysis"].buildingReview;
+      context.state.analysisPreviewMessage = `${summary.retainedFeatureCount} original footprints retained; ${summary.excludedFeatureCount} excluded. ${summary.selectedOverlapPairs} cross-source overlap pairs remain selected. This is a reviewed footprint count, not a validated building total.`;
+    } catch (error) {context.state.analysisPreviewMessage = error.message;}
+    context.render();
+  });
+  create.disabled = completed !== groups.length;
+  panel.append(create);
+  if (!context.analysisReviewerId) panel.append(textElement("p", "Sign in to attribute the recorded inventory review to your account."));
+  if (review.result) panel.append(textElement("p", "The reviewed inventory keeps only your selected footprints. Its methods retain all group decisions, excluded source identities, reviewer and time. The original comparison remains available. Saving uses the existing Catalog size and metadata limits."));
+  return panel;
+}
+
+function buildingComparisonTable(summary) {
+  const table = document.createElement("table");
+  table.className = "gis-compact-table";
+  table.append(textElement("caption", "Building footprint comparison"));
+  const header = document.createElement("tr");
+  for (const title of ["Footprints", "Source", "Comparison"]) {
+    const cell = textElement("th", title); cell.scope = "col"; header.append(cell);
+  }
+  const head = document.createElement("thead"); head.append(header); table.append(head);
+  const body = document.createElement("tbody");
+  for (const [key, title] of [["total", "All"], ["candidates", "Candidate agreements"], ["unmatched", "Unmatched"], ["ambiguous", "Ambiguous overlaps"], ["disagreements", "Boundary disagreements"]]) {
+    const row = document.createElement("tr"), label = textElement("th", title); label.scope = "row";
+    row.append(label, textElement("td", summary.source[key]), textElement("td", summary.target[key])); body.append(row);
+  }
+  table.append(body); return table;
+}
+
 async function saveNativeAnalysis(context) {
   const {state} = context;
   if (state.analysisRegistrationRunning || state.analysisRegistrationComplete) return;
+  const screening = state.analysisPreviewResult?.operation === "receptor-screen";
+  if (screening && (context.disposed || context.queryLocationScopeInvalid)) return;
   state.analysisRegistrationRunning = true;
   try {
     state.analysisRegistrationSession ??= context.createAnalysisRegistration({
-      collection: state.analysisPreviewResult.collection,
+      collection: state.analysisPreviewResult.buildingReview?.result?.collection ?? state.analysisPreviewResult.collection,
       review: state.analysisRegistrationReview,
-      assertCurrentScope: async () => {if (context.disposed) throw Error("The project view has changed.");},
+      assertCurrentScope: async () => {if (context.disposed || screening && context.queryLocationScopeInvalid) throw Error("The project view has changed.");},
       onStage: (_stage, message) => {state.analysisPreviewMessage = message; if (!context.disposed) context.render();}
     });
     context.render();
@@ -9196,11 +9781,17 @@ export async function runNativeAnalysisPreview(context) {
   const {state} = context;
   if (state.analysisPreviewController) return;
   const draft = {...state.analysisPreviewDraft};
+  if (draft.operation === "receptor-screen") return runReceptorScreeningPreview(context, draft);
   const source = context.layers.find((layer) => layer.layerId === draft.source && layer.sourceType === "governed-dataset");
   const target = context.layers.find((layer) => layer.layerId === draft.target && layer.sourceType === "governed-dataset");
-  const paired = ["clip", "join", "intersection", "join-summary", "select-by-location"].includes(draft.operation);
+  const paired = ["clip", "join", "intersection", "join-summary", "select-by-location", "building-reconcile"].includes(draft.operation);
   if (!source || (paired && !target)) {
     state.analysisPreviewMessage = "Select an available source and target layer.";
+    context.render();
+    return;
+  }
+  if (draft.operation === "building-reconcile" && source.datasetId === target.datasetId) {
+    state.analysisPreviewMessage = "Choose two different building inventories.";
     context.render();
     return;
   }
@@ -9244,6 +9835,78 @@ export async function runNativeAnalysisPreview(context) {
   }
 }
 
+async function runReceptorScreeningPreview(context, draft) {
+  const {state} = context;
+  if (receptorScreeningLocked(context)) return;
+  const layer = id => context.layers.find(value => value.layerId === id && value.sourceType === "governed-dataset");
+  const source = layer(draft.source), footprint = layer(draft.target), influence = layer(draft.influence);
+  try {
+    if (typeof draft.question !== "string" || !draft.question.trim() || draft.question.length > 500 || draft.question.includes("\0")) {
+      throw Error("Enter a screening question of at most 500 characters.");
+    }
+    if (typeof draft.influenceBasis !== "string" || !draft.influenceBasis.trim() || draft.influenceBasis.length > 500 || draft.influenceBasis.includes("\0")) {
+      throw Error("Enter the influence area basis in at most 500 characters.");
+    }
+    if (!source || !footprint || !influence) throw Error("Choose a receptor Layer, Project footprint and explicit influence area.");
+    if (source.datasetId === footprint.datasetId || source.datasetId === influence.datasetId) {
+      throw Error("Choose a receptor inventory distinct from both polygon areas.");
+    }
+  } catch (error) {
+    state.analysisPreviewResult = null; state.analysisPreviewMessage = error.message; context.render(); return;
+  }
+  const controller = new AbortController(), options = {signal: controller.signal};
+  const active = {controller, previewId: null, datasetId: source.datasetId, submitted: false};
+  const current = () => !controller.signal.aborted && !context.disposed && !context.queryLocationScopeInvalid
+    && !state.analysisRegistrationSession && state.analysisPreviewController === controller && state.analysisPreviewActive === active;
+  state.analysisPreviewController = controller; state.analysisPreviewActive = active;
+  state.analysisPreviewCancellation = null; state.analysisPreviewResult = null;
+  state.analysisPreviewAdded = false; state.analysisRegistrationReview = null;
+  state.analysisPreviewMessage = "Checking receptor and polygon area versions…"; context.render();
+  try {
+    const reads = new Map();
+    const get = datasetId => {
+      if (!reads.has(datasetId)) reads.set(datasetId, context.getAnalysisCollection(datasetId, options));
+      return reads.get(datasetId);
+    };
+    const [sourceCollection, footprintCollection, influenceCollection] = await Promise.all([
+      get(source.datasetId), get(footprint.datasetId), get(influence.datasetId)
+    ]);
+    if (!current()) return;
+    if (!["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"].includes(sourceCollection.geometryType)) {
+      throw Error("The receptor inventory must contain supported points, lines or polygons.");
+    }
+    if (![footprintCollection, influenceCollection].every(collection => ["Polygon", "MultiPolygon"].includes(collection.geometryType))) {
+      throw Error("The Project footprint and influence area must both be polygon inventories.");
+    }
+    const clip = async (mask, maskCollection, title) => {
+      if (!current()) return null;
+      active.previewId = crypto.randomUUID(); active.submitted = false;
+      state.analysisPreviewMessage = `Clipping receptors to ${title}…`; context.render();
+      if (!current()) return null;
+      active.submitted = true;
+      const result = await context.previewVectorAnalysis(source.datasetId, {operation: "clip", source_generation: sourceCollection.generation,
+        target_dataset_id: mask.datasetId, target_generation: maskCollection.generation, preview_id: active.previewId}, options);
+      active.submitted = false;
+      return result;
+    };
+    const footprintResult = await clip(footprint, footprintCollection, "the Project footprint");
+    if (!current()) return;
+    const influenceResult = footprint.datasetId === influence.datasetId && footprintCollection.generation === influenceCollection.generation
+      ? footprintResult : await clip(influence, influenceCollection, "the influence area");
+    if (!current()) return;
+    const collection = buildReceptorScreening({footprint: footprintResult, influence: influenceResult,
+      question: draft.question.trim(), influenceBasis: draft.influenceBasis.trim()});
+    state.analysisPreviewResult = {collection, source: {...source}, operation: "receptor-screen"};
+    state.analysisPreviewMessage = `${collection.features.length} scoped result records ready. Footprint and influence results remain separate; nothing has been saved.`;
+  } catch (error) {
+    if (current()) state.analysisPreviewMessage = error.message || "Receptor screening failed. Check the selected inventories and areas.";
+  } finally {
+    if (state.analysisPreviewController === controller) state.analysisPreviewController = null;
+    if (state.analysisPreviewActive === active) state.analysisPreviewActive = null;
+    if (!context.disposed) context.render();
+  }
+}
+
 export async function cancelNativeAnalysisPreview(context) {
   const {state} = context;
   const active = state.analysisPreviewActive;
@@ -9276,6 +9939,147 @@ export async function cancelNativeAnalysisPreview(context) {
   if (!context.disposed) context.render();
 }
 
+export function fieldsOfTheWorldPanel(context) {
+  if (!context.fieldsOfTheWorld) {
+    context.fieldsOfTheWorld = FieldsOfTheWorld({
+      getClient: context.getFieldsOfTheWorldClient,
+      onDownload: ({filename, blob}) => downloadBlob(filename, blob),
+      onAdd: ({geojson, receipt}) => {
+        if (context.disposed) return;
+        const query = receipt.query;
+        const title = `FTW ${query.countryCode} ${query.year} · selected fields`;
+        addProcessingOutputLayer(context, {layerId: null, datasetId: null}, "ftw-fields", {
+          ...geojson,
+          "opengeo:analysis": {operation: "ftw-fields", persisted: false, crs: "CRS:84",
+            receipt: structuredClone(receipt)}
+        }, title);
+        context.state.processingLog.unshift(`${title}: temporary whole footprints; download the query to retain them. Register in Catalog before saving an account Project.`);
+      }
+    });
+  }
+  context.fieldsOfTheWorld.classList.add("gis-editor-section");
+  return context.fieldsOfTheWorld;
+}
+
+export function baselineLayerRegistrationPanel(context) {
+  if (typeof context.createAnalysisRegistration !== "function") return null;
+  const layer = activeLayer(context), data = layer && context.dataByLayerId.get(layer.layerId);
+  if (layer?.sourceType !== "geojson-object") return null;
+  let evidence, raster;
+  try {
+    raster = rasterAnalysisEvidence(data);
+    evidence = raster ?? mappedFieldSourceEvidence(data);
+  } catch (error) {
+    const analysis = data?.["opengeo:analysis"];
+    if (!analysis || !["rasterComparison", "rasterPatches", "rasterValidation", "rasterHeightDifference"].some(key => Object.hasOwn(analysis, key))) return null;
+    const unavailable = editorSection("Save raster Layer to Catalog", "Catalog registration is unavailable for this raster output.");
+    unavailable.classList.add("gis-baseline-registration");
+    unavailable.append(textElement("p", `Add the complete cell output from the raster comparison, height comparison, patch summary or validation assessment, with its retained methods, then try again. ${error.message}`));
+    return unavailable;
+  }
+  if (!evidence) return null;
+  if (!data?.features?.length) return null;
+  const output = raster ? "raster" : "field";
+  const records = context.baselineRegistrations ??= new Map();
+  const section = editorSection(`Save ${output} Layer to Catalog`, "Review this output before creating a restricted Catalog Layer. Source terms do not determine output permissions.");
+  section.classList.add("gis-baseline-registration");
+  const pending = [...records.values()].find(record => record.layerId !== layer.layerId && record.session && !record.complete);
+  if (pending) {
+    section.append(textElement("p", `Registration for ${pending.title} is unfinished. Select that Layer to resume it before starting another registration.`));
+    return section;
+  }
+  let record = records.get(layer.layerId);
+  if (!record || !record.session && !record.complete && (record.layer !== layer || record.data !== data)) {
+    record = {layerId: layer.layerId, layer, data, output, title: layer.title, review: {
+      title: layer.title.slice(0, 160), description: "", license: "", attribution: evidence.source.attribution ?? ""
+    }};
+    records.set(layer.layerId, record);
+  }
+  const fields = document.createElement("fieldset");
+  fields.disabled = Boolean(record.session || record.running || record.complete || context.queryLocationScopeInvalid);
+  for (const [key, label] of [["title", "Catalog Layer title"], ["description", "Catalog description"],
+    ["license", "Output distribution license (blank if unknown)"], ["attribution", "Output attribution"]]) {
+    fields.append(textField(label, (record.frozenReview ?? record.review)[key], value => {
+      if (!record.session && !record.running && !record.complete && !context.disposed && !context.queryLocationScopeInvalid) record.review[key] = value;
+    }));
+  }
+  section.append(fields, textElement("p", raster
+    ? "Complete mapped cells and their full methods report are retained. Source terms remain input facts; classification accuracy, actual change and ecological condition are not established."
+    : `Source: ${evidence.query.year} · ${evidence.source.license}. Whole footprints are retained; this does not establish crops, tenure or field accuracy.`));
+  if (!record.complete) {
+    const save = actionButton(record.session ? `Resume ${output} Layer registration` : `Save ${output} Layer to Catalog`, () => {
+      void saveBaselineLayerRegistration(context, record);
+    });
+    save.disabled = Boolean(record.running || context.queryLocationScopeInvalid);
+    section.append(save);
+  }
+  const status = textElement("p", record.complete
+    ? `Catalog Layer ${record.complete.dataset.id} registered with lineage. Processing is queued. Open Catalog to check when the Layer is ready to add.`
+    : record.message ?? `No upload starts until you choose Save ${output} Layer to Catalog.`);
+  status.role = "status"; status.setAttribute("aria-live", "polite"); section.append(status);
+  if (record.complete || record.session?.datasetId) {
+    section.append(actionButton(`Open Catalog for saved ${output} Layer`, () => openProjectCatalog(context)),
+      textElement("p", "When processing is ready, add the saved Layer from Catalog. Remove temporary Layers after checking the saved data, then save the account Project."));
+  }
+  return section;
+}
+
+export async function saveBaselineLayerRegistration(context, record) {
+  if (record.running || record.complete || context.disposed || context.queryLocationScopeInvalid) return;
+  if ([...(context.baselineRegistrations?.values() ?? [])].some(other => other !== record && other.session && !other.complete)) {
+    record.message = "Another Layer registration is unfinished. Select that Layer and resume it before starting another registration.";
+    context.render();
+    return;
+  }
+  record.running = true;
+  try {
+    if (!record.session) {
+      const layer = context.layers.find(item => item.layerId === record.layerId);
+      const current = context.dataByLayerId.get(record.layerId);
+      const snapshot = JSON.stringify(current);
+      if (layer !== record.layer || current !== record.data || layer?.sourceType !== "geojson-object"
+        || activeLayer(context) !== layer || !current?.features?.length
+        || !(rasterAnalysisEvidence(current) ?? mappedFieldSourceEvidence(current))) throw Error(`Select a ${record.output} output with retained source evidence.`);
+      const layerSnapshot = JSON.stringify(layer), workspace = context.workspace, workspaceSnapshot = JSON.stringify(workspace);
+      const project = context.project, projectSnapshot = JSON.stringify(project);
+      const registrationFactory = context.createAnalysisRegistration, reviewer = context.analysisReviewerId;
+      const assertCurrentScope = () => {
+        if (context.disposed || context.queryLocationScopeInvalid
+          || context.workspace !== workspace || JSON.stringify(context.workspace) !== workspaceSnapshot
+          || context.project !== project || JSON.stringify(context.project) !== projectSnapshot
+          || context.createAnalysisRegistration !== registrationFactory || context.analysisReviewerId !== reviewer
+          || context.layers.find(item => item.layerId === record.layerId) !== layer || JSON.stringify(layer) !== layerSnapshot
+          || activeLayer(context) !== layer || context.dataByLayerId.get(record.layerId) !== current || JSON.stringify(current) !== snapshot) {
+          throw Error(`This Project or ${record.output} output changed. Check any committed Catalog record before continuing.`);
+        }
+      };
+      const review = Object.freeze({...record.review});
+      const session = registrationFactory({
+        collection: JSON.parse(snapshot), review,
+        assertCurrentScope,
+        onStage: (_stage, message) => {
+          try {assertCurrentScope();} catch {return;}
+          record.message = message; context.render();
+        }
+      });
+      record.frozenReview = review;
+      record.assertCurrentScope = assertCurrentScope;
+      record.session = session;
+    }
+    await record.assertCurrentScope();
+    context.render();
+    const result = await record.session.run();
+    await record.assertCurrentScope();
+    record.complete = result;
+    record.session = null;
+  } catch (error) {
+    record.message = `${error.message || "Registration failed."} Any committed upload is retained; resume this registration rather than uploading again.`;
+  } finally {
+    record.running = false;
+    if (!context.disposed) context.render();
+  }
+}
+
 function processingPanel(context) {
   const {state} = context;
   const panel = panelShell();
@@ -9287,6 +10091,11 @@ function processingPanel(context) {
     }));
   }
   panel.append(nativeAnalysisPanel(context));
+  panel.append(fieldsOfTheWorldPanel(context));
+  panel.append(rasterValidationPanel(context));
+  panel.append(rasterHeightDifferencePanel(context));
+  const registration = baselineLayerRegistrationPanel(context);
+  if (registration) panel.append(registration);
   const tool = PROCESSING_TOOLS.find((candidate) => candidate.id === state.activeToolId) ?? PROCESSING_TOOLS[0];
   panel.dataset.processingRegistry = PROCESSING_REGISTRY_SCHEMA_VERSION;
   panel.dataset.processingTool = tool.id;
@@ -9301,6 +10110,7 @@ function processingPanel(context) {
     "p",
     `${tool.executionMode} · tool ${tool.version} · registry ${PROCESSING_REGISTRY_SCHEMA_VERSION}`
   ));
+  if (tool.id === "field-inventory") panel.append(textElement("p", "Use the active polygon Layer as mapped agricultural fields. Calculate individual areas and their sum; overlapping or duplicate polygons are counted separately. Clip to your study area first when needed. This does not establish crops, cadastral parcels, tenure or field verification. Up to 1,000 loaded polygons; no data is fetched."));
   if (tool.id === "vector-to-pmtiles") {
     panel.append(pmtilesDerivativeEditor(context));
   } else {
@@ -9353,6 +10163,90 @@ function processingPanel(context) {
   }
   panel.append(log, history, durableJobsSection(context));
   return panel;
+}
+
+// Height comparison uses existing resident raster candidates and scope guards.
+export function rasterHeightDifferencePanel(context) {
+  const captureScope = () => {
+    const workspace = context.workspace, project = context.project, role = context.role,
+      workspaceSnapshot = JSON.stringify(workspace), projectSnapshot = JSON.stringify(project);
+    return () => !context.disposed && !context.queryLocationScopeInvalid && context.state.spatialBody?.id === "earth"
+      && context.workspace === workspace && context.project === project && context.role === role
+      && JSON.stringify(context.workspace) === workspaceSnapshot && JSON.stringify(context.project) === projectSnapshot;
+  };
+  if (!context.rasterHeightDifference) context.rasterHeightDifference = RasterHeightDifference({
+    getCandidates: () => rasterComparisonCandidates(context), captureScope,
+    onDownload: ({text, filename, mimeType}) => {
+      if (!context.disposed && !context.queryLocationScopeInvalid) downloadBlob(filename, text, mimeType);
+    },
+    onAdd: collection => {
+      if (!captureScope()()) return false;
+      const source = context.layers.find(layer => layer.layerId === collection["opengeo:analysis"]?.rasterHeightDifference?.inputs.surface.pins.layerId);
+      if (!source) return false;
+      addProcessingOutputLayer(context, source, "raster-height-difference", collection, "Surface minus terrain heights (m)",
+        {fill: "#14b8a6", stroke: "#134e4a", strokeWidth: 1});
+      setStatus(context, "Height cells added as a temporary Layer. Download the complete GeoJSON or deliberately Save raster Layer to Catalog before saving an account Project. Height differences alone do not identify buildings.");
+      return true;
+    }
+  });
+  context.rasterHeightDifference.updateSource();
+  return context.rasterHeightDifference;
+}
+
+// A single Processing panel follows the selected sample Layer. Frozen review
+// data has no dependency on the original raster handle or its cached window.
+export function rasterValidationPanel(context) {
+  const scope = () => {
+    const workspace = context.workspace, project = context.project, workspaceSnapshot = JSON.stringify(workspace), projectSnapshot = JSON.stringify(project), activeLayerId = context.state.activeLayerId;
+    return () => !context.disposed && !context.queryLocationScopeInvalid && context.state.spatialBody?.id === "earth"
+      && context.workspace === workspace && context.project === project && context.state.activeLayerId === activeLayerId
+      && JSON.stringify(context.workspace) === workspaceSnapshot && JSON.stringify(context.project) === projectSnapshot;
+  };
+  const assessment = () => {
+    const layer = activeLayer(context), data = layer && context.dataByLayerId.get(layer.layerId), report = data?.["opengeo:analysis"]?.rasterValidation;
+    if (layer?.sourceType !== "geojson-object" || report?.schemaVersion !== "opengeo.cached-raster-validation.1.0.0") return null;
+    const currentScope = scope(), sourceIdentity = persistedLayerSourceIdentity(layer);
+    const editable = () => !layer.datasetId && ![...(context.baselineRegistrations?.values() ?? [])]
+      .some(record => record.layerId === layer.layerId && (record.session || record.running || record.complete));
+    return {id: layer.layerId, title: layer.title, layer, data, report, editable: editable(), isCurrent: () => currentScope()
+      && activeLayer(context) === layer && persistedLayerSourceIdentity(layer) === sourceIdentity
+      && context.layers.includes(layer) && context.dataByLayerId.get(layer.layerId) === data
+      && data["opengeo:analysis"]?.rasterValidation === report};
+  };
+  if (!context.rasterValidation) context.rasterValidation = RasterValidation({
+    getCandidates: () => rasterComparisonCandidates(context), getAssessment: assessment, captureScope: scope,
+    onDownload: ({text, filename, mimeType}) => {
+      if (!context.disposed && !context.queryLocationScopeInvalid) downloadBlob(filename, text, mimeType);
+    },
+    onAdd: collection => {
+      if (!scope()()) return false;
+      const source = context.layers.find(layer => layer.layerId === collection["opengeo:analysis"]?.rasterValidation?.plan.input.pins.layerId)
+        ?? {layerId: null, datasetId: null, title: "Saved raster validation"};
+      addProcessingOutputLayer(context, source, "raster-class-validation", collection, "Raster validation sample cells",
+        {fill: "#06b6d4", stroke: "#155e75", strokeWidth: 2});
+      setStatus(context, "Validation sample Layer added. Review whole cells in Processing; download a draft assessment JSON to keep review work, or deliberately Save raster Layer to Catalog before saving an account Project.");
+      return true;
+    },
+    onUpdate: (collection, captured) => {
+      const current = assessment();
+      if (!current?.editable || !captured.isCurrent() || current.layer !== captured.layer || current.data !== captured.data || current.report !== captured.report) return false;
+      context.dataByLayerId.set(current.id, collection);
+      const mapSource = context.state.map?.getSource?.(sourceId(current.layer));
+      if (mapSource?.setData) mapSource.setData(collection);
+      else if (context.state.map?.isStyleLoaded?.()) repaintLayer(context, current.layer);
+      setStatus(context, "Validation assessment changed. Download the assessment JSON or deliberately register this updated sample Layer in Catalog to retain its review events.");
+      context.render();
+      return true;
+    },
+    onFocus: (sample, captured) => {
+      if (!captured.isCurrent()) return;
+      const ring = [...sample.corners.map(point => [...point]), [...sample.corners[0]]];
+      const bounds = geojsonBounds({type: "FeatureCollection", features: [{type: "Feature", properties: {}, geometry: {type: "Polygon", coordinates: [ring]}}]});
+      if (bounds) context.state.map?.fitBounds(bounds, {padding: 64, maxZoom: 22, duration: 350});
+    }
+  });
+  context.rasterValidation.updateSource();
+  return context.rasterValidation;
 }
 
 function ensureActiveManagedDatasetMetadata(context) {
@@ -12595,18 +13489,24 @@ function bindLayerInteraction(state, map, layer, mapLayerId, datasets) {
 export function addMapLayer(state, layer, geojson, datasets) {
   const map = state.map;
   if (!map || state.layerHandles.has(layer.layerId)) return;
-  if (layer.sourceType === "cog-raster") {
+  if (isCogLayer(layer)) {
     if (workbenchRenderer(map).id !== "maplibre") {
-      state.rendererLayerIssues ??= new Map(); state.rendererLayerIssues.set(layer.layerId, "Referenced COG preview currently uses MapLibre. The Layer is preserved."); return;
+      state.rendererLayerIssues ??= new Map(); state.rendererLayerIssues.set(layer.layerId, "COG preview currently uses MapLibre. The Layer is preserved."); return;
     }
     try {
       if (layer.styleReference) {
         state.rendererLayerIssues ??= new Map();
         state.rendererLayerIssues.set(layer.layerId, "The saved Style reference is preserved; this raster preview does not apply vector Styles.");
       } else state.rendererLayerIssues?.delete(layer.layerId);
+      const binding = isManagedCogLayer(layer) ? state.managedCogBindings?.get(layer.layerId) : null;
+      if (isManagedCogLayer(layer) && !binding) return;
+      const source = binding ? {...binding.source, configuration: {...binding.source.configuration,
+        bands: layer.sourceConfiguration?.bands ?? [1], attribution: layer.attribution ?? null}}
+        : {sourceUrl: layer.sourceUrl, configuration: layer.sourceConfiguration};
       const id = `${layer.layerId}-cog`;
       const session = installCogMapLayer(map, {sourceId: sourceId(layer), layerId: id,
-        source: {sourceUrl: layer.sourceUrl, configuration: layer.sourceConfiguration}, opacity: layer.opacity ?? 1, visible: layer.visible,
+        source, ...(binding ? {read: binding.read} : {}),
+        opacity: layer.opacity ?? 1, visible: layer.visible,
         displayOptions: cogDisplayOptions(layer),
         onStatus: message => map.fire("cogstatus", {message: `${layer.title}: ${message}`}),
         onReady: () => map.fire("coglayerready")});
@@ -12760,7 +13660,9 @@ export function addMapLayer(state, layer, geojson, datasets) {
       return;
     }
   }
+  const sourceAttribution = layer.attribution ?? mappedFieldSourceEvidence(geojson)?.source.attribution;
   if (!map.getSource(dataSourceId)) map.addSource(dataSourceId, {type: "geojson", data: clustering.enabled ? pointClusterData(layer, geojson) : geojson,
+    ...(sourceAttribution ? {attribution: escapeHtml(sourceAttribution)} : {}),
     ...(clustering.enabled ? {cluster: true, clusterRadius: clustering.radius, clusterMaxZoom: clustering.maxZoom, maxzoom: Math.max(18, clustering.maxZoom + 1)} : {})});
   for (const image of boundStyle?.images ?? []) {
     if (!map.hasImage(image.id)) map.addImage(image.id, image.pixels, {pixelRatio: image.pixelRatio});
@@ -12880,6 +13782,49 @@ export function cogDisplayEditor(context, layer) {
     section.append(form);
   }
   section.append(message);
+  if (context.state.spatialBody?.id === "earth" && session) {
+    if (context.rasterBaseline?.session !== session) {
+      context.rasterBaseline?.view.dispose();
+      const view = RasterBaseline({getGrid: () => session.grid,
+        getAois: () => rasterBaselineAreas(context),
+        onDownload: ({text, filename, mimeType}) => downloadBlob(`${slug(layer.title)}-${filename}`, text, mimeType)});
+      context.rasterBaseline = {session, view};
+    }
+    context.rasterBaseline.view.updateSource();
+    section.append(context.rasterBaseline.view);
+    if (context.rasterComparison?.session !== session) {
+      context.rasterComparison?.view.dispose();
+      const view = RasterComparison({getCandidates: () => rasterComparisonCandidates(context), initialBeforeId: layer.layerId,
+        onDownload: ({text, filename, mimeType}) => downloadBlob(`${slug(layer.title)}-${filename}`, text, mimeType),
+        onAdd: collection => {
+          if (context.disposed || context.queryLocationScopeInvalid) return;
+          const source = context.layers.find(candidate => candidate.layerId === collection["opengeo:analysis"]?.rasterComparison?.inputs.before.pins.layerId);
+          if (!source) return;
+          addProcessingOutputLayer(context, source, "raster-class-comparison", collection, "Categorical class transition candidates",
+            {fill: "#f59e0b", stroke: "#92400e", strokeWidth: 1});
+          setStatus(context, "Class transition candidates added as a temporary Layer. Review Save raster Layer to Catalog in Processing before saving an account Project. Source differences do not establish actual land-cover change or impacts.");
+        }});
+      context.rasterComparison = {session, view};
+    }
+    context.rasterComparison.view.updateSource();
+    section.append(context.rasterComparison.view);
+    if (context.rasterPatches?.session !== session) {
+      context.rasterPatches?.view.dispose();
+      const view = RasterPatches({getInput: () => rasterComparisonCandidates(context).find(candidate => candidate.id === layer.layerId) ?? null,
+        onDownload: ({text, filename, mimeType}) => downloadBlob(`${slug(layer.title)}-${filename}`, text, mimeType),
+        onAdd: collection => {
+          if (context.disposed || context.queryLocationScopeInvalid) return;
+          const source = context.layers.find(candidate => candidate.layerId === collection["opengeo:analysis"]?.rasterPatches?.input.pins.layerId);
+          if (!source) return;
+          addProcessingOutputLayer(context, source, "raster-class-patches", collection, "Mapped class patch cells",
+            {fill: "#16a34a", stroke: "#14532d", strokeWidth: 1});
+          setStatus(context, "Observed patch cells added as a temporary Layer. Review Save raster Layer to Catalog in Processing before saving an account Project. Grid connectivity does not establish ecological isolation or habitat condition.");
+        }});
+      context.rasterPatches = {session, view};
+    }
+    context.rasterPatches.view.updateSource();
+    section.append(context.rasterPatches.view);
+  }
   if(context.state.spatialBody?.id==="earth"&&session) {
     if(context.rasterViewshed?.session!==session){context.rasterViewshed?.view.dispose();let view;
       view=RasterViewshed({getGrid:()=>session.grid,initialObserver:()=>context.state.map.getCenter().toArray(),
@@ -12897,9 +13842,64 @@ export function cogDisplayEditor(context, layer) {
   return section;
 }
 
+export function rasterComparisonCandidates(context) {
+  if (context.disposed || context.queryLocationScopeInvalid || context.state?.spatialBody?.id !== "earth") return [];
+  const pinsFor = layer => {
+    const binding = context.state.managedCogBindings?.get(layer.layerId);
+    return {layerId: layer.layerId, sourceType: layer.sourceType, datasetId: layer.datasetId ?? null,
+      datasetVersionId: layer.datasetVersionId ?? binding?.datasetVersionId ?? null,
+      sourceVersion: layer.sourceVersion ?? binding?.versionNumber ?? null, objectId: layer.objectId ?? binding?.objectId ?? null};
+  };
+  const signature = layer => {
+    const binding = isManagedCogLayer(layer) ? context.state.managedCogBindings?.get(layer.layerId) : null;
+    return JSON.stringify({pins: pinsFor(layer), sourceUrl: layer.sourceUrl ?? null,
+      bands: layer.sourceConfiguration?.bands ?? null, bounds: layer.sourceConfiguration?.bounds ?? null,
+      bindingPins: binding ? {datasetId: binding.datasetId, datasetVersionId: binding.datasetVersionId,
+        sourceVersion: binding.versionNumber, objectId: binding.objectId} : null});
+  };
+  const candidates = [];
+  for (const layer of context.layers ?? []) {
+    if (!isCogLayer(layer) || layer.visible === false) continue;
+    const session = context.state.layerHandles.get(layer.layerId)?.cog, grid = session?.grid;
+    if (!grid?.active?.() || grid.metadata?.interpretation !== "area") continue;
+    if (isManagedCogLayer(layer)) {
+      const binding = context.state.managedCogBindings?.get(layer.layerId);
+      if (!binding || binding.datasetId !== layer.datasetId || binding.datasetVersionId !== layer.datasetVersionId
+        || binding.versionNumber !== layer.sourceVersion || binding.objectId !== (layer.objectId ?? binding.objectId)) continue;
+    }
+    const captured = signature(layer);
+    candidates.push({id: layer.layerId, title: layer.title, grid, pins: pinsFor(layer), isCurrent: () => {
+      if (context.disposed || context.queryLocationScopeInvalid || context.state.spatialBody?.id !== "earth" || !grid.active()) return false;
+      const current = context.layers.find(value => value.layerId === layer.layerId);
+      return Boolean(current && current.visible !== false && isCogLayer(current)
+        && context.state.layerHandles.get(current.layerId)?.cog === session && signature(current) === captured);
+    }});
+    if (candidates.length === 4) break;
+  }
+  return candidates;
+}
+
+export function rasterBaselineAreas(context) {
+  const choices=[];
+  // This reads only resident geometry. The cap bounds option authoring, not a
+  // claim that every feature in a source was loaded or examined.
+  for(const layer of context.layers??[]) {
+    if(isCogLayer(layer))continue;
+    const data=context.dataByLayerId?.get(layer.layerId)??layer.geojson;
+    for(let index=0;index<Math.min(data?.features?.length??0,1000)&&choices.length<100;index++) {
+      const feature=data.features[index];if(!["Polygon","MultiPolygon"].includes(feature.geometry?.type))continue;
+      choices.push({id:`${layer.layerId}:${index}`,title:`${layer.title} · ${String(feature.id??`feature ${index+1}`).slice(0,80)}`,
+        geometry:feature.geometry,source:{layerId:layer.layerId,featureIndex:index,featureId:feature.id??null,
+          datasetId:layer.datasetId??null,sourceGeneration:layer.featureGeneration??null,sourceVersion:layer.sourceVersion??null}});
+    }
+    if(choices.length>=100)break;
+  }
+  return choices;
+}
+
 async function refreshCogWindow(context, layer, display = cogDisplayOptions(layer)) {
   const {state} = context, session = state.layerHandles.get(layer?.layerId)?.cog;
-  if (!session || !layer.visible) return setStatus(context, "Show the referenced COG in MapLibre before refreshing its raster window.");
+  if (!session || !layer.visible) return setStatus(context, "Show the COG Layer in MapLibre before refreshing its raster window.");
   const bounds = state.map.getBounds();
   return session.refresh([bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()], display).catch(() => null);
 }
@@ -13827,7 +14827,7 @@ function runTool(context, toolId) {
     return;
   }
 
-  if (["count", "bounds", "bbox-layer", "centroids", "geometric-centroids"].includes(toolId)) {
+  if (["count", "bounds", "bbox-layer", "centroids", "geometric-centroids", "field-inventory"].includes(toolId)) {
     runRegisteredBrowserTool(context, toolId, layer, geojson);
   }
   if (toolId === "filter-verified") setLayerFilter(context, layer, ["==", ["get", "status"], "verified"], "status = verified");
@@ -13841,6 +14841,8 @@ function runRegisteredBrowserTool(context, toolId, layer, geojson) {
       toolId,
       layerId: layer.layerId,
       layerTitle: layer.title,
+      datasetId: layer.datasetId ?? null,
+      sourceGeneration: layer.featureGeneration ?? null,
       geojson
     });
     const outputLayerName = receipt.output.geojson
@@ -13890,11 +14892,20 @@ function runProcessingModel(context, model) {
 function addProcessingOutputLayer(context, sourceLayer, toolId, geojson, explicitTitle = null, outputStyle = null) {
   context.state.processingRunSequence += 1;
   const centroid = ["centroids", "geometric-centroids"].includes(toolId) || geojson.features.every(({geometry}) => geometry?.type === "Point");
-  const title = explicitTitle ?? `${sourceLayer.title} ${toolId === "bbox-layer" ? "bounds" : toolId === "geometric-centroids" ? "planar centroids" : "centroids"}`;
+  const title = explicitTitle ?? `${sourceLayer.title} ${toolId === "bbox-layer" ? "bounds" : toolId === "geometric-centroids" ? "planar centroids" : toolId === "field-inventory" ? "mapped field areas" : "centroids"}`;
+  const evidence = mappedFieldSourceEvidence(geojson), source = evidence?.source;
+  const raster = rasterAnalysisEvidence(geojson);
   context.addLayer({
     layerId: `scratch_processing_${Date.now()}_${context.state.processingRunSequence}`,
     datasetId: null,
     title,
+    ...(raster?.source.attribution ? {attribution: raster.source.attribution} : {}),
+    ...(source ? {attribution: source.attribution, metadata: {source: {
+      format: "geoparquet", url: source.partitionUrl, license: source.license,
+      attribution: source.attribution, citation: source.citation ?? null,
+      observationYear: evidence.query.year, distributionVersion: source.distributionVersion ?? null,
+      metadataMethod: "Published FTW input terms; complete query receipt retained with the geometry. Output permissions are not inferred."
+    }}} : {}),
     sourceType: "geojson-object",
     geometryType: centroid ? "Point" : geojson.features.find(({geometry}) => geometry)?.geometry.type ?? "Polygon",
     visible: true,
@@ -13970,6 +14981,7 @@ function removeLayer(context, layer = activeLayer(context)) {
   context.layerArchiveModes.delete(layer.layerId);
   context.state.archiveTileSessions.get(layer.layerId)?.dispose();
   context.state.archiveTileSessions.delete(layer.layerId);
+  context.state.managedCogBindings.delete(layer.layerId);
   removeMapLayer(context.state, layer.layerId);
   const index = context.layers.indexOf(layer);
   if (index >= 0) context.layers.splice(index, 1);
@@ -15324,7 +16336,13 @@ function createLocalDraft(context) {
 
 function localDraftSignature(context, definition = createLocalDraft(context)) {
   const {updatedAt, updatedBy, activeLayerId, activeProcessingModelId, persistence, demoDate, ...draft} = definition;
-  return JSON.stringify(draft, (key, value) => typeof value === "number" && Number.isFinite(value)
+  // Review edits change the existing unsaved-work signature even where account
+  // Project definitions deliberately exclude temporary GeoJSON payloads.
+  const rasterValidationDrafts = context.layers.flatMap(layer => {
+    const report = layer.sourceType === "geojson-object" && context.dataByLayerId.get(layer.layerId)?.["opengeo:analysis"]?.rasterValidation;
+    return report ? [{layerId: layer.layerId, planId: report.plan?.id, reviews: report.reviews, status: report.status, estimates: report.estimates}] : [];
+  });
+  return JSON.stringify({...draft, ...(rasterValidationDrafts.length ? {rasterValidationDrafts} : {})}, (key, value) => typeof value === "number" && Number.isFinite(value)
     ? Math.round(value * 1e6) / 1e6 : value);
 }
 
@@ -15492,6 +16510,7 @@ export function currentProjectDefinition(context) {
       sharedSourceId: layer.sharedSourceId,
       portalCatalogSource: layer.portalCatalogSource,
       geometryType: layer.geometryType,
+      ...(layer.attribution !== undefined ? {attribution: layer.attribution} : {}),
       bbox: layer.bbox,
       visible: layer.visible,
       opacity: layer.opacity,
@@ -16268,7 +17287,7 @@ function renderMobileCommandSheet(layer, context) {
   const destinations = context.demoSurface
     ? demoNavigationItems()
     : studioNavigationItems(fixtureAdapterKind(context.persistenceMode))
-      .filter(item => ["home", "projects", "data", "styles", "collections", "publishing"].includes(item.id));
+      .filter(item => ["home", "projects", "data", "styles", "collections", "publishing", "credits"].includes(item.id));
   const browse = document.createElement("nav");
   browse.className = "gis-mobile-command-navigation";
   browse.ariaLabel = "Browse OpenGeo Studio";

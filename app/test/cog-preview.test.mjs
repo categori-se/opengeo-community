@@ -190,20 +190,20 @@ it("Catalog preview preserves data when its basemap fails or stalls and installs
 
 it("temporary Catalog controls apply deliberately, retain the applied range on refresh and cancel reads", async () => {
   const dom = new JSDOM("<!doctype html><body></body>"), globals = new Map();
-  const requests = []; let cancellations = 0, disposals = 0;
+  const requests = []; let cancellations = 0, disposals = 0, previewMap, readerStatus;
   const session = {refresh(bounds, options) {
     const request = {bounds, options}; requests.push(request);
     if (requests.length === 1) return Promise.resolve({});
     return new Promise(resolve => {request.resolve = resolve;});
   }, cancel() {cancellations++; requests.at(-1).resolve();}, dispose() {disposals++;}};
   class TestMap {
-    constructor() {this.events = new Map(); queueMicrotask(() => this.events.get("load")());}
+    constructor() {previewMap = this; this.events = new Map(); queueMicrotask(() => this.events.get("load")());}
     on(name, handler) {this.events.set(name, handler);}
     addControl() {} fitBounds() {} getBounds() {return {toArray: () => [[1, 2], [3, 4]]};} getCenter(){return {toArray:()=>[2,3]};} remove() {}
   }
   const replacements = {document: dom.window.document, MutationObserver: dom.window.MutationObserver,
     __cogTestRenderer: {Map: TestMap, NavigationControl: class {}, ScaleControl: class {}},
-    __cogTestInstall: () => session};
+    __cogTestInstall: (_map, {onStatus}) => {readerStatus = onStatus; return session;}};
   for (const [key, value] of Object.entries(replacements)) {globals.set(key, globalThis[key]); globalThis[key] = value;}
   try {
     const path = new URL("../src/components/MapView.js", import.meta.url);
@@ -214,6 +214,9 @@ it("temporary Catalog controls apply deliberately, retain the applied range on r
     const {MapView} = await import(`data:text/javascript;base64,${Buffer.from(code).toString("base64")}`);
     const scalar = {...source, configuration: {...source.configuration, bands: [1]}}, original = JSON.stringify(scalar);
     const view = MapView({cog: scalar}); document.body.append(view); await tick();
+    readerStatus("Raster view ready · overview · snapshot unverified (provider headers hidden).");
+    previewMap.events.get("dataloading")(); previewMap.events.get("idle")();
+    assert.match(view.querySelector('[role="status"]').textContent, /Raster view ready.*snapshot unverified/);
     const form = view.querySelector("form"), inputs = [...form.querySelectorAll("input")];
     const button = name => [...view.querySelectorAll("button")].find(item => item.textContent === name);
     inputs[0].value = "-100"; inputs[1].value = "-200";

@@ -65,6 +65,7 @@ function queryOf(draft) {
 
 function operation(fetchImplementation, signal, limits) {
   const controller = new AbortController(), usage = {requests: 0, bytes: 0, requestedBytes: 0, groups: 0, rows: 0, decodedBytes: 0};
+  const ranges = [];
   const begin = performance.now(), abort = () => controller.abort(signal.reason);
   if (signal?.aborted) abort(); else signal?.addEventListener("abort", abort, {once: true});
   const timer = setTimeout(() => controller.abort(problem("Search time limit reached.", "static_item_limit")), limits.milliseconds);
@@ -74,7 +75,35 @@ function operation(fetchImplementation, signal, limits) {
     usage.requests++; usage.requestedBytes += bytes;
   }
   const fetcher = async (url, options) => {check(); return fetchImplementation(url, {...options, signal: controller.signal});};
-  return {usage, signal: controller.signal,
+  const readRange = async (part, response, start, end) => {
+    const expectedRange = `bytes ${start}-${end - 1}/${part.size}`;
+    if (response.status !== 206 || response.headers.get("content-range") !== expectedRange) {
+      await response.body?.cancel(); throw problem(`Partition range unavailable (HTTP ${response.status}). No whole-file fallback was used.`);
+    }
+    const etag = response.headers.get("etag");
+    if (!etag || part.etag && etag !== part.etag) {await response.body?.cancel(); throw problem("Partition snapshot changed or its ETag is unavailable. Search again.");}
+    part.etag = etag;
+    const reader = response.body.getReader(), chunks = []; let received = 0;
+    try {
+      while (true) {
+        const {done, value} = await reader.read(); if (done) break;
+        received += value.byteLength; usage.bytes += value.byteLength;
+        if (received > end - start || usage.bytes > limits.bytes) throw problem("Partition byte limit reached.", "static_item_limit");
+        chunks.push(value);
+      }
+    } finally {await reader.cancel().catch(() => {}); reader.releaseLock();}
+    if (received !== end - start) throw problem("Partition range was truncated.");
+    const bytes = new Uint8Array(received); let offset = 0;
+    for (const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.byteLength;}
+    ranges.push({url: part.url, start, endExclusive: end, bytes: received, etag});
+    return bytes.buffer;
+  };
+  return {usage, ranges, signal: controller.signal,
+    assertActive() {
+      controller.signal.throwIfAborted();
+      if (performance.now() - begin >= limits.milliseconds) throw problem("Search time limit reached.", "static_item_limit");
+    },
+    abort(reason) {controller.abort(reason);},
     async json(url) {
       const maxBytes = Math.min(2 * 1024 * 1024, limits.bytes - usage.bytes);
       if (maxBytes < 1) throw problem("Search byte limit reached.", "static_item_limit");
@@ -88,30 +117,30 @@ function operation(fetchImplementation, signal, limits) {
       check(end - start);
       const response = await fetchImplementation(part.url, {signal: controller.signal, credentials: "omit", redirect: "error",
         referrerPolicy: "no-referrer", cache: "no-store", headers: {Range: `bytes=${start}-${end - 1}`}});
-      const expectedRange = `bytes ${start}-${end - 1}/${part.size}`;
-      if (response.status !== 206 || response.headers.get("content-range") !== expectedRange) {
-        await response.body?.cancel(); throw problem(`Partition range unavailable (HTTP ${response.status}). No whole-file fallback was used.`);
+      return readRange(part, response, start, end);
+    },
+    async suffix(part, length = 65536) {
+      length = count(length, "suffix length");
+      if (!length) throw problem("Invalid partition suffix range.");
+      check(length);
+      const response = await fetchImplementation(part.url, {signal: controller.signal, credentials: "omit", redirect: "error",
+        referrerPolicy: "no-referrer", cache: "no-store", headers: {Range: `bytes=-${length}`}});
+      const match = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get("content-range") ?? "");
+      const size = match ? Number(match[3]) : NaN, start = Math.max(0, size - length);
+      if (response.status !== 206 || !Number.isSafeInteger(size) || size < 8 || Number(match?.[1]) !== start
+        || Number(match?.[2]) !== size - 1 || part.size != null && part.size !== size) {
+        await response.body?.cancel(); throw problem("Partition suffix unavailable. No whole-file fallback was used.");
       }
-      const etag = response.headers.get("etag");
-      if (!etag || part.etag && etag !== part.etag) {await response.body?.cancel(); throw problem("Partition snapshot changed or its ETag is unavailable. Search again.");}
-      part.etag = etag;
-      const reader = response.body.getReader(), chunks = []; let received = 0;
-      try {
-        while (true) {
-          const {done, value} = await reader.read(); if (done) break;
-          received += value.byteLength; usage.bytes += value.byteLength;
-          if (received > end - start || usage.bytes > limits.bytes) throw problem("Partition byte limit reached.", "static_item_limit");
-          chunks.push(value);
-        }
-      } finally {await reader.cancel().catch(() => {}); reader.releaseLock();}
-      if (received !== end - start) throw problem("Partition range was truncated.");
-      const bytes = new Uint8Array(received); let offset = 0;
-      for (const chunk of chunks) {bytes.set(chunk, offset); offset += chunk.byteLength;}
-      return bytes.buffer;
+      part.size = size;
+      return {start, bytes: await readRange(part, response, start, size)};
     },
     close() {clearTimeout(timer); signal?.removeEventListener("abort", abort); usage.milliseconds = Math.round(performance.now() - begin);}
   };
 }
+
+// Shared bounded anonymous transport and pinned reader; provider clients retain
+// their own schema/admission contracts. Existing satellite discovery is unchanged.
+export {operation as createPublicParquetOperation, loadReader as loadPublicParquetReader};
 
 async function metadataFor(part, reader, op) {
   const offset = Math.max(0, part.size - 64 * 1024), tail = await op.range(part, offset, part.size);

@@ -30,48 +30,7 @@ This is the production API runtime foundation. The current surface includes:
 
 Every HTTP response receives `X-Request-ID`. A caller-supplied value is retained only when it uses a bounded safe character set; otherwise the API generates a UUID. One JSON completion/failure event is written per request without query strings or database error text.
 
-## Continuous integration
-
-The [API contract and metadata workflow](../../.github/workflows/api-contract.yml)
-checks changes to API source, tests, dependency locks and contract fixtures in
-pushes and pull requests to `main`, and supports manual runs. One Python 3.14 job
-installs the existing hash-locked dependencies, checks that the saved OpenAPI
-contract matches two fresh exports, and runs focused workspace, exporter,
-metadata adapter/profile and CKAN tests. Pip downloads are cached by both
-lockfiles; the job records the resolved Python and dependency versions. It has
-read-only repository permissions, cancels superseded runs for the same ref and
-stops after 15 minutes.
-The [selected hosted run](../../docs/api/evidence/api-ci.json) records the actual
-installation, 89 passing checks and deterministic export for its source commit.
-
-After installing the development lock, reproduce these checks from `services/api`:
-
-```bash
-.venv/bin/python scripts/export_openapi.py --check
-.venv/bin/python -m pytest \
-  tests/test_openapi_export.py \
-  tests/test_workspace_routes.py \
-  tests/test_metadata_adapters.py \
-  tests/test_metadata_profiles.py \
-  tests/test_ckan_export.py \
-  tests/test_ckan.py \
-  tests/test_ckan_routes.py
-```
-
-These checks use synthetic identities, repository/provider substitutes and local
-fixtures. They require no AWS or provider credentials and do not establish
-connected database, sign-in, cloud deployment or publication acceptance.
-
 ## Local Checks
-
-Inspect the [current API contract](../../docs/api/README.md), including source
-registration, map save/reopen and publication preparation/review examples. After
-installing the locked development dependencies below, validate the saved contract
-from the repository root with:
-
-```bash
-services/api/.venv/bin/python services/api/scripts/export_openapi.py --check
-```
 
 ```bash
 python3 -m venv .venv

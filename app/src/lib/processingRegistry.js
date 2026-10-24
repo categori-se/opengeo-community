@@ -1,4 +1,5 @@
 import {geoPath, polygonArea} from "d3";
+import {inventoryMappedFields, FIELD_INVENTORY_LIMITS} from "./fieldInventory.js";
 
 export const PROCESSING_REGISTRY_SCHEMA_VERSION = "opengeo.processing-registry.1.0.0";
 export const PROCESSING_RUN_SCHEMA_VERSION = "opengeo.processing-run.1.0.0";
@@ -30,6 +31,10 @@ export const PROCESSING_TOOLS = Object.freeze([
   ),
   browserTool("centroids", "Browser vector", "Create vertex-mean centers", "vector-layer", ["centroids"]),
   browserTool("geometric-centroids", "Browser vector", "Create planar centroid layer", "vector-layer", []),
+  Object.freeze({...browserTool("field-inventory", "Baseline inventory", "Inventory mapped field areas", "vector-layer", []),
+    limits: Object.freeze({maximumFeatures: FIELD_INVENTORY_LIMITS.features,
+      maximumCoordinates: FIELD_INVENTORY_LIMITS.positions, maximumOutputBytes: FIELD_INVENTORY_LIMITS.outputBytes,
+      maximumMilliseconds: FIELD_INVENTORY_LIMITS.milliseconds, supportedCrs: "CRS:84", networkAccess: "disabled"})}),
   Object.freeze({
     id: "filter-verified",
     version: "1.0.0",
@@ -153,7 +158,7 @@ export function processingRegistryDocument() {
   };
 }
 
-export function runBrowserProcessingTool({toolId, layerId, layerTitle, geojson, parameters = {}}) {
+export function runBrowserProcessingTool({toolId, layerId, layerTitle, geojson, parameters = {}, datasetId = null, sourceGeneration = null}) {
   const tool = processingTool(toolId);
   if (!tool || tool.executionMode !== "browser-memory") {
     throw processingError("processing_tool_not_executable_in_browser");
@@ -165,7 +170,12 @@ export function runBrowserProcessingTool({toolId, layerId, layerTitle, geojson, 
   let outputGeojson = null;
   let summary;
   let log;
-  if (tool.id === "count") {
+  if (tool.id === "field-inventory") {
+    const inventory = inventoryMappedFields({geojson: input.geojson, layerId: identity, datasetId, sourceGeneration});
+    outputGeojson = inventory.geojson;
+    summary = inventory.summary;
+    log = `${title}: ${summary.featureCount} mapped field records; ${summary.totalAreaHectares.toFixed(3)} ha summed footprint area, including overlaps and duplicates. Whole-area coverage and field verification were not assessed.`;
+  } else if (tool.id === "count") {
     summary = {featureCount: input.featureCount};
     log = `${title}: ${input.featureCount} features.`;
   } else if (tool.id === "bounds") {
@@ -207,7 +217,7 @@ export function runBrowserProcessingTool({toolId, layerId, layerTitle, geojson, 
       ...(outputGeojson ? {geojson: outputGeojson} : {})
     },
     logs: [log],
-    limits: structuredClone(BROWSER_PROCESSING_LIMITS)
+    limits: structuredClone(tool.limits)
   };
 }
 

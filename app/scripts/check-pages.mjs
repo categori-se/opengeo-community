@@ -341,7 +341,7 @@ const browserUserConnections = [{
   owner_user_id: IDS.user,
   provider: "s3",
   display_name: "Geospatial data",
-  bucket_name: "geospatial.data",
+  bucket_name: "example-geodata",
   region_name: "us-east-1",
   object_prefix: "",
   credential_mode: "workload_identity",
@@ -3152,7 +3152,7 @@ async function assertProjectDirectory(page, route) {
   if (await page.locator("#connections[open]").count() !== 1) {
     failures.push(`${route}: Connections did not open the reusable connection interface directly`);
   }
-  await expectText(page, "s3://geospatial.data/", "reusable fixture S3 target");
+  await expectText(page, "s3://example-geodata/", "reusable fixture S3 target");
   await page.locator(".platform-connection-record").first().locator("summary").click();
   await expectText(page, "Live S3 verification", "truthful unverified connection disclosure");
   await page.getByRole("navigation", {name: "Account settings", exact: true})

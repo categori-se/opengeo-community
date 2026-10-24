@@ -5,6 +5,69 @@ import {JSDOM} from 'jsdom';
 import {StyleLibrary} from '../src/components/StyleLibrary.js';
 import {PlatformDirectory} from '../src/components/PlatformDirectory.js';
 import {patternSld,savedPattern,patternSvg,normalizePattern,createCartographicPatternLibrary,rasterizePattern} from '../src/lib/cartographicPatterns.js';
+import {parseContinuousColorExpression} from '../src/lib/continuousStyle.js';
+import {symbologyCatalog} from '../src/lib/symbologyCatalog.js';
+
+it('authors unequal continuous palette stops and saves only the selected bound definition while MassGIS remains classed',async()=>{
+  const dom=new JSDOM('<body/>'),previous=new Map(),stored=[];
+  for(const name of ['document','DOMParser','Option']){previous.set(name,globalThis[name]);globalThis[name]=dom.window[name];}
+  const adapter={kind:'fixture',listResources:async()=>[{id:'resource',title:'Amounts',kind:'dataset',state:'draft'}],
+    getResourceCapabilities:async()=>({canUpdate:true}),listResourceStyles:async()=>stored,
+    createResourceStyle:async(projectId,resourceId,value)=>{
+      assert.equal(projectId,'container');assert.equal(resourceId,'resource');
+      const style={...value,id:'continuous-palette',resourceId,versionNumber:1,checksumSha256:createHash('sha256').update(value.definition).digest('hex')};
+      stored.push(style);return style;
+    }};
+  let root;
+  const settle=()=>new Promise(resolve=>setTimeout(resolve,0));
+  const control=label=>root.querySelector(`[aria-label="${label}"]`);
+  const change=async(label,value,event='change')=>{control(label).value=value;control(label).dispatchEvent(new dom.window.Event(event));await settle();};
+  const button=text=>[...root.querySelectorAll('button')].find(item=>item.textContent===text);
+  try{
+    root=StyleLibrary({adapter,containers:[{id:'container',name:'Account data'}]});document.body.append(root);
+    await change('Data library','container');await change('Style resource','resource');await change('Collections','OpenGeo palettes');
+    root.querySelector('[data-entry-id="palette:risk"]').click();await settle();
+    assert.equal(control('Palette scale').value,'classed');
+    assert.equal(JSON.parse(root.querySelector('[aria-label="Preset Style definition"]').textContent).layers[0].paint['fill-color'][0],'step');
+    await change('Palette scale','continuous');await change('Preset numeric field','loss_amount','input');
+    await change('Preset Style name','Loss amounts','input');
+    for(const [index,value] of [0,5,20,80,100].entries())await change(`Palette stop ${index+1}`,String(value),'input');
+    assert.equal(stored.length,0);
+    const preview=decodeURIComponent(root.querySelector('.symbology-gallery-preset-preview img').src.split(',')[1]);
+    assert.match(preview,/<linearGradient[^>]+color-interpolation="sRGB"/);assert.match(preview,/<stop offset="0.05"/);
+    const status=root.querySelector('#style-preset-designer [role="status"]');
+    for(const invalid of ['0','']){
+      await change('Palette stop 2',invalid,'input');assert.equal(button('Save as new Style').disabled,true);
+      assert.match(status.textContent,/increasing finite stops/);assert.equal(status.closest('details'),null);
+      assert.equal(status.closest('section').hidden,false);
+      assert.equal(root.querySelector('.symbology-gallery-preset-preview img'),null);assert.equal(stored.length,0);
+      button('Save as new Style').click();await settle();assert.equal(stored.length,0);
+    }
+    await change('Palette stop 2','5','input');assert.equal(button('Save as new Style').disabled,false);
+    assert.equal(status.textContent,'');assert.equal(control('Preset numeric field').validity.valid,true);
+    assert.ok(root.querySelector('.symbology-gallery-preset-preview img'));
+    button('Save as new Style').click();await settle();assert.equal(stored.length,1);
+    const definition=JSON.parse(stored[0].definition),scale=parseContinuousColorExpression(definition.layers[0].paint['fill-color']);
+    assert.equal(definition.name,'Loss amounts');assert.equal(scale.field,'loss_amount');
+    assert.deepEqual(scale.stops.map(stop=>stop.value),[0,5,20,80,100]);
+    assert.deepEqual(scale.stops.map(stop=>stop.color),symbologyCatalog().find(entry=>entry.id==='palette:risk').recipe.colors);
+    assert.equal(scale.noDataColor,'#9ca3af');assert.equal(definition.layers[0].paint['fill-opacity'],.75);
+    assert.equal(button('Save as new Style').disabled,true);
+    assert.match(status.textContent,/Saved Loss amounts · version 1/);
+    await change('Palette stop 2','5','input');assert.match(status.textContent,/Saved Loss amounts · version 1/);
+    button('Discard preset changes').click();await change('Collections','MassGIS · MassEnviroScreen');
+    const example=symbologyCatalog().find(entry=>entry.id.startsWith('massgis:'));
+    root.querySelector(`[data-entry-id="${example.id}"]`).click();await settle();
+    assert.equal(control('Palette scale').parentElement.hidden,true);
+    assert.deepEqual(JSON.parse(root.querySelector('[aria-label="Preset Style definition"]').textContent),JSON.parse(example.recipe.definition));
+    await change('Preset numeric field','https://invalid.example','input');
+    assert.match(status.textContent,/valid numeric field name/);assert.equal(root.querySelector('.symbology-gallery-preset-preview img'),null);
+    assert.equal(button('Save as new Style').disabled,true);assert.equal(stored.length,1);
+    await change('Preset numeric field',example.recipe.field,'input');
+    assert.equal(status.textContent,'');assert.ok(root.querySelector('.symbology-gallery-preset-preview img'));
+    assert.equal(stored.length,1);
+  }finally{root?.dispose();for(const [name,value]of previous)globalThis[name]=value;dom.window.close();}
+});
 it('creates, stores and reopens a versioned pattern with a safe preview through the existing adapter', async()=>{
   const dom=new JSDOM('<body/>');const previous=new Map();
   for(const name of ['document','DOMParser','Option']){previous.set(name,globalThis[name]);globalThis[name]=dom.window[name];}

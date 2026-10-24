@@ -275,9 +275,9 @@ it(`inserts an exported Studio map into ${entry} only after distribution consent
 });
 
 it("retains page and settings edits across shared tabs and renders only a requested saved preview", async () => {
-  const previews = [], saves = [];
+  const previews = [], saves = [], destinationWrites = [];
   const state = fixture({updateSite: async (...args) => saves.push(args),
-    configureSitePublicationDestination() {}, previewPageVersion: async (...args) => {
+    configureSitePublicationDestination: async (...args) => destinationWrites.push(args), previewPageVersion: async (...args) => {
       previews.push(args); return {html: "<h1>Methods</h1>"};
     }});
   const root = ProjectPublishingWorkspace({state, refresh: async () => {}}); document.body.append(root);
@@ -290,7 +290,14 @@ it("retains page and settings edits across shared tabs and renders only a reques
   assert.deepEqual(previews[0], ["project", "page", 2, {title: "Methods", abstract: null, content: state.sites[0].pages[0].content}]);
   assert.equal(root.querySelector("iframe").getAttribute("sandbox"), "");
   assert.equal(root.querySelector("iframe").hidden, false);
-  button(root, "Publish").click(); assert.ok(root.querySelector(".project-site-destination"));
+  button(root, "Publish").click();
+  const destination = root.querySelector(".project-site-destination");
+  assert.ok(destination); assert.equal(destination.closest('[role="tabpanel"]').hidden, true);
+  button(root, "Configure public addresses…").click();
+  assert.equal(root.querySelector('[role="tab"][aria-selected="true"]').textContent, 'Settings');
+  assert.equal(destination.closest('[role="tabpanel"]').hidden, false);
+  assert.equal(destination.closest('.publication-address-settings').open, true);
+  assert.equal(destinationWrites.length, 0, 'opening public-address configuration does not save a destination');
   assert.equal(saves.length, 0);
   button(root, "Pages").click(); assert.equal(title.value, "Edited atlas");
   button(root, "Settings").click(); assert.equal(accent.value, "#123456");
@@ -372,22 +379,40 @@ it("retains Artifact reference drafts across Publication switching, navigation a
 
 
 it("exposes workspace-scoped collaboration without loading or granting access on open", async () => {
-  let reads = 0, writes = 0;
+  let reads = 0; const invitations = [];
   const state = fixture({listProjectMembers: async () => {reads++; return [];},
-    createInvitation: async () => {writes++;}});
+    createInvitation: async draft => {invitations.push(draft); return {...draft, status: 'pending'};}});
   state.organization.callerRole = "admin";
   const root = ProjectPublishingWorkspace({state, refresh: async () => {}});
   document.body.append(root);
   const access = root.querySelector('.publication-collaborators');
-  assert.ok(access); assert.equal(reads, 0); assert.equal(writes, 0);
-  access.querySelector('summary').click(); await tick();
-  const panel = root.querySelector(".project-site-collaborators");
+  assert.ok(access); assert.equal(access.open, false);
+  assert.equal(access.querySelector('.project-site-collaborators'), null, 'access controls mount only after opening Workspace access');
+  assert.equal(reads, 0); assert.equal(invitations.length, 0);
+  access.querySelector(':scope > summary').click(); await tick();
+  const panel = access.querySelector(".project-site-collaborators");
   assert.ok(panel);
+  assert.equal(panel.open, false, 'the invitation disclosure still requires a deliberate open');
   assert.match(panel.textContent, /Workspace collaborators/);
   assert.match(panel.textContent, /not just this Publication/);
-  panel.querySelector("summary").click(); await tick();
-  assert.ok(panel.querySelector('[aria-label="Collaborator email"]'));
-  assert.equal(reads, 0); assert.equal(writes, 0);
+  panel.querySelector(":scope > summary").click(); await tick();
+  const form = panel.querySelector('form[data-purpose="project-invitation"]');
+  assert.ok(form); assert.equal(panel.open, true);
+  assert.equal(reads, 0); assert.equal(invitations.length, 0, 'opening both disclosures never invites anyone');
+  form.querySelector('[aria-label="Collaborator email"]').value = 'reviewer@local.invalid';
+  form.querySelector('[aria-label="Collaborator display name"]').value = 'Local reviewer';
+  form.querySelector('[aria-label="Collaborator project role"]').value = 'editor';
+  access.querySelector(':scope > summary').click(); await tick();
+  access.querySelector(':scope > summary').click(); await tick();
+  assert.equal(access.querySelectorAll('.project-site-collaborators').length, 1, 'reopening reuses the mounted access controls');
+  assert.equal(form.querySelector('[aria-label="Collaborator email"]').value, 'reviewer@local.invalid');
+  assert.equal(reads, 0); assert.equal(invitations.length, 0);
+  button(form, 'Create project invitation').click(); await tick();
+  assert.equal(invitations.length, 1, 'only submitting the exact invitation form writes');
+  assert.deepEqual(invitations[0], {email: 'reviewer@local.invalid', displayName: 'Local reviewer',
+    organizationRole: 'member', projectId: 'project', projectRole: 'editor', expiresInDays: 7});
+  assert.equal(reads, 0, 'an unopened roster is not fetched after invitation');
+  assert.match(panel.textContent, /reviewer@local.invalid was invited as editor\. Access begins only after acceptance\./);
 });
 
 it('creates a private notebook from File without configuring an address, building or publishing', async () => {

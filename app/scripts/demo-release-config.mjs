@@ -10,8 +10,12 @@ import {MAPBOX_RUNTIME} from '../src/lib/mapboxRuntime.js';
 // Local developer/figure/publishing exports add five files; cached COG Identify adds one.
 // Saved-profile line of sight adds one shared component. These allowances
 // do not change the byte or PWA/startup cache budgets. Bounded Ozi import adds one file.
+// Public credits and seven local licensing records add eight core artifacts.
+// The completed source list adds seventeen existing shared-workbench modules.
+// The measured 304-file core also includes their emitted dependency artifacts;
+// the byte budget and exact optional-renderer inventory remain unchanged.
 export const BROWSER_DEMO_LIMITS = Object.freeze({
-  coreFiles: 269, coreBytes: 20 * 1024 * 1024,
+  coreFiles: 304, coreBytes: 20 * 1024 * 1024,
   rendererFiles: 400, rendererBytes: 14 * 1024 * 1024
 });
 
@@ -55,13 +59,18 @@ export function assertBrowserDemoRelease(manifest) {
   assertRendererInventory(renderers);
   if (manifest.schemaVersion !== 'opengeo.demo-build.1.0.0'
       || manifest.demoOrigin !== 'https://demo.studio.opengeo.tools'
-      || manifest.aliases.length !== 0 || manifest.authConfig
-      || manifest.routes.length !== 1 || manifest.routes[0].path !== '/'
+      || manifest.aliases.length !== manifest.routes.length - 1 || manifest.authConfig
+      || ![1, 2].includes(manifest.routes.length) || manifest.routes[0].path !== '/'
+      || (manifest.routes.length === 2 && (manifest.routes[1].path !== '/credits'
+        || manifest.routes[1].htmlPath !== 'credits.html'
+        || !files.some(file => file.path === 'credits.html')
+        || manifest.aliases[0]?.key !== 'credits'
+        || manifest.aliases[0]?.sourcePath !== 'credits.html'))
       || core.length > BROWSER_DEMO_LIMITS.coreFiles
       || core.reduce((sum, f) => sum + f.bytes, 0) > BROWSER_DEMO_LIMITS.coreBytes
       || renderers.length > BROWSER_DEMO_LIMITS.rendererFiles
       || renderers.reduce((sum, f) => sum + f.bytes, 0) > BROWSER_DEMO_LIMITS.rendererBytes) {
-    throw Error('Browser Demo must be a bounded anonymous one-page release');
+    throw Error('Browser Demo must contain only its bounded anonymous workbench and optional public credits');
   }
   assertPublicArtifactBoundary(files.map(file => file.path), 'Browser Demo', {allowWorkbenchDemo: true});
 }

@@ -24,3 +24,17 @@ dataset rights and application authorization are independent of software licensi
 This source snapshot includes reviewed existing assets but no installed dependency
 trees, dependency wheels, container images or newly compiled application bundles.
 Later binary releases need exact component, notice and corresponding-source review.
+
+Built Studio and browser Demo installations include a public /credits page,
+local /notices source records, third-party-notices.txt and third-party-inventory.json.
+The generated notices collect direct browser package licenses, the required and
+installed optional jsPDF/svg2pdf.js converter closure and separately shipped notices.
+jsPDF and svg2pdf.js retain their MIT licenses, credit to James Hall, yWorks GmbH,
+Vitaly Puzrin and contributors, and embedded browser-source legal notices.
+The closure includes type-only packages and installed HTML/canvas integrations;
+absent optional packages are recorded explicitly. It excludes development and
+peer-only dependencies and is not an exact bundle inclusion trace. Its scope and missing
+evidence are explicit. These notices are not a
+complete transitive or container SBOM and do not replace upstream terms or the
+exact binary-distribution review. Operators may add their own credits while
+retaining this attribution and the upstream notices.

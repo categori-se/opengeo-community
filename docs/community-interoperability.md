@@ -55,6 +55,20 @@ create local Accounts/Collections; upstream publication flags and permissions do
 not grant local access. Resource URLs remain references, not verified downloads
 or map-ready Layers. Private CKAN authentication and write-back are unsupported.
 
+## Prepare a STAC Collection for CKAN
+
+The separate [offline exporter](api/stac-ckan.md) prepares a create payload from
+one STAC Collection, retaining its source checksum, normalized metadata and
+explicit losses. It makes no remote writes or reference fetches. Declared rights
+remain metadata; destination organization, visibility, grants and CKAN license
+selection are not inferred. The guide includes the fixture, expected output,
+tests and a pinned CKAN 2.11.6 sysadmin-peer create/read/purge receipt.
+
+The October 23 source recovery reproduces the expected payload byte-for-byte in
+the cached API image with networking disabled. Pytest was unavailable, so the
+matching-source historical checks are reused. Ordinary-user policy, harvesting,
+synchronization, update merging and production acceptance remain open.
+
 ## Read the workspace through catalog and feature APIs
 
 | Surface | Useful operation | Boundary and representative check |
@@ -71,12 +85,48 @@ the workspace's governed metadata; importing an external STAC Collection is the
 separate metadata operation above. Neither route enables unrestricted remote
 asset ingestion.
 
+## Save a QGIS connection with encrypted authentication
+
+QGIS **3.44.14-Solothurn** can retain an OpenGeo OGC API Features connection using
+its stock **APIHeader** authentication method. In QGIS, create an authentication
+configuration protected by its master password, with `Authorization` set to
+`Bearer <your access token>` and `X-OpenGeo-Organization` set to your authorized
+organization ID. Select that configuration when creating a WFS / OGC API Features
+connection, choose **OGC API - Features**, and use the authorized service URL
+`https://<api-host>/projects/<project-id>/services/<service-slug>/ogc`.
+Keep the token in QGIS's encrypted authentication database; the named connection
+retains an authentication configuration ID. Do not put tokens in the URL or
+ordinary connection fields.
+
+The [existing native peer](../scripts/check-qgis-service-peer.mjs) now exercises
+the stock connection dialog, exits, then reads the saved connection in a fresh
+QGIS process without receiving the bearer again or installing a request hook:
+
+```sh
+node scripts/check-qgis-service-peer.mjs --saved-connection
+```
+
+This uses the API development venv described in its [README](../services/api/README.md).
+If an exact API image is already cached locally, `--api-image sha256:<image-id>`
+reuses it with rootless Podman instead of installing/building dependencies. No
+image is pulled. The peer uses private disposable profile/authentication files,
+synthetic authority and real local middleware/routes with deterministic data;
+it removes its files and fixture after checking the exact feature and bbox read.
+
+This closes local named-connection persistence, not interactive sign-in or token
+refresh. Replace an expired bearer deliberately. APIHeader applies its headers
+wherever a caller supplies its authentication ID; it does not enforce a destination
+allowlist. Use a trusted service with trusted discovery/redirect links. The local
+check does not establish deployed identity/TLS, independent human GUI acceptance
+or broader QGIS/OGC conformance. Historical **3.44.12** receipts retain their scope.
+
 ## Consume an external service or publish a spatial service
 
 | Family | External consumption | OpenGeo Studio output and existing example |
 | --- | --- | --- |
 | WMS | Register credential-free HTTPS WMS 1.3.0/1.1.1 settings; display current-view PNG/JPEG in EPSG:3857. No upstream editing or complete archive. | [WMS parser](../services/api/src/opengeo_api/wms.py), [render routes](../services/api/src/opengeo_api/render_routes.py): selected GetCapabilities/GetMap, PNG or SVG, configured Styles and bounded layers. 1.3 uses CRS:84/EPSG:3857; 1.1.1 uses EPSG:4326/EPSG:3857. [Parser examples](../services/api/tests/test_wms.py) and [Project publication controls](../app/test/project-wms-publications.test.mjs). Explicit public WMS publication has separate input rights/release authority. |
 | WFS | Register one public WFS 2.0 feature type for current-extent GeoJSON; at most 1,000 features per page. External locks, WFS-T writes and complete crawling are absent. | [WFS routes](../services/api/src/opengeo_api/wfs_routes.py): authenticated WFS 2.0 discovery, typed feature reads/stored queries and bounded single-operation transactions. CRS84/GML 3.2 or GeoJSON; selected 1.1.0 GeoMoose compatibility uses EPSG:4326/3857 and GML 2.1.2/GeoJSON. [OpenLayers request and versioned-transaction tests](../services/api/tests/test_wfs_routes.py). This does not confer upstream write authority. |
+| External PostgreSQL/PostGIS | Discover metadata, register a stable Catalog Layer and read at most 100 features from an ordinary table with at most 64 columns, one supported 2D EPSG:4326 geometry, a stable unique key and supported primitive attributes. Exact bigint/numeric values use text. No arbitrary SQL or upstream editing. | [Registration/preview routes](../services/api/src/opengeo_api/postgis_layer_routes.py) and the [connected local browser journey](../app/scripts/integrated-studio-postgis.mjs) cover owner/viewer rendering, truncation, exact values and authenticated API grant removal. Registration/preview creates no managed feature copy or Project. Verification, identity, secrets and external DNS/TLS/cloud transport are synthetic; configured-provider, AWS and deployment acceptance remain open. |
 | WCS | No general external WCS client is advertised. | [Coverage routes](../services/api/src/opengeo_api/coverage_routes.py) implement authenticated WCS 2.0.1 GetCapabilities, DescribeCoverage and GetCoverage for sealed coverages. Exact GeoTIFF reads or bounded multipart metadata+raster; nontrivial subsets require an explicitly prepared derivative. Unprepared subsets return unavailable instead of queuing work. [Exact read/subset examples](../services/api/tests/test_coverage_routes.py). |
 | WMTS | External GeoLibre WMTS definitions are preserved inertly; arbitrary capabilities, matrices and templates are not an executable registration adapter. | [Tile-cache routes](../services/api/src/opengeo_api/tile_cache_routes.py) implement authenticated WMTS 1.0.0 GetCapabilities/GetTile for explicit, versioned PNG caches in WebMercatorQuad. Reads do not generate missing tiles. [Seeded exact-cache tests](../services/api/tests/test_spatial_service_routes.py). |
 

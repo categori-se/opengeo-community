@@ -35,6 +35,7 @@ describe("public workbench demo source boundary", () => {
       root = demo ? PublicDemoWorkbench({catalog:CATALOG,geojson:COMMUNITY_GEOJSON,massgis:MASSGIS,fetchImpl:async()=>{throw Error("No provider");}}) : StartPage({catalog:{workspaces:[]}});
       document.body.append(root);root.querySelector(".start-empty-map")?.click();
       const workbench=root.querySelector(".opengeo-workbench");
+      assert.equal(workbench.querySelector('.gis-app-nav a[href="/credits"]')?.textContent,"Credits");
       const project=()=>workbench.querySelector('.gis-menubar [data-menu="project"]');
       assert.equal(workbench.querySelector(".gis-toolstrip").firstElementChild.className,"gis-menubar");
       assert.equal(project(),workbench.querySelector(".gis-menubar").firstElementChild);
@@ -48,6 +49,7 @@ describe("public workbench demo source boundary", () => {
       workbench.querySelector(".gis-quick-tools-toggle").click();assert.equal(workbench.querySelector(".gis-primary-toolbar").hidden,false);
       workbench.querySelector('.gis-mobile-toolbar [data-primary-command="more"]').click();
       const sheet=workbench.querySelector(".gis-mobile-command-sheet");assert.ok(sheet);
+      assert.equal(sheet.querySelector('.gis-mobile-command-navigation a[href="/credits"]')?.textContent,"Credits");
       assert.equal(Boolean(sheet.querySelector('.gis-mobile-command-navigation a[href="https://demo.studio.opengeo.tools/?view=catalog"]')),demo);
       const category=sheet.querySelector('[data-mobile-command-category="project"]');
       for(const label of ["Demo home","Sample datasets","Reset public demo","About demo privacy"]) assert.equal(category.textContent.includes(label),demo,label);
@@ -63,6 +65,7 @@ describe("public workbench demo source boundary", () => {
       document.body.append(root);
       const map=root.querySelector(".opengeo-workbench");assert.ok(map);assert.equal(root.querySelector("#example-catalog"),null);
       assert.equal(root.querySelector('a[href="https://studio.opengeo.tools/"]')?.textContent,"Open Studio ↗");
+      assert.ok(root.querySelector('.public-demo-information a[href="/credits"]'));
       assert.ok(root.querySelector('a[href="/?view=catalog"]'));
       assert.equal(map.__opengeoLayers.length,1);
       dom.window.history.pushState(null,"","/?view=catalog");dom.window.dispatchEvent(new dom.window.PopStateEvent("popstate"));
@@ -72,6 +75,37 @@ describe("public workbench demo source boundary", () => {
       assert.ok(root.querySelector('a[href="https://studio.opengeo.tools/workspaces?view=publishing"]'));
       dom.window.history.pushState(null,"","/");dom.window.dispatchEvent(new dom.window.PopStateEvent("popstate"));
       assert.ok(root.querySelector(".opengeo-workbench"));assert.equal(reads,0);
+    } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
+  });
+
+  it("Print data getter reuses complete in-memory sources and rejects display-only inputs without provider reads", () => {
+    const dom = new JSDOM("<!doctype html><body></body>", {url: "https://demo.studio.opengeo.tools/"});
+    const restore = installDomGlobals(dom.window);let root, requests = 0;
+    try {
+      root = PublicDemoWorkbench({catalog: CATALOG, geojson: COMMUNITY_GEOJSON, massgis: MASSGIS,
+        fetchImpl: async () => {requests++;throw Error("Print data must already be loaded");}});
+      document.body.append(root);
+      const shell = root.querySelector(".opengeo-workbench"), layer = shell.__opengeoLayers[0];
+      const getSource = shell.getPrintContext().getPrintDataSource, geojson = shell.__opengeoData.get(layer.layerId);
+      assert.equal(getSource("missing-layer"), null);
+      Object.assign(layer, {datasetId: "survey", datasetVersionId: "survey-v2", sourceVersion: "2026", featureGeneration: 3,
+        sourceConfiguration: {checksumSha256: "a".repeat(64), privateConfiguration: "must-stay-private"}});
+      for (const sourceType of ["geojson-object", "geojson-archive", "governed-dataset", "arcgis-feature-layer-snapshot"]) {
+        layer.sourceType = sourceType;
+        const source = getSource(layer.layerId);
+        assert.equal(source.geojson, geojson);
+        assert.deepEqual(source.inputPin, {layerId: layer.layerId, datasetId: "survey", datasetVersionId: "survey-v2",
+          sourceVersion: "2026", featureGeneration: 3, checksumSha256: "a".repeat(64)});
+        assert.deepEqual(Object.keys(source).sort(), ["geojson", "id", "inputPin", "title"]);
+      }
+      for (const sourceType of ["arcgis-feature-layer", "wms-layer", "pmtiles", "cog"]) {
+        layer.sourceType = sourceType;assert.equal(getSource(layer.layerId), null);
+      }
+      layer.sourceType = "governed-dataset";layer.managedDisplayId = "display";
+      assert.equal(getSource(layer.layerId), null);
+      delete layer.managedDisplayId;shell.__opengeoData.delete(layer.layerId);
+      assert.equal(getSource(layer.layerId), null);
+      assert.equal(requests, 0);
     } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
   });
 
@@ -339,6 +373,7 @@ describe("public workbench demo source boundary", () => {
         fetchImpl: async () => { throw Error("provider reads are forbidden on the overview"); }});
       assert.ok(root.querySelector("#example-catalog"));
       assert.ok(root.querySelector("#example-publications"));
+      assert.equal(root.querySelector('.public-demo-directory-actions a[href="/credits"]')?.textContent,"Open source & credits");
       const query = root.querySelector('input[type="search"]'); query.value = "Public community";
       query.dispatchEvent(new dom.window.Event("input"));
       assert.equal(root.querySelectorAll("[data-catalog-layer]").length, 1);

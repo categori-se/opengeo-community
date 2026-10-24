@@ -632,6 +632,363 @@ async function exercisePublicationSecurity({page,organization,apiRequest,publica
   }
 }
 
+// One private baseline edition, using the same Catalog references and native
+// build path as the accepted study below. Previous publication receipts stay intact.
+export async function exerciseBaselinePublication({page,origin,organization,apiRequest,readApi,work,publicationProfile,baseline,checkpoint}) {
+  const originalCompiler='sha256:e6825d9f73a3bc0ac1514363a4778cd304c61f6a53ed841bd1f4b14a790be0d7',refresh=baseline.compilerRefresh;
+  const reportCorrection=baseline.compilerReportCorrection;
+  const compiler=refresh?.newDigest??originalCompiler;
+  if(baseline.previewReadback){
+    assert.equal(baseline.previewReadback.buildJobId,baseline.publication?.buildId);
+    assert.equal(baseline.publication?.compilerOutcome,'succeeded');
+    assert.equal(baseline.publication?.nativeCompilerInvocations,3);
+    assert.equal(baseline.nativeBuildRequests,3);
+  }
+  if(refresh){assert.equal(refresh.oldDigest,originalCompiler);assert.notEqual(compiler,originalCompiler);}
+  assert.equal(publicationProfile.compilerImageDigest,compiler);
+  assert.equal(baseline.mode,'baseline-intelligence');
+  assert.equal(baseline.map.id,baseline.mapId);
+  assert.equal(typeof checkpoint,'function');
+  const historicalProgress=join(work,'publication-progress.json');
+  const historicalBytes=existsSync(historicalProgress)?readFileSync(historicalProgress):null;
+  const title=publicationProfile.title??'Land cover and mapped fields in a Nepal study window';
+  const expectedText=publicationProfile.expectedText;
+  assert.ok(Array.isArray(expectedText)&&expectedText.length&&expectedText.every(text=>typeof text==='string'&&text.length));
+  const replacements={PROJECT_ID:baseline.projectId,MAP_ID:baseline.mapId,FIELD_DATASET_ID:baseline.records.fields.datasetId,
+    FIELD_VERSION_ID:baseline.records.fields.datasetVersionId,LANDCOVER_DATASET_ID:baseline.records.landcover.datasetId,
+    LANDCOVER_VERSION_ID:baseline.records.landcover.datasetVersionId};
+  assert.ok(Object.values(replacements).every(value=>/^[0-9a-f-]{36}$/.test(value)));
+  const files=publicationProfile.reportFiles.map(file=>{
+    let buffer=readFileSync(file.fromWork?join(work,file.path):file.path);
+    if(!file.fromWork) {
+      let text=buffer.toString();for(const [key,value] of Object.entries(replacements))text=text.replaceAll(`{{${key}}}`,value);
+      assert.ok(!/\{\{[A-Z][A-Z0-9_]*\}\}/.test(text),'Unresolved authored baseline identity');buffer=Buffer.from(text);
+    }
+    return {name:file.relativePath,mimeType:file.contentType,buffer};
+  });
+  if(!files.some(file=>file.name==='opengeo.publication.json'))files.push({name:'opengeo.publication.json',mimeType:'application/json',
+    buffer:Buffer.from(JSON.stringify({schema:'opengeo.publication.1',format:'html',entry:'index.html'},null,2)+'\n')});
+  for(const [key,name] of [['fields','field-knowledge.json'],['landcover','landcover-knowledge.json']]) {
+    const record=baseline.records[key];
+    assert.ok(record.datasetId&&record.datasetVersionId&&record.dataObjectId&&record.knowledgeDocument);
+    files.push({name,mimeType:'application/json',buffer:Buffer.from(JSON.stringify(record.knowledgeDocument,null,2)+'\n')});
+  }
+  assert.ok(files.length<=126&&new Set(files.map(file=>file.name)).size===files.length);
+  assert.ok(files.every(file=>/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(file.name)&&file.buffer.length>0&&file.buffer.length<=4_194_304));
+  assert.ok(files.reduce((total,file)=>total+file.buffer.length,0)<=16_777_216);
+  if(publicationProfile.limits) {
+    assert.ok(files.length+2<=publicationProfile.limits.files);
+    assert.ok(files.reduce((total,file)=>total+file.buffer.length,0)+baseline.records.fields.sizeBytes
+      +baseline.records.landcover.sizeBytes<=publicationProfile.limits.inputBytes);
+  }
+  const html=files.find(file=>file.name==='index.html')?.buffer.toString();assert.ok(html);
+  assert.ok(files.some(file=>file.name==='baseline-map.svg'));
+  const formats=JSON.parse(files.find(file=>file.name==='opengeo.publication.json').buffer.toString());
+  assert.deepEqual(formats,{schema:'opengeo.publication.1',format:'html',entry:'index.html'});
+  const fileFacts=files.map(file=>({path:file.name,checksumSha256:createHash('sha256').update(file.buffer).digest('hex'),sizeBytes:file.buffer.length}));
+  const facts=baseline.publication??={nativeCompilerInvocations:0,pins:{}};
+  const save=()=>checkpoint({publication:facts});
+  const figureChanged=Boolean(facts.files&&canonicalJson(facts.files)!==canonicalJson(fileFacts));
+  if(figureChanged) {
+    assert.equal(fileFacts.length,8,'The admitted figure update retains the same eight authored files');
+    assert.deepEqual(facts.files.filter(file=>file.path!=='baseline-map.svg'),fileFacts.filter(file=>file.path!=='baseline-map.svg'),
+      'Only the explicitly superseded figure may change');
+    const previous=facts.files.find(file=>file.path==='baseline-map.svg'),next=fileFacts.find(file=>file.path==='baseline-map.svg');
+    assert.deepEqual(baseline.figure?.supersedes,{sha256:previous.checksumSha256,bytes:previous.sizeBytes});
+    assert.deepEqual(baseline.figure.output,{sha256:next.checksumSha256,bytes:next.sizeBytes});
+    assert.ok(previous.checksumSha256!==next.checksumSha256);
+    assert.ok(facts.revisionId&&facts.sourceManifest&&Number.isSafeInteger(facts.revisionNumber));
+    assert.ok(!facts.buildAttempted&&!facts.buildId&&!facts.coordinatorAttempted&&facts.nativeCompilerInvocations===0,
+      'Replace the figure only before the first native build request');
+    assert.ok(!facts.figureRevisionHistory||facts.figureRevisionHistory.length<=1,'One deliberate figure update only');
+  }
+  else if(facts.files)assert.deepEqual(facts.files,fileFacts,'Retained authored bytes must not change during continuation');
+  else {facts.files=fileFacts;save();}
+  const request=async(path)=>{
+    const response=await apiRequest(path,{headers:{authorization:'Bearer synthetic-local-owner','x-opengeo-organization':organization}});
+    assert.equal(response.status,200,`GET ${path}: ${response.body.toString().slice(0,500)}`);return JSON.parse(response.body);
+  };
+  const read=readApi??request,base=`/projects/${baseline.projectId}`;
+  const workspace=()=>`${origin}/workspaces?project=${baseline.projectId}&manage=publishing`;
+  if(facts.setupAttempted&&!facts.sourceProjectId) {
+    const sources=await read(`${base}/source-projects`),sites=await read(`${base}/sites`);
+    const site=sites.filter(site=>site.slug==='baseline-intelligence');assert.equal(site.length,1,'Reconcile the initial Publication identity before another setup');
+    const source=sources.filter(source=>source.site_id===site[0].id);assert.equal(source.length,1,'Setup is unresolved; do not recreate the Publication');
+    facts.siteId=site[0].id;facts.sourceProjectId=source[0].id;facts.setupReconciled=true;save();
+  }
+  await page.goto(workspace());
+  if(!facts.sourceProjectId) {
+    const setup=page.getByRole('button',{name:'Set up private publication',exact:true});
+    if(!await setup.isVisible())await page.getByRole('button',{name:'New publication…',exact:true}).click();
+    const form=page.locator('.framework-publication-setup:visible');await form.waitFor();
+    await form.getByLabel('Publication title',{exact:true}).fill(title);
+    const identifier=form.locator('details > summary').filter({hasText:'Publication identifier'});
+    if(!await identifier.evaluate(summary=>summary.parentElement.open))await identifier.click();
+    await form.getByLabel('Publication identifier',{exact:true}).fill('baseline-intelligence');
+    await form.getByLabel('Publication format',{exact:true}).selectOption('html');
+    const created=page.waitForResponse(response=>/\/sites\/[^/]+\/source-project$/.test(response.url())&&response.request().method()==='POST');
+    facts.setupAttempted=true;save();await setup.click();
+    const response=await created;assert.equal(response.status(),201);const source=await response.json();
+    facts.sourceProjectId=source.id;facts.siteId=response.url().match(/\/sites\/([^/]+)\/source-project$/)[1];save();
+  }
+  const card=page.locator('.observable-source-project:visible');await card.waitFor();
+  assert.equal(await card.count(),1,'The baseline Project must select its single Publication source');
+  const sourceBase=`${base}/source-projects/${facts.sourceProjectId}`;
+  const pinSpecs=[['fields','data/mapped-fields.geojson'],['landcover','data/landcover.tif']];
+  const credits=pinSpecs.map(([key])=>{
+    const record=baseline.records[key],distribution=`urn:opengeo:dataset:${record.datasetId}:version:${record.datasetVersionId}:original`;
+    const claims=record.knowledgeDocument.metadata.curated.filter(claim=>claim.subject===distribution
+      &&claim.property==='https://schema.org/creditText'&&claim.provenance==='curator_asserted'&&typeof claim.value==='string');
+    assert.equal(claims.length,1,'Use the exact reviewed output credit');return claims[0].value;
+  });
+  const matchingRevision=(revision,expectedFiles=fileFacts)=>revision?.entry_path==='index.html'&&revision.rights_status==='unreviewed'
+    &&revision.files?.length===expectedFiles.length&&expectedFiles.every(file=>revision.files.some(saved=>saved.relative_path===file.path
+      &&saved.checksum_sha256===file.checksumSha256&&saved.size_bytes===file.sizeBytes))
+    &&revision.manifest?.dataAttachments?.length===2&&pinSpecs.every(([key,path])=>revision.manifest.dataAttachments.some(pin=>{
+      const record=baseline.records[key];return pin.path===path&&pin.datasetId===record.datasetId&&pin.datasetVersionId===record.datasetVersionId
+        &&pin.dataObjectId===record.dataObjectId&&pin.checksumSha256===record.checksumSha256&&pin.sizeBytes===record.sizeBytes;
+    }));
+  let revisions=await read(`${sourceBase}/revisions`);
+  if(figureChanged) {
+    assert.equal((await read(`${sourceBase}/build-jobs?limit=25&offset=0`)).length,0,
+      'No baseline native build may have been requested before the figure replacement');
+    const previous=revisions.find(revision=>revision.id===facts.revisionId);
+    assert.ok(matchingRevision(previous,facts.files),'The accepted parent source and both Catalog pins must still match');
+    assert.equal(previous.manifest_checksum_sha256,facts.sourceManifest);assert.equal(previous.revision_number,facts.revisionNumber);
+    const history=facts.figureRevisionHistory??=[];
+    if(!history.length) {
+      history.push({revisionId:previous.id,revisionNumber:previous.revision_number,sourceManifest:previous.manifest_checksum_sha256,
+        files:structuredClone(facts.files),pins:structuredClone(facts.pins),revision:structuredClone(previous),
+        supersedes:structuredClone(baseline.figure.supersedes),replacement:structuredClone(baseline.figure.output),
+        replacementFiles:structuredClone(fileFacts)});save();
+    }
+    const update=history[0];
+    assert.equal(update.revisionId,previous.id);assert.deepEqual(update.revision,previous);
+    assert.deepEqual(update.files,facts.files);assert.deepEqual(update.pins,facts.pins);
+    assert.deepEqual(update.supersedes,baseline.figure.supersedes);assert.deepEqual(update.replacement,baseline.figure.output);
+    assert.deepEqual(update.replacementFiles,fileFacts);
+    const validateUpdate=revision=>{
+      assert.ok(matchingRevision(revision),'The figure revision must retain every authored file and both exact Catalog pins');
+      assert.equal(revision.parent_revision_id,previous.id);assert.equal(revision.revision_number,previous.revision_number+1);
+      assert.deepEqual(revision.manifest.dataAttachments,previous.manifest.dataAttachments);
+      assert.deepEqual(revision.manifest.referencedFiles??[],previous.manifest.referencedFiles??[]);
+      for(const file of previous.files) {
+        const next=revision.files.find(candidate=>candidate.relative_path===file.relative_path);
+        if(file.relative_path==='baseline-map.svg')assert.notEqual(next.source_object_id,file.source_object_id);
+        else assert.equal(next.source_object_id,file.source_object_id,'Unchanged source objects must be inherited');
+      }
+    };
+    let replacements=revisions.filter(revision=>matchingRevision(revision)&&revision.parent_revision_id===previous.id);
+    assert.ok(replacements.length<=1,'Do not create another figure revision');
+    if(!replacements.length) {
+      assert.ok(!update.attempted,'Figure update unresolved; reconcile its retained upload/revision without replaying it');
+      await card.getByRole('tab',{name:'Files',exact:true}).click();
+      await card.locator('button[data-source-path="index.html"]').click();
+      await page.waitForFunction(value=>{
+        const editor=document.querySelector('.observable-source-project textarea[aria-label="Framework source editor"]');
+        return editor&&!editor.disabled&&editor.value===value;
+      },html);
+      const uploads=[];
+      const observe=request=>{if(request.method()==='POST'&&request.url().endsWith(`${sourceBase}/file-uploads`))uploads.push(request.postDataJSON());};
+      page.on('request',observe);
+      try {
+        const saved=page.waitForResponse(response=>response.url().endsWith(`${sourceBase}/revisions`)
+          &&response.request().method()==='POST'&&response.request().postDataJSON()?.expected_revision===previous.revision_number);
+        // The picker replaces the working tree. Re-select all eight exact files;
+        // the existing saver inherits seven parent objects and transfers only SVG.
+        await card.getByLabel('Source files',{exact:true}).and(card.locator('input[type="file"]')).setInputFiles(files);
+        await card.getByText(/^Local source tree ready to edit · 8 source files · \d+ bytes$/,{exact:true}).waitFor();
+        await card.locator('button[data-source-path="baseline-map.svg"]').click();
+        await page.waitForFunction(value=>{
+          const editor=document.querySelector('.observable-source-project textarea[aria-label="Framework source editor"]');
+          return editor&&!editor.disabled&&editor.value===value;
+        },files.find(file=>file.name==='baseline-map.svg').buffer.toString('utf8'));
+        update.attempted=true;save();
+        await card.getByRole('button',{name:'Save draft',exact:true}).click();
+        const response=await saved;assert.equal(response.status(),201);
+        const submitted=response.request().postDataJSON();
+        assert.equal(submitted.files.length,fileFacts.length);
+        const changed=submitted.files.filter(file=>file.upload_id);
+        assert.equal(changed.length,1);assert.equal(changed[0].relative_path,'baseline-map.svg');
+        assert.equal(uploads.length,1);assert.equal(uploads[0].relative_path,'baseline-map.svg');
+        for(const file of submitted.files.filter(file=>file.relative_path!=='baseline-map.svg')) {
+          assert.equal(file.source_object_id,previous.files.find(saved=>saved.relative_path===file.relative_path)?.source_object_id);
+          assert.ok(!file.upload_id);
+        }
+        assert.deepEqual(submitted.data_attachments,previous.manifest.dataAttachments.map(pin=>({attachment_id:pin.attachmentId,relative_path:pin.path})));
+        update.changedUpload={relativePath:changed[0].relative_path,uploadId:changed[0].upload_id};save();
+        const committed=await response.json();validateUpdate(committed);
+        revisions=await read(`${sourceBase}/revisions`);
+        replacements=revisions.filter(revision=>revision.id===committed.id);
+      } finally {page.off('request',observe);}
+    } else update.reconciled=true;
+    assert.equal(replacements.length,1);const replacement=replacements[0];validateUpdate(replacement);
+    assert.deepEqual(revisions.find(revision=>revision.id===previous.id),previous,'The accepted earlier revision remains unchanged');
+    update.updatedRevisionId=replacement.id;update.updatedSourceManifest=replacement.manifest_checksum_sha256;
+    facts.revisionId=replacement.id;facts.revisionNumber=replacement.revision_number;facts.sourceManifest=replacement.manifest_checksum_sha256;
+    facts.files=fileFacts;save();
+  }
+  const committed=revisions.filter(revision=>matchingRevision(revision));
+  if(!facts.revisionId&&committed.length) {assert.equal(committed.length,1);facts.revisionId=committed[0].id;facts.revisionReconciled=true;save();}
+  if(!facts.revisionId) {
+    assert.ok(!facts.revisionAttempted,'Draft save unresolved; inspect its existing revision instead of replaying it');
+    await card.getByLabel('Source files',{exact:true}).and(card.locator('input[type="file"]')).setInputFiles(files);
+    const editor=card.getByLabel('Framework source editor',{exact:true});
+    await page.waitForFunction(value=>document.querySelector('.observable-source-project textarea[aria-label="Framework source editor"]')?.value===value,html);
+    await card.getByText('Draft settings and data references',{exact:true}).click();
+    await card.getByLabel('Publication entry path',{exact:true}).fill('index.html');
+    await card.getByLabel('Lockfile path (optional)',{exact:true}).fill('');
+    await card.getByLabel('Source publication rights',{exact:true}).selectOption('unreviewed');
+    const data=card.locator('.framework-revision-data');
+    await data.locator('summary').filter({hasText:'Data files'}).click();
+    const connection=data.locator('.observable-data-attachments');
+    await connection.getByText('Connect a Catalog file',{exact:true}).click();
+    for(const [key,path] of pinSpecs) {
+      const record=baseline.records[key],pin=facts.pins[key]??={};
+      if(pin.attempted&&!pin.attachmentId) {
+        const matches=(await read(`${sourceBase}/data-attachments`)).filter(item=>item.dataset_id===record.datasetId
+          &&item.dataset_version_id===record.datasetVersionId&&item.data_object_id===record.dataObjectId);
+        assert.equal(matches.length,1,'Read back an unresolved exact Catalog registration before retrying');
+        pin.attachmentId=matches[0].id;pin.record=matches[0];save();
+      }
+      if(!pin.attachmentId) {
+        await connection.getByLabel('Find a registered dataset',{exact:true}).fill(record.datasetName);
+        await connection.getByRole('button',{name:'Search Catalog',exact:true}).click();
+        await connection.getByLabel('Dataset',{exact:true}).selectOption(record.datasetId);
+        const location=connection.getByLabel('File location',{exact:true});
+        if(await location.isVisible())await location.selectOption('archive');
+        await connection.getByLabel('Dataset version',{exact:true}).selectOption(record.datasetVersionId);
+        await connection.getByLabel('Archived file',{exact:true}).selectOption(record.dataObjectId);
+        const connected=page.waitForResponse(response=>response.url().endsWith(`${sourceBase}/data-attachments`)&&response.request().method()==='POST');
+        pin.attempted=true;save();await connection.getByRole('button',{name:/^(?:Connect file|Link dataset and use file)$/}).click();
+        const response=await connected;assert.equal(response.status(),200);pin.record=await response.json();pin.attachmentId=pin.record.id;save();
+      }
+      assert.equal(pin.record.available,true);assert.equal(pin.record.checksum_sha256,record.checksumSha256);assert.equal(pin.record.size_bytes,record.sizeBytes);
+      await data.getByLabel('Registered archive file',{exact:true}).selectOption(pin.attachmentId);
+      await data.getByLabel('Referenced data path',{exact:true}).fill(path);
+      await data.getByRole('button',{name:'Add file',exact:true}).click();
+    }
+    assert.equal(await editor.inputValue(),html,'Linking HTML data files preserves the authored source');
+    const saved=page.waitForResponse(response=>response.url().endsWith(`${sourceBase}/revisions`)&&response.request().method()==='POST');
+    facts.revisionAttempted=true;save();await card.getByRole('button',{name:'Save draft',exact:true}).click();
+    const response=await saved;assert.equal(response.status(),201);const revision=await response.json();facts.revisionId=revision.id;save();
+    revisions=await read(`${sourceBase}/revisions`);
+  }
+  const revision=revisions.find(item=>item.id===facts.revisionId);assert.ok(matchingRevision(revision),'Saved source and both exact Catalog pins must match');
+  for(const [key,path] of pinSpecs) {
+    const pin=revision.manifest.dataAttachments.find(pin=>pin.path===path);
+    assert.ok(typeof pin.s3VersionId==='string'&&pin.s3VersionId&&pin.s3VersionId!=='null');
+    if(facts.pins[key]?.record)assert.equal(pin.s3VersionId,facts.pins[key].record.s3_version_id);
+  }
+  facts.sourceManifest=revision.manifest_checksum_sha256;facts.revisionNumber=revision.revision_number;save();
+  const openSavedPreview=async()=>{
+    await card.getByRole('tab',{name:'Preview',exact:true}).click();
+    await card.getByLabel('Preview mode',{exact:true}).selectOption('saved');
+    await card.getByRole('button',{name:'Check saved preview',exact:true}).click();
+  };
+  if(refresh){
+    assert.equal(refresh.sourceRevisionId,facts.revisionId);assert.equal(refresh.sourceManifest,facts.sourceManifest);
+    const source=(await read(`${base}/source-projects`)).find(source=>source.id===facts.sourceProjectId);
+    assert.equal(source.current_revision_id,facts.revisionId);assert.equal(source.current_revision_number,3);
+    assert.equal(source.build_policy.compiler_image_digest,compiler);
+    if(!facts.compilerBuildHistory){
+      assert.equal(facts.buildId,refresh.failedJobId);assert.equal(facts.nativeCompilerInvocations,1);
+      const previous=await read(`${base}/observable-build-jobs/${facts.buildId}`);
+      assert.equal(previous.id,refresh.failedJobId);assert.equal(previous.source_revision_id,facts.revisionId);
+      assert.equal(previous.state,'failed');assert.equal(previous.error_code,'runner_container_failed');assert.equal(previous.attempt_count,1);
+      assert.equal(previous.request.compilerImageDigest,originalCompiler);assert.equal(previous.request.sourceManifestChecksumSha256,facts.sourceManifest);
+      assert.match(previous.request_checksum_sha256,/^[a-f0-9]{64}$/);
+      facts.compilerBuildHistory=[{job:structuredClone(previous),nativeCompilerInvocations:1,
+        priorState:{buildAttempted:facts.buildAttempted,coordinatorAttempted:facts.coordinatorAttempted,compilerOutcome:facts.compilerOutcome,compilerErrorCode:facts.compilerErrorCode}}];
+      for(const key of ['buildId','buildAttempted','coordinatorAttempted','compilerOutcome','compilerErrorCode'])delete facts[key];
+      save();
+    }
+    if(reportCorrection&&!facts.compilerReportFailureRetained){
+      assert.equal(facts.compilerBuildHistory.length,1);assert.equal(facts.buildId,reportCorrection.failedJobId);
+      assert.equal(facts.nativeCompilerInvocations,2);
+      const previous=await read(`${base}/observable-build-jobs/${facts.buildId}`);
+      assert.equal(previous.state,'failed');assert.equal(previous.error_code,'compiler_output_invalid');assert.equal(previous.attempt_count,1);
+      assert.equal(previous.source_revision_id,facts.revisionId);assert.equal(previous.request.compilerImageDigest,compiler);
+      assert.deepEqual(previous.request,{...facts.compilerBuildHistory[0].job.request,compilerImageDigest:compiler});
+      facts.compilerBuildHistory.push({job:structuredClone(previous),nativeCompilerInvocations:2,
+        priorState:{buildAttempted:facts.buildAttempted,coordinatorAttempted:facts.coordinatorAttempted,compilerOutcome:facts.compilerOutcome,compilerErrorCode:facts.compilerErrorCode}});
+      facts.compilerReportFailureRetained=true;
+      for(const key of ['buildId','buildAttempted','coordinatorAttempted','compilerOutcome','compilerErrorCode'])delete facts[key];
+      save();
+    }
+    assert.equal(facts.compilerBuildHistory.length,reportCorrection?2:1);assert.equal(facts.compilerBuildHistory[0].job.id,refresh.failedJobId);
+  }
+  const expectedBuildRequest=refresh?{...structuredClone(facts.compilerBuildHistory[0].job.request),compilerImageDigest:compiler}:null;
+  await openSavedPreview();
+  if(facts.buildAttempted&&!facts.buildId) {
+    const jobs=(await read(`${sourceBase}/build-jobs?limit=25&offset=0`)).filter(job=>job.source_revision_id===facts.revisionId
+      &&!(facts.compilerBuildHistory??[]).some(prior=>prior.job.id===job.id)
+      &&job.request.compilerImageDigest===compiler&&(!expectedBuildRequest||canonicalJson(job.request)===canonicalJson(expectedBuildRequest)));
+    assert.equal(jobs.length,1,'Reconcile the exact requested build before another request');facts.buildId=jobs[0].id;facts.buildReconciled=true;save();
+  }
+  if(!facts.buildId) {
+    assert.ok(!facts.buildAttempted,'Build request unresolved; reconcile the existing job without requesting another');
+    const queued=page.waitForResponse(response=>response.url().endsWith(`/revisions/${facts.revisionId}/build-jobs`)&&response.request().method()==='POST');
+    facts.buildAttempted=true;save();await card.getByRole('button',{name:'Build saved revision',exact:true}).click();
+    const response=await queued;assert.equal(response.status(),201);facts.buildId=(await response.json()).id;save();
+  }
+  let job=await read(`${base}/observable-build-jobs/${facts.buildId}`);
+  if(expectedBuildRequest)assert.deepEqual(job.request,expectedBuildRequest,'Only the reviewed compiler digest changes in the build request');
+  if(job.state!=='succeeded') {
+    assert.ok(!facts.coordinatorAttempted,'Native dispatch already attempted; inspect the retained job before continuing');
+    facts.coordinatorAttempted=true;save();
+    const native=new PodmanRunner(),runner={run:async options=>{assert.equal(facts.nativeCompilerInvocations,reportCorrection?2:refresh?1:0,'Only the diagnosed compiler/report correction may dispatch');
+      assert.equal(options.invocation.buildJobId,facts.buildId);assert.equal(options.invocation.request.sourceRevisionId,facts.revisionId);
+      assert.equal(options.invocation.request.compilerImageDigest,compiler);assert.equal(options.invocation.request.sourceManifestChecksumSha256,facts.sourceManifest);
+      facts.nativeCompilerInvocations++;save();return native.run(options);}};
+    const bridge=localPublicationBridge(JSON.parse(readFileSync(join(work,'local-api-container.json'))));
+    const outcomes=await processLocalBuildQueue({bridge,compilerImageDigest:compiler,maximumJobs:1,runner});
+    assert.equal(outcomes[0]?.buildJobId,facts.buildId);
+    facts.compilerOutcome=outcomes[0]?.status;facts.compilerErrorCode=outcomes[0]?.errorCode??null;save();
+    assert.equal(facts.compilerOutcome,'succeeded',JSON.stringify({buildJobId:facts.buildId,errorCode:facts.compilerErrorCode}));
+    job=await read(`${base}/observable-build-jobs/${facts.buildId}`);
+  }
+  assert.equal(job.state,'succeeded');assert.equal(job.source_revision_id,facts.revisionId);assert.equal(job.request.compilerImageDigest,compiler);
+  facts.buildChecksum=job.result_checksum_sha256;
+  const outputs=Object.values(JSON.parse(readFileSync(join(work,'objects.json')))).filter(record=>record.key.includes(`/builds/${facts.buildId}/output/`));
+  for(const [key,path] of pinSpecs) {
+    const record=baseline.records[key],output=outputs.filter(file=>file.key.endsWith(`/output/${path}`));
+    assert.equal(output.length,1);assert.equal(output[0].checksum_sha256,record.checksumSha256);assert.equal(output[0].size_bytes,record.sizeBytes);
+  }
+  for(const file of fileFacts.filter(file=>!['index.html','opengeo.publication.json'].includes(file.path))) {
+    const output=outputs.filter(record=>record.key.endsWith(`/output/${file.path}`));assert.equal(output.length,1);
+    assert.equal(output[0].checksum_sha256,file.checksumSha256);assert.equal(output[0].size_bytes,file.sizeBytes);
+  }
+  facts.exactOriginalOutputs=true;facts.outputFiles=outputs.length;save();
+  const verifyPreview=async()=>{
+    await openSavedPreview();await card.getByRole('button',{name:'Show preview',exact:true}).click();
+    const frame=page.frameLocator('iframe[title="Saved publication preview"]');
+    await frame.getByRole('heading',{name:title,exact:true}).waitFor();
+    const text=await frame.locator('body').textContent();for(const expected of [...expectedText,...credits])assert.ok(text.includes(expected),`Missing baseline statement: ${expected}`);
+    await frame.locator('img[src="baseline-map.svg"]').waitFor();
+    assert.equal(await frame.locator('img[src="baseline-map.svg"]').evaluate(async image=>{await image.decode();return image.naturalWidth>0;}),true);
+    for(const [,path] of pinSpecs)await frame.locator(`a[href="${path}"]`).waitFor();
+    for(const file of fileFacts.filter(file=>!['index.html','opengeo.publication.json','baseline-map.svg'].includes(file.path)))
+      await frame.locator(`a[href="${file.path}"]`).waitFor();
+    const url=await frame.locator('html').evaluate(()=>location.href);assert.equal(new URL(url).origin,publicationProfile.previewOrigin);
+    return new URL(url).pathname;
+  };
+  facts.previewPath=await verifyPreview();facts.previewOpened=true;save();
+  await page.goto('about:blank');
+  await page.goto(workspace());await card.waitFor();
+  assert.equal((await read(`${sourceBase}/revisions`)).find(item=>item.id===facts.revisionId)?.manifest_checksum_sha256,facts.sourceManifest);
+  assert.equal(await verifyPreview(),facts.previewPath);
+  const retainedJobs=(await read(`${sourceBase}/build-jobs?limit=25&offset=0`)).filter(job=>job.source_revision_id===facts.revisionId);
+  assert.equal(retainedJobs.length,reportCorrection?3:refresh?2:1);assert.equal(retainedJobs.find(job=>job.id===facts.buildId)?.state,'succeeded');
+  if(refresh){for(const prior of facts.compilerBuildHistory)assert.deepEqual(retainedJobs.find(job=>job.id===prior.job.id),prior.job);
+    assert.equal(facts.nativeCompilerInvocations,reportCorrection?3:2);facts.priorFailedBuildRetained=true;}
+  assert.deepEqual(await read(`${base}/maps/${baseline.mapId}`),baseline.map,'Publication preserves the exact saved baseline map');
+  if(historicalBytes)assert.deepEqual(readFileSync(historicalProgress),historicalBytes,'Earlier Publication history must remain unchanged');
+  await page.screenshot({path:join(work,'baseline-publication-private.png'),fullPage:true});
+  facts.freshReopened=true;facts.rightsStatus='unreviewed';facts.publicActivation=false;facts.status='pass';
+  facts.notProven=['Public release','Production identity/storage/delivery','Source field accuracy or current land-use validation'];save();return facts;
+}
+
 async function exerciseCatalogStudy({page,origin,organization,apiRequest,work,publicationProfile}) {
   const compiler='sha256:1af497123e03dff1dd6ca13f09f5810b27c554b0cd55754ff376d7179bea41bf';
   const checksum='b384b0990bc62a8a5339e801098f995989bd6a770fdbf5fe7f58025a2351c96c';

@@ -182,6 +182,10 @@ the source. The compiler supports the following profiles, covered by its
 - **HTML and map:** Static HTML/assets are packaged as exact admitted bytes.
   The map starter supports inserting a portable map viewer. This format label
   does not make every remote map source self-contained or publicly distributable.
+  For an exact Catalog file, choose **Referenced data path → Add file**, then use
+  that relative path in authored HTML. Save the draft to retain the version/file
+  binding. Adding the binding reads no file content and inserts no Framework code;
+  build admission and distribution review remain separate.
 - **Observable Notebook:** Declared Notebook markup compiles to a standalone
   `index.html` with the pinned Notebook Kit 2.5.6 runtime and referenced attachments.
   Checks verify retained notices and exclusion of unused private source; cells

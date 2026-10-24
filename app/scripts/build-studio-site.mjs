@@ -1,3 +1,4 @@
+import {preparePrintMathRuntimeAsset} from "./build-print-math-runtime.mjs";
 import {prepareCesiumRuntime} from "./prepare-cesium-runtime.mjs";
 import {prepareMapboxRuntime} from "./prepare-mapbox-runtime.mjs";
 import {writeMaplibreExportAssets, prepareMapWorkerAsset} from "./build-maplibre-render-bundle.mjs";
@@ -12,6 +13,7 @@ import {reviewedStudioOrigin} from "./studio-release-config.mjs";
 import {writeStudioPwaAssets} from "./studio-pwa-assets.mjs";
 import {buildArchiveWorker} from "./build-archive-worker.mjs";
 import {buildPublicationEditor} from "./build-publication-editor.mjs";
+import {writeThirdPartyNotices} from "./build-third-party-notices.mjs";
 import {
   assertCanonicalStudioHtml,
   canonicalStudioRoutes
@@ -26,6 +28,7 @@ const expectedRoutes = canonicalStudioRoutes;
 
 await rm(distRoot, {recursive: true, force: true});
 await prepareMapWorkerAsset(resolve(appRoot, "src"));
+await preparePrintMathRuntimeAsset(resolve(appRoot, "src"));
 runObservableBuild();
 // Preserve the current deployed Studio shell while rebuilding recovered source.
 for (const [, htmlPath] of expectedRoutes) {
@@ -45,13 +48,7 @@ await buildArchiveWorker(distRoot);
 await writeMaplibreExportAssets(distRoot);
 await prepareMapboxRuntime(distRoot);
 await prepareCesiumRuntime(distRoot);
-await writeFile(resolve(distRoot, "third-party-notices.txt"), [
-  "earcut · ISC",
-  await readFile(resolve(appRoot, "node_modules/earcut/LICENSE"), "utf8"),
-  "@categori/workspace-contracts · Apache-2.0",
-  await readFile(resolve(appRoot, "vendor/workspace-contracts/LICENSE"), "utf8"),
-  await readFile(resolve(appRoot, "vendor/workspace-contracts/NOTICE"), "utf8")
-].join("\n\n"));
+await writeThirdPartyNotices({appRoot, outputRoot: distRoot});
 // Published articles pin immutable embed URLs. Keep reviewed previous versions
 // across Studio releases so deploying a new component cannot break old articles.
 const embedRoot = resolve(appRoot, "public-embeds");

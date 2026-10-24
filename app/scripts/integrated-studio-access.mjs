@@ -141,7 +141,8 @@ export async function exerciseStudioAccess({page, context, origin, organization,
   await reviewer.close();
 
   await page.getByRole("link", {name: "Back to projects", exact: true}).click();
-  await page.locator(".access-workspace-directory > summary").click();
+  await page.locator(".platform-account-menu > summary").click();
+  await page.locator(".platform-account-navigation").getByRole("link", {name: "Data access", exact: true}).click();
   await page.getByRole("link", {name: "Open Disposable viewer access check", exact: true}).click();
   const lifecycle = page.locator(".project-lifecycle-settings");
   await lifecycle.getByRole("button", {name: "Archive workspace", exact: true}).click();
@@ -160,7 +161,6 @@ export async function exerciseStudioAccess({page, context, origin, organization,
   }
   await changeStatus("Archive", "archived");
   await lifecycle.getByRole("link", {name: "View access workspaces", exact: true}).click();
-  await page.locator(".access-workspace-directory > summary").click();
   await page.getByLabel("Access workspace status", {exact: true}).waitFor();
   assert.equal(await page.getByRole("link", {name: "Open Disposable viewer access check", exact: true}).count(), 0);
   await page.getByLabel("Access workspace status", {exact: true}).selectOption("archived");

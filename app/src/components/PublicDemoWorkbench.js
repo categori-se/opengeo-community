@@ -384,6 +384,7 @@ function directoryActions() {
     directoryLink("Publications", "/?view=publications"),
     directoryLink("On this device", "/?view=local-projects"),
     directoryLink("Open starter workbench", "/?map=community-facilities"),
+    directoryLink("Open source & credits", "/credits"),
     directoryLink("Open Studio ↗", MANAGED_STUDIO_URL)
   );
   return actions;
@@ -698,7 +699,7 @@ function demoNotice(presentation) {
   const studio = document.createElement("a");
   studio.href = MANAGED_STUDIO_URL;
   studio.textContent = "Open Studio ↗";
-  secondary.append(studio);
+  secondary.append(directoryLink("Open source & credits", "/credits"), studio);
   const limits = document.createElement("details");
   limits.className = "public-demo-service-boundaries";
   limits.append(

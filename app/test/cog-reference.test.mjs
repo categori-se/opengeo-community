@@ -4,6 +4,9 @@ import {cogSourceFromStaticItem, registerStaticCogReference} from "../src/lib/co
 import {parseExternalSource, parseExternalSourceRevision, OpenGeoApiClient} from "../src/lib/apiClient.js";
 import {registeredPreviewLayer, saveCatalogProject} from "../src/lib/catalogProjectSave.js";
 import {STATIC_ITEM_ADAPTER} from "../src/lib/staticItemSearch.js";
+import {createStacItemClient} from "../src/lib/stacItemSearch.js";
+import {StaticItemCatalogRegistration} from "../src/components/StaticItemCatalogRegistration.js";
+import {JSDOM} from "jsdom";
 const id = n => `10000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const asset = {href: "https://imagery.example/scene/visual.tif", type: "image/tiff; profile=cloud-optimized", "file:size": 256914673,
   "raster:bands": [{data_type: "uint8"}, {data_type: "uint8"}, {data_type: "uint8"}], license: "asset-specific-terms", rights: null};
@@ -11,6 +14,66 @@ const reference = {adapter: STATIC_ITEM_ADAPTER, custody: "referenced", id: "sce
   bbox: [1, 40, 16, 51], snapshot: {url: "https://index.example/items.parquet", etag: '"snapshot"', size: 295728},
   inventory: {reader: "hyparquet@1.31.1", license: "collection-terms", readAt: "2026-10-05T00:00:00Z"},
   assets: [{key: "visual", href: asset.href, type: asset.type, license: asset.license, original: asset}], original: {assets: JSON.stringify({visual: asset}), geometry: null}};
+
+async function httpReference({knownBands = true} = {}) {
+  const item = {type: "Feature", stac_version: "1.0.0", id: "published-height", collection: "elevation", bbox: [1, 40, 3, 42],
+    geometry: null, properties: {datetime: "2021-10-29T05:01:09Z", license: "Item-only-terms", quality: {verified: null}}, links: [],
+    assets: {height: {href: "https://imagery.example/height.tif", type: "image/tiff", roles: ["data"],
+      ...(knownBands ? {"raster:bands": [{data_type: "float32", scale: 0.1, offset: -100, nodata: -9999}]} : {})},
+    metadata: {href: "s3://imagery/height.xml", type: "application/xml"}}};
+  const client = createStacItemClient({fetchImplementation: async () => new Response(JSON.stringify({type: "FeatureCollection", features: [item], links: []}))});
+  return (await client.search({endpoint: "https://catalog.example/v1/search", collections: ["elevation"], bbox: [1.1, 40.1, 1.2, 40.2],
+    start: "2021-10-01T00:00:00Z", end: "2021-10-31T23:59:59Z", limit: 1})).items[0];
+}
+
+it("registers an external STAC analytical band without inheriting Item rights or inventing a Parquet snapshot", async () => {
+  const item = await httpReference(), draft = cogSourceFromStaticItem(item, {assetKey: "height", sizeBytes: 178976119});
+  assert.deepEqual(draft.source.bands, [1]); assert.equal(draft.source.license, null);
+  assert.deepEqual(draft.source.referenceMetadata.source.item, item.original);
+  assert.equal(draft.source.referenceMetadata.source.assets, undefined);
+  assert.deepEqual(draft.source.referenceMetadata.source.asset["raster:bands"], item.original.assets.height["raster:bands"]);
+  assert.equal(draft.source.referenceMetadata.normalized.snapshot.etag, null);
+  assert.match(draft.source.referenceMetadata.normalized.snapshot.sha256, /^[a-f0-9]{64}$/);
+  assert.equal(draft.source.referenceMetadata.normalized.assetSize.authority, "user-supplied-unverified");
+  assert.equal(draft.source.sizeBytes, 178976119); assert.ok(draft.tags.includes("stac-item")); assert.ok(!draft.tags.includes("sentinel-2"));
+  assert.throws(() => cogSourceFromStaticItem(item, {assetKey: "height", bands: [1, 2, 3]}), /bands/);
+  assert.throws(() => cogSourceFromStaticItem(item, {assetKey: "height", sizeBytes: -1}), /size/);
+  const unknown = await httpReference({knownBands: false});
+  assert.throws(() => cogSourceFromStaticItem(unknown, {assetKey: "height"}), /explicit choice/);
+  assert.deepEqual(cogSourceFromStaticItem(unknown, {assetKey: "height", bands: [1]}).source.bands, [1]);
+});
+
+it("reuses exact HTTP Item/asset/bands within the same endpoint while preserving previous metadata", async () => {
+  const item = await httpReference(), options = {assetKey: "height", bands: [1]}, draft = cogSourceFromStaticItem(item, options);
+  const source = {status: "active", sourceUrl: draft.source.url, configuration: {bands: draft.source.bands, referenceMetadata: draft.source.referenceMetadata}};
+  let writes = 0;
+  const adapter = {searchDatasets: async () => [{id: id(1), sourceType: "cog"}], getSource: async () => source,
+    createSource: async () => {writes++; return source;}};
+  assert.equal((await registerStaticCogReference({adapter, projectId: id(2), reference: item, options})).reused, true);
+  assert.equal(writes, 0);
+  source.configuration.referenceMetadata.normalized.inventory.endpoint = "https://other.example/search";
+  assert.equal((await registerStaticCogReference({adapter, projectId: id(2), reference: item, options})).reused, false);
+  assert.equal(writes, 1);
+});
+
+it("Catalog review exposes one-band defaults and preserves deliberate band/size choices through existing registration", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>"), prior = globalThis.document; globalThis.document = dom.window.document;
+  try {
+    const item = await httpReference(); let created;
+    const adapter = {kind: "studio", searchDatasets: async () => [], createSource: async (_id, value) => {
+      created = value; return {datasetId: id(4), projectId: id(2), name: value.name, status: "active", capabilities: {read: false}};
+    }};
+    const root = StaticItemCatalogRegistration({adapter, reference: item, projects: [{id: id(2), name: "Editable account", status: "active", callerRole: "owner"}], organization: {callerRole: "member"}});
+    document.body.append(root);
+    const field = name => [...root.querySelectorAll("label")].find(label => label.textContent.startsWith(name)).querySelector("input,select");
+    assert.equal(field("Raster asset").value, "height"); assert.equal(field("Raster bands (one or three)").value, "1");
+    field("Known asset size in bytes (optional)").value = "178976119";
+    root.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
+    for (let n = 0; n < 10 && !created; n++) await new Promise(resolve => setTimeout(resolve, 0));
+    assert.ok(created); assert.deepEqual(created.source.bands, [1]); assert.equal(created.source.sizeBytes, 178976119);
+    assert.deepEqual(created.source.referenceMetadata.source.item, item.original); root.dispose();
+  } finally {globalThis.document = prior; dom.window.close();}
+});
 
 it("reuses the exact registered Item/asset identity and never creates a Project during registration", async () => {
   const draft = cogSourceFromStaticItem(reference); let writes = 0;

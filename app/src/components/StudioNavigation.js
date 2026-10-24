@@ -6,6 +6,7 @@ export function demoNavigationItems() {
   return [
     {id: "home", label: "Demo", href: "/"},
     {id: "samples", label: "Catalog", href: "https://demo.studio.opengeo.tools/?view=catalog"},
+    {id: "credits", label: "Credits", href: "/credits"},
     {id: "studio", label: "Open Studio ↗", href: MANAGED_STUDIO_URL}
   ];
 }
@@ -18,7 +19,8 @@ export function studioNavigationItems(adapterKind = null) {
     {id: "styles", label: "Styles", href: directoryHref({adapterKind, view: "styles"})},
     {id: "locations", label: "Geographic tags", href: directoryHref({adapterKind, view: "locations"})},
     {id: "collections", label: "Collections", href: directoryHref({adapterKind, view: "collections"})},
-    {id: "publishing", label: "Publications", href: directoryHref({adapterKind, view: "publishing"})}
+    {id: "publishing", label: "Publications", href: directoryHref({adapterKind, view: "publishing"})},
+    {id: "credits", label: "Credits", href: "/credits"}
   ];
 }
 

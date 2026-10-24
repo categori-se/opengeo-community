@@ -20,7 +20,7 @@ source fixtures preserve source references, audited versions and license evidenc
 | [MapServer](https://github.com/MapServer/MapServer) 8.6.5 | Cartography, raster/vector formats, reprojection, OGC publication and tile delivery | Representative render/format peers, bounded Mapfile cartography translation and controlled tile generations. OGC publication coverage continues. |
 | [GeoMoose](https://github.com/geomoose/gm3) 3.15.2 | Configurable web portals, mapbooks, catalog layers, query, annotation and print | Mapbook adapter, selected layer/query workflows and temporary annotations. Print breadth and distributed-service behavior continue. |
 | [OpenLayers](https://github.com/openlayers/openlayers) 10.10.0 | Map/view/layer model, interactions, formats, projections and browser service clients | Independent browser peers exercise map/layer, geometry-format and browser-platform behavior. Interaction and source/protocol breadth continue. |
-| [GeoLens](https://github.com/geolens-io/geolens) 1.20.0 | Connected catalog discovery, source custody, reusable maps and governed publication | Catalog, custody, metadata refresh, services, processing and publication comparisons pass their finite rows; map composition/styling breadth continues. |
+| [GeoLens](https://github.com/geolens-io/geolens) 1.20.0 | Connected catalog discovery, source custody, reusable maps and governed publication | All eight pinned scoped families pass, including reusable map composition/styling. Broader portrayal and observed upstream drift remain outside those accepted criteria. |
 | Google Earth Pro 7.3.7.1327 | Discoverable Places/layer organization, globe navigation, KML/KMZ and annotated output | An interaction and exchange reference across ten continuing comparison families; its proprietary application remains a behavioral reference. |
 
 ## Relative parity by capability
@@ -29,6 +29,11 @@ These are recorded results for the version-pinned comparisons. **Pass** means
 the named comparison passed its checks; **Partial** means work remains within
 that scope. Production readiness and standards conformance require separate
 verification.
+
+The [recorded baseline](../parity/baselines.json) contains 24 passing families,
+25 partial and one conditional exclusion across 50 families. These scoped results
+do not establish full parity with the reference applications or cover the full
+QGIS workflow scope.
 
 | Reference | Capability | Recorded status |
 | --- | --- | --- |
@@ -66,7 +71,7 @@ verification.
 | GeoLens | Catalog discovery and search | Pass — scoped catalog workflows |
 | GeoLens | Source custody and data exchange | Pass — explicit custody and exchange operations |
 | GeoLens | Metadata, provenance and verified refresh | Pass — scoped evidence and refresh behavior |
-| GeoLens | Reusable map composition and styling | Partial |
+| GeoLens | Reusable map composition and styling | Pass — pinned LineString/Style reuse in two saved maps; [scope and limits](../parity/reports/geolens-004-production-composition.json) |
 | GeoLens | Open services and independent clients | Pass — selected service/client peers |
 | GeoLens | Analysis and derived resources | Pass — bounded processing operations |
 | GeoLens | Sharing, permissions and publication | Pass — scoped governed workflows |
@@ -77,9 +82,13 @@ QGIS is tracked as an independent workflow and interoperability reference rather
 than an aggregate application-parity score. Selected GeoServer extensions are
 tracked individually as optional integration work.
 
-GeoLibre's portable-project comparison is pinned to 2.6.0; broader review of
-3.0.0 remains on the roadmap. New engines, formats and integrations follow
-specific user workflows and version-specific checks.
+GeoLibre's portable-project comparison remains pinned to 2.6.0, with separate
+3.0.0 renderer-conversion evidence. The [October 5 upstream review](rendering-engines.md)
+observed 3.2.0; that dated observation establishes neither current release status
+nor OpenGeo runtime acceptance. GeoLens's retained comparison also records 1.21.1
+drift beyond its 1.20.0 baseline. Full reference scope and those version differences
+remain open; new engines, formats and integrations follow specific user workflows
+and version-specific checks.
 
 Source/version evidence: [QGIS](../parity/fixtures/qgis/qgis-3.44.12-source-lock.json),
 [GeoLibre](../parity/fixtures/geolibre/geolibre-2.6.0-source-lock.json),

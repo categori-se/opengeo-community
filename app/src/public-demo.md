@@ -25,6 +25,8 @@ The community edition delivers the full suite of tools. See the
 or [ask about hosting and enterprise support on LinkedIn](https://www.linkedin.com/in/akdennis/).
 You can also visit [Aaron’s Observable forum profile](https://talk.observablehq.com/u/aaronkyle/activity).
 
+[Open source & credits](/credits)
+
 ## Reusable NOAA map
 
 This public map component is served by Studio without requiring a Studio login or

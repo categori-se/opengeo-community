@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {createHash} from "node:crypto";
 import {it} from "node:test";
 import {JSDOM} from "jsdom";
-import {createCatalogPreviewLoader, livePreviewEndpoint, loadProviderPreview} from "../src/lib/catalogLayerPreview.js";
+import {canPreviewCatalogManagedVector, createCatalogPreviewLoader, livePreviewEndpoint, loadProviderPreview} from "../src/lib/catalogLayerPreview.js";
 import {CatalogLayerPreview} from "../src/components/CatalogLayerPreview.js";
 import {CatalogResourceMapAction} from "../src/components/CatalogResourceMapAction.js";
 
@@ -11,6 +11,121 @@ const metadata = {capabilities: "Query", supportedQueryFormats: "JSON, geoJSON",
   maxRecordCount: 2, fields: [{name: "OBJECTID"}, {name: "heat"}], advancedQueryCapabilities: {supportsPagination: true}, copyrightText: "Official provider"};
 const feature = id => ({type: "Feature", properties: {OBJECTID: id, heat: id}, geometry: {type: "Point", coordinates: [-71, 42]}});
 const record = {projectId: "project", mapId: "map", mapVersion: 1, datasetId: "dataset", layerId: "heat", title: "Heat", geometryType: "Point", styleField: "heat"};
+
+function managedCatalogFixture() {
+  const projectId = "11111111-1111-4111-8111-111111111111", datasetId = "22222222-2222-4222-8222-222222222222",
+    versionId = "33333333-3333-4333-8333-333333333333", organization = "44444444-4444-4444-8444-444444444444";
+  const geojson = {type: "FeatureCollection", features: [-72, -71.997].map((west, id) => ({type: "Feature", id,
+    properties: {name: "Original footprint " + id, confidence: null, source: {year: 2024, evidence: ["unchanged"]}},
+    geometry: {type: "Polygon", coordinates: [[[west, 42], [west + .001, 42], [west + .001, 42.001], [west, 42.001], [west, 42]]]}}))};
+  const bytes = Buffer.from(JSON.stringify(geojson)), calls = {metadata: 0, versions: 0, tickets: 0, originals: 0};
+  const dataset = {id: datasetId, projectId, name: "Original buildings", sourceType: "upload", format: "geojson",
+    status: "active", capabilities: {read: true}, currentVersionId: versionId, currentVersionNumber: 1,
+    currentVersionState: "active", geometryType: "Polygon"};
+  const version = {id: versionId, state: "active", featureCount: 2, crs: "EPSG:4326", geometryType: "Polygon",
+    objects: [{id: "55555555-5555-4555-8555-555555555555", role: "original", filename: "buildings.geojson",
+      contentType: "application/geo+json", sizeBytes: bytes.length, checksumSha256: createHash("sha256").update(bytes).digest("hex")}]};
+  const scope = {organization};
+  const adapter = {
+    tokenProvider: () => "local-catalog-token", organizationProvider: () => scope.organization,
+    assertCollectionContext: async context => {if (context.organization !== scope.organization) throw Error("account_context_changed");},
+    getDataset: async (project, id) => {assert.equal(project, projectId); assert.equal(id, datasetId); calls.metadata++; return dataset;},
+    listDatasetVersions: async (project, id) => {assert.equal(project, projectId); assert.equal(id, datasetId); calls.versions++; return [version];},
+    requestDatasetDownload: async (project, id, revision, object) => {
+      assert.deepEqual([project, id, revision, object], [projectId, datasetId, versionId, version.objects[0].id]); calls.tickets++;
+      return {method: "GET", url: "https://s3.us-east-1.amazonaws.com/storage.opengeo.tools/datasets/" + datasetId + "/original/buildings.geojson?versionId=exact&X-Amz-Signature=private",
+        expiresAt: new Date(Date.now() + 60_000).toISOString()};
+    }, getMap: () => {throw Error("A resource preview must not open a containing Project");}
+  };
+  const options = {adapter, fetchImplementation: async (_url, request) => {
+    calls.originals++; assert.equal(request.credentials, "omit"); assert.equal(request.cache, "no-store"); return new Response(bytes);
+  }};
+  const resource = {projectId, datasetId, datasetVersionId: versionId, title: dataset.name, geometryType: "Polygon", resourcePreview: true, sourceType: "upload"};
+  return {projectId, datasetId, versionId, geojson, bytes, dataset, version, calls, scope, adapter, options, resource};
+}
+
+it("opens an uploaded Catalog resource only on click and renders exact original footprints without a Project", async () => {
+  const f = managedCatalogFixture(), dom = new JSDOM("<!doctype html>"), old = globalThis.document;
+  globalThis.document = dom.window.document;
+  const loader = createCatalogPreviewLoader(f.options); let rendered;
+  try {
+    const action = CatalogResourceMapAction({dataset: f.dataset, adapter: f.adapter, load: loader,
+      renderMap: async options => {rendered = options; return document.createElement("div");}});
+    document.body.append(action.button, action.panel);
+    assert.deepEqual(f.calls, {metadata: 0, versions: 0, tickets: 0, originals: 0});
+    action.button.click(); assert.match(action.panel.textContent, /Loading Layer map/);
+    for (let wait = 0; wait < 50 && action.button.disabled; wait++) await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(action.button.disabled, false, action.panel.textContent);
+    assert.deepEqual(rendered.geojson, f.geojson); assert.equal(rendered.geometryType, "Polygon");
+    assert.deepEqual(f.calls, {metadata: 1, versions: 1, tickets: 1, originals: 1});
+    assert.match(action.panel.textContent, /Temporary Layer view/); assert.match(action.panel.textContent, /archived data preview/);
+    assert.match(action.panel.textContent, /Complete original GeoJSON verified/);
+    assert.doesNotMatch(action.panel.textContent, /live source preview|Official service|Signature|Save to Project/);
+    assert.equal(action.panel.querySelectorAll("a").length, 0);
+    action.button.click(); action.button.click(); assert.equal(f.calls.originals, 1);
+    action.dispose();
+  } finally {loader.dispose(); globalThis.document = old; dom.window.close();}
+});
+
+it("opens only the selected governed presentation and keeps its historical version pin", async () => {
+  const f = managedCatalogFixture();
+  f.dataset.currentVersionId = "66666666-6666-4666-8666-666666666666";
+  const layer = {layerId: "original-source", datasetId: f.datasetId, datasetVersionId: f.versionId,
+    sourceType: "governed-dataset", geometryType: "Polygon", attribution: "Recorded source credit"};
+  f.adapter.getMap = async () => ({id: "saved-map", projectId: f.projectId, version: 3,
+    definition: {layers: [layer, {layerId: "other", datasetId: "other-dataset", sourceUrl: "https://unrequested.example/other"}]}});
+  const loader = createCatalogPreviewLoader(f.options);
+  const result = await loader({...f.resource, mapId: "saved-map", mapVersion: 3, layerId: layer.layerId});
+  assert.deepEqual(result.geojson, f.geojson); assert.equal(result.managedArchive.datasetVersionId, f.versionId);
+  assert.equal(result.attribution, layer.attribution); assert.equal(result.layer, undefined);
+  assert.deepEqual(f.calls, {metadata: 1, versions: 1, tickets: 1, originals: 1}); loader.dispose();
+});
+
+it("rejects stale upload identity or withdrawn access before reading original bytes", async () => {
+  for (const patch of [{id: "other"}, {projectId: "other"}, {capabilities: {read: false}}, {status: "archived"},
+    {sourceType: "repository"}, {currentVersionId: "66666666-6666-4666-8666-666666666666"}, {currentVersionState: "preserved"}]) {
+    const f = managedCatalogFixture(); Object.assign(f.dataset, patch);
+    const loader = createCatalogPreviewLoader(f.options);
+    await assert.rejects(loader(f.resource), /changed|unavailable/);
+    assert.equal(f.calls.tickets, 0); assert.equal(f.calls.originals, 0); loader.dispose();
+  }
+});
+
+it("rejects corrupt originals and unavailable exact originals without a preview or public fallback", async () => {
+  for (const kind of ["checksum", "missing-original"]) {
+    const f = managedCatalogFixture();
+    if (kind === "checksum") f.version.objects[0].checksumSha256 = "0".repeat(64);
+    else f.version.objects[0].filename = "source.gpkg";
+    f.adapter.getDatasetSpatialPreview = () => {throw Error("Do not substitute a derivative preview");};
+    const loader = createCatalogPreviewLoader(f.options);
+    await assert.rejects(loader(f.resource), kind === "checksum" ? {code: "object_checksum_mismatch"} : /exact original/);
+    assert.equal(f.calls.originals, kind === "checksum" ? 1 : 0); loader.dispose();
+  }
+});
+
+it("rejects a sign-in scope change after original transport and aborts a disposed pending read", async () => {
+  const f = managedCatalogFixture();
+  f.options.fetchImplementation = async () => {f.scope.organization = "66666666-6666-4666-8666-666666666666"; return new Response(f.bytes);};
+  const loader = createCatalogPreviewLoader(f.options);
+  await assert.rejects(loader(f.resource), /account_context_changed/); loader.dispose();
+  const pendingFixture = managedCatalogFixture(); let started, finish, signal;
+  const dispatched = new Promise(resolve => {started = resolve;});
+  pendingFixture.options.fetchImplementation = async (_url, request) => {
+    signal = request.signal; started(); return new Promise(resolve => {finish = resolve;});
+  };
+  const pendingLoader = createCatalogPreviewLoader(pendingFixture.options), pending = pendingLoader(pendingFixture.resource);
+  await dispatched; pendingLoader.dispose(); assert.equal(signal.aborted, true);
+  finish(new Response(pendingFixture.bytes)); await assert.rejects(pending, {name: "AbortError"});
+});
+
+it("offers uploaded Open map only for readable active GeoJSON with exact pins and a scoped adapter", () => {
+  const f = managedCatalogFixture(); assert.equal(canPreviewCatalogManagedVector(f.dataset, f.adapter), true);
+  for (const patch of [{sourceType: "repository"}, {format: "geopackage"}, {geometryType: "Raster"},
+    {currentVersionState: "preserved"}, {currentVersionId: null}, {projectId: null}, {capabilities: {read: false}}]) {
+    assert.equal(canPreviewCatalogManagedVector({...f.dataset, ...patch}, f.adapter), false);
+  }
+  assert.equal(canPreviewCatalogManagedVector(f.dataset, {...f.adapter, assertCollectionContext: undefined}), false);
+});
 
 function archiveFixture() {
   const bytes = Buffer.from(JSON.stringify({type: "FeatureCollection", features: [feature(1)]}));

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {afterEach, beforeEach, describe, it} from "node:test";
 import {JSDOM} from "jsdom";
 
-import {WorkbenchView} from "../src/components/WorkbenchView.js";
+import {WorkbenchView, managedLayerCreditPanel, reviewManagedLayerCredit} from "../src/components/WorkbenchView.js";
 
 const IDS = Object.freeze({
   project: "50000000-0000-4000-8000-000000000083",
@@ -663,6 +663,127 @@ describe("exact dataset-to-map handoff", () => {
     assert.match(shell.querySelector(".gis-panel-right").textContent, /Project owner or editor access is required/);
     assert.equal(findButton(shell, "View only")?.disabled, true);
     assert.equal(shell.__opengeoLayers.length, 0);
+  });
+});
+
+describe("managed COG reopening", () => {
+  const objectId = "84000000-0000-4000-8000-000000000083";
+  const bounds = [-73.6, 41.2, -69.8, 42.9];
+  const layer = visible => ({layerId: "native-cog", datasetId: IDS.dataset, datasetVersionId: IDS.version,
+    sourceVersion: 3, objectId, title: "Native land cover", sourceType: "governed-dataset", geometryType: "Raster",
+    visible, opacity: 1, order: 0, attribution: "Reviewed source credit", style: {}, labels: {enabled: false},
+    bbox: bounds, sourceConfiguration: {bands: [1], bounds, sizeBytes: 810}});
+  const binding = () => ({datasetId: IDS.dataset, datasetVersionId: IDS.version, objectId, versionNumber: 3,
+    source: {sourceUrl: `urn:opengeo:dataset:${IDS.dataset}:version:${IDS.version}:original`,
+      configuration: {bands: [1], bounds, sizeBytes: 810}}, read() {throw Error("The layout fixture must not read pixels");}});
+
+  it("resolves only visible exact originals without vector fallback or saved transport credentials", async () => {
+    for (const visible of [false, true]) {
+      let reads = 0, vector = 0; const saves = [];
+      const shell = createWorkbench({layers: [layer(visible)],
+        async loadManagedCog(datasetId, versionId) {reads++; assert.deepEqual([datasetId, versionId], [IDS.dataset, IDS.version]); return binding();},
+        async loadDatasetVersionPreview() {vector++; throw Error("No raster-to-vector fallback");},
+        async saveProject(definition) {saves.push(definition); return {id: IDS.map, version: 3, definition};}});
+      await new Promise(resolve => setTimeout(resolve, 0));
+      assert.equal(reads, visible ? 1 : 0); assert.equal(vector, 0); assert.equal(shell.__opengeoData.size, 0);
+      clickButton(shell, "Save"); await waitFor(() => saves.length);
+      assert.equal(saves[0].layers[0].objectId, objectId);
+      assert.equal(saves[0].layers[0].datasetVersionId, IDS.version);
+      assert.equal(saves[0].layers[0].sourceUrl, undefined);
+      assert.equal(saves[0].layers[0].attribution, "Reviewed source credit");
+      assert.doesNotMatch(JSON.stringify(saves[0].layers[0]), /X-Amz|https:|geojson/);
+      shell.dispose(); shell.remove();
+    }
+  });
+
+  it("discards a late managed descriptor after account navigation", async () => {
+    let release;
+    const shell = createWorkbench({layers: [layer(true)],
+      loadManagedCog: () => new Promise(resolve => {release = resolve;})});
+    await waitFor(() => release);
+    harness.dom.window.dispatchEvent(new harness.dom.window.Event("opengeo:account-navigation"));
+    const wrong = binding(); wrong.objectId = IDS.staleVersion;
+    release(wrong); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(shell.__opengeoLayers[0].objectId, objectId);
+    assert.equal(shell.getPrintContext().handles.size, 0);
+    assert.equal(shell.__opengeoData.size, 0);
+  });
+});
+
+describe("reviewed exact-version source credit", () => {
+  it("reads credit only on deliberate Add and preserves it through save and reopening without another metadata read", async () => {
+    const reads = [], saves = [];
+    const options = {
+      initialDatasetTarget: target(IDS.version),
+      async loadDatasetVersionPreview() {return {datasetVersionId: IDS.version, numberReturned: 1, mayBeTruncated: false, geojson: featureCollection()};},
+      async loadManagedDatasetCredit(datasetId, datasetVersionId) {
+        reads.push([datasetId, datasetVersionId]);
+        return {datasetId, datasetVersionId, status: "available", attribution: "Survey team <2024>"};
+      },
+      async saveProject(definition) {saves.push(definition); return {id: IDS.map, version: 3, definition};}
+    };
+    const shell = createWorkbench(options);
+    assert.equal(reads.length, 0);
+    clickButton(shell, "Add exact v3"); await waitFor(() => shell.__opengeoLayers.length === 1);
+    assert.deepEqual(reads, [[IDS.dataset, IDS.version]]);
+    assert.equal(shell.__opengeoLayers[0].attribution, "Survey team <2024>");
+    clickButton(shell, "Save"); await waitFor(() => saves.length === 1);
+    assert.equal(saves[0].layers[0].attribution, "Survey team <2024>");
+    const savedLayer = saves[0].layers[0]; shell.dispose(); shell.remove();
+    const reopened = createWorkbench({...options, initialDatasetTarget: null, project: saves[0], layers: [savedLayer],
+      geojsonByLayerId: new Map([[savedLayer.layerId, featureCollection()]])});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(reopened.__opengeoLayers[0].attribution, "Survey team <2024>");
+    assert.equal(reads.length, 1, "Reopening reuses saved wording without a knowledge read");
+  });
+
+  it("keeps unknown or conflicting credit explicit while still adding complete geometry", async () => {
+    for (const status of ["unknown", "conflict"]) {
+      const shell = createWorkbench({initialDatasetTarget: target(IDS.version),
+        async loadDatasetVersionPreview() {return {datasetVersionId: IDS.version, numberReturned: 1, mayBeTruncated: false, geojson: featureCollection()};},
+        async loadManagedDatasetCredit(datasetId, datasetVersionId) {return {datasetId, datasetVersionId, status, attribution: null};}});
+      clickButton(shell, "Add exact v3"); await waitFor(() => shell.__opengeoLayers.length === 1);
+      assert.equal(shell.__opengeoLayers[0].attribution, undefined);
+      assert.match(shell.textContent, /Review the Layer's source credit before publishing/);
+      shell.dispose(); shell.remove();
+    }
+  });
+
+  it("reviews replacement wording without changing an explicit credit until Apply", async () => {
+    let reads = 0;
+    const layer = {layerId: "credit", datasetId: IDS.dataset, datasetVersionId: IDS.version,
+      sourceType: "governed-dataset", attribution: "Existing reviewed wording"};
+    const context = {role: "editor", layers: [layer], state: {layerHandles: new Map()}, render() {},
+      async loadManagedDatasetCredit(datasetId, datasetVersionId, options) {
+        reads++; assert.equal(options.refresh, true);
+        return {datasetId, datasetVersionId, status: "available", attribution: "Updated Catalog wording"};
+      }};
+    const first = managedLayerCreditPanel(context, layer); assert.equal(reads, 0);
+    clickButton(first, "Review Catalog credit");
+    const record = context.managedCreditReviews.get(layer); await waitFor(() => !record.busy);
+    assert.equal(reads, 1); assert.equal(layer.attribution, "Existing reviewed wording");
+    const reviewed = managedLayerCreditPanel(context, layer); clickButton(reviewed, "Use reviewed credit");
+    assert.equal(layer.attribution, "Updated Catalog wording");
+    assert.match(record.message, /Save the Project/);
+    assert.equal(findButton(managedLayerCreditPanel({...context, role: "viewer"}, layer), "Review Catalog credit").disabled, true);
+  });
+
+  it("withholds late credit after version, account or explicit wording changes", async () => {
+    for (const change of ["version", "account", "wording"]) {
+      let release;
+      const layer = {layerId: "credit", datasetId: IDS.dataset, datasetVersionId: IDS.version,
+        sourceType: "governed-dataset", attribution: "Existing wording"};
+      const context = {role: "editor", layers: [layer], state: {layerHandles: new Map()}, render() {},
+        loadManagedDatasetCredit: () => new Promise(resolve => {release = resolve;})};
+      managedLayerCreditPanel(context, layer);
+      const record = context.managedCreditReviews.get(layer), pending = reviewManagedLayerCredit(context, layer, record);
+      if (change === "version") layer.datasetVersionId = IDS.staleVersion;
+      if (change === "account") context.queryLocationScopeInvalid = true;
+      if (change === "wording") layer.attribution = "User's newer wording";
+      release({datasetId: IDS.dataset, datasetVersionId: IDS.version, status: "available", attribution: "Stale result"});
+      await pending; assert.equal(record.result, null);
+      assert.equal(layer.attribution, change === "wording" ? "User's newer wording" : "Existing wording");
+    }
   });
 });
 

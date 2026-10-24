@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {it} from 'node:test';
+import {fileURLToPath} from 'node:url';
 import {zipSync, unzipSync, strFromU8, strToU8} from 'fflate';
 import {createPublicationSourceArchive, createPublicationSourceBackup, readPublicationSourceArchive,
   choosePublicationBackupContextPath} from '../src/lib/publicationSourceArchive.js';
@@ -12,6 +13,17 @@ const otherId = '22222222-2222-4222-8222-222222222222';
 const file = (relativePath = 'index.html', bytes = '<notebook></notebook>') => ({relativePath, blob: new Blob([bytes])});
 const exportSource = options => createPublicationSourceArchive({files: [file()], metadata: {title: 'Research'}, ...options});
 const unzip = async blob => unzipSync(new Uint8Array(await blob.arrayBuffer()));
+
+it('keeps the unminified public source-package bundle within its local-only boundary', async () => {
+  const {build} = await import('esbuild');
+  const result = await build({
+    entryPoints: [fileURLToPath(new URL('../src/lib/publicationSourceArchive.js', import.meta.url))],
+    bundle: true, format: 'esm', platform: 'browser', write: false, treeShaking: true, external: ['fflate']
+  });
+  const code = result.outputFiles[0].text;
+  assert.ok(Buffer.byteLength(code) <= 65536, 'Public source-package bundle exceeds 64 KiB');
+  assert.doesNotMatch(code, /class OpenGeoApiClient|class CognitoBrowserAuth|\/oauth2\/token|\bfetch\(/);
+});
 
 it('exports exact BOM, CRLF, binary and nested source bytes with matching manifest checksums', async () => {
   const text = new Uint8Array([0xef, 0xbb, 0xbf, ...strToU8('<notebook data-original="yes">\r\n</notebook>\r\n')]);

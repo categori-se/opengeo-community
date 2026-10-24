@@ -8,9 +8,11 @@ import {imageServerTileUrl} from "../lib/imageServer.js";
 import {executeGeoLibreImport} from "../lib/geolibreImport.js";
 import {createGeoLibreHandoff, reviewGeoLibreReturn} from "../lib/geolibreHandoff.js";
 import {loadManagedVectorData} from "../lib/managedVectorRead.js";
+import {loadManagedCogData} from "../lib/managedCogRead.js";
 import {ingestManagedFile} from "../lib/managedUpload.js";
 import {createManagedAnalysisRegistration} from "../lib/managedAnalysisRegistration.js";
 import {createManagedAnalysisRuntime} from "../lib/analysisManagedRuntime.js";
+import {reviewedDatasetCredit} from "../lib/managedDatasetCredit.js";
 import {emptyMapDefinition} from "../lib/mapDefinition.js";
 import {definitionForPrintFrame, projectPrintLayouts} from "../lib/printLayouts.js";
 import {
@@ -79,6 +81,7 @@ export function ProjectWorkspacePage({
   let importNotice = null;
   let workbench = null;
   let workbenchKey = null;
+  let managedCogEditorGeneration = 0;
   let readyState = null;
   let publicationIdentity = null;
   let disposed = false;
@@ -454,12 +457,47 @@ export function ProjectWorkspacePage({
 
   function buildWorkbench(state, input = prepareWorkbenchInput(state), printPreview = false) {
     const {WorkbenchView} = workbenchModule;
+    const archiveScope = [state.session.userId, state.organization.id, state.project.id];
+    const assertArchiveScope = async () => {
+      if (disposed || !root.isConnected || await adapter.organizationProvider() !== archiveScope[1]
+        || state.session.userId !== archiveScope[0]) throw Error("The signed-in account or workspace changed.");
+    };
+    const authorizeArchive = async () => {
+      await assertArchiveScope();
+      if ((await adapter.getSession()).userId !== archiveScope[0]) throw Error("The signed-in account or workspace changed.");
+      await assertArchiveScope();
+    };
+    const cogEditorGeneration = ++managedCogEditorGeneration;
+    const managedCogBindings = new Map();
+    const assertCogScope = async () => {
+      await assertArchiveScope();
+      if (disposed || managedCogEditorGeneration !== cogEditorGeneration)
+        throw Error("The selected Project view changed.");
+    };
+    const readManagedCog = async (datasetId, versionId, {signal} = {}) => {
+      signal?.throwIfAborted(); await authorizeArchive(); await assertCogScope();
+      const key = `${datasetId}:${versionId}`;
+      let pending = managedCogBindings.get(key);
+      if (!pending) {
+        pending = loadManagedCogData({adapter, projectId: archiveScope[2], datasetId, versionId,
+          signal, assertScope: assertCogScope,
+          authorize: async () => {await authorizeArchive(); await assertCogScope();}});
+        managedCogBindings.set(key, pending);
+        pending.catch(() => {if (managedCogBindings.get(key) === pending) managedCogBindings.delete(key);});
+      }
+      const binding = await pending;
+      signal?.throwIfAborted(); await authorizeArchive(); await assertCogScope();
+      return binding;
+    };
+    const loadManagedCog = typeof adapter.listDatasetVersions === "function"
+      && typeof adapter.requestDatasetDownload === "function" ? readManagedCog : null;
     if (onPublicationMapExport) return WorkbenchView({
       ...input, role: "viewer", persistenceMode: adapter.kind, styleAdapter: adapter,
       canResumeRenderer: () => checkRetainedAccess({signal: AbortSignal.timeout(20_000)}),
       restoreBrowserDraft: false,
       project: {...input.project, name: state.selectedMap.name ?? state.project.name},
       mapVersion: state.selectedMap.version, mapFontAttachments, onPublicationMapExport,
+      loadManagedCog,
       canRequestProjectCompute: false,
       connectionBindings: state.datasetConnectionBindings,
       basemapConnectionBindings: state.basemapConnectionBindings,
@@ -474,16 +512,6 @@ export function ProjectWorkspacePage({
     });
     let currentMap = state.selectedMap;
     const durableRoutes = durableJobRoutes(state);
-    const archiveScope = [state.session.userId, state.organization.id, state.project.id];
-    const assertArchiveScope = async () => {
-      if (!root.isConnected || await adapter.organizationProvider() !== archiveScope[1]
-        || state.session.userId !== archiveScope[0]) throw Error("The signed-in account or workspace changed.");
-    };
-    const authorizeArchive = async () => {
-      await assertArchiveScope();
-      if ((await adapter.getSession()).userId !== archiveScope[0]) throw Error("The signed-in account or workspace changed.");
-      await assertArchiveScope();
-    };
     const archiveCall = async task => {await authorizeArchive(); const value = await task(); await authorizeArchive(); return value;};
     // Metadata endpoints authorize each request. Check editor scope around them
     // and revalidate the session at action boundaries instead of twice per row.
@@ -508,6 +536,26 @@ export function ProjectWorkspacePage({
       }
       signal?.throwIfAborted();
       return dataset;
+    };
+    const readDatasetCredit = async (datasetId, datasetVersionId, {signal, refresh = false} = {}) => {
+      if (typeof refresh !== "boolean") throw Error("Choose whether to refresh the saved credit metadata.");
+      signal?.throwIfAborted(); await assertArchiveScope();
+      if (disposed) throw Error("The selected Project view changed.");
+      const key = `knowledge:${datasetId}`;
+      if (refresh) managedDatasetMetadataReads.delete(key);
+      let pending = managedDatasetMetadataReads.get(key);
+      if (!pending) {
+        const timeout = AbortSignal.timeout(20_000);
+        const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+        pending = geoLibreCall(() => adapter.getDatasetKnowledge(datasetId, {signal: requestSignal}));
+        managedDatasetMetadataReads.set(key, pending);
+        pending.catch(() => {if (managedDatasetMetadataReads.get(key) === pending) managedDatasetMetadataReads.delete(key);});
+      }
+      const knowledge = await pending;
+      // Cached and refreshed responses both require the current editor scope.
+      signal?.throwIfAborted(); await assertArchiveScope();
+      if (disposed) throw Error("The selected Project view changed.");
+      return reviewedDatasetCredit({datasetId, datasetVersionId, knowledge});
     };
     // Reuse complete exact-version reads already made by this editor. Preview
     // subsets never qualify as analysis inputs for a round trip.
@@ -654,6 +702,9 @@ export function ProjectWorkspacePage({
           if (!state.datasets.some(item => item.id === dataset.id)) state.datasets.push(dataset);
           return managedWorkbenchDataset(dataset);
         } : null,
+      // Deliberate exact-version Add/Refresh only; no mount or reopen polling.
+      loadManagedDatasetCredit: typeof adapter.getDatasetKnowledge === "function" ? readDatasetCredit : null,
+      loadManagedCog,
       loadDatasetFeatures: typeof adapter.listFeatures === "function"
         ? (datasetId) => adapter.listFeatures(state.project.id, datasetId, {limit: 100})
         : null,
@@ -679,6 +730,7 @@ export function ProjectWorkspacePage({
             assertCurrentScope: async () => {await assertCurrentScope(); await authorizeArchive();}
           })
         : null,
+      analysisReviewerId: state.session.userId,
       getAnalysisCollection: typeof adapter.getFeatureCollection === "function"
         ? (datasetId, options) => adapter.getFeatureCollection(state.project.id, datasetId, options)
         : null,
@@ -1277,7 +1329,7 @@ function managedWorkbenchDataset(dataset) {
     sourceType: dataset.sourceType,
     format: dataset.format,
     datasetType: ["csv"].includes(dataset.format) ? "table" : "spatial",
-    geometryType: dataset.geometryType,
+    geometryType: String(dataset.geometryType).toLowerCase() === "raster" ? "Raster" : dataset.geometryType,
     status: dataset.status,
     currentVersionState: dataset.currentVersionState,
     capabilities: dataset.capabilities,

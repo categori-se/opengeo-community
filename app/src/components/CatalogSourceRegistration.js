@@ -4,6 +4,8 @@ import {appendBackupReference, appendSourceEdition, assertKnowledgeSize} from ".
 import {matchesReviewedDisplay} from "../lib/reviewedDisplayIdentity.js";
 import {sourceLinks} from "./SourceDetails.js";
 import {readProviderJson} from "../lib/providerJson.js";
+import {worldCoverReferences, WORLDCOVER_2021, FTW_GLOBAL} from "../lib/publishedBaselineSources.js";
+import {reviewBaselineSources} from "../lib/baselineSourceSuitability.js";
 
 // Register a provider reference without first creating or changing a composition.
 // The existing source API remains the authorization and URL-validation boundary.
@@ -47,11 +49,31 @@ export function CatalogSourceRegistration({adapter, projects = [], organization,
     element("p", "These are metadata references. Backup access and equivalence remain unverified; a label does not establish a release date. Review reads supported provider metadata before registration; it does not read dataset files."));
   const review = element("button", "Review Layer"); review.type = "submit";
   const status = element("p", "The reference starts with internal access. Registration does not copy provider data or grant public access."); status.setAttribute("role", "status");
-  const result = document.createElement("div"); let disposed = false, busy = false, activeController, cachedMetadata;
-  root.dispose = () => {disposed = true; activeController?.abort(); backups.dispose(); result.replaceChildren();};
-  form.append(label("Access workspace", workspace), label("Layer title", title), urlSelection,
+  const result = document.createElement("div"); let disposed = false, busy = false, activeController, cachedMetadata, publishedDraft;
+  const published = document.createElement("details"); published.append(element("summary", "Published baseline sources"));
+  const studyBounds = document.createElement("input"); studyBounds.placeholder = "west, south, east, north";
+  const periodStart = document.createElement("input"), periodEnd = document.createElement("input"); periodStart.type = periodEnd.type = "date";
+  const objective = document.createElement("select");
+  objective.append(option("land-cover", "Land cover"), option("field-boundaries", "Mapped field boundaries"), option("land-cover-and-fields", "Land cover and mapped fields"));
+  const priority = document.createElement("select");
+  for (const [value, title] of [["dates", "Observation dates"], ["resolution", "Nominal resolution"], ["coverage", "Study-area coverage"],
+    ["quality", "Source quality"], ["rights", "Rights"], ["cost", "Processing cost"]]) priority.append(option(value, title));
+  const maximumResolution = document.createElement("input"); maximumResolution.type = "number"; maximumResolution.min = "0"; maximumResolution.step = "any";
+  const compare = element("button", "Compare baseline sources"); compare.type = "button";
+  const comparisonOutput = document.createElement("div"); comparisonOutput.className = "catalog-baseline-source-suitability";
+  let suitabilityReview = null, suitabilityCriteria = null, suitabilityWorkspace = null, suitabilityConfirmation = null;
+  const findWorldCover = element("button", "Find WorldCover 2021 tiles"); findWorldCover.type = "button";
+  const candidates = document.createElement("div"), publishedStatus = element("p", ""); publishedStatus.setAttribute("role", "status");
+  published.append(element("p", "ESA WorldCover describes 2021 land cover at nominal 10 m resolution. Find up to four candidate tiles from a study area no wider or taller than six degrees. This selection reads no provider files and creates no Catalog records. Availability and complete study-area coverage remain unverified."),
+    element("p", "The original tile host supports native GIS access, but the checked tile did not allow Studio browser access. Registering a reference preserves it; it does not copy data or resolve that provider restriction."),
+    label("Study bounds (west, south, east, north)", studyBounds), label("Requested period start (optional)", periodStart),
+    label("Requested period end (optional)", periodEnd), label("Baseline objective", objective), label("Ranking priority", priority),
+    label("Maximum nominal raster resolution (meters, optional)", maximumResolution), compare, comparisonOutput,
+    findWorldCover, publishedStatus, candidates);
+  root.dispose = () => {disposed = true; activeController?.abort(); backups.dispose(); result.replaceChildren(); comparisonOutput.replaceChildren(); candidates.replaceChildren();};
+  form.append(published, label("Access workspace", workspace), label("Layer title", title), urlSelection,
     label("Source type", type), rasterSelection, tiffSettings, label("Attribution", attribution), label("Source description and terms", description), zoomSelection, references, review);
-  type.addEventListener("change", () => {
+  const updateTypeSettings = () => {
     const imagery = type.value === "imageserver", tiff = type.value === "cog";
     url.placeholder = tiff ? "https://provider.example/raster.tif" : imagery ? "https://provider.example/arcgis/rest/services/Imagery/ImageServer" : "https://provider.example/tile/{z}/{y}/{x}";
     urlSelection.firstChild.textContent = tiff ? "TIFF URL" : "Tile URL"; url.setAttribute("aria-label", tiff ? "TIFF URL" : "Tile URL");
@@ -59,6 +81,118 @@ export function CatalogSourceRegistration({adapter, projects = [], organization,
     tiffSettings.hidden = !tiff; tiffSettings.style.display = tiff ? "" : "none";
     bounds.required = tiff; bands.required = tiff; size.disabled = !tiff;
     zoomSelection.hidden = tiff; zoomSelection.style.display = tiff ? "none" : ""; maxZoom.disabled = tiff;
+  };
+  const matchesNumbers = (value, expected) => {
+    const entries = value.split(",");
+    return entries.length === expected.length && entries.every((entry, index) => entry.trim()
+      && Number.isFinite(Number(entry.trim())) && Number(entry.trim()) === expected[index]);
+  };
+  const matchesPublishedDraft = () => publishedDraft && type.value === publishedDraft.source.type && url.value === publishedDraft.source.url
+    && matchesNumbers(bands.value, publishedDraft.source.bands) && matchesNumbers(bounds.value, publishedDraft.source.bounds);
+  const clearChangedProfile = () => {
+    if (!publishedDraft || matchesPublishedDraft()) return;
+    // Remove only the helper's unchanged prose; preserve the user's own edits.
+    if (title.value === publishedDraft.name) title.value = "";
+    if (description.value === publishedDraft.description) description.value = "";
+    if (attribution.value === publishedDraft.source.attribution) attribution.value = "";
+    publishedDraft = null;
+    publishedStatus.textContent = "The source settings changed. Published-source metadata was cleared; review the current reference and its terms.";
+  };
+  type.addEventListener("change", () => {clearChangedProfile(); updateTypeSettings();});
+  for (const input of [url, bands, bounds]) for (const event of ["input", "change"]) input.addEventListener(event, clearChangedProfile);
+  const criteriaFingerprint = () => canonicalJson({purpose: objective.value, bounds: studyBounds.value,
+    periodStart: periodStart.value, periodEnd: periodEnd.value, maximumResolutionMeters: maximumResolution.value, priority: priority.value});
+  const invalidateComparison = () => {
+    const hadReview = suitabilityReview || publishedDraft?.source.referenceMetadata.suitabilityReview;
+    suitabilityReview = null; suitabilityCriteria = null; suitabilityWorkspace = null;
+    if (publishedDraft) delete publishedDraft.source.referenceMetadata.suitabilityReview;
+    if (suitabilityConfirmation) {suitabilityConfirmation = null; result.replaceChildren();}
+    comparisonOutput.replaceChildren(); candidates.replaceChildren();
+    if (hadReview) publishedStatus.textContent = "Comparison criteria or workspace changed. The staged suitability review was cleared; compare the current criteria before attaching another review.";
+  };
+  const currentComparison = () => {
+    if (suitabilityReview && (suitabilityCriteria !== criteriaFingerprint() || suitabilityWorkspace !== workspace.value)) invalidateComparison();
+    return suitabilityReview;
+  };
+  for (const input of [studyBounds, periodStart, periodEnd, objective, priority, maximumResolution]) {
+    for (const event of ["input", "change"]) input.addEventListener(event, () => {if (!disposed) invalidateComparison();});
+  }
+  workspace.addEventListener("change", () => {if (!disposed) invalidateComparison();});
+  compare.addEventListener("click", () => {
+    if (disposed || busy || !root.isConnected || !compare.isConnected) return;
+    invalidateComparison();
+    try {
+      if (!eligible.some(project => project.id === workspace.value)) throw Error("Choose an available access workspace before comparing sources.");
+      const report = reviewBaselineSources({purpose: objective.value,
+        bounds: studyBounds.value.split(",").map(value => value.trim() ? Number(value.trim()) : NaN),
+        periodStart: periodStart.value || null, periodEnd: periodEnd.value || null,
+        maximumResolutionMeters: maximumResolution.value.trim() ? Number(maximumResolution.value) : null,
+        priority: priority.value, timestamp: new Date().toISOString()});
+      suitabilityReview = report; suitabilityCriteria = criteriaFingerprint(); suitabilityWorkspace = workspace.value;
+      publishedStatus.textContent = "Two published candidates compared from declared facts. Study-area coverage, availability, quality, effective rights and processing cost remain unverified. These sources can serve complementary objectives.";
+      comparisonOutput.append(element("p", "Ranking applies the objective first and the selected priority next. Unknown evidence remains unknown; no quality or cost score is supplied."));
+      for (const candidate of report.candidates) {
+        const card = document.createElement("article"); card.className = "catalog-baseline-source-candidate"; card.style.minWidth = "0";
+        card.dataset.sourceCandidate = candidate.id;
+        card.append(element("h4", `${candidate.rank}. ${candidate.title}`));
+        const facts = document.createElement("dl");
+        facts.style.display = "grid"; facts.style.gridTemplateColumns = "minmax(0, 7rem) minmax(0, 1fr)"; facts.style.gap = ".35rem .75rem";
+        for (const [key, title] of [["purpose", "Objective"], ["dates", "Dates"], ["resolution", "Resolution"], ["coverage", "AOI coverage"],
+          ["taxonomy", "Classification"], ["quality", "Quality"], ["rights", "Rights"], ["cost", "Cost"]]) {
+          const assessment = candidate.assessments[key], term = element("dt", title), value = element("dd", `${assessment.status} · ${assessment.basis}`);
+          term.style.overflowWrap = value.style.overflowWrap = "anywhere"; value.style.margin = "0"; facts.append(term, value);
+        }
+        card.append(facts, element("p", `Declared source license: ${candidate.sourceFacts.license ?? "Unknown"}. Availability remains unverified; source metadata does not establish authorization.`));
+        if (candidate.id === WORLDCOVER_2021.id) {
+          const find = element("button", "Find WorldCover tiles for this comparison"); find.type = "button";
+          find.addEventListener("click", () => {if (!disposed && !busy && find.isConnected && currentComparison() === report) findWorldCover.click();});
+          card.append(find);
+        } else if (candidate.id === FTW_GLOBAL.id) {
+          card.append(element("p", "Nominal 10 m input imagery does not establish field boundary accuracy. Open an existing Project, then choose Processing → Find mapped agricultural fields… to make a bounded country/year/area query. This comparison registers no vector reference."));
+          const fields = element("a", "Open saved Projects for mapped fields");
+          fields.href = directoryHref({view: "projects", adapterKind: adapter.kind});
+          fields.addEventListener("click", event => {if (disposed || busy || !fields.isConnected || currentComparison() !== report) event.preventDefault();});
+          card.append(fields);
+        }
+        comparisonOutput.append(card);
+      }
+      const download = element("button", "Download source suitability JSON"); download.type = "button";
+      download.addEventListener("click", () => {
+        if (disposed || busy || !download.isConnected || currentComparison() !== report) return;
+        const blob = new Blob([JSON.stringify(report)], {type: "application/json"}), objectUrl = URL.createObjectURL(blob);
+        const link = element("a", ""); link.href = objectUrl; link.download = "baseline-source-suitability.json"; link.click(); URL.revokeObjectURL(objectUrl);
+      });
+      comparisonOutput.append(download);
+    } catch (error) {publishedStatus.textContent = error.message;}
+  });
+  findWorldCover.addEventListener("click", () => {
+    if (disposed || busy || !root.isConnected) return;
+    currentComparison(); const foundCriteria = criteriaFingerprint(), foundWorkspace = workspace.value;
+    candidates.replaceChildren();
+    try {
+      const drafts = worldCoverReferences({bounds: studyBounds.value.split(",").map(value => value.trim() ? Number(value.trim()) : NaN),
+        periodStart: periodStart.value || null, periodEnd: periodEnd.value || null});
+      publishedStatus.textContent = `${drafts.length} candidate tile${drafts.length === 1 ? "" : "s"}. Choose a tile to fill the reference, then review it before registration. Source observation period: 2021.`;
+      for (const draft of drafts) {
+        const use = element("button", `Use ${draft.source.referenceMetadata.tileId}`); use.type = "button";
+        use.addEventListener("click", () => {
+          if (disposed || busy || !use.isConnected) return;
+          if (foundCriteria !== criteriaFingerprint() || foundWorkspace !== workspace.value) {invalidateComparison(); return;}
+          type.value = "cog"; updateTypeSettings(); title.value = draft.name; url.value = draft.source.url;
+          bands.value = draft.source.bands.join(", "); bounds.value = draft.source.bounds.join(", "); size.value = "";
+          attribution.value = draft.source.attribution; description.value = draft.description;
+          backupUri.value = objectVersion.value = edition.value = editionNote.value = "";
+          publishedDraft = structuredClone(draft);
+          const suitability = currentComparison();
+          if (suitability) publishedDraft.source.referenceMetadata.suitabilityReview = structuredClone(suitability);
+          suitabilityConfirmation = null; result.replaceChildren();
+          const requested = draft.source.referenceMetadata.requestedPeriod;
+          publishedStatus.textContent = `${draft.source.referenceMetadata.tileId} selected. Published observation period: 2021. ${requested
+            ? `Requested period: ${requested.start} to ${requested.end}; date suitability: ${draft.source.referenceMetadata.periodSuitability}.` : "Requested period: not supplied."} Review the filled reference before registration; object availability remains unverified.`;
+        });
+        const entry = document.createElement("p"); entry.append(use, document.createTextNode(` · tile bounds ${draft.source.bounds.join(", ")} · availability unverified`)); candidates.append(entry);
+      }
+    } catch (error) {publishedStatus.textContent = error.message;}
   });
   root.append(form, status, result);
   form.addEventListener("submit", async event => {
@@ -90,10 +224,13 @@ export function CatalogSourceRegistration({adapter, projects = [], organization,
           || selectedBands.some(band => !Number.isInteger(band) || band < 1 || band > 64)) throw Error("Enter one or three distinct display band numbers from 1 to 64, separated by commas.");
         if (sizeBytes !== null && (!Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || sizeBytes > 1_099_511_627_776)) throw Error("Enter a known file size in whole bytes from 1 to 1099511627776, or leave it blank.");
       }
+      clearChangedProfile();
+      currentComparison();
       const input = {name: title.value.trim(), description: description.value.trim() || null,
         classification: "internal", tags: [], source: {type: type.value, url: url.value,
           attribution: attribution.value.trim() || null,
-          ...(type.value === "cog" ? {bands: selectedBands, bounds: selectedBounds, sizeBytes, license: null, referenceMetadata: {}}
+          ...(type.value === "cog" ? {bands: selectedBands, bounds: selectedBounds, sizeBytes,
+            license: publishedDraft?.source.license ?? null, referenceMetadata: structuredClone(publishedDraft?.source.referenceMetadata ?? {})}
             : {minZoom: 0, maxZoom: zoom, tileSize: 256,
               ...(type.value === "xyz" ? {scheme: "xyz"} : {imageFormat: "png32", interpolation: "RSP_NearestNeighbor", bandIds: [],
                 ...(selectedRasterIds.length ? {rasterIds: selectedRasterIds} : {})})})}};
@@ -109,6 +246,17 @@ export function CatalogSourceRegistration({adapter, projects = [], organization,
         applyReferences({schemaVersion: "1.0.0", distributions: [], metadata: {source: [], normalized: [], curated: [], inferred: []}, context: []}, referenceInput);
       }
       const projectId = workspace.value;
+      const suitabilityCapture = input.source.referenceMetadata?.suitabilityReview
+        ? {criteria: suitabilityCriteria, workspace: projectId} : null;
+      suitabilityConfirmation = suitabilityCapture;
+      const assertSuitabilityCurrent = () => {
+        if (suitabilityCapture && (suitabilityConfirmation !== suitabilityCapture || suitabilityCapture.criteria !== criteriaFingerprint()
+          || suitabilityCapture.workspace !== workspace.value || !suitabilityReview
+          || suitabilityWorkspace !== suitabilityCapture.workspace || suitabilityCriteria !== suitabilityCapture.criteria)) {
+          invalidateComparison();
+          throw Error("Source suitability criteria or workspace changed. Compare the current criteria and review the reference again before registration.");
+        }
+      };
       const confirm = element("button", "Register referenced Layer"); confirm.type = "button";
       confirm.dataset.action = "register-referenced-layer";
       const metadataPanel = element("section", ""); metadataPanel.className = "catalog-provider-metadata-review";
@@ -142,14 +290,17 @@ export function CatalogSourceRegistration({adapter, projects = [], organization,
         return draft;
       };
       const loadMetadata = async () => {
+        assertSuitabilityCurrent();
         if (!metadataUrl) {metadataStatus.textContent = "No supported metadata endpoint for this connection. Your title, description and source settings will still be saved."; return;}
         confirm.disabled = true; retryMetadata.disabled = true; metadataStatus.textContent = "Reading provider JSON · at most 2 MiB and 15 seconds; no dataset files…";
         const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 15_000); activeController = controller;
         try {
           await adapter.assertCollectionContext?.(context);
+          assertSuitabilityCurrent();
           const response = cachedMetadata?.url === metadataUrl ? cachedMetadata.response
             : await readProviderJson(metadataUrl, {fetchImplementation, signal: controller.signal});
           await adapter.assertCollectionContext?.(context);
+          assertSuitabilityCurrent();
           if (disposed || !metadataPanel.isConnected || controller.signal.aborted) return;
           cachedMetadata = {url: metadataUrl, response}; metadataResponse = response;
           sourceDocument = {id: `urn:source:${crypto.randomUUID()}`, sourceUrl: metadataUrl, retrievedAt: response.retrievedAt,
@@ -174,11 +325,15 @@ export function CatalogSourceRegistration({adapter, projects = [], organization,
         ...(type.value === "imageserver" ? [element("p", selectedRasterIds.length
           ? `Image records: ${selectedRasterIds.join(", ")}. Provider requests use only these records.` : "Image records: provider default.")] : []),
         ...(type.value === "cog" ? [element("p", `WGS84 bounds: ${selectedBounds.join(", ")} · display bands: ${selectedBands.join(", ")} · ${sizeBytes === null ? "file size unknown" : `${sizeBytes.toLocaleString()} bytes`}. Availability and cloud-optimized layout unverified.`)] : []),
+        ...(publishedDraft ? [element("p", `Published source: ESA WorldCover 2021 v200 · CC BY 4.0 · observation period 2021-01-01 to 2021-12-31. ${input.source.referenceMetadata.requestedPeriod
+          ? `Requested period ${input.source.referenceMetadata.requestedPeriod.start} to ${input.source.referenceMetadata.requestedPeriod.end}; date suitability: ${input.source.referenceMetadata.periodSuitability}.`
+          : "Requested period not supplied; date suitability not assessed."} Candidate tile bounds do not verify complete study-area coverage.`)] : []),
         ...(referenceInput.backup ? [element("p", `Backup reference: ${referenceInput.backup.uri}${referenceInput.backup.objectVersion ? ` · object version ${referenceInput.backup.objectVersion}` : ""}. Access and equivalence unverified.`)] : []),
         ...(referenceInput.edition ? [element("p", `Source edition: ${referenceInput.edition.label}${referenceInput.edition.note ? ` · ${referenceInput.edition.note}` : ""}`)] : []),
         element("p", "Provider reference · internal access · no Project creation or provider copy"), metadataPanel, confirm);
       retryMetadata.addEventListener("click", async () => {if (busy || disposed) return; busy = true; review.disabled = true; try {await loadMetadata();} finally {busy = false; review.disabled = false;}});
       await loadMetadata();
+      assertSuitabilityCurrent();
       if (disposed || !root.isConnected || !confirm.isConnected) return;
       confirm.addEventListener("click", async () => {
         if (busy || disposed || !root.isConnected || !confirm.isConnected) return;
@@ -199,9 +354,11 @@ export function CatalogSourceRegistration({adapter, projects = [], organization,
         };
         try {
           await adapter.assertCollectionContext?.(context);
+          assertSuitabilityCurrent();
           providerDraft(applyReferences(emptyKnowledge(), referenceInput));
           const existing = typeof adapter.listSources === "function" ? await adapter.listSources(projectId, {limit: 100, offset: 0}) : [];
           await adapter.assertCollectionContext?.(context);
+          assertSuitabilityCurrent();
           if (existing.length >= 100) throw Error("Catalog inventory is truncated; select the existing Layer through Catalog before registering.");
           const matches = existing.filter(source => source.status === "active" && source.sourceType === input.source.type && source.sourceUrl === input.source.url);
           if (matches.length > 1) throw Error("Several Catalog references match; inspect the existing Layers before registering.");

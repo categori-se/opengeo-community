@@ -1,4 +1,5 @@
 import {prepareCesiumRuntime} from "./prepare-cesium-runtime.mjs";
+import {writeThirdPartyNotices} from "./build-third-party-notices.mjs";
 import {spawnSync} from "node:child_process";
 import {prepareMapboxRuntime} from "./prepare-mapbox-runtime.mjs";
 import {constants} from "node:fs";
@@ -48,6 +49,7 @@ try {
 }
 await prepareMapboxRuntime(outputRoot);
 await prepareCesiumRuntime(outputRoot);
+await writeThirdPartyNotices({appRoot, outputRoot});
 const pwa = await writeStudioPwaAssets({
   outputRoot,
   applicationId: "opengeo-managed-demo",

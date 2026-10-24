@@ -76,6 +76,9 @@ if (inventory.schemaVersion !== "1.0.0") errors.push("inventory.schemaVersion mu
 if (!/^\d{4}-\d{2}-\d{2}$/.test(inventory.reviewedAt ?? "")) {
   errors.push("inventory.reviewedAt must be an ISO date");
 }
+if (typeof inventory.reviewScope !== "string" || inventory.reviewScope.length < 20) {
+  errors.push("inventory.reviewScope must describe what the historical review date establishes");
+}
 if (!Array.isArray(inventory.manifests) || !inventory.manifests.length) {
   errors.push("inventory.manifests must be a non-empty array");
 }
@@ -171,6 +174,10 @@ for (const [index, item] of (inventory.packages ?? []).entries()) {
     }
   } else if (item.licenseEvidence.kind === "package-metadata") {
     httpsUrl(item.licenseEvidence.url, `${label}.licenseEvidence.url`);
+    if (item.licenseEvidence.reviewedAt !== undefined &&
+        !/^\d{4}-\d{2}-\d{2}$/.test(item.licenseEvidence.reviewedAt)) {
+      errors.push(`${label}.licenseEvidence.reviewedAt must be an ISO date`);
+    }
   } else {
     errors.push(`${label}.licenseEvidence.kind is invalid`);
   }
@@ -233,6 +240,48 @@ for (const section of ["platformFoundations", "referenceProducts"]) {
   }
 }
 
+// Readable summaries use the same source identities as the register. Match only
+// direct-package tables: a reference-product row cannot cover a runtime package.
+const readablePath = repoPath("docs/open-source-foundations.md", "readable foundation inventory");
+if (readablePath) {
+  const readable = readFileSync(readablePath, "utf8");
+  const directSections = readable.match(/## Browser And JavaScript Foundations\n([\s\S]*?)\n## Runtime And Toolchain Foundations/);
+  if (!directSections) errors.push("readable foundation inventory is missing direct-package sections");
+  const rows = new Map();
+  for (const line of (directSections?.[1] ?? "").split("\n")) {
+    const cells = line.split("|").slice(1, -1).map(cell => cell.trim());
+    const source = cells[0]?.match(/^\[[^\]]+\]\(([^)]+)\)$/)?.[1];
+    if (!source) continue;
+    if (rows.has(source)) errors.push(`readable foundation inventory duplicates package source: ${source}`);
+    rows.set(source, cells);
+  }
+  const expectedSources = new Set();
+  for (const item of inventory.packages ?? []) {
+    const key = `${item.ecosystem}:${item.name}`;
+    const source = item.sourceUrl ?? `../${item.sourcePath}`;
+    expectedSources.add(source);
+    const row = rows.get(source);
+    if (!row) errors.push(`readable foundation inventory is missing direct package: ${key}`);
+    else {
+      if (row[1] !== item.version) errors.push(`readable foundation inventory has stale version for ${key}: expected ${item.version}`);
+      if (!row[3]?.includes(item.licenseExpression)) errors.push(`readable foundation inventory has stale license for ${key}: expected ${item.licenseExpression}`);
+    }
+  }
+  for (const source of rows.keys()) {
+    if (!expectedSources.has(source)) errors.push(`readable foundation inventory has an unregistered direct package: ${source}`);
+  }
+}
+
+const communityLicensingPath = repoPath("docs/community-licensing.md", "community licensing guide");
+if (communityLicensingPath) {
+  const guide = readFileSync(communityLicensingPath, "utf8");
+  const counts = guide.match(/contains (\d+) direct packages, (\d+) platform foundations\s+and (\d+) reference products/);
+  const expectedCounts = [inventory.packages?.length, inventory.platformFoundations?.length, inventory.referenceProducts?.length];
+  if (!counts || counts.slice(1).some((count, index) => Number(count) !== expectedCounts[index])) {
+    errors.push(`community licensing guide has stale inventory counts: expected ${expectedCounts.join("/")}`);
+  }
+}
+
 if (errors.length) {
   console.error("Open-source foundation inventory validation failed:");
   for (const error of errors) console.error(`- ${error}`);
@@ -240,8 +289,9 @@ if (errors.length) {
 }
 
 console.log(
-  `Open-source foundation inventory passed: ${inventory.packages.length} direct packages, ` +
+  `Open-source foundation inventory coverage passed: ${inventory.packages.length} direct packages, ` +
   `${inventory.platformFoundations.length} platform foundations, and ` +
   `${inventory.referenceProducts.length} source-audited references. ` +
-  `${inventory.packages.filter(item => item.licenseEvidence?.kind === "private-local-package").length} private package(s) awaiting license/release review.`
+  `${inventory.packages.filter(item => item.licenseEvidence?.kind === "private-local-package").length} private package(s) retaining registry publication boundaries. ` +
+  `This consistency check does not approve release artifact licensing.`
 );

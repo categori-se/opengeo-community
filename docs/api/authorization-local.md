@@ -1,9 +1,9 @@
 # Check authorization with local PostGIS
 
 The integrated pilot exercises the real FastAPI routes, authorization rules and
-PostgreSQL transactions with disposable synthetic identities. The retained
-[evidence](evidence/task-2.json) records a successful run on October 11, 2026,
-including image and dependency identities, HTTP results and cleanup.
+PostgreSQL transactions with disposable synthetic identities. The results below
+describe the retained local scenario; they do not establish hosted authentication
+or cloud delivery.
 
 From the repository root, run:
 
@@ -11,10 +11,11 @@ From the repository root, run:
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/run-integrated-pilot-local.py
 ```
 
-Podman and the three immutable cached images identified in the evidence must be
-available. The runner uses `--pull=never`, mounts current source into the cached
+Podman and the exact cached image identities pinned by the runner must be
+available. A fresh image build does not recreate those historical IDs.
+The runner uses `--pull=never`, mounts current source into the cached
 API and worker images, and creates a disposable network-isolated PostGIS
-database. It prints the local evidence directory and removes its containers and
+database. It prints a local result directory and removes its containers and
 database volumes after execution. See the [development guide](../community-development.md)
 for the maintained image build instructions.
 
@@ -40,9 +41,8 @@ the observed results were:
 
 Each of the four rejected writes compares the complete owner-authorized site
 response, edition list, completed render-job response and local queue before and
-after the request. All four comparisons passed. The receipt includes the matching
-hashes, site/version identities, state, edition IDs, render identity/state and queue
-count. Denied reads contain only the `detail` field. The existing pilot also
+after the request. All four comparisons passed. Denied reads contain only the
+`detail` field. The existing pilot also
 withdraws the local edition and verifies anonymous HTML and ZIP reads return `404`.
 
 Requests use in-process ASGI transport and the real `opengeo_runtime` database
@@ -52,7 +52,7 @@ containers use cached dependencies and run as container user `0`; database
 operations use the restricted runtime role. This check covers local authorization
 and persistence, with no Cognito sign-in, AWS acceptance or external publication.
 
-The first attempt stopped at a check expecting `404` after Project membership
-revocation. The site route correctly returned `403 action_forbidden`. The runner
-expectation was corrected and one targeted retry passed in 61.363 seconds. Both
-outcomes are identified in the evidence; production authorization code was unchanged.
+Project membership revocation returns `403 action_forbidden` for this site route;
+it should not be interpreted as a `404` response. Use the maintained development
+guide for the current local Studio setup. This cached-image pilot does not verify
+an independent installation.

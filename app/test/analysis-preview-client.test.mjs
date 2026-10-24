@@ -81,3 +81,57 @@ test('explicit cancellation sends one independently cancellable request and dist
       error => error.code === 'invalid_api_response');
   }
 });
+
+const buildingRequest = {...request, operation: 'building-reconcile'};
+function buildingPayload() {
+  const ids = Array.from({length: 5}, (_, index) => `97000000-0000-4000-8000-00000000000${index}`);
+  const neighbor = (id, iou, degree = 1) => ({featureId: id, intersectionOverUnion: iou, overlapCount: degree});
+  const row = (side, id, status, neighbors) => ({type: 'Feature', id: `${side}:${id}`,
+    geometry: {type: 'Polygon', coordinates: [[[0, 0], [.001, 0], [.001, .001], [0, .001], [0, 0]]]},
+    properties: {input: {side, featureId: id, properties: {name: `${side} original`, confidence: .9}},
+      reconciliation: {status, reviewStatus: 'unreviewed', neighbors}}});
+  return {type: 'FeatureCollection', features: [
+    row('source', ids[0], 'one-to-one-candidate', [neighbor(ids[0], .8)]),
+    row('target', ids[0], 'one-to-one-candidate', [neighbor(ids[0], .8)]),
+    row('source', ids[1], 'unmatched', []), row('target', ids[1], 'unmatched', []),
+    row('source', ids[2], 'ambiguous', [neighbor(ids[2], .5), neighbor(ids[3], .5)]),
+    row('target', ids[2], 'ambiguous', [neighbor(ids[2], .5, 2)]),
+    row('target', ids[3], 'ambiguous', [neighbor(ids[2], .5, 2)]),
+    row('source', ids[4], 'boundary-disagreement', [neighbor(ids[4], .2)]),
+    row('target', ids[4], 'boundary-disagreement', [neighbor(ids[4], .2)])
+  ], 'opengeo:analysis': {...payload['opengeo:analysis'], operation: 'building-reconcile',
+    source_count: 4, target_count: 5, allowed: true, building_polygon_inputs: true,
+    buildingReconciliation: {minimumIntersectionOverUnion: .5,
+      intersectionMethod: 'PostGIS local projected geography overlay', areaMethod: 'PostGIS spheroidal geography',
+      candidateRule: 'one positive-area neighbor on each side',
+      ambiguityRule: 'multiple positive-area neighbors on either side', unmatched: 'retained on both sides',
+      reviewStatus: 'unreviewed', validatedCount: null, maximumSpanDegrees: 6, maximumAbsoluteLatitude: 80}}};
+}
+
+test('building preview preserves both inventories, source properties and symmetric unreviewed relations', async () => {
+  const response = buildingPayload();
+  assert.deepEqual(await client(response).previewVectorAnalysis(project, source, buildingRequest), response);
+});
+
+test('building preview rejects changed method, fabricated validation, omitted inputs and inconsistent graph', async () => {
+  const changes = [
+    value => {value['opengeo:analysis'].buildingReconciliation.minimumIntersectionOverUnion = .1;},
+    value => {value['opengeo:analysis'].buildingReconciliation.validatedCount = 4;},
+    value => {value['opengeo:analysis'].building_polygon_inputs = false;},
+    value => {value['opengeo:analysis'].allowed = false;},
+    value => {value.features.pop();},
+    value => {value.features[4].properties.reconciliation.status = 'one-to-one-candidate';},
+    value => {value.features[0].properties.reconciliation.neighbors[0].intersectionOverUnion = .7;},
+    value => {value.features[5].properties.reconciliation.neighbors[0].overlapCount = 1;},
+    value => {value.features[0].properties.reconciliation.neighbors[0].intersectionOverUnion = 1.01;},
+    value => {value.features[0].properties.reconciliation.neighbors[0] = null;},
+    value => {value.features[0].geometry = {type: 'Point', coordinates: [0, 0]};},
+    value => {value.features[0].id = 'unrelated';},
+    value => {value.features[0].properties.reconciliation.reviewStatus = 'accepted';}
+  ];
+  for (const change of changes) {
+    const response = buildingPayload(); change(response);
+    await assert.rejects(client(response).previewVectorAnalysis(project, source, buildingRequest),
+      error => error.code === 'invalid_api_response');
+  }
+});

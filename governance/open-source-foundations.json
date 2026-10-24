@@ -1,6 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "reviewedAt": "2026-09-19",
+  "reviewScope": "Historical eight-package review recorded in foundation-inventory-review-20260919.json; not a review date for every current entry or release artifact. Later corrections retain their own evidence and dates.",
   "scope": "Direct npm and Python dependencies, explicitly selected runtime/toolchain foundations, and source-audited reference products. Release SBOMs remain authoritative for transitive and operating-system packages.",
   "manifests": [
     "package.json",
@@ -14,6 +15,82 @@
     "services/worker/pyproject.toml"
   ],
   "packages": [
+    {
+      "ecosystem": "npm",
+      "name": "@mathjax/src",
+      "version": "4.1.3",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Lazy local TeX equation layout into SVG paths for saved Print layouts and explicit output.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/mathjax/MathJax-src",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      },
+      "notes": "Credit The MathJax Consortium and contributors. Keep the software Apache license separate from font-outline terms. The browser notice index retains the required and installed optional MathJax closure with contextual lock and installation-receipt integrity; that closure does not assert exact browser-bundle inclusion."
+    },
+    {
+      "ecosystem": "npm",
+      "name": "@mathjax/mathjax-tex-font",
+      "version": "4.1.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Original TeX math glyph metrics and SVG outlines for the local Print equation typesetter.",
+      "licenseExpression": "Apache-2.0",
+      "sourceUrl": "https://github.com/mathjax/MathJax-fonts",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      },
+      "notes": "Apache-2.0 is the exact npm software metadata declaration, not a replacement for the font terms. All 22 supplied WOFF2 name tables identify SIL OFL 1.1: 20 retain MathJax Inc. 2022 attribution; two retain Design Science Inc. 2009-2010 and Reserved Font Name MathJax_Main. The font foundation separately records these outline terms. Preserve the complete license and exact source notices with standalone equation outputs."
+    },
+    {
+      "ecosystem": "npm",
+      "name": "jspdf",
+      "version": "4.2.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Explicit browser PDF generation for the existing Print output, preserving vector geometry and geographic registration.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/parallax/jsPDF",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      },
+      "notes": "Credit James Hall, yWorks GmbH and jsPDF contributors. Browser notices retain the supplied MIT LICENSE, embedded browser-distribution legal comments and the required plus installed optional converter closure, including installed HTML/canvas integrations. Absent optional dependencies are disclosed; development and peer-only dependencies are outside this feature's closure."
+    },
+    {
+      "ecosystem": "npm",
+      "name": "svg2pdf.js",
+      "version": "2.8.1",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "app/package.json"
+      ],
+      "purpose": "Convert the existing Print SVG scene to vector PDF through jsPDF in the browser.",
+      "licenseExpression": "MIT",
+      "sourceUrl": "https://github.com/yWorks/svg2pdf.js",
+      "licenseEvidence": {
+        "kind": "package-lock",
+        "paths": [
+          "app/package-lock.json"
+        ]
+      },
+      "notes": "Credit yWorks GmbH, Vitaly Puzrin and contributors. Preserve the supplied MIT LICENSE and embedded browser-distribution notices, including Microsoft helper permissions, rather than substituting the application license."
+    },
     {
       "ecosystem": "npm",
       "name": "earcut",
@@ -238,7 +315,8 @@
         "paths": [
           "app/package-lock.json"
         ]
-      }
+      },
+      "notes": "The npm 4.4.1 distribution omits its complete license text. The full upstream BSD-3-Clause notice is retained at app/src/assets/licenses/pmtiles-4.4.1.LICENSE.txt, from the exact registry gitHead 0cebcaeade40034b86facb6e7da4ec726b9053fb (LICENSE blob ec3d69a55220793cb4b2074ebe202df25f9cb417). Builds verify its SHA-256 and exact lockfile integrity, then include the complete text in local browser notices. The specification and sample tilesets have separate rights; this notice does not license basemaps or data."
     },
     {
       "ecosystem": "npm",
@@ -566,12 +644,14 @@
         "services/worker/pyproject.toml"
       ],
       "purpose": "PostgreSQL protocol adapter; the binary extra is hash-locked for runtime images.",
-      "licenseExpression": "NOASSERTION",
+      "licenseExpression": "LGPL-3.0-only",
       "sourceUrl": "https://github.com/psycopg/psycopg",
       "licenseEvidence": {
         "kind": "package-metadata",
-        "url": "https://pypi.org/project/psycopg/3.3.4/"
-      }
+        "url": "https://raw.githubusercontent.com/psycopg/psycopg/3.3.4/psycopg/pyproject.toml",
+        "reviewedAt": "2026-10-22"
+      },
+      "notes": "Version-pinned upstream package metadata declares LGPL-3.0-only. This resolves the stale direct-package expression, not distribution approval for the separately installed binary extra or its bundled libraries."
     },
     {
       "ecosystem": "pypi",
@@ -614,13 +694,14 @@
         "services/api/pyproject.toml"
       ],
       "purpose": "Unicode bidirectional layout for bounded print text.",
-      "licenseExpression": "LGPL-3.0-only",
+      "licenseExpression": "NOASSERTION",
       "sourceUrl": "https://github.com/MeirKriheli/python-bidi",
       "licenseEvidence": {
         "kind": "package-metadata",
-        "url": "https://pypi.org/project/python-bidi/0.6.11/"
+        "url": "https://raw.githubusercontent.com/MeirKriheli/python-bidi/v0.6.11/pyproject.toml",
+        "reviewedAt": "2026-10-22"
       },
-      "notes": "Upstream package metadata classifies the project as LGPL and the wheel carries GPLv3/LGPLv3 texts, but version 0.6.11 publishes no exact SPDX expression or only/or-later assertion. Resolve before public distribution. The wheel also carries a third-party Rust dependency license inventory that release notices must preserve."
+      "notes": "Version-pinned upstream package metadata has an LGPL classifier but no exact SPDX expression. The Python algorithm source explicitly allows LGPL version 3 or later (https://github.com/MeirKriheli/python-bidi/blob/v0.6.11/bidi/algorithm.py); this does not establish one expression for the entire mixed Python/Rust wheel. Prior distribution review recorded GPLv3/LGPLv3 texts and a Rust third-party license inventory. Resolve the complete package expression before distributing the wheel or a runtime containing it, and preserve its third-party notices."
     },
     {
       "ecosystem": "pypi",
@@ -1183,6 +1264,23 @@
       "licenseExpression": "Apache-2.0",
       "sourceUrl": "https://github.com/tesseract-ocr/tesseract",
       "licenseEvidenceUrl": "https://github.com/tesseract-ocr/tesseract/blob/main/LICENSE"
+    },
+    {
+      "name": "MathJax equation typesetting and original TeX glyphs",
+      "version": "@mathjax/src 4.1.3; @mathjax/mathjax-tex-font 4.1.0",
+      "usedBy": [
+        "app/package.json",
+        "app/scripts/build-third-party-notices.mjs",
+        "app/src/assets/licenses/mathjax-tex-4.1.0.FONT-LICENSE.txt",
+        "app/src/assets/licenses/mathjax-4.1.3.LICENSE.txt",
+        "app/src/assets/licenses/mathjax-4.1.3.SOURCE-NOTICE.txt"
+      ],
+      "purpose": "Lazy local mathematical layout and original TeX equation outlines for reusable Print layouts and standalone output.",
+      "licenseExpression": "Apache-2.0 AND OFL-1.1",
+      "sourceUrl": "https://github.com/mathjax/MathJax-src",
+      "licenseEvidenceUrl": "https://openfontlicense.org/",
+      "licenseEvidencePath": "app/src/assets/licenses/mathjax-tex-4.1.0.FONT-LICENSE.txt",
+      "notes": "The installed source package supplies the Apache 2.0 text; preserve its original MathJax Consortium source notice. Original TeX font name tables explicitly identify SIL OFL 1.1, MathJax Inc. 2022, and Design Science Inc. 2009-2010 with Reserved Font Name MathJax_Main. Retain the complete OFL text and these exact notices with SVG/PDF equation outlines; software metadata alone does not establish font rights. The required installed New Computer Modern font dependency has separate GUST font terms and is not the selected equation font."
     },
     {
       "name": "GNU Unifont",

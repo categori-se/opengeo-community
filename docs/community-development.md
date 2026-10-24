@@ -7,15 +7,20 @@ This setup is for one local developer and does not require AWS credentials.
 Local checks cover Project save and reopen after a database restart, selected
 GIS processing and two native publication editions with private preview and
 release reopening. Viewer access, revoked grants and expiry also pass within the
-[documented local security boundary](api/native-publication-readiness.md).
-These checks used cached images and synthetic sign-in. A separate empty-directory
-app installation now passes from the current lockfile, including esbuild's install
-script/native binary and 154 existing API-client tests. It uses verified package
-cache entries plus 13 retrieved locked tarballs; install and tests run without
-external networking. The seven-page frontend build and artifact checks also pass
-in an isolated public-source copy. That build reuses Framework package-version
-indexes and the CSV parser cache; application modules are generated from the
-fresh installed graph. It does not verify every optional Framework library.
+local security boundary described below.
+These checks used cached images and synthetic sign-in. The October23 current-lock
+clean-directory app installation now passes offline on supported Node 24.21.0:
+443 packages, real core-js/esbuild lifecycle scripts, a native esbuild transform
+and 20 PDF/font/geographic/notice cases. Each process has external networking
+physically disabled. The corrected lock preserves Monaco's exact DOMPurify3.4.8,
+Cesium's3.4.16 and a separate optional jsPDF3.4.17 dependency. Converter identities
+and bytes match the accepted vector/geographic PDF proof, which is reused.
+
+Earlier independent app installation also passed154 API-client cases and the
+isolated public-source frontend build/artifact check. That build reuses Framework
+package-version indexes and the CSV parser cache; application modules are generated
+from its then-fresh installed graph. It does not verify every optional Framework
+library, and the current lock-only correction does not claim another app build.
 The maintained standalone API image also builds from current community source.
 It includes the reviewed libuuid/SQLite fixes and reuses unchanged Python
 dependencies when those OS packages change. Its real server starts as user 10001
@@ -131,33 +136,115 @@ and restore procedures for a consistent database backup. The existing
 shows how the integrated workflow handles database and object copies; it is not
 an automatic backup service.
 
+### Retained-map Print check
+
+After the maintained five-facility smoke has saved and reopened its map, the same
+runner can exercise Print with `--development --print-smoke`, the same private
+`--state-directory`, cached API/worker image IDs and exact `--reuse-studio-tree`
+digest from `studio-build-manifest.json`. It requires that retained synthetic
+map and existing stopped database; it never creates or ingests replacement data.
+Optional profile files are preserved while their runtimes remain inactive.
+
+The check uses normal Print controls to save one main/inset layout, reopen it in
+a fresh page, recapture both views and inspect one A4 SVG. Its cumulative receipts
+bound API requests, captures, save/output attempts and active time. An uncertain
+save requires exact readback, and an existing output is inspected from retained
+bytes. Keep those receipts across interruptions; do not reset them to replay a
+completed write. Local acceptance covers real API/SQL and actual map pixels with
+synthetic identity/transport, not provider basemaps or independent human use.
+
+Print frames can also be arranged directly on the paper with mm/inch rulers,
+snapping and page-margin alignment. Arrow keys act within the canvas (one mm,
+Shift ten, Alt0.1); focus the resize handle to resize instead. Escape cancels a
+gesture and Ctrl/Cmd+Z undoes it. Display units and editor guides stay local;
+geometry is saved in millimeters through the existing explicit layout save.
+
+### Local PostGIS Layer fixture
+
+Use `--postgis-fixture` with `--development` and a separate private state directory
+to exercise the external-database interface without AWS or a provider account.
+It supplies one synthetic verified connection and a private 123-row PostGIS table.
+The normal tenant repositories, catalog discovery, preview processor and bounded
+SQL reader run against the local database. Credentials, connection verification,
+name resolution and TLS transport are explicit local substitutes. Production
+discovery/preview settings stay disabled unless configured independently.
+This fixture permits one discovery and two feature previews across restarts;
+its counters and committed registration are retained rather than reset on retry.
+
+Open the fixture workspace's **Services → External PostgreSQL / PostGIS**, load
+the connection, inspect its discovery and register the selected relation as a
+Catalog Layer. **Open Catalog Layer → Open map** opens a temporary private view;
+choose **Use blank basemap** while external browser requests are blocked. The
+preview reports the 100-feature ceiling, omitted matches and exact-number string
+encodings. It does not copy the source into managed storage or save a Project.
+
+The existing development smoke can exercise this fixture headlessly:
+
+```bash
+OPENGEO_COMMUNITY_DEVELOPMENT_SMOKE=1 PYTHONDONTWRITEBYTECODE=1 \
+  python3 scripts/run-integrated-studio-local.py \
+  --development --postgis-fixture \
+  --state-directory .opengeo/postgis-fixture \
+  --api-image "$community_api_image" \
+  --worker-image "$community_worker_image"
+```
+
+Use `--reuse-studio-tree SHA256` to select an existing sealed frontend instead of
+building the initial tree. As with ordinary development, closing the browser
+stops compute and retains the database and its named volume. Omitting the fixture
+option disables its local transport on the next launch. This profile does not
+establish configured provider, DNS/TLS, AWS, deployment or independent installation
+acceptance.
+
+The maintained compiled browser check passes owner/viewer rendering of 100 out of
+123 records, exact large-number strings, truncation disclosure and denial after
+project-grant removal through the authenticated API. It creates one Catalog Layer
+and no managed source version, object, processing job or saved map. The accepted
+continuation reuses the already committed discovery and Layer after a locator
+failure. This remains local fixture evidence with the substitutions above.
+
 ### Optional fresh installation check
 
 In GitHub Actions, open **Core workflows and API contract**, choose **Run
 workflow**, and enable `fresh_installation`. This manual input defaults to
 `false`. It uses the existing two jobs on Ubuntu 24.04: the frontend job has a
-30-minute ceiling and the API job keeps 15 minutes, at most 45 summed job minutes.
+28-minute ceiling and the API job has 10 minutes, at most 38 summed job minutes.
+Ordinary validation retains its existing 8/15-minute limits.
 Image preparation, compiled Studio save/reopen and native publication stages have
 12-, 6- and 5-minute limits respectively.
 
-Preflight requires Linux x64, rootless Podman with cgroup v2, an installed system
+Preflight requires Linux x64, rootless Podman with cgroup v2, `setfacl`, an installed system
 Chrome/Chromium executable and at least 12 GiB free disk. The run starts isolated,
 empty Podman image and npm download stores, builds the maintained public source
 images and invokes the canonical local runner. It makes no AWS account calls,
 saves no caches and uploads no artifacts.
 
-The [public fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39103423675)
-at `a80543b4` passes the owned, empty image-store preflight and builds all three
-maintained API, worker and compiler Dockerfiles; the image stage lasts about
-406 seconds. The API job and cleanup pass. Podman 4.9 then rejects the unsupported
-`pull --retry` option before downloading pinned PostGIS, so the connected Studio
-save/reopen and native publication journeys are skipped.
+The image stage builds the API, broad GIS worker, dedicated PMTiles converter and
+publication compiler using their maintained Dockerfiles. The built-Studio check
+passes the dedicated converter's exact ID through `--pmtiles-worker-image`.
+That fresh-state option binds a separate file queue and pristine runtime control
+through real admission/completion SQL; it does not activate a retained development
+database or hosted converter. The full GIS worker remains responsible for PNGs.
+Receipts record image and host architectures separately, so emulated local checks
+cannot establish native architecture or production controller acceptance.
 
-Current local workflow source moves the pinned database pull before image builds
-and passes `--retry=0` only when pull help advertises that exact option. Legacy
-Podman may make three internal transient copy retries, at most four copy attempts,
-under the same 12-minute stage limit with no outer retry. This correction has not
-run remotely; fresh connected runtime acceptance remains open.
+The [latest public fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665)
+at `92124cfd` passes the owned, empty image-store preflight, pinned PostGIS
+preparation, all three maintained source builds and API checks. Compiled Studio
+opens and exercises invitations and access restrictions, then an outdated test
+disclosure stops navigation to Data access. Native publication is skipped; isolated
+cleanup passes. The fixture now follows the current Data access and Basemap
+navigation, visible layer controls and PMTiles labels. Current local acceptance
+covers authorization/lifecycle, uploads, styling, exact saved-map reopening,
+dedicated PMTiles v2 conversion, PNG rendering and both dataset publications.
+The next map-resource check now expects reuse of the existing governed identity
+and explicit selection of its saved revision. Its corrected full publication,
+export and revocation tail, and fresh connected/native acceptance, remain open.
+
+The pinned database pull precedes source builds and uses `--retry=0` only when
+pull help advertises that exact option. Legacy Podman may make three internal
+transient copy retries, at most four copy attempts, under the same 12-minute
+stage limit with no outer retry.
 
 These checks use synthetic local identity and local object/queue transports. The
 existing automated browser runs without Chromium's sandbox; source-build success

@@ -4930,6 +4930,26 @@ a {
   background-position: 0 0, 0 9px, 9px -9px, -9px 0;
 }
 
+.print-editing-help { font-size: 0.85rem; color: var(--opengeo-muted); max-width: 75ch; }
+.print-paper-grid { display: grid; align-items: stretch; }
+.print-paper-grid > svg { display: block; }
+.print-ruler-corner, .print-ruler { background: #e2e8f0; color: #17212b; font: 10px system-ui, sans-serif; }
+.print-ruler-corner { display: grid; place-items: center; }
+.print-ruler { position: relative; overflow: hidden; }
+.print-ruler-tick { position: absolute; box-sizing: border-box; border-color: #64748b; border-style: solid; }
+.print-ruler.horizontal .print-ruler-tick { bottom: 0; width: 1px; height: 5px; border-width: 0 0 0 1px; }
+.print-ruler.vertical .print-ruler-tick { right: 0; height: 1px; width: 5px; border-width: 1px 0 0; }
+.print-ruler.horizontal .print-ruler-tick.major { height: 10px; }
+.print-ruler.vertical .print-ruler-tick.major { width: 10px; }
+.print-ruler-tick > span { position: absolute; white-space: nowrap; line-height: 1; }
+.print-ruler.horizontal .print-ruler-tick > span { left: 2px; bottom: 11px; }
+.print-ruler.vertical .print-ruler-tick > span { top: 2px; right: 11px; writing-mode: vertical-rl; }
+.print-frame-outline { stroke: transparent; stroke-width: 0.4; cursor: move; touch-action: none; }
+.print-frame-outline.selected { stroke: #2563eb; stroke-dasharray: 2 1; }
+.print-frame-outline:focus, .print-frame-resize:focus { outline: none; stroke: #7c3aed; stroke-width: 0.8; }
+.print-frame-resize { stroke: #2563eb; stroke-width: 0.4; stroke-dasharray: 1 1; cursor: nwse-resize; touch-action: none; }
+.print-snap-line { stroke: #be185d; stroke-width: 0.3; stroke-dasharray: 2 1; pointer-events: none; }
+
 .layout-canvas {
   position: relative;
   flex: none;
@@ -12438,6 +12458,9 @@ a.platform-site-switcher-item:focus-visible {
     background: #fff;
   }
 
+  .print-ruler, .print-ruler-corner, .print-editing-aids, .print-editing-help { display: none !important; }
+  .print-paper-grid { display: block; width: auto !important; }
+
   .layout-canvas {
     box-shadow: none;
   }
@@ -13025,6 +13048,7 @@ a.platform-site-switcher-item:focus-visible {
 }
 .opengeo-workbench .gis-map-attribution { background: var(--gis-panel-bg); color: var(--gis-ink); font: 11px/1.4 system-ui; }
 .opengeo-workbench .gis-map-attribution .maplibregl-ctrl-attrib { float: none; margin: 0; padding: 2px 6px; background: transparent; text-align: right; }
+.opengeo-workbench .gis-map-attribution .gis-cog-attribution { padding: 2px 6px; text-align: right; }
 .opengeo-workbench .gis-map-attribution a { color: inherit; }
 .opengeo-workbench .gis-map-attribution .maplibregl-ctrl-attrib-button { display: none; }
 .opengeo-workbench.gis-map-controls-hidden .gis-map-chrome > .gis-map-control-stack,
@@ -13419,6 +13443,42 @@ a.platform-site-switcher-item:focus-visible {
 .gis-grid-viewshed .gis-key-values :is(dt, dd) { color: inherit; border-color: var(--gis-line, var(--opengeo-line)); }
 .gis-viewshed-legend { padding: 0; list-style: none; }
 .gis-viewshed-legend span { display: inline-block; width: .8rem; height: .8rem; margin-right: .4rem; border: 1px solid currentColor; }
+.gis-fields-of-the-world, .gis-fields-of-the-world :is(form, label, input, select, section, dl, dd) { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.gis-fields-of-the-world :is(p, li, dt, dd, a) { overflow-wrap: anywhere; }
+.gis-fields-of-the-world .platform-controls { display: grid; grid-template-columns: minmax(0, 1fr); }
+.gis-fields-of-the-world .platform-controls label { display: grid; }
+.gis-raster-baseline { margin-top: .65rem; color: var(--gis-ink, var(--theme-foreground)); }
+.gis-raster-baseline, .gis-raster-baseline > *, .gis-raster-baseline form > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.gis-raster-baseline :is(p, li, label) { overflow-wrap: anywhere; }
+.gis-raster-baseline form { display: grid; gap: .5rem; margin-block: .5rem; }
+.gis-raster-baseline label { display: flex; flex-direction: column; gap: .2rem; }
+.gis-raster-baseline :is(input, select, textarea) { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; color: inherit; background: var(--gis-elevated, var(--theme-background-alt)); border: 1px solid var(--gis-line, var(--opengeo-line)); font: inherit; }
+.gis-raster-baseline input[type="checkbox"] { width: auto; align-self: start; }
+.gis-raster-baseline :is(p, li, table) { font-size: .85rem; line-height: 1.4; }
+.gis-raster-baseline section { overflow-x: auto; }
+.gis-raster-baseline :is(th, td) { padding: .3rem; text-align: left; }
+.gis-raster-baseline .gis-key-values :is(dt, dd) { color: inherit; border-color: var(--gis-line, var(--opengeo-line)); }
+
+.receptor-screening-results,
+.receptor-screening-results > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.receptor-screening-results :is(p, legend, button) { overflow-wrap: anywhere; }
+.receptor-screening-table-scroll { overflow-x: auto; }
+.receptor-screening-table-scroll table { width: max-content; min-width: 100%; }
+
+:is(.gis-raster-comparison, .gis-raster-patches), :is(.gis-raster-comparison, .gis-raster-patches) *, .raster-comparison-results { min-width: 0; box-sizing: border-box; }
+:is(.gis-raster-comparison, .gis-raster-patches) { max-width: 100%; }
+:is(.gis-raster-comparison, .gis-raster-patches) :is(p, li, label, button, dt, dd) { overflow-wrap: anywhere; }
+:is(.gis-raster-comparison, .gis-raster-patches) :is(p, li, table) { font-size: .85rem; line-height: 1.4; }
+:is(.gis-raster-comparison, .gis-raster-patches) form { display: grid; gap: .6rem; }
+:is(.gis-raster-comparison, .gis-raster-patches) label { display: flex; flex-direction: column; gap: .2rem; }
+:is(.gis-raster-comparison, .gis-raster-patches) :is(input, select, textarea) { width: 100%; max-width: 100%; color: inherit; background: var(--gis-elevated, var(--theme-background-alt)); border: 1px solid var(--gis-line, var(--opengeo-line)); font: inherit; }
+:is(.gis-raster-comparison, .gis-raster-patches) input[type="checkbox"] { width: auto; align-self: start; }
+:is(.gis-raster-comparison, .gis-raster-patches) label:has(> input[type="checkbox"]) { flex-direction: row; align-items: flex-start; }
+:is(.gis-raster-comparison, .gis-raster-patches) .raster-comparison-facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .3rem .6rem; }
+:is(.gis-raster-comparison, .gis-raster-patches) .raster-comparison-facts dd { margin: 0; }
+:is(.gis-raster-comparison, .gis-raster-patches) .raster-comparison-table-scroll { overflow-x: auto; max-width: 100%; }
+:is(.gis-raster-comparison, .gis-raster-patches) table { width: max-content; min-width: 100%; }
+:is(.gis-raster-comparison, .gis-raster-patches) :is(th, td) { padding: .3rem; text-align: left; }
 
 .gis-polygon3d-editor { max-width: 52rem; }
 .gis-polygon3d-editor form { display: grid; gap: .6rem; }

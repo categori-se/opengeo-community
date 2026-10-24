@@ -23,6 +23,14 @@ runtime; independent operator and live execution acceptance remain open.
 
 ## Implementation notes and retained acceptance history
 
+Exact archived TIFFs now share the referenced-TIFF report exception for request-1
+private previews and existing request-3 builds. MIME, suffix, size and SHA must match
+an admitted input pin; TIFF remains outside the general output allowlist. Migration
+0177 aligns database completion without changing owner, grants or size/access checks.
+The Studio client accepts the verified result within the saved request budget.
+One retained real baseline passes native build/private preview/fresh reopening;
+this local evidence does not admit a deployed compiler or public release.
+
 The local request-v4/invocation-v5 `single-html` option accepts only the generated
 `dist/index.html`. Report-v2 validates its localized-manifest seal, native consumed
 file and asset facts, final size/hash and root route. Exact output collection rejects

@@ -142,7 +142,8 @@ class DeploymentGuards(unittest.TestCase):
     def test_preview_preflight_rejects_missing_runtime_private_or_weak_key_before_cloud(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(MODULE, "ROOT", Path(directory)):
             config_file, deployment = self.native_deployment(Path(directory))
-            for body in ("-----BEGIN PRIVATE KEY-----\nPRIVATE BODY MUST NOT ENTER CONFIG\n-----END PRIVATE KEY-----\n", PUBLIC_KEY + "-----BEGIN PRIVATE KEY-----\nprivate\n", "-----BEGIN PUBLIC KEY-----\n" + "a" * 8192):
+            # The opening marker alone exercises rejection before any key parsing.
+            for body in ('-----BEGIN PRIVATE KEY-----\n', PUBLIC_KEY + "-----BEGIN PRIVATE KEY-----\nprivate\n", "-----BEGIN PUBLIC KEY-----\n" + "a" * 8192):
                 Path(deployment.cfg["nativePreview"]["publicKeyPath"]).write_text(body)
                 with self.subTest(body=body[:28]), patch.object(MODULE.Deployment, "identity", side_effect=AssertionError("Cloud")), self.assertRaises(ValueError):
                     MODULE.main(["preview", "--apply", "--config", str(config_file)])

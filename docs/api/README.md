@@ -38,11 +38,8 @@ Regenerate without `--check` and review the schema diff with the source change.
 Export blocks network/process calls and uses an empty environment; production
 documentation exposure is unchanged. The [public CI workflow](../../.github/workflows/api-contract.yml)
 installs locked dependencies, checks this contract and runs focused workspace and
-metadata tests. [Selected hosted results](evidence/api-ci.json) record the exact
-commit, assertions, dependencies and cache status.
-[Selected route-check evidence](evidence/route-checks.json)
-records the exact reproduction command, assertions and cached environment. Those
-checks use synthetic token verification, in-memory repositories and mocked input
+metadata tests. Those route checks use synthetic token verification,
+in-memory repositories and mocked input
 resolution; they do not establish connected authentication, persistence, provider
 access or cloud delivery.
 
@@ -64,8 +61,6 @@ database and Cognito settings, documentation and liveness are available while
 readiness and authenticated operations remain unavailable. Use the
 [connected local environment](../community-development.md) for application
 workflows with synthetic sign-in and local transports.
-[Selected docs-route checks](evidence/api-docs.json) record the local HTML/schema
-responses; they do not establish browser asset loading or connected authentication.
 
 ## Authentication and scope
 
@@ -214,8 +209,6 @@ This default configuration omits the optional KML NetworkLink routes, which are
 registered only when their fetch feature is enabled. Name-only map creation uses
 a valid empty definition with `layers` and `measurements`. Explicit definitions
 must also include `measurements`; the documented request supplies it.
-[Request and route regressions](evidence/map-default.json) cover the name-only
-request and confirm the regenerated contract remains unchanged.
 
 ## Changes and caller responsibilities
 

@@ -356,6 +356,43 @@ describe("dataset governance handoff", () => {
     );
   });
 
+  it("offers an exact native COG handoff without reading versions, tickets, or vector previews", () => {
+    const noRead = () => assert.fail("Catalog handoff admission uses loaded metadata only");
+    const current = state({kind: "api", listDatasetVersions: noRead,
+      requestDatasetDownload: noRead, getDatasetSpatialPreview: noRead});
+    Object.assign(current.datasets[0], {format: "cog", geometryType: "raster", featureCount: null});
+    current.maps = [{id: IDS.map, name: "Land cover", status: "active", definition: {layers: []}}];
+    const root = ProjectDatasets({state: current, refresh: noRead});
+    const target = root.querySelector(`.project-dataset-map-handoff [data-map-id="${IDS.map}"]`);
+    assert.ok(target);
+    assert.equal(target.getAttribute("href"), `/workspaces?project=${IDS.project}&map=${IDS.map}`
+      + `&intent=add-dataset&dataset=${IDS.dataset}&datasetVersion=${IDS.version}#map-workspace`);
+    assert.equal(findButton(root, "View preview"), null);
+    assert.equal(current.maps[0].definition.layers.length, 0);
+  });
+
+  it("limits native COG handoff to readable active exact originals and map editors", () => {
+    const adapter = {kind: "api", listDatasetVersions() {assert.fail("No inspection read");},
+      requestDatasetDownload() {assert.fail("No ticket on inspection");}};
+    const changes = [
+      {currentVersionState: "preserved"}, {status: "draft"}, {currentVersionId: "latest"},
+      {format: "geotiff"}, {geometryType: "Polygon"}, {sourceType: "repository"},
+      {extent: [0, 0, 0, 1]}, {capabilities: {read: true, download: false}},
+      {capabilities: {read: false, download: true}}
+    ];
+    for (const change of changes) {
+      const current = state(adapter);
+      Object.assign(current.datasets[0], {format: "cog", geometryType: "Raster"}, change);
+      assert.equal(ProjectDatasets({state: current, refresh: async () => {}})
+        .querySelector(".project-dataset-map-handoff"), null, JSON.stringify(change));
+    }
+    const viewer = state(adapter);
+    Object.assign(viewer.datasets[0], {format: "cog", geometryType: "raster"});
+    viewer.project.callerRole = "viewer";
+    assert.equal(ProjectDatasets({state: viewer, refresh: async () => {}})
+      .querySelector(".project-dataset-map-handoff"), null);
+  });
+
   it("reveals exact version lineage without exposing storage coordinates", async () => {
     const adapter = {
       kind: "api",

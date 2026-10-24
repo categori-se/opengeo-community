@@ -435,3 +435,25 @@ it("public file picker bounds metadata paging to two explicit pages without load
   assert.equal(calls.register.length, 0);
   assert.equal(calls.bodies, 0);
 });
+
+it('links exact HTML data paths without trying to insert Framework code or reading data', async () => {
+  const pin = parseObservableDataAttachment({...wire(), size_bytes: 961});
+  let bindings = [], insertions = 0, reads = 0;
+  const state = {project: {id: id(7)}, datasets: [], adapter: {
+    listObservableDataAttachments: async () => [pin],
+    requestDatasetDownload: async () => {reads++;throw Error('No source reads');}
+  }};
+  const component = FrameworkRevisionData({state, sourceProject: {id: id(2)}, getFormat: () => 'html',
+    getSourceRoot: () => '', getBindings: () => bindings,
+    getFiles: () => [{relativePath: 'index.html', blob: new Blob(['<h1>Study</h1>'])}], isLocked: () => false,
+    onChange: value => {bindings = value;}, onInsert: () => {insertions++;throw Error('HTML uses authored paths');}});
+  document.body.append(component.element);component.element.open = true;await tick();await tick();
+  change(component.element, 'Registered archive file', pin.id);
+  const path = component.element.querySelector('[aria-label="Referenced data path"]');
+  assert.ok(path);path.value = 'data/mapped-fields.geojson';path.dispatchEvent(new dom.window.Event('input'));
+  click(component.element, 'Add file');
+  assert.deepEqual(bindings, [{attachmentId: pin.id, relativePath: 'data/mapped-fields.geojson'}]);
+  assert.equal(insertions, 0);assert.equal(reads, 0);
+  assert.match(component.element.textContent, /File linked\. Save draft to keep it\./);
+  assert.ok([...component.element.querySelectorAll('button')].filter(button => button.textContent === 'Insert code').every(button => button.hidden));
+});
