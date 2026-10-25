@@ -204,6 +204,16 @@ influence-area basis. Separate summaries report polygon areas, line lengths or
 points as appropriate. Overlap is screening evidence; expert impact findings,
 rights and compensation require separate assessment.
 
+In main Studio, **Social baseline evidence** adds a
+source review for one demographic/vulnerability, settlement, infrastructure or
+land-use inventory. Record its original spatial unit, dates, coverage evidence,
+suitability and limitations, then describe up to six original fields with units
+and denominators. Apply the review before exporting or retaining the result.
+Other evidence topics remain explicitly missing. The evidence CSV preserves
+individual values and missingness; population-zone totals and rates are not
+allocated to clipped areas. This single-source review does not establish a
+complete social baseline, affected households, tenure or impact findings.
+
 ## Retain results and deliver deliberately
 
 Catalog Layers retain resource identities; Projects deliberately compose them.
@@ -234,4 +244,3 @@ unchanged. Listing Catalog records does not read original files.
 Both entrypoints pass local contracts; the Resources path also renders two retained
 synthetic building inputs through the local account API. This demonstrates scoped
 transport and rendering, not provider rights, reference quality or building accuracy.
-

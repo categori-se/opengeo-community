@@ -3,6 +3,8 @@ import {existsSync,readFileSync,writeFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {verifyBuildingReviewArchive} from '../src/lib/buildingReviewArchive.js';
+import {buildingReconciliationGroups} from '../src/lib/buildingReconciliation.js';
+import {assertKnowledgeSize} from '../src/lib/sourceReferenceKnowledge.js';
 import {verifyReceptorScreeningArchive} from '../src/lib/receptorScreeningArchive.js';
 import {rasterAnalysisEvidence,verifyRasterAnalysisArchive} from '../src/lib/rasterAnalysisArchive.js';
 import {parseExternalSource,parseExternalSourceRevision} from '../src/lib/apiClient.js';
@@ -83,17 +85,47 @@ export async function exerciseBuildingInputPreview({page, origin, work, readApi,
 
 // A finite account-backed acceptance phase in the maintained local runner.
 // Synthetic inventories establish persistence and review behavior, not accuracy.
-export async function exerciseBuildingReview({page, origin, organization, work, readApi, apiRequest, worker, progress, checkpoint}) {
+export async function exerciseBuildingReview({page, origin, organization, work, readApi, apiRequest, worker, progress, checkpoint, inputProfile}) {
   const mark = update => checkpoint(update), keys = ['source', 'comparison'];
   const id = value => `98000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
   const polygon = (value, west, name) => ({type:'Feature', id:id(value),
     properties:{name, confidence:null}, geometry:{type:'Polygon', coordinates:[[
       [west,42], [Number((west+.001).toFixed(6)),42], [Number((west+.001).toFixed(6)),42.001], [west,42.001], [west,42]
     ]]}});
-  const inputs = {source:[polygon(1,-72,'Synthetic source A'),polygon(2,-71.997,'Synthetic source B')],
+  const inputs = inputProfile?.inputs ?? {source:[polygon(1,-72,'Synthetic source A'),polygon(2,-71.997,'Synthetic source B')],
     comparison:[polygon(3,-72,'Synthetic comparison A')]};
-  const names = {source:'Synthetic building source inventory',comparison:'Synthetic building comparison inventory'};
+  const names = inputProfile?.titles ?? {source:'Synthetic building source inventory',comparison:'Synthetic building comparison inventory',
+    project:'Synthetic building review acceptance',map:'Reviewed building inventory',output:'Synthetic reviewed building inventory'};
+  const reason=inputProfile?.reviewReason ?? 'Synthetic acceptance: retain the exact source footprint; no validated building count is asserted.',
+    description=inputProfile?.description ?? 'Local synthetic review acceptance; no provider, reference accuracy or validated count claim.',
+    attribution=inputProfile?.attribution ?? 'Synthetic local acceptance inventories',
+    mapView=inputProfile?.mapView ?? {center:[-71.998,42.0005],zoom:17};
+  for(const key of keys)assert.ok(Array.isArray(inputs[key])&&inputs[key].length>0&&inputs[key].length<=100,
+    'Each admitted building inventory must fit the existing native collection creation limit');
+  assert.ok(typeof reason==='string'&&reason.trim()&&reason.length<=500);
+  const nativeGeometry=geometry=>{
+    assert.ok(Object.keys(geometry).every(key=>['type','coordinates'].includes(key)||key==='crs'&&geometry.crs===null),
+      'Native serialization may omit only the retained null legacy CRS member');
+    return {type:geometry.type,coordinates:structuredClone(geometry.coordinates)};
+  };
+  const fields=Object.fromEntries(keys.map(key=>[key,inputProfile?buildingInputFields(inputs[key]):[{name:'name',type:'string'},{name:'confidence',type:'number'}]]));
   const records = progress.records ??= {};
+  const expectedReview=()=>{
+    const preview=progress.nativePreview,receipt=preview?.['opengeo:analysis'];
+    assert.ok(preview,'Use the retained native response for review expectations');
+    assert.equal(receipt.sourceDatasetId,records.source.datasetId);assert.equal(receipt.targetDatasetId,records.comparison.datasetId);
+    assert.equal(receipt.source_generation,records.source.collection.generation);assert.equal(receipt.target_generation,records.comparison.collection.generation);
+    const groups=buildingReconciliationGroups(preview),source=preview.features.filter(feature=>feature.properties.input.side==='source'),
+      comparison=preview.features.filter(feature=>feature.properties.input.side==='target');
+    assert.equal(receipt.source_count,source.length);assert.equal(receipt.target_count,comparison.length);
+    for(const [key,features] of [['source',source],['comparison',comparison]]){
+      assert.equal(features.length,inputs[key].length);
+      assert.deepEqual(features.map(feature=>feature.properties.input.featureId).sort(),inputs[key].map(feature=>feature.id).sort());
+      for(const feature of features){const input=inputs[key].find(value=>value.id===feature.properties.input.featureId);
+        assert.deepEqual(feature.geometry,nativeGeometry(input.geometry));assert.deepEqual(feature.properties.input.properties,input.properties);}
+    }
+    return {groups,source:source.length,comparison:comparison.length,retained:source.length,excluded:comparison.length};
+  };
   const write = async (path, method, body, expected=200) => {
     const response=await apiRequest(path,{method,headers:{authorization:'Bearer synthetic-local-owner',
       'x-opengeo-organization':organization,'content-type':'application/json'},...(body===undefined?{}:{body:JSON.stringify(body)})});
@@ -101,10 +133,10 @@ export async function exerciseBuildingReview({page, origin, organization, work, 
   };
   if(!progress.projectId){
     assert.ok(!progress.creationAttempted,'Reconcile the retained Project creation before another write');
-    mark({phase:'create-synthetic-project',creationAttempted:true});
+    mark({phase:inputProfile?'create-profile-project':'create-synthetic-project',creationAttempted:true});
     await page.goto(`${origin}/workspaces`);await page.getByRole('link',{name:/New Project/}).click();
-    await page.getByLabel('New project name',{exact:true}).fill('Synthetic building review acceptance');
-    await page.getByLabel('First map name',{exact:true}).fill('Reviewed building inventory');
+    await page.getByLabel('New project name',{exact:true}).fill(names.project);
+    await page.getByLabel('First map name',{exact:true}).fill(names.map);
     const created=page.waitForResponse(response=>response.url().endsWith('/api/projects')&&response.request().method()==='POST'),
       mapped=page.waitForResponse(response=>/\/api\/projects\/[^/]+\/maps$/.test(new URL(response.url()).pathname)&&response.request().method()==='POST');
     await page.getByRole('button',{name:'Create project and map',exact:true}).click();
@@ -120,6 +152,8 @@ export async function exerciseBuildingReview({page, origin, organization, work, 
     datasetPath=key=>`/projects/${projectId}/datasets/${records[key].datasetId}`;
   for(const key of keys){
     const record=records[key]??={}, bytes=Buffer.from(JSON.stringify({type:'FeatureCollection',features:inputs[key]}));
+    if(record.uploadCompleted){assert.equal(record.sizeBytes,bytes.length);assert.equal(record.checksumSha256,createHash('sha256').update(bytes).digest('hex'),
+      'The admitted features must match the committed upload; preserve the prior transfer');}
     Object.assign(record,{filename:`building-${key}.geojson`,title:names[key],sizeBytes:bytes.length,
       checksumSha256:createHash('sha256').update(bytes).digest('hex')});mark({records,currentRecord:key});
     if(record.uploadCompleted)continue;
@@ -150,20 +184,55 @@ export async function exerciseBuildingReview({page, origin, organization, work, 
     assert.ok(datasets.every(active),'Every admitted exact version must finish ingestion');
     for(const [index,key] of batchKeys.entries()){
       assert.equal(datasets[index].current_version_id,records[key].datasetVersionId);
-      assert.equal(datasets[index].classification,'restricted');assert.equal(datasets[index].feature_count,key==='output'?2:inputs[key].length);
+      assert.equal(datasets[index].classification,'restricted');assert.equal(datasets[index].feature_count,key==='output'?expectedReview().retained:inputs[key].length);
     }
     mark({[`${batch}WorkerCompleted`]:true});
   }
   if(!progress.inputsWorkerCompleted)await processBatch('inputs',keys);
   for(const key of keys){
     const record=records[key];mark({currentRecord:key});
+    if(inputProfile?.provenance){
+      const metadataPath=`/datasets/${record.datasetId}/metadata`;
+      if(!record.inputMetadataReadback){
+        if(!record.inputMetadataAttempted){
+          const before=await readApi(metadataPath),document=structuredClone(before.document),timestamp=new Date().toISOString(),
+            distributionId=`urn:opengeo:dataset:${record.datasetId}:version:${record.datasetVersionId}:original`,
+            sourceId=`urn:opengeo:dataset:${record.datasetId}:retained-building-input`,
+            evidence={source:structuredClone(inputProfile.provenance[key]),localUpload:{
+              sizeBytes:record.sizeBytes,sha256:record.checksumSha256,
+              serialization:'Compact JSON.stringify FeatureCollection containing the frozen native features; separate from provider snapshot and indented native-file checksums',
+              featureIdentity:'Frozen native UUID mapping retained from source provenance; provider identifiers remain unchanged in original properties'},nativeSerialization:{
+              geometryFields:['type','coordinates'],omittedNullCrs:inputs[key].filter(feature=>Object.hasOwn(feature.geometry,'crs')&&feature.geometry.crs===null).length,
+              coordinatesAndPropertiesUnchanged:true,rawUploadedFeaturesUnchanged:true,
+              nullablePlaceholderFields:fields[key].filter(field=>field.description).map(field=>field.name)}};
+          assert.ok(evidence.source,'Retain the supplied frozen provenance for both inputs');
+          if(!document.distributions.some(value=>value.id===distributionId))document.distributions.push({id:distributionId,custody:'hosted',format:'geojson',mediaType:'application/geo+json'});
+          assert.ok(!document.metadata.source.some(value=>value.id===sourceId),'Reconcile prior provenance before appending it again');
+          document.metadata.source.push({id:sourceId,content:JSON.stringify(evidence),mediaType:'application/json',sourceUrl:sourceId,retrievedAt:timestamp});
+          document.metadata.normalized.push({subject:'resource',property:'http://purl.org/dc/terms/provenance',value:evidence,
+            provenance:'derived',method:'retained_building_input_import',timestamp,evidence:[sourceId,distributionId]});
+          for(const property of ['license','accessRights','rights'].map(value=>`http://purl.org/dc/terms/${value}`)){
+            if(!document.metadata.curated.some(claim=>claim.subject===distributionId&&claim.property===property))document.metadata.curated.push({
+              subject:distributionId,property,value:null,provenance:'unknown',method:'retained_building_input_import',timestamp});
+          }
+          assertKnowledgeSize(document);record.preparedInputMetadata=document;record.inputMetadataExpectedVersion=before.version;
+          record.inputMetadataAttempted=true;mark({phase:`retain-input-provenance-${key}`,records});
+          const saved=await write(metadataPath,'PUT',{expected_version:before.version,document});
+          assert.deepEqual(saved.document,document);record.inputMetadataCommitted=true;mark({records});
+        }
+        const saved=await readApi(metadataPath);assert.equal(saved.version,record.inputMetadataExpectedVersion+1);
+        assert.deepEqual(saved.document,record.preparedInputMetadata,'Reconcile retained provenance by readback without replaying its write');
+        record.inputMetadata=saved;record.inputMetadataCommitted=true;record.inputMetadataReadback=true;mark({records});
+      }
+      assert.deepEqual(record.inputMetadata.document,record.preparedInputMetadata);
+    }
     if(record.collection)continue;
     if(record.collectionAttempted){
       record.collection=await readApi(`${datasetPath(key)}/feature-collection`);mark({records});continue;
     }
     record.collectionAttempted=true;mark({phase:`create-native-${key}`,records});
     const collection=await write(`${datasetPath(key)}/feature-collection`,'POST',{
-      geometry_type:'Polygon',fields:[{name:'name',type:'string'},{name:'confidence',type:'number'}],features:inputs[key]
+      geometry_type:'Polygon',fields:fields[key],features:inputs[key].map(feature=>({...feature,geometry:nativeGeometry(feature.geometry)}))
     },201);
     record.collection=collection['opengeo:collection'];assert.ok(record.collection?.generation);mark({records});
   }
@@ -186,9 +255,9 @@ export async function exerciseBuildingReview({page, origin, organization, work, 
         visible:true,opacity:1,order:index,style:{fill:index?'#3b82f6':'#22c55e',stroke:'#334155',strokeWidth:2},labels:{enabled:false,field:null}}));
       definition.activeLayerId='building-source';
       definition.basemaps=[{basemapId:'blank',title:'Blank canvas',kind:'blank',visible:true,opacity:1,attribution:'No basemap'}];
-      definition.mapViews=[{id:'default',title:'Default',center:[-71.998,42.0005],zoom:17,pitch:0,bearing:0}];
+      definition.mapViews=[{id:'default',title:'Default',center:mapView.center,zoom:mapView.zoom,pitch:0,bearing:0}];
       mark({phase:'seed-new-map',inputsMapSaveAttempted:true});
-      map=await write(mapPath,'PATCH',{expected_version:map.version,definition,change_message:'Two explicitly synthetic building inventories'});
+      map=await write(mapPath,'PATCH',{expected_version:map.version,definition,change_message:inputProfile?'Two frozen building inventories; mechanical workflow review only':'Two explicitly synthetic building inventories'});
     }
     mark({map,inputsMapSaved:true});
   }
@@ -221,41 +290,44 @@ export async function exerciseBuildingReview({page, origin, organization, work, 
       const response=page.waitForResponse(value=>value.url().endsWith('/analysis-preview')&&value.request().method()==='POST');
       await page.getByRole('button',{name:'Preview analysis',exact:true}).click();assert.equal((await response).status(),200);
     }finally{if(progress.nativePreview)await page.unroute(replay);}
-    const preview=progress.nativePreview;assert.equal(preview.features.length,3);
+    const expected=expectedReview();
     const panel=page.locator('.building-reconciliation-review');await panel.waitFor();
     const groups=await panel.getByLabel('Review group',{exact:true}).locator('option').evaluateAll(options=>options.map(option=>option.value));
-    assert.equal(groups.length,2);
+    assert.deepEqual([...groups].sort(),expected.groups.map(group=>group.id).sort());
     for(const group of groups){
       await panel.getByLabel('Review group',{exact:true}).selectOption(group);
-      const choices=panel.locator('input[type="checkbox"]');
-      for(const choice of await choices.all())if((await choice.getAttribute('aria-label')).startsWith('Retain source footprint '))await choice.check();
-      await panel.getByLabel('Reason for this group decision',{exact:true}).fill('Synthetic acceptance: retain the exact source footprint; no validated building count is asserted.');
+      const nativeGroup=expected.groups.find(value=>value.id===group),choices=panel.locator('input[type="checkbox"]');
+      assert.equal(await choices.count(),nativeGroup.features.length);
+      for(const feature of nativeGroup.features){const input=feature.properties.input;
+        await panel.getByLabel(`Retain ${input.side} footprint ${input.featureId}`,{exact:true}).setChecked(input.side==='source');}
+      await panel.getByLabel('Reason for this group decision',{exact:true}).fill(reason);
       await panel.getByRole('button',{name:'Record group decision',exact:true}).click();
     }
     await panel.getByRole('button',{name:'Create reviewed inventory',exact:true}).click();
-    await page.getByText('2 original footprints retained; 1 excluded. 0 cross-source overlap pairs remain selected. This is a reviewed footprint count, not a validated building total.',{exact:true}).waitFor();
+    await page.getByText(`${expected.retained} original footprints retained; ${expected.excluded} excluded. 0 cross-source overlap pairs remain selected. This is a reviewed footprint count, not a validated building total.`,{exact:true}).waitFor();
     records.output??={};mark({records,currentRecord:'output',phase:'register-reviewed-output'});
     const registration=page.locator('section.gis-editor-section').filter({has:page.getByRole('heading',{name:'Spatial analysis',exact:true})});
-    await registration.getByLabel('Derived Layer title',{exact:true}).fill('Synthetic reviewed building inventory');
-    await registration.getByLabel('Description',{exact:true}).fill('Local synthetic review acceptance; no provider, reference accuracy or validated count claim.');
+    await registration.getByLabel('Derived Layer title',{exact:true}).fill(names.output);
+    await registration.getByLabel('Description',{exact:true}).fill(description);
     await registration.getByLabel('Distribution license (leave blank if unknown)',{exact:true}).fill('');
-    await registration.getByLabel('Attribution',{exact:true}).fill('Synthetic local acceptance inventories');
+    await registration.getByLabel('Attribution',{exact:true}).fill(attribution);
     const registered=page.waitForResponse(response=>/\/datasets\/[^/]+\/metadata$/.test(new URL(response.url()).pathname)&&response.request().method()==='PUT');
     await registration.getByRole('button',{name:'Save as catalog Layer',exact:true}).click();assert.equal((await registered).status(),200);
     assert.ok(progress.metadata&&records.output.uploadCompleted,'Retain the committed output and metadata');
   }
   const output=records.output,metadata=await readApi(`/datasets/${output.datasetId}/metadata`);
+  const expected=expectedReview();
   assert.deepEqual(metadata.document,progress.metadata.document);
   const generated=metadata.document.metadata.normalized.find(claim=>claim.method==='building_inventory_review');
   assert.ok(generated);const review=generated.value.buildingReview;
   assert.equal(review.schemaVersion,'opengeo.building-inventory-review-summary.1.0.0');
-  assert.equal(review.retainedFeatureCount,2);assert.equal(review.excludedFeatureCount,1);assert.equal(review.componentCount,2);
+  assert.equal(review.retainedFeatureCount,expected.retained);assert.equal(review.excludedFeatureCount,expected.excluded);assert.equal(review.componentCount,expected.groups.length);
   assert.equal(review.validatedCount,null);assert.equal(review.selectedOverlapPairs,0);assert.equal(review.decisions,undefined);
   assert.equal(review.reviewerId,records.source.collection.created_by,'Attribute the review to the actual local owner account');
   assert.ok(Number.isFinite(Date.parse(review.reviewedAt)));
   for(const key of keys)assert.ok(metadata.document.context.some(link=>link.resourceId===`urn:opengeo:dataset:${records[key].datasetId}:generation:${records[key].collection.generation}`));
-  const license=metadata.document.metadata.curated.find(claim=>claim.property.endsWith('/license'));
-  assert.equal(license.value,null);assert.equal(license.provenance,'unknown');mark({knowledgeReadback:true});
+  for(const term of ['license','accessRights','rights']){const claim=metadata.document.metadata.curated.find(value=>value.property===`http://purl.org/dc/terms/${term}`);
+    assert.equal(claim?.value,null);assert.equal(claim?.provenance,'unknown');}mark({knowledgeReadback:true});
   if(!progress.outputWorkerCompleted)await processBatch('output',['output']);
   if(!progress.archiveVerified){
     const versions=await readApi(`${datasetPath('output')}/versions?limit=100&offset=0`),version=versions.find(value=>value.id===output.datasetVersionId);
@@ -264,15 +336,19 @@ export async function exerciseBuildingReview({page, origin, organization, work, 
     const ticket=await write(`${datasetPath('output')}/versions/${version.id}/objects/${original.id}/download`,'POST');
     const bytes=Uint8Array.from(await page.evaluate(async url=>{const response=await fetch(url);if(!response.ok)throw Error('Original audit download failed');return Array.from(new Uint8Array(await response.arrayBuffer()));},ticket.url));
     const verified=await verifyBuildingReviewArchive(bytes,{objectSha256:original.checksum_sha256,reference:review});
-    assert.equal(verified.receipt.buildingReview.decisions.length,2);assert.equal(verified.collection.features.length,2);
+    assert.equal(verified.receipt.buildingReview.decisions.length,expected.groups.length);assert.equal(verified.collection.features.length,expected.retained);
     for(const feature of verified.collection.features){const input=inputs.source.find(value=>value.id===feature.properties.input.featureId);
-      assert.ok(input);assert.deepEqual(feature.geometry,input.geometry);assert.deepEqual(feature.properties.input.properties,input.properties);}
-    assert.equal(verified.receipt.buildingReview.decisions.flatMap(decision=>decision.excludedFeatureIds).length,1);
+      assert.ok(input);assert.deepEqual(feature.geometry,nativeGeometry(input.geometry));assert.deepEqual(feature.properties.input.properties,input.properties);}
+    for(const decision of verified.receipt.buildingReview.decisions){const group=expected.groups.find(value=>value.id===decision.componentId);assert.ok(group);
+      assert.equal(decision.reason,reason.trim());
+      assert.deepEqual([...decision.selectedFeatureIds].sort(),group.features.filter(feature=>feature.properties.input.side==='source').map(feature=>feature.id).sort());
+      assert.deepEqual([...decision.excludedFeatureIds].sort(),group.features.filter(feature=>feature.properties.input.side==='target').map(feature=>feature.id).sort());}
+    assert.equal(verified.receipt.buildingReview.decisions.flatMap(decision=>decision.excludedFeatureIds).length,expected.excluded);
     mark({archiveVerified:true,archiveObjectId:original.id,archiveChecksumSha256:original.checksum_sha256,reviewedCollection:verified.collection});
   }
-  const rendered=id=>{const shell=document.querySelector('.opengeo-workbench'),map=shell?.__opengeoMap,
+  const rendered=({id,count})=>{const shell=document.querySelector('.opengeo-workbench'),map=shell?.__opengeoMap,
     layer=shell?.__opengeoLayers?.find(value=>value.datasetId===id);
-    return Boolean(map?.isStyleLoaded()&&!map.isMoving()&&layer&&shell.__opengeoData?.get(layer.layerId)?.features?.length===2
+    return Boolean(Number.isSafeInteger(count)&&count>0&&count<=1000&&map?.isStyleLoaded()&&!map.isMoving()&&layer&&shell.__opengeoData?.get(layer.layerId)?.features?.length===count
       &&map.queryRenderedFeatures().some(feature=>feature.geometry.type==='Polygon'&&feature.layer.id.startsWith(layer.layerId)));};
   const assertMap=map=>{assert.equal(map.id,mapId);assert.equal(map.project_id,projectId);
     assert.deepEqual(map.definition.layers.map(layer=>layer.datasetId).sort(),[...keys.map(key=>records[key].datasetId),output.datasetId].sort());
@@ -283,27 +359,43 @@ export async function exerciseBuildingReview({page, origin, organization, work, 
       await page.goto(`${origin}/workspaces?project=${projectId}&manage=data`);
       const card=page.locator(`[data-dataset-id="${output.datasetId}"]`);
       await card.getByText('Add to map…',{exact:true}).click();await card.locator(`a[data-map-id="${mapId}"][data-handoff="add"]`).click();
-      await page.getByRole('button',{name:'Add Synthetic reviewed building inventory to map',exact:true}).click();
-      await page.getByRole('button',{name:'Fit',exact:true}).click();await page.waitForFunction(rendered,output.datasetId);
+      await page.getByRole('button',{name:`Add ${names.output} to map`,exact:true}).click();
+      await page.getByRole('button',{name:'Fit',exact:true}).click();await page.waitForFunction(rendered,{id:output.datasetId,count:expected.retained});
       mark({phase:'save-reviewed-map',mapSaveAttempted:true});
       const saved=page.waitForResponse(response=>response.url().endsWith(`/maps/${mapId}`)&&response.request().method()==='PATCH');
       await page.getByRole('button',{name:'Save',exact:true}).click();assert.equal((await saved).status(),200);
       const map=await readApi(mapPath);assertMap(map);mark({map,mapSaved:true});
     }
   }
-  mark({phase:'fresh-reopen-reviewed-map'});await page.goto(mapUrl);await page.waitForFunction(rendered,output.datasetId);
+  mark({phase:'fresh-reopen-reviewed-map'});await page.goto(mapUrl);await page.waitForFunction(rendered,{id:output.datasetId,count:expected.retained});
   const reopened=await page.evaluate(id=>{const root=document.querySelector('.opengeo-workbench'),layer=root.__opengeoLayers.find(value=>value.datasetId===id);
     return root.__opengeoData.get(layer.layerId).features;},output.datasetId);
   assert.deepEqual(reopened,progress.reviewedCollection.features);
   const reopenedMap=await readApi(mapPath);assertMap(reopenedMap);
   assert.deepEqual((await readApi(`/datasets/${output.datasetId}/metadata`)).document,metadata.document);
-  await page.screenshot({path:join(work,'building-review-saved-project-reopened.png')});
+  await page.screenshot({path:join(work,inputProfile?'building-real-review-saved-project-reopened.png':'building-review-saved-project-reopened.png')});
   mark({phase:'accepted-local-account-building-review',mapReopened:true,exactFeaturesReopened:true,status:'pass'});
-  return {projectId,mapId,datasetId:output.datasetId,datasetVersionId:output.datasetVersionId,sourceFeatureCount:2,comparisonFeatureCount:1,
-    retainedFeatureCount:2,excludedFeatureCount:1,validatedCount:null,knowledgeReadback:true,originalAuditVerified:true,
+  return {projectId,mapId,datasetId:output.datasetId,datasetVersionId:output.datasetVersionId,sourceFeatureCount:expected.source,comparisonFeatureCount:expected.comparison,
+    retainedFeatureCount:expected.retained,excludedFeatureCount:expected.excluded,validatedCount:null,knowledgeReadback:true,originalAuditVerified:true,
     reviewedCatalogRegistration:true,workerProcessed:true,catalogAssigned:true,actualMapSaved:true,freshAccountMapReopened:true,
     exactGeometryAndPropertiesReopened:true,unknownOutputLicensePreserved:true,providerRequests:0,
-    notProven:['Provider retrieval or accuracy','Production identity/AWS transport','Public delivery','Full BI-02 completion']};
+    notProven:['Provider retrieval or accuracy','Production identity/AWS transport','Public delivery','Full BI-02 completion'],
+    ...(inputProfile?{componentCount:expected.groups.length,mechanicalSourceRetentionOnly:true,
+      nativeGeometryFields:['type','coordinates'],inputProvenanceReadback:keys.every(key=>records[key].inputMetadataReadback===true)}:{})};
+}
+
+// Primitive schemas preserve every original property value. A field with only
+// null/missing values uses nullable string storage without inferring a source type.
+function buildingInputFields(features) {
+  const names=new Set(features.flatMap(feature=>Object.keys(feature.properties)));
+  return [...names].map(name=>{
+    const values=features.map(feature=>feature.properties[name]).filter(value=>value!==null&&value!==undefined),
+      types=new Set(values.map(value=>typeof value));
+    assert.ok(types.size<=1&&[...types].every(type=>['string','number','boolean'].includes(type)),`Unsupported mixed or nonprimitive input field ${name}`);
+    assert.ok(values.every(value=>typeof value!=='number'||Number.isFinite(value)),`Nonfinite input field ${name}`);
+    const type=types.size===0?'string':types.has('number')?(values.every(Number.isSafeInteger)?'integer':'number'):[...types][0];
+    return {name,type,required:false,...(types.size===0?{description:'Source values are all null or missing; nullable string placeholder, original values retained.'}:{})};
+  });
 }
 
 // The same account/worker/save path, scoped to three synthetic screening roles.

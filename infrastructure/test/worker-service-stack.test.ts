@@ -118,6 +118,12 @@ describe("GIS worker service stack", () => {
       ContainerDefinitions: [
         Match.objectLike({
           Name: "opengeo-gis-worker",
+          Command: [
+            "python3", "-c",
+            "import runpy; runpy.run_path('/srv/opengeo/scripts/verify-toolchain.py', run_name='__main__'); "
+              + "print('opengeo-worker-native-toolchain-ok', flush=True); "
+              + "runpy.run_module('opengeo_worker', run_name='__main__')"
+          ],
           User: "10001:10001",
           ReadonlyRootFilesystem: true,
           LinuxParameters: Match.objectLike({

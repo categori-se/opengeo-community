@@ -173,7 +173,7 @@ test("screening results show dimension-specific area summaries and export full C
       previewVectorAnalysis: () => assert.fail("Showing results must not repeat clips"), addLayer: (...args) => added.push(args)});
     view.state.analysisPreviewResult = {collection, source: layers[0], operation: "receptor-screen"};
     view.render = () => document.body.replaceChildren(nativeAnalysisPanel(view)); view.render();
-    const rows = [...document.querySelectorAll(".receptor-screening-results tbody tr")]; assert.equal(rows.length, 2);
+    const rows = [...document.querySelectorAll(".receptor-screening-table-scroll tbody tr")]; assert.equal(rows.length, 2);
     assert.deepEqual(rows.map(row => row.querySelector("th").textContent), ["Project footprint", "Influence area"]);
     assert.deepEqual(rows.map(row => [...row.querySelectorAll("td")].slice(0, 4).map(cell => cell.textContent)), [["3", "1", "1", "1"], ["3", "1", "1", "1"]]);
     assert.equal(rows[0].lastChild.textContent, "1"); assert.equal(rows[1].lastChild.textContent, "2");

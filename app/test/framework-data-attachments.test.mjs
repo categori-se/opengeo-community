@@ -457,3 +457,61 @@ it('links exact HTML data paths without trying to insert Framework code or readi
   assert.match(component.element.textContent, /File linked\. Save draft to keep it\./);
   assert.ok([...component.element.querySelectorAll('button')].filter(button => button.textContent === 'Insert code').every(button => button.hidden));
 });
+
+it('keeps archive-only drafts usable when the public registry route is missing and preserves access failures', async () => {
+  let publicStatus = 404, archiveStatus = 200, archiveWrites = 0, publicWrites = 0;
+  const archived = {...wire(), size_bytes: 961};
+  const client = new OpenGeoApiClient({tokenProvider: () => 'test-token', organizationProvider: () => id(8),
+    fetchImplementation: async url => {
+      const isPublic = url.endsWith('/public-file-references');
+      const status = isPublic ? publicStatus : archiveStatus;
+      return new Response(JSON.stringify(status === 200 ? [archived] : {detail: status === 404 ? 'Not Found' : 'Forbidden'}),
+        {status, headers: {'Content-Type': 'application/json'}});
+    }});
+  let bindings = [], references = [];
+  const state = {project: {id: id(7)}, organization: {id: id(8)}, session: {userId: id(6)},
+    datasets: [{id: id(3), name: 'Elevation', status: 'active', sourceType: 'cog', capabilities: {read: true, download: true}}],
+    adapter: {
+      listObservableDataAttachments: client.listObservableDataAttachments.bind(client),
+      listObservablePublicFileReferences: client.listObservablePublicFileReferences.bind(client),
+      listDatasetVersions: async () => [versionRecord()],
+      registerObservableDataAttachment: async () => {archiveWrites++; return parseObservableDataAttachment(archived);},
+      listDatasetResources: async () => {throw Error('Unavailable public metadata must not be requested');},
+      getResource: async () => {throw Error('Unavailable public metadata must not be requested');},
+      registerObservablePublicFileReference: async () => {publicWrites++; throw Error('Unavailable public registry');}
+    }};
+  const component = FrameworkRevisionData({state, sourceProject: {id: id(2)}, canManage: true,
+    getFormat: () => 'html', getSourceRoot: () => '', getBindings: () => bindings,
+    getReferencedFiles: () => references, onReferencesChange: value => {references = value;},
+    getFiles: () => [{relativePath: 'index.html'}], isLocked: () => false,
+    onChange: value => {bindings = value;}});
+  document.body.append(component.element); component.element.open = true; await tick(); await tick();
+  const archiveChoice = component.element.querySelector('[aria-label="Registered archive file"]');
+  assert.equal(archiveChoice.disabled, false);
+  assert.ok([...component.element.querySelectorAll('p')].some(node => !node.hidden && /Public source references are unavailable/.test(node.textContent)));
+  const registration = component.element.querySelector('.observable-data-attachments');
+  assert.equal(registration.querySelector('[aria-label="File location"] [value="public"]').disabled, true);
+  await choose(registration); connect(registration); await tick(); await tick();
+  assert.equal(archiveWrites, 1); assert.equal(publicWrites, 0);
+  change(component.element, 'Registered archive file', id(1));
+  click(component.element, 'Add file');
+  assert.deepEqual(bindings, [{attachmentId: id(1), relativePath: 'data/water.geojson'}]);
+  assert.deepEqual(await component.prepareCommit(bindings), bindings);
+
+  references = [{referenceId: id(22), relativePath: 'data/elevation.tif'}];
+  const retainedReferences = structuredClone(references);
+  await assert.rejects(component.prepareCommit(bindings), /Public source references are unavailable/);
+  assert.deepEqual(references, retainedReferences);
+  assert.equal(component.element.querySelector('[aria-label="Source file path 1"]').value, 'data/elevation.tif');
+  assert.equal(archiveChoice.disabled, true);
+
+  references = [];
+  publicStatus = 403;
+  await assert.rejects(component.prepareCommit(bindings), error => error.status === 403);
+  click(component.element, 'Reload registered files'); await tick(); await tick();
+  assert.equal(archiveChoice.disabled, true);
+  assert.match(component.element.textContent, /Registered files could not be loaded/);
+  publicStatus = 404; archiveStatus = 403;
+  await assert.rejects(component.prepareCommit(bindings), error => error.status === 403);
+  assert.equal(archiveWrites, 1); assert.equal(publicWrites, 0);
+});

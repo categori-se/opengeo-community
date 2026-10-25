@@ -13464,6 +13464,16 @@ a.platform-site-switcher-item:focus-visible {
 .receptor-screening-results :is(p, legend, button) { overflow-wrap: anywhere; }
 .receptor-screening-table-scroll { overflow-x: auto; }
 .receptor-screening-table-scroll table { width: max-content; min-width: 100%; }
+.social-baseline-evidence :is(details, fieldset, label, input, select) { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.social-baseline-evidence fieldset { display: grid; gap: .5rem; }
+.social-baseline-evidence label { display: flex; flex-direction: column; gap: .2rem; overflow-wrap: anywhere; }
+.social-baseline-evidence :is(input, select) { width: 100%; color: inherit; background: var(--gis-elevated, var(--theme-background-alt)); border: 1px solid var(--gis-line, var(--opengeo-line)); font: inherit; }
+.social-baseline-evidence table { width: 100%; table-layout: fixed; overflow-wrap: anywhere; }
+.project-social-baseline { min-width: 0; max-width: 100%; }
+.project-social-baseline :is(p, label, th, td) { overflow-wrap: anywhere; }
+.project-social-baseline fieldset { display: grid; gap: .5rem; min-width: 0; }
+.project-social-baseline label { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.project-social-baseline :is(input, select) { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; color: inherit; background: var(--gis-elevated, var(--theme-background-alt)); border: 1px solid var(--gis-line, var(--opengeo-line)); font: inherit; }
 
 :is(.gis-raster-comparison, .gis-raster-patches), :is(.gis-raster-comparison, .gis-raster-patches) *, .raster-comparison-results { min-width: 0; box-sizing: border-box; }
 :is(.gis-raster-comparison, .gis-raster-patches) { max-width: 100%; }

@@ -1,4 +1,4 @@
-import {normalizeObservableRevisionAttachments, normalizeObservableRevisionReferencedFiles} from "../lib/apiClient.js";
+import {ApiClientError, normalizeObservableRevisionAttachments, normalizeObservableRevisionReferencedFiles} from "../lib/apiClient.js";
 import {frameworkArchiveIsSupported, validateFrameworkArchiveBindings} from "../lib/frameworkArchiveInputs.js";
 import {FrameworkDataAttachments} from "./FrameworkDataAttachments.js";
 
@@ -17,6 +17,8 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
   importedRows.hidden = true;
   const status = node("p", "Choose a connected source file or archived copy. Loading this list reads metadata only.");
   status.setAttribute("role", "status");
+  const publicNotice = node("p", "Public source references are unavailable in this connection. Archived copies can still be used. Existing public source paths cannot be checked or saved.");
+  publicNotice.hidden = true;
   const reload = button("Load registered files");
   const choose = node("select");
   choose.setAttribute("aria-label", "Registered archive file");
@@ -33,9 +35,10 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
   const selection = node("div");
   selection.className = "framework-archive-selection";
   selection.append(label("Registered file", choose), label("Referenced data path", path), add);
-  root.append(summary, notice, limits, importedRows, rows, undo, reload, selection, review, status);
+  root.append(summary, notice, limits, publicNotice, importedRows, rows, undo, reload, selection, review, status);
   let records = [], publicRecords = [], loaded = false, loading = false, generation = 0, removed = null;
   let importedReferences = [], importedPath = null;
+  let publicReferencesUnavailable = false;
   const adapter = state.adapter, project = state.project, userId = state.session?.userId, organizationId = state.organization?.id;
   const canLoadArchives = typeof adapter.listObservableDataAttachments === "function";
   const canLoadPublic = typeof adapter.listObservablePublicFileReferences === "function" && typeof onReferencesChange === "function";
@@ -86,6 +89,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
   }
   function validateReferences(references, bindings = getBindings(), requireAvailable = loaded && canLoadPublic) {
     const normalized = normalizeObservableRevisionReferencedFiles(references, [...getFiles(), ...bindings]);
+    if (publicReferencesUnavailable && normalized.length) throw new TypeError("Public source references are unavailable in this connection. Existing source paths are preserved; their access must be checked before saving.");
     let total = bindings.reduce((sum, binding) => sum + (records.find(item => item.id === binding.attachmentId)?.sizeBytes ?? 0), 0);
     for (const binding of normalized) {
       const record = publicRecords.find(item => item.id === binding.referenceId);
@@ -254,11 +258,25 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
     return adapter.listObservableDataAttachments(project.id, sourceProject.id);
   }
   async function fetchInventory() {
-    const [archives, sources] = await Promise.all([
+    const [archives, publicResult] = await Promise.all([
       canLoadArchives ? fetchRecords() : [],
-      canLoadPublic ? adapter.listObservablePublicFileReferences(project.id, sourceProject.id) : []
+      canLoadPublic ? adapter.listObservablePublicFileReferences(project.id, sourceProject.id)
+        .then(sources => ({sources, unavailable: false}), error => {
+          if (canLoadArchives && error instanceof ApiClientError && error.status === 404) return {sources: [], unavailable: true};
+          throw error;
+        }) : {sources: [], unavailable: false}
     ]);
-    return {archives, sources};
+    return {archives, sources: publicResult.sources, publicUnavailable: publicResult.unavailable};
+  }
+  function applyPublicAvailability(result, references = getReferencedFiles()) {
+    publicReferencesUnavailable = result.publicUnavailable;
+    publicNotice.hidden = !publicReferencesUnavailable;
+    registration.setPublicReferencesAvailable?.(!publicReferencesUnavailable);
+    if (publicReferencesUnavailable) publicRecords = [];
+    if (publicReferencesUnavailable && references.length) {
+      loaded = false; renderOptions(); renderRows(); reflectSelection();
+      throw new TypeError("Public source references are unavailable in this connection. Existing source paths are preserved; their access must be checked before saving.");
+    }
   }
   async function load(deliberate = false) {
     if (isLocked() || loading || !canLoad) return;
@@ -270,6 +288,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
     try {
       const result = await fetchInventory();
       if (current !== generation || isLocked() || !currentContext()) return;
+      applyPublicAvailability(result);
       if (deliberate) await onReload?.(result.archives, result.sources);
       if (current !== generation || isLocked() || !currentContext()) return;
       records = result.archives;
@@ -359,6 +378,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
     try {
       const result = await fetchInventory();
       if (current !== generation || isLocked() || !currentContext()) return;
+      applyPublicAvailability(result);
       records = result.archives; publicRecords = result.sources;
       const collection = isPublic(record) ? publicRecords : records;
       const retained = collection.find(item => item.id === record.id);
@@ -418,6 +438,7 @@ export function FrameworkRevisionData({state, sourceProject, getBindings, getFil
       loading = false;
       const result = await fetchInventory();
       if (!currentContext()) throw new TypeError("The publication account or editor changed.");
+      applyPublicAvailability(result, references);
       records = result.archives; publicRecords = result.sources;
       loaded = true;
       // Legacy connections can retain public pins; the save endpoint still

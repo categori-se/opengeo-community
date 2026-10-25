@@ -202,7 +202,8 @@ function renderPublishedExamples(root, catalog, massgis, selectPage, browserCata
   header.append(
     text("p", "OpenGeo Studio · browser demo", "public-demo-directory-eyebrow"),
     heading,
-    text("p", "Browse Catalog Layers, try publication authoring, and open Projects in the GIS workbench. These public examples need no account. Your changes stay in this browser."),
+    text("p", "General GIS tools optimized for environmental and social baselines, risk analysis, impact assessment and monitoring."),
+    text("p", "No account needed: inspect and style data, save and reopen a Project on this device, and export supported outputs. Your changes stay in this browser; download a backup to keep them."),
     directoryActions()
   );
 
@@ -352,13 +353,14 @@ function studioWorkflowsCard() {
   actions.append(
     directoryLink("Catalog and satellite Layers ↗", `${MANAGED_STUDIO_URL}workspaces?view=data`),
     directoryLink("Projects and sharing ↗", `${MANAGED_STUDIO_URL}workspaces`),
-    directoryLink("Publishing workbench ↗", `${MANAGED_STUDIO_URL}workspaces?view=publishing`)
+    directoryLink("Publishing workbench ↗", `${MANAGED_STUDIO_URL}workspaces?view=publishing`),
+    directoryLink("Request free cloud beta access", "mailto:akdennis@gmail.com")
   );
   const card = document.createElement("article");
   card.className = "public-demo-project-card";
   card.append(
     text("h2", "Save, share and publish in Studio"),
-    text("p", "Sign in to keep Catalog Layers and Projects, manage access, and compose Publications from reusable maps and narrative. This browser demo keeps its drafts local."),
+    text("p", "Existing members can sign in to keep Catalog Layers and Projects, work with invited colleagues and author Publications. Selected individuals and small teams can request a limited free cloud beta; approval, duration, usage limits and team permissions are agreed before access."),
     actions
   );
   return card;

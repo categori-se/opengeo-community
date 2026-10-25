@@ -6,7 +6,11 @@ from opengeo_worker.command_runner import CommandRunner
 from opengeo_worker.models import ValidationFailure
 
 
-def test_runs_only_allowlisted_absolute_executable_with_minimal_environment(tmp_path: Path) -> None:
+def test_runs_only_allowlisted_absolute_executable_with_minimal_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TZ", "America/New_York")
+    monkeypatch.setenv("LC_ALL", "fr_FR.UTF-8")
     runner = CommandRunner(
         tmp_path,
         timeout_seconds=10,
@@ -18,6 +22,9 @@ def test_runs_only_allowlisted_absolute_executable_with_minimal_environment(tmp_
     assert "PROJ_NETWORK=OFF" in result.stdout
     assert "OMP_THREAD_LIMIT=1" in result.stdout
     assert "TESSDATA_PREFIX=/usr/share/tesseract-ocr/5/tessdata" in result.stdout
+    assert "TZ=UTC" in result.stdout
+    assert "LANG=C.UTF-8" in result.stdout
+    assert "LC_ALL=C.UTF-8" in result.stdout
     assert "AWS_SECRET_ACCESS_KEY" not in result.stdout
     assert "OPEN_GEO_DB_PASSWORD" not in result.stdout
 

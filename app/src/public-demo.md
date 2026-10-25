@@ -6,15 +6,16 @@ toc: false
 # OpenGeo Studio demo
 
 OpenGeo Studio, the geospatial workspace from OpenGeo.Tools.
-An open workspace for geospatial analysis and publishing.
+An open workspace for geospatial analysis and publishing, optimized for
+environmental and social baselines, risk analysis, impact assessment and monitoring.
 
-Try the demo in a temporary browser-only workspace at
-`demo.studio.opengeo.tools`.
+Try useful GIS work without an account at
+[demo.studio.opengeo.tools](https://demo.studio.opengeo.tools/).
 
 Use the demo to open local GIS files, add public web layers, style and inspect
-data, measure features, and save a browser-only draft. Use
-[hosted Studio](https://studio.opengeo.tools/) to save and reopen Projects with
-your account. The demo does not share
+data, measure features, save and reopen a Project on this device, and export
+supported outputs. Download a backup: browser storage can be cleared or evicted.
+The demo does not share
 authentication state, private project references, or managed uploads with
 [OpenGeo Studio](https://studio.opengeo.tools/).
 
@@ -22,7 +23,13 @@ authentication state, private project references, or managed uploads with
 
 The community edition delivers the full suite of tools. See the
 [source and deployment guides](https://github.com/categori-se/opengeo-community)
-or [ask about hosting and enterprise support on LinkedIn](https://www.linkedin.com/in/akdennis/).
+or [request limited free cloud beta access](mailto:akdennis@gmail.com).
+Selected individuals and small teams need approval; beta duration, usage limits,
+enabled workflows and team permissions are agreed before access. Existing members
+can [sign in to Studio](https://studio.opengeo.tools/).
+
+[Discuss future hosting, integration or GIS/E&S consultancy](https://www.linkedin.com/in/akdennis/).
+These are provisional service options, with scope, availability and pricing agreed individually.
 You can also visit [Aaron’s Observable forum profile](https://talk.observablehq.com/u/aaronkyle/activity).
 
 [Open source & credits](/credits)

@@ -30,6 +30,19 @@ The runtime pins the official OSGeo GDAL 3.13.1 `ubuntu-full` multi-architecture
 
 The inherited OpenEXR 3.1 library is replaced with checksum-pinned upstream OpenEXR 3.4.15. Only the EXR plugin is rebuilt from matching, unchanged GDAL source using GDAL's own standalone-plugin build rules. Its new library ABI is preserved, not disguised through old-version symlinks. A local Debian package records the actual source version; the private installation also retains source provenance, licenses, and a CycloneDX inventory including bundled OpenJPH 0.31.0. No Ubuntu Pro subscription or runtime download is required.
 
+The Tesseract build uses immutable upstream 5.5.3 source plus five hash-pinned
+security patches, packaged as `tesseract-ocr` and `libtesseract5` version
+`5.5.3+opengeo.20261025.1` with `Source: tesseract`. Runtime still reports 5.5.3;
+this is a custom downstream build. The actual linked SONAME remains 5, and the
+existing model directory plus runtime configs/tessconfigs are preserved. Source,
+patch adaptation, license and binary hashes remain installed with both packages.
+Five unchanged upstream test targets run fifteen focused cases using build-only
+system Googletest. A private definition guards unused training helpers in the
+common test header, and their link properties omit unused training libraries.
+The five test objects compile before the core build; separate cached steps retain
+compilation if later testing or packaging fails. Training executables are not included. Exact-image runtime, full Trivy and
+independent ECR acceptance remain required; packaging does not waive findings.
+
 The dependency repair must preserve the base image's complete driver/capability inventory. Sixty synthetic EXR read/write cases cover ten compression modes, three pixel types, tiled and scanline layouts, pixels, CRS, and geotransform. These checks run during the image build and again through the ordinary toolchain verifier under read-only, network-disabled runtime constraints. Local x86-64 success is not native ARM64 acceptance or permission to deploy: the exact release image must still pass both fresh local and ECR High/Critical gates.
 
 Run local checks with the existing API development environment:
@@ -91,6 +104,15 @@ The report binds the image, native binaries, inventory, scanner, database, and p
 
 The verifier requires CSV, Shapefile, GeoJSON, GeoPackage, Parquet, PMTiles, COG, GTiff, PNG, JPEG, and EXR drivers plus every locked Python GIS package, Poppler PDF binaries, `gdalwarp`, `gdalsrsinfo`, Tesseract 5 plus the closed English/Arabic/Bengali/Cyrillic/Devanagari/Ethiopic/Greek/Hangul/HanS/HanT/Hebrew/Japanese/Latin/Thai model set, ClamAV binary/signature database, and command-line tool. Its active EICAR control must be detected. The CI definition repeats this on native ARM64, rejects High and Critical vulnerabilities, and publishes a CycloneDX SBOM. `freshclam` runs only while the immutable image is built; no scanner, OCR, or update daemon exists in the deployed task.
 
+The new October 24, 2026 ClamAV freshness policy requires the bundled signature
+build timestamp to be at most 24 hours old, with at most five minutes of future
+clock skew. Runtime and toolchain verification share the same check of English
+UTC `clamscan --version` output. Missing, malformed, stale or future-dated
+signatures fail closed with retryable `malware_scanner_unavailable` before any
+source scan or parsing; there is no override or runtime signature update.
+Real scan evidence records the signature build/check times and signed age in
+seconds. This is a separate policy from the Grype advisory-database age limit.
+
 Production configuration is entirely `OPEN_GEO_*` environment variables. The database identity must be `opengeo_worker`, TLS hostname verification and the AWS RDS root bundle are mandatory, and the workspace must be an absolute dedicated directory. The ECS task mounts ephemeral storage at `/tmp/opengeo-worker`; no input is opened over a GDAL network virtual filesystem.
 
 ## Processing Contract
@@ -112,6 +134,13 @@ Sealed composition jobs add two through sixteen exact layer snapshots. The worke
 ## Operations
 
 The optional CDK worker service starts at zero and scales from visible queue messages. Investigate the oldest-message alarm for unavailable dependencies, lease churn, or unexpectedly expensive files. Any DLQ message requires operator review: preserve its message id and safe error code, determine whether it is a poison event or a fixed dependency failure, then redrive only after the cause is understood. Never copy source contents, credentials, signed headers, database DSNs, or raw parser output into an incident ticket.
+
+Each shared-worker task first runs its packaged toolchain verifier, including the
+EICAR control, on ARM64 within the approved processing window. Only a successful
+return emits `opengeo-worker-native-toolchain-ok` and starts the normal worker;
+failure exits before any queue claims. This qualification uses the existing task
+isolation, private network and workspace. It is pending until observed on the
+deployed image and does not replace the image security gates.
 
 Deployment configuration, image review and operating limits are in the [AWS guide](../../docs/community-aws.md). Review the exact worker image and its security evidence before enabling live processing; local and CI evidence alone does not authorize live parsing.
 

@@ -537,7 +537,7 @@ export function ProjectWorkspacePage({
       signal?.throwIfAborted();
       return dataset;
     };
-    const readDatasetCredit = async (datasetId, datasetVersionId, {signal, refresh = false} = {}) => {
+    const readDatasetKnowledge = async (datasetId, {signal, refresh = false} = {}) => {
       if (typeof refresh !== "boolean") throw Error("Choose whether to refresh the saved credit metadata.");
       signal?.throwIfAborted(); await assertArchiveScope();
       if (disposed) throw Error("The selected Project view changed.");
@@ -555,8 +555,10 @@ export function ProjectWorkspacePage({
       // Cached and refreshed responses both require the current editor scope.
       signal?.throwIfAborted(); await assertArchiveScope();
       if (disposed) throw Error("The selected Project view changed.");
-      return reviewedDatasetCredit({datasetId, datasetVersionId, knowledge});
+      return knowledge;
     };
+    const readDatasetCredit = async (datasetId, datasetVersionId, options = {}) => reviewedDatasetCredit({datasetId, datasetVersionId,
+      knowledge: await readDatasetKnowledge(datasetId, options)});
     // Reuse complete exact-version reads already made by this editor. Preview
     // subsets never qualify as analysis inputs for a round trip.
     const completeVectorReads = new Map();
@@ -704,6 +706,7 @@ export function ProjectWorkspacePage({
         } : null,
       // Deliberate exact-version Add/Refresh only; no mount or reopen polling.
       loadManagedDatasetCredit: typeof adapter.getDatasetKnowledge === "function" ? readDatasetCredit : null,
+      loadSocialBaselineKnowledge: typeof adapter.getDatasetKnowledge === "function" ? readDatasetKnowledge : null,
       loadManagedCog,
       loadDatasetFeatures: typeof adapter.listFeatures === "function"
         ? (datasetId) => adapter.listFeatures(state.project.id, datasetId, {limit: 100})
@@ -735,6 +738,10 @@ export function ProjectWorkspacePage({
         ? (datasetId, options) => adapter.getFeatureCollection(state.project.id, datasetId, options)
         : null,
       onProjectSaved: (savedMap) => {
+        if (state.selectedMap?.id === savedMap.id) {
+          // Map saves omit ownership; parseMap represents that omission as null.
+          state.selectedMap = {...state.selectedMap, ...savedMap, ownerUserId: state.selectedMap.ownerUserId};
+        }
         const mapIndex = state.maps.findIndex(({id}) => id === savedMap.id);
         if (mapIndex >= 0) state.maps.splice(mapIndex, 1, savedMap);
         const existingManagement = root.querySelector(".project-management");

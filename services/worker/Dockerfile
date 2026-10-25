@@ -64,6 +64,57 @@ RUN test "$(apt-get --simulate remove libopenexr-3-1-30 | grep '^Remv ' | wc -l)
       -exec install -m 0644 /opt/opengeo-gdal/gdal_EXR.so '{}' \; \
     && python3 /opt/opengeo-gdal/verify-gdal-runtime.py verify /opt/opengeo-gdal/driver-baseline.json
 
+FROM ghcr.io/osgeo/gdal:ubuntu-full-3.13.1@sha256:aff1d5515aa0e9b50be34ab11d6c0c2cfabc23cdcb7a2e0bc5748101eedb3e4a AS tesseract-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG TESSERACT_SOURCE_COMMIT=db0ec62f81b0737fbbe184d8fea40af5738f8eef
+ARG TESSERACT_SOURCE_SHA256=21dbaff9867d937c156d0b898e90b726aa339129cfebd7e1365cd5fee5046d67
+
+RUN apt-get update \
+    && apt-get install --assume-yes --no-install-recommends \
+      build-essential ca-certificates cmake curl dpkg-dev libarchive-dev libcurl4-openssl-dev \
+      libgmock-dev libgtest-dev libleptonica-dev libtiff-dev ninja-build patch pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+COPY scripts/tesseract-security /build/tesseract-security
+COPY scripts/package-tesseract.py /build/package-tesseract.py
+RUN curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+      --output tesseract.tar.gz \
+      "https://codeload.github.com/tesseract-ocr/tesseract/tar.gz/${TESSERACT_SOURCE_COMMIT}" \
+    && echo "${TESSERACT_SOURCE_SHA256}  tesseract.tar.gz" | sha256sum --check --strict \
+    && mkdir tesseract \
+    && tar --extract --gzip --file tesseract.tar.gz --directory tesseract \
+      --strip-components=1 --no-same-owner --no-same-permissions \
+    && python3 /build/package-tesseract.py --prepare
+
+RUN cmake -S tesseract -B tesseract-build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr \
+      -DCMAKE_INSTALL_LIBDIR="lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)" \
+      -DCMAKE_INSTALL_DATAROOTDIR=share/tesseract-ocr/5 \
+      -DTESSDATA_PREFIX=/usr/share/tesseract-ocr/5 \
+      -DBUILD_SHARED_LIBS=ON -DBUILD_TESTS=ON -DBUILD_TRAINING_TOOLS=OFF \
+      -DDISABLED_LEGACY_ENGINE=OFF -DENABLE_NATIVE=OFF -DOPENMP_BUILD=ON \
+      -DDISABLE_CURL=OFF -DDISABLE_ARCHIVE=OFF -DINSTALL_GTEST=OFF \
+      -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+    && cmake --build tesseract-build --parallel 2 --target \
+      unittest/CMakeFiles/unicharset_load_test.dir/unicharset_load_test.cc.o \
+      unittest/CMakeFiles/fullyconnected_test.dir/fullyconnected_test.cc.o \
+      unittest/CMakeFiles/intproto_test.dir/intproto_test.cc.o \
+      unittest/CMakeFiles/normproto_test.dir/normproto_test.cc.o \
+      unittest/CMakeFiles/genericvector_test.dir/genericvector_test.cc.o
+
+RUN cmake --build tesseract-build --parallel 2 --target tesseract libtesseract \
+      unicharset_load_test fullyconnected_test intproto_test normproto_test genericvector_test
+
+RUN mkdir tesseract-security-results \
+    && GTEST_OUTPUT=xml:/build/tesseract-security-results/ ctest --test-dir tesseract-build \
+      --output-on-failure --timeout 60 --no-tests=error \
+      -R '^(unicharset_load_test|fullyconnected_test|intproto_test|normproto_test|genericvector_test)$'
+
+RUN DESTDIR=/build/tesseract-stage cmake --install tesseract-build
+
+RUN python3 /build/package-tesseract.py
+
 FROM ghcr.io/osgeo/gdal:ubuntu-small-3.13.1@sha256:836d1646ff9ab30d7db947c7b9690de55f34c2fd7cc5af6086a0854ccb378f59 AS builder
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -123,6 +174,17 @@ RUN apt-get update \
       -size +1c -print -quit | grep --quiet . \
     && chmod --recursive a+rX /var/lib/clamav \
     && rm -rf /var/lib/apt/lists/* /var/log/clamav/*
+
+COPY --from=tesseract-builder /build/libtesseract5.deb /tmp/libtesseract5.deb
+COPY --from=tesseract-builder /build/tesseract-ocr.deb /tmp/tesseract-ocr.deb
+RUN export PATH="/usr/sbin:/sbin:${PATH}" \
+    && dpkg --path-include='/usr/share/doc/libtesseract5/*' \
+      --path-include='/usr/share/doc/tesseract-ocr/*' \
+      --install /tmp/libtesseract5.deb /tmp/tesseract-ocr.deb \
+    && ldconfig \
+    && test -s /usr/share/doc/libtesseract5/opengeo-source.json \
+    && test -s /usr/share/doc/tesseract-ocr/opengeo-source.json \
+    && rm /tmp/libtesseract5.deb /tmp/tesseract-ocr.deb
 
 # ECS runs the Python worker directly; the inherited Pebble supervisor is unused.
 RUN rm -f /usr/bin/pebble

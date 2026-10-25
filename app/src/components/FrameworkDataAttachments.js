@@ -18,6 +18,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
   const current = () => sameContext() && !isLocked();
   const canUsePublic = ["listObservablePublicFileReferences", "registerObservablePublicFileReference",
     "listDatasetResources", "getResource"].every(name => typeof adapter[name] === "function");
+  let publicReferencesAvailable = true;
   if (typeof adapter.listObservableDataAttachments !== "function") {
     root.append(node("p", "Archived data references are not available in this connection."));
     return root;
@@ -67,7 +68,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
 
   const isPublicDataset = dataset => dataset?.status === "active" && dataset.capabilities?.read !== false
     && (dataset.sourceType === "cog" || dataset.format === "cog");
-  const isEligible = dataset => dataset.status === "active" && (dataset.capabilities?.download || (canUsePublic && isPublicDataset(dataset)));
+  const isEligible = dataset => dataset.status === "active" && (dataset.capabilities?.download || (canUsePublic && publicReferencesAvailable && isPublicDataset(dataset)));
   const eligible = new Map((state.datasets ?? []).filter(isEligible).map(dataset => [dataset.id, dataset]));
   const linked = new Set((state.datasets ?? []).map(dataset => dataset.id));
   const unconfirmedLinks = new Set();
@@ -83,7 +84,9 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
   const dataset = select("Dataset", fields);
   function renderDatasets() {
     const selectedId = dataset.value;
-    dataset.replaceChildren(option("", "Choose a dataset"), ...[...eligible.values()].map(item => option(item.id, item.name)));
+    dataset.replaceChildren(option("", "Choose a dataset"), ...[...eligible.values()].map(item => {
+      const choice = option(item.id, item.name); choice.disabled = !isEligible(item); return choice;
+    }));
     if (eligible.has(selectedId)) dataset.value = selectedId;
   }
   renderDatasets();
@@ -114,7 +117,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
   let generation = 0, searchGeneration = 0, versions = [], offset = 0, selected = null;
   let metadataRecords = [], metadataOffset = 0, candidates = [], publicSelected = null, publicInventory = [];
   const uncertainPublic = new Map();
-  const publicMode = () => Boolean(mode && mode.value === "public" && isPublicDataset(eligible.get(dataset.value)));
+  const publicMode = () => Boolean(publicReferencesAvailable && mode && mode.value === "public" && isPublicDataset(eligible.get(dataset.value)));
   const publicKey = selection => JSON.stringify([selection.datasetId, selection.sourceVersion, selection.resourceId,
     selection.resourceVersionId, selection.distributionId]);
   const matchesPublic = (record, candidate) => Object.entries(candidate.selection).every(([key, value]) => record[key] === value)
@@ -185,7 +188,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
   }
   function chooseLocation() {
     clearFile(); clearPublic();
-    const chosen = eligible.get(dataset.value), publicAvailable = canUsePublic && isPublicDataset(chosen);
+    const chosen = eligible.get(dataset.value), publicAvailable = canUsePublic && publicReferencesAvailable && isPublicDataset(chosen);
     if (mode) {
       mode.parentElement.hidden = !publicAvailable;
       mode.querySelector('[value="archive"]').disabled = !chosen?.capabilities?.download;
@@ -238,7 +241,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
     }
   });
   reloadPublic.addEventListener("click", async () => {
-    if (busy || !current()) return;
+    if (busy || !current() || !publicReferencesAvailable) return;
     const requestGeneration = generation;
     reloadPublic.disabled = true;
     feedback.textContent = "Checking retained public references…";
@@ -266,7 +269,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
       if (publicMode()) reflectPublic();
     } catch {
       if (current()) feedback.textContent = "Public references could not be checked. Keep this selection and retry Reload public references.";
-    } finally {if (current()) reloadPublic.disabled = false;}
+    } finally {if (current()) reloadPublic.disabled = !publicReferencesAvailable;}
   });
   find.addEventListener("click", async () => {
     if (busy || !current() || typeof adapter.searchDatasets !== "function") return;
@@ -315,6 +318,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
     }
   });
   register.addEventListener("click", async () => {
+    if (mode?.value === "public" && !publicReferencesAvailable) return;
     if (publicMode()) {
       if (busy || !current() || !publicSelected || unconfirmedLinks.has(dataset.value)) return;
       const candidate = publicSelected, key = publicKey(candidate.selection), selectionGeneration = generation;
@@ -353,7 +357,7 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
           : "Public file connection could not be confirmed. Reload public references to check before trying this exact file again.";
       } finally {
         busy = false;
-        if (sameContext()) {fields.disabled = false; reloadPublic.disabled = isLocked(); reflectPublic();}
+        if (sameContext()) {fields.disabled = false; reloadPublic.disabled = !publicReferencesAvailable || isLocked(); reflectPublic();}
       }
       return;
     }
@@ -402,6 +406,21 @@ export function FrameworkDataAttachments({state, sourceProject, canManage, isLoc
       register.textContent = linked.has(selection.datasetId) ? "Connect file" : "Link dataset and use file";
     }
   });
+  root.setPublicReferencesAvailable = available => {
+    if (publicReferencesAvailable === available) return;
+    publicReferencesAvailable = available;
+    if (!mode) return;
+    mode.querySelector('[value="public"]').disabled = !available;
+    reloadPublic.disabled = !available || busy || isLocked();
+    renderDatasets();
+    if (!available && mode.value === "public") {
+      ++generation; clearPublic(); mode.value = "archive";
+      version.parentElement.hidden = file.parentElement.hidden = false;
+      resource.parentElement.hidden = distribution.parentElement.hidden = true;
+      moreMetadata.hidden = true;
+      feedback.textContent = "Public source references are unavailable in this connection. Choose an archived copy.";
+    }
+  };
   return root;
 }
 

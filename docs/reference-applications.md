@@ -30,7 +30,7 @@ the named comparison passed its checks; **Partial** means work remains within
 that scope. Production readiness and standards conformance require separate
 verification.
 
-The [recorded baseline](../parity/baselines.json) contains 24 passing families,
+The retained maintainer baseline records 24 passing families,
 25 partial and one conditional exclusion across 50 families. These scoped results
 do not establish full parity with the reference applications or cover the full
 QGIS workflow scope.
@@ -71,7 +71,7 @@ QGIS workflow scope.
 | GeoLens | Catalog discovery and search | Pass — scoped catalog workflows |
 | GeoLens | Source custody and data exchange | Pass — explicit custody and exchange operations |
 | GeoLens | Metadata, provenance and verified refresh | Pass — scoped evidence and refresh behavior |
-| GeoLens | Reusable map composition and styling | Pass — pinned LineString/Style reuse in two saved maps; [scope and limits](../parity/reports/geolens-004-production-composition.json) |
+| GeoLens | Reusable map composition and styling | Pass — pinned LineString/Style reuse in two saved maps; broader portrayal remains unverified |
 | GeoLens | Open services and independent clients | Pass — selected service/client peers |
 | GeoLens | Analysis and derived resources | Pass — bounded processing operations |
 | GeoLens | Sharing, permissions and publication | Pass — scoped governed workflows |
@@ -83,12 +83,14 @@ than an aggregate application-parity score. Selected GeoServer extensions are
 tracked individually as optional integration work.
 
 GeoLibre's portable-project comparison remains pinned to 2.6.0, with separate
-3.0.0 renderer-conversion evidence. The [October 5 upstream review](rendering-engines.md)
+3.0.0 renderer-conversion evidence. A retained October 5 upstream review
 observed 3.2.0; that dated observation establishes neither current release status
 nor OpenGeo runtime acceptance. GeoLens's retained comparison also records 1.21.1
 drift beyond its 1.20.0 baseline. Full reference scope and those version differences
 remain open; new engines, formats and integrations follow specific user workflows
-and version-specific checks.
+and version-specific checks. See the standalone [renderer guide](community-renderers.md)
+for the supported Community workflow. Private operational receipts are not
+distributed with this source tree.
 
 Source/version evidence: [QGIS](../parity/fixtures/qgis/qgis-3.44.12-source-lock.json),
 [GeoLibre](../parity/fixtures/geolibre/geolibre-2.6.0-source-lock.json),

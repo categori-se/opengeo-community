@@ -401,7 +401,26 @@ def test_upload_is_preauthorized_before_signing_and_rechecked_before_persistence
     assert storage.form_specs[0].checksum_sha256 == SHA256
     statements = [call[1] for call in creation.calls]
     assert any("INSERT INTO app.datasets" in statement for statement in statements)
-    assert any("INSERT INTO app.upload_intents" in statement for statement in statements)
+    intent_insert = next(
+        call for call in creation.calls if "INSERT INTO app.upload_intents" in call[1]
+    )
+    assert "purpose" not in intent_insert[1]
+    assert intent_insert[1].count("%s") == len(intent_insert[2]) == 13
+    assert intent_insert[2] == (
+        UPLOAD_ID,
+        ORG_ID,
+        PROJECT_ID,
+        DATASET_ID,
+        USER_ID,
+        "roads.gpkg",
+        "application/geopackage+sqlite3",
+        1234,
+        SHA256,
+        "geodata-test",
+        OBJECT_KEY,
+        NOW + timedelta(minutes=15),
+        None,
+    )
     dataset_insert = next(
         statement for statement in statements if "INSERT INTO app.datasets" in statement
     )
@@ -563,6 +582,19 @@ def test_pmtiles_original_request_freezes_purpose_and_rejects_staging_before_sig
     assert ticket.dataset.status == "draft"
     intent_insert = next(
         call for call in creation.calls if "INSERT INTO app.upload_intents" in call[1]
+    )
+    assert "staged_base_version_id, purpose)" in intent_insert[1]
+    assert "%s::text" in intent_insert[1]
+    assert intent_insert[1].count("%s") == len(intent_insert[2]) == 14
+    assert intent_insert[2][:5] == (UPLOAD_ID, ORG_ID, PROJECT_ID, DATASET_ID, USER_ID)
+    assert intent_insert[2][5:12] == (
+        "roads.geojson",
+        "application/geo+json",
+        1234,
+        SHA256,
+        "geodata-test",
+        GEOJSON_OBJECT_KEY,
+        NOW + timedelta(minutes=15),
     )
     assert intent_insert[2][-2:] == (None, "pmtiles_original")
     assert storage.form_specs[0].key.endswith(f"uploads/{UPLOAD_ID}/original/roads.geojson")
@@ -1156,7 +1188,9 @@ def test_staged_upload_registration_reuses_layer_without_catalog_mutation():
         ]
     )
     intent = next(call for call in writes if "INSERT INTO app.upload_intents" in call[1])
-    assert intent[2][-2:] == (VERSION_ID, "ingest")
+    assert "purpose" not in intent[1]
+    assert intent[1].count("%s") == len(intent[2]) == 13
+    assert intent[2][-1] == VERSION_ID
 
 
 def test_staged_upload_rejects_stale_base_before_storage():
@@ -1300,6 +1334,46 @@ def test_capture_acceptance_rechecks_source_revision_before_promotion(latest):
             "INSERT INTO app.dataset_refresh_acceptances" in call[1] for call in transaction.calls
         )
     assert any("FOR SHARE" in call[1] for call in transaction.calls)
+
+
+@pytest.mark.parametrize("purpose", ["ingest", "pmtiles_original"])
+@pytest.mark.parametrize("lock", [False, True])
+def test_upload_intent_read_defaults_missing_purpose_and_retains_stored_purpose(purpose, lock):
+    row = list(upload_row(completed=True, purpose=purpose))
+    row[13] = VERSION_ID if purpose == "ingest" else None
+    transaction = FakeTransaction(one=[tuple(row)])
+    repository = PostgresIngestionRepository(FakeExecutor([]), FakeStorage())
+
+    intent = asyncio.run(
+        repository._load_upload_intent(
+            transaction, context(), PROJECT_ID, UPLOAD_ID, lock=lock
+        )
+    )
+
+    assert intent.purpose == purpose
+    assert (
+        intent.upload_id,
+        intent.dataset_id,
+        intent.project_id,
+        intent.object_key,
+        intent.expected_size_bytes,
+        intent.expected_sha256,
+        intent.completed_object_id,
+        intent.staged_base_version_id,
+    ) == (UPLOAD_ID, DATASET_ID, PROJECT_ID, row[3], 1234, SHA256, OBJECT_ID, row[13])
+    assert len(transaction.calls) == 1
+    _, statement, parameters = transaction.calls[0]
+    # Whole-row JSON permits the column to be absent on pre-preservation schemas,
+    # while a stored preservation purpose must survive the same projection.
+    assert "COALESCE(to_jsonb(upload_intent)->>'purpose', 'ingest')" in statement
+    assert "upload_intent.purpose" not in statement
+    assert "FROM app.upload_intents AS upload_intent" in statement
+    assert "upload_intent.organization_id = %s" in statement
+    assert "upload_intent.project_id = %s" in statement
+    assert "upload_intent.id = %s" in statement
+    assert ("FOR UPDATE" in statement) is lock
+    assert statement.count("%s") == len(parameters) == 3
+    assert parameters == (ORG_ID, PROJECT_ID, UPLOAD_ID)
 
 
 @pytest.mark.parametrize("purpose", ["ingest", "pmtiles_original"])

@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "upstreamVersion": "5.5.3",
+  "sourceCommit": "db0ec62f81b0737fbbe184d8fea40af5738f8eef",
+  "sourceUrl": "https://codeload.github.com/tesseract-ocr/tesseract/tar.gz/db0ec62f81b0737fbbe184d8fea40af5738f8eef",
+  "sourceSha256": "21dbaff9867d937c156d0b898e90b726aa339129cfebd7e1365cd5fee5046d67",
+  "packageVersion": "5.5.3+opengeo.20261025.1",
+  "license": "Apache-2.0",
+  "patches": [
+    {
+      "file": "01-CVE-2026-88052.patch",
+      "cve": "CVE-2026-88052",
+      "upstreamCommit": "2d04d640db2e8c7e3bab2369d599343b5a8b8443",
+      "upstreamUrl": "https://github.com/tesseract-ocr/tesseract/commit/2d04d640db2e8c7e3bab2369d599343b5a8b8443",
+      "upstreamPatchSha256": "77ddd5df95446c7967456b09aaa744a15e4306d68d199141aa2e07837b59464f",
+      "patchSha256": "77ddd5df95446c7967456b09aaa744a15e4306d68d199141aa2e07837b59464f",
+      "adaptation": null
+    },
+    {
+      "file": "02-CVE-2026-88048.patch",
+      "cve": "CVE-2026-88048",
+      "upstreamCommit": "103dc134eb36411ddc6833ec20aa2c76795bd0ff",
+      "upstreamUrl": "https://github.com/tesseract-ocr/tesseract/commit/103dc134eb36411ddc6833ec20aa2c76795bd0ff",
+      "upstreamPatchSha256": "25827f175cf940716c59e5494ee2d9bf71b484a74e266691076e54fa78bf9fa1",
+      "patchSha256": "25827f175cf940716c59e5494ee2d9bf71b484a74e266691076e54fa78bf9fa1",
+      "adaptation": null
+    },
+    {
+      "file": "03-CVE-2026-88053.patch",
+      "cve": "CVE-2026-88053",
+      "upstreamCommit": "8b0574680f3b22f246ade6a4c8e3029104255c63",
+      "upstreamUrl": "https://github.com/tesseract-ocr/tesseract/commit/8b0574680f3b22f246ade6a4c8e3029104255c63",
+      "upstreamPatchSha256": "59d0300276534865498d862896cc1819ce0f4e4090a7fe1a29b3bd14f20e297f",
+      "patchSha256": "23e8e928b8a4c45aa74d32b79123f1beda55aed912e65ca018936e2cbc7fe0de",
+      "adaptation": "Only removes three deleted old-loop lines absent from stable5.5.3 and recounts hunk lengths; all upstream added runtime/test lines unchanged."
+    },
+    {
+      "file": "04-CVE-2026-88047.patch",
+      "cve": "CVE-2026-88047",
+      "upstreamCommit": "1bda5079b1c8a7e25f523486837426903d29ce84",
+      "upstreamUrl": "https://github.com/tesseract-ocr/tesseract/commit/1bda5079b1c8a7e25f523486837426903d29ce84",
+      "upstreamPatchSha256": "b57a272157d8e2612d9b0deabf7cff44a5f9d7a46f6b1abb263dfbe96abae1f4",
+      "patchSha256": "b57a272157d8e2612d9b0deabf7cff44a5f9d7a46f6b1abb263dfbe96abae1f4",
+      "adaptation": null
+    },
+    {
+      "file": "05-CVE-2026-88051.patch",
+      "cve": "CVE-2026-88051",
+      "upstreamCommit": "56e09ca12e751623fe796ce1554ce704bffd2ef0",
+      "upstreamUrl": "https://github.com/tesseract-ocr/tesseract/commit/56e09ca12e751623fe796ce1554ce704bffd2ef0",
+      "upstreamPatchSha256": "da1f31e6fb9d847dd1bcff7e312ece51a27dfd247a1cf6bf49ec3a6b233fb599",
+      "patchSha256": "da1f31e6fb9d847dd1bcff7e312ece51a27dfd247a1cf6bf49ec3a6b233fb599",
+      "adaptation": null
+    }
+  ]
+}

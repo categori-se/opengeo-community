@@ -64,20 +64,21 @@ const uploadUrl = "https://s3.us-east-1.amazonaws.com/local-pilot.invalid";
 const requests = [];
 const receptorScreeningMode=process.env.OPEN_GEO_INTEGRATED_RECEPTOR_SCREENING==='1';
 const buildingInputPreviewMode=process.env.OPEN_GEO_INTEGRATED_BUILDING_INPUT_PREVIEW==='1';
+const realBuildingReviewMode=process.env.OPEN_GEO_INTEGRATED_BUILDING_REAL_REVIEW==='1';
 const stacItemsMode=process.env.OPEN_GEO_INTEGRATED_STAC_ITEMS==='1';
 const rasterCatalogMode=process.env.OPEN_GEO_INTEGRATED_RASTER_CATALOG==='1';
 const rasterValidationMode=process.env.OPEN_GEO_INTEGRATED_RASTER_VALIDATION==='1';
 const rasterAccountMode=rasterCatalogMode||rasterValidationMode;
-assert.ok([buildingInputPreviewMode,stacItemsMode,rasterCatalogMode,rasterValidationMode,receptorScreeningMode,process.env.OPEN_GEO_INTEGRATED_BUILDING_REVIEW==='1'].filter(Boolean).length<=1,'Choose one scoped account journey');
+assert.ok([realBuildingReviewMode,buildingInputPreviewMode,stacItemsMode,rasterCatalogMode,rasterValidationMode,receptorScreeningMode,process.env.OPEN_GEO_INTEGRATED_BUILDING_REVIEW==='1'].filter(Boolean).length<=1,'Choose one scoped account journey');
 // Account profiles share transport, guard, worker and shutdown machinery.
-const buildingReviewMode=buildingInputPreviewMode||process.env.OPEN_GEO_INTEGRATED_BUILDING_REVIEW==='1'||receptorScreeningMode||rasterAccountMode||stacItemsMode;
-const buildingReviewPrefix=buildingInputPreviewMode?'building-input-preview':stacItemsMode?'stac-items':rasterValidationMode?'raster-validation':rasterCatalogMode?'raster-catalog':receptorScreeningMode?'receptor-screening':'building-review';
+const buildingReviewMode=realBuildingReviewMode||buildingInputPreviewMode||process.env.OPEN_GEO_INTEGRATED_BUILDING_REVIEW==='1'||receptorScreeningMode||rasterAccountMode||stacItemsMode;
+const buildingReviewPrefix=realBuildingReviewMode?'building-real-review':buildingInputPreviewMode?'building-input-preview':stacItemsMode?'stac-items':rasterValidationMode?'raster-validation':rasterCatalogMode?'raster-catalog':receptorScreeningMode?'receptor-screening':'building-review';
 const buildingInputKeys=stacItemsMode||rasterAccountMode?[]:receptorScreeningMode?['receptors','footprint','influence']:['source','comparison'];
 const buildingApiLimit=buildingInputPreviewMode?80:stacItemsMode?140:rasterValidationMode?260:rasterCatalogMode?240:receptorScreeningMode?180:160,buildingUploadLimit=buildingInputPreviewMode?0:stacItemsMode?0:rasterValidationMode?1:rasterCatalogMode?2:receptorScreeningMode?4:3;
 const buildingReviewPath=join(work,`${buildingReviewPrefix}-progress.json`);
 const buildingReviewProfile=buildingReviewMode?JSON.parse(readFileSync(join(work,`${buildingReviewPrefix}-profile.json`))):null;
 const buildingReviewProgress=buildingReviewMode?JSON.parse(readFileSync(buildingReviewPath)):null;
-const buildingReviewRemaining=()=>(stacItemsMode||buildingInputPreviewMode?110_000:receptorScreeningMode||rasterAccountMode?170_000:180_000)-(buildingReviewProfile?.priorMilliseconds??0)
+const buildingReviewRemaining=()=>(stacItemsMode||buildingInputPreviewMode?110_000:realBuildingReviewMode||receptorScreeningMode||rasterAccountMode?170_000:180_000)-(buildingReviewProfile?.priorMilliseconds??0)
   -(Date.now()-(buildingReviewProfile?.startedAtMilliseconds??Date.now()));
 function checkpointBuildingReview(update={}){
   if(!buildingReviewMode)return;
@@ -90,6 +91,14 @@ if(buildingReviewMode){
     'Building review uses only the retained built development journey');
   assert.equal(buildingReviewProfile.schemaVersion,`opengeo.integrated-${buildingReviewPrefix}.1`);
   assert.equal(buildingReviewProfile.maximumApiRequests,buildingApiLimit);assert.equal(buildingReviewProfile.maximumMilliseconds,stacItemsMode||buildingInputPreviewMode?120_000:180_000);
+  if(realBuildingReviewMode){
+    assert.equal(buildingReviewProfile.admissionBatchId,'BI-02-07-real-building-account-review');
+    assert.equal(buildingReviewProfile.inputPairSha256,buildingReviewProgress.inputPairSha256);
+    assert.equal(buildingReviewProfile.maximumOriginalUploads,3);assert.equal(buildingReviewProfile.maximumWorkerBatches,2);
+    assert.equal(buildingReviewProfile.maximumNativeComparisons,1);assert.ok(buildingReviewProfile.admittedAttempt<=2);
+    assert.deepEqual(Object.keys(buildingReviewProfile.inputProfile.inputs).sort(),['comparison','source']);
+    assert.equal(createHash('sha256').update(readFileSync(join(work,'building-review-progress.json'))).digest('hex'),buildingReviewProfile.acceptedSyntheticReceiptSha256);
+  }
   if(buildingInputPreviewMode){
     assert.equal(buildingReviewProfile.admissionBatchId,'BI-02-retained-building-input-preview');
     for(const [key,value] of Object.entries({maximumWorkMilliseconds:110_000,shutdownReserveMilliseconds:10_000,
@@ -324,6 +333,7 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false, 
   if(buildingReviewMode&&!buildingInputPreviewMode&&!rasterAccountMode&&!stacItemsMode){
     assert.ok((buildingReviewProgress.apiRequestAttempts??0)<buildingApiLimit&&buildingReviewRemaining()>0,'Scoped account cumulative API/time ceiling');
     const project=buildingReviewProgress.projectId,records=buildingReviewProgress.records??={},current=records[buildingReviewProgress.currentRecord];
+    const realInputMetadataKey=realBuildingReviewMode&&buildingInputKeys.find(key=>path===`/datasets/${records[key]?.datasetId}/metadata`);
     const uploadRequest=method==='POST'&&path===`/projects/${project}/uploads/request`,
       uploadComplete=method==='POST'&&Object.values(records).some(record=>path===`/projects/${project}/uploads/${record.uploadId}/complete`),
       native=method==='POST'&&path===`/projects/${project}/datasets/${records[receptorScreeningMode?'receptors':'source']?.datasetId}/analysis-preview`,
@@ -336,8 +346,8 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false, 
       ||buildingInputKeys.some(key=>path===`/projects/${project}/datasets/${records[key]?.datasetId}/feature-collection`)
       ||exactVersionDownload)
       ||method==='PATCH'&&path===`/projects/${project}/maps/${buildingReviewProgress.mapId}`
-      ||method==='PUT'&&path===`/datasets/${records.output?.datasetId}/metadata`,
-      'Building review only mutates its explicitly scoped synthetic records');
+      ||method==='PUT'&&(path===`/datasets/${records.output?.datasetId}/metadata`||realInputMetadataKey),
+      'Building review only mutates its explicitly scoped records');
     buildingReviewProgress.apiRequestAttempts=(buildingReviewProgress.apiRequestAttempts??0)+1;
     if(method==='POST'&&path==='/projects'){
       assert.ok(!buildingReviewProgress.projectRequestAttempted);buildingReviewProgress.projectRequestAttempted=true;
@@ -383,8 +393,13 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false, 
         assert.equal(layer.datasetVersionId,record.datasetVersionId);assert.equal(layer.sourceVersion,record.versionNumber);
       }
     }
-    if(method==='PUT'){assert.ok(!buildingReviewProgress.metadataAttempted,'Read back an uncertain metadata commit before retrying');
-      buildingReviewProgress.metadataAttempted=true;buildingReviewProgress.preparedMetadata=JSON.parse(body).document;}
+    if(method==='PUT'){
+      if(realInputMetadataKey){const record=records[realInputMetadataKey];
+        assert.ok(record.uploadCompleted&&!record.inputMetadataRequestAttempted,'Read back uncertain input metadata before retrying');
+        record.inputMetadataRequestAttempted=true;record.preparedInputMetadata=JSON.parse(body).document;
+      }else{assert.ok(!buildingReviewProgress.metadataAttempted,'Read back an uncertain metadata commit before retrying');
+        buildingReviewProgress.metadataAttempted=true;buildingReviewProgress.preparedMetadata=JSON.parse(body).document;}
+    }
     checkpointBuildingReview();
   }
   if(stacItemsMode){
@@ -638,6 +653,10 @@ function apiRequest(path, {method = "GET", headers = {}, body, cleanup = false, 
             else if(rasterAccountMode&&method==='PUT'){
               const target=Object.values(progress.records).find(value=>path===`/datasets/${value.datasetId}/metadata`);
               assert.ok(target);target.metadata=record;checkpointBuildingReview();
+            }
+            else if(realBuildingReviewMode&&method==='PUT'&&buildingInputKeys.some(key=>path===`/datasets/${progress.records?.[key]?.datasetId}/metadata`)){
+              const target=buildingInputKeys.map(key=>progress.records[key]).find(value=>path===`/datasets/${value.datasetId}/metadata`);
+              target.inputMetadata=record;target.inputMetadataCommitted=true;checkpointBuildingReview();
             }
             else if(method==='PUT'&&path===`/datasets/${progress.records?.output?.datasetId}/metadata`)checkpointBuildingReview({metadata:record});
             else if(method==='PATCH'&&path===`/projects/${progress.projectId}/maps/${progress.mapId}`)checkpointBuildingReview({map:record});
@@ -1147,7 +1166,8 @@ try {
       stage=buildingReviewPrefix;
       const exercise=buildingInputPreviewMode?exerciseBuildingInputPreview:stacItemsMode?exerciseStacItems:rasterAccountMode?exerciseRasterCatalog:receptorScreeningMode?exerciseReceptorScreening:exerciseBuildingReview;
       const result=await exercise({page,context,origin,organization,work,readApi,apiRequest,worker,
-        progress:buildingReviewProgress,profile:buildingReviewProfile,checkpoint:checkpointBuildingReview});
+        progress:buildingReviewProgress,profile:buildingReviewProfile,
+        inputProfile:realBuildingReviewMode?buildingReviewProfile.inputProfile:undefined,checkpoint:checkpointBuildingReview});
       assert.deepEqual(errors,[]);checkpointBuildingReview({status:'pass'});
       writeFileSync(join(work,`${buildingReviewPrefix}-browser-result.json`),JSON.stringify({status:'pass',[buildingInputPreviewMode?'buildingInputPreview':stacItemsMode?'stacItems':rasterValidationMode?'rasterValidation':rasterCatalogMode?'rasterCatalog':receptorScreeningMode?'receptorScreening':'buildingReview']:result,
         apiRequestAttempts:buildingReviewProgress.apiRequestAttempts,applicationShell:builtShell.evidence},null,2)+'\n',{mode:0o600});

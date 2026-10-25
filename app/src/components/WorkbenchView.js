@@ -52,7 +52,11 @@ import {FieldsOfTheWorld} from "./FieldsOfTheWorld.js";
 import {mappedFieldSourceEvidence} from "../lib/fieldInventory.js";
 import {rasterAnalysisEvidence} from "../lib/rasterAnalysisArchive.js";
 import {buildingReconciliationSummary, buildingReconciliationGroups, evaluateBuildingComparison, buildReviewedBuildingInventory} from "../lib/buildingReconciliation.js";
-import {buildReceptorScreening, receptorScreeningCsv} from "../lib/receptorScreening.js";
+import {buildReceptorScreening, receptorScreeningCsv, validateReceptorScreeningReport, RECEPTOR_SCREENING_LIMITS} from "../lib/receptorScreening.js";
+import {socialBaselineEvidenceCsv} from "../lib/socialBaselineEvidence.js";
+import {ReceptorScreeningEvidence} from "./ReceptorScreeningEvidence.js";
+import {ProjectSocialBaseline} from "./ProjectSocialBaseline.js";
+import {validateProjectSocialBaselineSelection} from "../lib/projectSocialBaseline.js";
 import {polygon3DGeojson} from "../lib/polygon3dMeasurement.js";
 import {geojsonBounds} from "../lib/mapLayers.js";
 import {mapGraticule} from "../lib/mapGraticule.js";
@@ -478,6 +482,7 @@ function createWorkbenchView({
   admitPmtilesDisplay = null,
   loadManagedDatasetMetadata = null,
   loadManagedDatasetCredit = null,
+  loadSocialBaselineKnowledge = null,
   loadManagedCog = null,
   protectedCopyJobs = [],
   pmtilesDerivativeJobs = [],
@@ -845,6 +850,7 @@ function createWorkbenchView({
     admitPmtilesDisplay,
     loadManagedDatasetMetadata,
     loadManagedDatasetCredit,
+    loadSocialBaselineKnowledge,
     loadManagedCog,
     protectedCopyJobs,
     pmtilesDerivativeJobs,
@@ -1018,6 +1024,7 @@ function createWorkbenchView({
   shell.dispose = () => {
     if (context.disposed) return;
     context.disposed = true;
+    context.disposeSaveShortcut?.();
     context.analysisConsole?.dispose();
     context.browserPrintStudio?.dispose?.();
     context.localProjectDialog?.dispose?.();
@@ -1031,6 +1038,7 @@ function createWorkbenchView({
     context.fieldsOfTheWorld?.dispose();
     context.polygon3dDialog?.dispose();
     state.managedDatasetMetadataRequest?.controller.abort();
+    state.projectSocialBaseline?.controller?.abort();
     for (const choice of context.preservedDatasetDisplays.values()) choice.controller?.abort();
     cancelDrillDownIdentify(context);
     cancelQueryLocationRequest(context);
@@ -1165,6 +1173,28 @@ function createWorkbenchView({
     hasUnsavedChanges: () => Boolean(state.mapAuthoring || state.authoringCoordinateDraft)
       || localDraftSignature(context) !== context.localDraftBaseline
   });
+  const ownerDocument = shell.ownerDocument, ownerWindow = ownerDocument.defaultView;
+  const visibleWorkbench = element => element.isConnected && !element.closest("[hidden], [inert]")
+    && element.getClientRects().length > 0 && ownerWindow.getComputedStyle(element).visibility !== "hidden";
+  const saveShortcut = event => {
+    const ownedTarget = event.target instanceof ownerWindow.Node && shell.contains(event.target) || event.target === ownerDocument.body
+      && !ownerDocument.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')
+      && [...ownerDocument.querySelectorAll(".opengeo-workbench")].filter(visibleWorkbench).length === 1;
+    if ((event.ctrlKey || event.metaKey) && event.key?.toLowerCase() === "s"
+      && !event.altKey && !event.shiftKey && !event.defaultPrevented
+      && !context.disposed && !context.printFrame && ownedTarget && visibleWorkbench(shell)
+      && !event.target.closest("dialog, [role='dialog']")
+      && !context.modalLayer.querySelector("[role='dialog']") && !context.localProjectDialog?.open) {
+      const save = shell.querySelector(".gis-save-command");
+      if (save && !save.disabled && !save.closest("[inert]")) {
+        event.preventDefault();
+        save.click();
+        return;
+      }
+    }
+  };
+  ownerWindow.addEventListener("keydown", saveShortcut);
+  context.disposeSaveShortcut = () => ownerWindow.removeEventListener("keydown", saveShortcut);
   shell.addEventListener("keydown", event => {
     if ((event.ctrlKey || event.metaKey) && event.code === "Backquote" && !event.defaultPrevented) {
       event.preventDefault();toggleAnalysisConsole(context);return;
@@ -9578,6 +9608,26 @@ function receptorScreeningPanel(context, result) {
     if (receptorScreeningLocked(context)) return;
     downloadBlob(`${slug(result.source.title)}-receptor-screening-methods.json`, JSON.stringify(report, null, 2), "application/json");
   }));
+  const locked = () => receptorScreeningLocked(context) || context.state.analysisPreviewResult !== result;
+  panel.append(ReceptorScreeningEvidence({result, locked, onMessage: message => {
+    context.state.analysisPreviewMessage = message; context.render();
+  }, onApply: review => {
+    if (locked()) return;
+    const screening = validateReceptorScreeningReport({...report, evidenceReview: review});
+    const collection = {...result.collection, "opengeo:analysis": {...result.collection["opengeo:analysis"], screening}};
+    socialBaselineEvidenceCsv(collection, screening);
+    if (new TextEncoder().encode(JSON.stringify(collection)).byteLength > RECEPTOR_SCREENING_LIMITS.outputBytes) {
+      throw Error("Source evidence review exceeds the screening result byte limit.");
+    }
+    result.collection = collection;
+    context.state.analysisPreviewAdded = false; context.state.analysisRegistrationReview = null;
+    context.state.analysisPreviewMessage = "Source evidence review attached to this result. Download it, add the result to the map or save it as a catalog Layer to retain the review.";
+    context.render();
+  }, onDownload: () => {
+    try {
+      downloadBlob(`${slug(result.source.title)}-social-baseline-evidence.csv`, socialBaselineEvidenceCsv(result.collection, report), "text/csv");
+    } catch (error) {context.state.analysisPreviewMessage = error.message; context.render();}
+  }}));
   return panel;
 }
 
@@ -10091,6 +10141,7 @@ function processingPanel(context) {
     }));
   }
   panel.append(nativeAnalysisPanel(context));
+  panel.append(ProjectSocialBaseline(context, {download: downloadBlob}));
   panel.append(fieldsOfTheWorldPanel(context));
   panel.append(rasterValidationPanel(context));
   panel.append(rasterHeightDifferencePanel(context));
@@ -16021,6 +16072,11 @@ function applyLocalDraft({
       project.extensions = {...project.extensions,
         opengeoRenderer: structuredClone(draft.extensions.opengeoRenderer)};
     }
+    if (!presentationOnly && project && draft.extensions?.opengeoSocialBaseline) {
+      let selection = structuredClone(draft.extensions.opengeoSocialBaseline);
+      try {selection = validateProjectSocialBaselineSelection(selection);} catch { /* Preserve invalid optional data for recovery; its panel never loads it. */ }
+      project.extensions = {...project.extensions, opengeoSocialBaseline: selection};
+    }
     if (publicDemo) {
       const savedIds = new Set(draft.layers.map(({layerId}) => layerId));
       for (let index = layers.length - 1; index >= 0; index -= 1) {
@@ -16531,6 +16587,14 @@ function mapExtensionsForSave(context) {
     : {};
   if (context.rendererPreference) extensions.opengeoRenderer = {id:context.rendererPreference};
   if (Object.hasOwn(extensions, "opengeoRenderer")) validateRendererPreference(extensions.opengeoRenderer);
+  if (Object.hasOwn(extensions, "opengeoSocialBaseline")) {
+    let selection;
+    try {selection = validateProjectSocialBaselineSelection(extensions.opengeoSocialBaseline);} catch { /* Keep unsupported optional data without blocking the Project or using it. */ }
+    if (selection) {
+      const retained = new Set(context.layers.filter(layer => !isTemporaryLayer(layer)).map(layer => layer.layerId));
+      extensions.opengeoSocialBaseline = {...selection, layerIds: selection.layerIds.filter(id => retained.has(id))};
+    }
+  }
   if (context.state.portalConfiguration) {
     extensions.geomoose = {
       ...(extensions.geomoose && typeof extensions.geomoose === "object" ? extensions.geomoose : {}),
