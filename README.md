@@ -1,21 +1,27 @@
 # OpenGeo Studio
 
-**Build maps you can reuse. Publish analysis others can inspect.**
+**General GIS tools for environmental and social baselines, risk, impact assessment and monitoring.**
 
 OpenGeo Studio is an open workspace for geospatial analysis and publishing from
-OpenGeo.Tools. Curate spatial sources, compose reusable maps and carry them into
-reports, notebooks and websites, keeping methods, versions, attribution and reuse
-terms connected. Start the next study with useful work from the last one.
+OpenGeo.Tools. It is a general GIS workspace optimized for environmental and
+social baselines, risk analysis, impact assessment and monitoring. Inspect data,
+compose maps, run supported analyses and carry the results into reports and
+websites, keeping methods, versions, attribution and reuse terms connected.
+Start the next study with useful work from the last one.
 
 It is designed for people who repeatedly publish spatial analysis: researchers,
 consultants, planners, environmental and social practitioners, and small teams.
+Environmental screening and traceable spatial evidence are current strengths.
+Social baselines and impact findings still require appropriate source data,
+validation and professional assessment.
 
 **Early community source edition.** The full suite of tools is included under
 [Apache-2.0](LICENSE). See the [release status](RELEASE_NOTES.md) for current
 installation and publishing limits.
 
-[Try the demo](https://demo.studio.opengeo.tools/) ·
-[Open hosted Studio](https://studio.opengeo.tools/) ·
+[Try the account-free demo](https://demo.studio.opengeo.tools/) ·
+[Request free cloud beta access](SUPPORT.md#limited-free-cloud-beta) ·
+[Sign in to hosted Studio](https://studio.opengeo.tools/) ·
 [LinkedIn](https://www.linkedin.com/in/akdennis/) ·
 [Observable community profile](https://talk.observablehq.com/u/aaronkyle/activity) ·
 [Explore published work](https://opengeo.tools/projects/) ·
@@ -30,11 +36,10 @@ Every built installation also includes a public `/credits` page and local notice
 
 | Path | What to expect |
 | --- | --- |
-| [Try the browser Demo](https://demo.studio.opengeo.tools/) | Inspect, modify and export a small study without installing the stack. Personal saves stay on your device, separate from samples and account storage. |
-| [Use hosted Studio](https://studio.opengeo.tools/) | Existing users sign in to the installation we operate. [Request hosted Studio access](https://www.linkedin.com/in/akdennis/) with your workflow and team size; access, availability and services are arranged with the maintainer. |
+| [Try the browser Demo](https://demo.studio.opengeo.tools/) | No account needed. Inspect and style data, save and reopen a small Project on your device, and export supported outputs. Download a backup; browser saves are separate from account storage. |
+| [Request the limited free cloud beta](SUPPORT.md#limited-free-cloud-beta) | Selected individuals and small teams can request access. Approval, duration, storage/processing limits and available team permissions are agreed before activation. Existing members can [sign in](https://studio.opengeo.tools/). |
 | [Run the community stack](docs/community-development.md) | Operate the browser application and its supporting services locally or in [your own AWS account](docs/community-aws.md). Configure your domains, styles, connections, permissions and usage limits. |
-| [Commission a company deployment](SUPPORT.md#hosting-and-enterprise-support) | Agree a scope for installation, configuration, integration, training and handover into your environment. |
-| [Arrange managed operation](SUPPORT.md#hosting-and-enterprise-support) | Use an organizational installation with agreed responsibilities for maintenance, recovery, upgrades and support. |
+| [Discuss hosting, integration or consultancy](SUPPORT.md#hosting-and-enterprise-support) | Provisional paid services can cover an organizational deployment, integration, GIS/E&S work, training or managed operation. Availability, scope, pricing and responsibilities are agreed individually. |
 
 Our public Demo is one configured example; our managed `studio.opengeo.tools`
 service is another, with its own account services and private connections. Demo
@@ -162,8 +167,10 @@ Third-party software and data retain their own terms; see the
 [acknowledgements](ACKNOWLEDGEMENTS.md),
 [NOTICE](NOTICE) and [foundation inventory](docs/open-source-foundations.md).
 
-We offer [hosting and enterprise support](SUPPORT.md#hosting-and-enterprise-support)
-as fee-based services. [Contact us](https://www.linkedin.com/in/akdennis/) with inquiries.
+[Request limited free beta access](SUPPORT.md#limited-free-cloud-beta) or discuss
+[future hosting, integration and consultancy](SUPPORT.md#hosting-and-enterprise-support).
+These services use the same community tools; a source license does not include
+hosted access. [Contact us](mailto:akdennis@gmail.com) with your workflow and team size.
 
 Developed and maintained by [Aaron Kyle Dennis](https://github.com/aaronkyle)
 for [categori.se](https://categori.se).

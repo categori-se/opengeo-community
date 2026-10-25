@@ -1,8 +1,9 @@
 # Choose an OpenGeo Studio installation
 
 OpenGeo Studio is the software: an open workspace for geospatial analysis and
-publishing. OpenGeo.Tools brings together Studio and our public methods and
-knowledge library.
+publishing. It is a general GIS workspace optimized for environmental and social
+baselines, risk analysis, impact assessment and monitoring. OpenGeo.Tools brings
+together Studio and our public methods and knowledge library.
 
 Try the browser Demo, use our operated Studio or run the community stack with
 your own configuration. The full suite is available under Apache-2.0 in the
@@ -14,14 +15,15 @@ Hosting and implementation services use the same software.
 | Path | Operator | Data and account management | Prerequisites | Updates and support |
 | --- | --- | --- | --- | --- |
 | [Browser Demo](https://demo.studio.opengeo.tools/) | Maintainer | Personal saves in your browser; no Studio account. Remote services retain their own data and terms. | A supported browser and permitted inputs; [small exercise](community-examples.md#try-it-community-facilities). | Maintainer updates the Demo; you retain browser backups. |
-| [Hosted Studio](https://studio.opengeo.tools/) | Maintainer | Account-backed work and permitted resources in the operated installation; access is arranged with the maintainer. | Existing access or [request hosted Studio access](https://www.linkedin.com/in/akdennis/). | Hosting, usage, data handling and support follow agreed terms. |
+| [Limited free cloud beta](../SUPPORT.md#limited-free-cloud-beta) | Maintainer | Account-backed work for selected individuals and small teams; invited members and explicit resource permissions only. | Approval after discussing the workflow, team size, duration and storage/processing limits. Existing members can [sign in](https://studio.opengeo.tools/). | Beta scope, data handling and support are agreed before access; continuing hosting is a separate arrangement. |
 | [Community installation](community-development.md) | You or your chosen operator | Your configured database, storage, identity and resource permissions. | Connected local services or an [AWS account and deployment configuration](community-aws.md). | Your operator manages updates and recovery; community help is available as time allows. |
 | [Assisted company deployment](../SUPPORT.md#hosting-and-enterprise-support) | Agreed during implementation and handover | Organizational infrastructure, connections and account administration defined in the scope. | An agreed environment, workflow and implementation scope. | Scoped installation, integration, training and handover; ongoing operation is agreed separately. |
 | [Managed organizational deployment](../SUPPORT.md#hosting-and-enterprise-support) | Maintainer under an agreement | An organizational installation with agreed hosting, data access and account responsibilities. | Agreed infrastructure access, workflows, usage and responsibilities. | Maintenance, upgrades, backup/recovery and support only as agreed for that installation. |
 
 An access inquiry does not create an account, grant resource access or activate a
-subscription. A service discussion establishes scope and availability; the
-software license establishes no hosting entitlement or service guarantee.
+subscription. Paid hosting, integration and consultancy are provisional options;
+a service discussion establishes scope, pricing and availability. The software
+license establishes no hosting entitlement or service guarantee.
 
 ## Try the browser Demo
 
@@ -37,13 +39,18 @@ demonstrations do not release a live website. Referenced services may receive
 browser requests. Exports may still depend on remote data; another website cannot
 read your Demo browser storage. See the [workflow guide](community-workflow.md#choose-a-workspace).
 
-## Use hosted Studio or request access
+<a id="use-hosted-studio-or-request-access"></a>
+
+## Request the limited free cloud beta
 
 Existing users can [open Studio](https://studio.opengeo.tools/) and sign in to
-work within their account and resource permissions. To discuss access,
-[request hosted Studio access](https://www.linkedin.com/in/akdennis/)
-with your intended workflow, team size, source types, approximate volumes and
-publishing destination. Access and services are arranged with the maintainer.
+work within their account and resource permissions. Selected individuals and small
+teams can [request free beta access](mailto:akdennis@gmail.com)
+with their intended workflow, team size, source types, approximate volumes and
+publishing destination. Approval is required. Beta duration, usage limits, enabled
+workflows and available team permissions are agreed before access; a sign-in
+does not grant membership or access to private resources. See the
+[beta arrangement](../SUPPORT.md#limited-free-cloud-beta).
 
 ## Run the full community stack
 
@@ -88,8 +95,8 @@ Catalog, presentation and resource limits. Demo-specific navigation and sample
 controls belong to that deployment. They must not appear simply because someone
 is authoring a local map in another deployment.
 
-`studio.opengeo.tools` is our managed commercial deployment, with its own account
-services, private connections and organizational configuration. Managed hosting,
+`studio.opengeo.tools` is our operated cloud installation, with its own account
+services, private connections and organizational configuration. Beta access, paid hosting,
 retention, delivery and support are distinct from the community software license.
 The demo's anonymous operation and current limits do not define the full community
 edition or impose the commercial deployment's policies on self-hosted installations.
