@@ -1,4 +1,6 @@
 import {createStacItemClient} from "../lib/stacItemSearch.js";
+import {cogReferenceDefaultBands} from "../lib/cogReference.js";
+import {StacSourceComparison} from "./StacSourceComparison.js";
 
 export function StacItemSearch({client = createStacItemClient(), onReference = null, adapter = null} = {}) {
   const root = element("details"); root.className = "platform-stac-item-search platform-static-item-search";
@@ -23,10 +25,17 @@ export function StacItemSearch({client = createStacItemClient(), onReference = n
   const results = element("div"), next = element("button", "Next page"); next.type = "button"; next.hidden = true;
   root.append(form, element("p", "Search and deliberate pages share a limit of 3 metadata requests, 3 MiB and 30 seconds, with at most 60 Items."), status, results, next);
   let controller = null, generation = 0, disposed = false, page = null, scope = null;
+  const comparison = StacSourceComparison({onReference, guardCurrent: async () => {
+    const ticket = generation;
+    try {return Boolean(page) && await guard(scope, ticket);}
+    catch (error) {failure(error, ticket); return false;}
+  }});
+  root.append(comparison);
   const live = ticket => !disposed && generation === ticket && !controller?.signal.aborted && root.isConnected;
   function clearResults() {
     for (const panel of results.querySelectorAll(".static-item-registration")) panel.dispose?.();
     results.replaceChildren(); next.hidden = true;
+    comparison.reset();
   }
   function invalidate(message) {
     controller?.abort(); generation++; page = scope = null; clearResults();
@@ -76,6 +85,7 @@ export function StacItemSearch({client = createStacItemClient(), onReference = n
   }
   function render(result, ticket, context) {
     const items = result.items ?? [], usage = result.usage ?? {}, snapshot = result.snapshot ?? {};
+    comparison.reset(result.query ?? items[0]?.query);
     status.textContent = `${items.length} Item${items.length === 1 ? "" : "s"} shown. ${result.complete ? "The provider returned no further page." : "Results are incomplete."} ${(result.issues ?? []).join(" ")}`;
     results.append(element("p", `Metadata usage: ${usage.requests ?? "unknown"} requests; ${usage.bytes ?? "unknown"} bytes; ${Number.isFinite(usage.milliseconds) ? (usage.milliseconds / 1000).toFixed(1) : "unknown"} seconds; ${usage.pages ?? "unknown"} pages; ${usage.items ?? items.length} returned Items.`),
       element("p", `Metadata read: ${snapshot.readAt ?? "unknown"}. Provider snapshot: ${snapshot.etag ?? "not supplied"}.`));
@@ -98,6 +108,21 @@ export function StacItemSearch({client = createStacItemClient(), onReference = n
               element("p", asset.cogCompatible === true ? "Candidate for bounded COG review; access and rendering remain unverified."
                 : `Reference only: ${(asset.unsupportedReasons?.length ? asset.unsupportedReasons : ["unsupported by the current COG reader"]).join(" ")}`));
             if (asset.roles?.length) line.append(element("p", `Roles: ${asset.roles.join(", ")}`));
+            if (asset.cogCompatible === true) {
+              const selectedBands = input("text", `Comparison bands for ${reference.id} / ${asset.key}`,
+                cogReferenceDefaultBands(reference, asset.key).join(","));
+              selectedBands.required = false; selectedBands.maxLength = 12;
+              const bandLabel = element("label", selectedBands.ariaLabel); bandLabel.append(selectedBands);
+              const add = element("button", `Add ${reference.id} / ${asset.key} to comparison`); add.type = "button";
+              add.addEventListener("click", async () => {
+                try {
+                  if (!await guard(context, ticket)) return;
+                  comparison.addSelection({reference, assetKey: asset.key,
+                    bands: selectedBands.value.split(",").map(value => /^\d+$/.test(value.trim()) ? Number(value.trim()) : NaN)});
+                } catch (error) {if (live(ticket)) status.textContent = error.message;}
+              });
+              line.append(bandLabel, add);
+            }
             detail.append(line);
           }
           const original = element("details"); original.append(element("summary", "Returned Item JSON"), element("pre", json(reference.original ?? reference)));
@@ -132,7 +157,7 @@ export function StacItemSearch({client = createStacItemClient(), onReference = n
   }
   form.addEventListener("submit", event => {event.preventDefault(); void run();});
   next.addEventListener("click", () => {void run(true);});
-  root.dispose = () => {disposed = true; invalidate();};
+  root.dispose = () => {disposed = true; invalidate(); comparison.dispose();};
   return root;
 }
 function element(tag, value) {const node = document.createElement(tag); if (value !== undefined) node.textContent = value; return node;}

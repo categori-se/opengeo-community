@@ -2902,7 +2902,7 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
   const stacSearch = !state.directoryDetailsLoading && !publicResourceTarget ? StacItemSearch({
     adapter: state.adapter,
     onReference: ["searchDatasets", "getSource", "createSource"].every(key => typeof state.adapter[key] === "function")
-      ? reference => StaticItemCatalogRegistration({adapter: state.adapter, reference, projects: state.projects, organization: state.organization}) : null
+      ? (reference, suitability) => StaticItemCatalogRegistration({adapter: state.adapter, reference, projects: state.projects, organization: state.organization, suitability}) : null
   }) : null;
   if (stacSearch) section.append(stacSearch);
   const ckan = !state.directoryDetailsLoading && !publicResourceTarget ? CkanCatalog({

@@ -26,6 +26,8 @@ source under Apache-2.0, with upstream licenses and credits retained.
 
 ## Current status
 
+Catalog can now compare selected public STAC TIFF assets and explicit bands against study bounds, UTC dates, nominal resolution, exact band/class names, scene cloud cover, asset licenses and declared bytes. Declared-footprint overlap preserves holes and gaps; it does not establish valid pixels or complete observations. Comparison runs locally and exports a portable report. Deliberate Catalog registration retains a compact inferred review separately from the original Item and asset metadata; existing Layers keep their metadata. Focused and compiled local checks pass; hosted persistence of this new review and current provider availability remain unverified. The source and tool are included in the full Apache-2.0 Community suite. Hosting, provider integration and consultancy remain separately scoped services.
+
 The [Baseline analysis guide](docs/community-baseline.md) now includes frozen
 stratified reference review with conditional class-area uncertainty, bounded
 external STAC Item/analytical TIFF selection and explicitly declared JRC TMF 2025

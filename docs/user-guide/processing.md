@@ -9,6 +9,16 @@ available profile, select fully loaded vector inputs, then use **Run** and
 [console guide](../python-automation.md#analysis-console-in-a-map) explains the
 browser and local profiles and their acceptance limits.
 
+## Compare source references before analysis
+
+In **Catalog → Search external STAC Items**, enter a public search endpoint, Collection IDs, bounds and UTC dates. Search reads metadata; opening Catalog starts no request. Under **View asset references**, choose one or three bands and **Add <Item> / <asset> to comparison**. In **Compare selected STAC assets**, enter study bounds, whole UTC dates and the criteria that matter to the analysis, then choose **Compare selected assets**.
+
+The local review compares at most twenty selected TIFF references across declared footprint coverage, dates, nominal resolution, exact band/class names, scene cloud cover, asset licenses and declared transfer bytes. Unknown evidence remains unknown. Footprint overlap is not valid-pixel coverage; scene cloud cover is not AOI accuracy, Item terms do not become asset terms, and file size is not a processing price. No imagery is read during comparison.
+
+Use **Download selected source comparison JSON** to retain the report, or **Review <Item> / <asset> for Catalog** to continue through deliberate registration. A new Layer retains only the selected compact inferred review alongside unchanged original Item/asset/query metadata. Existing matching Layers retain their existing metadata. Criteria or account changes invalidate the review; changing asset settings clears it before ordinary registration. **Open map** is temporary; Project composition and saving remain separate actions.
+
+The tool and source are included under Apache-2.0 in the full Community suite. Hosted operation, provider integration and commissioned interpretation are separately scoped services. Current local checks cover comparison, export and registration with retained metadata; this new review has not yet passed hosted persistence or current provider-availability acceptance.
+
 ## Run a browser tool
 
 1. Select a local vector Layer in the Layers tree.
