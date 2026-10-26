@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {mkdir, readFile, writeFile} from 'node:fs/promises';
+import {lstat, mkdir, readFile, writeFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {resolve, join} from 'node:path';
 import {zipSync, strToU8} from '../../app/node_modules/fflate/esm/browser.js';
 import {emptyMapDefinition} from '../../app/src/lib/mapDefinition.js';
 import {LocalProjectStore} from '../../app/src/lib/localProjectStore.js';
 import {createPublicationSourceArchive, readPublicationSourceArchive} from '../../app/src/lib/publicationSourceArchive.js';
+import {exportGeoLibreProject} from '../../app/src/lib/geolibreProject.js';
 import {summarizeArchive} from './analysis.js';
 
 // Produce ordinary Studio input packages. No provider reads, storage or account writes.
@@ -61,9 +62,34 @@ const publication = await createPublicationSourceArchive({files,
 const reopened = await readPublicationSourceArchive(publication.blob);
 const retained = reopened.files.find(file => file.relativePath === 'data/acecs.geojson');
 assert.equal(createHash('sha256').update(Buffer.from(await retained.blob.arrayBuffer())).digest('hex'), checksum);
+const geolibre = exportGeoLibreProject({name: title, definition},
+  {embeddedDataByLayerId: new Map([[layerId, {complete: true, data: archive}]])});
+assert.deepEqual(geolibre.project.layers[0].geojson, archive);
+assert.deepEqual(geolibre.project.layers[0].metadata.opengeo.layer.style, definition.layers[0].style);
+geolibre.report.warnings.push('The original NAME category renderer, palette and fill opacity factor remain in metadata.opengeo.layer.style. Native GeoLibre categorical styling and matching category opacity are not established by this handoff; review or recreate these settings in the destination.');
+const outputs = new Map([
+  ['berkshires-acecs.opengeo-project.zip', Buffer.from(project)],
+  ['berkshires-acecs.publication-source.zip', Buffer.from(await publication.blob.arrayBuffer())],
+  ['berkshires-acecs.geolibre.json', Buffer.from(geolibre.json + '\n')],
+  ['berkshires-acecs.geolibre-conversion.json', Buffer.from(JSON.stringify(geolibre.report, null, 2) + '\n')]
+]);
+// Check every existing destination before creating anything. Repeated handover
+// preparation reuses exact bytes and never replaces an operator's changed file.
+const reused = new Set();
+for (const [filename, content] of outputs) {
+  const path = join(output, filename);
+  let info;
+  try {info = await lstat(path);} catch (error) {if (error.code === 'ENOENT') continue; throw error;}
+  assert.ok(info.isFile() && !info.isSymbolicLink(), `Existing ${filename} must be a regular file.`);
+  assert.ok(content.equals(await readFile(path)), `Existing ${filename} differs; choose a new output directory.`);
+  reused.add(filename);
+}
 await mkdir(output, {recursive: true});
-await writeFile(join(output, 'berkshires-acecs.opengeo-project.zip'), project, {flag: 'wx'});
-await writeFile(join(output, 'berkshires-acecs.publication-source.zip'), Buffer.from(await publication.blob.arrayBuffer()), {flag: 'wx'});
+for (const [filename, content] of outputs) {
+  if (!reused.has(filename)) await writeFile(join(output, filename), content, {flag: 'wx'});
+}
 console.log(JSON.stringify({output, projectBytes: project.length, publicationBytes: publication.blob.size,
   inputSha256: checksum, records: summary.recordCount, designations: summary.designationCount,
-  municipalities: summary.municipalityCount, publicationRights: 'unreviewed', networkRequests: 0}));
+  municipalities: summary.municipalityCount, publicationRights: 'unreviewed', networkRequests: 0,
+  files: [...outputs].map(([filename, content]) => ({filename, bytes: content.length,
+    sha256: createHash('sha256').update(content).digest('hex'), reused: reused.has(filename)}))}));

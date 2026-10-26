@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
-import {mkdtemp, rm, writeFile} from "node:fs/promises";
+import {mkdir, mkdtemp, rm, writeFile} from "node:fs/promises";
 import {createHash} from "node:crypto";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -11,7 +11,9 @@ import {
   assertPublicResumeListing,
   assertRemoteReleaseListing,
   assertSurfaceReleaseManifest,
-  expectedRemoteReleaseObjects
+  deployStaticRelease,
+  expectedRemoteReleaseObjects,
+  listStaticReleaseObjects
 } from "../scripts/static-release-aws.mjs";
 import {
   assertPublicArtifactBoundary,
@@ -328,6 +330,190 @@ describe("static release rollback contracts", () => {
       }),
       /inventory does not match its seal/
     );
+  });
+});
+
+describe("static release object limits", () => {
+  function sizedManifest(surface, count) {
+    const base = surface === "public"
+      ? releaseManifest(surface)
+      : applicationReleaseManifest(surface, canonicalStudioRoutes);
+    const bodies = new Map(base.artifactTree.files.map(({path}) => [path,
+      surface === "public" ? "public"
+        : path === "auth-config.json" ? `${surface}-auth` : `${surface}:${path}`
+    ]));
+    for (let index = bodies.size; index < count; index++) {
+      bodies.set(`asset-${String(index).padStart(4, "0")}.txt`, `asset ${index}`);
+    }
+    const manifest = sealManifest({
+      ...withoutSeal(base),
+      artifactTree: artifactTree([...bodies].map(([path, body]) => fileRecord(path, body)))
+    });
+    return {manifest, bodies};
+  }
+
+  async function fixture(t, surface, count) {
+    const directory = await mkdtemp(join(tmpdir(), "opengeo-object-limit-"));
+    t.after(() => rm(directory, {recursive: true, force: true}));
+    const root = join(directory, "artifacts");
+    await mkdir(root);
+    const {manifest, bodies} = sizedManifest(surface, count);
+    const entries = [...bodies];
+    for (let offset = 0; offset < entries.length; offset += 64) {
+      await Promise.all(entries.slice(offset, offset + 64).map(([path, body]) => (
+        writeFile(join(root, path), body)
+      )));
+    }
+    const manifestPath = join(directory, "manifest.json");
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    return {manifest, options: {
+      surface,
+      root,
+      manifestPath,
+      expectedBucket: `${surface}.example.invalid`,
+      expectedAlias: `${surface}.example.invalid`,
+      releaseStem: `opengeo-${surface}`,
+      aliases: manifest.aliases,
+      noStorePaths: surface === "public" ? [] : ["auth-config.json"],
+      localCheck: true
+    }};
+  }
+
+  for (const [files, expectedObjects] of [[989, 997], [992, 1000], [993, 1001], [1992, 2000]]) {
+    it(`accepts ${files} Studio artifacts for publication and rollback (${expectedObjects} objects)`, async t => {
+      const {manifest, options} = await fixture(t, "studio", files);
+      assert.equal(assertSurfaceReleaseManifest(manifest, "studio"), manifest);
+      const result = await deployStaticRelease(options);
+      assert.equal(result.mode, "local-check");
+      assert.equal(result.files, files);
+      assert.equal(result.aliases, 7);
+      assert.equal(result.expectedObjects, expectedObjects);
+      assert.equal(expectedRemoteReleaseObjects(manifest, {
+        manifestObject: {path: "opengeo-studio-release-manifest.json", bytes: 1, sha256: sha256("m")}
+      }).length, expectedObjects);
+    });
+  }
+
+  it("rejects 1993 Studio artifacts before publication and rollback", async t => {
+    const {manifest, options} = await fixture(t, "studio", 1993);
+    assert.throws(() => assertSurfaceReleaseManifest(manifest, "studio"), /contract is invalid/);
+    await assert.rejects(deployStaticRelease(options), /studio release contains too many files/);
+  });
+
+  it("retains the 2000-object bound when an extra Studio alias exhausts the budget", async t => {
+    const {manifest, options} = await fixture(t, "studio", 1992);
+    const aliases = [...manifest.aliases, {...manifest.aliases[0], key: "extra-route"}];
+    const extraAliasManifest = sealManifest({...withoutSeal(manifest), aliases});
+    await writeFile(options.manifestPath, JSON.stringify(extraAliasManifest));
+    assert.throws(() => assertSurfaceReleaseManifest(extraAliasManifest, "studio"), /contract is invalid/);
+    await assert.rejects(deployStaticRelease({...options, aliases}), /exceeds the verified object-count bound/);
+  });
+
+  for (const surface of ["public", "demo"]) {
+    it(`keeps the ${surface} artifact limit at 900 for publication and rollback`, async t => {
+      const accepted = sizedManifest(surface, 900).manifest;
+      assert.equal(assertSurfaceReleaseManifest(accepted, surface), accepted);
+      const {manifest, options} = await fixture(t, surface, 901);
+      assert.throws(() => assertSurfaceReleaseManifest(manifest, surface), /contract is invalid/);
+      await assert.rejects(deployStaticRelease(options), new RegExp(`${surface} release contains too many files`));
+    });
+  }
+});
+
+describe("bounded static release listing", () => {
+  function fixture(count = 1001) {
+    const prefix = "releases/opengeo-studio-reviewed";
+    const expected = Array.from({length: count}, (_, index) => ({path: `asset-${String(index).padStart(4, "0")}`, bytes: index}));
+    const objects = expected.map(({path, bytes}) => ({Key: `${prefix}/${path}`, Size: bytes}));
+    const pages = [];
+    for (let offset = 0; offset < count; offset += 1000) {
+      const Contents = objects.slice(offset, offset + 1000);
+      const IsTruncated = offset + 1000 < count;
+      pages.push({Contents, KeyCount: Contents.length, IsTruncated,
+        ...(IsTruncated ? {NextContinuationToken: "reviewed-next-page"} : {})});
+    }
+    const calls = [];
+    return {pages, calls, options: {surface: "studio", bucket: "studio.example.invalid", prefix, expected,
+      profile: "reviewed", read(args, profile) {
+        calls.push({args, profile});
+        assert.ok(calls.length <= pages.length, "unexpected additional page request");
+        return pages[calls.length - 1];
+      }}};
+  }
+
+  for (const count of [1000, 1001, 2000]) {
+    it(`reads exactly ${Math.ceil(count / 1000)} explicit pages for ${count} objects`, () => {
+      const {options, calls} = fixture(count);
+      const listing = listStaticReleaseObjects(options);
+      assert.equal(listing.KeyCount, count);
+      assert.equal(listing.IsTruncated, false);
+      assert.equal(calls.length, Math.ceil(count / 1000));
+      for (const {args, profile} of calls) {
+        assert.equal(profile, "reviewed");
+        assert.ok(args.includes("--no-paginate"));
+        assert.equal(args[args.indexOf("--max-keys") + 1], "1000");
+        assert.equal(args[args.indexOf("--prefix") + 1], `${options.prefix}/`);
+      }
+      assert.ok(!calls[0].args.includes("--continuation-token"));
+      if (calls.length === 2) assert.deepEqual(calls[1].args.slice(-2), ["--continuation-token", "reviewed-next-page"]);
+    });
+  }
+
+  it("rejects inventories beyond the surface budget without requesting a page", () => {
+    const {options, calls} = fixture(2001);
+    assert.throws(() => listStaticReleaseObjects(options), /object-count bound/);
+    assert.equal(calls.length, 0);
+    for (const surface of ["public", "demo"]) {
+      assert.throws(() => listStaticReleaseObjects({...options, surface, expected: options.expected.slice(0, 1001)}), /object-count bound/);
+      assert.equal(calls.length, 0);
+    }
+  });
+
+  it("stops at two pages when the second page is still truncated", () => {
+    const {options, pages, calls} = fixture(2000);
+    Object.assign(pages[1], {IsTruncated: true, NextContinuationToken: "third-page"});
+    assert.throws(() => listStaticReleaseObjects(options), /object-count bound/);
+    assert.equal(calls.length, 2);
+  });
+
+  it("rejects missing or repeated continuation tokens", () => {
+    for (const next of [undefined, ""]) {
+      const {options, pages, calls} = fixture();
+      pages[0].NextContinuationToken = next;
+      assert.throws(() => listStaticReleaseObjects(options), /missing or repeated/);
+      assert.equal(calls.length, 1);
+    }
+    const {options, pages, calls} = fixture();
+    Object.assign(pages[1], {IsTruncated: true, NextContinuationToken: pages[0].NextContinuationToken});
+    assert.throws(() => listStaticReleaseObjects(options), /missing or repeated/);
+    assert.equal(calls.length, 2);
+  });
+
+  it("rejects duplicate, foreign-prefix, unexpected and changed-size objects", () => {
+    for (const change of [
+      (pages) => {pages[1].Contents[0] = pages[0].Contents[0];},
+      (pages) => {pages[1].Contents[0].Key = "releases/other/asset";},
+      (pages) => {pages[1].Contents[0].Key += "-unexpected";},
+      (pages) => {pages[1].Contents[0].Size++;}
+    ]) {
+      const {options, pages} = fixture();
+      change(pages);
+      assert.throws(() => listStaticReleaseObjects(options), /unexpected or duplicate object/);
+    }
+  });
+
+  it("rejects missing objects and inconsistent page metadata", () => {
+    for (const change of [
+      (pages) => {pages[1].Contents = []; pages[1].KeyCount = 0;},
+      (pages) => {pages[0].KeyCount--;},
+      (pages) => {delete pages[0].IsTruncated;},
+      (pages) => {pages[0].CommonPrefixes = [{Prefix: "foreign/"}];},
+      (pages) => {pages[1].NextContinuationToken = "unexpected-token";}
+    ]) {
+      const {options, pages} = fixture();
+      change(pages);
+      assert.throws(() => listStaticReleaseObjects(options), /inventory does not match|invalid page|unexpected continuation/);
+    }
   });
 });
 

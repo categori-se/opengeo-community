@@ -1773,8 +1773,81 @@ def cleanup_development_api(server_name, worker_name, process, *, postgis_fixtur
         pilot.cleanup_resources([server_name, worker_name], [], process)
 
 
+def retained_real_building_inputs(path, expected_sha256):
+    """Read the finite local pair; never retrieve or silently replace an input."""
+    from uuid import NAMESPACE_URL, uuid5
+
+    def owned_bytes(target, maximum):
+        target = Path(target).absolute()
+        if (target.is_symlink() or target.resolve() != target or not target.is_file()
+                or target.stat().st_uid != os.getuid() or target.stat().st_size > maximum):
+            raise ValueError("Real building inputs require bounded owned regular files")
+        return target.read_bytes()
+
+    if not re.fullmatch(r"[a-f0-9]{64}", expected_sha256 or ""):
+        raise ValueError("Real building inputs require the exact manifest SHA-256")
+    path = Path(path).absolute()
+    encoded = owned_bytes(path, 262_144)
+    if pilot.digest(encoded) != expected_sha256:
+        raise ValueError("The real building input manifest changed")
+    manifest = json.loads(encoded)
+    entries = manifest.get("inputs", [])
+    if (len(entries) != 2 or {entry.get("role") for entry in entries} != {"source", "comparison"}
+            or manifest.get("publicRedistributionApproved") is not False):
+        raise ValueError("Real building acceptance requires the exact private two-inventory pair")
+    inputs, provenance, total_bytes, total_features = {}, {}, 0, 0
+    for entry in entries:
+        documents = {}
+        for kind in ("querySnapshot", "nativeInput"):
+            reference = entry[kind]
+            filename = reference["path"]
+            if not isinstance(filename, str) or Path(filename).name != filename or not filename.endswith(".geojson"):
+                raise ValueError("Building input paths must be plain GeoJSON filenames")
+            data = owned_bytes(path.parent / filename, 2_097_152)
+            total_bytes += len(data)
+            if (len(data) != reference["bytes"] or pilot.digest(data) != reference["sha256"]
+                    or total_bytes > 2_097_152):
+                raise ValueError("A frozen building input checksum/size changed")
+            documents[kind] = json.loads(data)
+        original, native = documents["querySnapshot"], documents["nativeInput"]
+        features = native.get("features", [])
+        if (original.get("type") != "FeatureCollection" or native.get("type") != "FeatureCollection"
+                or not features or len(features) != entry["featureCount"]
+                or len(features) != len(original.get("features", []))):
+            raise ValueError("A real building inventory is empty or changed")
+        expected_mapping = []
+        for before, after in zip(original["features"], features):
+            if (before.get("geometry") != after.get("geometry") or before.get("properties") != after.get("properties")
+                    or after.get("geometry", {}).get("type") not in ("Polygon", "MultiPolygon")
+                    or after.get("id") != str(uuid5(NAMESPACE_URL, entry["serviceUrl"] + "#fid=" + str(after["properties"]["fid"])))):
+                raise ValueError("Building normalization changed original geometry, attributes or identity")
+            expected_mapping.append({"nativeFeatureId": after["id"], "providerFid": after["properties"]["fid"],
+                                     "originalGeojsonId": before.get("id")})
+        if entry["nativeInput"].get("featureIdentityMapping") != expected_mapping:
+            raise ValueError("The retained provider/native identity mapping changed")
+        if len({feature["id"] for feature in features}) != len(features):
+            raise ValueError("Real building native identities must be unique")
+        role = entry["role"]
+        inputs[role] = features
+        provenance[role] = {**entry, "AOI": manifest["AOI"], "reviewPolicy": manifest["reviewPolicy"],
+                            "inputPairSha256": expected_sha256, "publicRedistributionApproved": False}
+        total_features += len(features)
+    if total_features != manifest.get("combinedFeatureCount") or not 2 <= total_features <= 1_000:
+        raise ValueError("The real building feature budget changed")
+    return {"inputs": inputs, "provenance": provenance,
+            "titles": {"source": "NSDI buildings (capped source sample)",
+                       "comparison": "NSDI building footprints (capped comparison sample)",
+                       "project": "[Acceptance] Real NSDI building review", "map": "Capped NSDI building comparison",
+                       "output": "NSDI building workflow selection"},
+            "attribution": "Bhutan NSDI public services; exact query snapshots retained; dates, rights and reference quality unknown",
+            "description": "Local workflow acceptance using two capped NSDI samples. Source-only selection is a mechanical policy; no expert validation, complete inventory or accuracy claim.",
+            "reviewReason": "Workflow acceptance policy: retain source inventory footprints without changing coordinates. This mechanical choice does not establish dates, correctness, independent reference quality or a validated building total.",
+            "mapView": {"center": [89.6385, 27.472], "zoom": 17}}
+
+
 def stage_building_review(work, tree_digest, continuation_sha256=None, *, receptor_screening=False,
-                          raster_catalog=False, raster_validation=False, stac_items=False, building_input_preview=False):
+                          raster_catalog=False, raster_validation=False, stac_items=False, building_input_preview=False,
+                          building_inputs=None, building_inputs_sha256=None):
     """Reuse the admitted local account, retaining unrelated data and receipts."""
     if building_input_preview and any((stac_items, raster_validation, raster_catalog, receptor_screening)):
         raise ValueError("Retained building input preview requires its own admitted journey")
@@ -1782,7 +1855,11 @@ def stage_building_review(work, tree_digest, continuation_sha256=None, *, recept
         raise ValueError("STAC Items requires its own admitted journey")
     if raster_validation and (raster_catalog or receptor_screening):
         raise ValueError("Raster validation requires its own admitted journey")
-    prefix = ("building-input-preview" if building_input_preview else "stac-items" if stac_items else "raster-validation" if raster_validation else "raster-catalog" if raster_catalog
+    real_buildings = building_inputs is not None
+    if real_buildings and any((building_input_preview, stac_items, raster_validation, raster_catalog, receptor_screening)):
+        raise ValueError("Real building inputs require their own admitted building journey")
+    input_profile = retained_real_building_inputs(building_inputs, building_inputs_sha256) if real_buildings else None
+    prefix = ("building-real-review" if real_buildings else "building-input-preview" if building_input_preview else "stac-items" if stac_items else "raster-validation" if raster_validation else "raster-catalog" if raster_catalog
               else "receptor-screening" if receptor_screening else "building-review")
     label = ("Retained building input preview" if building_input_preview else "STAC Items" if stac_items else "Raster validation" if raster_validation else "Raster Catalog" if raster_catalog
              else "Receptor screening" if receptor_screening else "Building review")
@@ -1800,10 +1877,14 @@ def stage_building_review(work, tree_digest, continuation_sha256=None, *, recept
     if any((work / filename).exists() for filename in ("analysis-profile.json", "postgis-fixture.json")):
         raise ValueError("Building review must not activate an unrelated analysis fixture")
     admission = json.loads((ROOT / ".local-archives/baseline-intelligence-20261023/admission.json").read_bytes())
-    batch_id = ("BI-02-retained-building-input-preview" if building_input_preview else "BI-03-external-stac-item-assets" if stac_items else "BI-07-stratified-validation" if raster_validation else "BI-04-07-raster-output-catalog" if raster_catalog
+    batch_id = ("BI-02-07-real-building-account-review" if real_buildings else "BI-02-retained-building-input-preview" if building_input_preview else "BI-03-external-stac-item-assets" if stac_items else "BI-07-stratified-validation" if raster_validation else "BI-04-07-raster-output-catalog" if raster_catalog
                 else "BI-05-main-account-receptor-screening" if receptor_screening else "BI-02-07-main-account-building-review")
     batch = next((item for item in admission["batches"] if item["id"] == batch_id), None)
     limits = batch.get("limits", {}) if batch else {}
+    if real_buildings and (admission["batches"][-1].get("id") != batch_id
+            or batch.get("inventory", {}).get("inputPairSha256") != building_inputs_sha256
+            or tree_digest != batch.get("inventory", {}).get("appTree")):
+        raise ValueError("Real building review requires its exact current input/tree admission")
     if building_input_preview:
         required = {"localAccountApiRequests": 80, "localAccountMillisecondsIncludingShutdown": 120_000,
                     "localAccountWorkMilliseconds": 110_000, "localAccountInitialAttempts": 1, "localAccountMaximumAttempts": 2,
@@ -1869,6 +1950,8 @@ def stage_building_review(work, tree_digest, continuation_sha256=None, *, recept
         if path.is_symlink():
             raise ValueError("Building review records must not be symlinks")
     progress = json.loads(progress_path.read_bytes()) if progress_path.exists() else {}
+    if real_buildings and progress.get("inputPairSha256", building_inputs_sha256) != building_inputs_sha256:
+        raise ValueError("Never replace real building inputs after a committed attempt")
     helper_sha = pilot.digest((ROOT / "app/scripts/integrated-studio-analysis.mjs").read_bytes())
     attempts = progress.get("serviceAttempts", 0)
     building_seed = None
@@ -1926,7 +2009,7 @@ def stage_building_review(work, tree_digest, continuation_sha256=None, *, recept
     if not attempts and any((work / name).exists() and json.loads((work / name).read_text()) != []
                             for name in ("queue.json", "pmtiles-v2.json")):
         raise ValueError("Reconcile unrelated queued work before the building journey")
-    if receptor_screening or raster_catalog or raster_validation or stac_items or building_input_preview:
+    if real_buildings or receptor_screening or raster_catalog or raster_validation or stac_items or building_input_preview:
         for name in ("queue.json", "pmtiles-v2.json"):
             path = work / name
             if path.is_symlink():
@@ -1943,7 +2026,7 @@ def stage_building_review(work, tree_digest, continuation_sha256=None, *, recept
                 if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
                     raise ValueError("Screening continuation queue contains an invalid job")
                 object_key = entries[0].get("s3", {}).get("object", {}).get("key", "") if len(entries) == 1 else ""
-                keys = (("validation",) if raster_validation else ("comparison", "patches") if raster_catalog
+                keys = (("source", "comparison", "output") if real_buildings else ("validation",) if raster_validation else ("comparison", "patches") if raster_catalog
                         else ("receptors", "footprint", "influence", "output"))
                 key = next((key for key in keys
                             if admitted.get(key, {}).get("datasetId")
@@ -1954,16 +2037,17 @@ def stage_building_review(work, tree_digest, continuation_sha256=None, *, recept
     retained_names = ("baseline-profile.json", "baseline-progress.json", "baseline-browser-result.json",
                       "baseline-requests.json", "publication-profile.json", "publication-progress.json",
                       "browser-result.json", "requests.json", "development-smoke.json")
-    if receptor_screening or raster_catalog or raster_validation or stac_items or building_input_preview:
+    if real_buildings or receptor_screening or raster_catalog or raster_validation or stac_items or building_input_preview:
         patterns = ("baseline-*.json", "publication-*.json", "building-review-*")
-        if raster_catalog or raster_validation or stac_items or building_input_preview:
+        if real_buildings or raster_catalog or raster_validation or stac_items or building_input_preview:
             patterns += ("receptor-screening-*",)
-        if raster_validation or stac_items or building_input_preview:
+        if real_buildings or raster_validation or stac_items or building_input_preview:
             patterns += ("raster-catalog-*",)
-        if stac_items or building_input_preview:
+        if real_buildings or stac_items or building_input_preview:
             patterns += ("raster-validation-*",)
-        if building_input_preview:
+        if real_buildings or building_input_preview:
             patterns += ("stac-items-*",)
+        if building_input_preview:
             retained_names += ("worker-command.json",)
         retained_names += tuple(sorted({path.name for pattern in patterns
                                         for path in work.glob(pattern) if path.is_file()}))
@@ -2001,6 +2085,14 @@ def stage_building_review(work, tree_digest, continuation_sha256=None, *, recept
                "maximumMilliseconds": total_limit, "priorMilliseconds": progress.get("activeMilliseconds", 0),
                "startedAtMilliseconds": round(time.time() * 1000), "admittedAttempt": attempts + 1,
                "appTree": tree_digest}
+    if real_buildings:
+        accepted = work / "building-review-progress.json"
+        if accepted.is_symlink() or not accepted.is_file() or json.loads(accepted.read_bytes()).get("status") != "pass":
+            raise ValueError("Real building review preserves the accepted synthetic receipt")
+        profile.update(admissionBatchId=batch_id, inputPairSha256=building_inputs_sha256, inputProfile=input_profile,
+                       acceptedSyntheticReceiptSha256=pilot.digest(accepted.read_bytes()), maximumWorkMilliseconds=170_000,
+                       maximumOriginalUploads=3, maximumWorkerBatches=2, maximumNativeComparisons=1)
+        progress["inputPairSha256"] = building_inputs_sha256
     if building_input_preview:
         profile.update(admissionBatchId=batch_id, maximumWorkMilliseconds=work_limit,
                        shutdownReserveMilliseconds=10_000, maximumOriginalUploads=0, maximumWorkerBatches=0,
@@ -2135,6 +2227,7 @@ def development(args):
     raster_validation_smoke = getattr(args, "raster_validation_smoke", False)
     stac_items_smoke = getattr(args, "stac_items_smoke", False)
     building_input_preview = getattr(args, "building_input_preview_smoke", False)
+    real_building_inputs = getattr(args, "building_review_inputs", None)
     verify_cached_images(IMAGE)
     work = development_directory(args.state_directory)
     if (work / "development.lock").is_symlink():
@@ -2144,13 +2237,13 @@ def development(args):
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as error:
             raise ValueError("This development state is already open") from error
-        if (args.baseline_study or stac_items_smoke or building_input_preview) and not (work / "development-state.json").is_file():
+        if (args.baseline_study or stac_items_smoke or building_input_preview or real_building_inputs) and not (work / "development-state.json").is_file():
             raise ValueError("The scoped journey must reuse the selected persistent development database")
         work, metadata = development_state(work, IMAGE, pending_archive_tiff_upgrade=bool(
             args.baseline_study and args.baseline_study_continuation_sha256))
         baseline_progress = stage_baseline_study(work, args.baseline_study, args.reuse_studio_tree,
                                                args.baseline_study_continuation_sha256, args.publication_compiler_digest)
-        building_prefix = ("building-input-preview" if building_input_preview else "stac-items" if stac_items_smoke else "raster-validation" if raster_validation_smoke else "raster-catalog" if raster_smoke
+        building_prefix = ("building-real-review" if real_building_inputs else "building-input-preview" if building_input_preview else "stac-items" if stac_items_smoke else "raster-validation" if raster_validation_smoke else "raster-catalog" if raster_smoke
                            else "receptor-screening" if receptor_smoke else "building-review")
         building_progress = (stage_building_review(work, args.reuse_studio_tree,
                                  getattr(args, "building_input_preview_continuation_sha256", None), building_input_preview=True)
@@ -2163,7 +2256,9 @@ def development(args):
                              if raster_smoke else
                              stage_receptor_screening(work, args.reuse_studio_tree, getattr(args, "receptor_screening_continuation_sha256", None))
                              if receptor_smoke else
-                             stage_building_review(work, args.reuse_studio_tree, args.building_review_continuation_sha256)
+                             stage_building_review(work, args.reuse_studio_tree, args.building_review_continuation_sha256,
+                                 building_inputs=real_building_inputs,
+                                 building_inputs_sha256=getattr(args, "building_review_inputs_sha256", None))
                              if args.building_review_smoke else None)
         building_started = time.monotonic()
         building_prior_ms = building_progress.get("activeMilliseconds", 0) if building_progress is not None else 0
@@ -2379,7 +2474,7 @@ def development(args):
                         "timeout": max(1, min(150, 180 - print_prior_seconds - (time.monotonic() - print_started)))}
                        if print_smoke else {"env": {**os.environ, "OPENGEO_BASELINE_STUDY": "1"},
                          "timeout": max(1, (baseline_ceiling_ms - baseline_prior_ms) / 1000 - (time.monotonic() - baseline_started))}
-                       if baseline_progress else {"env": {**os.environ, ("OPEN_GEO_INTEGRATED_BUILDING_INPUT_PREVIEW" if building_input_preview
+                       if baseline_progress else {"env": {**os.environ, ("OPEN_GEO_INTEGRATED_BUILDING_REAL_REVIEW" if real_building_inputs else "OPEN_GEO_INTEGRATED_BUILDING_INPUT_PREVIEW" if building_input_preview
                            else "OPEN_GEO_INTEGRATED_STAC_ITEMS" if stac_items_smoke
                            else "OPEN_GEO_INTEGRATED_RASTER_VALIDATION" if raster_validation_smoke
                            else "OPEN_GEO_INTEGRATED_RASTER_CATALOG" if raster_smoke else "OPEN_GEO_INTEGRATED_RECEPTOR_SCREENING"
@@ -2547,6 +2642,8 @@ def parse_args(argv=None):
     parser.add_argument("--baseline-study-continuation-sha256")
     parser.add_argument("--building-review-smoke", action="store_true")
     parser.add_argument("--building-review-continuation-sha256")
+    parser.add_argument("--building-review-inputs", type=Path)
+    parser.add_argument("--building-review-inputs-sha256")
     parser.add_argument("--building-input-preview-smoke", action="store_true")
     parser.add_argument("--building-input-preview-continuation-sha256")
     parser.add_argument("--receptor-screening-smoke", action="store_true")
@@ -2648,6 +2745,10 @@ def parse_args(argv=None):
     if args.receptor_screening_continuation_sha256 and (not args.receptor_screening_smoke
             or not re.fullmatch(r"[a-f0-9]{64}", args.receptor_screening_continuation_sha256)):
         parser.error("Screening continuation requires the exact reviewed changed helper SHA-256")
+    if (args.building_review_inputs is not None or args.building_review_inputs_sha256 is not None) and (
+            not args.building_review_smoke or args.building_review_inputs is None
+            or not re.fullmatch(r"[a-f0-9]{64}", args.building_review_inputs_sha256 or "")):
+        parser.error("Real building inputs require only the building review journey and exact input manifest SHA-256")
     if args.building_review_smoke and (not args.development or not args.state_directory or not args.reuse_studio_tree
             or any((args.raster_catalog_smoke, args.raster_catalog_continuation_sha256,
                     args.baseline_study, args.baseline_study_continuation_sha256, args.publication_only,

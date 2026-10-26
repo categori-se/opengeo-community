@@ -27,6 +27,103 @@ const MASSGIS = JSON.parse(await readFile(
 
 if(process.env.OPEN_GEO_GPX_DIST){await checkGpxBrowser();process.exit(0);}
 
+it("Workbench save shortcuts use the existing enabled command and respect modal, permission and Print boundaries", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/workspaces"});
+  const restore = installDomGlobals(dom.window); const shells = []; let saves = 0;
+  try {
+    const options = {workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Keyboard save"},
+      role: "owner", project: emptyMapDefinition(), layers: [], persistenceMode: "api", restoreBrowserDraft: false,
+      saveProject: async definition => {saves++; return {id: "50000000-0000-4000-8000-000000000002", version: saves, definition};}};
+    const keyListeners = new Set(), addListener = dom.window.addEventListener.bind(dom.window), removeListener = dom.window.removeEventListener.bind(dom.window);
+    dom.window.addEventListener = (type, listener, options) => {if (type === "keydown") keyListeners.add(listener); return addListener(type, listener, options);};
+    dom.window.removeEventListener = (type, listener, options) => {if (type === "keydown") keyListeners.delete(listener); return removeListener(type, listener, options);};
+    const mount = overrides => {const shell = WorkbenchView({...options, ...overrides}); shell.getClientRects = () => [{}]; document.body.append(shell); shells.push(shell); return shell;};
+    const shell = mount(), send = (target, options = {}) => {
+      const event = new dom.window.KeyboardEvent("keydown", {key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true, ...options});
+      target.dispatchEvent(event); return event;
+    };
+    let clicks = 0; shell.querySelector(".gis-save-command").addEventListener("click", () => clicks++);
+    assert.equal(send(shell).defaultPrevented, true); assert.equal(saves, 1); assert.equal(clicks, 1);
+    await Promise.resolve();
+    assert.equal(send(shell, {ctrlKey: false, metaKey: true}).defaultPrevented, true); assert.equal(saves, 2); assert.equal(clicks, 2);
+    await Promise.resolve();
+    const control = document.createElement("input"); shell.querySelector(".gis-top-actions").append(control); control.focus();
+    shell.dispatchEvent(new dom.window.Event("workbench:render"));
+    assert.equal(control.isConnected, false);
+    assert.equal(document.activeElement, document.body);
+    assert.equal(send(document.body).defaultPrevented, true, "Body focus after a full render still belongs to the only visible Workbench");
+    assert.equal(saves, 3); await Promise.resolve();
+    const outside = document.createElement("input"); document.body.append(outside);
+    assert.equal(send(outside).defaultPrevented, false); assert.equal(saves, 3); outside.remove();
+    shell.hidden = true; assert.equal(send(document.body).defaultPrevented, false); shell.hidden = false;
+    shell.inert = true; shell.setAttribute("inert", ""); assert.equal(send(document.body).defaultPrevented, false); shell.removeAttribute("inert"); shell.inert = false;
+    shell.getClientRects = () => []; assert.equal(send(document.body).defaultPrevented, false); shell.getClientRects = () => [{}];
+    const other = mount(); assert.equal(send(document.body).defaultPrevented, false, "Two visible Workbenches cannot claim body focus");
+    other.hidden = true; assert.equal(send(document.body).defaultPrevented, true); assert.equal(saves, 4); await Promise.resolve();
+    other.dispose(); other.remove(); assert.equal(keyListeners.size, 1);
+    const completedSaves = saves;
+    for (const modifiers of [{shiftKey: true}, {altKey: true}, {ctrlKey: false, metaKey: false}]) {
+      assert.equal(send(shell, modifiers).defaultPrevented, false); assert.equal(saves, completedSaves);
+    }
+    const prevented = new dom.window.KeyboardEvent("keydown", {key: "s", ctrlKey: true, bubbles: true, cancelable: true});
+    prevented.preventDefault(); shell.dispatchEvent(prevented); assert.equal(saves, completedSaves);
+    const save = shell.querySelector(".gis-save-command"); save.disabled = true;
+    assert.equal(send(shell).defaultPrevented, false); assert.equal(saves, completedSaves); save.disabled = false;
+    for (const tag of ["dialog", "section"]) {
+      const dialog = document.createElement(tag), field = document.createElement("input");
+      if (tag === "section") dialog.setAttribute("role", "dialog");
+      dialog.append(field); shell.append(dialog);
+      assert.equal(send(field).defaultPrevented, false); assert.equal(saves, completedSaves); dialog.remove();
+    }
+    const ownedModal = document.createElement("section"); ownedModal.setAttribute("role", "dialog"); shell.querySelector(".gis-modal-layer").append(ownedModal);
+    assert.equal(send(shell).defaultPrevented, false); assert.equal(saves, completedSaves); ownedModal.remove();
+    const denied = mount({role: "viewer"}); assert.equal(denied.querySelector(".gis-save-command").disabled, true);
+    assert.equal(send(denied).defaultPrevented, false); assert.equal(saves, completedSaves);
+    const print = mount({printFrame: {id: "print-preview"}}); assert.equal(send(print).defaultPrevented, false); assert.equal(saves, completedSaves);
+    const personal = mount({publicDemo: true, role: "local"}); let personalClicks = 0;
+    personal.querySelector(".gis-save-command").addEventListener("click", () => personalClicks++);
+    assert.equal(send(personal).defaultPrevented, true);
+    assert.equal(personal.querySelector(".gis-save-command").disabled, true, "The existing personal save command disables while its title prompt is pending");
+    assert.equal(send(personal).defaultPrevented, false); assert.equal(personalClicks, 1);
+    const prompt = await waitFor(() => document.querySelector(".local-project-title"));
+    [...prompt.querySelectorAll("button")].find(button => button.textContent === "Cancel").click();
+    await waitFor(() => !personal.querySelector(".gis-save-command").disabled);
+    const listenersBeforeDispose = keyListeners.size; shell.dispose(); assert.equal(keyListeners.size, listenersBeforeDispose - 1);
+    assert.equal(send(shell).defaultPrevented, false); assert.equal(saves, completedSaves);
+  } finally {for (const shell of shells) {shell.dispose?.(); shell.remove();} restore(); dom.window.close();}
+});
+
+it("invalid optional social baseline data does not prevent opening the Project", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window); let shell;
+  try {
+    shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Recover optional configuration"},
+      role: "owner", project: emptyMapDefinition({extensions: {opengeoSocialBaseline: {schemaVersion: "unknown", layerIds: "invalid"}, other: {keep: true}}}),
+      layers: [], persistenceMode: "fixture", restoreBrowserDraft: false, initialPanel: "processing",
+      loadSocialBaselineKnowledge: () => assert.fail("Invalid configuration must not read metadata")});
+    document.body.append(shell); assert.match(shell.querySelector('.project-social-baseline').textContent, /saved social baseline selection is invalid/);
+  } finally {shell?.dispose?.(); shell?.remove(); restore(); dom.window.close();}
+});
+
+it("restores a social baseline browser draft selection without metadata reads", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window); let shell;
+  try {
+    const workspace = {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Draft review"};
+    const layer = {layerId: "reviewed-layer", datasetId: "local-data", title: "Reviewed source", sourceType: "geojson-object", geometryType: "Polygon", visible: true, opacity: 1, style: {}, labels: {enabled: false}};
+    const selection = {schemaVersion: "opengeo.project-social-baseline-selection.1.0.0", question: "What evidence supports this saved baseline?", layerIds: [layer.layerId]};
+    localStorage.setItem(`opengeo.project.${workspace.workspaceId}.social-reopen`, JSON.stringify(emptyMapDefinition({layers: [layer], extensions: {opengeoSocialBaseline: selection}})));
+    shell = WorkbenchView({workspace, role: "owner", project: emptyMapDefinition({extensions: {other: {preserved: true}}}),
+      layers: [layer], persistenceMode: "fixture", draftScopeId: "social-reopen", initialPanel: "processing",
+      loadSocialBaselineKnowledge: () => assert.fail("Restoring the selection must not read metadata")});
+    document.body.append(shell);
+    assert.equal(shell.querySelector('[aria-label="Social baseline question"]').value, selection.question);
+    assert.equal(shell.querySelector('[aria-label="Evidence Layer 1"]').value, layer.layerId);
+    assert.equal(shell.querySelector('.project-social-baseline button:last-child')?.textContent, "Refresh selected evidence reviews");
+    assert.equal(shell.querySelector('.project-social-baseline').textContent.includes("Not loaded"), true);
+  } finally {shell?.dispose?.(); shell?.remove(); restore(); dom.window.close();}
+});
+
 describe("public workbench demo source boundary", () => {
   for (const demo of [false, true]) it(`keeps ${demo ? "Demo" : "Studio Home"} menus separate from quick tools and scopes Demo actions`, () => {
     const dom = new JSDOM("<!doctype html><body></body>", {url: demo ? "https://demo.studio.opengeo.tools/" : "https://studio.opengeo.tools/"});

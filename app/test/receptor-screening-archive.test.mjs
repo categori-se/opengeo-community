@@ -11,8 +11,9 @@ const encode = async document => {
   const bytes = new TextEncoder().encode(JSON.stringify(document));
   return {bytes, objectSha256: await sha256Hex(new Blob([bytes]))};
 };
-async function archive() {
+async function archive(evidenceReview) {
   const output = buildReceptorScreening(receptorScreeningFixture({profile: "polygons"}));
+  if (evidenceReview) output["opengeo:analysis"].screening.evidenceReview = evidenceReview;
   const receipt = output["opengeo:analysis"], sha256 = await sha256Hex(new Blob([canonicalJson(receipt.screening)]));
   const reference = archivedReceptorScreeningReceipt(receipt, {distributionId, sha256}).screening;
   const document = {type: "FeatureCollection", features: output.features, properties: {"opengeo:analysis": receipt}};
@@ -33,6 +34,22 @@ test("screening archive retains full scope rows and exact methods behind bounded
   assert.equal(verified.receipt.screening.scope.impactAssessment, "not-assessed");
   verified.receipt.screening.question = "Edited after readback";
   assert.notEqual(verified.receipt.screening.question, fixture.receipt.screening.question);
+});
+
+test("optional social evidence review survives exact original and bounded summary readback without changing the source attributes", async () => {
+  const evidenceReview = {schemaVersion: "opengeo.social-baseline-evidence.1.0.0", topic: "settlement",
+    sourceDescription: "Mapped settlement inventory", spatialUnit: "Mapped source feature", periodStart: null, periodEnd: null,
+    coverage: "unknown", coverageBasis: "", suitability: "unreviewed", suitabilityBasis: "",
+    limitations: "Coverage and observation dates remain unknown; overlap is not an impact finding", reviewer: "Data curator",
+    reviewedAt: "2026-10-25T12:00:00Z", fields: [{name: "name", meaning: "Unchanged source feature label", unit: null, denominator: null}]};
+  const fixture = await archive(evidenceReview);
+  assert.deepEqual(fixture.reference.evidenceReview, evidenceReview);
+  const verified = await verifyReceptorScreeningArchive(fixture.bytes, fixture);
+  assert.deepEqual(verified.receipt.screening.evidenceReview, evidenceReview);
+  assert.deepEqual(verified.collection.features, fixture.document.features);
+  assert.equal(verified.receipt.screening.scope.impactAssessment, "not-assessed");
+  const reference = structuredClone(fixture.reference); reference.evidenceReview.coverage = "declared-complete"; reference.evidenceReview.coverageBasis = "Altered assertion";
+  await assert.rejects(verifyReceptorScreeningArchive(fixture.bytes, {...fixture, reference}), /summary or pointer/);
 });
 
 test("screening archive verifies object bytes first and rejects altered summary, pointer, report or row bindings", async () => {

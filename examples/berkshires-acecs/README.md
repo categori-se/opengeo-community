@@ -37,14 +37,16 @@ fresh public-source workspace, with all four saved file hashes unchanged.
 
 ## Open and revise the map
 
-After the repository's normal `npm ci --prefix app`, create the two supported
-Studio packages without a network request:
+After the repository's normal `npm ci --prefix app`, create the Studio packages
+and GeoLibre handoff without a network request:
 
 ```bash
 node examples/berkshires-acecs/package-study.mjs /tmp/opengeo-berkshires-study
 ```
 
-Choose a new output directory; existing output files are never replaced. In the
+Use a new output directory, or reuse the same directory when all generated files
+still match exactly. Changed existing files cause preparation to stop; they are
+never replaced. In the
 browser workspace, open **On this device → Import Project backup**, choose
 `berkshires-acecs.opengeo-project.zip`, review it, and **Save imported Project**.
 Open the saved Project. All 16 records start visible, with distinct designation
@@ -81,3 +83,47 @@ and allows redistribution with source credit. The historical archive has no
 separate file-level license statement and is not labeled CC0. Export/capture
 dates remain unknown. Do not sum the repeated designation-level area fields or
 use this planning inventory as a current regulatory boundary determination.
+
+## Continue in QGIS or GeoLibre
+
+For QGIS, open the retained `data/acecs.geojson` as a vector Layer. Its coordinates
+use WGS 84 (EPSG:4326). All 16 municipal records, including their original attributes
+and geometry, belong to this historical archive. Choose a categorized renderer on
+`NAME` to distinguish the five designations, or analyze the unchanged data using
+your normal tools. Save the QGIS Project beside the data with relative paths to
+carry both files to another computer. Keep `provenance.json` with the handoff;
+neither a new Project nor a GeoJSON file grants additional rights or makes the
+historical boundaries current.
+
+The prepared handover also includes `berkshires-acecs.qgis-project.zip`. Extract
+the entire ZIP and open `berkshires-acecs.qgz`; keep its `data` directory and
+`provenance.json` beside it. This native Project already contains the five `NAME`
+category colors, 0.62 fill opacity and a blank background. It needs no provider
+service or account. The one local QGIS 3.44.14 file journey verifies all source
+attributes, geometry within its 12-decimal serialization tolerance, relocated
+relative paths, native rendering, and revised Project save/reopen. This is native
+client evidence; an independent person's desktop workflow remains to be checked.
+The ordinary package command does not require QGIS or regenerate this prepared
+native Project.
+
+The package command also writes `berkshires-acecs.geolibre.json` and the complete
+`berkshires-acecs.geolibre-conversion.json` report. Open the Project file in
+GeoLibre using its Project-file import. The file embeds all 16 features, their
+attributes and coordinates, the saved camera and basic fill/outline settings.
+It includes the original source, archive, rights and OpenGeo style metadata.
+Review the conversion report before sharing or editing it. The `NAME` category
+renderer, palette and fill opacity factor remain in `metadata.opengeo.layer.style`;
+matching native GeoLibre category colors and opacity are not established. Review
+or recreate those settings in the destination. No remote data or basemap is needed
+for this study's blank-background handoff.
+
+This file exchange uses the existing converter. The optional local peer command
+checks the exact retained GeoLibre 3.0.0 core parser and serializer, including
+unchanged embedded features, rather than desktop rendering or current-release
+parity:
+
+```bash
+node scripts/check-geolibre-peer.mts /path/to/retained/GeoLibre-3.0.0-source \
+  --project-only /tmp/opengeo-berkshires-study/berkshires-acecs.geolibre.json \
+  --generic-study /tmp/opengeo-berkshires-study/berkshires-acecs.geolibre-conversion.json
+```

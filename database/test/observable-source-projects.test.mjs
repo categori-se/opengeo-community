@@ -255,6 +255,73 @@ describe("0045 durable Observable source projects and credential-free build boun
     assert.equal(foreign.rows.length, 0);
   });
 
+  it("0178 upgrades sparse TIFF preview completion while preserving existing guards and helper grants", async () => {
+    await db.exec("BEGIN; RESET ROLE");
+    try {
+      const signature = "app.complete_observable_build(uuid,uuid,jsonb)";
+      const definition = async () => (await db.query("SELECT pg_get_functiondef($1::regprocedure) AS definition", [signature])).rows[0].definition;
+      const security = async name => (await db.query(`SELECT proowner::text AS owner, proacl::text AS acl,
+        prosecdef AS security_definer, proconfig AS configuration FROM pg_proc WHERE oid=$1::regprocedure`, [name])).rows[0];
+      const migration = (await readFile(new URL("../migrations/0178_observable_archive_tiff_preview_compatibility.sql", import.meta.url), "utf8"))
+        .replace(/^BEGIN;\s*/, "").replace(/COMMIT;\s*$/, "");
+      const original = await definition();
+      const originalSecurity = await security(signature);
+      const preview = "v_job.request->>'schemaVersion'='opengeo.observable-build-request.1.0.0' AND v_job.purpose='preview' AND v_manifest->>'schemaVersion'='opengeo.observable-source-revision.2.0.0' AND (v_file->>'contentType') IN ('image/tiff','image/geotiff') AND app.observable_exact_archive_output(v_manifest,v_file)";
+      assert.equal((await db.query("SELECT to_regprocedure('app.observable_exact_archive_output(jsonb,jsonb)') AS helper")).rows[0].helper, null);
+      await db.exec(migration);
+      const upgraded = await definition();
+      assert.equal(upgraded.replace(` AND NOT (${preview})`, ""), original);
+      assert.notEqual(upgraded, original);
+      assert.deepEqual(await security(signature), originalSecurity);
+      await db.exec(migration);
+      assert.equal(await definition(), upgraded);
+
+      const helper = "app.observable_exact_archive_output(jsonb,jsonb)";
+      const helperDefinition = (await db.query("SELECT pg_get_functiondef($1::regprocedure) AS definition, prosrc FROM pg_proc WHERE oid=$1::regprocedure", [helper])).rows[0];
+      const reference = await readFile(new URL("../migrations/0165_observable_referenced_file_preview.sql", import.meta.url), "utf8");
+      const referenceBody = reference.split("CREATE OR REPLACE FUNCTION app.observable_exact_archive_output", 2)[1].split("AS $$", 2)[1].split("$$;", 1)[0];
+      assert.equal(helperDefinition.prosrc, referenceBody);
+      const pin = {path: "src/data/real.tiff", checksumSha256: "a".repeat(64), sizeBytes: 1024};
+      const output = {...pin, path: "dist/data/real.tiff"};
+      const exact = async (file, pins = [pin]) => (await db.query("SELECT app.observable_exact_archive_output($1::jsonb,$2::jsonb) AS exact",
+        [JSON.stringify({dataAttachments: pins}), JSON.stringify(file)])).rows[0].exact;
+      assert.equal(await exact(output), true);
+      assert.equal(await exact({...output, path: "dist/data/real.txt"}), false);
+      assert.equal(await exact({...output, path: "dist/data/real"}), false);
+      assert.equal(await exact({...output, checksumSha256: "b".repeat(64)}), false);
+      assert.equal(await exact({...output, sizeBytes: 1025}), false);
+      assert.equal(await exact({...output, sizeBytes: 67108865}, [{...pin, sizeBytes: 67108865}]), false);
+      assert.deepEqual((await db.query(`SELECT
+        has_function_privilege('opengeo_runtime',$1,'EXECUTE') AS runtime,
+        has_function_privilege('opengeo_worker',$1,'EXECUTE') AS worker,
+        has_function_privilege('opengeo_connector',$1,'EXECUTE') AS connector`, [helper])).rows[0],
+      {runtime: true, worker: false, connector: false});
+
+      // Reuse the same completion body with the independently deployed 0165
+      // exception. An existing helper may carry installation-specific grants.
+      await db.exec("GRANT EXECUTE ON FUNCTION app.observable_exact_archive_output(jsonb,jsonb) TO opengeo_observable_coordinator");
+      const existingHelperSecurity = await security(helper);
+      const previous = "(v_job.request->>'schemaVersion'='opengeo.observable-build-request.3.0.0' OR v_manifest->>'schemaVersion'='opengeo.observable-source-revision.3.0.0') AND (v_file->>'contentType') IN ('image/tiff','image/geotiff') AND app.observable_exact_archive_output(v_manifest,v_file)";
+      const corrected = "((v_job.request->>'schemaVersion'='opengeo.observable-build-request.3.0.0' OR v_manifest->>'schemaVersion'='opengeo.observable-source-revision.3.0.0') OR (v_job.request->>'schemaVersion'='opengeo.observable-build-request.1.0.0' AND v_job.purpose='preview' AND v_manifest->>'schemaVersion'='opengeo.observable-source-revision.2.0.0')) AND (v_file->>'contentType') IN ('image/tiff','image/geotiff') AND app.observable_exact_archive_output(v_manifest,v_file)";
+      const tail = "'application/octet-stream', 'application/zip'\n      )";
+      await db.exec(original.replace(tail, `${tail} AND NOT (${previous})`));
+      const previousDefinition = await definition();
+      await db.exec(migration);
+      assert.equal(await definition(), previousDefinition.replace(previous, corrected));
+      assert.deepEqual(await security(signature), originalSecurity);
+      assert.deepEqual(await security(helper), existingHelperSecurity);
+      assert.equal((await db.query("SELECT pg_get_functiondef($1::regprocedure) AS definition", [helper])).rows[0].definition, helperDefinition.definition);
+      await db.exec(migration);
+      assert.equal(await definition(), previousDefinition.replace(previous, corrected));
+
+      await db.exec(original.replace("'application/zip'", "'application/x-zip'"));
+      await db.exec("SAVEPOINT unexpected_completion");
+      await assert.rejects(db.exec(migration), /Unexpected Observable exact TIFF completion guard/);
+      await db.exec("ROLLBACK TO SAVEPOINT unexpected_completion");
+      assert.deepEqual(await security(helper), existingHelperSecurity);
+    } finally {await db.exec("ROLLBACK; SET ROLE opengeo_runtime");}
+  });
+
   it("binds TIFF archives with exact metadata and the existing 64 MiB and access boundaries", async () => {
     await db.exec("BEGIN; RESET ROLE");
     try {

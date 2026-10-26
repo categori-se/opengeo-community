@@ -3,6 +3,7 @@ import {DEFAULT_RADIUS, getArea, getLength} from "ol/sphere.js";
 import {canonicalJson} from "./artifactCanonicalJson.js";
 import {spatialPreviewGeojson} from "./apiPreviewContracts.js";
 import {exactKeys, uuid} from "./apiResponseContracts.js";
+import {validateSocialBaselineEvidence} from "./socialBaselineEvidence.js";
 
 export const RECEPTOR_SCREENING_LIMITS = Object.freeze({features: 1_000, positions: 50_000,
   outputBytes: 2_097_152, milliseconds: 5_000, longitudeSpanDegrees: 6, maximumAbsoluteLatitude: 80});
@@ -89,36 +90,9 @@ export function buildReceptorScreening({footprint, influence, question, influenc
  * recompute clipped geometry or establish receptor coverage or impacts.
  */
 export function validateReceptorScreeningReport(report) {
-  closed(report, ["schemaVersion", "question", "influenceBasis", "inputs", "method", "nativeReceipts", "scopes", "rows", "scope", "limits", "validatedCount"], "Receptor screening report");
-  if (report.schemaVersion !== "opengeo.receptor-screening.1.0.0" || report.validatedCount !== null
-    || report.question !== reviewText(report.question, "Screening question")
-    || report.influenceBasis !== reviewText(report.influenceBasis, "Influence basis")) throw Error("Invalid receptor screening schema, question or inference claim.");
-  for (const [key, expected] of [["method", METHOD], ["scope", SCOPE], ["limits", RECEPTOR_SCREENING_LIMITS]]) {
-    closed(report[key], Object.keys(expected), `Receptor screening ${key}`);
-    if (Object.entries(expected).some(([name, value]) => report[key][name] !== value)) throw Error(`Invalid receptor screening ${key}.`);
-  }
-  closed(report.inputs, ["receptors", "footprint", "influence"], "Receptor screening inputs");
-  for (const input of Object.values(report.inputs)) {
-    closed(input, ["datasetId", "generation", "featureCount"], "Receptor screening input");
-    if (uuid(input.datasetId, "Receptor screening dataset ID") !== input.datasetId || !positiveInteger(input.generation)
-      || !count(input.featureCount, 1_000)) throw Error("Invalid receptor screening input pin.");
-  }
-  if (report.inputs.receptors.datasetId === report.inputs.footprint.datasetId || report.inputs.receptors.datasetId === report.inputs.influence.datasetId) throw Error("Receptors and screening masks must be distinct inventories.");
-  if (!Array.isArray(report.nativeReceipts) || ![1, 2].includes(report.nativeReceipts.length)) throw Error("Screening requires one reused or two native clip receipts.");
-  const receipts = report.nativeReceipts.map(receipt => {
-    closed(receipt, [...RECEIPT_KEYS, ...(Object.hasOwn(receipt, "previewId") ? ["previewId"] : [])], "Native screening clip receipt");
-    return clipReceipt(receipt);
-  });
-  closed(report.scopes, ["footprint", "influence"], "Receptor screening scopes");
-  const indexes = {footprint: 0, influence: receipts.length - 1};
-  for (const scope of ["footprint", "influence"]) {
-    const summary = report.scopes[scope], receipt = receipts[indexes[scope]];
-    closed(summary, SUMMARY_KEYS, "Receptor screening scope summary");
-    if (summary.clipReceiptIndex !== indexes[scope]
-      || canonicalJson(sourcePin(receipt)) !== canonicalJson(report.inputs.receptors)
-      || canonicalJson(targetPin(receipt)) !== canonicalJson(report.inputs[scope])) throw Error("Screening scope and native clip input pins disagree.");
-  }
-  if (receipts.length === 2 && ["source_points", "longitude_span"].some(key => receipts[0][key] !== receipts[1][key])) throw Error("Native clips disagree about their shared receptor source.");
+  closed(report, ["schemaVersion", "question", "influenceBasis", "inputs", "method", "nativeReceipts", "scopes", "rows", "scope", "limits", "validatedCount",
+    ...(Object.hasOwn(report ?? {}, "evidenceReview") ? ["evidenceReview"] : [])], "Receptor screening report");
+  const {receipts, indexes} = validateScreeningHeader(report, "opengeo.receptor-screening.1.0.0");
   if (!Array.isArray(report.rows) || report.rows.length > RECEPTOR_SCREENING_LIMITS.features) throw Error("Invalid receptor screening rows.");
   const totals = {footprint: emptySummary(0), influence: emptySummary(indexes.influence)}, ids = new Set();
   let positions = 0, previousId = "";
@@ -149,6 +123,86 @@ export function validateReceptorScreeningReport(report) {
     if (canonicalJson(footprintRows) !== canonicalJson(influenceRows)) throw Error("A reused screening mask must retain identical receptor rows in both scopes.");
   }
   boundedJson(report); return structuredClone(report);
+}
+
+const HEADER_KEYS = ["schemaVersion", "question", "influenceBasis", "inputs", "method", "nativeReceipts", "scopes", "scope", "limits", "validatedCount"];
+
+/** Validate a report header without asserting that its omitted rows were read. */
+export function validateReceptorScreeningReportHeader(header) {
+  closed(header, [...HEADER_KEYS, ...(Object.hasOwn(header ?? {}, "evidenceReview") ? ["evidenceReview"] : [])], "Receptor screening header");
+  validateScreeningHeader(header, "opengeo.receptor-screening.1.0.0");
+  boundedJson(header); return structuredClone(header);
+}
+
+/** Recorded metadata summaries are not a substitute for verifying original bytes. */
+export function validateReceptorScreeningSummary(summary) {
+  closed(summary, [...HEADER_KEYS, "audit", ...(Object.hasOwn(summary ?? {}, "evidenceReview") ? ["evidenceReview"] : [])], "Receptor screening summary");
+  validateScreeningHeader(summary, "opengeo.receptor-screening-summary.1.0.0");
+  closed(summary.audit, ["distributionId", "jsonPointer", "sha256", "checksumMethod"], "Receptor screening audit reference");
+  const distribution = typeof summary.audit.distributionId === "string"
+    && /^urn:opengeo:dataset:([^:]+):version:([^:]+):original$/.exec(summary.audit.distributionId);
+  if (!distribution || uuid(distribution[1], "Screening output dataset ID") !== distribution[1]
+    || uuid(distribution[2], "Screening output version ID") !== distribution[2]
+    || summary.audit.jsonPointer !== "/properties/opengeo:analysis/screening"
+    || !/^[0-9a-f]{64}$/.test(summary.audit.sha256 ?? "")
+    || summary.audit.checksumMethod !== "opengeo-canonical-json-sha256") throw Error("Invalid screening audit reference.");
+  boundedJson(summary); return structuredClone(summary);
+}
+
+function validateScreeningHeader(report, schemaVersion) {
+  if (Object.hasOwn(report, "evidenceReview")) validateSocialBaselineEvidence(report.evidenceReview);
+  if (report.schemaVersion !== schemaVersion || report.validatedCount !== null
+    || report.question !== reviewText(report.question, "Screening question")
+    || report.influenceBasis !== reviewText(report.influenceBasis, "Influence basis")) throw Error("Invalid receptor screening schema, question or inference claim.");
+  for (const [key, expected] of [["method", METHOD], ["scope", SCOPE], ["limits", RECEPTOR_SCREENING_LIMITS]]) {
+    closed(report[key], Object.keys(expected), `Receptor screening ${key}`);
+    if (Object.entries(expected).some(([name, value]) => report[key][name] !== value)) throw Error(`Invalid receptor screening ${key}.`);
+  }
+  closed(report.inputs, ["receptors", "footprint", "influence"], "Receptor screening inputs");
+  for (const input of Object.values(report.inputs)) {
+    closed(input, ["datasetId", "generation", "featureCount"], "Receptor screening input");
+    if (uuid(input.datasetId, "Receptor screening dataset ID") !== input.datasetId || !positiveInteger(input.generation)
+      || !count(input.featureCount, 1_000)) throw Error("Invalid receptor screening input pin.");
+  }
+  if (report.inputs.receptors.datasetId === report.inputs.footprint.datasetId || report.inputs.receptors.datasetId === report.inputs.influence.datasetId) throw Error("Receptors and screening masks must be distinct inventories.");
+  if (!Array.isArray(report.nativeReceipts) || ![1, 2].includes(report.nativeReceipts.length)) throw Error("Screening requires one reused or two native clip receipts.");
+  const receipts = report.nativeReceipts.map(receipt => {
+    closed(receipt, [...RECEIPT_KEYS, ...(Object.hasOwn(receipt, "previewId") ? ["previewId"] : [])], "Native screening clip receipt");
+    return clipReceipt(receipt);
+  });
+  closed(report.scopes, ["footprint", "influence"], "Receptor screening scopes");
+  const indexes = {footprint: 0, influence: receipts.length - 1};
+  for (const scope of ["footprint", "influence"]) {
+    const summary = report.scopes[scope], receipt = receipts[indexes[scope]];
+    closed(summary, SUMMARY_KEYS, "Receptor screening scope summary");
+    if (summary.clipReceiptIndex !== indexes[scope]
+      || canonicalJson(sourcePin(receipt)) !== canonicalJson(report.inputs.receptors)
+      || canonicalJson(targetPin(receipt)) !== canonicalJson(report.inputs[scope])) throw Error("Screening scope and native clip input pins disagree.");
+  }
+  if (receipts.length === 2 && ["source_points", "longitude_span"].some(key => receipts[0][key] !== receipts[1][key])) throw Error("Native clips disagree about their shared receptor source.");
+  for (const scope of ["footprint", "influence"]) {
+    const summary = report.scopes[scope];
+    const integerKeys = ["featureCount", "polygonFeatureCount", "lineFeatureCount", "pointFeatureCount"];
+    if (integerKeys.some(key => !count(summary[key], RECEPTOR_SCREENING_LIMITS.features))
+      || !count(summary.positionCount, RECEPTOR_SCREENING_LIMITS.positions) || !count(summary.pointCount, RECEPTOR_SCREENING_LIMITS.positions)
+      || !nonnegative(summary.areaSquareMeters) || !nonnegative(summary.lengthMeters)
+      || summary.featureCount !== summary.polygonFeatureCount + summary.lineFeatureCount + summary.pointFeatureCount
+      || summary.positionCount < summary.polygonFeatureCount * 4 + summary.lineFeatureCount * 2 + summary.pointCount
+      || summary.polygonFeatureCount === 0 && summary.lineFeatureCount === 0 && summary.positionCount !== summary.pointCount
+      || summary.pointCount < summary.pointFeatureCount
+      || (summary.polygonFeatureCount === 0) !== (summary.areaSquareMeters === 0)
+      || (summary.lineFeatureCount === 0) !== (summary.lengthMeters === 0)
+      || (summary.pointFeatureCount === 0) !== (summary.pointCount === 0)
+      || !summary.featureCount && summary.positionCount !== 0
+      || summary.featureCount > report.inputs.receptors.featureCount
+      || report.inputs[scope].featureCount === 0 && summary.featureCount !== 0) throw Error("Receptor screening scope totals are inconsistent.");
+  }
+  if (report.scopes.footprint.featureCount + report.scopes.influence.featureCount > RECEPTOR_SCREENING_LIMITS.features
+    || report.scopes.footprint.positionCount + report.scopes.influence.positionCount > RECEPTOR_SCREENING_LIMITS.positions) throw Error("Receptor screening exceeds its combined count limit.");
+  if (receipts.length === 1) {
+    if (canonicalJson(report.scopes.footprint) !== canonicalJson(report.scopes.influence)) throw Error("A reused screening mask must retain identical scope summaries.");
+  }
+  return {receipts, indexes};
 }
 
 export function receptorScreeningCsv(collectionOrReport) {

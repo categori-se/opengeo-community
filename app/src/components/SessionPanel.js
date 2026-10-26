@@ -103,7 +103,7 @@ function authStatePanel(state, auth, replaceState, returnTo) {
       : callbackError
         ? callbackMessage(state.code)
         : "Sign in securely to continue to your projects, files, teams, and account settings."),
-    text("p", "Your password and MFA stay with auth.categori.se. OpenGeo Studio keeps the resulting short-lived access token only in this browser tab.", "platform-note")
+    text("p", "Your password stays with auth.categori.se. OpenGeo Studio keeps the resulting short-lived access token only in this browser tab.", "platform-note")
   );
   const signInLabel = callbackError ? "Try sign-in again" : "Sign in to OpenGeo Studio";
   const signIn = text("button", signInLabel, "platform-button");

@@ -1,4 +1,5 @@
 import importlib
+import os
 import re
 import shutil
 import subprocess
@@ -7,6 +8,9 @@ from pathlib import Path
 
 from opengeo_worker.config import Settings
 from opengeo_worker.inspector import DatasetInspector
+from opengeo_worker.malware import parse_clamav_version
+
+TOOL_ENVIRONMENT = {**os.environ, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC"}
 
 PYTHON_MODULES = (
     "duckdb",
@@ -86,6 +90,7 @@ def output(command: list[str]) -> str:
         check=True,
         capture_output=True,
         text=True,
+        env=TOOL_ENVIRONMENT,
         timeout=30,
     )
     return completed.stdout + completed.stderr
@@ -139,13 +144,7 @@ def main() -> None:
         if model not in ocr_models:
             raise RuntimeError(f"missing required OCR model: {model}")
     clamav_version = output(["clamscan", "--version"])
-    if (
-        re.fullmatch(
-            r"ClamAV [0-9][0-9A-Za-z.+~-]{0,31}/[0-9]{1,12}/[^\r\n]{1,80}\s*", clamav_version
-        )
-        is None
-    ):
-        raise RuntimeError("ClamAV has no readable signature database")
+    parse_clamav_version(clamav_version)
     with tempfile.TemporaryDirectory(dir="/tmp/opengeo-worker") as directory:
         eicar = Path(directory) / "eicar.txt"
         eicar.write_bytes(b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*")
@@ -159,6 +158,7 @@ def main() -> None:
             ],
             check=False,
             capture_output=True,
+            env=TOOL_ENVIRONMENT,
             timeout=30,
         )
         if scan.returncode != 1:

@@ -9,7 +9,7 @@ import boto3
 from botocore.stub import Stubber
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from controller import Window, WindowUnsafe
+from controller import Stack, Window, WindowUnsafe
 from handler import tick, unfinished_worker_tasks, unfinished_analysis_hosts
 from aws_runtime import template_hash
 
@@ -105,6 +105,49 @@ class HandlerTests(unittest.TestCase):
                     runtime.return_value.execute.assert_called_once()
                     self.clients["ecs"].list_tasks.assert_not_called()
                     ledger.return_value.release.assert_called_once()
+
+    def test_new_window_refreshes_actual_observations_after_claim(self):
+        window = replace(self.window, started_at=114)
+        foreign_worker = Stack("foreign-worker", "CREATE_COMPLETE", "worker", "other-window")
+        for post_claim_worker in (None, foreign_worker):
+            with (
+                self.subTest(post_claim_worker=post_claim_worker),
+                patch("handler.AwsRuntime") as runtime,
+                patch("handler.RdsLedger") as ledger,
+                patch("handler.queue_counts", side_effect=[(1, 0, 0), (2, 0, 0), (0, 0, 0)]) as counts,
+            ):
+                now = [110]
+
+                def claim(*_):
+                    now[0] = 114
+                    return {
+                        "status": "claimed",
+                        "window": asdict(window),
+                        "revision": 1,
+                        "lease_expires_at": 294,
+                    }
+
+                ledger.return_value.claim.side_effect = claim
+                runtime.return_value.observe_stack.side_effect = [
+                    None, None, None, post_claim_worker,
+                ]
+                self.clients["cloudformation"].describe_stacks.return_value = {
+                    "Stacks": [{"Outputs": []}]
+                }
+                if post_claim_worker is None:
+                    result = tick(self.config, self.clients, self.context, clock=lambda: now[0])
+                    self.assertEqual(result, {"status": "command-submitted", "phase": "endpoints"})
+                    self.assertEqual(ledger.return_value.retain.call_args.args[2].started_at, 114)
+                    runtime.return_value.execute.assert_called_once()
+                    ledger.return_value.release.assert_called_once()
+                else:
+                    with self.assertRaisesRegex(WindowUnsafe, "worker_ownership_or_template_changed"):
+                        tick(self.config, self.clients, self.context, clock=lambda: now[0])
+                    runtime.return_value.execute.assert_not_called()
+                    ledger.return_value.retain.assert_not_called()
+                    ledger.return_value.release.assert_not_called()
+                self.assertEqual(runtime.return_value.observe_stack.call_count, 4)
+                self.assertEqual(counts.call_count, 3)
 
     def test_cleanup_waits_for_actual_stop_after_service_deletion(self):
         client = boto3.client(

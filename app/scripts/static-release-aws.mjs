@@ -29,6 +29,18 @@ import {
 import {communityDeploymentEnabled, reviewedStudioOrigin} from "./studio-release-config.mjs";
 
 const PRODUCTION_ACCOUNT = "111111111111";
+const RELEASE_OBJECT_LIMIT = 1000;
+const STUDIO_RELEASE_OBJECT_LIMIT = 2000;
+
+function releaseObjectLimit(surface) {
+  return surface === "studio" ? STUDIO_RELEASE_OBJECT_LIMIT : RELEASE_OBJECT_LIMIT;
+}
+
+function releaseArtifactLimit(surface) {
+  // Reserve one object per Studio route: non-root aliases plus the manifest.
+  // Public and demo releases retain their existing artifact ceiling.
+  return surface === "studio" ? releaseObjectLimit(surface) - canonicalStudioRoutes.length : 900;
+}
 
 export async function deployStaticRelease(options) {
   const {
@@ -76,7 +88,7 @@ export async function deployStaticRelease(options) {
     || JSON.stringify(manifest.artifactTree?.files) !== JSON.stringify(artifactTree.files)) {
     throw new Error(`${surface} artifacts no longer match the release manifest`);
   }
-  if (artifactTree.files.length > 900) throw new Error(`${surface} release contains too many files`);
+  if (artifactTree.files.length > releaseArtifactLimit(surface)) throw new Error(`${surface} release contains too many files`);
   const artifactPaths = new Set(artifactTree.files.map(({path}) => path));
   const occupied = new Set(artifactPaths);
   if (!Array.isArray(aliases)) throw new Error(`${surface} alias manifest is missing`);
@@ -120,7 +132,7 @@ export async function deployStaticRelease(options) {
   }
   assertPublicArtifactBoundary(retainedObjects.map(object => object.path), "Retained public outputs", {allowWorkbenchDemo: true});
   const expectedObjects = artifactTree.files.length + aliases.length + retainedObjects.length + 1;
-  if (expectedObjects > 1000) throw new Error(`${surface} release exceeds the verified object-count bound`);
+  if (expectedObjects > releaseObjectLimit(surface)) throw new Error(`${surface} release exceeds the verified object-count bound`);
   const localSummary = {
     mode: localCheck ? "local-check" : process.env[confirmationName] === confirmationValue ? "deploy" : "dry-run",
     surface,
@@ -276,7 +288,13 @@ export async function deployStaticRelease(options) {
     "--cache-control", "public,max-age=31536000,immutable"
   ], profile);
 
-  const uploaded = awsJson([
+  const uploaded = surface === "studio" ? listStaticReleaseObjects({
+    surface, bucket: expectedBucket, prefix: releasePrefix, profile,
+    expected: expectedRemoteReleaseObjects(manifest, {manifestObject: {
+      path: `opengeo-${surface}-release-manifest.json`, bytes: manifestBytes.length,
+      sha256: sha256(manifestBytes)
+    }})
+  }) : awsJson([
     "s3api", "list-objects-v2", "--bucket", expectedBucket,
     "--prefix", `${releasePrefix}/`, "--max-keys", "1000"
   ], profile);
@@ -591,7 +609,9 @@ async function verifyRemoteRollbackTarget({
         : {}),
       extraObjects: legacySupplement?.objects ?? []
     });
-    const listing = awsJson([
+    const listing = surface === "studio" ? listStaticReleaseObjects({
+      surface, bucket, prefix, expected, profile
+    }) : awsJson([
       "s3api", "list-objects-v2", "--bucket", bucket,
       "--prefix", `${prefix}/`, "--max-keys", "1000"
     ], profile);
@@ -712,7 +732,7 @@ export function assertSurfaceReleaseManifest(
     || manifest.artifactTree?.algorithm !== "sha256"
     || !Array.isArray(manifest.artifactTree?.files)
     || manifest.artifactTree.files.length === 0
-    || manifest.artifactTree.files.length > 900) {
+    || manifest.artifactTree.files.length > releaseArtifactLimit(surface)) {
     throw new Error(`${surface} rollback release manifest contract is invalid`);
   }
 
@@ -874,6 +894,54 @@ export function assertRemoteReleaseListing({listing, prefix, expected, surface})
   if (JSON.stringify(actual) !== JSON.stringify(wanted)) {
     throw new Error(`${surface} rollback target object inventory does not match its seal`);
   }
+}
+
+// Read explicit S3 pages: --max-keys disables CLI automatic pagination. Keep
+// Studio upload and rollback inventories within the same finite object budget.
+export function listStaticReleaseObjects({surface, bucket, prefix, expected, profile, read = awsJson}) {
+  const limit = releaseObjectLimit(surface);
+  if (!Array.isArray(expected) || expected.length === 0 || expected.length > limit) {
+    throw new Error(`${surface} release exceeds the verified object-count bound`);
+  }
+  const wanted = new Map(expected.map(object => [`${prefix}/${object.path}`, object.bytes]));
+  if (wanted.size !== expected.length) throw new Error(`${surface} release has duplicate expected objects`);
+  const Contents = [], seenKeys = new Set(), seenTokens = new Set();
+  let token;
+  for (let pageIndex = 0; pageIndex < Math.ceil(limit / 1000); pageIndex++) {
+    const page = read([
+      "s3api", "list-objects-v2", "--bucket", bucket,
+      "--prefix", `${prefix}/`, "--max-keys", "1000", "--no-paginate",
+      ...(token ? ["--continuation-token", token] : [])
+    ], profile);
+    const objects = page?.Contents ?? [];
+    if (typeof page?.IsTruncated !== "boolean" || !Array.isArray(objects)
+      || page.KeyCount !== objects.length || objects.length > 1000
+      || (page.CommonPrefixes?.length ?? 0) !== 0) {
+      throw new Error(`${surface} release listing has an invalid page`);
+    }
+    for (const object of objects) {
+      if (typeof object.Key !== "string" || !object.Key.startsWith(`${prefix}/`)
+        || !wanted.has(object.Key) || wanted.get(object.Key) !== object.Size
+        || seenKeys.has(object.Key)) {
+        throw new Error(`${surface} release listing has an unexpected or duplicate object`);
+      }
+      seenKeys.add(object.Key);
+      Contents.push(object);
+    }
+    if (!page.IsTruncated) {
+      if (page.NextContinuationToken) throw new Error(`${surface} release listing has an unexpected continuation token`);
+      const listing = {Contents, KeyCount: Contents.length, IsTruncated: false};
+      assertRemoteReleaseListing({listing, prefix, expected, surface});
+      return listing;
+    }
+    const next = page.NextContinuationToken;
+    if (typeof next !== "string" || next.length === 0 || seenTokens.has(next)) {
+      throw new Error(`${surface} release listing has a missing or repeated continuation token`);
+    }
+    seenTokens.add(next);
+    token = next;
+  }
+  throw new Error(`${surface} release listing exceeds the verified object-count bound`);
 }
 
 function assertCloudFormationOriginOwnership({

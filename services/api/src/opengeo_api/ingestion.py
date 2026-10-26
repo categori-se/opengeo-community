@@ -1588,14 +1588,20 @@ class PostgresIngestionRepository:
                             context.user_id,
                         ),
                     )
+            # Ordinary uploads also work before the optional preservation schema.
+            # Newer schemas supply the same ordinary purpose through their default.
+            preserve_original = draft.purpose == "pmtiles_original"
+            purpose_column = ", purpose" if preserve_original else ""
+            purpose_parameter = ", %s::text" if preserve_original else ""
             await transaction.execute(
-                """
+                f"""
                 INSERT INTO app.upload_intents
                   (id, organization_id, project_id, dataset_id, created_by,
                    original_filename, content_type, expected_size_bytes,
-                   expected_sha256, bucket, object_key, expires_at, staged_base_version_id,
-                   purpose)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   expected_sha256, bucket, object_key, expires_at,
+                   staged_base_version_id{purpose_column})
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s{purpose_parameter})
                 """,
                 (
                     registration.upload_id,
@@ -1611,8 +1617,8 @@ class PostgresIngestionRepository:
                     registration.object_key,
                     registration.expires_at,
                     staged_target[1] if staged_target else None,
-                    draft.purpose,
-                ),
+                )
+                + ((draft.purpose,) if preserve_original else ()),
             )
             await self._record_event(
                 transaction,
@@ -2040,11 +2046,16 @@ class PostgresIngestionRepository:
     ) -> UploadIntent:
         row = await transaction.fetch_one(
             f"""
-            SELECT id, dataset_id, project_id, object_key, bucket, original_filename,
-                   content_type, expected_size_bytes, expected_sha256, state::text,
-                   expires_at, completed_object_id, purpose, staged_base_version_id
-            FROM app.upload_intents
-            WHERE organization_id = %s AND project_id = %s AND id = %s
+            SELECT upload_intent.id, upload_intent.dataset_id, upload_intent.project_id,
+                   upload_intent.object_key, upload_intent.bucket, upload_intent.original_filename,
+                   upload_intent.content_type, upload_intent.expected_size_bytes,
+                   upload_intent.expected_sha256, upload_intent.state::text,
+                   upload_intent.expires_at, upload_intent.completed_object_id,
+                   COALESCE(to_jsonb(upload_intent)->>'purpose', 'ingest'),
+                   upload_intent.staged_base_version_id
+            FROM app.upload_intents AS upload_intent
+            WHERE upload_intent.organization_id = %s AND upload_intent.project_id = %s
+              AND upload_intent.id = %s
             {"FOR UPDATE" if lock else ""}
             """,
             (context.organization_id, project_id, upload_id),

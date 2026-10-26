@@ -404,6 +404,119 @@ class PmtilesRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "unrelated receipt"):
                     studio.stage_receptor_screening(work, "b" * 64, pilot.digest(helper.read_bytes()))
 
+    def real_building_state(self, directory):
+        from uuid import NAMESPACE_URL, uuid5
+        root, work, helper = self.building_review_state(directory)
+        folder = Path(directory) / "inputs"
+        folder.mkdir()
+        entries = []
+        for role in ("source", "comparison"):
+            service = f"https://example.invalid/{role}/FeatureServer/0"
+            original = {"type": "FeatureCollection", "features": [{"type": "Feature", "id": 1,
+                "properties": {"fid": 1, "name": role, "missing": None},
+                "geometry": {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 1], [0, 0]]], "crs": None}}]}
+            native = json.loads(json.dumps(original))
+            native["features"][0]["id"] = str(uuid5(NAMESPACE_URL, service + "#fid=1"))
+            entry = {"role": role, "serviceUrl": service, "featureCount": 1}
+            for kind, value in (("querySnapshot", original), ("nativeInput", native)):
+                filename = f"{role}-{kind}.geojson"
+                encoded = json.dumps(value).encode()
+                (folder / filename).write_bytes(encoded)
+                entry[kind] = {"path": filename, "bytes": len(encoded), "sha256": pilot.digest(encoded)}
+            entry["nativeInput"]["featureIdentityMapping"] = [{"nativeFeatureId": native["features"][0]["id"],
+                "providerFid": 1, "originalGeojsonId": 1}]
+            entries.append(entry)
+        manifest = folder / "input-pair.json"
+        manifest.write_text(json.dumps({"inputs": entries, "AOI": [0, 0, 1, 1], "combinedFeatureCount": 2,
+            "publicRedistributionApproved": False, "reviewPolicy": "Mechanical workflow acceptance only"}))
+        pin = pilot.digest(manifest.read_bytes())
+        (work / "building-review-progress.json").write_text(json.dumps({"status": "pass", "synthetic": True}))
+        (work / "building-review-saved-project-reopened.png").write_bytes(b"retained synthetic screenshot")
+        admission = root / ".local-archives/baseline-intelligence-20261023/admission.json"
+        document = json.loads(admission.read_text())
+        document["batches"].append({"id": "BI-02-07-real-building-account-review",
+            "limits": document["batches"][0]["limits"], "inventory": {"inputPairSha256": pin, "appTree": "a" * 64}})
+        admission.write_text(json.dumps(document))
+        return root, work, helper, manifest, pin
+
+    def test_real_building_inputs_preserve_provider_attributes_coordinates_and_null_crs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper, manifest, pin = self.real_building_state(directory)
+            profile = studio.retained_real_building_inputs(manifest, pin)
+            for role in ("source", "comparison"):
+                feature = profile["inputs"][role][0]
+                self.assertEqual(feature["properties"], {"fid": 1, "name": role, "missing": None})
+                self.assertEqual(feature["geometry"]["coordinates"], [[[0, 0], [1, 0], [1, 1], [0, 0]]])
+                self.assertIsNone(feature["geometry"]["crs"])
+                self.assertFalse(profile["provenance"][role]["publicRedistributionApproved"])
+
+    def test_real_building_inputs_reject_changed_manifest_and_original_bytes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper, manifest, pin = self.real_building_state(directory)
+            with self.assertRaisesRegex(ValueError, "manifest changed"):
+                studio.retained_real_building_inputs(manifest, "b" * 64)
+            entry = json.loads(manifest.read_text())["inputs"][0]
+            path = manifest.parent / entry["querySnapshot"]["path"]
+            path.write_bytes(path.read_bytes() + b" ")
+            with self.assertRaisesRegex(ValueError, "checksum/size"):
+                studio.retained_real_building_inputs(manifest, pin)
+
+    def test_real_building_inputs_reject_path_traversal_and_symlink(self):
+        for kind in ("traversal", "symlink"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
+                root, work, helper, manifest, pin = self.real_building_state(directory)
+                document = json.loads(manifest.read_text())
+                path = manifest.parent / document["inputs"][0]["querySnapshot"]["path"]
+                if kind == "traversal":
+                    document["inputs"][0]["querySnapshot"]["path"] = "../unrelated.geojson"
+                    manifest.write_text(json.dumps(document))
+                    pin = pilot.digest(manifest.read_bytes())
+                else:
+                    target = path.with_suffix(".original")
+                    path.rename(target)
+                    path.symlink_to(target)
+                with self.assertRaises(ValueError):
+                    studio.retained_real_building_inputs(manifest, pin)
+
+    def test_real_building_inputs_reject_false_provider_identity_mapping(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper, manifest, pin = self.real_building_state(directory)
+            document = json.loads(manifest.read_text())
+            document["inputs"][0]["nativeInput"]["featureIdentityMapping"][0]["originalGeojsonId"] = "changed"
+            manifest.write_text(json.dumps(document))
+            with self.assertRaisesRegex(ValueError, "identity mapping"):
+                studio.retained_real_building_inputs(manifest, pilot.digest(manifest.read_bytes()))
+
+    def test_real_building_profile_preserves_synthetic_and_cumulative_resume(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root, work, helper, manifest, pin = self.real_building_state(directory)
+            before = (work / "building-review-progress.json").read_bytes()
+            with patch.object(studio, "ROOT", root):
+                progress = studio.stage_building_review(work, "a" * 64, building_inputs=manifest, building_inputs_sha256=pin)
+                profile = json.loads((work / "building-real-review-profile.json").read_text())
+                self.assertEqual(profile["admissionBatchId"], "BI-02-07-real-building-account-review")
+                self.assertIn("building-review-saved-project-reopened.png", progress["preservedReceipts"])
+                self.assertEqual((work / "building-review-progress.json").read_bytes(), before)
+                progress.update(apiRequestAttempts=12, activeMilliseconds=1_000,
+                    records={"source": {"datasetId": "committed", "uploadCompleted": True}})
+                (work / "building-real-review-progress.json").write_text(json.dumps(progress))
+                helper.write_text("changed helper addressing diagnosed failure")
+                resumed = studio.stage_building_review(work, "a" * 64, pilot.digest(helper.read_bytes()),
+                    building_inputs=manifest, building_inputs_sha256=pin)
+                self.assertEqual(resumed["apiRequestAttempts"], 12)
+                self.assertEqual(resumed["activeMilliseconds"], 1_000)
+                self.assertEqual(resumed["records"]["source"]["datasetId"], "committed")
+                self.assertEqual((work / "building-review-progress.json").read_bytes(), before)
+
+    def test_real_building_arguments_require_scoped_journey_and_exact_pin(self):
+        selected = ["--development", "--state-directory", "/tmp/real-buildings", "--reuse-studio-tree", "a" * 64,
+                    "--building-review-smoke", "--building-review-inputs", "/tmp/pair.json", "--building-review-inputs-sha256", "b" * 64]
+        self.assertEqual(studio.parse_args(selected).building_review_inputs, Path("/tmp/pair.json"))
+        for arguments in (selected[:-2], selected + ["--stac-items-smoke"],
+                          ["--building-review-inputs", "/tmp/pair.json", "--building-review-inputs-sha256", "b" * 64]):
+            with self.subTest(arguments=arguments), self.assertRaises(SystemExit), patch("sys.stderr", io.StringIO()):
+                studio.parse_args(arguments)
+
     def test_building_review_requires_one_persistent_sealed_scope(self):
         selected = ["--development", "--state-directory", "/tmp/building-review-state",
                     "--reuse-studio-tree", "a" * 64, "--building-review-smoke"]

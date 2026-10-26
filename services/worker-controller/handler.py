@@ -156,6 +156,13 @@ def tick(
     if analysis and claim["window"] is None:
         return finish({"status": "idle"}, disable_schedule=True)
     window = Window(**claim["window"])
+    if window.started_at > observed_at:
+        # A new reservation can begin after the initial reads. Collect actual
+        # post-claim facts instead of relabeling observations from before it.
+        observed_at = int(clock())
+        queue = queue_counts(clients["sqs"], config["queueUrl"], config["queueArn"])
+        endpoint = runtime.observe_stack("endpoints")
+        worker = runtime.observe_stack("worker")
     if analysis:
         expected_rule = f"opengeo-{scope.stage}-analysis-controller-tick"
         if config.get("activationRuleName") != expected_rule:

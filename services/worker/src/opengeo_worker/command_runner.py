@@ -93,6 +93,7 @@ class CommandRunner:
             "TMPDIR": str(resolved_cwd),
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
+            "TZ": "UTC",
             "OMP_THREAD_LIMIT": "1",
             "TESSDATA_PREFIX": "/usr/share/tesseract-ocr/5/tessdata",
             "PROJ_NETWORK": "OFF",

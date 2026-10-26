@@ -7,6 +7,7 @@ import {JSDOM} from "jsdom";
 import {ProjectWorkspacePage} from "../src/components/ProjectWorkspacePage.js";
 import {StudioAccountControls} from "../src/components/StudioAccountControls.js";
 import {definitionWithPrintLayouts, newProjectPrintLayout} from "../src/lib/printLayouts.js";
+import {parseMap} from "../src/lib/apiClient.js";
 
 const IDS = Object.freeze({
   organization: "10000000-0000-4000-8000-000000000001",
@@ -87,6 +88,56 @@ describe("project durable-job hydration", () => {
     page.dispose();
     assert.equal(await check(), false);
     page.remove();
+  });
+
+  it("resumes the retained editor after its own map save and still denies revoked access", async () => {
+    const adapter = projectAdapter({kind: "managed"});
+    let savedMap = {...structuredClone((await adapter.listMaps())[0]), ownerUserId: IDS.user,
+      description: null, createdAt: "2026-08-29T12:00:00Z"}, writes = 0, acknowledgement;
+    const rawMapResponse = () => ({id: savedMap.id, project_id: savedMap.projectId, name: savedMap.name,
+      description: savedMap.description, status: savedMap.status, definition: structuredClone(savedMap.definition),
+      version: savedMap.version, created_at: savedMap.createdAt, updated_at: savedMap.updatedAt});
+    adapter.baseUrl = "/api";
+    adapter.tokenProvider = () => "same-user-token";
+    adapter.organizationProvider = () => IDS.organization;
+    adapter.getComposition = async () => ({...parseMap({...rawMapResponse(), owner_user_id: savedMap.ownerUserId}),
+      accessContainerId: IDS.project, resourceType: "project"});
+    adapter.updateMap = async (projectId, mapId, update) => {
+      assert.deepEqual([projectId, mapId, update.expectedVersion], [IDS.project, IDS.map, 3]);
+      writes++;
+      savedMap = {...savedMap, version: 4, definition: structuredClone(update.changes.definition), updatedAt: "2026-10-24T18:00:00Z"};
+      const response = rawMapResponse();
+      assert.equal(Object.hasOwn(response, "owner_user_id"), false, "Legacy MapResponse omits ownership");
+      acknowledgement = parseMap(response);
+      return acknowledgement;
+    };
+    const page = mountPage(adapter, {compositionId: IDS.map});
+    try {
+      const editor = await waitFor(() => page.querySelector(".opengeo-workbench"));
+      let releases = 0, resumes = 0;
+      editor.releaseRendererCredentials = () => {releases++;};
+      editor.resumeRenderer = async () => {resumes++; return true;};
+      clickButton(editor, "Save");
+      await waitFor(() => editor.dataset.saveState === "saved");
+      assert.equal(writes, 1);
+      assert.equal(savedMap.version, 4);
+      assert.equal(acknowledgement.ownerUserId, null, "The actual parser synthesizes null for omitted ownership");
+      assert.equal((await adapter.getComposition()).ownerUserId, IDS.user);
+      assert.equal(Object.hasOwn(acknowledgement, "resourceType"), false, "Save returns a MapRecord, not the authored composition wrapper");
+      const check = () => page.canResume({signal: new AbortController().signal});
+      assert.equal(await check(), true, "The editor's acknowledged save must become its retained baseline");
+      assert.equal(page.querySelector(".opengeo-workbench"), editor);
+      assert.deepEqual([releases, resumes], [0, 1]);
+      savedMap.ownerUserId = IDS.job;
+      assert.equal(await check(), false, "A fresh ownership change must still invalidate the retained editor");
+      assert.deepEqual([releases, resumes], [1, 1]);
+      savedMap.ownerUserId = IDS.user;
+      adapter.getProject = async () => {throw {status: 403};};
+      assert.equal(await check(), false);
+      assert.equal(page.resumeStatus, "forbidden");
+      assert.deepEqual([releases, resumes], [2, 1], "Revocation must release credentials without resuming the renderer");
+      assert.equal(writes, 1, "Access revalidation cannot replay the save");
+    } finally {page.dispose(); page.remove();}
   });
 
   it("stops abandoned startup before account/project reads or retries continue", async () => {
