@@ -166,3 +166,13 @@ Review mapped fields, disclosed losses and preserved definitions before using an
 imported Project. See [renderer compatibility](community-renderers.md) before
 trying a different engine, and preserve source identity, custody and permissions
 when adding an exchange operation.
+
+Complete embedded GeoJSON with an explicit six-digit hex palette can export
+category colors and fill opacity to the pinned GeoLibre 3.0.0 native fields.
+The [Berkshire example](../examples/berkshires-acecs/README.md) retains all sixteen
+features, five `NAME` colors and 0.62 fill opacity; Layer opacity stays separate.
+Exact duplicate inline GeoJSON is kept once, while distinct content and Layer
+metadata remain preserved under the existing 1 MiB limit and credential redaction.
+Unsupported category profiles retain their settings with a conversion warning.
+Nineteen owning cases and the actual compiled export controls pass locally; full
+upstream desktop operation and current-release parity remain unverified.

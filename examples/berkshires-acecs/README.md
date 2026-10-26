@@ -111,19 +111,17 @@ The package command also writes `berkshires-acecs.geolibre.json` and the complet
 GeoLibre using its Project-file import. The file embeds all 16 features, their
 attributes and coordinates, the saved camera and basic fill/outline settings.
 It includes the original source, archive, rights and OpenGeo style metadata.
-Review the conversion report before sharing or editing it. The `NAME` category
-renderer, palette and fill opacity factor remain in `metadata.opengeo.layer.style`;
-matching native GeoLibre category colors and opacity are not established. Review
-or recreate those settings in the destination. No remote data or basemap is needed
-for this study's blank-background handoff.
+Review the conversion report before sharing or editing it. The five `NAME`
+category colors and 0.62 fill opacity map to GeoLibre's native style fields using
+the pinned 3.0.0 source. Original settings also remain in
+`metadata.opengeo.layer.style`. No remote data or basemap is needed for this
+study's blank-background handoff. Full desktop operation and current-release
+parity remain separate acceptance work.
 
-This file exchange uses the existing converter. The optional local peer command
-checks the exact retained GeoLibre 3.0.0 core parser and serializer, including
-unchanged embedded features, rather than desktop rendering or current-release
-parity:
-
-```bash
-node scripts/check-geolibre-peer.mts /path/to/retained/GeoLibre-3.0.0-source \
-  --project-only /tmp/opengeo-berkshires-study/berkshires-acecs.geolibre.json \
-  --generic-study /tmp/opengeo-berkshires-study/berkshires-acecs.geolibre-conversion.json
-```
+The public [renderer source lock](../../parity/fixtures/geolibre/geolibre-3.0.0-renderer-source-lock.json)
+and [category source lock](../../parity/fixtures/geolibre/geolibre-3.0.0-category-source-lock.json)
+identify the exact upstream definitions used for this exchange. Local acceptance
+covers the pinned parser, serializer and category-color function for all sixteen
+unchanged features, plus five colors and alpha-blended pixels in one MapLibre
+canvas. These checks do not establish full upstream desktop operation or
+current-release parity.

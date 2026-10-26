@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0.0",
+  "scope": "Exact category color expression and fill-opacity source; not full desktop rendering",
+  "upstream": {
+    "product": "geolibre",
+    "version": "3.0.0",
+    "commit": "9778da6cbf5c06d5395b0725f24f025a029bc3df",
+    "license": "MIT"
+  },
+  "files": [
+    {
+      "path": "packages/core/src/vector-color.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/core/src/vector-color.ts",
+      "bytes": 42915,
+      "sha256": "30e28fbec9155cd30e5d2bff93701745be5b9ed59ccf16627df5d67f839394c9"
+    },
+    {
+      "path": "packages/map/src/style-mapper.ts",
+      "url": "https://raw.githubusercontent.com/opengeos/GeoLibre/9778da6cbf5c06d5395b0725f24f025a029bc3df/packages/map/src/style-mapper.ts",
+      "bytes": 7861,
+      "sha256": "bb74b9b0d2b8a5c35e15b26278836c433de6ca0b67a9c425ccd1c762b6e4d857"
+    }
+  ]
+}

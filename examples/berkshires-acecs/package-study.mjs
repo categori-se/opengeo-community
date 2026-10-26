@@ -66,7 +66,11 @@ const geolibre = exportGeoLibreProject({name: title, definition},
   {embeddedDataByLayerId: new Map([[layerId, {complete: true, data: archive}]])});
 assert.deepEqual(geolibre.project.layers[0].geojson, archive);
 assert.deepEqual(geolibre.project.layers[0].metadata.opengeo.layer.style, definition.layers[0].style);
-geolibre.report.warnings.push('The original NAME category renderer, palette and fill opacity factor remain in metadata.opengeo.layer.style. Native GeoLibre categorical styling and matching category opacity are not established by this handoff; review or recreate these settings in the destination.');
+assert.equal(geolibre.project.layers[0].style.vectorStyleMode, 'categorized');
+assert.equal(geolibre.project.layers[0].style.vectorStyleProperty, 'NAME');
+assert.equal(geolibre.project.layers[0].style.vectorStyleStops.length, 5);
+assert.equal(geolibre.project.layers[0].style.fillOpacity, 0.62);
+geolibre.report.warnings.push('Category colors and fill opacity use the pinned GeoLibre 3.0.0 renderer fields. Full desktop rendering, current upstream parity and independent operator acceptance remain unverified.');
 const outputs = new Map([
   ['berkshires-acecs.opengeo-project.zip', Buffer.from(project)],
   ['berkshires-acecs.publication-source.zip', Buffer.from(await publication.blob.arrayBuffer())],
