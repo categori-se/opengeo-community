@@ -1,5 +1,6 @@
 import {itemBounds, publicItemUrl, STATIC_ITEM_ADAPTER} from "./staticItemSearch.js";
 import {STAC_ITEM_ADAPTER, assertStacItemReference} from "./stacItemSearch.js";
+import {bindStacSourceSuitability} from "./stacSourceSuitability.js";
 
 export function cogReferenceDefaultBands(reference, assetKey) {
   const asset = reference.assets?.find(value => value.key === assetKey);
@@ -57,6 +58,12 @@ export async function registerStaticCogReference({adapter, projectId, reference,
   };
   const draft = cogSourceFromStaticItem(reference, options);
   await current();
+  if (options?.suitability) {
+    draft.source.referenceMetadata.inferred.sourceSuitability = await bindStacSourceSuitability(options.suitability,
+      {reference, assetKey: options.assetKey ?? "visual", bands: draft.source.bands,
+        assertCurrent: () => {if (!isCurrent()) throw Error("This source comparison changed. Compare again before registering.");}});
+    await current();
+  }
   // Search only this known upstream identity; no account-wide source scan.
   const candidates = await adapter.searchDatasets({query: reference.id, projectId, limit: 21, offset: 0});
   await current();

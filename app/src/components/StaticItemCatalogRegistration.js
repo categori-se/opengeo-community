@@ -2,7 +2,7 @@ import {registerStaticCogReference, cogReferenceDefaultBands} from "../lib/cogRe
 import {layerHref} from "../lib/applicationRoutes.js";
 import {CatalogResourceMapAction} from "./CatalogResourceMapAction.js";
 
-export function StaticItemCatalogRegistration({adapter, reference, projects, organization}) {
+export function StaticItemCatalogRegistration({adapter, reference, projects, organization, suitability = null}) {
   const root = document.createElement("section"); root.className = "static-item-registration";
   root.append(element("h4", "Register a referenced Catalog Layer"),
     element("p", "Choose the access workspace for this Layer. Registration preserves the upstream imagery and terms. Saving it to a Project is a separate action."));
@@ -18,6 +18,16 @@ export function StaticItemCatalogRegistration({adapter, reference, projects, org
   const size = document.createElement("input"); size.type = "number"; size.min = "1"; size.step = "1";
   const explicitBands = reference.adapter !== "opengeo.s2-geoparquet.1";
   const terms = element("p", "");
+  const compared = suitability?.report?.candidates?.find(candidate => candidate.id === suitability.candidateId);
+  let reviewedSelection = compared ? suitability : null;
+  const reviewNote = element("p", "");
+  const reviewMatches = () => !reviewedSelection || asset.value === compared.identity.assetKey
+    && JSON.stringify(bands.value.split(",").map(value => Number(value.trim()))) === JSON.stringify(compared.identity.bands);
+  const clearReview = () => {
+    if (!reviewedSelection) return;
+    reviewedSelection = null;
+    reviewNote.textContent = "Asset settings changed. This registration will not include the comparison. Compare the new selection to retain a review.";
+  };
   const updateTerms = () => {
     bands.value = cogReferenceDefaultBands(reference, asset.value).join(",");
     size.value = reference.assets.find(item => item.key === asset.value)?.original?.["file:size"] ?? "";
@@ -25,29 +35,42 @@ export function StaticItemCatalogRegistration({adapter, reference, projects, org
       : "This Item has no compatible public TIFF asset. Its other references remain available for inspection.";
   };
   asset.addEventListener("change", updateTerms); updateTerms();
+  if (compared) {
+    asset.value = compared.identity.assetKey; updateTerms(); bands.value = compared.identity.bands.join(",");
+    reviewNote.textContent = "The selected asset comparison will be retained as inferred metadata on a new Layer. Original provider metadata stays separate.";
+  }
+  for (const control of [asset, bands, size]) for (const event of ["input", "change"]) control.addEventListener(event, clearReview);
   const submit = element("button", "Register Layer"); submit.type = "submit";
   const status = element("p", "The new Layer will use internal visibility in the chosen workspace."); status.setAttribute("role", "status");
   const result = document.createElement("div"); let busy = false, disposed = false, mapAction = null;
   form.append(label("Access workspace", workspace), label("Raster asset", asset));
   if (explicitBands) form.append(label("Raster bands (one or three)", bands), element("p", "Use one-based band numbers, such as 1 or 1,2,3. Unknown layouts require an explicit choice. Native values, scales and offsets remain in the source metadata; display does not apply physical-unit conversion."),
     label("Known asset size in bytes (optional)", size), element("p", "Retain a size established from provider metadata or an independent check when browser range headers are hidden. Leave unknown sizes blank. This value is recorded as an unverified user declaration; it does not verify the imagery snapshot."));
-  form.append(label("Layer title", title), label("Attribution", attribution), terms, submit, status, result);
+  form.append(label("Layer title", title), label("Attribution", attribution), terms, reviewNote, submit, status, result);
   submit.disabled = !asset.options.length;
   root.append(form); root.dispose = () => {disposed = true; mapAction?.dispose(); result.replaceChildren();};
   form.addEventListener("submit", async event => {
     event.preventDefault(); if (busy || disposed || !asset.options.length || !form.reportValidity()) return; busy = true;
+    if (!reviewMatches()) clearReview();
+    const selectedReview = reviewedSelection;
+    const signature = () => JSON.stringify([workspace.value, asset.value, title.value, attribution.value, bands.value, size.value]);
+    const submitted = signature();
+    const isCurrent = () => !disposed && root.isConnected && signature() === submitted
+      && (!suitability || suitability.isCurrent?.() !== false);
+    const options = {assetKey: asset.value, title: title.value, attribution: attribution.value.trim() || null,
+      ...(explicitBands ? {bands: bands.value.split(",").map(value => /^\d+$/.test(value.trim()) ? Number(value.trim()) : NaN),
+        sizeBytes: size.value === "" ? null : Number(size.value)} : {}),
+      ...(selectedReview ? {suitability: {report: selectedReview.report, candidateId: selectedReview.candidateId}} : {})};
     for (const control of [workspace, asset, title, attribution, bands, size, submit]) control.disabled = true;
     status.textContent = "Checking Catalog identity and registering the reference…";
     try {
       const context = await captureContext(adapter);
       const outcome = await registerStaticCogReference({adapter, projectId: workspace.value, reference, context,
-        options: {assetKey: asset.value, title: title.value, attribution: attribution.value.trim() || null,
-          ...(explicitBands ? {bands: bands.value.split(",").map(value => /^\d+$/.test(value.trim()) ? Number(value.trim()) : NaN),
-            sizeBytes: size.value === "" ? null : Number(size.value)} : {})},
-        isCurrent: () => !disposed && root.isConnected});
-      if (disposed || !root.isConnected) return;
+        options, isCurrent});
+      if (!isCurrent()) return;
       const source = outcome.source;
       status.textContent = outcome.reused ? "The existing Catalog Layer is ready. Its identity and metadata were preserved." : "Catalog Layer registered. No Project or imagery copy was created.";
+      if (outcome.reused && selectedReview) status.textContent += " This comparison was not added to the existing Layer; download it from the comparison results to retain it.";
       const details = element("a", "Metadata and access"); details.href = layerHref(source.datasetId, {adapterKind: adapter.kind}); result.append(details);
       const action = CatalogResourceMapAction({dataset: {id: source.datasetId, projectId: source.projectId, name: source.name,
         sourceType: "cog", status: source.status, capabilities: source.capabilities}, adapter});

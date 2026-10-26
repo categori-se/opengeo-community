@@ -80,6 +80,11 @@
       "capability": "Native categorized GeoLibre study export",
       "status": "passed-local",
       "scope": "Nineteen owning cases and the actual compiled export controls retain sixteen exact Berkshire features, five native NAME colors, 0.62 fill opacity and separate Layer opacity. The browser download is 801408 bytes within the existing 1 MiB limit. Only exact duplicate inline GeoJSON is omitted; distinct content, other metadata and credential redaction remain preserved. Existing local checks are reused; full upstream desktop operation, current-release parity and independent operation remain open."
+    },
+    {
+      "capability": "Selected STAC asset comparison and Catalog review binding",
+      "status": "passed-local",
+      "scope": "Up to twenty retained TIFF/band selections compare declared footprints, dates, nominal resolution, exact names, scene cloud cover, direct asset licenses and declared bytes locally. Forty-five focused cases and compiled fixture export/registration/fresh reopen pass. Compact inferred metadata preserves original Items/terms; duplicate Layers remain unchanged. Hosted review persistence, current provider availability, independent source accuracy, complete coverage and processing prices remain unverified. The full source/tool is Apache-2.0 Community software; hosting, integration and consultancy remain separately scoped services."
     }
   ],
   "requiredExceptions": {
@@ -215,5 +220,18 @@
         "sha256": "ee9e0f29641cbf2a88645020fb032406ff6551131de93e5508b97ef2bfac9791"
       }
     ]
+  },
+  "selectedStacAssetComparison": {
+    "state": "source-prepared",
+    "scope": "Selected public STAC TIFF/band comparison and compact inferred Catalog review. Shared tool/source included in full Apache-2.0 Community suite. Hosting, provider integration and consultancy are separately scoped services.",
+    "verification": "Forty-five focused cases and compiled local fixture comparison, export, registration and fresh reopen passed. Hosted review persistence and current provider availability remain unverified.",
+    "limits": {
+      "selections": 20,
+      "reportBytes": 65536,
+      "selectedReviewBytes": 16384,
+      "localMilliseconds": 5000,
+      "comparisonProviderRequests": 0
+    },
+    "preservation": "Existing public-only files/workflows, original Item/asset metadata and duplicate Layers are unchanged."
   }
 }
