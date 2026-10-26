@@ -12,6 +12,94 @@ import {
 const fixtureUrl = new URL("../../parity/fixtures/data/geolibre-2.6-project.geolibre.json", import.meta.url);
 const fixtureText = readFileSync(fixtureUrl, "utf8");
 
+describe("GeoLibre categorized study handoff", () => {
+  const data = JSON.parse(readFileSync(new URL("../../examples/berkshires-acecs/data/acecs.geojson", import.meta.url), "utf8"));
+  const style = {renderer: "category", categoryField: "NAME", fill: "#3b8b75", fillOpacityFactor: 0.62,
+    palette: ["#3b8b75", "#8771a6", "#b57b38", "#4489a8", "#a45a72"]};
+  const stops = [
+    {value: "Hinsdale Flats Watershed", color: "#3b8b75"},
+    {value: "Upper Housatonic River", color: "#8771a6"},
+    {value: "Karner Brook Watershed", color: "#b57b38"},
+    {value: "Schenob Brook Drainage Basin", color: "#4489a8"},
+    {value: "Kampoosa Bog Drainage Basin", color: "#a45a72"}
+  ];
+  function study(definition = {}, source = data, selectedStyle = style) {
+    const layer = {layerId: "berkshires", title: "Berkshire", sourceType: "geojson-object", opacity: 0.5, style: selectedStyle};
+    const input = {name: "Berkshire", definition: emptyMapDefinition({...definition, layers: [layer]})};
+    const before = structuredClone(input);
+    const exported = exportGeoLibreProject(input, {embeddedDataByLayerId: {berkshires: {complete: true, data: source}}});
+    assert.deepEqual(input, before);
+    return exported;
+  }
+  it("preserves the real study's five frequency-ranked colors, opacity and sixteen exact features", () => {
+    const exported = study(), native = exported.project.layers[0];
+    assert.equal(exported.report.target.version, "3.0.0");
+    assert.equal(native.id, "berkshires");
+    assert.deepEqual(native.geojson, data);
+    assert.deepEqual(native.metadata.opengeo.layer.style, style);
+    assert.equal(native.style.vectorStyleMode, "categorized");
+    assert.equal(native.style.vectorStyleProperty, "NAME");
+    assert.deepEqual(native.style.vectorStyleStops, stops);
+    assert.equal(native.style.fillOpacity, 0.62);
+    assert.equal(native.opacity, 0.5);
+    assert.equal(native.style.simpleStyleEnabled, false);
+    assert.ok(exported.report.fields.some(row => row.path.endsWith(".style") && row.outcome === "mapped"));
+  });
+  it("updates stale native style overrides without dropping other saved settings", () => {
+    const exported = study({styles: {berkshires: {vectorStyleMode: "single", vectorStyleProperty: "old", vectorStyleStops: [],
+      fillOpacity: 0.1, simpleStyleEnabled: true, customSetting: "preserved"}}});
+    const override = exported.project.styles.berkshires;
+    assert.equal(override.vectorStyleMode, "categorized");
+    assert.equal(override.vectorStyleProperty, "NAME");
+    assert.deepEqual(override.vectorStyleStops, stops);
+    assert.equal(override.fillOpacity, 0.62);
+    assert.equal(override.simpleStyleEnabled, false);
+    assert.equal(override.customSetting, "preserved");
+  });
+  it("discloses categories that native trimming would change and preserves their original values", () => {
+    const changed = structuredClone(data); changed.features[0].properties.NAME = " untrimmed ";
+    const exported = study({}, changed), native = exported.project.layers[0];
+    assert.deepEqual(native.geojson, changed);
+    assert.deepEqual(native.metadata.opengeo.layer.style, style);
+    assert.equal(native.style.vectorStyleMode, "single");
+    assert.deepEqual(native.style.vectorStyleStops, []);
+    assert.ok(exported.report.warnings.some(row => /native categorical styling is unavailable/.test(row)));
+  });
+  it("does not bypass credential-field redaction through derived category values", () => {
+    const changed = structuredClone(data);
+    for (const feature of changed.features) feature.properties.password = "do-not-export-this-credential";
+    const exported = study({}, changed, {...style, categoryField: "password"});
+    assert.equal(exported.project.layers[0].style.vectorStyleMode, "single");
+    assert.ok(!exported.json.includes("do-not-export-this-credential"));
+  });
+  it("exports the real browser snapshot within the size limit while retaining one exact data copy", () => {
+    const layer = {layerId: "berkshires", title: "Berkshire", sourceType: "geojson-object", opacity: 0.5, style,
+      metadata: {curated: {source: "Retained historical archive"}}};
+    const definition = currentProjectDefinition({publicDemo: true, project: emptyMapDefinition({layers: [layer]}),
+      layers: [layer], state: {map: null}, dataByLayerId: new Map([["berkshires", data]])});
+    assert.deepEqual(definition.layers[0].geojson, data);
+    const before = structuredClone(definition);
+    const exported = exportGeoLibreProject({name: "Berkshire", definition}, {embeddedDataByLayerId: {berkshires: data}});
+    assert.ok(Buffer.byteLength(exported.json) <= 1048576);
+    assert.deepEqual(exported.project.layers[0].geojson, data);
+    assert.equal(Object.hasOwn(exported.project.layers[0].metadata.opengeo.layer, "geojson"), false);
+    assert.deepEqual(exported.project.layers[0].metadata.opengeo.layer.metadata, layer.metadata);
+    assert.deepEqual(exported.project.layers[0].style.vectorStyleStops, stops);
+    assert.equal(exported.project.layers[0].style.fillOpacity, 0.62);
+    assert.deepEqual(importGeoLibreProject(exported.json).records.embeddedDatasets[0].data, data);
+    assert.deepEqual(definition, before);
+  });
+  it("preserves distinct inline Layer content alongside its complete native export", () => {
+    const inline = {type: "FeatureCollection", features: [structuredClone(data.features[0])]};
+    inline.features[0].properties.NAME = "Separately retained inline value";
+    const layer = {layerId: "berkshires", title: "Berkshire", sourceType: "geojson-object", geojson: inline, style};
+    const exported = exportGeoLibreProject({name: "Berkshire", definition: emptyMapDefinition({layers: [layer]})},
+      {embeddedDataByLayerId: {berkshires: data}});
+    assert.deepEqual(exported.project.layers[0].geojson, data);
+    assert.deepEqual(exported.project.layers[0].metadata.opengeo.layer.geojson, inline);
+  });
+});
+
 describe("GeoLibre 2.6 project interoperability", () => {
   it("exports a workbench snapshot with unset optional properties without weakening JSON validation", () => {
     const definition = currentProjectDefinition({

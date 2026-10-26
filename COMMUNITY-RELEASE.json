@@ -75,6 +75,11 @@
       "capability": "Catalog inspection of managed GeoJSON originals",
       "status": "passed-local",
       "scope": "Eligible uploaded GeoJSON resources and saved governed Layer presentations reuse exact-version managed authorization/checksum and scope/disposal guards. Listing remains metadata-only; Open map renders only the selected original without a persistent Project change. Owning checks cover both entrypoints. One compiled local account Resources journey renders two retained synthetic inputs with every feature matched, prior saved Project unchanged and services stopped. The retained failed private-field predicate is corrected with public MapLibre getData() on the same app build. No content writes, workers or provider calls; other formats, provider rights/reference quality, independent installation and production/public delivery remain open."
+    },
+    {
+      "capability": "Native categorized GeoLibre study export",
+      "status": "passed-local",
+      "scope": "Nineteen owning cases and the actual compiled export controls retain sixteen exact Berkshire features, five native NAME colors, 0.62 fill opacity and separate Layer opacity. The browser download is 801408 bytes within the existing 1 MiB limit. Only exact duplicate inline GeoJSON is omitted; distinct content, other metadata and credential redaction remain preserved. Existing local checks are reused; full upstream desktop operation, current-release parity and independent operation remain open."
     }
   ],
   "requiredExceptions": {
@@ -84,7 +89,7 @@
     "releaseSecurity": "Source credential scanning is scoped evidence, not full release-security or legal approval.",
     "fullParity": "Full version-pinned reference parity remains incomplete. Broader source/device/provider/cartographic/typography acceptance, vector formats, source/chart/interpolation/LaTeX coverage, native QGIS linked north/rotation/charts/layouts and retained roadmap requirements remain open."
   },
-  "sourceMapping": "Fresh reviewed workspace snapshot; original private Git history retained separately.",
+  "sourceMapping": "Reviewed incremental source update over the existing public Community Git tree. Public-only files and workflows are preserved; private Git history and operational receipts remain excluded.",
   "exportOnlyChanges": [
     "First-party package license declarations",
     "Public root documentation and scripts",
@@ -168,6 +173,47 @@
     "infrastructure/test/fixtures/demo-runtime-20260907.json",
     ".github/workflows/studio-framework-build.yml"
   ],
-  "fileCount": 2463,
-  "sourceTreeSha256": "80b6e8261a43c7b7e54115ed9c47f84e038c04d27af9d12e18d1eaace1b792d8"
+  "baselineSourceExport": {
+    "scope": "Historical full-export metadata inherited from the base source record. It predates incremental public updates and does not identify the current Git tree.",
+    "recordInheritedFromCommit": "5202132f314be1f993900f12f7d5c99354293489",
+    "fileCount": 2463,
+    "sourceTreeSha256": "80b6e8261a43c7b7e54115ed9c47f84e038c04d27af9d12e18d1eaace1b792d8"
+  },
+  "sourceUpdate": {
+    "baseCommit": "31eded3dd48194606c5b9dc997170154f94c6cd9",
+    "baseTree": "70e2cc2beb91daa6b93ae6ff3a65a1c564635084",
+    "scope": "Native category/opacity export, exact duplicate inline GeoJSON handling, owning tests, the existing Berkshire example and scoped public documentation. No deletions or data uploads.",
+    "files": [
+      {
+        "path": "app/src/lib/geolibreProject.js",
+        "mode": "100644",
+        "sha256": "74e0c0d915f657978e0a1cfb4bb53b75ce4bcf3609b9cad2d52a5c09b831b581"
+      },
+      {
+        "path": "app/test/geolibre-project.test.mjs",
+        "mode": "100644",
+        "sha256": "8b0a33653df50e5db9957e6a65fd1e8d760981b0b85d57f022459ebaa5e32303"
+      },
+      {
+        "path": "docs/community-interoperability.md",
+        "mode": "100644",
+        "sha256": "156ffcfc2c17b661aeee6d5087e91c6549a10c8569954399c7d263a2d57dddea"
+      },
+      {
+        "path": "examples/berkshires-acecs/README.md",
+        "mode": "100644",
+        "sha256": "5a56678c8de14fd299eb605abe9e91f9eada72aac1dea7f14443f216fec1e896"
+      },
+      {
+        "path": "examples/berkshires-acecs/package-study.mjs",
+        "mode": "100644",
+        "sha256": "609d103ecd994b6533970c0f67d9ea53b62326c9dc970e5018e7ef8870747355"
+      },
+      {
+        "path": "parity/fixtures/geolibre/geolibre-3.0.0-category-source-lock.json",
+        "mode": "100644",
+        "sha256": "ee9e0f29641cbf2a88645020fb032406ff6551131de93e5508b97ef2bfac9791"
+      }
+    ]
+  }
 }

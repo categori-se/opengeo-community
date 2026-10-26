@@ -235,7 +235,8 @@ export function exportGeoLibreProject(openGeo, options = {}) {
   const definition = cloneJson(inputDefinition);
   const base = definition.extensions?.geolibre?.project;
   const renderer = definition.extensions?.opengeoRenderer?.id;
-  const reference = renderer === "cesium" || (renderer === undefined && base?.primaryRenderer === "cesium")
+  const hasCategoryStyle = array(definition.layers).some((layer) => layer?.style?.renderer === "category");
+  const reference = hasCategoryStyle || renderer === "cesium" || (renderer === undefined && base?.primaryRenderer === "cesium")
     ? GEOLIBRE_RENDERER_RELEASE : GEOLIBRE_RELEASE;
   const report = createReport("export", stringOr(openGeo.name, "opengeo-project"), OPENGEO_RELEASE, reference);
   const project = isRecord(base) ? sanitizeProject(cloneJson(base), report) : {};
@@ -282,6 +283,14 @@ export function exportGeoLibreProject(openGeo, options = {}) {
   project.layers = array(definition.layers).filter(isRecord).slice(0, MAX_LAYERS).map((layer, index) =>
     exportLayer(layer, index, originalLayers.get(layer.layerId), embeddedData.get(layer.layerId), report)
   );
+  // GeoLibre hydrates this override after layer.style. Keep a previously saved
+  // override from replacing a deliberately exported category palette/opacity.
+  for (const layer of project.layers) {
+    if (layer.metadata?.opengeo?.layer?.style?.renderer !== "category" || !isRecord(project.styles[layer.id])) continue;
+    for (const key of ["vectorStyleMode", "vectorStyleProperty", "vectorStyleStops", "fillColor", "fillOpacity", "simpleStyleEnabled"]) {
+      project.styles[layer.id][key] = cloneJson(layer.style[key]);
+    }
+  }
   if (options.dropPreservedLayers !== true) {
     const exportedIds = new Set(project.layers.map((layer) => layer.id));
     for (const [id, original] of originalLayers) {
@@ -429,7 +438,6 @@ function exportLayer(layer, index, original, embedded, report) {
   output.name = requiredName(layer.title ?? original?.name ?? id, `OpenGeo Studio layer ${id} name`);
   output.visible = layer.visible !== false;
   output.opacity = clamp(numberOr(layer.opacity, 1), 0, 1);
-  output.style = geoLibreStyle(layer.style, layer.labels, output.style);
   output.metadata = cloneJson(output.metadata ?? {});
   output.metadata.opengeo = {schemaVersion: "1.0.0", layer: cloneJson(layer)};
   const sourceType = layer.sourceType;
@@ -437,6 +445,7 @@ function exportLayer(layer, index, original, embedded, report) {
   if (isRecord(embedded) && Object.hasOwn(embedded, "complete") && embedded.complete !== true) {
     throw new Error(`Layer ${id} requires complete data for GeoLibre export.`);
   }
+  output.style = geoLibreStyle(layer.style, layer.labels, output.style, embeddedData, report, index);
   if (sourceType === "xyz-raster" || sourceType === "xyz-url") {
     output.type = "xyz";
     output.source = {type: "raster", tiles: [layer.sourceUrl], url: layer.sourceUrl, ...sourceOptions(layer)};
@@ -463,6 +472,14 @@ function exportLayer(layer, index, original, embedded, report) {
     output.type = "geojson";
     output.source = {type: "geojson"};
     output.geojson = cloneJson(embeddedData);
+    // Browser snapshots also carry their working data inline. Keep one exact
+    // native copy instead of duplicating it in the metadata envelope, where a
+    // small editable Project could otherwise exceed the same file size limit.
+    // Distinct inline content remains preserved as part of the Layer record.
+    if (isFeatureCollection(layer.geojson) && JSON.stringify(layer.geojson) === JSON.stringify(embeddedData)) {
+      delete output.metadata.opengeo.layer.geojson;
+      addField(report, `$.definition.layers[${index}].geojson`, "mapped", "Identical browser Layer data is retained once in native GeoJSON.", `$.layers[${index}].geojson`);
+    }
   } else if (sourceType === "geojson-url") {
     output.type = "geojson";
     output.source = {type: "geojson", url: layer.sourceUrl};
@@ -659,18 +676,48 @@ function openGeoLabels(labels) {
   return {enabled: source.enabled === true, field: typeof source.field === "string" && source.field ? source.field : null, geolibre: cloneJson(source)};
 }
 
-function geoLibreStyle(style, labels, original) {
+function geoLibreStyle(style, labels, original, data, report, index) {
   const source = isRecord(style) ? style : {};
   const output = isRecord(original) ? cloneJson(original) : {};
   output.fillColor = stringOr(source.fill, source.fillColor ?? output.fillColor ?? "#3b82f6");
   output.strokeColor = stringOr(source.stroke, source.strokeColor ?? output.strokeColor ?? "#1e40af");
   output.strokeWidth = numberOr(source.strokeWidth, output.strokeWidth ?? 2);
-  output.fillOpacity = clamp(numberOr(source.fillOpacity, output.fillOpacity ?? 0.6), 0, 1);
+  output.fillOpacity = clamp(numberOr(source.fillOpacityFactor, numberOr(source.fillOpacity, output.fillOpacity ?? 0.6)), 0, 1);
   output.circleRadius = numberOr(source.circleRadius, output.circleRadius ?? 6);
   output.minZoom = numberOr(source.minZoom, output.minZoom ?? 0);
   output.maxZoom = numberOr(source.maxZoom, output.maxZoom ?? 24);
   output.labels = {...(isRecord(output.labels) ? output.labels : {}), ...(isRecord(labels?.geolibre) ? cloneJson(labels.geolibre) : {}), enabled: labels?.enabled === true, field: stringOr(labels?.field, "")};
+  if (source.renderer === "category") {
+    const stops = geoLibreCategoryStops(source, data);
+    output.vectorStyleMode = stops ? "categorized" : "single";
+    output.vectorStyleProperty = stops ? source.categoryField : "";
+    output.vectorStyleStops = stops ?? [];
+    output.simpleStyleEnabled = false;
+    addField(report, `$.definition.layers[${index}].style`, stops ? "mapped" : "preserved_extension",
+      stops ? "Category values, explicit palette and fill opacity mapped using the pinned GeoLibre 3.0.0 renderer; layer opacity remains separate."
+        : "Category styling requires complete embedded data, a non-credential field, an explicit six-digit hex palette and category names without surrounding whitespace. Original styling is retained in metadata; the native layer uses its base fill.",
+      `$.layers[${index}].${stops ? "style" : "metadata.opengeo.layer.style"}`);
+    if (!stops) report.warnings.push(`Layer ${index + 1}: native categorical styling is unavailable for this source/profile; original settings remain in OpenGeo Studio metadata.`);
+  }
   return output;
+}
+
+function geoLibreCategoryStops(style, data) {
+  const field = style.categoryField, palette = style.palette;
+  if (typeof field !== "string" || !field || field !== field.trim() || SENSITIVE_KEY.test(field) || !isFeatureCollection(data)
+    || !Array.isArray(palette) || !palette.length || palette.some((color) => typeof color !== "string" || !/^#[0-9a-f]{6}$/i.test(color))) return null;
+  // Match WorkbenchView's current category ranking and eight-value display cap.
+  // GeoLibre trims stop values, so whitespace-bearing keys cannot map exactly.
+  const counts = new Map();
+  for (const feature of data.features) {
+    const value = feature?.properties?.[field];
+    if (value === undefined || value === null || value === "") continue;
+    const key = String(value);
+    if (key !== key.trim()) return null;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const values = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 8);
+  return values.length ? values.map(([value], index) => ({value, color: palette[index % palette.length]})) : null;
 }
 
 function xyzUrl(source) {
