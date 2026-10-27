@@ -93,6 +93,60 @@ class ObjectRestoreTests(unittest.TestCase):
 
 
 class DatabaseRestoreTests(unittest.TestCase):
+    URL_CHECK_NESTED = (
+        "    CONSTRAINT external_source_revision_url_bounded CHECK ((((char_length(source_url) >= 9) AND "
+        "(char_length(source_url) <= 2048)) AND "
+        r"(source_url !~ '[[:cntrl:]\\]'::text) AND "
+        '''(("left"(source_url, 8) = 'https://'::text) OR (source_url ~ '''
+        "'^urn:opengeo:postgis:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:"
+        "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[1-9][0-9]{0,2}$'::text))))"
+    )
+    URL_CHECK_FLAT = URL_CHECK_NESTED.replace(
+        "CHECK ((((char_length(source_url) >= 9) AND (char_length(source_url) <= 2048))",
+        "CHECK (((char_length(source_url) >= 9) AND (char_length(source_url) <= 2048)",
+        1,
+    )
+
+    def test_only_observed_url_check_and_grouping_is_canonicalized(self):
+        prefix = "CREATE TABLE app.external_source_revisions (\n"
+        suffix = "\n);\nGRANT SELECT ON app.external_source_revisions TO opengeo_runtime;\n"
+        nested = prefix + self.URL_CHECK_NESTED + suffix
+        flat = prefix + self.URL_CHECK_FLAT + suffix
+        self.assertEqual(restore.canonicalize_restore_schema(nested), flat)
+        self.assertEqual(restore.canonicalize_restore_schema(flat), flat)
+
+    def test_changed_url_check_predicates_remain_unequal(self):
+        expected = restore.canonicalize_restore_schema(self.URL_CHECK_FLAT)
+        changes = [
+            (">= 9", ">= 10"),
+            ("<= 2048", "<= 2049"),
+            ("source_url !~", "source_url ~"),
+            ("[[:cntrl:]", "[[:space:]"),
+            ("[1-9][0-9]{0,2}", "[0-9][0-9]{0,2}"),
+            (" = 'https://'", " = 'http://'"),
+            (" OR ", " AND "),
+        ]
+        for original in [self.URL_CHECK_NESTED, self.URL_CHECK_FLAT]:
+            for old, new in changes:
+                with self.subTest(form=original, change=(old, new)):
+                    changed = original.replace(old, new, 1)
+                    self.assertNotEqual(changed, original)
+                    self.assertEqual(restore.canonicalize_restore_schema(changed), changed)
+                    self.assertNotEqual(restore.canonicalize_restore_schema(changed), expected)
+
+    def test_other_constraint_names_layout_and_grants_are_not_normalized(self):
+        for old, new in [
+            ("external_source_revision_url_bounded", "other_url_bounded"),
+            ("    CONSTRAINT", "  CONSTRAINT"),
+            (" AND ", "  AND "),
+        ]:
+            changed = self.URL_CHECK_NESTED.replace(old, new, 1)
+            self.assertEqual(restore.canonicalize_restore_schema(changed), changed)
+            self.assertNotEqual(changed, self.URL_CHECK_FLAT)
+        grant = "GRANT USAGE ON SCHEMA app TO opengeo_runtime;\n"
+        self.assertEqual(restore.canonicalize_restore_schema(grant), grant)
+        self.assertNotEqual(restore.canonicalize_restore_schema(grant), "")
+
     def test_non_test_targets_and_unexpected_programs_never_execute(self):
         with patch.object(restore.subprocess, "run") as run:
             for name in [
