@@ -4740,7 +4740,7 @@ export class FixturePlatformAdapter {
   async mergeMultipolygonFeatures(
     projectId,
     datasetId,
-    {retainedFeatureId, features, changeMessage = null}
+    {retainedFeatureId, features, changeMessage = null, geometryOperation = "collect"}
   ) {
     const dataset = await this.getDataset(projectId, datasetId);
     if (!dataset.capabilities.edit) throw fixtureForbidden("action_forbidden");
@@ -4748,6 +4748,9 @@ export class FixturePlatformAdapter {
     if (!collection) throw fixtureNotFound("feature_collection_not_found");
     if (collection.metadata.geometryType !== "MultiPolygon") {
       throw fixtureInvalid("only MultiPolygon collections can merge polygon features");
+    }
+    if (!["collect", "dissolve"].includes(geometryOperation)) {
+      throw fixtureInvalid("polygon merge geometryOperation must be collect or dissolve");
     }
     if (!Array.isArray(features) || features.length < 2 || features.length > 20) {
       throw fixtureInvalid("polygon merge requires between 2 and 20 features");
@@ -4767,6 +4770,12 @@ export class FixturePlatformAdapter {
       fixtureMultiPolygonParts(current.geometry);
       return {current, lockToken};
     });
+    if (geometryOperation === "dissolve") {
+      const error = new Error("Dissolving boundaries is unavailable in this fixture workspace.");
+      error.status = 422;
+      error.code = "geometry_operation_unsupported";
+      throw error;
+    }
     const retainedEntry = records.find(({current}) => current.id === retainedFeatureId);
     const retained = retainedEntry.current;
     const donors = records

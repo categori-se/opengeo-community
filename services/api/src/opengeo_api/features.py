@@ -49,6 +49,7 @@ GeometryType = Literal[
 FeatureFieldType = Literal["string", "integer", "number", "boolean", "group"]
 FeatureScalar = str | int | float | bool
 FeatureOperation = Literal["create", "update", "delete", "restore"]
+PolygonGeometryOperation = Literal["collect", "dissolve"]
 FeatureQueryOperator = Literal[
     "equals",
     "not_equals",
@@ -79,6 +80,36 @@ _MAX_GROUP_DEPTH = 3
 _MAX_REPEAT_ITEMS = 20
 _MAX_FEATURE_LOCKS_PER_USER = 25
 _MAX_FEATURE_LOCK_LEASE_SECONDS = 300
+_DISSOLVE_TIMEOUT_SQL = """
+    SELECT set_config('statement_timeout',
+        CASE WHEN setting::int = 0 THEN '5000'
+             ELSE LEAST(setting::int, 5000)::text END, true)
+    FROM pg_settings WHERE name = 'statement_timeout'
+"""
+_DISSOLVE_MULTIPOLYGON_SQL = """
+    WITH inputs AS MATERIALIZED (
+        SELECT ST_SetSRID(ST_GeomFromGeoJSON(value::text), 4326) AS geom
+        FROM jsonb_array_elements(%s::jsonb)
+    ), checked AS MATERIALIZED (
+        SELECT bool_and(ST_IsValid(geom) AND NOT ST_IsEmpty(geom)
+                        AND ST_GeometryType(geom) = 'ST_MultiPolygon') AS valid,
+               array_agg(geom) AS geometries
+        FROM inputs
+    ), dissolved AS MATERIALIZED (
+        SELECT CASE WHEN valid
+                    THEN ST_Multi(ST_UnaryUnion(ST_Collect(geometries))) END AS geom
+        FROM checked
+    ), bounded AS MATERIALIZED (
+        SELECT geom, COALESCE(
+            ST_IsValid(geom) AND NOT ST_IsEmpty(geom)
+            AND ST_GeometryType(geom) = 'ST_MultiPolygon'
+            AND ST_NPoints(geom) <= %s AND ST_NumGeometries(geom) <= 256,
+            false) AS accepted
+        FROM dissolved
+    )
+    SELECT CASE WHEN accepted THEN ST_AsGeoJSON(geom, 17)::jsonb END, accepted
+    FROM bounded
+"""
 
 
 class FeatureStoreUnavailable(RuntimeError):
@@ -420,6 +451,7 @@ class FeatureRepository(Protocol):
         expected_versions: tuple[tuple[UUID, int, UUID | None], ...],
         change_message: str | None,
         request_id: str,
+        geometry_operation: PolygonGeometryOperation = "collect",
     ) -> FeatureStructureMutation: ...
 
     async def list_feature_locks(
@@ -2090,11 +2122,14 @@ class PostgresFeatureRepository:
         expected_versions: tuple[tuple[UUID, int, UUID | None], ...],
         change_message: str | None,
         request_id: str,
+        geometry_operation: PolygonGeometryOperation = "collect",
     ) -> FeatureStructureMutation:
         async def operation(transaction: TenantTransaction) -> FeatureStructureMutation:
             scope = await self._scope(transaction, context, project_id, dataset_id)
             self._require(Action.DATASET_EDIT, scope.roles)
             self._require_editable_dataset(scope)
+            if geometry_operation not in {"collect", "dissolve"}:
+                raise FeatureInvalid("polygon geometry operation must be collect or dissolve")
             collection = await self._collection(transaction, context, dataset_id, lock=True)
             if collection.geometry_type != "MultiPolygon":
                 raise FeatureInvalid("only MultiPolygon collections can merge polygon features")
@@ -2130,14 +2165,38 @@ class PostgresFeatureRepository:
             await authorize_feature_attachments(
                 transaction, context, [retained_draft.properties], collection.fields
             )
-            await self._require_valid_geometry(transaction, retained_draft.geometry)
+            if geometry_operation == "dissolve":
+                # The combined normalized draft bounds every input coordinate and
+                # part before the database performs any topology computation.
+                await transaction.execute(_DISSOLVE_TIMEOUT_SQL, ())
+                row = await transaction.fetch_one(
+                    _DISSOLVE_MULTIPOLYGON_SQL,
+                    (Jsonb([feature.geometry for feature in ordered]), _MAX_COORDINATES),
+                )
+                if row is None or row[1] is not True or not isinstance(row[0], dict):
+                    raise FeatureInvalid(
+                        "dissolve requires valid source polygons and a nonempty valid "
+                        "MultiPolygon result within 10000 positions and 256 parts"
+                    )
+                retained_draft = feature_draft(
+                    row[0], retained_draft.properties, collection.fields, retained_feature_id
+                )
+                if retained_draft.geometry_type != "MultiPolygon":
+                    raise FeatureInvalid("dissolve result must be a MultiPolygon")
+            else:
+                await self._require_valid_geometry(transaction, retained_draft.geometry)
+            default_message = (
+                "Dissolved polygon feature boundaries"
+                if geometry_operation == "dissolve"
+                else "Merged multipart polygon features"
+            )
             retained = await self._replace_feature_head(
                 transaction,
                 context,
                 dataset_id,
                 locked[retained_feature_id],
                 retained_draft,
-                change_message or "Merged multipart polygon features",
+                change_message or default_message,
                 request_id,
             )
             await self._advance_feature_lock_version(
@@ -2155,7 +2214,12 @@ class PostgresFeatureRepository:
                     context,
                     dataset_id,
                     current,
-                    change_message or f"Merged into feature {retained_feature_id}",
+                    change_message
+                    or (
+                        f"Dissolved into feature {retained_feature_id}"
+                        if geometry_operation == "dissolve"
+                        else f"Merged into feature {retained_feature_id}"
+                    ),
                     request_id,
                 )
                 await self._drop_feature_lock(transaction, context, dataset_id, current.feature_id)
@@ -2180,6 +2244,7 @@ class PostgresFeatureRepository:
                     "retained_feature_id": str(retained_feature_id),
                     "deleted_feature_ids": [str(item.feature_id) for item in deletions],
                     "generation": collection.generation,
+                    "geometry_operation": geometry_operation,
                 },
             )
             return FeatureStructureMutation(collection, retained, (), deletions)

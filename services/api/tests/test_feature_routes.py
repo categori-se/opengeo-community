@@ -450,8 +450,10 @@ class MemoryFeatureRepository:
         expected_versions,
         change_message,
         request_id,
+        geometry_operation="collect",
     ):
         del context, project_id, dataset_id
+        self.calls.append(("merge_geometry_operation", geometry_operation))
         collection = self._collection()
         if collection.geometry_type != "MultiPolygon":
             raise FeatureInvalid("only MultiPolygon collections can merge polygon features")
@@ -1103,6 +1105,45 @@ def test_multipolygon_parts_separate_and_merge_atomically_with_exact_versions() 
         "delete",
         "create",
     ]
+
+
+def test_dissolve_route_requires_explicit_operation_and_forwards_authenticated_selection() -> None:
+    # The memory repository proves route wiring only; native topology is checked
+    # separately against the exact production SQL in test_features.py.
+    repository = MemoryFeatureRepository()
+    client = api_client(repository)
+    collection_url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/feature-collection"
+    feature_url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/features"
+    client.post(collection_url, headers=headers(), json=multipolygon_collection_payload())
+    separated = client.post(
+        f"{feature_url}/separate-parts",
+        headers=headers(),
+        json={"feature_id": str(FEATURE_ID), "expected_version": 1, "retained_part_index": 0},
+    ).json()
+    payload = {
+        "retained_feature_id": str(FEATURE_ID),
+        "geometry_operation": "dissolve",
+        "features": [
+            {"feature_id": str(FEATURE_ID), "expected_version": 2},
+            {"feature_id": separated["created_features"][0]["id"], "expected_version": 1},
+        ],
+    }
+    previous_calls = len(repository.calls)
+    assert client.post(f"{feature_url}/merge-parts", json=payload).status_code == 401
+    for invalid in ("union", "", None, True):
+        rejected = client.post(
+            f"{feature_url}/merge-parts",
+            headers=headers(),
+            json={**payload, "geometry_operation": invalid},
+        )
+        assert rejected.status_code == 422
+    assert len(repository.calls) == previous_calls
+    response = client.post(f"{feature_url}/merge-parts", headers=headers(), json=payload)
+    assert response.status_code == 200
+    assert ("merge_geometry_operation", "dissolve") in repository.calls
+    assert response.json()["geometry_operation"] == "dissolve"
+    assert response.json()["operation"] == "merge_parts"
+    assert response.json()["retained_feature"]["id"] == str(FEATURE_ID)
 
 
 def test_geometry_schema_properties_and_bbox_are_bounded() -> None:

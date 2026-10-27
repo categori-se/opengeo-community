@@ -3244,6 +3244,9 @@ function featureMutationError(error, prefix) {
   if (error?.code === "feature_lock_limit_reached") {
     return `${prefix}. Release one of your 25 active feature reservations first.`;
   }
+  if (error?.code === "geometry_operation_unsupported") {
+    return `${prefix}. Dissolving boundaries is unavailable in this workspace.`;
+  }
   return `${prefix} (${error?.code ?? "unexpected_error"}).`;
 }
 
@@ -3255,7 +3258,7 @@ export function multipolygonStructureEditor(state, dataset, details, locksByFeat
   element.append(text("summary", "Separate or merge polygon features"));
   const guidance = text(
     "p",
-    "Separate turns each part into an independent feature and keeps the original ID on the chosen part. Merge combines 2–20 valid, non-overlapping features into one multipart feature, retains the chosen feature’s attributes, and preserves donor history as tombstones.",
+    "Separate turns each part into an independent feature and keeps the original ID on the chosen part. Merge combines 2–20 valid, non-overlapping features into one multipart feature. Select Dissolve boundaries to union touching or overlapping areas instead. Both retain the chosen feature’s ID and attributes and preserve donor history as tombstones.",
     "project-catalog-feedback"
   );
   const controls = document.createElement("div");
@@ -3266,6 +3269,12 @@ export function multipolygonStructureEditor(state, dataset, details, locksByFeat
   const merge = text("button", "Merge selected", "platform-button secondary");
   merge.type = "button";
   merge.disabled = true;
+  const dissolveLabel = document.createElement("label");
+  const dissolve = document.createElement("input");
+  dissolve.type = "checkbox";
+  dissolve.setAttribute("aria-label", "Dissolve boundaries");
+  dissolve.disabled = true;
+  dissolveLabel.append(dissolve, document.createTextNode(" Dissolve boundaries"));
   const selectionStatus = text(
     "span",
     "Select at least two features below.",
@@ -3273,7 +3282,7 @@ export function multipolygonStructureEditor(state, dataset, details, locksByFeat
   );
   const feedback = text("p", "No polygon structure change is staged.", "project-catalog-feedback");
   feedback.ariaLive = "polite";
-  controls.append(retained, merge, selectionStatus);
+  controls.append(retained, dissolveLabel, merge, selectionStatus);
   element.append(guidance, controls, feedback);
 
   const updateSelection = () => {
@@ -3288,6 +3297,7 @@ export function multipolygonStructureEditor(state, dataset, details, locksByFeat
     if (selected.has(previous)) retained.value = previous;
     retained.disabled = selected.size < 2;
     merge.disabled = selected.size < 2;
+    dissolve.disabled = selected.size < 2;
     selectionStatus.textContent = selected.size
       ? `${selected.size}/20 selected${selected.size >= 2 ? " · choose retained identity" : ""}`
       : "Select at least two features below.";
@@ -3297,12 +3307,16 @@ export function multipolygonStructureEditor(state, dataset, details, locksByFeat
     if (selected.size < 2 || !selected.has(retained.value)) return;
     const retainedFeature = selected.get(retained.value);
     const donorCount = selected.size - 1;
+    const dissolving = dissolve.checked;
     if (globalThis.confirm && !globalThis.confirm(
-      `Merge ${selected.size} features? ${shortFeatureId(retainedFeature.id)} keeps its ID and attributes; ${donorCount} donor feature${donorCount === 1 ? "" : "s"} become immutable tombstones.`
+      `${dissolving ? "Dissolve boundaries and union" : "Merge"} ${selected.size} features? ${dissolving ? "Touching and overlapping areas will become their union. " : "Polygon boundaries are kept. "}${shortFeatureId(retainedFeature.id)} keeps its ID and attributes; ${donorCount} donor feature${donorCount === 1 ? "" : "s"} become immutable tombstones.`
     )) return;
     merge.disabled = true;
+    dissolve.disabled = true;
     feedback.className = "project-catalog-feedback";
-    feedback.textContent = "Merging polygon features in one version-checked transaction…";
+    feedback.textContent = dissolving
+      ? "Dissolving polygon boundaries in one version-checked transaction…"
+      : "Merging polygon features in one version-checked transaction…";
     try {
       await state.adapter.mergeMultipolygonFeatures(state.project.id, dataset.id, {
         retainedFeatureId: retainedFeature.id,
@@ -3316,14 +3330,15 @@ export function multipolygonStructureEditor(state, dataset, details, locksByFeat
               : {})
           };
         }),
-        changeMessage: `Merged ${selected.size} polygon features in Studio`
+        changeMessage: `${dissolving ? "Dissolved boundaries of" : "Merged"} ${selected.size} polygon features in Studio`,
+        ...(dissolving ? {geometryOperation: "dissolve"} : {})
       });
       await loadFeatureEditing(state, dataset, details);
     } catch (error) {
       feedback.className = "project-catalog-error";
       feedback.textContent = featureMutationError(
         error,
-        "Polygon features were not merged"
+        dissolving ? "Polygon boundaries were not dissolved" : "Polygon features were not merged"
       );
       updateSelection();
     }

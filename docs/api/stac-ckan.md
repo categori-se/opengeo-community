@@ -106,12 +106,42 @@ The default performs no pulls, so omit that option when all four images are
 cached. No image is built. The default 600-second budget includes cleanup;
 `--budget-seconds` may reduce it. Downloaded images remain in the local cache.
 
-Authentication uses a generated disposable local CKAN sysadmin and a real CKAN
+Default authentication uses a generated disposable local CKAN sysadmin and a real CKAN
 token, kept inside the process. The destination explicitly enables
 `create_unowned_dataset` and uses only the `envvars` plugin. These are local test
 settings, not grants derived from STAC. The exporter leaves ownership, visibility,
-license ID and grants absent; CKAN chooses its own defaults. This check does not
-exercise destination permission policy for ordinary users.
+license ID and grants absent; CKAN chooses its own defaults. The default mode
+does not exercise ordinary-user destination policy.
+
+With the four exact images already cached, select the ordinary-user mode to
+check a private organization dataset. Run the repository's required storage
+preflight against the actual container graphroot and temporary filesystem before
+starting this disposable environment. No pulls or builds are needed:
+
+```bash
+python3 services/api/scripts/check_stac_ckan_local.py \
+  --ordinary-user --export-envelope docs/api/evidence/stac-ckan-export.json \
+  --budget-seconds 180 --request-limit 40 \
+  --output .opengeo/ckan-ordinary-user.json
+```
+
+This mode creates two ordinary users and one organization, disables unowned
+dataset creation, and supplies destination ownership and private visibility
+separately from the unchanged export payload. The editor creates, reads and edits
+the dataset; an outsider must receive actual HTTP 403 authorization errors for
+read, update and dataset creation attempts in that organization. The known fixture update retains
+all supplied metadata and CKAN resource IDs. This bounded read-modify-write check
+does not add general update/merge support to the create-only exporter.
+
+`--export-envelope` reuses only the exact accepted synthetic envelope after
+checking its fixture, source and payload hashes and unchanged exporter/importer
+inputs. It needs no API development dependencies and does not claim a fresh
+conversion. Omit it to run conversion in the locked API environment. All HTTP
+attempts, including readiness and expected denials, share `--request-limit`;
+one request is reserved for failure cleanup. Administrator credentials serve
+setup and cleanup; ordinary-user requests use their own process-local tokens.
+The receipt distinguishes this scope from UI, harvesting, synchronization,
+other destination policies and cloud acceptance.
 
 The [selected server receipt](evidence/stac-ckan-roundtrip-local.json) records the
 source commit and dirty diff, exact commands, image identities, earlier failed
