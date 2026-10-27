@@ -4,7 +4,7 @@ from collections import deque
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from psycopg.types.json import Jsonb
@@ -1030,6 +1030,188 @@ def test_selected_dissolve_native_postgis_overlap_shared_edge_hole_and_rejection
         assert cursor.fetchone() == (None, False)
         cursor.execute(_DISSOLVE_MULTIPOLYGON_SQL, (Jsonb([donut, overlapping, touching]), 5))
         assert cursor.fetchone() == (None, False)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("OPENGEO_FEATURE_TEST_DSN"), reason="explicit local PostGIS DSN required"
+)
+def test_native_postgis_typed_text_feature_crud_and_history() -> None:
+    """Use the fully migrated local database and roll back every fixture row."""
+    import psycopg
+    from psycopg.types.string import StrDumper
+
+    from opengeo_api.tenant_database import _PostgresTenantTransaction
+
+    async def scenario() -> None:
+        async with await psycopg.AsyncConnection.connect(
+            os.environ["OPENGEO_FEATURE_TEST_DSN"], autocommit=True
+        ) as connection:
+            if connection.info.host != "db" and not connection.info.host.startswith("/tmp/"):
+                raise ValueError("use a disposable, fully migrated local PostGIS database")
+            async with connection.transaction(force_rollback=True), connection.cursor() as cursor:
+                user_id, organization_id, project_id, dataset_id = (uuid4() for _ in range(4))
+                initial_id, feature_id = uuid4(), uuid4()
+                await cursor.execute(
+                    "INSERT INTO app.users (id,cognito_subject,email,display_name) "
+                    "VALUES (%s,%s,%s,'Feature typed-text regression')",
+                    (user_id, f"feature-text-{user_id}", f"{user_id}@example.test"),
+                )
+                await cursor.execute(
+                    "INSERT INTO app.organizations (id,name,slug,created_by) "
+                    "VALUES (%s,'Feature typed-text regression',%s,%s)",
+                    (organization_id, f"feature-text-{organization_id}", user_id),
+                )
+                await cursor.execute(
+                    "INSERT INTO app.organization_memberships "
+                    "(organization_id,user_id,role,invited_by) VALUES (%s,%s,'admin',%s)",
+                    (organization_id, user_id, user_id),
+                )
+                await cursor.execute(
+                    "INSERT INTO app.projects (id,organization_id,name,created_by) "
+                    "VALUES (%s,%s,'Feature typed-text regression',%s)",
+                    (project_id, organization_id, user_id),
+                )
+                await cursor.execute(
+                    "INSERT INTO app.datasets "
+                    "(id,organization_id,name,classification,source_type,format,status,"
+                    "owner_user_id,created_by,updated_by) "
+                    "VALUES (%s,%s,'Survey points','internal','upload','geojson','active',"
+                    "%s,%s,%s)",
+                    (dataset_id, organization_id, user_id, user_id, user_id),
+                )
+                await cursor.execute(
+                    "INSERT INTO app.project_datasets "
+                    "(organization_id,project_id,dataset_id,linked_by) VALUES (%s,%s,%s,%s)",
+                    (organization_id, project_id, dataset_id, user_id),
+                )
+                # psycopg normally sends strings as unknown. Data API strings are
+                # text (OID 25), so register the text dumper after fixture setup.
+                connection.adapters.register_dumper(str, StrDumper)
+                cursor.adapters.register_dumper(str, StrDumper)
+                await cursor.execute("SET LOCAL ROLE opengeo_runtime")
+                await cursor.execute(
+                    "SELECT set_config('app.user_id',%s,true),"
+                    "set_config('app.organization_id',%s,true),pg_typeof(%s)::text,current_user",
+                    (str(user_id), str(organization_id), "Point"),
+                )
+                assert (await cursor.fetchone())[2:] == ("text", "opengeo_runtime")
+                repository = PostgresFeatureRepository(
+                    QueryExecutor(_PostgresTenantTransaction(cursor))
+                )
+                context = TenantContext(user_id=user_id, organization_id=organization_id)
+                fields = normalize_fields([{"name": "name", "type": "string", "required": True}])
+                initial_geometry = {"type": "Point", "coordinates": [-71.1, 42.3]}
+                changed_geometry = {"type": "Point", "coordinates": [-71.2, 42.4]}
+                initial = feature_draft(
+                    initial_geometry, {"name": "Initial station"}, fields, initial_id
+                )
+
+                async def validate_revisions() -> None:
+                    # Check deferred head/revision integrity before the final rollback.
+                    await cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
+                    await cursor.execute("SET CONSTRAINTS ALL DEFERRED")
+
+                page = await repository.create_collection(
+                    context, project_id, dataset_id, "Point", fields, (initial,), "text-collection"
+                )
+                assert page.collection.geometry_type == "Point"
+                assert (page.collection.generation, page.collection.feature_count) == (1, 1)
+                assert page.features[0].geometry == initial_geometry
+                await validate_revisions()
+                draft = feature_draft(
+                    initial_geometry, {"name": "Added station"}, fields, feature_id
+                )
+                created = await repository.create_feature(
+                    context, project_id, dataset_id, draft, "Add station", "text-create"
+                )
+                assert created.feature.version_number == 1
+                assert (created.collection.generation, created.collection.feature_count) == (2, 2)
+                await validate_revisions()
+                changed_draft = feature_draft(
+                    changed_geometry, {"name": "Revised station"}, fields, feature_id
+                )
+                changed = await repository.update_feature(
+                    context,
+                    project_id,
+                    dataset_id,
+                    feature_id,
+                    1,
+                    changed_draft,
+                    "Move station",
+                    "text-update",
+                )
+                assert changed.feature.version_number == 2
+                assert changed.feature.geometry == changed_geometry
+                assert (changed.collection.generation, changed.collection.feature_count) == (3, 2)
+                await validate_revisions()
+                history = await repository.list_feature_history(
+                    context, project_id, dataset_id, feature_id, 20, 0
+                )
+                assert [
+                    (item.version_number, item.operation, item.request_id) for item in history
+                ] == [
+                    (2, "update", "text-update"),
+                    (1, "create", "text-create"),
+                ]
+                with pytest.raises(FeatureConflict, match="feature_version_conflict"):
+                    await repository.update_feature(
+                        context,
+                        project_id,
+                        dataset_id,
+                        feature_id,
+                        1,
+                        draft,
+                        "Stale overwrite",
+                        "text-stale",
+                    )
+                retained = await repository.list_features(
+                    context, project_id, dataset_id, bbox=None, limit=20, offset=0
+                )
+                assert retained.collection.generation == 3
+                assert retained.collection.feature_count == 2
+                retained_feature = next(
+                    item for item in retained.features if item.feature_id == feature_id
+                )
+                assert retained_feature == changed.feature
+                assert (
+                    await repository.list_feature_history(
+                        context, project_id, dataset_id, feature_id, 20, 0
+                    )
+                    == history
+                )
+                deleted = await repository.delete_feature(
+                    context, project_id, dataset_id, feature_id, 2, "Remove station", "text-delete"
+                )
+                assert (deleted.deleted_version, deleted.collection_generation) == (3, 4)
+                await validate_revisions()
+                restored = await repository.restore_feature(
+                    context,
+                    project_id,
+                    dataset_id,
+                    feature_id,
+                    3,
+                    2,
+                    "Restore station",
+                    "text-restore",
+                )
+                assert restored.feature.version_number == 4
+                assert restored.feature.geometry == changed_geometry
+                assert restored.feature.properties == {"name": "Revised station"}
+                assert (restored.collection.generation, restored.collection.feature_count) == (5, 2)
+                await validate_revisions()
+                history = await repository.list_feature_history(
+                    context, project_id, dataset_id, feature_id, 20, 0
+                )
+                assert [(item.version_number, item.operation) for item in history] == [
+                    (4, "restore"),
+                    (3, "delete"),
+                    (2, "update"),
+                    (1, "create"),
+                ]
+                assert history[-1].geometry == initial_geometry
+                assert history[-1].properties == {"name": "Added station"}
+
+    asyncio.run(scenario())
 
 
 def test_repository_lists_deleted_feature_tombstones_with_bounded_paging() -> None:

@@ -1232,7 +1232,7 @@ class PostgresFeatureRepository:
                 INSERT INTO app.feature_collections
                   (organization_id, dataset_id, geometry_type, schema_definition,
                    generation, feature_count, created_by, updated_by)
-                VALUES (%s, %s, %s, %s, 1, %s, %s, %s)
+                VALUES (%s, %s, %s::app.feature_geometry_type, %s, 1, %s, %s, %s)
                 RETURNING created_at, updated_at
                 """,
                 (
@@ -2854,7 +2854,7 @@ class PostgresFeatureRepository:
               (id, organization_id, dataset_id, version_number, geometry_type,
                properties, geometry_geojson, geometry, created_by, updated_by)
             VALUES (
-              %s, %s, %s, 1, %s, %s, %s,
+              %s, %s, %s, 1, %s::app.feature_geometry_type, %s, %s,
               ST_SetSRID(ST_GeomFromGeoJSON(%s::text), 4326), %s, %s
             )
             RETURNING id, version_number, geometry_type::text, properties,
@@ -2910,7 +2910,8 @@ class PostgresFeatureRepository:
                operation, geometry_type, properties, geometry_geojson,
                geometry, changed_by, change_message, request_id)
             VALUES (
-              %s, %s, %s, %s, %s, %s, %s, %s,
+              %s, %s, %s, %s, %s::app.feature_revision_operation,
+              %s::app.feature_geometry_type, %s, %s,
               ST_SetSRID(ST_GeomFromGeoJSON(%s::text), 4326), %s, %s, %s
             )
             """,
