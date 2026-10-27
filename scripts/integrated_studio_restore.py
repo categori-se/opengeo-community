@@ -20,6 +20,34 @@ def digest(body):
     return sha256(body).hexdigest()
 
 
+_URL_CHECK_FLAT = (
+    "    CONSTRAINT external_source_revision_url_bounded CHECK (((char_length(source_url) >= 9) AND "
+    "(char_length(source_url) <= 2048) AND "
+    r"(source_url !~ '[[:cntrl:]\\]'::text) AND "
+    '''(("left"(source_url, 8) = 'https://'::text) OR (source_url ~ '''
+    "'^urn:opengeo:postgis:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:"
+    "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}:[1-9][0-9]{0,2}$'::text))))"
+)
+_URL_CHECK_NESTED = _URL_CHECK_FLAT.replace(
+    "CHECK (((char_length(source_url) >= 9) AND (char_length(source_url) <= 2048)",
+    "CHECK ((((char_length(source_url) >= 9) AND (char_length(source_url) <= 2048))",
+    1,
+)
+
+
+def canonicalize_restore_schema(value):
+    """Match only the two observed deparses of migration 0171's URL CHECK.
+
+    BETWEEN expands into a nested AND that PostgreSQL flattens on restore.
+    Every other byte, including any changed predicate or grant, stays intact
+    and therefore still causes a different restore fingerprint.
+    """
+    return "\n".join(
+        _URL_CHECK_FLAT if line == _URL_CHECK_NESTED else line
+        for line in value.split("\n")
+    )
+
+
 def checked_work(work):
     work = Path(work)
     if (
@@ -114,7 +142,11 @@ def database_fingerprint(database):
     """)
     return {
         "tables": rows,
-        "schemaSha256": digest(normalize_dump(database.dump_app_schema()).encode()),
+        "schemaSha256": digest(
+            canonicalize_restore_schema(
+                normalize_dump(database.dump_app_schema())
+            ).encode()
+        ),
         "roles": database.query(ROLE_QUERY),
         "roleMemberships": memberships,
         "ownersSha256": digest(owners.encode()),
@@ -160,6 +192,9 @@ def restored_checkpoint(database, work, pilot):
     snapshot = work / "recovery-snapshot"
     objects = copy_objects(work, snapshot)
     before = database_fingerprint(database)
+    (snapshot / "database-fingerprint-before.json").write_text(
+        json.dumps(before, indent=2) + "\n"
+    )
     if not any(
         table["name"] == "app.maps" and table["rows"] > 0 for table in before["tables"]
     ):
@@ -198,10 +233,25 @@ def restored_checkpoint(database, work, pilot):
                 body=archive,
             )
             after = database_fingerprint(restored)
+            (snapshot / "database-fingerprint-after.json").write_text(
+                json.dumps(after, indent=2) + "\n"
+            )
+            mismatches = sorted(
+                key
+                for key in before.keys() | after.keys()
+                if key not in before or key not in after or before[key] != after[key]
+            )
+            (snapshot / "database-fingerprint-mismatches.json").write_text(
+                json.dumps(mismatches, indent=2) + "\n"
+            )
             assert after == before, (
                 "Restored rows, ownership, roles, grants or schema differ"
             )
-            assert database_fingerprint(database) == before, (
+            source_after = database_fingerprint(database)
+            (snapshot / "database-fingerprint-source-after.json").write_text(
+                json.dumps(source_after, indent=2) + "\n"
+            )
+            assert source_after == before, (
                 "The frozen source changed during backup"
             )
             proof = {

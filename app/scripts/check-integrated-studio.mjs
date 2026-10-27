@@ -931,6 +931,7 @@ const publicOrigin = publicationProfile?.publicationOrigin;
 const canonicalPublicOrigin = publicationProfile?.publicationCanonicalOrigin;
 const errors = [];
 let stage = "project-creation";
+let pmtilesConversion = {status: "not-exercised", reason: "dedicated-converter-unconfigured"};
 let previewDeliveryTime=null;
 let previewExchange={sequence:0};
 const previewExchangeObserver=publicationSecurityOnly
@@ -1840,23 +1841,32 @@ try {
 
   stage = "pmtiles";
   console.log(`Studio: ${stage}`);
-  await page.getByRole("button", {name: "Processing", exact: true}).click();
-  await page.getByText(/^Vector to PMTiles \(/).click();
-  await page.getByLabel("Minimum zoom", {exact: true}).fill("4");
-  await page.getByLabel("Maximum zoom", {exact: true}).fill("8");
-  assert.equal(await page.getByLabel("Output tile layer", {exact: true}).inputValue(), "source");
-  const queued = page.waitForResponse((response) => response.url().endsWith("/pmtiles-derivatives") && response.request().method() === "POST");
-  await page.getByRole("button", {name: "Queue on-demand conversion", exact: true}).click();
-  const derivativeResponse = await queued;
-  assert.equal(derivativeResponse.status(), 202);
-  const derivative = await derivativeResponse.json();
-  await worker();
-  const derivativeResult = await readApi(`/projects/${project.id}/datasets/${datasetId}/versions/${completion.dataset_version_id}/pmtiles-derivatives/${derivative.job_id}`);
-  assert.equal(derivativeResult.state, "completed");
-  await page.getByRole("button", {name: "Refresh jobs", exact: true}).click();
-  const derivativeRow = page.locator(`[data-job-id="${derivative.job_id}"]`);
-  await derivativeRow.getByText(`completed · ${derivative.job_id}`, {exact: true}).waitFor();
-  await derivativeRow.screenshot({path: join(work, "pmtiles-completed.png")});
+  const converterRuntime = existsSync(join(work, "pmtiles-runtime.json"));
+  const converterCommand = existsSync(join(work, "pmtiles-worker-command.json"));
+  if (converterRuntime || converterCommand) {
+    assert.ok(converterRuntime && converterCommand, "Dedicated PMTiles acceptance requires both runtime and worker bindings");
+    await page.getByRole("button", {name: "Processing", exact: true}).click();
+    await page.getByText(/^Vector to PMTiles \(/).click();
+    await page.getByLabel("Minimum zoom", {exact: true}).fill("4");
+    await page.getByLabel("Maximum zoom", {exact: true}).fill("8");
+    assert.equal(await page.getByLabel("Output tile layer", {exact: true}).inputValue(), "source");
+    const [derivativeResponse] = await Promise.all([
+      page.waitForResponse((response) => response.url().endsWith("/pmtiles-derivatives") && response.request().method() === "POST"),
+      page.getByRole("button", {name: "Queue on-demand conversion", exact: true}).click()
+    ]);
+    assert.equal(derivativeResponse.status(), 202);
+    const derivative = await derivativeResponse.json();
+    await worker();
+    const derivativeResult = await readApi(`/projects/${project.id}/datasets/${datasetId}/versions/${completion.dataset_version_id}/pmtiles-derivatives/${derivative.job_id}`);
+    assert.equal(derivativeResult.state, "completed");
+    await page.getByRole("button", {name: "Refresh jobs", exact: true}).click();
+    const derivativeRow = page.locator(`[data-job-id="${derivative.job_id}"]`);
+    await derivativeRow.getByText(`completed · ${derivative.job_id}`, {exact: true}).waitFor();
+    await derivativeRow.screenshot({path: join(work, "pmtiles-completed.png")});
+    pmtilesConversion = {status: "passed", jobId: derivative.job_id};
+  } else {
+    console.log("Studio: on-demand PMTiles not exercised; dedicated converter unconfigured");
+  }
 
   stage = "metadata-and-png";
   console.log(`Studio: ${stage}`);
@@ -2493,7 +2503,8 @@ try {
       selected: selectedMapResource.map_snapshot, metadataRetainedOriginalPin: true,
       unsavedNotesPreservedDuringRead: true, explicitRevisionSelected: true},
     siteId:site.id, storyId:story.id,
-    pmtilesCompleted:true, metadataExported:true, pngRendered:true, portableZipSha256:hash(zipBytes),
+    pmtilesCompleted:pmtilesConversion.status === "passed", pmtilesConversion,
+    metadataExported:true, pngRendered:true, portableZipSha256:hash(zipBytes),
     serviceConnection:serviceConnectionProof,
     ...(accessProof ? {viewerAccess: accessProof} : {}),
     ...(serviceClientsMode ? {serviceClients} : {}),
