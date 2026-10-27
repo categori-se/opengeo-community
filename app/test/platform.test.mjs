@@ -1480,6 +1480,51 @@ describe("platform state loader", () => {
     assert.deepEqual(separated.retainedFeature.geometry.coordinates[0][0][0], [2, 0]);
     assert.equal(created.version, 1);
     assert.deepEqual(created.properties, {name: "Survey area"});
+    const beforeDissolve = await adapter.listFeatures(projectId, upload.dataset.id, {limit: 100});
+    const retainedHistory = await adapter.listFeatureHistory(projectId, upload.dataset.id, featureId);
+    const donorHistory = await adapter.listFeatureHistory(projectId, upload.dataset.id, created.id);
+    const lockToken = "a0000000-0000-4000-8000-000000000231";
+    await adapter.acquireFeatureLock(projectId, upload.dataset.id, featureId, {
+      expectedVersion: 2, lockToken, leaseSeconds: 120
+    });
+    const dissolveRequest = {
+      retainedFeatureId: featureId,
+      geometryOperation: "dissolve",
+      features: [
+        {featureId, expectedVersion: 2, lockToken},
+        {featureId: created.id, expectedVersion: 1}
+      ]
+    };
+    await assert.rejects(
+      adapter.mergeMultipolygonFeatures(projectId, upload.dataset.id, {
+        ...dissolveRequest,
+        features: [{featureId, expectedVersion: 1, lockToken}, dissolveRequest.features[1]]
+      }),
+      (error) => error.code === "feature_version_conflict" && error.currentVersion === 2
+    );
+    await assert.rejects(
+      adapter.mergeMultipolygonFeatures(projectId, upload.dataset.id, {
+        ...dissolveRequest,
+        features: [{featureId, expectedVersion: 2}, dissolveRequest.features[1]]
+      }),
+      (error) => error.code === "feature_locked"
+    );
+    await assert.rejects(
+      adapter.mergeMultipolygonFeatures(projectId, upload.dataset.id, dissolveRequest),
+      (error) => error.code === "geometry_operation_unsupported"
+        && /unavailable in this fixture workspace/.test(error.message)
+    );
+    await assert.rejects(
+      adapter.mergeMultipolygonFeatures(projectId, upload.dataset.id, {
+        ...dissolveRequest, geometryOperation: "union"
+      }),
+      /geometryOperation must be collect or dissolve/
+    );
+    assert.deepEqual(await adapter.listFeatures(projectId, upload.dataset.id, {limit: 100}), beforeDissolve);
+    assert.deepEqual(await adapter.listFeatureHistory(projectId, upload.dataset.id, featureId), retainedHistory);
+    assert.deepEqual(await adapter.listFeatureHistory(projectId, upload.dataset.id, created.id), donorHistory);
+    assert.equal((await adapter.listFeatureTombstones(projectId, upload.dataset.id)).numberMatched, 0);
+    await adapter.releaseFeatureLock(projectId, upload.dataset.id, featureId, lockToken);
     await assert.rejects(
       adapter.mergeMultipolygonFeatures(projectId, upload.dataset.id, {
         retainedFeatureId: featureId,

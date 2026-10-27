@@ -66,8 +66,11 @@ tests and a pinned CKAN 2.11.6 sysadmin-peer create/read/purge receipt.
 
 The October 23 source recovery reproduces the expected payload byte-for-byte in
 the cached API image with networking disabled. Pytest was unavailable, so the
-matching-source historical checks are reused. Ordinary-user policy, harvesting,
-synchronization, update merging and production acceptance remain open.
+matching-source historical checks are reused. The October 27 ordinary-user mode
+also passes a local private-organization create/read/edit journey, three outsider
+denials and exact metadata/resource-ID preservation. It uses separate destination
+settings and leaves the exporter create-only. Harvesting, synchronization,
+general update merging, other destination policies and production acceptance remain open.
 
 ## Read the workspace through catalog and feature APIs
 

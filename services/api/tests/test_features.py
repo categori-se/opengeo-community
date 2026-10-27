@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections import deque
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -6,8 +7,11 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from psycopg.types.json import Jsonb
 
 from opengeo_api.features import (
+    _DISSOLVE_MULTIPOLYGON_SQL,
+    _DISSOLVE_TIMEOUT_SQL,
     AttributeQueryStep,
     FeatureAccessDenied,
     FeatureCollection,
@@ -813,6 +817,219 @@ def test_repository_merges_multipolygon_features_and_tombstones_donor_atomically
         "dataset.feature.parts.merged" in parameters
         for _kind, _statement, parameters in transaction.calls
     )
+
+
+def dissolve_transaction(
+    *,
+    role="editor",
+    geometries=None,
+    locks=(None, None),
+    result=None,
+    committed=False,
+):
+    donor_id = UUID("90000000-0000-4000-8000-000000000132")
+    schema = {
+        "schemaVersion": "1.0.0",
+        "fields": [{"name": "name", "type": "string", "required": True}],
+    }
+    if geometries is None:
+        geometries = [
+            {
+                "type": "MultiPolygon",
+                "coordinates": [
+                    [[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]],
+                ],
+            },
+            {
+                "type": "MultiPolygon",
+                "coordinates": [
+                    [[[1, 0], [3, 0], [3, 2], [1, 2], [1, 0]]],
+                ],
+            },
+        ]
+    rows = [
+        ("member", role, None, False, "active", "geojson"),
+        (DATASET_ID, "MultiPolygon", schema, 7, 2, USER_ID, NOW, USER_ID, NOW),
+        feature_row(FEATURE_ID, 2, geometries[0], (0, 0, 2, 2)),
+        feature_row(donor_id, 3, geometries[1], (1, 0, 3, 2)),
+        *locks,
+        result,
+    ]
+    if committed:
+        rows.extend(
+            [
+                feature_row(FEATURE_ID, 3, result[0], (0, 0, 3, 2)),
+                (8, 1, NOW),
+            ]
+        )
+    return QueryTransaction(rows), donor_id
+
+
+def dissolve_selected(transaction, donor_id, *, version=2):
+    return asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(transaction)).merge_multipolygon_features(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            FEATURE_ID,
+            ((FEATURE_ID, version, None), (donor_id, 3, None)),
+            None,
+            "polygon-dissolve-request",
+            geometry_operation="dissolve",
+        )
+    )
+
+
+def test_selected_dissolve_retains_identity_and_uses_bounded_parameterized_union():
+    geometry = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[0, 0], [3, 0], [3, 2], [0, 2], [0, 0]]],
+        ],
+    }
+    transaction, donor_id = dissolve_transaction(result=(geometry, True), committed=True)
+
+    result = dissolve_selected(transaction, donor_id)
+
+    assert result.retained_feature.feature_id == FEATURE_ID
+    assert result.retained_feature.properties == {"name": "Survey areas"}
+    assert result.retained_feature.geometry == geometry
+    assert result.collection.generation == 8 and result.collection.feature_count == 1
+    assert [(item.feature_id, item.deleted_version) for item in result.deleted_features] == [
+        (donor_id, 4)
+    ]
+    statements = [statement for _kind, statement, _parameters in transaction.calls]
+    union_index = next(
+        index for index, statement in enumerate(statements) if "ST_UnaryUnion" in statement
+    )
+    assert sum("FOR UPDATE" in statement for statement in statements[:union_index]) == 3
+    assert sum("expires_at >" in statement for statement in statements[:union_index]) == 2
+    assert statements[union_index - 1] == _DISSOLVE_TIMEOUT_SQL
+    union_parameters = transaction.calls[union_index][2]
+    assert isinstance(union_parameters[0], Jsonb) and len(union_parameters[0].obj) == 2
+    assert union_parameters[1] == 10_000
+    assert "ST_MakeValid" not in statements[union_index]
+    assert sum("UPDATE app.feature_collections" in statement for statement in statements) == 1
+    assert any(
+        "Dissolved polygon feature boundaries" in parameters
+        for _kind, _statement, parameters in transaction.calls
+    )
+    event = next(
+        parameters
+        for _kind, _statement, parameters in transaction.calls
+        if "dataset.feature.parts.merged" in parameters
+    )
+    assert any(
+        isinstance(value, Jsonb) and value.obj.get("geometry_operation") == "dissolve"
+        for value in event
+    )
+
+
+@pytest.mark.parametrize("failure", ["authority", "stale", "reservation", "positions", "parts"])
+def test_selected_dissolve_rejects_before_topology_or_writes(failure):
+    arguments = {}
+    if failure == "authority":
+        arguments["role"] = "viewer"
+    elif failure == "reservation":
+        arguments["locks"] = ((LOCK_TOKEN, OTHER_USER_ID, 2), None)
+    elif failure in {"positions", "parts"}:
+        coordinates = (
+            [[[[0, 0]] * 5001]]
+            if failure == "positions"
+            else [[[[0, 0], [1, 0], [1, 1], [0, 0]]]] * 129
+        )
+        arguments["geometries"] = [
+            {"type": "MultiPolygon", "coordinates": coordinates},
+            {"type": "MultiPolygon", "coordinates": coordinates},
+        ]
+    transaction, donor_id = dissolve_transaction(**arguments)
+    expected = (
+        FeatureAccessDenied
+        if failure == "authority"
+        else (FeatureConflict if failure in {"stale", "reservation"} else FeatureInvalid)
+    )
+    with pytest.raises(expected):
+        dissolve_selected(transaction, donor_id, version=1 if failure == "stale" else 2)
+    assert not any("ST_UnaryUnion" in statement for _kind, statement, _params in transaction.calls)
+    assert not any(kind == "execute" for kind, _statement, _params in transaction.calls)
+
+
+@pytest.mark.parametrize(
+    "union_result",
+    [
+        None,
+        (None, False),
+        ({"type": "MultiPolygon", "coordinates": []}, True),
+    ],
+)
+def test_selected_dissolve_rejects_invalid_empty_or_oversized_union_without_writes(union_result):
+    transaction, donor_id = dissolve_transaction(result=union_result)
+    with pytest.raises(FeatureInvalid):
+        dissolve_selected(transaction, donor_id)
+    assert all(
+        kind != "execute" or statement == _DISSOLVE_TIMEOUT_SQL
+        for kind, statement, _parameters in transaction.calls
+    )
+
+
+@pytest.mark.skipif(
+    not os.environ.get("OPENGEO_FEATURE_TEST_DSN"), reason="explicit local PostGIS DSN required"
+)
+def test_selected_dissolve_native_postgis_overlap_shared_edge_hole_and_rejections():
+    import psycopg
+
+    donut = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [
+                [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]],
+                [[1, 1], [1, 3], [3, 3], [3, 1], [1, 1]],
+            ]
+        ],
+    }
+    overlapping = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[3, 0], [5, 0], [5, 4], [3, 4], [3, 0]]],
+        ],
+    }
+    touching = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[5, 0], [6, 0], [6, 4], [5, 4], [5, 0]]],
+        ],
+    }
+    invalid = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[0, 0], [2, 2], [0, 2], [2, 0], [0, 0]]],
+        ],
+    }
+    with (
+        psycopg.connect(os.environ["OPENGEO_FEATURE_TEST_DSN"]) as connection,
+        connection.cursor() as cursor,
+    ):
+        for initial, expected in ((1000, 1000), (0, 5000), (10000, 5000)):
+            cursor.execute("SELECT set_config('statement_timeout', %s, true)", (str(initial),))
+            cursor.execute(_DISSOLVE_TIMEOUT_SQL)
+            cursor.execute("SELECT setting::int FROM pg_settings WHERE name='statement_timeout'")
+            assert cursor.fetchone() == (expected,)
+        cursor.execute(_DISSOLVE_MULTIPOLYGON_SQL, (Jsonb([donut, overlapping, touching]), 10_000))
+        geometry, accepted = cursor.fetchone()
+        assert accepted is True
+        draft = feature_draft(geometry, {}, (), FEATURE_ID)
+        assert draft.feature_id == FEATURE_ID and draft.geometry_type == "MultiPolygon"
+        cursor.execute(
+            "SELECT ST_Area(geom), ST_NumInteriorRings(ST_GeometryN(geom, 1)), "
+            "ST_IsValid(geom) "
+            "FROM (SELECT ST_GeomFromGeoJSON(%s::text) AS geom) result",
+            (Jsonb(draft.geometry),),
+        )
+        assert cursor.fetchone() == (20.0, 1, True)
+        cursor.execute(_DISSOLVE_MULTIPOLYGON_SQL, (Jsonb([donut, invalid]), 10_000))
+        assert cursor.fetchone() == (None, False)
+        cursor.execute(_DISSOLVE_MULTIPOLYGON_SQL, (Jsonb([donut, overlapping, touching]), 5))
+        assert cursor.fetchone() == (None, False)
 
 
 def test_repository_lists_deleted_feature_tombstones_with_bounded_paging() -> None:

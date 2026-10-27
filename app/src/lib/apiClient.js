@@ -5225,8 +5225,11 @@ export class OpenGeoApiClient {
   async mergeMultipolygonFeatures(
     projectId,
     datasetId,
-    {retainedFeatureId, features, changeMessage = null}
+    {retainedFeatureId, features, changeMessage = null, geometryOperation = "collect"}
   ) {
+    if (!["collect", "dissolve"].includes(geometryOperation)) {
+      throw new TypeError("polygon merge geometryOperation must be collect or dissolve");
+    }
     if (!Array.isArray(features) || features.length < 2 || features.length > 20) {
       throw new TypeError("polygon merge requires between 2 and 20 features");
     }
@@ -5257,10 +5260,11 @@ export class OpenGeoApiClient {
         body: {
           retained_feature_id: retained,
           features: normalized,
+          ...(geometryOperation === "collect" ? {} : {geometry_operation: geometryOperation}),
           change_message: boundedQuery(changeMessage, 500, "feature change message")
         }
       }
-    ), "merge_parts");
+    ), "merge_parts", geometryOperation);
   }
 
   async listFeatureHistory(projectId, datasetId, featureId, page = {}) {
@@ -7590,7 +7594,7 @@ function parseFeatureDeletion(value) {
   };
 }
 
-export function parseFeatureStructureMutation(value, expectedOperation) {
+export function parseFeatureStructureMutation(value, expectedOperation, expectedGeometryOperation) {
   const record = boundedObject(value, 6_000_000, "feature structure mutation");
   const operation = oneOf(
     record.operation,
@@ -7598,6 +7602,18 @@ export function parseFeatureStructureMutation(value, expectedOperation) {
     "feature structure mutation.operation"
   );
   if (operation !== expectedOperation) contract("feature structure mutation operation changed");
+  const geometryOperation = record.geometry_operation === undefined ? null : oneOf(
+    record.geometry_operation,
+    ["collect", "dissolve"],
+    "feature structure mutation.geometry_operation"
+  );
+  if (geometryOperation !== null && operation !== "merge_parts") {
+    contract("geometry operation is only valid for a merge-parts mutation");
+  }
+  if (expectedGeometryOperation !== undefined
+    && (geometryOperation ?? "collect") !== expectedGeometryOperation) {
+    contract("feature structure mutation geometry operation changed");
+  }
   const retainedFeature = parseGovernedFeature(record.retained_feature);
   const createdFeatures = parseArray(
     record.created_features,
@@ -7638,6 +7654,7 @@ export function parseFeatureStructureMutation(value, expectedOperation) {
   }
   return {
     operation,
+    ...(geometryOperation === null ? {} : {geometryOperation}),
     retainedFeature,
     createdFeatures,
     deletedFeatures,

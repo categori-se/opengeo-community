@@ -147,6 +147,7 @@ class MergeMultipolygonFeaturesRequest(RequestModel):
     retained_feature_id: UUID
     features: list[FeatureExpectedVersionRequest] = Field(min_length=2, max_length=20)
     change_message: ChangeMessage | None = None
+    geometry_operation: Literal["collect", "dissolve"] = "collect"
 
 
 class AttributeQueryStepRequest(RequestModel):
@@ -409,9 +410,12 @@ async def merge_multipolygon_features(
             ),
             payload.change_message,
             get_request_id(),
+            geometry_operation=payload.geometry_operation,
         )
     )
-    return _structure_mutation_response(mutation, "merge_parts")
+    return _structure_mutation_response(
+        mutation, "merge_parts", geometry_operation=payload.geometry_operation
+    )
 
 
 @router.get("/projects/{project_id}/datasets/{dataset_id}/feature-locks")
@@ -755,6 +759,8 @@ def _mutation_response(mutation: FeatureMutation, *, status_code: int = 200) -> 
 def _structure_mutation_response(
     mutation: FeatureStructureMutation,
     operation: Literal["separate_parts", "merge_parts"],
+    *,
+    geometry_operation: Literal["collect", "dissolve"] = "collect",
 ) -> JSONResponse:
     document = {
         "operation": operation,
@@ -766,6 +772,8 @@ def _structure_mutation_response(
         "collection_generation": mutation.collection.generation,
         "feature_count": mutation.collection.feature_count,
     }
+    if geometry_operation == "dissolve":
+        document["geometry_operation"] = geometry_operation
     return JSONResponse(document, media_type="application/geo+json")
 
 
