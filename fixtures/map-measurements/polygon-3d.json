@@ -1,0 +1,400 @@
+{
+  "reference": "Analytic Cartesian faces converted independently to spherical longitude/latitude/radial elevation; mean Earth radius=(2a+b)/3. Areas and perimeters are analytic, not outputs of the implementation.",
+  "radiusMeters": 6371008.771415059,
+  "cases": [
+    {
+      "name": "vertical-wall",
+      "coordinates": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.000449660183870537,
+          0,
+          0.00019620079547166824
+        ],
+        [
+          0.00044965312606945435,
+          0,
+          100.0001961980015
+        ],
+        [
+          0,
+          0,
+          100
+        ]
+      ],
+      "areaSquareMeters": 5000,
+      "perimeterMeters": 300
+    },
+    {
+      "name": "sloping-roof",
+      "coordinates": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.0008993189561055266,
+          0,
+          10.00078480411321
+        ],
+        [
+          0.0008993189561055266,
+          0.0008993189559947454,
+          10.001569608226418
+        ],
+        [
+          0,
+          0.0008993203676856832,
+          0.0007848050445318222
+        ]
+      ],
+      "areaSquareMeters": 10049.87562112089,
+      "perimeterMeters": 400.9975124224178
+    },
+    {
+      "name": "concave-face",
+      "coordinates": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.0008993203676856832,
+          0,
+          0.0007848050445318222
+        ],
+        [
+          0.0008993203676856832,
+          0.0004496601838151462,
+          0.000981006771326065
+        ],
+        [
+          0.000449660183870537,
+          0.00044966018385668937,
+          0.0003924025222659111
+        ],
+        [
+          0.000449660183870537,
+          0.0008993203676579877,
+          0.000981006771326065
+        ],
+        [
+          0,
+          0.0008993203676856832,
+          0.0007848050445318222
+        ]
+      ],
+      "areaSquareMeters": 7500,
+      "perimeterMeters": 400
+    }
+  ],
+  "records": [
+    {
+      "schemaVersion": "opengeo.polygon-3d-measurement.1.0.0",
+      "id": "vertical-wall",
+      "title": "vertical-wall",
+      "kind": "polygon-3d",
+      "spatialBodyId": "earth",
+      "measurementModel": "mean-sphere-radial-elevation-chords",
+      "distanceUnit": "meter",
+      "areaUnit": "square-meter",
+      "coordinates": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.000449660183870537,
+          0,
+          0.00019620079547166824
+        ],
+        [
+          0.00044965312606945435,
+          0,
+          100.0001961980015
+        ],
+        [
+          0,
+          0,
+          100
+        ]
+      ],
+      "triangles": [
+        [
+          2,
+          3,
+          0
+        ],
+        [
+          2,
+          0,
+          1
+        ]
+      ],
+      "source": {
+        "kind": "user-supplied-vertices",
+        "label": "Analytic face vertices",
+        "verticalDatum": "Mean sphere radial elevation",
+        "geometryMeasurementId": null
+      },
+      "uncertaintyMeters": null,
+      "model": {
+        "surface": "vertex-triangulated",
+        "projectionAxis": 1,
+        "radiusMeters": 6371008.771415059,
+        "maximumPlaneDeviationMeters": 0,
+        "verticalAccuracy": "not-declared",
+        "uncertainty": "conservative-radial-intervals",
+        "betweenVertices": "planar-facets"
+      },
+      "summary": {
+        "perimeterMeters": 300,
+        "areaSquareMeters": 5000,
+        "widthMeters": 50,
+        "heightMeters": 100.000196
+      },
+      "bounds": null
+    },
+    {
+      "schemaVersion": "opengeo.polygon-3d-measurement.1.0.0",
+      "id": "sloping-roof",
+      "title": "sloping-roof",
+      "kind": "polygon-3d",
+      "spatialBodyId": "earth",
+      "measurementModel": "mean-sphere-radial-elevation-chords",
+      "distanceUnit": "meter",
+      "areaUnit": "square-meter",
+      "coordinates": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.0008993189561055266,
+          0,
+          10.00078480411321
+        ],
+        [
+          0.0008993189561055266,
+          0.0008993189559947454,
+          10.001569608226418
+        ],
+        [
+          0,
+          0.0008993203676856832,
+          0.0007848050445318222
+        ]
+      ],
+      "triangles": [
+        [
+          2,
+          3,
+          0
+        ],
+        [
+          2,
+          0,
+          1
+        ]
+      ],
+      "source": {
+        "kind": "user-supplied-vertices",
+        "label": "Analytic face vertices",
+        "verticalDatum": "Mean sphere radial elevation",
+        "geometryMeasurementId": null
+      },
+      "uncertaintyMeters": null,
+      "model": {
+        "surface": "vertex-triangulated",
+        "projectionAxis": 2,
+        "radiusMeters": 6371008.771415059,
+        "maximumPlaneDeviationMeters": 0,
+        "verticalAccuracy": "not-declared",
+        "uncertainty": "conservative-radial-intervals",
+        "betweenVertices": "planar-facets"
+      },
+      "summary": {
+        "perimeterMeters": 400.997512,
+        "areaSquareMeters": 10049.875621,
+        "widthMeters": 141.421245,
+        "heightMeters": 10.00157
+      },
+      "bounds": null
+    },
+    {
+      "schemaVersion": "opengeo.polygon-3d-measurement.1.0.0",
+      "id": "concave-face",
+      "title": "concave-face",
+      "kind": "polygon-3d",
+      "spatialBodyId": "earth",
+      "measurementModel": "mean-sphere-radial-elevation-chords",
+      "distanceUnit": "meter",
+      "areaUnit": "square-meter",
+      "coordinates": [
+        [
+          0,
+          0,
+          0
+        ],
+        [
+          0.0008993203676856832,
+          0,
+          0.0007848050445318222
+        ],
+        [
+          0.0008993203676856832,
+          0.0004496601838151462,
+          0.000981006771326065
+        ],
+        [
+          0.000449660183870537,
+          0.00044966018385668937,
+          0.0003924025222659111
+        ],
+        [
+          0.000449660183870537,
+          0.0008993203676579877,
+          0.000981006771326065
+        ],
+        [
+          0,
+          0.0008993203676856832,
+          0.0007848050445318222
+        ]
+      ],
+      "triangles": [
+        [
+          4,
+          5,
+          0
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          2,
+          3
+        ],
+        [
+          0,
+          3,
+          4
+        ]
+      ],
+      "source": {
+        "kind": "user-supplied-vertices",
+        "label": "Analytic face vertices",
+        "verticalDatum": "Mean sphere radial elevation",
+        "geometryMeasurementId": null
+      },
+      "uncertaintyMeters": null,
+      "model": {
+        "surface": "vertex-triangulated",
+        "projectionAxis": 2,
+        "radiusMeters": 6371008.771415059,
+        "maximumPlaneDeviationMeters": 0,
+        "verticalAccuracy": "not-declared",
+        "uncertainty": "conservative-radial-intervals",
+        "betweenVertices": "planar-facets"
+      },
+      "summary": {
+        "perimeterMeters": 400,
+        "areaSquareMeters": 7500,
+        "widthMeters": 141.421356,
+        "heightMeters": 0.000981
+      },
+      "bounds": null
+    }
+  ],
+  "boundedRecord": {
+    "schemaVersion": "opengeo.polygon-3d-measurement.1.0.0",
+    "id": "sloping-roof",
+    "title": "sloping-roof",
+    "kind": "polygon-3d",
+    "spatialBodyId": "earth",
+    "measurementModel": "mean-sphere-radial-elevation-chords",
+    "distanceUnit": "meter",
+    "areaUnit": "square-meter",
+    "coordinates": [
+      [
+        0,
+        0,
+        0
+      ],
+      [
+        0.0008993189561055266,
+        0,
+        10.00078480411321
+      ],
+      [
+        0.0008993189561055266,
+        0.0008993189559947454,
+        10.001569608226418
+      ],
+      [
+        0,
+        0.0008993203676856832,
+        0.0007848050445318222
+      ]
+    ],
+    "triangles": [
+      [
+        2,
+        3,
+        0
+      ],
+      [
+        2,
+        0,
+        1
+      ]
+    ],
+    "source": {
+      "kind": "user-supplied-vertices",
+      "label": "Analytic face vertices",
+      "verticalDatum": "Mean sphere radial elevation",
+      "geometryMeasurementId": null
+    },
+    "uncertaintyMeters": 2,
+    "model": {
+      "surface": "vertex-triangulated",
+      "projectionAxis": 2,
+      "radiusMeters": 6371008.771415059,
+      "maximumPlaneDeviationMeters": 0,
+      "verticalAccuracy": "not-declared",
+      "uncertainty": "conservative-radial-intervals",
+      "betweenVertices": "planar-facets"
+    },
+    "summary": {
+      "perimeterMeters": 400.997512,
+      "areaSquareMeters": 10049.875621,
+      "widthMeters": 141.421245,
+      "heightMeters": 10.00157
+    },
+    "bounds": {
+      "perimeterMeters": [
+        400.35955,
+        402.110551
+      ],
+      "areaSquareMeters": [
+        10009.979234,
+        10148.884992
+      ],
+      "heightMeters": [
+        6.00157,
+        14.00157
+      ]
+    }
+  }
+}
