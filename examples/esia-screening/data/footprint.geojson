@@ -1,0 +1,43 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "b2000000-0000-4000-8000-000000000002",
+      "properties": {
+        "name": "Synthetic footprint",
+        "synthetic": true,
+        "fixture_version": "1.0.0",
+        "observation_period": null,
+        "rights": null
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              10,
+              10
+            ],
+            [
+              10.02,
+              10
+            ],
+            [
+              10.02,
+              10.02
+            ],
+            [
+              10,
+              10.02
+            ],
+            [
+              10,
+              10
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

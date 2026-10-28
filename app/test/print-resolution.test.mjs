@@ -73,6 +73,16 @@ test("print resolution re-rasterizes the same loaded viewport and restores the b
   }
 });
 
+test("graphics failure rejects capture immediately with its recovery message", async () => {
+  let captured = false;
+  const context = {shell:{getPrintContext:()=>({map:null,ready:false,renderer:"maplibre",
+    unavailableReason:"Map graphics unavailable. Retry the map before capturing."})}};
+  await assert.rejects(withPrintResolution(context, {maxWidth:1200,maxHeight:900}, () => {captured=true;}),
+    /Map graphics unavailable.*Retry/);
+  assert.equal(captured,false);
+  assert.equal(context.printResolutionCapture,undefined);
+});
+
 test("changed map/style/camera/padding/source pin/viewport and GPU clamping cannot produce an accepted capture", async () => {
   const changes = [
     ({context}) => {context.state.map = null;},

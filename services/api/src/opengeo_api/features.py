@@ -142,6 +142,19 @@ _CUT_MULTIPOLYGON_SQL = """
         SELECT geom, row_number() OVER (
             ORDER BY ST_Area(geom) DESC, ST_AsEWKB(ST_Normalize(geom))) AS piece_index
         FROM parts
+    ), footprint AS MATERIALIZED (
+        SELECT ST_UnaryUnion(ST_Collect(geom)) AS geom FROM ordered
+    ), conserved AS MATERIALIZED (
+        SELECT ST_Equals(f.geom, s.target) OR (
+            -- ST_Split/union can introduce binary64 rounding slivers. Compare
+            -- only; never snap or rewrite the generated pieces. The discrete
+            -- boundary metric alone is insufficient, so also bound area loss
+            -- to eight machine epsilons relative to the selected polygon.
+            ST_HausdorffDistance(ST_Boundary(f.geom), ST_Boundary(s.target)) = 0
+            AND ST_Area(ST_SymDifference(f.geom, s.target))
+                <= ST_Area(s.target) * 1.7763568394002505e-15
+        ) AS accepted
+        FROM footprint f CROSS JOIN selected s
     ), bounded AS MATERIALIZED (
         SELECT count(*) BETWEEN 2 AND 20
             AND bool_and(ST_IsValid(geom) AND NOT ST_IsEmpty(geom)
@@ -149,7 +162,7 @@ _CUT_MULTIPOLYGON_SQL = """
             AND sum(ST_NPoints(geom)) +
                 (SELECT ST_NPoints(source) - ST_NPoints(target) FROM selected) <= 10000
             AND count(*) + (SELECT ST_NumGeometries(source) - 1 FROM selected) <= 256
-            AND ST_Equals(ST_UnaryUnion(ST_Collect(geom)), (SELECT target FROM selected))
+            AND (SELECT accepted FROM conserved)
             AND NOT EXISTS (
                 SELECT 1 FROM ordered a JOIN ordered b ON a.piece_index < b.piece_index
                 WHERE ST_Relate(a.geom, b.geom, '2********')

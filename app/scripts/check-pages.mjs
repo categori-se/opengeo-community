@@ -1,7 +1,8 @@
 import {createServer} from "node:http";
+import {createHash} from "node:crypto";
 import assert from "node:assert/strict";
 import {existsSync, mkdirSync, statSync} from "node:fs";
-import {readFile, writeFile} from "node:fs/promises";
+import {readFile, readdir, writeFile} from "node:fs/promises";
 import {extname, join, normalize, resolve} from "node:path";
 import {fileURLToPath} from "node:url";
 import {chromium} from "playwright";
@@ -26,6 +27,11 @@ const kmlNetworkLinkMode = process.argv.includes("--kml-network-link")
   || process.argv.length === 2;
 const geomooseQueryMode = process.argv.includes("--geomoose-query");
 const shellOnly = process.argv.includes("--shell-only");
+const graphicsFailureMode = process.argv.includes("--graphics-failure-recovery");
+const graphicsFreshReopenMode = process.argv.includes("--graphics-fresh-reopen");
+assert.ok(!(graphicsFailureMode && graphicsFreshReopenMode), "Select one graphics method");
+const graphicsMode = graphicsFailureMode || graphicsFreshReopenMode;
+const graphicsStartedAt = Date.now();
 if (shellOnly && !process.argv.includes("--workbench-interactions")) {
   throw new Error("--shell-only requires --workbench-interactions");
 }
@@ -41,7 +47,65 @@ const distRoot = process.env.OPEN_GEO_BROWSER_DIST
 if (!existsSync(distRoot) || !statSync(distRoot).isDirectory()) {
   throw new Error(`Browser dist directory is unavailable: ${distRoot}`);
 }
-const artifactRoot = resolve(appRoot, "page-check-artifacts");
+const artifactRoot = graphicsMode
+  ? resolve(process.env.OPEN_GEO_GRAPHICS_ARTIFACT_ROOT ?? join(appRoot, "page-check-artifacts", graphicsFreshReopenMode ? "graphics-fresh-reopen" : "graphics-failure-recovery"))
+  : resolve(appRoot, "page-check-artifacts");
+const graphicsReceiptPath = join(artifactRoot, graphicsFreshReopenMode ? "graphics-fresh-reopen.json" : "graphics-failure-recovery.json");
+let graphicsReceipt = null;
+let graphicsSeedModules = null;
+if (graphicsFreshReopenMode) {
+  assert.ok(!existsSync(graphicsReceiptPath), "Preserve prior graphics receipt; use a new owned continuation directory");
+  assert.ok(process.env.OPEN_GEO_GRAPHICS_PRIOR_REPORT && process.env.OPEN_GEO_GRAPHICS_PRIOR_SHA256
+    && process.env.OPEN_GEO_GRAPHICS_DIAGNOSIS?.trim(), "Fresh reopen requires the retained failed full-case receipt, hash and changed-method diagnosis");
+  const bytes = await readFile(process.env.OPEN_GEO_GRAPHICS_PRIOR_REPORT);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), process.env.OPEN_GEO_GRAPHICS_PRIOR_SHA256);
+  const prior = JSON.parse(bytes);
+  assert.equal(prior.attempt, 2);assert.equal(prior.status, "failed");
+  assert.equal(prior.usage.requests, 667);assert.equal(prior.usage.wallSeconds, 23.31);
+  assert.ok(prior.cleanup?.browserClosed && prior.cleanup?.serverClosed && prior.cleanup?.contextClosed);
+  assert.ok(prior.usage.responseBytes + prior.usage.screenshotBytes < 33554432);
+  const modules = await readdir(join(distRoot, "_import/lib"));
+  graphicsSeedModules = {};
+  for (const name of ["localProjectStore", "mapDefinition"]) {
+    const matches = modules.filter(file => file.startsWith(`${name}.`) && file.endsWith(".js"));
+    assert.equal(matches.length, 1, `Exactly one built ${name} module is required`);
+    const path = `/_import/lib/${matches[0]}`;
+    graphicsSeedModules[name] = {path, sha256:createHash("sha256").update(await readFile(join(distRoot, path.slice(1)))).digest("hex")};
+  }
+  graphicsReceipt = {schemaVersion:1,case:"graphics-fresh-reopen",status:"running",method:"Built LocalProjectStore seed, then one new Studio page",
+    prior:{path:process.env.OPEN_GEO_GRAPHICS_PRIOR_REPORT,sha256:process.env.OPEN_GEO_GRAPHICS_PRIOR_SHA256,
+      diagnosis:process.env.OPEN_GEO_GRAPHICS_DIAGNOSIS,fullAttempts:2,usage:{...prior.usage},priorRequestOverrun:67},
+    limits:{newSeconds:30,cumulativeSeconds:90,newRequests:400,requests:1067,responseAndScreenshotsBytes:33554432,freshReopenRuns:1},
+    usage:{...prior.usage},cleanup:{contextClosed:false,browserClosed:false,serverClosed:false},proof:{},seedModules:graphicsSeedModules,
+    limitsOfEvidence:["New synthetic two-Layer, one-asset Project; does not recover the lost original ephemeral browser record.",
+      "One new compiled Studio bootstrap with WebGL2 disabled; no hardware, hosted account or MCP acceptance.",
+      "Reuse prior Save/Catalog/Print observations; no API mutation or repetition of those journeys."]};
+}
+if (graphicsFailureMode) {
+  assert.ok(!existsSync(graphicsReceiptPath), "Preserve prior graphics receipt; use a new owned attempt directory");
+  let prior = null;
+  if (process.env.OPEN_GEO_GRAPHICS_PRIOR_REPORT) {
+    const bytes = await readFile(process.env.OPEN_GEO_GRAPHICS_PRIOR_REPORT);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), process.env.OPEN_GEO_GRAPHICS_PRIOR_SHA256);
+    prior = JSON.parse(bytes);
+    assert.equal(prior.attempt, 1);assert.equal(prior.status, "failed");
+    assert.ok(prior.cleanup?.browserClosed && prior.cleanup?.serverClosed && prior.cleanup?.contextClosed);
+    assert.ok(process.env.OPEN_GEO_GRAPHICS_DIAGNOSIS?.trim(), "A second attempt requires a recorded diagnosis");
+    assert.ok(prior.usage.wallSeconds < 90 && prior.usage.requests < 600
+      && prior.usage.responseBytes + prior.usage.screenshotBytes < 33554432);
+  }
+  graphicsReceipt = {schemaVersion:1,case:"graphics-failure-recovery",attempt:prior ? 2 : 1,status:"running",
+    prior:prior ? {path:process.env.OPEN_GEO_GRAPHICS_PRIOR_REPORT,sha256:process.env.OPEN_GEO_GRAPHICS_PRIOR_SHA256,
+      diagnosis:process.env.OPEN_GEO_GRAPHICS_DIAGNOSIS} : null,
+    limits:{cumulativeSeconds:90,requests:600,responseAndScreenshotsBytes:33554432,attempts:2},
+    usage:{wallSeconds:prior?.usage.wallSeconds ?? 0,requests:prior?.usage.requests ?? 0,
+      responseBytes:prior?.usage.responseBytes ?? 0,screenshotBytes:prior?.usage.screenshotBytes ?? 0,
+      blockedExternal:prior?.usage.blockedExternal ?? 0},
+    cleanup:{contextClosed:false,browserClosed:false,serverClosed:false},proof:{},
+    limitsOfEvidence:["Installed Chromium with WebGL2 disabled; no proof of hardware recovery or other devices.",
+      "Catalog and saved Project use browser-local storage; no account/API/PostGIS/cloud mutation.",
+      "Field capture is covered by its focused owning checks; this case does not expand into a capture journey."]};
+}
 const publicLibrary = JSON.parse(
   await readFile(new URL("../src/data/public-library.json", import.meta.url), "utf8")
 );
@@ -419,9 +483,10 @@ browserProgress(`Browser fixture server: ${baseUrl}`);
 const launchBrowser = () => chromium.launch({
   headless: true,
   ...chromiumExecutable(),
-  ...(process.argv.includes("--project-dataset-reuse")
+  ...(graphicsMode || process.argv.includes("--project-dataset-reuse")
     ? {
         args: ["--disable-gpu", "--disable-software-rasterizer"],
+        ...(graphicsMode ? {timeout:10000} : {}),
         ignoreDefaultArgs: ["--enable-unsafe-swiftshader", "--disable-dev-shm-usage"]
       }
     : process.argv.includes("--platform-states")
@@ -430,11 +495,26 @@ const launchBrowser = () => chromium.launch({
     ? {dumpio: true, args: ["--enable-logging=stderr", "--v=1"]}
     : {})
 });
-let browser = await launchBrowser();
+let browser;
+try { browser = await launchBrowser(); }
+catch (error) {
+  await close(server);
+  if (graphicsReceipt) {
+    graphicsReceipt.status="failed";graphicsReceipt.error=error.message;
+    graphicsReceipt.usage.wallSeconds+=(Date.now()-graphicsStartedAt)/1000;
+    graphicsReceipt.cleanup={contextClosed:true,browserClosed:true,serverClosed:true,browserNeverAdmitted:true};
+    await writeFile(graphicsReceiptPath,JSON.stringify(graphicsReceipt,null,2)+"\n");
+  }
+  throw error;
+}
 const failures = [];
 
 try {
-  if (process.argv.includes("--auth")) {
+  if (graphicsFreshReopenMode) {
+    await assertGraphicsFreshReopen(browser, baseUrl);
+  } else if (graphicsFailureMode) {
+    await assertGraphicsFailureRecovery(browser, baseUrl);
+  } else if (process.argv.includes("--auth")) {
     await assertAuthenticationStates(browser, baseUrl);
   } else if (process.argv.includes("--workbench-interactions")) {
     await checkScreenshots(browser, baseUrl, [fixtureProjectRoute]);
@@ -533,9 +613,31 @@ try {
     await assertBasemapRuntimeRecovery(browser, baseUrl);
     await assertBasemapResourceFeedback(browser, baseUrl);
   }
+} catch (error) {
+  if (graphicsReceipt) {graphicsReceipt.status="failed";graphicsReceipt.error ??= error.message;}
+  throw error;
 } finally {
-  await browser.close();
-  await close(server);
+  try {
+    await browser.close();
+    if (graphicsReceipt) graphicsReceipt.cleanup.browserClosed = true;
+  } finally {
+    try {
+      await close(server);
+      if (graphicsReceipt) graphicsReceipt.cleanup.serverClosed = true;
+    } finally {
+      if (graphicsReceipt) {
+        graphicsReceipt.usage.wallSeconds += (Date.now() - graphicsStartedAt) / 1000;
+        if (graphicsFreshReopenMode && graphicsReceipt.usage.wallSeconds - graphicsReceipt.prior.usage.wallSeconds > 30) {
+          graphicsReceipt.status = "failed";graphicsReceipt.error = "New 30-second continuation budget exceeded";
+        }
+        if (graphicsReceipt.usage.wallSeconds > 90) {
+          graphicsReceipt.status = "failed";graphicsReceipt.error = "Cumulative 90-second budget exceeded";
+        }
+        if (graphicsReceipt.status === "failed") process.exitCode = 1;
+        await writeFile(graphicsReceiptPath, JSON.stringify(graphicsReceipt, null, 2) + "\n");
+      }
+    }
+  }
   if (process.argv.includes("--flight-simulator")) browserProgress("Flight browser and local fixture server closed.");
 }
 
@@ -544,7 +646,11 @@ if (failures.length) {
   process.exitCode = 1;
 } else {
   console.log(
-    process.argv.includes("--geolibre-import")
+    graphicsFreshReopenMode
+      ? `Checked one compiled graphics-disabled synthetic Project fresh reopen; receipt ${graphicsReceiptPath}.`
+      : graphicsFailureMode
+      ? `Checked one compiled graphics-disabled recovery journey; receipt ${graphicsReceiptPath}.`
+      : process.argv.includes("--geolibre-import")
       ? "Checked the compiled GeoLibre inspect/import/reopen/export workflow with fixture services."
       : process.argv.includes("--flight-simulator")
       ? "Checked the compiled flight simulator workflow in dark and light at 1440×950, 390×844, and 844×390."
@@ -2054,6 +2160,293 @@ async function assertStartExperience(page, route) {
   }
 }
 
+async function assertGraphicsFreshReopen(browser, baseUrl) {
+  assert.ok(graphicsReceipt && graphicsSeedModules);
+  const usage = graphicsReceipt.usage, startedUsage = {...usage}, responses = new Set();
+  const context = await browser.newContext({colorScheme:"light",viewport:{width:1100,height:760},serviceWorkers:"block"});
+  context.setDefaultTimeout(8000);context.setDefaultNavigationTimeout(15000);
+  let budgetFailure = null, admittedRequests = 0, refusedRequests = 0;
+  const errors = [], expectedGraphicsErrors = [];
+  const stop = message => {budgetFailure ??= message;void context.close().catch(()=>{});};
+  const guard = () => {
+    if (usage.requests - startedUsage.requests > 400) stop("New observed browser request ceiling exceeded");
+    if (usage.responseBytes + usage.screenshotBytes > 33554432) stop("Cumulative decoded response/screenshot budget exceeded");
+  };
+  const activeMs = Math.min(25000, 85000 - startedUsage.wallSeconds * 1000) - (Date.now() - graphicsStartedAt);
+  assert.ok(activeMs > 0, "Reserve five seconds for cleanup within both wall-time limits");
+  const deadline = setTimeout(()=>stop("Fresh-reopen active deadline reached"),activeMs);
+  context.on("request",()=>{usage.requests++;guard();});
+  context.on("response",response=>{
+    if (Number(response.headers()["content-length"] ?? 0) > 33554432 - usage.responseBytes - usage.screenshotBytes) {
+      stop("Response Content-Length exceeds remaining byte budget");return;
+    }
+    const pending = response.body().then(bytes=>{usage.responseBytes+=bytes.length;guard();})
+      .catch(error=>{if (!budgetFailure) errors.push(`Response body accounting failed: ${error.message}`);});
+    responses.add(pending);void pending.finally(()=>responses.delete(pending));
+  });
+  try {
+    await context.route("**/*",route=>{
+      // Check synchronously before any await/continue. Raw request events remain
+      // separately counted, including queued requests refused during shutdown.
+      if (budgetFailure || admittedRequests >= 400 || usage.requests - startedUsage.requests >= 400) {
+        refusedRequests++;stop("Fresh-reopen request admission ceiling reached");return route.abort("blockedbyclient");
+      }
+      admittedRequests++;
+      const url = new URL(route.request().url());
+      if (url.origin !== baseUrl) {usage.blockedExternal++;return route.abort("blockedbyclient");}
+      if (url.pathname.startsWith("/api/") && !["GET","HEAD"].includes(route.request().method())) {
+        errors.push("Unexpected API mutation in browser-local fresh reopen");return route.abort("blockedbyclient");
+      }
+      if (url.pathname === "/__opengeo_graphics_seed__") return route.fulfill({status:200,contentType:"text/html",body:"<!doctype html><title>Local Project seed</title>"});
+      return route.continue();
+    });
+    const seedPage = await context.newPage();
+    seedPage.on("pageerror",error=>errors.push(`Seed: ${error.message}`));
+    assert.equal((await seedPage.goto(`${baseUrl}/__opengeo_graphics_seed__`,{waitUntil:"load"}))?.status(),200);
+    const expected = await seedPage.evaluate(async modules=>{
+      const [{LocalProjectStore},{emptyMapDefinition}] = await Promise.all([
+        import(modules.localProjectStore.path),import(modules.mapDefinition.path)]);
+      const canonical = value => Array.isArray(value) ? value.map(canonical)
+        : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
+      const hash = async value => [...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,"0")).join("");
+      const data = {type:"FeatureCollection",features:[{type:"Feature",id:"fresh-reopen-point",properties:{name:"Synthetic fresh reopen",missing:null,zero:0,confirmed:false},geometry:{type:"Point",coordinates:[2,3]}}]};
+      const layers = ["a","b"].map((suffix,order)=>({layerId:`graphics-fresh-${suffix}`,datasetId:"graphics-fresh-source",
+        title:`Fresh reopen shared source ${suffix.toUpperCase()}`,sourceType:"geojson-object",visible:true,order,
+        style:{circleColor:"#06b6d4"},labels:{}}));
+      const id = "42000000-0000-4000-8000-000000000028", store = new LocalProjectStore();
+      await store.save({id,title:"Synthetic graphics fresh reopen",definition:emptyMapDefinition({layers,activeLayerId:layers[0].layerId,colorMode:"light"}),
+        geojsonByLayerId:new Map(layers.map(layer=>[layer.layerId,data]))});
+      const record = await store.load(id), library = await store.list();
+      const layersJson = JSON.stringify(canonical(record.definition.layers));
+      const dataJson = JSON.stringify(canonical([...record.geojsonByLayerId].sort(([a],[b])=>a.localeCompare(b))));
+      return {id,revision:record.revision,title:record.title,layers:record.definition.layers,layersJson,dataJson,
+        layersSha256:await hash(layersJson),dataSha256:await hash(dataJson),assetSha256:await hash(JSON.stringify(data)),
+        references:record.references,assetCount:library.assets};
+    },graphicsSeedModules);
+    graphicsReceipt.proof.expected = expected;
+    assert.equal(expected.revision,1);assert.equal(expected.layers.length,2);assert.equal(expected.assetCount,1);
+    assert.equal(expected.references.length,2);
+    assert.ok(expected.references.every(reference=>reference.checksum === expected.assetSha256));
+    await Promise.all([...responses]);await seedPage.close();
+    const page = await context.newPage();
+    page.on("pageerror",error=>errors.push(error.message));
+    page.on("console",message=>{
+      if (message.type() !== "error") return;
+      const value = message.text();
+      if (/GPUInitializationError|WebGL|Failed to initialize.*GL/i.test(value)) expectedGraphicsErrors.push(value.slice(0,500));
+      else if (!/net::ERR_BLOCKED_BY_CLIENT/.test(value)) errors.push(value.slice(0,500));
+    });
+    assert.equal((await page.goto(`${baseUrl}/?adapter=fixture&localProject=${expected.id}`,{waitUntil:"load"}))?.status(),200);
+    const shell = page.locator(".opengeo-workbench").first();
+    await shell.locator(".gis-map-startup-error").waitFor();
+    await shell.locator('.gis-save-state[data-state="saved"]').waitFor();
+    await shell.getByRole("button",{name:`Style ${expected.layers[0].title}`,exact:true}).click();
+    await shell.locator(".gis-panel-right").waitFor({state:"visible"});
+    const restored = await shell.evaluate(async (node,modules)=>{
+      const canonical = value => Array.isArray(value) ? value.map(canonical)
+        : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
+      const hash = async value => [...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(value)))].map(n=>n.toString(16).padStart(2,"0")).join("");
+      const {LocalProjectStore} = await import(modules.localProjectStore.path), store = new LocalProjectStore();
+      const record = await store.load(new URL(location.href).searchParams.get("localProject")), library = await store.list();
+      const layersJson = JSON.stringify(canonical(node.__opengeoLayers));
+      const dataJson = JSON.stringify(canonical([...node.__opengeoData].sort(([a],[b])=>a.localeCompare(b))));
+      const assetHashes = await Promise.all([...node.__opengeoData].map(async ([layerId,data])=>({layerId,sha256:await hash(JSON.stringify(data))})));
+      return {layersJson,dataJson,layersSha256:await hash(layersJson),dataSha256:await hash(dataJson),assetHashes,
+        references:record.references,revision:record.revision,assetCount:library.assets,
+        saveState:node.querySelector(".gis-save-state")?.dataset.state,saveLabel:node.querySelector(".gis-save-state")?.textContent,
+        ready:node.getPrintContext().ready,reason:node.getPrintContext().unavailableReason,
+        loading:node.querySelector('[data-status-field="loading"]')?.textContent};
+    },graphicsSeedModules);
+    graphicsReceipt.proof.restored = restored;
+    assert.equal(restored.layersJson,expected.layersJson,"Every restored Layer property must match the stored fixture");
+    assert.equal(restored.dataJson,expected.dataJson,"Every restored feature/property must match the stored fixture");
+    assert.deepEqual(restored.references,expected.references);assert.equal(restored.assetCount,1);assert.equal(restored.revision,1);
+    assert.ok(restored.assetHashes.every(asset=>asset.sha256 === expected.assetSha256));
+    assert.equal(restored.saveState,"saved");assert.match(restored.saveLabel,/Saved on this device.*r1/);
+    assert.equal(restored.ready,false);assert.match(restored.reason,/Map graphics unavailable/);assert.match(restored.loading,/graphics unavailable/i);
+    const legibility = await shell.evaluate(async node=>{
+      await new Promise(resolveFrame=>requestAnimationFrame(()=>requestAnimationFrame(resolveFrame)));
+      const notice = node.querySelector(".gis-map-startup-error"), inspector = node.querySelector(".gis-panel-right");
+      const bounds = element => {const r=element.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height};};
+      const map = bounds(node.querySelector(".gis-map")), panel = bounds(inspector), box = bounds(notice);
+      const inside = r=>r.left>=map.left && r.right<=map.right && r.top>=map.top && r.bottom<=map.bottom
+        && r.left>=box.left && r.right<=box.right && r.top>=box.top && r.bottom<=box.bottom;
+      const overlap = r=>r.left<panel.right && r.right>panel.left && r.top<panel.bottom && r.bottom>panel.top;
+      const hit = r=>notice.contains(document.elementFromPoint((r.left+r.right)/2,(r.top+r.bottom)/2));
+      const rects = [], walker = document.createTreeWalker(notice,NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) if (walker.currentNode.textContent.trim()) {
+        const range = document.createRange();range.selectNodeContents(walker.currentNode);
+        for (const r of range.getClientRects()) if (r.width && r.height) rects.push({left:r.left,right:r.right,top:r.top,bottom:r.bottom});
+      }
+      const retry = bounds(notice.querySelector("button"));
+      return {viewport:{width:innerWidth,height:innerHeight},map,inspector:panel,notice:box,textRects:rects,
+        textRectCount:rects.length,obscuredTextRects:rects.filter(r=>!inside(r)||overlap(r)||!hit(r)).length,
+        retryVisible:inside(retry)&&!overlap(retry)&&hit(retry),inspectorOpen:!node.classList.contains("right-collapsed")};
+    });
+    graphicsReceipt.proof.legibility = legibility;
+    assert.ok(legibility.inspectorOpen && legibility.textRectCount>0);assert.equal(legibility.obscuredTextRects,0);assert.ok(legibility.retryVisible);
+    const bytes = await page.screenshot({path:join(artifactRoot,"graphics-fresh-reopened.png"),fullPage:true});
+    usage.screenshotBytes+=bytes.length;guard();await Promise.all([...responses]);
+    assert.equal(budgetFailure,null);assert.deepEqual(errors,[]);assert.ok(expectedGraphicsErrors.length>0);
+    graphicsReceipt.proof = {syntheticSeed:true,originalEphemeralRecordRecovered:false,newStudioBootstraps:1,
+      expected,restored,legibility,printReadinessUnavailable:true,nativeGraphicsErrors:expectedGraphicsErrors,
+      screenshot:{path:"graphics-fresh-reopened.png",bytes:bytes.length,sha256:createHash("sha256").update(bytes).digest("hex")}};
+    graphicsReceipt.status="pass";
+  } catch (error) {
+    graphicsReceipt.status="failed";graphicsReceipt.error=budgetFailure ?? error.message;graphicsReceipt.observedErrors=errors;
+    graphicsReceipt.nativeGraphicsErrors=expectedGraphicsErrors;throw error;
+  } finally {
+    clearTimeout(deadline);await Promise.allSettled([...responses]);await context.close();graphicsReceipt.cleanup.contextClosed=true;
+    graphicsReceipt.attemptUsage={requests:usage.requests-startedUsage.requests,admittedRequests,ceilingRefusedRequests:refusedRequests,
+      responseBytes:usage.responseBytes-startedUsage.responseBytes,screenshotBytes:usage.screenshotBytes-startedUsage.screenshotBytes,
+      blockedExternal:usage.blockedExternal-startedUsage.blockedExternal};
+    if (graphicsReceipt.attemptUsage.requests>400) {graphicsReceipt.status="failed";graphicsReceipt.error="New observed browser request ceiling exceeded";}
+  }
+}
+
+async function assertGraphicsFailureRecovery(browser, baseUrl) {
+  assert.ok(graphicsReceipt);
+  const usage = graphicsReceipt.usage, startedUsage = {...usage}, responses = new Set();
+  const context = await browser.newContext({colorScheme:"light",viewport:{width:1440,height:950},serviceWorkers:"block"});
+  context.setDefaultTimeout(10000);context.setDefaultNavigationTimeout(15000);
+  let budgetFailure = null;
+  const stop = message => {
+    budgetFailure ??= message;
+    void context.close().catch(()=>{});
+  };
+  const guard = () => {
+    if (usage.requests > 600) stop("Cumulative browser request budget exceeded");
+    if (usage.responseBytes + usage.screenshotBytes > 33554432) stop("Cumulative decoded response/screenshot budget exceeded");
+  };
+  const remainingActiveMs = 80000 - usage.wallSeconds * 1000 - (Date.now() - graphicsStartedAt);
+  assert.ok(remainingActiveMs > 0,"Reserve ten seconds for cleanup within the cumulative budget");
+  const deadline = setTimeout(()=>stop("Cumulative active browser deadline reached"),remainingActiveMs);
+  const errors = [], expectedGraphicsErrors = [];
+  context.on("request",()=>{usage.requests++;guard();});
+  context.on("response",response=>{
+    const contentLength = Number(response.headers()["content-length"] ?? 0);
+    if (contentLength > 33554432 - usage.responseBytes - usage.screenshotBytes) {
+      stop("Response Content-Length exceeds remaining byte budget");return;
+    }
+    const pending = response.body().then(bytes=>{usage.responseBytes+=bytes.length;guard();})
+      .catch(error=>{if (!budgetFailure) errors.push(`Response body accounting failed: ${error.message}`);});
+    responses.add(pending);void pending.finally(()=>responses.delete(pending));
+  });
+  await context.route("**/*",async route=>{
+    const url = new URL(route.request().url());
+    if (url.origin !== baseUrl) {usage.blockedExternal++;return route.abort("blockedbyclient");}
+    if (url.pathname.startsWith("/api/") && !["GET","HEAD"].includes(route.request().method())) {
+      errors.push("Unexpected API mutation in browser-local graphics case");return route.abort("blockedbyclient");
+    }
+    return route.continue();
+  });
+  const page = await context.newPage();
+  page.on("pageerror",error=>errors.push(error.message));
+  page.on("console",message=>{
+    if (message.type() !== "error") return;
+    const value=message.text();
+    if (/GPUInitializationError|WebGL|Failed to initialize.*GL/i.test(value)) expectedGraphicsErrors.push(value.slice(0,500));
+    else if (!/net::ERR_BLOCKED_BY_CLIENT/.test(value)) errors.push(value.slice(0,500));
+  });
+  const snapshot = () => page.locator(".opengeo-workbench").first().evaluate(shell=>{
+    const canonical = value => Array.isArray(value) ? value.map(canonical)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key=>[key,canonical(value[key])])) : value;
+    return {layers:JSON.stringify(canonical(shell.__opengeoLayers)),
+      data:JSON.stringify(canonical([...shell.__opengeoData].sort(([a],[b])=>a.localeCompare(b)))),
+      ready:shell.getPrintContext().ready,reason:shell.getPrintContext().unavailableReason,
+      saveState:shell.dataset.saveState};
+  });
+  const menu = async name => {
+    await page.locator(".opengeo-workbench").first().getByRole("button",{name:"Project",exact:true}).click();
+    // The menu's accessible name also includes its keyboard-shortcut <kbd>.
+    // Match its exact visible label child rather than omitting that shortcut.
+    const items=page.locator('.gis-menu-wrap[data-menu="project"]').getByRole("menuitem");
+    if (typeof name === "string") await items.filter({has:page.getByText(name,{exact:true})}).click();
+    else await items.filter({hasText:name}).click();
+  };
+  const screenshot = async name => {
+    const bytes=await page.screenshot({path:join(artifactRoot,name),fullPage:true});
+    usage.screenshotBytes+=bytes.length;guard();
+    return {path:name,bytes:bytes.length,sha256:createHash("sha256").update(bytes).digest("hex")};
+  };
+  try {
+    const response=await page.goto(`${baseUrl}/?adapter=fixture`,{waitUntil:"load"});
+    assert.equal(response?.status(),200);
+    await page.locator(".gis-map-startup-error").first().waitFor();
+    const closeStart=page.getByRole("button",{name:"Close start panel and use an empty map",exact:true});
+    if (await closeStart.isVisible()) await closeStart.click();
+    const initial=await snapshot();
+    assert.equal(initial.ready,false);assert.match(initial.reason,/Map graphics unavailable/);
+    assert.ok(await page.locator('[data-status-field="loading"]').first().innerText().then(text=>/graphics unavailable/i.test(text)));
+    await page.setViewportSize({width:1100,height:760});
+    await page.locator('[aria-label="Resize layers panel"]').press("ArrowRight");
+    // The general Studio landing map intentionally has no example Catalog.
+    // Register one tiny local source through its existing file/review flow.
+    await page.getByRole("button",{name:"Add data",exact:true}).click();
+    await page.locator('.gis-file-drop input[type="file"]').first().setInputFiles({
+      name:"graphics-recovery-source.geojson",mimeType:"application/geo+json",
+      buffer:Buffer.from(JSON.stringify({type:"FeatureCollection",features:[{type:"Feature",
+        properties:{name:"Local graphics recovery fixture"},geometry:{type:"Point",coordinates:[2,3]}}]}))});
+    const localReview=page.locator(".browser-layer-registration");await localReview.waitFor();
+    await localReview.getByRole("button",{name:"Add Layer to Project",exact:true}).click();
+    await localReview.waitFor({state:"detached"});
+    const before=await snapshot();
+    assert.equal(JSON.parse(before.layers).length,JSON.parse(initial.layers).length+1);
+    await menu(/Open (?:demo )?data catalog/);
+    await page.locator('button[aria-label^="Review and add "]').first().click();
+    const review=page.locator(".browser-layer-registration");await review.waitFor();
+    await review.getByLabel("Layer title",{exact:true}).fill("Graphics recovery retained Layer");
+    await review.getByRole("button",{name:"Add Layer to Project",exact:true}).click();
+    await review.waitFor({state:"detached"});
+    const added=await snapshot();
+    assert.equal(JSON.parse(added.layers).length,JSON.parse(before.layers).length+1);
+    assert.match(await page.locator('[data-status-field="message"]').first().innerText(),/Layer was added/);
+    await menu("Save on this device");
+    const title=page.getByRole("dialog",{name:"Save personal Project",exact:true});
+    await title.getByLabel("Personal Project title").fill("Graphics recovery local proof");
+    await title.getByRole("button",{name:"Save Project",exact:true}).click();
+    await page.locator('.opengeo-workbench[data-save-state="saved"]').first().waitFor();
+    const saved=await snapshot();
+    assert.equal(saved.layers,added.layers);assert.equal(saved.data,added.data);
+    await menu("Open Print Studio");
+    const print=page.getByRole("dialog",{name:"Local Print Studio",exact:true});await print.waitFor();
+    await print.locator(".gis-map-startup-error").waitFor();
+    const captureStarted=Date.now();
+    await print.getByRole("button",{name:"Capture map frame",exact:true}).click();
+    await print.getByText("Map graphics unavailable. Retry the map before capturing.",{exact:true}).waitFor();
+    const captureFailureMs=Date.now()-captureStarted;assert.ok(captureFailureMs<2000,"Graphics failure must fail capture immediately");
+    await print.getByRole("button",{name:"Back to map",exact:true}).click();await print.waitFor({state:"detached"});
+    assert.equal((await snapshot()).layers,saved.layers);assert.equal((await snapshot()).data,saved.data);
+    await page.locator(".gis-map-startup-error button").click();
+    await page.locator(".gis-map-startup-error").waitFor();
+    assert.equal((await snapshot()).ready,false);
+    assert.equal((await snapshot()).saveState,"saved","A failed graphics retry cannot make the saved draft dirty");
+    const firstImage=await screenshot("graphics-disabled-retained.png");
+    await page.reload({waitUntil:"load"});await page.locator(".gis-map-startup-error").waitFor();
+    const fresh=await snapshot();assert.equal(fresh.layers,saved.layers);assert.equal(fresh.data,saved.data);
+    const secondImage=await screenshot("graphics-disabled-reopened.png");
+    await Promise.all([...responses]);
+    assert.equal(budgetFailure,null);assert.deepEqual(errors,[]);
+    assert.ok(expectedGraphicsErrors.length>0,"Installed graphics renderer must actually attempt and reject WebGL2");
+    graphicsReceipt.proof={graphicsNotice:true,loadingTerminated:true,nativeResizeSafe:true,
+      localFileSourceRegistration:1,catalogSingleAddition:true,savedLocalProjectPreserved:true,printCaptureFailureMs:captureFailureMs,
+      printClosedSafely:true,retryExplanatory:true,freshReloadExact:true,
+      layerCount:JSON.parse(saved.layers).length,localProjectId:new URL(page.url()).searchParams.get("localProject"),
+      nativeGraphicsErrors:expectedGraphicsErrors,screenshots:[firstImage,secondImage]};
+    graphicsReceipt.status="pass";
+  } catch(error) {
+    graphicsReceipt.status="failed";graphicsReceipt.error=budgetFailure ?? error.message;
+    graphicsReceipt.observedErrors=errors;throw error;
+  } finally {
+    clearTimeout(deadline);await Promise.allSettled([...responses]);
+    await context.close();graphicsReceipt.cleanup.contextClosed=true;
+    graphicsReceipt.attemptUsage={requests:usage.requests-startedUsage.requests,
+      responseBytes:usage.responseBytes-startedUsage.responseBytes,
+      screenshotBytes:usage.screenshotBytes-startedUsage.screenshotBytes,
+      blockedExternal:usage.blockedExternal-startedUsage.blockedExternal};
+  }
+}
+
 async function assertStudioStartWorkspace(browser, baseUrl) {
   for (const colorScheme of ["dark", "light"]) {
     const context = await browser.newContext({colorScheme, viewport: {width: 1440, height: 950}});
@@ -3378,6 +3771,7 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   await capture.getByText("Enter or inspect coordinates (GeoJSON)", {exact: true}).click();
   await capture.getByLabel("Field observation GeoJSON geometry", {exact: true})
     .fill(JSON.stringify({type: "LineString", coordinates: [[85.31, 27.7], [85.32, 27.71]]}));
+  await capture.getByRole("button", {name: "Confirm observation location", exact: true}).click();
   await capture.getByLabel("Feature property name", {exact: true}).fill("Reviewed field road");
   await page.context().setOffline(true);
   try {
@@ -3436,9 +3830,13 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
     failures.push(`${route}: review did not preserve the submission version and unchanged authoritative features before acceptance`);
   }
   await capture.getByRole("button", {name: "Accept and promote", exact: true}).click();
-  await capture.getByText(/accepted · rv3/).waitFor();
+  const acceptedReview = capture.locator('.project-field-submission[data-state="accepted"]');
+  await acceptedReview.waitFor();
+  await acceptedReview.getByText("Technical submission details", {exact: true}).click();
+  const acceptedUiReceipt = JSON.parse(await acceptedReview.locator("pre").textContent());
   const captureText = await capture.innerText();
-  if (!captureText.includes("Acceptance makes the reviewed observation part of this layer.") || !captureText.includes("accepted · rv3")) {
+  if (!captureText.includes("Acceptance makes the reviewed observation part of this layer.")
+    || acceptedUiReceipt.reviewVersion !== 3 || browserFieldSubmissions[0]?.review_version !== 3) {
     failures.push(`${route}: offline field capture did not retain auth boundary and review evidence`);
   }
   if (screenshotsEnabled) {
@@ -3471,13 +3869,21 @@ async function assertWorkbenchInteractions(page, route, colorScheme) {
   await firstLayer.getByRole("button", {name: /^Select layer /}).click();
   await firstLayer.locator("summary[aria-label^='Layer actions for ']").click();
   await firstLayer.getByRole("button", {name: "Style layer"}).click();
-  await page.getByLabel("Layer name").fill("Access roads renamed");
-  await page.getByLabel("Layer name").press("Tab");
+  const identitySection = page.locator(".gis-style-section").filter({
+    has: page.locator("summary", {hasText: /^Layer identity$/})
+  });
+  if (!await identitySection.evaluate(section => section.open)) await identitySection.locator(":scope > summary").click();
+  await identitySection.getByLabel("Layer name").fill("Access roads renamed");
+  await identitySection.getByLabel("Layer name").press("Tab");
   let bodyText = await page.locator("body").innerText();
   if (!bodyText.includes("Access roads renamed")) failures.push(`${route}: layer name editor did not update the layer stack`);
 
   await page.getByRole("button", {name: "Derived palette"}).click();
-  await page.getByLabel("Show labels on map").check();
+  const labelsSection = page.locator(".gis-style-section").filter({
+    has: page.locator("summary", {hasText: /^Labels$/})
+  });
+  if (!await labelsSection.evaluate(section => section.open)) await labelsSection.locator(":scope > summary").click();
+  await labelsSection.getByLabel("Show labels on map").check();
   bodyText = await page.locator("body").innerText();
   if (!bodyText.includes("Text size") || !bodyText.includes("Halo width")) failures.push(`${route}: label editor controls were not visible`);
 

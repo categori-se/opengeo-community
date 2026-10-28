@@ -1,0 +1,105 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "98000000-0000-4000-8000-000000000001",
+      "properties": {
+        "name": "Fixture point A",
+        "synthetic": true,
+        "fixture_version": "1.0.0",
+        "observation_period": null,
+        "verified": null,
+        "households": null,
+        "rights": null
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.005,
+          10.005
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "98000000-0000-4000-8000-000000000002",
+      "properties": {
+        "name": "Fixture point B",
+        "synthetic": true,
+        "fixture_version": "1.0.0",
+        "observation_period": null,
+        "verified": null,
+        "households": null,
+        "rights": null
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.015,
+          10.015
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "98000000-0000-4000-8000-000000000003",
+      "properties": {
+        "name": "Fixture point C",
+        "synthetic": true,
+        "fixture_version": "1.0.0",
+        "observation_period": null,
+        "verified": null,
+        "households": null,
+        "rights": null
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.025,
+          10.01
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "98000000-0000-4000-8000-000000000004",
+      "properties": {
+        "name": "Fixture point D",
+        "synthetic": true,
+        "fixture_version": "1.0.0",
+        "observation_period": null,
+        "verified": null,
+        "households": null,
+        "rights": null
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.01,
+          10.025
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "id": "98000000-0000-4000-8000-000000000005",
+      "properties": {
+        "name": "Fixture point E",
+        "synthetic": true,
+        "fixture_version": "1.0.0",
+        "observation_period": null,
+        "verified": null,
+        "households": null,
+        "rights": null
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          10.04,
+          10.01
+        ]
+      }
+    }
+  ]
+}

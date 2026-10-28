@@ -5,7 +5,8 @@ export function panelExtent(value, total, compact = false) {
 
 // Docked panels stay attached to the map. Compact layouts resize the bottom
 // sheet vertically instead of squeezing the map between narrow columns.
-export function bindResizablePanels({shell, leftPanel, rightPanel, mapColumn, state, render, isCompact, storageKey}) {
+export function bindResizablePanels({shell, leftPanel, rightPanel, mapColumn, state, render, isCompact, storageKey,
+  resizeMap = () => state.map?.resize()}) {
   let saved = {};
   try { saved = JSON.parse(sessionStorage.getItem(storageKey) ?? "{}"); } catch { /* preferences are optional */ }
   const sizes = {left: Number(saved?.left) || 260, right: Number(saved?.right) || 320};
@@ -35,7 +36,7 @@ export function bindResizablePanels({shell, leftPanel, rightPanel, mapColumn, st
       const bound = shell.getBoundingClientRect();
       (compact ? heights : sizes)[side] = panelExtent(value, compact ? mapColumn.clientHeight : bound.width, compact);
       layout();
-      state.map?.resize();
+      resizeMap();
     };
     const persist = () => {
       try { sessionStorage.setItem(storageKey, JSON.stringify({...sizes, leftHeight: heights.left, rightHeight: heights.right})); } catch { /* no data changes */ }

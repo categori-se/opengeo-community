@@ -7,6 +7,7 @@ import {createGlRendererAdapter, rendererAdapterFor} from "./glRendererAdapter.j
 export const maplibreAdapter = createGlRendererAdapter({
   id: "maplibre",
   engine,
+  requiresPainter: true,
   initialize: () => registerMapFontProtocol(engine)
 });
 

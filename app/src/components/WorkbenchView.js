@@ -31,6 +31,7 @@ import {ProjectVersionExport, savedProjectVersionFile} from "./ProjectVersionExp
 import {readBrowserLayerCatalog, writeBrowserLayerCatalog, clearBrowserLayerCatalog} from "../lib/browserLayerCatalogStore.js";
 import {restoreBrowserCatalogLayers} from "../lib/browserCatalogRestore.js";
 import {browserLayerReviewForProject} from "./BrowserLayerRegistration.js";
+import {accountSaveSignature, workbenchSaveState} from "../lib/workbenchSaveState.js";
 import {LayerStylePicker} from "./LayerStylePicker.js";
 import {POINT_SYMBOLS, hasPointSymbolStyle, normalizePointSymbolStyle, pointSymbolImages, pointSymbolStyleParts, pointSymbolPreviewSvg, ensurePointSymbolAssets} from "../lib/pointSymbols.js";
 import {resolveLayerStyle, referencedStylePaint, validateLayerStyleReference} from "../lib/layerStyleReference.js";
@@ -968,7 +969,9 @@ function createWorkbenchView({
     basemap: activeBasemap(context),
     project: currentProjectDefinition(context),
     savedProjectOrigin: context.savedProjectOrigin,
-    ready: !context.loadingDatasetLayerIds.size && !context.liveFeatureRequests.size && !context.pendingPointSymbolLayers.size
+    unavailableReason: state.mapInitializationFailed ? "Map graphics unavailable. Retry the map before capturing." : null,
+    ready: Boolean(state.map) && !state.mapInitializationFailed
+      && !context.loadingDatasetLayerIds.size && !context.liveFeatureRequests.size && !context.pendingPointSymbolLayers.size
       && context.layers.every(layer => layer.visible === false || (
         !context.failedDatasetLayerIds.has(layer.layerId)
         && !state.layerStyleErrors.has(layer.layerId)
@@ -1062,7 +1065,7 @@ function createWorkbenchView({
       for (const control of context.layerArchiveControls.values()) control.dispose();
       context.layerArchiveControls.clear();
     }
-    context.disposeResources?.();
+    try { context.disposeResources?.(); } catch { /* Closing must survive SDK teardown failure. */ }
     context.rendererSuspended = null;
   };
 
@@ -1171,7 +1174,7 @@ function createWorkbenchView({
     updateStatusbar(statusbar, context);
     updateGlobeTelemetryPresentation(context);
     syncGraticule(state);
-    requestAnimationFrame(() => state.map?.resize());
+    requestAnimationFrame(() => resizeWorkbenchMap(context));
     maybeRestoreSavedRenderer(context);
   };
 
@@ -1229,6 +1232,7 @@ function createWorkbenchView({
   context.render();
   context.disposeResizablePanels = bindResizablePanels({shell, leftPanel, rightPanel, mapColumn, state,
     render: context.render, isCompact: isMobileWorkbenchViewport,
+    resizeMap: () => resizeWorkbenchMap(context),
     storageKey: `opengeo.panel-sizes.${workspace?.workspaceId ?? project?.projectId ?? "local"}`});
   void loadPersistedDatasetLayers(context);
   for (const layer of workingLayers) if (layer.styleReference) void loadBoundLayerStyle(context, layer);
@@ -1269,7 +1273,7 @@ function renderCesiumWorkbench(context, {topbar,leftPanel,mapChrome,rightPanel,m
     actionButton("Rendering engine",()=>{state.activePanel="renderer";state.rightOpen=true;context.render();}),
     actionButton(state.mapOnly?"Show tools":"Map only",()=>setMapOnly(context,!state.mapOnly)));
   renderModalLayer(modalLayer,context);updateStatusbar(statusbar,context);
-  requestAnimationFrame(()=>state.map?.resize());
+  requestAnimationFrame(()=>resizeWorkbenchMap(context));
 }
 
 function cesiumDetailsPanel(context) {
@@ -1301,12 +1305,52 @@ function cloneLayer(layer) {
   };
 }
 
+function mapGraphicsUnavailable(container, context) {
+  if (context.disposed) return;
+  const map = context.state.map;
+  const cleanup = context.disposeResources;
+  context.disposeResources = null;
+  context.state.mapInitializationFailed = true;
+  context.publicationLayersInstalledMap = null;
+  try { context.state.restoredMapViews = mapViewsForSave(map, context.state.restoredMapViews ?? context.project?.mapViews); }
+  catch { /* An incomplete renderer may not have a readable camera. */ }
+  let released = false;
+  try { cleanup?.(); released = Boolean(cleanup); } catch { /* Continue closing a failed renderer. */ }
+  context.state.map = null;
+  context.shell.__opengeoMap = null;
+  if (!released) try { context.rendererAdapter.disposeMap(map); } catch { /* Partial SDK setup. */ }
+  if (cleanup) context.disconnectionObserver = observeDisconnection(context.shell, () => context.shell.dispose());
+  context.state.layerHandles.clear();
+  container.replaceChildren();
+  const notice = document.createElement("section");
+  notice.className = "gis-map-startup-error";
+  notice.setAttribute("role", "alert");
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.textContent = "Retry map";
+  retry.addEventListener("click", () => initializeMap(container, context));
+  notice.append(textElement("strong", "Map graphics unavailable"),
+    textElement("p", "The browser could not run the map graphics renderer. Close unused map tabs, then retry. Check your browser’s graphics acceleration settings if this continues. Your Layers and draft remain available."), retry);
+  container.append(notice);
+  setStatus(context, "Map graphics unavailable. Your Layers and draft are retained. Retry the map to continue.");
+  context.render();
+}
+
+function resizeWorkbenchMap(context, map = context.state.map) {
+  if (context.disposed || !map || context.state.map !== map || context.state.mapInitializationFailed) return false;
+  try { map.resize(); return true; }
+  catch { mapGraphicsUnavailable(context.mapSurface, context); return false; }
+}
+
 function initializeMap(container, context) {
   if (context.disposed || !context.shell.isConnected) return;
+  const initialStartup = !context.mapInitializationAttempted;
+  context.mapInitializationAttempted = true;
   const {project, layers, datasets, dataByLayerId, state} = context;
   state.pmtilesReady = registerArchiveProtocols(context.rendererAdapter);
   const savedView = state.restoredMapViews?.[0] ?? project?.mapViews?.[0];
   const restoreSavedCamera = savedView && typeof savedView === "object";
+  container.querySelector(".gis-map-startup-error")?.remove();
   try {
     context.rendererAdapter.initialize();
     state.map = createMap(
@@ -1320,34 +1364,16 @@ function initializeMap(container, context) {
     state.mapInitializationFailed = false;
     context.render();
   } catch {
-    state.map = null;
-    state.mapInitializationFailed = true;
-    // A failed constructor can leave a canvas behind; retry only on request.
-    container.replaceChildren();
-    const notice = document.createElement("section");
-    notice.className = "gis-map-startup-error";
-    notice.setAttribute("role", "alert");
-    const retry = document.createElement("button");
-    retry.type = "button";
-    retry.textContent = "Retry map";
-    retry.addEventListener("click", () => {
-      notice.remove();
-      initializeMap(container, context);
-    });
-    notice.append(textElement("strong", "Map graphics unavailable"),
-      textElement("p", "The browser could not start the map graphics renderer. Close unused map tabs, then retry. If this continues, check your browser’s graphics acceleration settings. Your saved layers are unchanged."), retry);
-    container.append(notice);
-    setStatus(context, "Map graphics unavailable. Retry the map to continue.");
-    context.render();
+    mapGraphicsUnavailable(container, context);
     return;
   }
   context.shell.__opengeoMap = state.map;
   const attribution = container.querySelector(".maplibregl-ctrl-attrib");
   if (attribution) context.shell.querySelector(".gis-native-attribution").append(attribution);
-  context.localDraftBaseline = localDraftSignature(context);
+  if (initialStartup) context.localDraftBaseline = localDraftSignature(context);
 
   let resizeObserver = null;
-  const resizeMap = () => state.map?.resize();
+  const resizeMap = () => resizeWorkbenchMap(context);
 
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => requestAnimationFrame(resizeMap));
@@ -1410,6 +1436,7 @@ function rendererSnapshot(context, map) {
 // feature state and pinned styling; this does not request higher-zoom source data.
 export async function withPrintResolution(context, {maxWidth, maxHeight, signal, onPhase} = {}, capture) {
   const current = context.shell.getPrintContext(), map = current?.map;
+  if (current?.unavailableReason) throw Error(current.unavailableReason);
   if (context.printResolutionCapture) throw Error("A map capture is already running. Wait for it to finish.");
   if (current?.renderer !== "maplibre" || !current.ready || !map?.isStyleLoaded?.()
     || map.areTilesLoaded?.() === false || map.isMoving?.() || !map.setPixelRatio || !map.getPixelRatio) {
@@ -1727,7 +1754,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   }
   const {state, layers, datasets, dataByLayerId} = context;
   const map = state.map;
-  const resizeMap = () => map.resize();
+  const resizeMap = () => resizeWorkbenchMap(context, map);
   const fitMap = () => { resizeMap(); fitVisibleLayers(map, layers, dataByLayerId); };
   let disposed = false, frame = null;
   const timers = [], listeners = [];
@@ -1735,6 +1762,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
     const handler = (...args) => { if (!disposed && state.map === map) callback(...args); };
     map.on(type, handler); listeners.push({type, handler});
   };
+  on("webglcontextlost", () => mapGraphicsUnavailable(context.mapSurface, context));
   on("cogstatus", event => setStatus(context, event.message));
   on("coglayerready", () => context.render());
   const sampleAnimationFrame = () => {
@@ -1826,6 +1854,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
     scheduleKmlNetworkLinkViewRefresh(context);
     refreshBasemapCoverage(context);
     updateGlobeTelemetryPresentation(context);
+    updateWorkbenchSaveIndicator(context);
   });
 
   on("move", () => {
@@ -2141,6 +2170,11 @@ function renderTopbar(topbar, context) {
   if (landingMode) roleBadge.title = "Saved in this browser only, not in your OpenGeo Studio account. Signing in does not upload this map.";
   roleBadge.className = `badge ${publicDemo || landingMode ? "demo" : role ?? "viewer"}`;
   roleBadge.classList.add("gis-role-badge");
+  const saveIndicator = textElement("output", "");
+  saveIndicator.className = "gis-save-state";
+  saveIndicator.setAttribute("role", "status");
+  saveIndicator.setAttribute("aria-live", "polite");
+  saveIndicator.setAttribute("aria-label", "Project save status");
   const commands = workbenchCommandRegistry(context);
   const saveCommand = commands.find(({id}) => id === "save");
   const saveAsCommand = commands.find(({id}) => id === "save-as");
@@ -2168,7 +2202,7 @@ function renderTopbar(topbar, context) {
     setStatus(context, `${state.colorMode} app theme`);
   });
   mode.classList.add("gis-theme-command");
-  right.append(roleBadge, save, saveAs, mode);
+  right.append(roleBadge, saveIndicator, save, saveAs, mode);
   if (publicDemo && !context.printFrame) right.append(actionButton("On this device", () => void openPersonalProjects(context)));
   const mapOnly = actionButton(state.mapOnly ? "Show tools" : "Map only", () => {
     setMapOnly(context, !state.mapOnly);
@@ -2186,6 +2220,36 @@ function renderTopbar(topbar, context) {
       textElement("small","Cesium · pan, zoom, inspect and organize Layers. Use MapLibre for editing and other tools."));
   }
   topbar.append(brand, appNav, right, toolstrip);
+  updateWorkbenchSaveIndicator(context);
+}
+
+function updateWorkbenchSaveIndicator(context) {
+  const indicator = context.shell.querySelector(".gis-save-state");
+  if (!indicator) return;
+  try {
+    const device = context.publicDemo;
+    const current = device ? localDraftSignature(context) : accountSaveSignature(currentProjectDefinition(context));
+    const acknowledged = device ? context.localDraftBaseline
+      : context.accountSaveBaseline ?? (context.savedProjectOrigin?.definition
+        ? accountSaveSignature(context.savedProjectOrigin.definition) : null);
+    const presentation = workbenchSaveState({
+      mode: device ? "device" : context.persistenceMode === "fixture" ? "fixture" : "account",
+      dirty: Boolean(context.state.mapAuthoring || context.state.authoringCoordinateDraft) || current !== acknowledged,
+      state: context.shell.dataset.saveState,
+      hasSavedCopy: device ? Boolean(context.localProjectRecord) : acknowledged !== null,
+      version: device ? context.localProjectRecord?.revision
+        : context.serverMapVersion ?? context.savedProjectOrigin?.version,
+      temporary: !device && context.layers.some(isTemporaryLayer)
+    });
+    indicator.textContent = presentation.label;
+    indicator.dataset.state = presentation.state;
+    indicator.title = device
+      ? "Device storage is separate from your account. Download a backup for important work."
+      : "Account Save keeps supported Project settings and saved Layer references. Temporary data must be retained separately.";
+  } catch {
+    indicator.textContent = "Save state unavailable · keep a backup";
+    indicator.dataset.state = "error";
+  }
 }
 
 function savedProjectSwitcher(context) {
@@ -2724,6 +2788,7 @@ function toolbarMenus(context) {
       label: "Processing",
       sections: [[menuAction("Analysis console…", () => toggleAnalysisConsole(context)),
         menuAction("Compare surface and terrain heights…", () => {
+          state.processingFocus = "height";
           if (isMobileWorkbenchViewport()) state.leftOpen = false;
           state.activePanel = "processing";
           state.rightOpen = true;
@@ -2731,6 +2796,7 @@ function toolbarMenus(context) {
           setStatus(context, "Choose loaded surface and terrain elevation bands, units and a comparison basis.");
         }),
         menuAction("Validate categorical raster classes…", () => {
+          state.processingFocus = "validation";
           if (isMobileWorkbenchViewport()) state.leftOpen = false;
           state.activePanel = "processing";
           state.rightOpen = true;
@@ -2738,6 +2804,7 @@ function toolbarMenus(context) {
           setStatus(context, "Choose a loaded categorical raster or open a saved validation assessment.");
         }),
         menuAction("Find mapped agricultural fields…", () => {
+          state.processingFocus = "fields";
           if (isMobileWorkbenchViewport()) state.leftOpen = false;
           state.activePanel = "processing";
           state.rightOpen = true;
@@ -2749,6 +2816,7 @@ function toolbarMenus(context) {
         ...tools.map((tool) => menuAction(`${tool.title} (${tool.engine})`, () => {
           if (isMobileWorkbenchViewport()) state.leftOpen = false;
           state.activeToolId = tool.id;
+          state.processingFocus = null;
           state.activePanel = tool.id === "sql-workspace" ? "sql" : "processing";
           state.rightOpen = true;
           setStatus(context, `${tool.title} selected.`);
@@ -2840,6 +2908,11 @@ function toolbarMenus(context) {
       label: "Help",
       sections: [
         [
+          menuAction("Task guides and recovery", () => {
+            state.activePanel = "help";
+            state.rightOpen = true;
+            setStatus(context, "Task guides and recovery opened.");
+          }),
           menuAction("Keyboard shortcuts", () => {
             state.activePanel = "help";
             setStatus(context, "Keyboard shortcuts panel opened.");
@@ -2966,7 +3039,8 @@ function projectMenuSections(context) {
 
 async function savePersonalProject(context, {copy = false, quiet = false} = {}) {
   if (!context.publicDemo || context.printFrame || context.disposed || context.localSaveBusy) return false;
-  const origin = context.project;context.localSaveBusy = true;context.render();
+  const origin = context.project, previousSaveState = context.shell.dataset.saveState;
+  context.localSaveBusy = true;context.shell.dataset.saveState = "saving";context.render();
   try {
     let title = context.localProjectRecord?.title;
     if (!title || copy) title = await personalProjectTitle(context, context.project.title ?? "My map");
@@ -2981,14 +3055,25 @@ async function savePersonalProject(context, {copy = false, quiet = false} = {}) 
     if (context.disposed || context.project !== origin) return record;
     context.project.title = title;context.localProjectRecord = record;
     context.localDraftBaseline = localDraftSignature(context, snapshot);
+    context.shell.dataset.saveState = "saved";
     const url = new URL(location.href);url.searchParams.set("localProject", record.id);history.replaceState(null, "", url);
     context.onLocalProjectLoaded?.(record);
     if (!quiet) setStatus(context, localDraftSignature(context) === context.localDraftBaseline
       ? `Saved on this device · revision ${record.revision}. Download a backup from On this device.`
       : "Project snapshot saved on this device. Newer map edits remain unsaved.");
     return record;
-  } catch (error) {if (!context.disposed) setStatus(context, `${error.message} Export the current map to keep a backup.`);return false;}
-  finally {context.localSaveBusy = false;if (!context.disposed) context.render();}
+  } catch (error) {
+    context.shell.dataset.saveState = error.status === 409 || error.code === "local_project_conflict"
+      ? "conflict" : "error";
+    if (!context.disposed) setStatus(context, `${error.message} Export the current map to keep a backup.`);
+    return false;
+  } finally {
+    if (context.shell.dataset.saveState === "saving") {
+      if (previousSaveState) context.shell.dataset.saveState = previousSaveState;
+      else delete context.shell.dataset.saveState;
+    }
+    context.localSaveBusy = false;if (!context.disposed) context.render();
+  }
 }
 
 function personalProjectTitle(context, initial) {
@@ -3836,7 +3921,7 @@ function chooseImageOverlay(context) {
       state.rightOpen = false;
       if (isMobileWorkbenchViewport()) state.leftOpen = false;
       context.render();
-      state.map.resize();
+      if (!resizeWorkbenchMap(context)) throw Error("Map graphics unavailable. Retry the map before placing an image.");
       const container = state.map.getContainer();
       const coordinates = fitImageOverlay(container.clientWidth, container.clientHeight, width, height).map((point) => {
         const value = state.map.unproject(point);
@@ -5134,7 +5219,8 @@ function layerRow({context, layer, dataset}) {
   context.layerInfoOpen ??= new Set();
   const info = LayerInfo({layer, metadata, open: context.layerInfoOpen.has(layer.layerId),
     onToggle: open => open ? context.layerInfoOpen.add(layer.layerId) : context.layerInfoOpen.delete(layer.layerId)});
-  top.append(visible, swatch, title, orderControls, info.button, more);
+  title.className = "gis-layer-name";
+  top.append(visible, swatch, title, more);
 
   const archiveMode = context.layerArchiveModes.get(layer.layerId);
   const meta = textElement("small", archiveMode ? `Archived copy · ${archiveMode}` : metadata);
@@ -5159,7 +5245,8 @@ function layerRow({context, layer, dataset}) {
   opacityField.append(textElement("span", "Opacity"), opacity);
   const popover = document.createElement("div");
   popover.className = "gis-layer-popover";
-  popover.append(meta, tools, opacityField);
+  orderControls.classList.add("gis-layer-popover-order");
+  popover.append(meta, info.button, orderControls, tools, opacityField);
   more.append(popover);
   const legend = rendererLegend(layer, context.dataByLayerId.get(layer.layerId), state.resolvedLayerStyles?.get(layer.layerId));
   if (legend) {
@@ -5170,7 +5257,7 @@ function layerRow({context, layer, dataset}) {
   }
   row.append(top, info.content);
   if (state.rendererLayerIssues?.has(layer.layerId)) {
-    const notice = textElement("small", `${state.rendererLayerIssues.get(layer.layerId)} Switch to MapLibre to display this Layer.`);
+    const notice = textElement("small", `${state.rendererLayerIssues.get(layer.layerId)}${context.rendererAdapter.id !== "maplibre" ? " Switch to MapLibre to display this Layer." : ""}`);
     notice.className = "gis-layer-renderer-notice";
     row.append(notice);
   }
@@ -5310,7 +5397,7 @@ function toggleAnalysisConsole(context) {
       cancelManaged: context.analysisRuntime?.cancelManaged,
       hasPendingManagedRun: context.analysisRuntime?.hasPendingManagedRun,
       dark: context.state.colorMode === "dark",
-      onClose: () => {context.mapColumn.classList.remove("gis-analysis-console-open");context.state.map?.resize?.();},
+      onClose: () => {context.mapColumn.classList.remove("gis-analysis-console-open");resizeWorkbenchMap(context);},
       onResult: ({geojson, execution, language, inputPins}) => {
         if (context.disposed) throw Error("This map has closed.");
         const result = {...geojson, "opengeo:analysis": {operation: "script", language,
@@ -5323,7 +5410,7 @@ function toggleAnalysisConsole(context) {
   }
   context.mapColumn.classList.add("gis-analysis-console-open");
   context.analysisConsole.open();context.state.activeMenu = null;context.render();
-  requestAnimationFrame(() => context.state.map?.resize?.());
+  requestAnimationFrame(() => resizeWorkbenchMap(context));
 }
 
 function setMapOnly(context, enabled) {
@@ -5349,6 +5436,7 @@ function renderMapChrome(chrome, context) {
     syncQueryResultLayer(context, []);
   }
   chrome.replaceChildren();
+  if (state.mapInitializationFailed) return;
   // An active flight keeps its HUD and focused controls even when map tools
   // are collapsed or the workspace is showing only the map.
   if (state.flightSession) chrome.append(flightHudOverlay(context));
@@ -5722,6 +5810,11 @@ function stylePanel(context) {
     panel.append(textElement("p", "Select a layer to edit its style."));
     return panel;
   }
+  const basic = styleEditorSection(context, layer, "Basic appearance", true);
+  const labels = styleEditorSection(context, layer, "Labels");
+  const identity = styleEditorSection(context, layer, "Layer identity");
+  const advanced = styleEditorSection(context, layer, "Advanced");
+  panel.append(basic, labels, identity, advanced);
   const libraryLink = textElement("a", context.demoSurface ? "Styles library in Studio ↗" : "Styles library ↗");
   libraryLink.className = "gis-style-library-link";
   libraryLink.href = context.demoSurface
@@ -5729,23 +5822,25 @@ function stylePanel(context) {
     : directoryHref({view: "styles", adapterKind: fixtureAdapterKind(context.persistenceMode)});
   // Keep the map and unsaved edits available while inspecting reusable Styles.
   libraryLink.target = "_blank"; libraryLink.rel = "noopener";
-  panel.append(libraryLink);
+  advanced.append(libraryLink);
   const credit = managedLayerCreditPanel(context, layer);
-  if (credit) panel.append(credit);
+  if (credit) identity.append(credit);
 
   if (isCogLayer(layer)) {
-    panel.append(layerNameEditor(context, layer),
+    identity.append(layerNameEditor(context, layer),
       textElement("p", layer.sourceConfiguration?.license ? `Distribution terms: ${layer.sourceConfiguration.license}` : "Distribution terms were not supplied."),
-      textElement("p", "The map reads a bounded image window from the original raster. Pan or zoom, then refresh to read another window."),
+      textElement("p", "The map reads a bounded image window from the original raster. Pan or zoom, then refresh to read another window."));
+    basic.append(
       cogDisplayEditor(context, layer),
       opacityEditor(context, layer));
-    if (layer.styleReference) panel.append(textElement("p", "The saved Style reference is preserved; this raster preview does not apply vector Styles."));
+    labels.append(textElement("p", "This raster preview does not display feature labels."));
+    if (layer.styleReference) basic.append(textElement("p", "The saved Style reference is preserved; this raster preview does not apply vector Styles."));
     return panel;
   }
 
-  if (layer.geometryType === "Point" || layer.pointClustering) panel.append(pointClusteringEditor(context, layer));
+  if (layer.geometryType === "Point" || layer.pointClustering) advanced.append(pointClusteringEditor(context, layer));
   const pointInlineSymbology = !layer.styleReference && isPointSymbolLayer(layer);
-  if (pointInlineSymbology) panel.append(symbologyEditor(context, layer, context.dataByLayerId.get(layer.layerId), "circleColor"));
+  if (pointInlineSymbology) basic.append(symbologyEditor(context, layer, context.dataByLayerId.get(layer.layerId), "circleColor"));
 
   if(layer.sourceType==="governed-dataset" && layer.datasetVersionId
     && ["admin","owner","editor"].includes(context.role)
@@ -5786,7 +5881,7 @@ function stylePanel(context) {
           context.render();
         }}));
     }
-    panel.append(context.versionPickers.get(layer));
+    identity.append(context.versionPickers.get(layer));
   }
 
   if (layer.sourceType === "governed-dataset" && context.styleAdapter
@@ -5828,23 +5923,25 @@ function stylePanel(context) {
       setStatus(context, "Pinned Style applied to this composition. Save the Project to retain it.");
       context.render();
     }}));
-    panel.append(context.stylePickers.get(layer));
+    advanced.append(context.stylePickers.get(layer));
   }
 
   const filterData=context.dataByLayerId.get(layer.layerId);
-  if(filterData && ["admin","owner","editor"].includes(context.role))panel.append(MapFilterEditor({layer,fields:propertyFields(filterData),
+  if(filterData && ["admin","owner","editor"].includes(context.role))advanced.append(MapFilterEditor({layer,fields:propertyFields(filterData),
     onApply:filter=>setLayerFilter(context,layer,filter,filter?"updated":"cleared")}));
 
   if (layer.styleReference) {
     const ref = layer.styleReference;
-    panel.append(textElement("h3", "Referenced Style"), textElement("p", `Style ${ref.styleId} · version ${ref.versionNumber}`),
+    identity.append(textElement("p", `Layer name: ${layer.title}`));
+    labels.append(textElement("p", "The selected Style controls rendering. Restore previous inline styling to edit inline labels."));
+    basic.append(textElement("h3", "Referenced Style"), textElement("p", `Style ${ref.styleId} · version ${ref.versionNumber}`),
       textElement("p", state.layerStyleErrors.get(layer.layerId) ?? (state.resolvedLayerStyles.has(layer.layerId)
         ? "The exact saved Style is active. Inline style controls do not alter this binding."
         : "Resolving the selected Style version…")),
       actionButton("Reload selected Style", () => void loadBoundLayerStyle(context, layer)));
     const legend = rendererLegend(layer, context.dataByLayerId.get(layer.layerId), state.resolvedLayerStyles.get(layer.layerId));
-    if (legend) panel.append(legend);
-    if (["admin", "owner", "editor"].includes(context.role)) panel.append(actionButton("Use previous inline styling", () => {
+    if (legend) basic.append(legend);
+    if (["admin", "owner", "editor"].includes(context.role)) advanced.append(actionButton("Use previous inline styling", () => {
       context.styleRequests?.delete(layer.layerId);
       removeMapLayer(state, layer.layerId);
       delete layer.styleReference;
@@ -5857,7 +5954,7 @@ function stylePanel(context) {
       setStatus(context, "Style reference removed from this composition. Previous inline styling restored; save the Project to retain the change.");
       context.render();
     }));
-    if (["admin", "owner", "editor"].includes(context.role)) panel.append(opacityEditor(context, layer));
+    if (["admin", "owner", "editor"].includes(context.role)) basic.append(opacityEditor(context, layer));
     return panel;
   }
 
@@ -5865,19 +5962,17 @@ function stylePanel(context) {
   const fields = propertyFields(geojson);
   const colorKey = layer.geometryType?.includes("Point") ? "circleColor" : layer.geometryType?.includes("Polygon") ? "fill" : "stroke";
 
-  if (!pointInlineSymbology) panel.append(symbologyEditor(context, layer, geojson, colorKey));
-  panel.append(
-    layerNameEditor(context, layer, geojson),
-    labelEditor(context, layer, fields),
-    layerActionEditor(context, layer, geojson)
-  );
+  if (!pointInlineSymbology) basic.append(symbologyEditor(context, layer, geojson, colorKey));
+  identity.append(layerNameEditor(context, layer, geojson));
+  labels.append(labelEditor(context, layer, fields));
+  advanced.append(layerActionEditor(context, layer, geojson));
 
   if (!canEditInlineStyle(context, layer)) {
     panel.classList.add("gis-style-readonly");
     panel.prepend(textElement("p", "View-only Project. An editor can change its symbology."));
     for (const control of panel.querySelectorAll("button,input,select,textarea")) control.disabled = true;
     for (const type of ["input", "change", "click"]) panel.addEventListener(type, event => {
-      if (event.target.closest("a")) return;
+      if (event.target.closest("a,.gis-style-section > summary")) return;
       if (!canEditInlineStyle(context, layer)) {event.preventDefault(); event.stopImmediatePropagation();}
     }, true);
   }
@@ -6447,6 +6542,27 @@ function attributesPanel(context) {
       : "This layer has no local attribute table in the prototype."));
     return panel;
   }
+
+  panel.classList.add("gis-attributes-panel");
+  panel.setAttribute("role", "region");
+  panel.setAttribute("aria-label", `${layer.title} attributes`);
+  const expand = actionButton("Expand table", () => setExpanded(!state.attributesExpanded));
+  expand.classList.add("gis-attributes-expand");
+  const setExpanded = (expanded) => {
+    state.attributesExpanded = expanded;
+    panel.classList.toggle("gis-attributes-expanded", expanded);
+    expand.textContent = expanded ? "Back to map" : "Expand table";
+    expand.setAttribute("aria-expanded", String(expanded));
+  };
+  setExpanded(Boolean(state.attributesExpanded));
+  panel.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || !state.attributesExpanded) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setExpanded(false);
+    expand.focus();
+  });
+  panel.append(expand);
 
   const input = document.createElement("input");
   input.type = "search";
@@ -10354,6 +10470,8 @@ export async function saveBaselineLayerRegistration(context, record) {
 function processingPanel(context) {
   const {state} = context;
   const panel = panelShell();
+  const browserTools = document.createElement("section");
+  browserTools.className = "gis-processing-selected-tool";
   const metadata = ensureActiveManagedDatasetMetadata(context);
   if (metadata) {
     panel.append(textElement("p", metadata.error ?? "Loading the selected Layer's dataset metadata…"));
@@ -10361,32 +10479,34 @@ function processingPanel(context) {
       state.managedDatasetMetadataRequest = null;context.render();
     }));
   }
-  panel.append(nativeAnalysisPanel(context));
-  panel.append(ProjectSocialBaseline(context, {download: downloadBlob}));
-  panel.append(fieldsOfTheWorldPanel(context));
-  panel.append(rasterValidationPanel(context));
-  panel.append(rasterHeightDifferencePanel(context));
+  const alternatives = [
+    ["spatial", nativeAnalysisPanel(context)],
+    ["baseline", ProjectSocialBaseline(context, {download: downloadBlob})],
+    ["fields", fieldsOfTheWorldPanel(context)],
+    ["validation", rasterValidationPanel(context)],
+    ["height", rasterHeightDifferencePanel(context)]
+  ];
   const registration = baselineLayerRegistrationPanel(context);
-  if (registration) panel.append(registration);
   const tool = PROCESSING_TOOLS.find((candidate) => candidate.id === state.activeToolId) ?? PROCESSING_TOOLS[0];
   panel.dataset.processingRegistry = PROCESSING_REGISTRY_SCHEMA_VERSION;
   panel.dataset.processingTool = tool.id;
   panel.dataset.processingToolVersion = tool.version;
   panel.dataset.processingHistoryCount = `${state.processingHistory.length}`;
 
-  panel.append(selectField("Tool", tool.id, PROCESSING_TOOLS.map((candidate) => [candidate.id, `${candidate.title} (${candidate.engine})`]), (id) => {
+  browserTools.append(selectField("Tool", tool.id, PROCESSING_TOOLS.map((candidate) => [candidate.id, `${candidate.title} (${candidate.engine})`]), (id) => {
     state.activeToolId = id;
+    state.processingFocus = null;
     context.render();
   }));
-  panel.append(textElement(
+  browserTools.append(textElement(
     "p",
     `${tool.executionMode} · tool ${tool.version} · registry ${PROCESSING_REGISTRY_SCHEMA_VERSION}`
   ));
-  if (tool.id === "field-inventory") panel.append(textElement("p", "Use the active polygon Layer as mapped agricultural fields. Calculate individual areas and their sum; overlapping or duplicate polygons are counted separately. Clip to your study area first when needed. This does not establish crops, cadastral parcels, tenure or field verification. Up to 1,000 loaded polygons; no data is fetched."));
+  if (tool.id === "field-inventory") browserTools.append(textElement("p", "Use the active polygon Layer as mapped agricultural fields. Calculate individual areas and their sum; overlapping or duplicate polygons are counted separately. Clip to your study area first when needed. This does not establish crops, cadastral parcels, tenure or field verification. Up to 1,000 loaded polygons; no data is fetched."));
   if (tool.id === "vector-to-pmtiles") {
-    panel.append(pmtilesDerivativeEditor(context));
+    browserTools.append(pmtilesDerivativeEditor(context));
   } else {
-    panel.append(actionButton("Run", () => {
+    browserTools.append(actionButton("Run", () => {
       runTool(context, state.activeToolId);
       context.render();
     }));
@@ -10395,7 +10515,7 @@ function processingPanel(context) {
   if (state.processingModels.length) {
     const selectedModel = state.processingModels.find(({id}) => id === state.activeProcessingModelId)
       ?? state.processingModels[0];
-    panel.append(
+    browserTools.append(
       selectField(
         "Saved model",
         selectedModel.id,
@@ -10433,7 +10553,17 @@ function processingPanel(context) {
     row.dataset.processingStatus = run.status ?? "unknown";
     history.append(row);
   }
-  panel.append(log, history, durableJobsSection(context));
+  const focused = alternatives.find(([id]) => id === state.processingFocus)?.[1];
+  panel.append(focused ?? browserTools);
+  if (registration) panel.append(registration);
+  const others = document.createElement("details");
+  others.className = "gis-processing-other-tools";
+  others.open = Boolean(state.processingOtherToolsOpen);
+  others.addEventListener("toggle", () => {if (others.isConnected) state.processingOtherToolsOpen = others.open;});
+  others.append(textElement("summary", "Other analysis tools"));
+  if (focused) others.append(browserTools);
+  for (const [, section] of alternatives) if (section !== focused) others.append(section);
+  panel.append(log, others, history, durableJobsSection(context));
   return panel;
 }
 
@@ -12490,8 +12620,10 @@ function browserLayerCatalogPanel(context) {
               context.addLayer(reviewed, data);
               if (context.browserRegistrations.has(entry.id)) rememberBrowserLayer(context, {...candidate, layer: reviewed, geojson: data});
             }
-            fitLayer(context.state.map, reviewed, context.dataByLayerId);
-            setStatus(context, `Added ${reviewed.title} from the catalog. Metadata remains with the Layer in this browser draft.`);
+            const fitted = fitLayer(context.state.map, reviewed, context.dataByLayerId);
+            const displayIssue = context.state.rendererLayerIssues?.has(reviewed.layerId)
+              || context.state.mapInitializationFailed || !fitted;
+            setStatus(context, `Added ${reviewed.title} from the catalog. Metadata remains with the Layer in this browser draft.${displayIssue ? " Its map preview is unavailable; the Layer was added. Retry the map to display it." : ""}`);
           }});
           status.textContent = "Source ready for review.";
         } catch {status.textContent = "This source could not load. Try again; your Project is unchanged.";}
@@ -13024,6 +13156,26 @@ function helpPanel(context) {
         : "Server writes enforce tenant and role permissions before writing project and object records"
     })
   );
+  const guides = document.createElement("section");
+  guides.className = "gis-task-help";
+  guides.append(textElement("h3", "Task guides and recovery"));
+  for (const [title, path] of [
+    ["Open, save and reopen a Project", "docs/community-workflow.md"],
+    ["Review sources and retain analytical results", "docs/community-baseline.md"],
+    ["Synthetic E&S screening example and recovery notes", "examples/esia-screening/README.md"]
+  ]) {
+    const link = textElement("a", title);
+    link.href = `https://github.com/categori-se/opengeo-community/blob/main/${path}`;
+    link.target = "_blank";link.rel = "noopener noreferrer";
+    guides.append(link);
+  }
+  for (const text of [
+    "Map graphics failed: keep your Layers and edits, use the map's Retry control, and continue Catalog or attribute work where available.",
+    "Layer addition reported an error: check the Layer list before adding again; a display failure may follow a successful addition.",
+    "Save conflict: export a backup before reloading, then compare the saved version. Resume an interrupted registration instead of uploading another copy.",
+    "Print unavailable: capture every frame when the map is ready, inspect the output requirements, or return to the map while keeping your layout."
+  ]) guides.append(textElement("p", text));
+  panel.append(guides);
   return panel;
 }
 
@@ -13525,7 +13677,7 @@ function switchBasemap(context, basemapId, {runtimeRecovery = false} = {}) {
     state.basemapRuntimeManagedSourceIds = null;
     if (state.basemapRuntimeSwitchTimer) clearTimeout(state.basemapRuntimeSwitchTimer);
     state.basemapRuntimeSwitchTimer = null;
-    requestAnimationFrame(() => map.resize());
+    requestAnimationFrame(() => resizeWorkbenchMap(context, map));
   };
   // Cached or equivalent styles may reach idle without a new style.load event.
   // Defer one task so MapLibre finishes replacing the outgoing style first.
@@ -13803,15 +13955,23 @@ function addRuntimeLayer(context) {
   context.shell.__opengeoData = dataByLayerId;
   const map = state.map;
   if (map) {
+    const displayFailed = () => {
+      state.rendererLayerIssues ??= new Map();
+      state.rendererLayerIssues.set(layer.layerId, "Layer added to this draft, but its map preview could not render. Retry the map to display it.");
+    };
     try {
       addMapLayer(state, layer, geojson, datasets);
       syncLayerOrder(context);
     } catch (error) {
-      if (error?.message !== "Style is not done loading.") throw error;
-      map.once("style.load", () => {
-        if (state.map !== map || !layers.includes(layer) || map.getSource(sourceId(layer))) return;
-        addMapLayer(state, layer, geojson, datasets);
-        syncLayerOrder(context);
+      if (error?.message !== "Style is not done loading.") displayFailed();
+      else map.once("style.load", () => {
+        if (state.map !== map || !layers.includes(layer)) return;
+        try {
+          if (map.getSource(sourceId(layer))) return;
+          addMapLayer(state, layer, geojson, datasets);
+          syncLayerOrder(context);
+        } catch { displayFailed(); }
+        context.render();
       });
     }
   }
@@ -15069,9 +15229,11 @@ function fitVisibleLayers(map, layers, dataByLayerId) {
 }
 
 function fitLayer(map, layer, dataByLayerId) {
-  if (!layer) return;
+  if (!layer) return false;
   const bounds = geojsonBounds(dataByLayerId.get(layer.layerId));
-  if (map && bounds) map.fitBounds(bounds, {padding: 64, maxZoom: 14, duration: 350});
+  if (!map || !bounds) return false;
+  try { map.fitBounds(bounds, {padding: 64, maxZoom: 14, duration: 350}); return true; }
+  catch { return false; }
 }
 
 function fitGeojson(map, geojson) {
@@ -15169,7 +15331,7 @@ function runTool(context, toolId) {
   }
 
   if (toolId === "vector-to-pmtiles") {
-    state.activePanel='processing';state.activeToolId=toolId;state.rightOpen=true;
+    state.activePanel='processing';state.activeToolId=toolId;state.processingFocus=null;state.rightOpen=true;
     setStatus(context,'Review the PMTiles conversion settings before queuing the job.');
     context.render();
     return;
@@ -15922,6 +16084,7 @@ function setStatus(context, message) {
   context.state.statusMessage = message;
   context.state.activeMenu = null;
   updateStatusbar(context.shell.querySelector(".gis-statusbar"), context);
+  updateWorkbenchSaveIndicator(context);
 }
 
 function openAddSource(context, sourceId) {
@@ -16937,14 +17100,18 @@ function portalExtensionForProject(project) {
 }
 
 async function saveAuthoritativeProject(context) {
+  if (context.shell.dataset.saveState === "saving") return;
   if (!canPersist(context)) {
     setStatus(context, "Your current role cannot update this map.");
     return;
   }
   context.shell.dataset.saveState = "saving";
   setStatus(context, "Saving authoritative map…");
+  context.render();
   try {
-    const saved = await context.saveProject(currentProjectDefinition(context));
+    const definition = currentProjectDefinition(context);
+    const saved = await context.saveProject(definition);
+    context.accountSaveBaseline = accountSaveSignature(saved.definition ?? definition);
     context.serverMapVersion = saved.version;
     context.savedProjectOrigin = saved.definition ? {id: saved.id, version: saved.version, definition: structuredClone(saved.definition)} : null;
     if (context.project) context.project.updatedAt = saved.updatedAt;
@@ -16967,6 +17134,8 @@ async function saveAuthoritativeProject(context) {
     context.shell.dataset.saveState = "error";
     const request = error?.requestId ? ` Request ${error.requestId}.` : "";
     setStatus(context, `Map save failed safely.${request}`);
+  } finally {
+    if (!context.disposed) context.render();
   }
 }
 
@@ -19085,6 +19254,18 @@ function editorSection(title, description) {
   section.className = "gis-editor-section";
   section.append(textElement("h3", title));
   if (description) section.append(textElement("p", description));
+  return section;
+}
+
+function styleEditorSection(context, layer, title, initiallyOpen = false) {
+  context.styleSectionStates ??= new WeakMap();
+  if (!context.styleSectionStates.has(layer)) context.styleSectionStates.set(layer, new Map());
+  const states = context.styleSectionStates.get(layer);
+  const section = document.createElement("details");
+  section.className = "gis-style-section";
+  section.open = states.get(title) ?? initiallyOpen;
+  section.append(textElement("summary", title));
+  section.addEventListener("toggle", () => states.set(title, section.open));
   return section;
 }
 
