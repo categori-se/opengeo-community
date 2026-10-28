@@ -1,5 +1,5 @@
 // Project presentation only: catalog identity, source metadata and grants stay intact.
-export function LayerFolders({tree = [], layers, onApply}) {
+export function LayerFolders({tree = [], layers, onApply, onSort = null, readOnly = false}) {
   const root = document.createElement("details"); root.className = "gis-layer-folders";
   const node = (tag, text = "") => {const e = document.createElement(tag); e.textContent = text; return e;};
   root.append(node("summary", "Organize folders"));
@@ -26,6 +26,7 @@ export function LayerFolders({tree = [], layers, onApply}) {
   const create = node("button", "Create folder"); create.type = "button";
   const feedback = node("p"); feedback.setAttribute("role", "status");
   function submit(createFolder) {
+    if (readOnly) return;
     const ids = inputs.filter(input => input.checked).map(input => input.value);
     if (createFolder && !name.value.trim()) {feedback.textContent = "Enter a folder name."; name.focus(); return;}
     if (!createFolder && !ids.length) {feedback.textContent = "Select layers to move."; return;}
@@ -38,6 +39,19 @@ export function LayerFolders({tree = [], layers, onApply}) {
   create.addEventListener("click", () => submit(true));
   form.addEventListener("submit", event => {event.preventDefault(); submit(false);});
   form.append(node("p", "Choose a destination, then move layers or create a folder there. Save the Project to keep your changes."), destination, name, create, all, list, apply, feedback);
+  if (onSort) {
+    const direction = node("select"); direction.setAttribute("aria-label", "Folder sort order");
+    for (const [value, label] of [["ascending", "Name A to Z"], ["descending", "Name Z to A"]]) {
+      const option = node("option", label); option.value = value; direction.append(option);
+    }
+    const sort = node("button", "Sort folder by name"); sort.type = "button";
+    sort.addEventListener("click", () => {
+      if (readOnly) return;
+      onSort({parentId: destination.value, direction: direction.value});
+    });
+    form.append(node("p", "Sort only the chosen folder. Unfiled Layers stay first when sorting the Project root."), direction, sort);
+  }
+  if (readOnly) for (const control of form.querySelectorAll("input, select, button")) control.disabled = true;
   root.append(form); return root;
 }
 

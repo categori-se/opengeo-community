@@ -261,6 +261,9 @@ export function normalizeHistoricalImagery(value) {
     selection,
     comparison,
     compareShowing: requested.compareShowing === "comparison" ? "comparison" : "primary",
+    compareMode: ["swipe", "side-by-side"].includes(requested.compareMode) ? requested.compareMode : "toggle",
+    compareDivider: Number.isFinite(requested.compareDivider)
+      ? Math.max(0, Math.min(100, Math.round(requested.compareDivider))) : 50,
     sunlight: {
       enabled: requested.sunlight?.enabled === true,
       dateTime: sunlightDateTime,

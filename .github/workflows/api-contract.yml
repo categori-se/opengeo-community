@@ -216,7 +216,13 @@ jobs:
             app/test/publication-preview-origins.test.mjs \
             app/test/esbuild-with-signal.test.mjs \
             services/observable-preview/test/local-server.test.mjs \
-            services/observable-coordinator/test/local-adapters.test.mjs; do
+            services/observable-coordinator/test/local-adapters.test.mjs \
+            app/test/project-organization.test.mjs \
+            app/test/historical-imagery-compare.test.mjs \
+            app/test/historical-imagery-ui.test.mjs \
+            app/test/local-project-store.test.mjs \
+            app/test/publication-editor-build.test.mjs \
+            app/test/cesium-renderer.test.mjs; do
             node --test --test-isolation=none "$test_file"
           done
           node scripts/check-open-source-foundations.mjs

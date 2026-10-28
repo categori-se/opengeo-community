@@ -80,7 +80,7 @@ application code and dependency versions are unchanged.
 | [tsx](https://github.com/privatenumber/tsx) | 4.23.12 | TypeScript execution for tests/tools | MIT |
 | [TypeScript](https://github.com/microsoft/TypeScript) | 5.9.3 | Infrastructure static typing | Apache-2.0 |
 | [@observablehq/notebook-kit](https://github.com/observablehq/notebook-kit) | 2.5.6 | Notebook authoring and execution support in Studio and the isolated publication compiler. | ISC |
-| [markdown-it](https://github.com/markdown-it/markdown-it) | 14.2.0 | Markdown parsing for authored publication content in Studio. | MIT |
+| [markdown-it](https://github.com/markdown-it/markdown-it) | 14.3.3 | Markdown parsing for authored publication content in Studio. | MIT |
 | [monaco-editor](https://github.com/microsoft/monaco-editor) | 0.56.0 | Code editing for authored sources in the Studio workbench. | MIT |
 | [path-browserify](https://github.com/browserify/path-browserify) | 1.0.1 | Browser path operations used by notebook and authored-source tooling. | MIT |
 | [@observablehq/inputs](https://github.com/observablehq/inputs) | 0.12.0 | Observable notebook input widgets bundled by the publication compiler. | ISC |

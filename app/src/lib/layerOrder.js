@@ -67,6 +67,38 @@ export function normalizeProjectLayerOrder(layers, layerTree) {
   return [...ungrouped, ...grouped];
 }
 
+// Sort only the chosen sibling list. Unfiled runtime Layers keep their existing
+// top segment; sorting the root also sorts that segment without filing anything.
+export function sortProjectLayerSiblings(layerTree, layers, parentId = "", direction = "ascending") {
+  if (!["ascending", "descending"].includes(direction)) throw Error("Choose a supported sort order.");
+  const tree = orderedProjectLayerTree(layerTree, layers);
+  const byId = new Map(uniqueLayers(layers).map(layer => [layer.layerId, layer]));
+  let target = parentId ? null : tree;
+  visitLayerTree(tree, node => {
+    if (node.kind === "group" && node.id === parentId) target = node.children;
+  });
+  if (!target) throw Error("Choose an existing destination folder.");
+  const compare = (left, right) => {
+    const a = String(left ?? "").normalize("NFKC").toLowerCase();
+    const b = String(right ?? "").normalize("NFKC").toLowerCase();
+    return (a < b ? -1 : a > b ? 1 : 0) * (direction === "ascending" ? 1 : -1);
+  };
+  const title = node => node.kind === "group" ? node.title : byId.get(node.layerId)?.title ?? node.layerId;
+  target.sort((a, b) => compare(title(a), title(b)));
+  const configured = new Set(configuredLayerIds(tree));
+  const ordered = uniqueLayers(layers).filter(layer => !configured.has(layer.layerId));
+  if (!parentId) ordered.sort((a, b) => compare(a.title ?? a.layerId, b.title ?? b.layerId));
+  const seen = new Set(ordered.map(layer => layer.layerId));
+  // Traverse the newly sorted tree directly: normalizing against the old Layer
+  // ranks here would undo the deliberate sibling sort.
+  visitLayerTree(tree, node => {
+    if (node.kind !== "layer" || seen.has(node.layerId) || !byId.has(node.layerId)) return;
+    seen.add(node.layerId);
+    ordered.push(byId.get(node.layerId));
+  });
+  return {tree, layers: ordered};
+}
+
 export function restoreSavedLayerOrder(layers, savedLayers) {
   const output = uniqueLayers(layers);
   if (!Array.isArray(savedLayers)) return output;

@@ -839,7 +839,7 @@
     {
       "ecosystem": "npm",
       "name": "markdown-it",
-      "version": "14.2.0",
+      "version": "14.3.3",
       "dependencyKind": "runtime",
       "usedBy": [
         "app/package.json"

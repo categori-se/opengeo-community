@@ -28,7 +28,11 @@ export function createCesiumLoader({document:doc=globalThis.document, window:win
           } catch { fail(); }
         };
         const timer=setTimeout(fail,timeoutMs);
-        script.type="module"; script.src=`${CESIUM_RUNTIME.basePath}index.js`;
+        // Derived SDK bytes need a new browser cache key even when the upstream
+        // version and worker base stay fixed. The edge cutover still invalidates
+        // its shared path; the digest also avoids an old immutable browser entry.
+        const index=CESIUM_RUNTIME.assets.find(asset=>asset.name==="index.js");
+        script.type="module"; script.src=`${CESIUM_RUNTIME.basePath}index.js?sha256=${index.sha256}`;
         css.rel="stylesheet"; css.href=`${CESIUM_RUNTIME.basePath}Widgets/widgets.css`;
         for (const [element,name] of [[script,"index.js"],[css,"Widgets/widgets.css"]]) {
           element.integrity=CESIUM_RUNTIME.assets.find(asset=>asset.name===name).integrity;
