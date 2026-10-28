@@ -1118,20 +1118,20 @@ def cut_multipolygon_drafts(
     pieces: list[dict[str, Any]],
 ) -> tuple[FeatureDraft, ...]:
     """Reassemble already validated, deterministically ordered PostGIS pieces."""
-    if feature.geometry_type != "MultiPolygon":
-        raise FeatureInvalid("only MultiPolygon features can be cut")
+    if feature.geometry_type not in {"Polygon", "MultiPolygon"}:
+        raise FeatureInvalid("only Polygon or MultiPolygon features can be cut")
     kind, original, _bbox = normalize_geometry(feature.geometry)
-    if kind != "MultiPolygon":
-        raise FeatureInvalid("only MultiPolygon features can be cut")
-    coordinates = original["coordinates"]
+    if kind != feature.geometry_type:
+        raise FeatureInvalid("cut geometry does not match the feature geometry type")
+    coordinates = [original["coordinates"]] if kind == "Polygon" else original["coordinates"]
     if not 0 <= part_index < len(coordinates):
         raise FeatureInvalid("cut polygon part index is outside the feature")
     if not 2 <= len(pieces) <= 20:
         raise FeatureInvalid("cut line must produce between 2 and 20 polygon pieces")
     cut_coordinates = []
     for piece in pieces:
-        kind, geometry, _bbox = normalize_geometry(piece)
-        if kind != "Polygon":
+        piece_kind, geometry, _bbox = normalize_geometry(piece)
+        if piece_kind != "Polygon":
             raise FeatureInvalid("cut line result must contain only polygons")
         cut_coordinates.append(geometry["coordinates"])
     retained_coordinates = list(coordinates)
@@ -1143,6 +1143,16 @@ def cut_multipolygon_drafts(
     normalize_geometry(
         {"type": "MultiPolygon", "coordinates": retained_coordinates + cut_coordinates[1:]}
     )
+    if kind == "Polygon":
+        return tuple(
+            feature_draft(
+                {"type": "Polygon", "coordinates": part},
+                feature.properties,
+                fields,
+                feature.feature_id if index == 0 else None,
+            )
+            for index, part in enumerate(cut_coordinates)
+        )
     return tuple(
         feature_draft(
             {"type": "MultiPolygon", "coordinates": parts},
@@ -2254,8 +2264,10 @@ class PostgresFeatureRepository:
             self._require(Action.DATASET_EDIT, scope.roles)
             self._require_editable_dataset(scope)
             collection = await self._collection(transaction, context, dataset_id, lock=True)
-            if collection.geometry_type != "MultiPolygon":
-                raise FeatureInvalid("only MultiPolygon collections can cut polygon features")
+            if collection.geometry_type not in {"Polygon", "MultiPolygon"}:
+                raise FeatureInvalid(
+                    "only Polygon or MultiPolygon collections can cut polygon features"
+                )
             current = await self._feature_head(
                 transaction, context, dataset_id, feature_id, lock=True
             )
@@ -2265,7 +2277,14 @@ class PostgresFeatureRepository:
                 transaction, context, dataset_id, feature_id, lock_token
             )
             kind, geometry, _bbox = normalize_geometry(current.geometry)
-            if kind != "MultiPolygon" or not 0 <= part_index < len(geometry["coordinates"]):
+            if kind != collection.geometry_type or current.geometry_type != kind:
+                raise FeatureInvalid("cut geometry does not match the collection geometry type")
+            sql_geometry = (
+                {"type": "MultiPolygon", "coordinates": [geometry["coordinates"]]}
+                if kind == "Polygon"
+                else geometry
+            )
+            if not 0 <= part_index < len(sql_geometry["coordinates"]):
                 raise FeatureInvalid("cut polygon part index is outside the feature")
             blade = normalize_cut_line(cut_line)
             await authorize_feature_attachments(
@@ -2273,7 +2292,7 @@ class PostgresFeatureRepository:
             )
             await transaction.execute(_DISSOLVE_TIMEOUT_SQL, ())
             row = await transaction.fetch_one(
-                _CUT_MULTIPOLYGON_SQL, (Jsonb(geometry), Jsonb(blade), part_index + 1)
+                _CUT_MULTIPOLYGON_SQL, (Jsonb(sql_geometry), Jsonb(blade), part_index + 1)
             )
             if row is None or row[1] is not True or not isinstance(row[0], list):
                 raise FeatureInvalid(
@@ -2281,6 +2300,8 @@ class PostgresFeatureRepository:
                     "boundary overlap, and 2 to 20 valid pieces within geometry limits"
                 )
             drafts = cut_multipolygon_drafts(current, collection.fields, part_index, row[0])
+            for draft in drafts:
+                _require_geometry_type(draft, collection.geometry_type)
             retained = await self._replace_feature_head(
                 transaction,
                 context,
@@ -2348,8 +2369,13 @@ class PostgresFeatureRepository:
             if geometry_operation not in {"collect", "dissolve"}:
                 raise FeatureInvalid("polygon geometry operation must be collect or dissolve")
             collection = await self._collection(transaction, context, dataset_id, lock=True)
-            if collection.geometry_type != "MultiPolygon":
-                raise FeatureInvalid("only MultiPolygon collections can merge polygon features")
+            if collection.geometry_type != "MultiPolygon" and not (
+                collection.geometry_type == "Polygon" and geometry_operation == "dissolve"
+            ):
+                raise FeatureInvalid(
+                    "Polygon collections require explicit dissolve; "
+                    "other polygon merges require a MultiPolygon collection"
+                )
             if not 2 <= len(expected_versions) <= 20:
                 raise FeatureInvalid("polygon merge requires between 2 and 20 features")
             requested_ids = [feature_id for feature_id, _version, _token in expected_versions]
@@ -2376,8 +2402,26 @@ class PostgresFeatureRepository:
                 for feature_id in requested_ids
                 if feature_id != retained_feature_id
             ]
+            topology_sources = ordered
+            if collection.geometry_type == "Polygon":
+                if any(
+                    feature.geometry_type != "Polygon" or feature.geometry.get("type") != "Polygon"
+                    for feature in ordered
+                ):
+                    raise FeatureInvalid("dissolve source must match the Polygon collection type")
+                topology_sources = [
+                    replace(
+                        feature,
+                        geometry_type="MultiPolygon",
+                        geometry={
+                            "type": "MultiPolygon",
+                            "coordinates": [feature.geometry["coordinates"]],
+                        },
+                    )
+                    for feature in ordered
+                ]
             retained_draft = merge_multipolygon_draft(
-                ordered, collection.fields, retained_feature_id
+                topology_sources, collection.fields, retained_feature_id
             )
             await authorize_feature_attachments(
                 transaction, context, [retained_draft.properties], collection.fields
@@ -2388,18 +2432,33 @@ class PostgresFeatureRepository:
                 await transaction.execute(_DISSOLVE_TIMEOUT_SQL, ())
                 row = await transaction.fetch_one(
                     _DISSOLVE_MULTIPOLYGON_SQL,
-                    (Jsonb([feature.geometry for feature in ordered]), _MAX_COORDINATES),
+                    (Jsonb([feature.geometry for feature in topology_sources]), _MAX_COORDINATES),
                 )
                 if row is None or row[1] is not True or not isinstance(row[0], dict):
                     raise FeatureInvalid(
                         "dissolve requires valid source polygons and a nonempty valid "
                         "MultiPolygon result within 10000 positions and 256 parts"
                     )
+                result_geometry = row[0]
+                if collection.geometry_type == "Polygon":
+                    parts = result_geometry.get("coordinates")
+                    if (
+                        result_geometry.get("type") != "MultiPolygon"
+                        or not isinstance(parts, list)
+                        or len(parts) != 1
+                    ):
+                        raise FeatureInvalid(
+                            "Polygon dissolve requires one connected Polygon result; "
+                            "disconnected components cannot be discarded"
+                        )
+                    result_geometry = {"type": "Polygon", "coordinates": parts[0]}
                 retained_draft = feature_draft(
-                    row[0], retained_draft.properties, collection.fields, retained_feature_id
+                    result_geometry,
+                    retained_draft.properties,
+                    collection.fields,
+                    retained_feature_id,
                 )
-                if retained_draft.geometry_type != "MultiPolygon":
-                    raise FeatureInvalid("dissolve result must be a MultiPolygon")
+                _require_geometry_type(retained_draft, collection.geometry_type)
             else:
                 await self._require_valid_geometry(transaction, retained_draft.geometry)
             default_message = (

@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
 
 from opengeo_api.app import create_app
@@ -1023,12 +1024,21 @@ def test_short_feature_lock_lifecycle_is_optional_private_and_version_safe() -> 
     assert private_listing["lock_token"] is None
 
 
-def test_cut_line_route_auth_contract_conflict_and_structural_receipt() -> None:
+@pytest.mark.parametrize("geometry_type", ["MultiPolygon", "Polygon"])
+def test_cut_line_route_auth_contract_conflict_and_structural_receipt(geometry_type) -> None:
     repository = MemoryFeatureRepository()
     client = api_client(repository)
     collection_url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/feature-collection"
     feature_url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/features"
-    client.post(collection_url, headers=headers(), json=multipolygon_collection_payload())
+    initial = multipolygon_collection_payload()
+    if geometry_type == "Polygon":
+        initial["geometry_type"] = "Polygon"
+        geometry = initial["features"][0]["geometry"]
+        initial["features"][0]["geometry"] = {
+            "type": "Polygon",
+            "coordinates": geometry["coordinates"][0],
+        }
+    client.post(collection_url, headers=headers(), json=initial)
     received = []
 
     async def cut(
@@ -1108,7 +1118,11 @@ def test_cut_line_route_auth_contract_conflict_and_structural_receipt() -> None:
     assert receipt["operation"] == "cut_line"
     assert receipt["retained_feature"]["id"] == str(FEATURE_ID)
     assert receipt["retained_feature"]["opengeo:version"] == 2
-    assert len(receipt["retained_feature"]["geometry"]["coordinates"]) == 2
+    assert receipt["retained_feature"]["geometry"]["type"] == geometry_type
+    assert receipt["created_features"][0]["geometry"]["type"] == geometry_type
+    assert len(receipt["retained_feature"]["geometry"]["coordinates"]) == (
+        1 if geometry_type == "Polygon" else 2
+    )
     assert receipt["created_features"][0]["properties"] == {"name": "Review area"}
     assert receipt["deleted_features"] == []
     assert (receipt["collection_generation"], receipt["feature_count"]) == (2, 2)
@@ -1251,6 +1265,103 @@ def test_dissolve_route_requires_explicit_operation_and_forwards_authenticated_s
     assert response.json()["geometry_operation"] == "dissolve"
     assert response.json()["operation"] == "merge_parts"
     assert response.json()["retained_feature"]["id"] == str(FEATURE_ID)
+
+
+def test_connected_polygon_dissolve_route_preserves_wire_contract_and_polygon_receipt() -> None:
+    repository = MemoryFeatureRepository()
+    client = api_client(repository)
+    collection_url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/feature-collection"
+    endpoint = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/features/merge-parts"
+    donor_id = UUID("90000000-0000-4000-8000-000000000132")
+    initial = multipolygon_collection_payload()
+    initial["geometry_type"] = "Polygon"
+    initial["features"] = [
+        {
+            "type": "Feature",
+            "id": str(feature_id),
+            "properties": {"name": name},
+            "geometry": {"type": "Polygon", "coordinates": [ring]},
+        }
+        for feature_id, name, ring in [
+            (FEATURE_ID, "Retained parcel", [[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]),
+            (donor_id, "Donor parcel", [[1, 0], [2, 0], [2, 1], [1, 1], [1, 0]]),
+        ]
+    ]
+    assert client.post(collection_url, headers=headers(), json=initial).status_code == 201
+    received = []
+
+    async def dissolve(
+        context,
+        project_id,
+        dataset_id,
+        retained_feature_id,
+        expected_versions,
+        change_message,
+        request_id,
+        geometry_operation="collect",
+    ):
+        received.append(
+            (
+                context,
+                project_id,
+                dataset_id,
+                retained_feature_id,
+                expected_versions,
+                geometry_operation,
+            )
+        )
+        if geometry_operation != "dissolve":
+            raise FeatureInvalid("Polygon collections require explicit dissolve")
+        # Route wiring only: actual union and persistence are proved by PostGIS.
+        retained = replace(
+            repository.features[FEATURE_ID],
+            version_number=2,
+            geometry={
+                "type": "Polygon",
+                "coordinates": [
+                    [[0, 0], [2, 0], [2, 1], [0, 1], [0, 0]],
+                ],
+            },
+            bbox=(0, 0, 2, 1),
+        )
+        return FeatureStructureMutation(
+            replace(repository.collection, generation=2, feature_count=1),
+            retained,
+            (),
+            (FeatureDeletion(donor_id, 2, 2),),
+        )
+
+    repository.merge_multipolygon_features = dissolve
+    payload = {
+        "retained_feature_id": str(FEATURE_ID),
+        "features": [
+            {"feature_id": str(FEATURE_ID), "expected_version": 1},
+            {"feature_id": str(donor_id), "expected_version": 1},
+        ],
+    }
+    assert client.post(endpoint, json=payload).status_code == 401 and not received
+    assert client.post(endpoint, headers=headers(), json=payload).status_code == 422
+    response = client.post(
+        endpoint, headers=headers(), json={**payload, "geometry_operation": "dissolve"}
+    )
+    assert response.status_code == 200
+    document = response.json()
+    assert document["operation"] == "merge_parts" and document["geometry_operation"] == "dissolve"
+    assert document["retained_feature"]["geometry"]["type"] == "Polygon"
+    assert document["retained_feature"]["properties"] == {"name": "Retained parcel"}
+    assert document["created_features"] == [] and document["deleted_features"][0][
+        "feature_id"
+    ] == str(donor_id)
+    context, project, dataset, retained, selected, operation = received[-1]
+    assert (context.organization_id, context.user_id, project, dataset, retained, operation) == (
+        ORG_ID,
+        USER_ID,
+        PROJECT_ID,
+        DATASET_ID,
+        FEATURE_ID,
+        "dissolve",
+    )
+    assert selected == ((FEATURE_ID, 1, None), (donor_id, 1, None))
 
 
 def test_geometry_schema_properties_and_bbox_are_bounded() -> None:

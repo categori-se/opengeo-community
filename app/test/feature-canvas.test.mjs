@@ -830,6 +830,38 @@ describe("saved polygon cut drawing", () => {
     }, {onCutLine() {}});
   });
 
+  it("draws and applies a cut for a saved Polygon without changing its geometry type or properties", async () => {
+    const original = {...feature(), id: "4befca90-0ae1-40a5-b66f-81190e64c5ee",
+      geometry: {type: "Polygon", coordinates: [
+        [[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]],
+        [[1, 1], [1, 2], [2, 2], [2, 1], [1, 1]]
+      ]}};
+    const before = structuredClone(original), calls = [];
+    await withCanvas("Polygon", async ({root, map, button, changes}) => {
+      assert.equal(button("Cut polygon").disabled, true);
+      map.renderedFeatures = [{id: original.id, properties: {"opengeo:featureId": original.id}}];
+      button("Select feature").click();map.click([4, 4]);
+      assert.equal(button("Cut polygon").disabled, false);
+      assert.equal([...root.querySelectorAll("button")].some(control => /^Part /.test(control.textContent)), false);
+      button("Cut polygon").click();
+      assert.match(root.textContent, /open line across the polygon/);
+      assert.doesNotMatch(root.textContent, /polygon part|untouched parts/);
+      map.click([-1, 3]);map.click([6, 3]);
+      assert.equal(calls.length, 0, "drawing the preview does not persist a cut");
+      assert.deepEqual(map.sources.get("opengeo-feature-draft").data.features[0].geometry,
+        {type: "LineString", coordinates: [[-1, 3], [6, 3]]});
+      assert.deepEqual(map.sources.get("opengeo-authoritative-features").data.features[0].geometry, original.geometry);
+      button("Undo").click();assert.equal(button("Apply cut").disabled, true);
+      button("Redo").click();button("Apply cut").click();
+      assert.deepEqual(calls, [{feature: original, partIndex: 0,
+        cutLine: {type: "LineString", coordinates: [[-1, 3], [6, 3]]}}]);
+      await Promise.resolve();await Promise.resolve();
+      assert.match(root.textContent, /Cut saved/);
+      assert.equal(changes.length, 0, "cut drawing never replaces the Polygon form draft");
+      assert.deepEqual(original, before);
+    }, {features: [original], onCutLine: payload => calls.push(payload)});
+  });
+
   it("requires finishing active capture and saving geometry edits before a cut", () => {
     withCanvas("MultiPolygon", ({root, map, button, changes}) => {
       root.selectFeature(feature());button("Add hole").click();

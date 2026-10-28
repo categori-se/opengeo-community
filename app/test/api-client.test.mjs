@@ -1415,6 +1415,42 @@ describe("OpenGeo API client", () => {
     assert.equal(calls, 0);
   });
 
+  it("preserves Polygon cut receipts and rejects mixed geometry or Polygon separate and merge receipts", async () => {
+    const createdId = "90000000-0000-4000-8000-000000000012";
+    const polygonPayload = (id, version) => {
+      const feature = multipolygonFeaturePayload(id, version);
+      return {...feature, geometry: {type: "Polygon", coordinates: feature.geometry.coordinates[0]}};
+    };
+    const response = {operation: "cut_line", retained_feature: polygonPayload(IDS.feature, 2),
+      created_features: [polygonPayload(createdId, 1)], deleted_features: [], collection_generation: 4, feature_count: 2};
+    const calls = [];
+    let payload = response;
+    const client = new OpenGeoApiClient({tokenProvider: () => "test-token",
+      organizationProvider: () => IDS.organization, fetchImplementation: async (url, options) => {
+        calls.push({url, body: JSON.parse(options.body)});return jsonResponse(payload);
+      }});
+    const request = {featureId: IDS.feature, expectedVersion: 1,
+      cutLine: {type: "LineString", coordinates: [[-1, 0.5], [2, 0.5]]}};
+    const result = await client.cutMultipolygonFeature(IDS.project, IDS.dataset, request);
+    assert.equal(calls[0].body.part_index, 0);
+    assert.deepEqual(result.retainedFeature.geometry, response.retained_feature.geometry);
+    assert.deepEqual(result.createdFeatures[0].geometry, response.created_features[0].geometry);
+    assert.deepEqual(result.retainedFeature.properties, response.retained_feature.properties);
+    for (const changed of [
+      {...response, retained_feature: multipolygonFeaturePayload(IDS.feature, 2)},
+      {...response, created_features: [multipolygonFeaturePayload(createdId, 1)]},
+      {...response, retained_feature: featurePayload({"opengeo:version": 2})}
+    ]) {
+      payload = changed;
+      await assert.rejects(client.cutMultipolygonFeature(IDS.project, IDS.dataset, request), ApiContractError);
+    }
+    payload = response;
+    await assert.rejects(client.cutMultipolygonFeature(IDS.project, IDS.dataset, {...request, partIndex: 1}), ApiContractError);
+    assert.throws(() => parseFeatureStructureMutation({...response, operation: "separate_parts"}, "separate_parts"), ApiContractError);
+    assert.throws(() => parseFeatureStructureMutation({...response, operation: "merge_parts", created_features: [],
+      deleted_features: [{feature_id: createdId, deleted_version: 2, collection_generation: 4}], feature_count: 1}, "merge_parts"), ApiContractError);
+  });
+
   it("sends and strictly parses atomic MultiPolygon separate and merge requests", async () => {
     const feature2 = "90000000-0000-4000-8000-000000000012";
     const calls = [];
@@ -1559,6 +1595,49 @@ describe("OpenGeo API client", () => {
     assert.throws(() => parseFeatureStructureMutation({
       ...response, operation: "separate_parts", geometry_operation: "dissolve"
     }, "separate_parts"), /only valid for a merge-parts mutation/);
+  });
+
+  it("dissolves Polygon collections only with explicit dissolve and exact retained and donor identities", async () => {
+    const donor = "90000000-0000-4000-8000-000000000012";
+    const unrelated = "90000000-0000-4000-8000-000000000013";
+    const polygon = multipolygonFeaturePayload(IDS.feature, 3);
+    polygon.geometry = {type: "Polygon", coordinates: polygon.geometry.coordinates[0]};
+    const response = {operation: "merge_parts", geometry_operation: "dissolve", retained_feature: polygon,
+      created_features: [], deleted_features: [{feature_id: donor, deleted_version: 2, collection_generation: 5}],
+      collection_generation: 5, feature_count: 1};
+    const calls = [];
+    let payload = response;
+    const client = new OpenGeoApiClient({tokenProvider: () => "test-token",
+      organizationProvider: () => IDS.organization, fetchImplementation: async (url, options) => {
+        calls.push({url, body: JSON.parse(options.body)});return jsonResponse(payload);
+      }});
+    const request = {retainedFeatureId: IDS.feature, features: [
+      {featureId: IDS.feature, expectedVersion: 2}, {featureId: donor, expectedVersion: 1}
+    ], geometryOperation: "dissolve"};
+    const result = await client.mergeMultipolygonFeatures(IDS.project, IDS.dataset, request);
+    assert.equal(calls[0].body.geometry_operation, "dissolve");
+    assert.equal(result.retainedFeature.id, IDS.feature);
+    assert.deepEqual(result.retainedFeature.geometry, polygon.geometry);
+    assert.deepEqual(result.retainedFeature.properties, polygon.properties);
+    assert.deepEqual(result.deletedFeatures, [{featureId: donor, deletedVersion: 2, collectionGeneration: 5}]);
+    for (const changed of [
+      {...response, geometry_operation: "collect"},
+      {...response, geometry_operation: undefined},
+      {...response, retained_feature: {...polygon, id: unrelated}},
+      {...response, retained_feature: {...polygon, "opengeo:version": 2}},
+      {...response, deleted_features: [{feature_id: unrelated, deleted_version: 2, collection_generation: 5}]},
+      {...response, deleted_features: [{feature_id: donor, deleted_version: 3, collection_generation: 5}]},
+      {...response, deleted_features: []},
+      {...response, feature_count: 0},
+      {...response, created_features: [multipolygonFeaturePayload(unrelated, 1)]}
+    ]) {
+      payload = changed;
+      await assert.rejects(client.mergeMultipolygonFeatures(IDS.project, IDS.dataset, request), ApiContractError);
+    }
+    for (const geometryOperation of ["collect", undefined]) {
+      assert.throws(() => parseFeatureStructureMutation({...response, geometry_operation: geometryOperation}, "merge_parts"),
+        /incompatible polygon geometry types/);
+    }
   });
 
   it("parses bounded feature pages and rejects inconsistent server counts", () => {

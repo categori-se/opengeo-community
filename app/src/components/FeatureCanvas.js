@@ -866,11 +866,15 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   const mergePart = collection.geometryType === "MultiLineString"
     ? button("Merge touching")
     : null;
-  const cutPolygon = collection.geometryType === "MultiPolygon" ? button("Cut polygon") : null;
+  const cutPolygon = ["Polygon", "MultiPolygon"].includes(collection.geometryType)
+    ? button("Cut polygon")
+    : null;
   if (cutPolygon) {
     cutPolygon.disabled = true;
     cutPolygon.title = typeof onCutLine === "function"
-      ? "Select a saved polygon feature and choose its part before drawing a cut"
+      ? collection.geometryType === "Polygon"
+        ? "Select a saved polygon feature before drawing a cut"
+        : "Select a saved polygon feature and choose its part before drawing a cut"
       : "Polygon cutting is unavailable in this editor";
   }
   if (splitPart) {
@@ -1050,8 +1054,9 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   cutPolygon?.addEventListener("click", () => {
     if (state.cutBusy || ["draw", "hole", "part"].includes(state.mode) || typeof onCutLine !== "function") return;
     cancelActiveVertexDrag({announce: false});
-    if (!state.selectedFeature || state.selectedGeometry?.type !== "MultiPolygon") {
-      status.textContent = "Select a saved multipolygon feature before drawing a cut.";
+    if (!state.selectedFeature || !["Polygon", "MultiPolygon"].includes(state.selectedGeometry?.type)
+      || state.selectedGeometry.type !== collection.geometryType) {
+      status.textContent = "Select a saved polygon feature before drawing a cut.";
       return;
     }
     if (JSON.stringify(state.selectedGeometry) !== JSON.stringify(state.selectedFeature.geometry)) {
@@ -1060,7 +1065,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     }
     state.cutContext = {
       feature: structuredClone(state.selectedFeature),
-      partIndex: state.selectedPartIndex,
+      partIndex: state.selectedGeometry.type === "Polygon" ? 0 : state.selectedPartIndex,
       history: state.history
     };
     state.mode = "cut";
@@ -1645,7 +1650,9 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   }
 
   function cutInstruction() {
-    return `Draw an open line across polygon part ${(state.cutContext?.partIndex ?? 0) + 1}, then choose Apply cut to save immediately. The largest piece keeps this feature's identity; untouched parts are preserved. Cancel discards only the cut line.`;
+    const multipart = state.cutContext?.feature.geometry.type === "MultiPolygon";
+    const target = multipart ? `polygon part ${state.cutContext.partIndex + 1}` : "the polygon";
+    return `Draw an open line across ${target}, then choose Apply cut to save immediately. The largest piece keeps this feature's identity${multipart ? "; untouched parts are preserved" : ""}. Cancel discards only the cut line.`;
   }
 
   function cancelCut() {
@@ -1670,7 +1677,8 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     const cutLine = geometryFromCanvasClicks("LineString", state.clicks);
     state.cutBusy = true;
     updateHistoryControls();
-    status.textContent = `Saving cut for polygon part ${context.partIndex + 1} at v${context.feature.version}…`;
+    const multipart = context.feature.geometry.type === "MultiPolygon";
+    status.textContent = `Saving cut for ${multipart ? `polygon part ${context.partIndex + 1}` : "the polygon"} at v${context.feature.version}…`;
     const current = () => !disposed && state.cutContext === context
       && state.selectedFeature?.id === context.feature.id
       && state.selectedFeature?.version === context.feature.version;
@@ -1682,7 +1690,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
       state.mode = "inspect";
       state.clicks = [];
       state.history = createDraftHistory({kind: "idle"});
-      status.textContent = "Cut saved. The largest piece keeps the feature identity and untouched parts are preserved. Select the refreshed feature to continue editing.";
+      status.textContent = `Cut saved. The largest piece keeps the feature identity${multipart ? " and untouched parts are preserved" : ""}. Select the refreshed feature to continue editing.`;
     } catch (error) {
       if (!current()) return;
       status.textContent = `The cut was not applied: ${error?.message || "The request failed"}. The draft line is retained; correct the issue before trying again or cancel the cut.`;
@@ -2061,10 +2069,11 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     if (cutPolygon) {
       cutPolygon.disabled = cutting || state.cutBusy || state.cutSaved || typeof onCutLine !== "function"
         || ["draw", "hole", "part"].includes(state.mode)
-        || state.selectedGeometry?.type !== "MultiPolygon" || !state.selectedFeature;
+        || !["Polygon", "MultiPolygon"].includes(state.selectedGeometry?.type)
+        || state.selectedGeometry.type !== collection.geometryType || !state.selectedFeature;
       cutPolygon.title = typeof onCutLine !== "function"
         ? "Polygon cutting is unavailable in this editor"
-        : "Draw a cut across the selected saved polygon part; Apply cut saves immediately";
+        : `Draw a cut across the selected saved ${collection.geometryType === "Polygon" ? "polygon" : "polygon part"}; Apply cut saves immediately`;
     }
     finish.textContent = cutting ? "Apply cut" : "Finish geometry";
     finish.title = cutting ? "Save this cut immediately using the selected feature version" : "Complete the geometry draft";
