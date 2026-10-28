@@ -4358,7 +4358,7 @@ function layerDock(context) {
   }
   const bookmarks = context.project?.bookmarks ?? [];
   if (bookmarks.length) support.append(bookmarkPanel(bookmarks, state));
-  if (layers.length && context.rendererAdapter.id !== "cesium") support.append(searchPanel(context));
+  if (context.rendererAdapter.id !== "cesium") support.append(searchPanel(context));
   if (state.portalConfiguration) support.append(portalConfigurationDisclosure(context));
 
   dock.append(LayerFolders({tree: configuredTree, layers, onApply: tree => {
@@ -5019,18 +5019,75 @@ function searchPanel(context) {
   section.className = "gis-search";
   section.open = state.placeSearchOpen === true || Boolean((state.placeSearch ?? "").trim());
   section.addEventListener("toggle", () => state.placeSearchOpen = section.open);
-  section.append(textElement("summary", "Search layer features"));
+  section.append(textElement("summary", "Search features or coordinates"));
   const body = document.createElement("div");
   body.className = "gis-search-body";
   const input = document.createElement("input");
   input.type = "search";
-  input.placeholder = "Search places and attributes...";
+  input.placeholder = "Layer attributes or latitude, longitude";
+  input.setAttribute("aria-label", "Search layer features or WGS84 coordinates");
   input.value = state.placeSearch ?? "";
+  input.setAttribute("aria-invalid", String(state.coordinateSearchInvalid === true));
   input.addEventListener("input", () => {
+    const focused = document.activeElement === input;
+    const selection = [input.selectionStart, input.selectionEnd];
     state.placeSearch = input.value;
+    state.coordinateSearchMessage = "";
+    state.coordinateSearchInvalid = false;
     context.render();
+    if (focused) {
+      const replacement = context.shell.querySelector(".gis-search input");
+      replacement?.focus();
+      replacement?.setSelectionRange(...selection);
+    }
   });
   body.append(input);
+
+  const earth = state.spatialBody.id === "earth";
+  body.append(textElement("small", earth
+    ? "Coordinates: WGS84 latitude, longitude in decimal degrees, for example 42.36, -71.06. Layer search uses loaded attributes."
+    : "WGS84 coordinate navigation is available for Earth maps. Layer search uses loaded attributes."));
+  const feedback = textElement("small", state.coordinateSearchMessage ?? "");
+  feedback.setAttribute("role", "status");
+  feedback.hidden = !state.coordinateSearchMessage;
+  const reportCoordinate = (message, invalid = false) => {
+    state.coordinateSearchMessage = message;
+    state.coordinateSearchInvalid = invalid;
+    feedback.textContent = message;
+    feedback.hidden = false;
+    input.setAttribute("aria-invalid", String(invalid));
+    setStatus(context, message);
+  };
+  const go = actionButton("Go to coordinate", () => {
+    if (context.disposed || !earth || !state.map) return;
+    const parts = input.value.trim().split(",").map(value => value.trim());
+    const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
+    const [latitude, longitude] = parts.map(Number);
+    if (parts.length !== 2 || !parts.every(value => decimal.test(value))
+      || !Number.isFinite(latitude) || !Number.isFinite(longitude)
+      || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+      reportCoordinate("Enter WGS84 latitude (-90 to 90), then longitude (-180 to 180), separated by a comma.", true);
+      input.focus();
+      return;
+    }
+    const [, south, , north] = state.spatialBody.rendererBounds;
+    if (latitude < south || latitude > north) {
+      reportCoordinate(`This map supports latitude from ${south} to ${north} degrees. Choose a coordinate within that range.`, true);
+      input.focus();
+      return;
+    }
+    state.map.flyTo({center: [longitude, latitude], zoom: Math.max(state.map.getZoom(), 12), duration: 350});
+    reportCoordinate(`Going to WGS84 ${latitude}, ${longitude}.`);
+  });
+  go.disabled = !earth || !state.map;
+  if (earth && !state.map) go.title = "Wait for the map to load before going to coordinates.";
+  input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.isComposing && !go.disabled) {
+      event.preventDefault();
+      go.click();
+    }
+  });
+  body.append(go, feedback);
 
   const hits = [];
   const needle = (state.placeSearch ?? "").trim().toLowerCase();

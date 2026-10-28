@@ -1,4 +1,5 @@
 import json
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -534,6 +535,345 @@ def test_iso_19115_3_exact_xml_import_and_semantic_export_are_bounded() -> None:
         assert_safe_metadata_source(
             '<mdb:MD_Metadata xmlns:mdb="http://standards.iso.org/iso/19115/-3/mdb/1.0" />'
         )
+
+
+def localized_iso_document() -> str:
+    document = (ROOT / "parity/fixtures/data/metadata-006-iso19115-3.xml").read_text()
+    document = document.replace(
+        "<mdb:MD_Metadata ",
+        '<mdb:MD_Metadata xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" ',
+        1,
+    )
+    locales = """
+      <mdb:otherLocale><lan:PT_Locale id="locale-fr"><lan:language>
+        <lan:LanguageCode
+          codeList="https://schemas.isotc211.org/19115/resources/Codelist/lan/LanguageCode.xml"
+          codeListValue="fr">fr</lan:LanguageCode>
+      </lan:language><lan:characterEncoding><lan:MD_CharacterSetCode
+        codeList="https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_CharacterSetCode"
+        codeListValue="utf8">utf8</lan:MD_CharacterSetCode>
+      </lan:characterEncoding></lan:PT_Locale></mdb:otherLocale>
+      <mdb:otherLocale><lan:PT_Locale id="locale-ne"><lan:language>
+        <lan:LanguageCode
+          codeList="https://schemas.isotc211.org/19115/resources/Codelist/lan/LanguageCode.xml"
+          codeListValue="ne">ne</lan:LanguageCode>
+      </lan:language><lan:characterEncoding><lan:MD_CharacterSetCode
+        codeList="https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_CharacterSetCode"
+        codeListValue="utf8">utf8</lan:MD_CharacterSetCode>
+      </lan:characterEncoding></lan:PT_Locale></mdb:otherLocale>
+    """
+    document = document.replace("<mdb:identificationInfo>", locales + "<mdb:identificationInfo>", 1)
+    for property_name, original, localized in (
+        (
+            "cit:title",
+            "Road access survey",
+            """
+          <lan:PT_FreeText>
+            <lan:textGroup>
+            <lan:LocalisedCharacterString locale="#locale-fr">Enquête routière
+            </lan:LocalisedCharacterString>
+          </lan:textGroup>
+            <lan:textGroup>
+            <lan:LocalisedCharacterString locale="#locale-ne">सडक पहुँच सर्वेक्षण
+            </lan:LocalisedCharacterString>
+          </lan:textGroup>
+          </lan:PT_FreeText>
+        """,
+        ),
+        (
+            "mri:abstract",
+            "Verified roads metadata.",
+            """
+          <lan:PT_FreeText><lan:textGroup>
+            <lan:LocalisedCharacterString locale="#locale-fr">Métadonnées vérifiées.
+            </lan:LocalisedCharacterString>
+          </lan:textGroup></lan:PT_FreeText>
+        """,
+        ),
+        (
+            "mri:credit",
+            "Research team",
+            """
+          <lan:PT_FreeText><lan:textGroup>
+            <lan:LocalisedCharacterString locale="#locale-fr">Équipe &amp; partenaires
+            </lan:LocalisedCharacterString>
+          </lan:textGroup></lan:PT_FreeText>
+        """,
+        ),
+        (
+            "mri:keyword",
+            "roads",
+            """
+          <lan:PT_FreeText><lan:textGroup>
+            <lan:LocalisedCharacterString locale="#locale-fr">routes
+            </lan:LocalisedCharacterString>
+          </lan:textGroup></lan:PT_FreeText>
+        """,
+        ),
+        (
+            "mri:keyword",
+            "transport",
+            """
+          <lan:PT_FreeText><lan:textGroup>
+            <lan:LocalisedCharacterString locale="#locale-fr">mobilité
+            </lan:LocalisedCharacterString>
+          </lan:textGroup></lan:PT_FreeText>
+        """,
+        ),
+    ):
+        document = document.replace(
+            f"<{property_name}><gco:CharacterString>{original}</gco:CharacterString>",
+            f'<{property_name} xsi:type="lan:PT_FreeText_PropertyType">'
+            f"<gco:CharacterString>{original}</gco:CharacterString>{localized}",
+            1,
+        )
+    return document
+
+
+def iso_import(document: str):
+    return build_metadata_import_plan(
+        "iso_19115_3",
+        "example.iso",
+        "localized-roads",
+        "restricted",
+        document,
+        metadata_source_checksum(document),
+    )
+
+
+def test_iso_localized_metadata_survives_xml_export_and_fresh_import() -> None:
+    document = localized_iso_document()
+    plan = iso_import(document)
+    expected = {
+        "fr": {
+            "title": "Enquête routière",
+            "abstract": "Métadonnées vérifiées.",
+            "attribution": "Équipe & partenaires",
+            "keywords": ["routes", "mobilité"],
+        },
+        "ne": {"title": "सडक पहुँच सर्वेक्षण"},
+    }
+    assert plan.draft.metadata.translations == expected
+    assert plan.draft.metadata.language == "en"
+    assert plan.draft.metadata.keywords == ("roads", "transport")
+    assert plan.source_document == document
+    assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+    assert "lan:PT_FreeText->translations" in plan.conversion_report["mapped"]
+    assert not any(
+        "LocalisedCharacterString" in item for item in plan.conversion_report["unmapped"]
+    )
+
+    exported = export_iso_19115_3(resource_from_plan(plan))
+    root = ET.fromstring(exported["documentText"])
+    namespaces = {
+        "lan": "http://standards.iso.org/iso/19115/-3/lan/1.0",
+        "cit": "http://standards.iso.org/iso/19115/-3/cit/2.0",
+    }
+    title = root.find(".//cit:title", namespaces)
+    assert title is not None
+    assert (
+        title.get("{http://www.w3.org/2001/XMLSchema-instance}type")
+        == "lan:PT_FreeText_PropertyType"
+    )
+    assert len(root.findall(".//lan:PT_FreeText", namespaces)) == 5
+    assert "translations" in exported["report"]["mapped"]
+    assert "translations" not in exported["report"]["unmapped"]
+    assert exported["report"]["conformanceClaimed"] is False
+    reopened = iso_import(exported["documentText"])
+    assert reopened.draft.metadata.translations == expected
+    assert reopened.draft.metadata.title == plan.draft.metadata.title
+    assert reopened.draft.metadata.abstract == plan.draft.metadata.abstract
+    assert reopened.draft.metadata.attribution == plan.draft.metadata.attribution
+    assert reopened.draft.metadata.keywords == plan.draft.metadata.keywords
+
+
+def test_iso_export_retains_native_region_and_script_locales_as_explicit_losses() -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.translations = {
+        "fr-CA": {"title": "Enquête sur les routes du Québec", "keywords": ["routes"]},
+        "sr-Latn": {"title": "Istraživanje puteva", "abstract": "Provereni podaci."},
+        "fr": {"title": "Enquête routière"},
+    }
+    original = json.loads(json.dumps(resource.translations))
+    exported = export_iso_19115_3(resource)
+    root = ET.fromstring(exported["documentText"])
+    lan = "{http://standards.iso.org/iso/19115/-3/lan/1.0}"
+    codes = [node.get("codeListValue") for node in root.iter(f"{lan}LanguageCode")]
+    assert codes == ["en", "fr"]
+    assert {"translations.fr-CA", "translations.sr-Latn"} <= set(exported["report"]["unmapped"])
+    assert "translations" not in exported["report"]["mapped"]
+    assert "translations.fr" in exported["report"]["mapped"]
+    assert resource.translations == original
+    assert iso_import(exported["documentText"]).draft.metadata.translations == {
+        "fr": {"title": "Enquête routière"}
+    }
+
+    resource.translations.pop("fr")
+    unsupported_only = export_iso_19115_3(resource)
+    assert not any(item.startswith("translations") for item in unsupported_only["report"]["mapped"])
+    assert {"translations.fr-CA", "translations.sr-Latn"} <= set(
+        unsupported_only["report"]["unmapped"]
+    )
+
+
+@pytest.mark.parametrize("locale_tag", ["fr-CA", "sr-Latn"])
+def test_iso_locale_tags_are_unmapped_without_guessing_language_country_or_script(
+    locale_tag: str,
+) -> None:
+    original = iso_import(localized_iso_document())
+    document = localized_iso_document().replace(
+        'codeListValue="fr"', f'codeListValue="{locale_tag}"'
+    )
+    document = document.replace(">fr</lan:LanguageCode>", f">{locale_tag}</lan:LanguageCode>")
+    plan = iso_import(document)
+    assert plan.draft.metadata.translations == {"ne": {"title": "सडक पहुँच सर्वेक्षण"}}
+    assert "fr" in original.draft.metadata.translations
+    assert len([item for item in plan.conversion_report["unmapped"] if "Localised" in item]) == 5
+    assert plan.source_document == document
+    assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+    for field in ("title", "abstract", "attribution", "language", "license", "keywords"):
+        assert getattr(plan.draft.metadata, field) == getattr(original.draft.metadata, field)
+
+
+@pytest.mark.parametrize(
+    "original,replacement",
+    [
+        ('locale="#locale-fr"', 'locale="#unknown"'),
+        ('locale="#locale-fr"', 'locale="https://invalid.example/locale.xml#locale-fr"'),
+        ('codeListValue="fr"', 'codeListValue="fr_CA"'),
+        ('id="locale-ne"', 'id="locale-fr"'),
+        (
+            "</lan:language><lan:characterEncoding>",
+            "</lan:language><lan:country>CA</lan:country><lan:characterEncoding>",
+        ),
+    ],
+)
+def test_iso_unresolved_or_ambiguous_locales_stay_in_exact_source_and_loss_report(
+    original: str,
+    replacement: str,
+) -> None:
+    document = localized_iso_document().replace(original, replacement)
+    plan = iso_import(document)
+    assert "fr" not in plan.draft.metadata.translations
+    assert plan.source_document == document
+    assert any("LocalisedCharacterString" in item for item in plan.conversion_report["unmapped"])
+
+
+def test_iso_localized_abstract_without_translated_title_is_explicitly_unmapped() -> None:
+    document = localized_iso_document().replace("Enquête routière", "ignored title")
+    document = document.replace(
+        'locale="#locale-fr">ignored title', 'locale="#unknown">ignored title'
+    )
+    plan = iso_import(document)
+    assert "fr" not in plan.draft.metadata.translations
+    assert len([item for item in plan.conversion_report["unmapped"] if "Localised" in item]) == 5
+    assert plan.source_document == document
+
+
+def test_iso_conflicting_translated_titles_and_entities_are_rejected_before_import() -> None:
+    document = localized_iso_document()
+    conflicting = document.replace('locale="#locale-ne"', 'locale="#locale-fr"', 1)
+    with pytest.raises(MetadataImportInvalid, match="multiple values"):
+        iso_import(conflicting)
+    entity_document = document.replace(
+        "<mdb:MD_Metadata ",
+        '<!DOCTYPE x [<!ENTITY secret SYSTEM "file:///etc/passwd">]><mdb:MD_Metadata ',
+        1,
+    ).replace("Enquête routière", "&secret;")
+    with pytest.raises(MetadataImportInvalid, match="DTD or entity"):
+        iso_import(entity_document)
+
+
+def test_iso_localized_rights_and_foreign_namespace_text_remain_explicit_source_losses() -> None:
+    document = localized_iso_document().replace(
+        "<mco:useLimitation><gco:CharacterString>CC-BY-4.0</gco:CharacterString>",
+        '<mco:useLimitation xsi:type="lan:PT_FreeText_PropertyType">'
+        "<gco:CharacterString>CC-BY-4.0</gco:CharacterString><lan:PT_FreeText>"
+        '<lan:textGroup><lan:LocalisedCharacterString locale="#locale-fr">'
+        "Conditions particulières</lan:LocalisedCharacterString></lan:textGroup></lan:PT_FreeText>",
+    )
+    document = document.replace(
+        "</mdb:MD_Metadata>",
+        '<other:LocalisedCharacterString xmlns:other="https://invalid.example/namespace" '
+        'locale="#locale-fr">Foreign value</other:LocalisedCharacterString></mdb:MD_Metadata>',
+    )
+    plan = iso_import(document)
+    assert plan.draft.metadata.license == "CC-BY-4.0"
+    assert "license" not in plan.draft.metadata.translations["fr"]
+    assert len([item for item in plan.conversion_report["unmapped"] if "Localised" in item]) == 2
+    assert plan.source_document == document
+
+
+@pytest.mark.parametrize("property_name", ["keyword", "title", "abstract", "credit"])
+def test_iso_foreign_property_cannot_turn_localized_text_into_canonical_metadata(
+    property_name: str,
+) -> None:
+    document = localized_iso_document()
+    primary_values = {
+        "title": "Road access survey",
+        "abstract": "Verified roads metadata.",
+        "credit": "Research team",
+    }
+    primary = (
+        f"<gco:CharacterString>{primary_values[property_name]}</gco:CharacterString>"
+        if property_name in primary_values
+        else ""
+    )
+    foreign_property = (
+        f'<other:{property_name} xmlns:other="https://invalid.example/namespace">'
+        f"{primary}"
+        '<lan:PT_FreeText><lan:textGroup><lan:LocalisedCharacterString locale="#locale-fr">'
+        f"Foreign value</lan:LocalisedCharacterString></lan:textGroup></lan:PT_FreeText>"
+        f"</other:{property_name}>"
+    )
+    insertion = {
+        "keyword": "</mri:MD_Keywords>",
+        "title": "<mri:citation>",
+        "abstract": "<mri:abstract",
+        "credit": "<mri:credit",
+    }[property_name]
+    document = document.replace(insertion, foreign_property + insertion, 1)
+    plan = iso_import(document)
+    assert plan.draft.metadata.translations["fr"] == {
+        "title": "Enquête routière",
+        "abstract": "Métadonnées vérifiées.",
+        "attribution": "Équipe & partenaires",
+        "keywords": ["routes", "mobilité"],
+    }
+    assert len([item for item in plan.conversion_report["unmapped"] if "Localised" in item]) == 1
+    assert plan.source_document == document
+
+
+def test_iso_translation_bounds_reject_excess_languages_and_bytes() -> None:
+    document = localized_iso_document()
+    locale = document[
+        document.index("<mdb:otherLocale>") : document.index("</mdb:otherLocale>")
+        + len("</mdb:otherLocale>")
+    ]
+    text_group = document[
+        document.index("<lan:textGroup>") : document.index("</lan:textGroup>")
+        + len("</lan:textGroup>")
+    ]
+    languages = ("de", "es", "it", "pt", "nl", "pl", "sv")
+    added_locales = "".join(
+        locale.replace("locale-fr", f"locale-{language}")
+        .replace('"fr"', f'"{language}"')
+        .replace(">fr</", f">{language}</")
+        for language in languages
+    )
+    added_text_groups = "".join(
+        text_group.replace("locale-fr", f"locale-{language}") for language in languages
+    )
+    too_many = document.replace(
+        "<mdb:identificationInfo>", added_locales + "<mdb:identificationInfo>"
+    )
+    too_many = too_many.replace("</lan:PT_FreeText>", added_text_groups + "</lan:PT_FreeText>", 1)
+    with pytest.raises(MetadataImportInvalid, match="exceed 8 languages"):
+        iso_import(too_many)
+    oversized = document.replace("Métadonnées vérifiées.", "é" * 8_000)
+    oversized = oversized.replace("Équipe &amp; partenaires", "é" * 1_000)
+    with pytest.raises(MetadataImportInvalid, match="16384 canonical bytes"):
+        iso_import(oversized)
 
 
 def test_openapi_exposes_all_metadata_representations_without_http_threads() -> None:

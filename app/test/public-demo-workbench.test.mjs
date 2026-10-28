@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {WorkbenchView} from "../src/components/WorkbenchView.js";
 import {emptyMapDefinition} from "../src/lib/mapDefinition.js";
+import {spatialBodyDefinition} from "../src/lib/spatialBody.js";
 import {savedProjectVersionFile} from "../src/lib/projectFileFormat.js";
 import {readBrowserProjectFile} from "../src/lib/browserProjectFile.js";
 import {describe, it} from "node:test";
@@ -103,6 +104,89 @@ it("invalid optional social baseline data does not prevent opening the Project",
       loadSocialBaselineKnowledge: () => assert.fail("Invalid configuration must not read metadata")});
     document.body.append(shell); assert.match(shell.querySelector('.project-social-baseline').textContent, /saved social baseline selection is invalid/);
   } finally {shell?.dispose?.(); shell?.remove(); restore(); dom.window.close();}
+});
+
+it("Workbench coordinate search navigates only on Go or Enter, rejects invalid positions, and retains loaded feature search", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), listeners = new Map(), flights = [], fits = [];
+  const originalFetch = globalThis.fetch;
+  let shell, camera = {center: [-71, 42], zoom: 2};
+  const map = {
+    on(type, callback) {listeners.set(type, callback);}, off(type) {listeners.delete(type);}, resize() {},
+    isStyleLoaded: () => false, getZoom: () => camera.zoom, getBearing: () => 0, getPitch: () => 0,
+    getCenter: () => ({lng: camera.center[0], lat: camera.center[1]}), getLayer: () => null,
+    getStyle: () => ({version: 8, sources: {}, layers: []}),
+    flyTo(options) {flights.push(options); camera = {center: options.center, zoom: options.zoom};},
+    fitBounds: (...args) => fits.push(args), queryRenderedFeatures: () => []
+  };
+  const layer = {layerId: "local-trail", datasetId: "local-trail", title: "Trails", sourceType: "geojson-object",
+    geometryType: "LineString", visible: true, opacity: 1, style: {}, labels: {enabled: false}};
+  const geojson = {type: "FeatureCollection", features: [{type: "Feature", properties: {name: "River trail", location: "42.36, -71.06"},
+    geometry: {type: "LineString", coordinates: [[-71.2, 42.1], [-71, 42.4]]}}]};
+  try {
+    globalThis.fetch = () => assert.fail("Search must not request a provider or geocoder");
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Coordinate navigation"},
+      role: "owner", project: emptyMapDefinition(), layers: [layer], geojsonByLayerId: new Map([[layer.layerId, geojson]]),
+      persistenceMode: "fixture", restoreBrowserDraft: false,
+      rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: () => map, disposeMap() {}}});
+    document.body.append(shell);
+    await waitFor(() => listeners.has("click"));
+    const input = () => shell.querySelector('.gis-search input');
+    const go = () => [...shell.querySelectorAll('.gis-search button')].find(button => button.textContent === "Go to coordinate");
+    const enter = () => {const event = new dom.window.KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}); input().dispatchEvent(event); return event;};
+    const type = value => {
+      input().focus(); input().value = value; input().setSelectionRange(value.length, value.length);
+      input().dispatchEvent(new dom.window.Event("input"));
+      assert.equal(document.activeElement, input()); assert.equal(input().selectionStart, value.length);
+    };
+    assert.match(shell.querySelector('.gis-search').textContent, /WGS84 latitude, longitude in decimal degrees/);
+    type("42.36, -71.06");
+    assert.equal(flights.length, 0); assert.equal(fits.length, 0);
+    assert.equal([...shell.querySelectorAll('.gis-search button')].some(button => button.textContent === "River trail"), true);
+    go().click();
+    assert.deepEqual(flights, [{center: [-71.06, 42.36], zoom: 12, duration: 350}]);
+    assert.deepEqual(shell.getPrintContext().project.mapViews[0].center, [-71.06, 42.36]);
+    assert.match(shell.querySelector('[data-status-field="message"]').textContent, /Going to WGS84 42.36, -71.06/);
+    camera.zoom = 15;
+    type(" -33.86, +151.21 ");
+    assert.equal(flights.length, 1); assert.equal(enter().defaultPrevented, true);
+    assert.deepEqual(flights.at(-1), {center: [151.21, -33.86], zoom: 15, duration: 350});
+    for (const invalid of ["", "42.36", "42.36,", "91, 0", "0, -181", "NaN, 0", "Infinity, 0", "0, 1e309", "0x10, 0", "0, 0, 0", "90, 0", "-85.05112879, 0"]) {
+      type(invalid); enter();
+      assert.equal(flights.length, 2, invalid); assert.equal(fits.length, 0, invalid);
+      assert.equal(input().getAttribute("aria-invalid"), "true", invalid);
+      assert.equal(document.activeElement, input(), invalid);
+      assert.match(shell.querySelector('.gis-search [role="status"]').textContent, /Enter WGS84|This map supports latitude/, invalid);
+    }
+    type("0, 180");
+    assert.equal(input().getAttribute("aria-invalid"), "false");
+    go().click(); assert.deepEqual(flights.at(-1), {center: [180, 0], zoom: 15, duration: 350});
+    type("-85.05112878, -180"); go().click();
+    assert.deepEqual(flights.at(-1), {center: [-180, -85.05112878], zoom: 15, duration: 350});
+    type("River trail"); assert.equal(fits.length, 0);
+    [...shell.querySelectorAll('.gis-search button')].find(button => button.textContent === "River trail").click();
+    assert.deepEqual(fits, [[[[-71.2, 42.1], [-71, 42.4]], {padding: 80, maxZoom: 15, duration: 350}]]);
+    assert.equal(flights.length, 4); assert.deepEqual(shell.__opengeoData.get(layer.layerId), geojson);
+  } finally {shell?.dispose?.(); shell?.remove(); globalThis.fetch = originalFetch; restore(); dom.window.close();}
+});
+
+it("coordinate navigation is discoverable on an empty map and waits for Earth map availability", () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), shells = [];
+  try {
+    for (const body of ["earth", "moon"]) {
+      const definition = emptyMapDefinition();
+      definition.spatialBody = spatialBodyDefinition(body);
+      const shell = WorkbenchView({workspace: {workspaceId: `coordinate-${body}`, title: "Empty map"}, role: "owner",
+        project: definition, layers: [], persistenceMode: "fixture", restoreBrowserDraft: false});
+      document.body.append(shell); shells.push(shell);
+      const search = shell.querySelector('.gis-search'); assert(search);
+      assert.equal(search.querySelector("button").disabled, true);
+      if (body === "earth") assert.match(search.querySelector("button").title, /Wait for the map/);
+      else assert.match(search.textContent, /available for Earth maps/);
+    }
+  } finally {for (const shell of shells) {shell.dispose(); shell.remove();} restore(); dom.window.close();}
 });
 
 it("restores a social baseline browser draft selection without metadata reads", () => {
