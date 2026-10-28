@@ -249,6 +249,19 @@ export function moveKmlPlace(document, placeId, parentId, index = Number.POSITIV
   return normalizePlacesDocument(draft);
 }
 
+export function sortKmlPlaceSiblings(document, parentId, direction = "ascending") {
+  if (!["ascending", "descending"].includes(direction)) throw kmlError("places_sort_invalid");
+  const draft = structuredClone(normalizePlacesDocument(document));
+  const parent = findKmlPlace(draft, parentId ?? draft.id);
+  if (!parent || !["document", "folder"].includes(parent.kind)) throw kmlError("places_parent_invalid");
+  parent.children.sort((left, right) => {
+    const a = left.name.normalize("NFKC").toLowerCase();
+    const b = right.name.normalize("NFKC").toLowerCase();
+    return (a < b ? -1 : a > b ? 1 : 0) * (direction === "ascending" ? 1 : -1);
+  });
+  return normalizePlacesDocument(draft);
+}
+
 export function parseAuthoringGeometry(type, text) {
   const counters = {positions: 0};
   const positions = parseCoordinates(text, counters);

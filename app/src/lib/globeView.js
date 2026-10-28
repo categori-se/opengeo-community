@@ -92,6 +92,35 @@ export function mapViewsForSave(map, existing = []) {
   ];
 }
 
+export function addNamedMapView(map, existing, title, id) {
+  const views = mapViewsForSave(map, existing);
+  if (views.length >= 8) throw Error("A Project supports seven named views. Remove a saved view first.");
+  if (!boundedIdentifier(id) || views.some(view => view.id === id)) throw Error("Choose a unique saved view.");
+  if (!map) throw Error("Wait for the map before saving the current view.");
+  return [...views, captureMapView(map, {id, title: namedViewTitle(title)})];
+}
+
+export function renameNamedMapView(existing, id, title) {
+  const views = mapViewsForSave(null, existing);
+  const index = views.findIndex(view => view.id === id);
+  if (index < 1) throw Error("Choose a named view to rename.");
+  views[index] = {...views[index], title: namedViewTitle(title)};
+  return views;
+}
+
+export function removeNamedMapView(existing, id) {
+  const views = mapViewsForSave(null, existing);
+  const index = views.findIndex(view => view.id === id);
+  if (index < 1) throw Error("Choose a named view to remove.");
+  return views.filter((_, position) => position !== index);
+}
+
+function namedViewTitle(value) {
+  const title = typeof value === "string" ? value.trim() : "";
+  if (!title || title.length > 160) throw Error("Enter a view name of up to 160 characters.");
+  return title;
+}
+
 export function applyMapProjection(map, requested) {
   const projection = normalizeProjection(requested);
   if (!map) return {requested: projection, effective: "mercator", fallback: true};

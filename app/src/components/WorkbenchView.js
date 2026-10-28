@@ -35,6 +35,7 @@ import {LayerStylePicker} from "./LayerStylePicker.js";
 import {POINT_SYMBOLS, hasPointSymbolStyle, normalizePointSymbolStyle, pointSymbolImages, pointSymbolStyleParts, pointSymbolPreviewSvg, ensurePointSymbolAssets} from "../lib/pointSymbols.js";
 import {resolveLayerStyle, referencedStylePaint, validateLayerStyleReference} from "../lib/layerStyleReference.js";
 import {maplibreAdapter, workbenchRenderer, registerArchiveProtocols} from "../lib/maplibreAdapter.js";
+import {createHistoricalComparisonView, historicalComparisonIdentity} from "../lib/historicalComparisonView.js";
 import {openStaticMapExport} from "./StaticMapExport.js";
 import {studioNavigationItems, demoNavigationItems, MANAGED_STUDIO_URL} from "./StudioNavigation.js";
 import {mapServerTileUrl} from "../lib/mapServer.js";
@@ -202,11 +203,14 @@ import {
 } from "../lib/spatialBody.js";
 import {
   applyMapProjection,
+  addNamedMapView,
   captureMapView,
   mapViewsForSave,
   normalizeMapView,
   normalizeProjection,
-  projectionForProject
+  projectionForProject,
+  removeNamedMapView,
+  renameNamedMapView
 } from "../lib/globeView.js";
 import {
   applyOpenTerrain,
@@ -261,6 +265,7 @@ import {
   placesForSave,
   placesToGeojson,
   removeKmlPlace,
+  sortKmlPlaceSiblings,
   updateKmlPlace
 } from "../lib/kmlPlaces.js";
 import {
@@ -318,7 +323,8 @@ import {
   normalizeProjectLayerOrder,
   orderedProjectLayerTree,
   reorderedLayerStack,
-  restoreSavedLayerOrder
+  restoreSavedLayerOrder,
+  sortProjectLayerSiblings
 } from "../lib/layerOrder.js";
 import {
   HISTORICAL_IMAGERY_LIMITS,
@@ -643,6 +649,7 @@ function createWorkbenchView({
     basemapCatalogMessage: null,
     basemapGovernanceSubjectId: null,
     historicalImagery: initialHistoricalImagery,
+    historicalComparisonDateDraft: null,
     historicalAvailability: reviewedHistoricalDates(initialHistoricalImagery.sourceId),
     historicalAvailabilityStatus: "reviewed-capability-receipt",
     historicalAvailabilityMessage: "Showing the last reviewed provider time-domain dates. Visible pixels can still contain gaps or clouds.",
@@ -1024,6 +1031,7 @@ function createWorkbenchView({
   shell.dispose = () => {
     if (context.disposed) return;
     context.disposed = true;
+    disposeHistoricalComparison(context);
     context.disposeSaveShortcut?.();
     context.analysisConsole?.dispose();
     context.browserPrintStudio?.dispose?.();
@@ -1108,6 +1116,7 @@ function createWorkbenchView({
     panelAfterAdd
   });
   context.render = () => {
+    syncHistoricalComparison(context);
     const cogCredits = context.rendererAdapter.id === "maplibre"
       ? context.layers.filter(layer => isCogLayer(layer) && layer.visible !== false)
         .map(layer => layer.attribution ?? layer.sourceConfiguration?.attribution)
@@ -1346,6 +1355,7 @@ function initializeMap(container, context) {
   }
 
   context.disposeResources = () => {
+    disposeHistoricalComparison(context);
     context.cancelPrintResolution?.();
     context.disconnectionObserver?.disconnect();
     context.disposeMapEvents?.();
@@ -1647,6 +1657,7 @@ async function switchRenderingEngine(context, engineId, {resume = false, automat
       state.queryResultHandlersBound = previousQueryHandlersBound;
       context.disposeMapEvents = original ? bindMapEvents(context) : null;
     };
+    disposeHistoricalComparison(context);
     context.disposeMapEvents?.();
     state.map = candidate; context.rendererAdapter = adapter; context.mapSurface = surface;
     if (!resume) context.rendererPreference = engineId;
@@ -3230,6 +3241,23 @@ function kmlLayerEditor(context) {
   dock.append(kmlPlaceCreator(context));
   dock.append(kmlOverlayCreator(context));
 
+  const sort = document.createElement("div");
+  sort.className = "gis-form-grid";
+  const sortParent = selectInput("KML folder to sort", state.kmlPlaces.id, kmlContainerOptions(state.kmlPlaces));
+  const sortDirection = selectInput("KML sort order", "ascending", [["ascending", "Name A to Z"], ["descending", "Name Z to A"]]);
+  const sortButton = actionButton("Sort KML folder by name", () => {
+    if (!canOrganizeProject(context)) return;
+    try {
+      const next = sortKmlPlaceSiblings(state.kmlPlaces, sortParent.input.value, sortDirection.input.value);
+      applyKmlPlacesDocument(context, next, "Sorted the selected KML folder. Save the Project to retain its order.");
+      context.shell.querySelector("[data-kml-sort]")?.focus();
+    } catch (error) {setStatus(context, `KML sorting failed safely (${error?.code ?? "invalid_folder"}).`);}
+  });
+  sortButton.dataset.kmlSort = "name";
+  sortParent.input.disabled = sortDirection.input.disabled = sortButton.disabled = !canOrganizeProject(context);
+  sort.append(sortParent.wrapper, sortDirection.wrapper, sortButton);
+  dock.append(sort);
+
   const tree = document.createElement("ul");
   tree.className = "gis-places-tree";
   tree.role = "tree";
@@ -3247,11 +3275,38 @@ function appendPlaceNodes(parent, children, context) {
     item.dataset.placeKind = child.kind;
     item.dataset.placeId = child.id;
     item.classList.toggle("selected", context.state.selectedKmlPlaceId === child.id);
+    const visible = document.createElement("input");
+    visible.type = "checkbox";
+    visible.checked = child.visibility !== false;
+    visible.disabled = !canOrganizeProject(context);
+    visible.setAttribute("aria-label", `Show ${child.name}`);
+    visible.addEventListener("click", event => event.stopPropagation());
+    visible.addEventListener("change", () => {
+      if (!canOrganizeProject(context)) return;
+      try {
+        applyKmlPlacesDocument(context, updateKmlPlace(context.state.kmlPlaces, child.id, {visibility: visible.checked}),
+          `${visible.checked ? "Shown" : "Hidden"} ${child.name}. Save the Project to retain visibility.`);
+        [...context.shell.querySelectorAll("[data-place-id]")].find(item => item.dataset.placeId === child.id)
+          ?.querySelector('input[type="checkbox"]')?.focus();
+      } catch (error) {setStatus(context, `Place visibility failed safely (${error?.code ?? "invalid_place"}).`);}
+    });
     if (child.kind === "folder") {
       const details = document.createElement("details");
       details.open = child.open === true;
+      details.addEventListener("toggle", () => {
+        if (!details.isConnected || !canOrganizeProject(context)) return;
+        const current = findKmlPlaceForUi(context.state.kmlPlaces, child.id);
+        if (!current || current.open === details.open) return;
+        try {
+          applyKmlPlacesDocument(context, updateKmlPlace(context.state.kmlPlaces, child.id, {open: details.open}),
+            `${details.open ? "Expanded" : "Collapsed"} ${child.name}. Save the Project to retain it.`);
+          [...context.shell.querySelectorAll("[data-place-id]")].find(item => item.dataset.placeId === child.id)
+            ?.querySelector("summary")?.focus();
+        } catch (error) {setStatus(context, `Folder expansion failed safely (${error?.code ?? "invalid_place"}).`);}
+      });
       const summary = document.createElement("summary");
-      summary.textContent = child.name;
+      summary.tabIndex = 0;
+      summary.append(visible, document.createTextNode(child.name));
       details.append(summary);
       details.append(actionButton(`Edit ${child.name}`, () => {
         context.state.selectedKmlPlaceId = child.id;
@@ -3276,7 +3331,7 @@ function appendPlaceNodes(parent, children, context) {
         context.state.selectedKmlPlaceId = child.id;
         context.render();
       });
-      row.append(fly, edit);
+      row.append(visible, fly, edit);
       item.append(row);
     }
     parent.append(item);
@@ -3426,7 +3481,30 @@ function kmlPlaceEditor(context, selected) {
     }
   });
   remove.dataset.kmlAuthoringAction = "delete";
-  form.append(name.wrapper, description.wrapper, visible, parent.wrapper, save, remove);
+  const siblings = findKmlParentForUi(context.state.kmlPlaces, selected.id)?.children ?? [];
+  const index = siblings.findIndex(place => place.id === selected.id);
+  const order = document.createElement("div");
+  order.className = "gis-action-grid";
+  for (const [direction, label] of [[-1, "up"], [1, "down"]]) {
+    const move = actionButton(`Move ${selected.name} ${label}`, () => {
+      if (!canOrganizeProject(context)) return;
+      try {
+        const currentParent = findKmlParentForUi(context.state.kmlPlaces, selected.id);
+        const currentIndex = currentParent?.children.findIndex(place => place.id === selected.id) ?? -1;
+        if (currentIndex < 0 || currentIndex + direction < 0 || currentIndex + direction >= currentParent.children.length) return;
+        applyKmlPlacesDocument(context, moveKmlPlace(context.state.kmlPlaces, selected.id, currentParent.id, currentIndex + direction),
+          `Moved ${selected.name} ${label}. Save the Project to retain its order.`);
+        const controls = [context.shell.querySelector(`[data-kml-move="${label}"]`),
+          context.shell.querySelector(`[data-kml-move="${direction === -1 ? "down" : "up"}"]`),
+          context.shell.querySelector('.gis-places-editor input[data-kml-editing-field="name"]')];
+        controls.find(control => control && !control.disabled)?.focus();
+      } catch (error) {setStatus(context, `Place ordering failed safely (${error?.code ?? "invalid_place"}).`);}
+    });
+    move.dataset.kmlMove = label;
+    move.disabled = !canOrganizeProject(context) || index < 0 || index + direction < 0 || index + direction >= siblings.length;
+    order.append(move);
+  }
+  form.append(name.wrapper, description.wrapper, visible, parent.wrapper, order, save, remove);
   details.append(form);
   return details;
 }
@@ -4358,15 +4436,28 @@ function layerDock(context) {
   }
   const bookmarks = context.project?.bookmarks ?? [];
   if (bookmarks.length) support.append(bookmarkPanel(bookmarks, state));
+  support.append(savedViewsPanel(context));
   if (context.rendererAdapter.id !== "cesium") support.append(searchPanel(context));
   if (state.portalConfiguration) support.append(portalConfigurationDisclosure(context));
 
-  dock.append(LayerFolders({tree: configuredTree, layers, onApply: tree => {
+  dock.append(LayerFolders({tree: configuredTree, layers, readOnly: !canOrganizeProject(context), onApply: tree => {
+    if (!canOrganizeProject(context)) return;
     context.project = {...context.project, layerTree: tree};
     context.state.openLayerTreeGroupIds = new Set(projectLayerGroupIds(tree));
     replaceLayerOrder(context.layers, normalizeProjectLayerOrder(context.layers, tree));
     syncLayerOrder(context);
     context.render();
+  }, onSort: ({parentId, direction}) => {
+    if (!canOrganizeProject(context)) return;
+    try {
+      const sorted = sortProjectLayerSiblings(context.project?.layerTree, context.layers, parentId, direction);
+      context.project = {...context.project, layerTree: sorted.tree};
+      replaceLayerOrder(context.layers, sorted.layers);
+      syncLayerOrder(context);
+      setStatus(context, "Sorted the selected folder. Save the Project to retain the drawing order.");
+      context.render();
+      context.shell.querySelector('.gis-layer-folders summary')?.focus();
+    } catch (error) {setStatus(context, error.message);}
   }}), layerList);
   if (layers.length) {
     const help = document.createElement("details");
@@ -4451,6 +4542,79 @@ function bookmarkPanel(bookmarks, state) {
     }));
   }
   disclosure.append(actions);
+  return disclosure;
+}
+
+function savedViewsPanel(context) {
+  const {state} = context;
+  const views = mapViewsForSave(null, state.restoredMapViews ?? context.project?.mapViews);
+  const disclosure = document.createElement("details");
+  disclosure.className = "gis-saved-views";
+  disclosure.open = state.savedViewsOpen === true;
+  disclosure.addEventListener("toggle", () => state.savedViewsOpen = disclosure.open);
+  disclosure.append(textElement("summary", `Saved views (${views.length - 1}/7)`),
+    textElement("p", "Save a named camera position, then Save the Project to keep it. The starting camera follows the current map when you save."));
+  const editable = canOrganizeProject(context);
+  const apply = (next, message, focusId = null) => {
+    context.project = {...context.project, mapViews: next};
+    state.restoredMapViews = next;
+    state.savedViewsOpen = true;
+    setStatus(context, `${message} Save the Project to retain the change.`);
+    context.render();
+    const row = [...context.shell.querySelectorAll("[data-saved-view-id]")].find(item => item.dataset.savedViewId === focusId);
+    (row?.querySelector("input") ?? context.shell.querySelector('input[data-saved-view="name"]'))?.focus();
+  };
+  const name = textInput("New saved view name", state.savedViewNameDraft ?? "");
+  name.input.maxLength = 160;
+  name.input.dataset.savedView = "name";
+  name.input.disabled = !editable;
+  name.input.addEventListener("input", () => state.savedViewNameDraft = name.input.value);
+  const add = actionButton("Save current view", () => {
+    if (!canOrganizeProject(context)) return;
+    try {
+      const id = `view-${crypto.randomUUID()}`;
+      const next = addNamedMapView(state.map, state.restoredMapViews ?? context.project?.mapViews, name.input.value, id);
+      state.savedViewNameDraft = "";
+      apply(next, "Added the current view.", id);
+    } catch (error) {setStatus(context, error.message); name.input.focus();}
+  });
+  add.disabled = !editable || !state.map || views.length >= 8;
+  disclosure.append(name.wrapper, add);
+  if (views.length === 1) disclosure.append(textElement("p", "No named views saved yet."));
+  for (const view of views.slice(1)) {
+    const row = document.createElement("div");
+    row.className = "gis-form-grid";
+    row.dataset.savedViewId = view.id;
+    const title = textInput(`Name for ${view.title}`, state.savedViewTitleDrafts?.get(view.id) ?? view.title);
+    title.input.maxLength = 160;
+    title.input.disabled = !editable;
+    title.input.addEventListener("input", () => (state.savedViewTitleDrafts ??= new Map()).set(view.id, title.input.value));
+    const go = actionButton(`Go to ${view.title}`, () => {
+      const camera = normalizeMapView(view);
+      state.map?.easeTo({center: camera.center, zoom: camera.zoom, pitch: camera.pitch, bearing: camera.bearing, duration: 350});
+      setStatus(context, `Opened saved view ${view.title}.`);
+    });
+    go.disabled = !state.map;
+    const rename = actionButton(`Rename ${view.title}`, () => {
+      if (!canOrganizeProject(context)) return;
+      try {
+        const next = renameNamedMapView(state.restoredMapViews ?? context.project?.mapViews, view.id, title.input.value);
+        state.savedViewTitleDrafts?.delete(view.id);
+        apply(next, "Renamed the saved view.", view.id);
+      } catch (error) {setStatus(context, error.message); title.input.focus();}
+    });
+    const remove = actionButton(`Remove ${view.title}`, () => {
+      if (!canOrganizeProject(context)) return;
+      try {
+        const next = removeNamedMapView(state.restoredMapViews ?? context.project?.mapViews, view.id);
+        state.savedViewTitleDrafts?.delete(view.id);
+        apply(next, "Removed the saved view.");
+      } catch (error) {setStatus(context, error.message);}
+    });
+    rename.disabled = remove.disabled = !editable;
+    row.append(title.wrapper, go, rename, remove);
+    disclosure.append(row);
+  }
   return disclosure;
 }
 
@@ -11618,11 +11782,14 @@ function historicalImageryPanel(context) {
 
   const compare = editorSection(
     "Before and after",
-    "Save one comparison date and switch between A and B without changing either selection. A swipe view remains a later increment."
+    "Choose two dates from this source. Swipe or compare them side by side with a shared camera. Project layers stay on A; B shows imagery only."
   );
   const compareInput = document.createElement("input");
   compareInput.type = "date";
-  compareInput.value = configuration.comparison?.requestedDate ?? dates[0] ?? currentDate;
+  compareInput.value = state.historicalComparisonDateDraft ?? configuration.comparison?.requestedDate ?? dates[0] ?? currentDate;
+  const retainComparisonDraft = () => { state.historicalComparisonDateDraft = compareInput.value; };
+  compareInput.addEventListener("input", retainComparisonDraft);
+  compareInput.addEventListener("change", retainComparisonDraft);
   if (dates[0]) compareInput.min = dates[0];
   if (dates.at(-1)) compareInput.max = dates.at(-1);
   compare.append(fieldWrap("Comparison date", compareInput));
@@ -11633,9 +11800,16 @@ function historicalImageryPanel(context) {
     actionButton("Show A", () => showHistoricalComparison(context, "primary")),
     actionButton("Show B", () => showHistoricalComparison(context, "comparison"))
   );
-  compareActions.children[1].disabled = configuration.compareShowing === "primary";
-  compareActions.children[2].disabled = !configuration.comparison || configuration.compareShowing === "comparison";
-  compare.append(compareActions);
+  compareActions.children[1].disabled = configuration.compareMode === "toggle" && configuration.compareShowing === "primary";
+  compareActions.children[2].disabled = !configuration.comparison || (configuration.compareMode === "toggle" && configuration.compareShowing === "comparison");
+  compare.append(compareActions, selectField("Comparison view", configuration.compareMode,
+    [["toggle", "One date at a time"], ["swipe", "Swipe A / B"], ["side-by-side", "Side by side"]],
+    mode => setHistoricalComparisonMode(context, mode)));
+  if (configuration.compareMode !== "toggle") {
+    const issue = historicalComparisonIssue(context);
+    compare.append(textElement("p", issue ?? "Both dates follow the same camera. Use either map to pan in side-by-side view; use the swipe divider to reveal A or B."));
+    if (context.historicalComparisonFailure) compare.append(textElement("p", "Comparison graphics could not start. Choose one date at a time, then try comparison again. A remains available."));
+  }
   panel.append(compare);
 
   const sunlight = editorSection(
@@ -11698,6 +11872,7 @@ function changeHistoricalImagerySource(context, sourceId) {
   }
   const source = historicalImagerySource(sourceId);
   if (!source) return;
+  context.state.historicalComparisonDateDraft = null;
   const sunlight = structuredClone(context.state.historicalImagery.sunlight);
   stopHistoricalPlayback(context.state);
   context.state.historicalAvailabilityAbortController?.abort();
@@ -11794,8 +11969,21 @@ function applyHistoricalImageryDate(context, requestedDate, policy = "exact", {t
     context.render();
     return false;
   }
-  if (target === "comparison") state.historicalImagery.comparison = selection;
+  if (target === "comparison") {
+    state.historicalImagery.comparison = selection;
+    state.historicalComparisonDateDraft = null;
+  }
   else state.historicalImagery.selection = selection;
+  state.historicalImagery.enabled = true;
+  if (target === "comparison" && state.historicalImagery.compareMode !== "toggle") {
+    context.render();
+    return true;
+  }
+  return displayHistoricalImagerySelection(context, selection, target);
+}
+
+function displayHistoricalImagerySelection(context, selection, target = "primary") {
+  const {state} = context;
   state.historicalImagery.enabled = true;
   state.historicalImagery.compareShowing = target;
   const source = historicalImagerySource(state.historicalImagery.sourceId);
@@ -11898,12 +12086,13 @@ async function refreshHistoricalAvailability(context) {
 function setHistoricalComparison(context, requestedDate) {
   const applied = applyHistoricalImageryDate(context, requestedDate, "nearest", {target: "comparison"});
   if (applied) {
-    setStatus(context, `Comparison B saved and displayed for ${context.state.historicalImagery.comparison.displayedDate}.`);
+    setStatus(context, `Comparison B saved${context.state.historicalImagery.compareMode === "toggle" ? " and displayed" : ""} for ${context.state.historicalImagery.comparison.displayedDate}.`);
     context.render();
   }
 }
 
 function showHistoricalComparison(context, target) {
+  context.state.historicalImagery.compareMode = "toggle";
   const selection = target === "comparison"
     ? context.state.historicalImagery.comparison
     : context.state.historicalImagery.selection;
@@ -11912,7 +12101,68 @@ function showHistoricalComparison(context, target) {
     context.render();
     return;
   }
-  applyHistoricalImageryDate(context, selection.requestedDate, selection.policy, {target});
+  displayHistoricalImagerySelection(context, selection, target);
+}
+
+function setHistoricalComparisonMode(context, mode) {
+  const configuration = context.state.historicalImagery;
+  if (mode !== "toggle" && !configuration.comparison) {
+    setStatus(context, "Set comparison B before choosing a comparison view.");
+    context.render();
+    return;
+  }
+  stopHistoricalPlayback(context.state);
+  configuration.compareMode = mode;
+  if (mode !== "toggle") {
+    // A stays the composition map. Selecting B never swaps the two identities.
+    displayHistoricalImagerySelection(context, configuration.selection);
+  } else context.render();
+}
+
+function historicalComparisonIssue(context) {
+  if (!context.state.historicalImagery.comparison) return "Set comparison B before choosing a comparison view.";
+  if (context.rendererAdapter.id !== "maplibre") return "Use MapLibre to display swipe or side-by-side imagery. Both date selections are retained.";
+  if (context.state.terrainEnabled || context.state.openScene3dEnabled) return "Turn off terrain and the 3D scene for aligned imagery comparison. Both date selections are retained.";
+  const basemap = activeBasemap(context);
+  const configuration = context.state.historicalImagery;
+  if (basemap?.kind !== "temporal-raster" || !basemapNetworkAllowed(basemap)
+    || basemap.sourceId !== configuration.sourceId || basemap.sourceRevision !== configuration.sourceRevision
+    || basemap.selection.displayedDate !== configuration.selection.displayedDate) return "Choose the comparison view again to display the saved imagery dates.";
+  return null;
+}
+
+function disposeHistoricalComparison(context) {
+  context.historicalComparison?.dispose();
+  context.historicalComparison = null;
+}
+
+function syncHistoricalComparison(context) {
+  const {state} = context;
+  const configuration = state.historicalImagery;
+  if (context.disposed || !state.map || !configuration.enabled || configuration.compareMode === "toggle"
+    || historicalComparisonIssue(context) || configuration.compareShowing !== "primary") {
+    disposeHistoricalComparison(context);
+    context.historicalComparisonFailure = null;
+    return;
+  }
+  const key = historicalComparisonIdentity(configuration, state.globe);
+  const basemap = selection => historicalImageryBasemap({sourceId: configuration.sourceId,
+    sourceRevision: configuration.sourceRevision, selection});
+  if (context.historicalComparison?.mainMap !== state.map || context.historicalComparisonKey !== key) {
+    disposeHistoricalComparison(context);
+    if (context.historicalComparisonFailure === key) return;
+    try {
+      context.historicalComparison = createHistoricalComparisonView({container: context.mapContainer,
+        mainSurface: context.mapSurface, mainMap: state.map, adapter: context.rendererAdapter,
+        primaryBasemap: basemap(configuration.selection), comparisonBasemap: basemap(configuration.comparison),
+        projection: state.globe ? "globe" : "mercator", mode: configuration.compareMode,
+        divider: configuration.compareDivider, onDividerChange: value => { configuration.compareDivider = value; }});
+      context.historicalComparisonKey = key;
+      context.historicalComparisonFailure = null;
+    } catch { context.historicalComparisonFailure = key; }
+  }
+  context.historicalComparison?.update({mode: configuration.compareMode, divider: configuration.compareDivider,
+    primaryBasemap: basemap(configuration.selection)});
 }
 
 function sunlightFacts(state) {
@@ -16206,6 +16456,7 @@ function applyLocalDraft({
     state.editingMeasurementId = null;
     state.customBasemaps = projectBasemapChoices(draft);
     state.historicalImagery = historicalImageryForProject(draft);
+    state.historicalComparisonDateDraft = null;
     state.historicalAvailability = reviewedHistoricalDates(state.historicalImagery.sourceId);
     state.historicalAvailabilityStatus = "reviewed-capability-receipt";
     state.historicalAvailabilityMessage = "Showing the last reviewed provider time-domain dates. Visible pixels can still contain gaps or clouds.";
@@ -16386,7 +16637,7 @@ function createLocalDraft(context) {
     kmlNetworkLinkState: kmlNetworkLinkStateForSave(state.kmlNetworkLinkState),
     ...(state.portalConfiguration ? {portal: normalizePortalConfiguration(state.portalConfiguration)} : {}),
     extensions: mapExtensionsForSave(context),
-    mapViews: mapViewsForSave(state.map, context.project?.mapViews),
+    mapViews: mapViewsForSave(state.map, state.restoredMapViews ?? context.project?.mapViews),
     basemaps: basemapsForSave(context),
     bookmarks: context.project?.bookmarks ?? [],
     ...(Array.isArray(context.project?.layerTree)
@@ -16577,7 +16828,7 @@ export function currentProjectDefinition(context) {
   return {
     ...(context.publicDemo ? {title: context.project?.title ?? "Browser Project"} : {}),
     schemaVersion: mapDefinitionVersionForLayers(persistentLayers, state.measurements ?? []),
-    mapViews: mapViewsForSave(state.map, context.project?.mapViews),
+    mapViews: mapViewsForSave(state.map, state.restoredMapViews ?? context.project?.mapViews),
     basemaps: basemapsForSave(context),
     bookmarks: context.project?.bookmarks ?? [],
     ...(Array.isArray(context.project?.layerTree)
@@ -16722,6 +16973,11 @@ async function saveAuthoritativeProject(context) {
 function canPersist(context) {
   return typeof context.saveProject === "function"
     && ["admin", "owner", "editor"].includes(context.role);
+}
+
+function canOrganizeProject(context) {
+  return !context.disposed && (context.publicDemo || context.landingMode || context.role === "local"
+    || ["admin", "owner", "editor"].includes(context.role));
 }
 
 function canSaveAs(context) {

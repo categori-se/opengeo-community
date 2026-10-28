@@ -37,3 +37,8 @@ condition = "AND"
 paths = ['''(^|/)scripts/test_community_aws\.py$''']
 regexTarget = "line"
 regexes = ['''^\s*for body in \('\-\-\-\-\-BEGIN PRIVATE KEY\-\-\-\-\-\\n', PUBLIC_KEY \+ "\-\-\-\-\-BEGIN PRIVATE KEY\-\-\-\-\-\\nprivate\\n", "\-\-\-\-\-BEGIN PUBLIC KEY\-\-\-\-\-\\n" \+ "a" \* 8192\):\s*$''']
+
+[[allowlists]]
+description = "Exact SHA256 provenance checksum of removed upstream Cesium evaluation value; not a credential"
+targetRules = ["generic-api-key"]
+regexes = ['''^cd471a429327b7c79a70b0c7da0af876c4790908a3c3d58fa3c925c501a5c356$''']

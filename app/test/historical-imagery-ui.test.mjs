@@ -101,6 +101,39 @@ describe("historical imagery workbench experience", () => {
     assert.match(readout.textContent, /nearest available to 2000-01-01/);
   });
 
+  it("preserves an uncommitted B date through background rendering without saving it as applied imagery", () => {
+    const shell = mountWorkbench({initialPanel: "history"});
+    const dateInput = () => shell.querySelectorAll('.gis-history-panel input[type="date"]')[1];
+    const typeComparison = value => {
+      dateInput().value = value;
+      dateInput().dispatchEvent(new harness.dom.window.Event("input", {bubbles: true}));
+    };
+    const renderInBackground = () => {
+      const previousInput = dateInput();
+      // Map idle and this event both invoke the full Workbench render path.
+      shell.dispatchEvent(new harness.dom.window.Event("workbench:render"));
+      assert.equal(previousInput.isConnected, false, "exercise replacement of the inspector, not a retained input");
+    };
+    clickButton(shell, "View date");
+    typeComparison("2026-08-21");
+    renderInBackground();
+    assert.equal(dateInput().value, "2026-08-21");
+    assert.equal(shell.getPrintContext().project.extensions.historicalImagery.comparison, null);
+    clickButton(shell, "Set B");
+    assert.equal(shell.getPrintContext().project.extensions.historicalImagery.comparison.displayedDate, "2026-08-21");
+    assert.equal(dateInput().value, "2026-08-21");
+    typeComparison("2026-08-22");
+    renderInBackground();
+    assert.equal(dateInput().value, "2026-08-22");
+    const saved = shell.getPrintContext().project.extensions.historicalImagery;
+    assert.equal(saved.comparison.displayedDate, "2026-08-21", "editing the draft does not change B's applied identity");
+    assert.doesNotMatch(JSON.stringify(saved), /Draft|2026-08-22/);
+    const source = shell.querySelector('.gis-history-panel select');
+    source.value = "nasa-gibs-hls-l30-nbar";
+    source.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    assert.equal(dateInput().value, dateInput().min, "a deliberate source change resets the previous source's draft");
+  });
+
   it("reflects toggle state in accessible map controls", () => {
     const shell = mountWorkbench();
     shell.querySelector(".gis-controls-command").click();
@@ -110,6 +143,47 @@ describe("historical imagery workbench experience", () => {
     const before = shell.querySelector('[data-map-mode="graticule"]').getAttribute("aria-pressed");
     shell.querySelector('[data-map-mode="graticule"]').click();
     assert.notEqual(shell.querySelector('[data-map-mode="graticule"]').getAttribute("aria-pressed"), before);
+  });
+
+  it("creates and reuses the imagery B map when choosing swipe and side-by-side from Workbench", async () => {
+    const maps = [];
+    const frames = new Map();
+    let frameId = 0;
+    globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
+    globalThis.cancelAnimationFrame = id => frames.delete(id);
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    const shell = mountWorkbench({initialPanel: "history", rendererAdapter: {
+      id: "maplibre", initialize() {}, registerProtocol() {},
+      createMap(options) { const map = new HistoryFixtureMap(options); maps.push(map); return map; },
+      disposeMap(map) { if (map) map.removed = true; }
+    }});
+    try {
+      await waitFor(() => shell.__opengeoMap && maps[0].listeners.has("click"));
+      clickButton(shell, "View date");
+      const comparisonDate = shell.querySelectorAll('.gis-history-panel input[type="date"]')[1];
+      comparisonDate.value = "2026-08-21";
+      comparisonDate.dispatchEvent(new harness.dom.window.Event("input", {bubbles: true}));
+      clickButton(shell, "Set B");
+      assert.equal(shell.getPrintContext().project.extensions.historicalImagery.compareShowing, "comparison");
+      const chooseMode = value => {
+        const field = [...shell.querySelectorAll('.gis-history-panel select')]
+          .find(select => [...select.options].some(option => option.value === "side-by-side"));
+        field.value = value;
+        field.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+      };
+      chooseMode("swipe");
+      assert.equal(shell.getPrintContext().project.extensions.historicalImagery.compareShowing, "primary");
+      assert.equal(maps.length, 2, "Workbench creates B's renderer instead of only changing the comparison setting");
+      assert.ok(shell.querySelector(".gis-history-compare-surface"), JSON.stringify(maps.map(map => map.eventError)));
+      assert.equal(shell.querySelector(".gis-history-compare-surface").inert, true);
+      chooseMode("side-by-side");
+      assert.equal(maps.length, 2, "presentation switches reuse the existing B renderer");
+      assert.equal(shell.querySelector(".gis-history-compare-surface").inert, false);
+      assert.equal(shell.__opengeoMap, maps[0], "A remains the Project composition map");
+      chooseMode("toggle");
+      assert.equal(shell.querySelector(".gis-history-compare-surface"), null);
+      assert.equal(maps[1].removed, true);
+    } finally { shell.dispose(); }
   });
 
   it("keeps the complete history route in the compact Actions sheet", () => {
@@ -212,4 +286,37 @@ function memoryStorage() {
     scratchPrefix: "scratch",
     outputPrefix: "outputs"
   };
+}
+
+class HistoryFixtureMap {
+  listeners = new Map();
+  constructor(options) {
+    this.container = options.container;
+    this.camera = {center: {lng: options.center?.[0] ?? options.center?.lng ?? 0,
+      lat: options.center?.[1] ?? options.center?.lat ?? 0}, zoom: options.zoom, bearing: options.bearing, pitch: options.pitch};
+    this.style = options.style;
+  }
+  getCenter() { return this.camera.center; }
+  getContainer() { return this.container; }
+  getZoom() { return this.camera.zoom; }
+  getBearing() { return this.camera.bearing; }
+  getPitch() { return this.camera.pitch; }
+  getLayer() { return null; }
+  getSource() { return null; }
+  getStyle() { return this.style; }
+  isStyleLoaded() { return false; }
+  setStyle(style) { this.style = style; }
+  resize() {
+    // Match native MapLibre resize movement events, including unchanged size.
+    for (const type of ["movestart", "move", "resize", "moveend"]) this.emit(type);
+  }
+  jumpTo(camera) { this.camera = {...camera}; this.emit("move"); this.emit("moveend"); }
+  on(type, callback) { const listeners = this.listeners.get(type) ?? new Set(); listeners.add(callback); this.listeners.set(type, listeners); }
+  off(type, callback) { const listeners = this.listeners.get(type); listeners?.delete(callback); if (!listeners?.size) this.listeners.delete(type); }
+  emit(type) {
+    for (const callback of this.listeners.get(type) ?? []) {
+      try { callback({}); }
+      catch (error) { this.eventError = `${type}: ${error.message}`; throw error; }
+    }
+  }
 }

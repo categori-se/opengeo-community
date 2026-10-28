@@ -1,6 +1,7 @@
 import {upgradeMapDefinition} from './mapDefinition.js';
 import {placesForSave} from './kmlPlaces.js';
 import {projectPrintLayouts} from './printLayouts.js';
+import {publicItemUrl} from './staticItemSearch.js';
 
 export const BROWSER_PROJECT_FILE_BYTES = 2_000_000;
 
@@ -40,6 +41,11 @@ export function readBrowserProjectFile(text, {catalog = []} = {}) {
       if (!['geojson-object', 'geojson-archive', 'geojson-inline', 'arcgis-feature-layer-snapshot'].includes(layer.sourceType)) throw Error(`The local source type for ${layer.title} is not supported.`);
     } else if (layer.browserCatalogId) {
       if (!catalog.some(entry => entry.id === layer.browserCatalogId)) throw Error(`The catalog source for ${layer.title} is unavailable.`);
+    } else if (layer.sourceType === 'cog-raster') {
+      // Match the public raster reader's admission without reading its source or
+      // replacing the original URL, custody, rights or reference configuration.
+      const url = new URL(publicItemUrl(layer.sourceUrl));
+      if (url.search || !/\.tiff?$/i.test(url.pathname)) throw Error(`The source for ${layer.title} must be a query-free public TIFF reference.`);
     } else if (['xyz-raster', 'wms-raster', 'pmtiles-vector', 'pmtiles-raster'].includes(layer.sourceType)) {
       for (const value of [layer.sourceUrl, layer.tileUrl].filter(Boolean)) {
         const url = new URL(value);
