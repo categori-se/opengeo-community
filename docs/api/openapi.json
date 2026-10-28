@@ -5759,6 +5759,65 @@
         "title": "CurrentOrganizationResponse",
         "type": "object"
       },
+      "CutMultipolygonFeatureRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "change_message": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Message"
+          },
+          "cut_line": {
+            "additionalProperties": true,
+            "title": "Cut Line",
+            "type": "object"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "feature_id": {
+            "format": "uuid",
+            "title": "Feature Id",
+            "type": "string"
+          },
+          "lock_token": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lock Token"
+          },
+          "part_index": {
+            "default": 0,
+            "maximum": 255.0,
+            "minimum": 0.0,
+            "title": "Part Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "feature_id",
+          "expected_version",
+          "cut_line"
+        ],
+        "title": "CutMultipolygonFeatureRequest",
+        "type": "object"
+      },
       "DatasetDerivativeLineageResponse": {
         "properties": {
           "bounds": {
@@ -40254,6 +40313,88 @@
           }
         ],
         "summary": "Create Feature",
+        "tags": [
+          "governed feature editing"
+        ]
+      }
+    },
+    "/projects/{project_id}/datasets/{dataset_id}/features/cut-line": {
+      "post": {
+        "operationId": "cut_multipolygon_feature_projects__project_id__datasets__dataset_id__features_cut_line_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CutMultipolygonFeatureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cut Multipolygon Feature",
         "tags": [
           "governed feature editing"
         ]

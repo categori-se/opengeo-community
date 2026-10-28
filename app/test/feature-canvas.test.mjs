@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import {describe, it} from "node:test";
 import {JSDOM} from "jsdom";
+import {fromGeojsonVt} from "@maplibre/vt-pbf";
+import {VectorTile} from "@mapbox/vector-tile";
+import Pbf from "pbf";
 
 import {
   addGeometryPart,
@@ -805,10 +808,167 @@ describe("polygon origin click completion", () => {
   });
 });
 
-function withCanvas(geometryType, run) {
+describe("saved polygon cut drawing", () => {
+  const feature = () => ({
+    id: "saved-polygon", version: 7, properties: {name: "Original"}, bbox: [0, 0, 15, 15],
+    geometry: {type: "MultiPolygon", coordinates: [
+      [[[0, 0], [5, 0], [5, 5], [0, 5], [0, 0]]],
+      [[[10, 10], [15, 10], [15, 15], [10, 15], [10, 10]]]
+    ]}
+  });
+
+  it("discloses unavailable cutting and requires a saved selected multipolygon", () => {
+    withCanvas("MultiPolygon", ({root, button}) => {
+      root.selectFeature(feature());
+      assert.equal(button("Cut polygon").disabled, true);
+      assert.match(button("Cut polygon").title, /unavailable/);
+    });
+    withCanvas("MultiPolygon", ({root, button}) => {
+      assert.equal(button("Cut polygon").disabled, true);
+      root.selectFeature(feature());
+      assert.equal(button("Cut polygon").disabled, false);
+    }, {onCutLine() {}});
+  });
+
+  it("requires finishing active capture and saving geometry edits before a cut", () => {
+    withCanvas("MultiPolygon", ({root, map, button, changes}) => {
+      root.selectFeature(feature());button("Add hole").click();
+      assert.equal(button("Cut polygon").disabled, true);
+      map.click([1, 1]);map.click([3, 1]);map.click([2, 3]);button("Finish geometry").click();
+      assert.equal(changes.length, 1);
+      button("Cut polygon").click();
+      assert.match(root.textContent, /Save the geometry draft or reselect/);
+      assert.equal(button("Finish geometry").textContent, "Finish geometry");
+    }, {onCutLine() {assert.fail("An unsaved geometry cannot be cut");}});
+  });
+
+  it("selects the original UUID and second polygon part after the actual tile codec coerces its id", async () => {
+    const original = {...feature(), id: "4befca90-0ae1-40a5-b66f-81190e64c5ee"};
+    original.properties["opengeo:featureId"] = "untrusted-input-property";
+    const selections = [], cuts = [];
+    await withCanvas("MultiPolygon", async ({map, button, changes}) => {
+      const source = map.sources.get("opengeo-authoritative-features");
+      assert.equal(source.promoteId, "opengeo:featureId");
+      const display = source.data.features[0];
+      assert.equal(display.properties["opengeo:featureId"], original.id);
+      assert.equal(original.properties["opengeo:featureId"], "untrusted-input-property",
+        "display identity does not mutate persisted properties");
+      const encoded = fromGeojsonVt({features: {features: [{id: display.id, type: 3,
+        geometry: display.geometry.coordinates.flat(), tags: display.properties}]}});
+      const rendered = new VectorTile(new Pbf(encoded)).layers.features.feature(0);
+      assert.equal(rendered.id, 4, "the installed production encoder coerces the UUID");
+      assert.equal(rendered.properties["opengeo:featureId"], original.id);
+      map.renderedFeatures = [rendered];
+      button("Select feature").click();map.click([12, 12]);
+      assert.deepEqual(selections, [original]);
+      assert.equal(button("Part 2/2").disabled, false);
+      button("Cut polygon").click();map.click([9, 12]);map.click([16, 12]);
+      button("Apply cut").click();
+      assert.equal(cuts.length, 1);
+      assert.equal(cuts[0].feature.id, original.id);
+      assert.equal(cuts[0].feature.version, 7);
+      assert.equal(cuts[0].partIndex, 1);
+      assert.deepEqual(cuts[0].feature.properties, original.properties);
+      assert.equal(changes.length, 0);
+      await Promise.resolve();
+    }, {features: [original], onSelectFeature: selected => selections.push(selected),
+      onCutLine: payload => cuts.push(payload)});
+  });
+
+  it("keeps an arbitrary open line in its own undo history until explicit versioned apply", async () => {
+    let resolveCut;
+    const calls = [];
+    await withCanvas("MultiPolygon", async ({root, map, button, changes}) => {
+      const selected = feature();
+      root.selectFeature(selected);
+      button("Part 1/2").click();
+      button("Cut polygon").click();
+      assert.equal(button("Apply cut").disabled, true);
+      assert.equal(button("Part 2/2").disabled, true);
+      assert.match(root.textContent, /polygon part 2/);
+      assert.match(root.textContent, /largest piece.*identity.*untouched parts/s);
+      map.click([8, 12]);map.click([12, 11]);map.click([17, 12]);
+      assert.equal(calls.length, 0);
+      assert.equal(changes.length, 0);
+      assert.deepEqual(map.sources.get("opengeo-feature-draft").data.features[0].geometry,
+        {type: "LineString", coordinates: [[8, 12], [12, 11], [17, 12]]});
+      map.click([8, 12]);
+      assert.equal(calls.length, 0, "clicking the line origin cannot apply a cut");
+      assert.equal(map.sources.get("opengeo-feature-draft").data.features[0].geometry.type, "LineString");
+      button("Undo").click();
+      button("Undo").click();button("Redo").click();
+      assert.equal(changes.length, 0, "cut vertex history does not replace the geometry form");
+      button("Apply cut").click();
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0], {feature: selected, partIndex: 1,
+        cutLine: {type: "LineString", coordinates: [[8, 12], [12, 11], [17, 12]]}});
+      assert.notEqual(calls[0].feature, selected);
+      assert.equal(button("Apply cut").disabled, true);
+      assert.equal(button("Cancel canvas edit").disabled, true);
+      map.click([18, 12]);button("Apply cut").click();
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].cutLine.coordinates.length, 3);
+      resolveCut();await Promise.resolve();await Promise.resolve();
+      assert.match(root.textContent, /Cut saved/);
+      assert.equal(changes.length, 0);
+    }, {onCutLine: payload => {calls.push(payload);return new Promise(resolve => {resolveCut = resolve;});}});
+  });
+
+  it("cancels only cut vertices, retains the selected feature, and enforces the coordinate bound", () => {
+    let calls = 0;
+    withCanvas("MultiPolygon", ({root, map, button, changes}) => {
+      root.selectFeature(feature());button("Cut polygon").click();
+      for (let index = 0; index < 257; index++) map.click([index / 100, 2]);
+      assert.equal(map.sources.get("opengeo-feature-draft").data.features[0].geometry.coordinates.length, 256);
+      assert.match(root.textContent, /at most 256/);
+      button("Cancel canvas edit").click();
+      assert.equal(calls, 0);assert.equal(changes.length, 0);
+      assert.equal(map.sources.get("opengeo-feature-draft").data.features.length, 0);
+      assert.equal(button("Cut polygon").disabled, false);
+      assert.equal(button("Undo").disabled, true);
+      button("Cut polygon").click();map.click([0, 2]);map.click([5, 2]);
+      root.dispatchEvent(new root.ownerDocument.defaultView.KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+      assert.match(root.textContent, /Cut line discarded/);
+    }, {onCutLine() {calls++;}});
+  });
+
+  it("retains a failed cut for correction and ignores stale completion after selection or disposal", async () => {
+    let rejectCut;
+    await withCanvas("MultiPolygon", async ({root, map, button}) => {
+      root.selectFeature(feature());button("Cut polygon").click();map.click([0, 2]);map.click([5, 2]);
+      button("Apply cut").click();rejectCut(new Error("feature_version_conflict"));
+      await Promise.resolve();await Promise.resolve();
+      assert.match(root.textContent, /draft line is retained/);
+      assert.match(root.textContent, /The cut was not applied: feature_version_conflict/);
+      assert.equal(button("Apply cut").disabled, false);
+      button("Undo").click();assert.equal(button("Apply cut").disabled, true);
+      button("Cancel canvas edit").click();
+    }, {onCutLine: () => new Promise((resolve, reject) => {rejectCut = reject;})});
+
+    for (const dispose of [false, true]) {
+      let resolveCut;
+      await withCanvas("MultiPolygon", async ({root, map, button}) => {
+        root.selectFeature(feature());button("Cut polygon").click();map.click([0, 2]);map.click([5, 2]);
+        button("Apply cut").click();
+        if (dispose) root.__destroy();
+        else root.selectFeature({...feature(), id: "other-polygon", version: 9});
+        const before = root.textContent;
+        resolveCut();await Promise.resolve();await Promise.resolve();
+        assert.equal(root.textContent, before, "an old cut cannot change a new selection or disposed canvas");
+      }, {onCutLine: () => new Promise(resolve => {resolveCut = resolve;})});
+    }
+  });
+});
+
+function withCanvas(geometryType, run, options = {}) {
   const dom = new JSDOM("<!doctype html><body></body>");
   const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
-  let map;
+  let map, root, deferredCleanup = false;
+  const cleanup = () => {
+    root?.__destroy();
+    if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);else delete globalThis.document;
+    dom.window.close();
+  };
   class CanvasMap {
     constructor({container}) {
       map = this;this.handlers = new Map();this.sources = new Map();this.cameraChanges = 0;
@@ -821,6 +981,7 @@ function withCanvas(geometryType, run) {
     addLayer() {}
     getSource(id) {return this.sources.get(id);}
     getCanvas() {return this.canvas;}
+    queryRenderedFeatures() {return this.renderedFeatures ?? [];}
     project([x, y]) {return {x: x * 10 + 100, y: y * 10 + 100};}
     fitBounds() {this.cameraChanges++;}
     remove() {}
@@ -828,14 +989,20 @@ function withCanvas(geometryType, run) {
   }
   try {
     Object.defineProperty(globalThis, "document", {configurable: true, value: dom.window.document});
-    const changes = [], root = FeatureCanvas({collection: {geometryType}, features: [], initialGeometry: null,
-      onGeometryChange: geometry => changes.push(geometry), onSelectFeature() {},
+    const changes = [];
+    root = FeatureCanvas({collection: {geometryType}, features: options.features ?? [], initialGeometry: null,
+      onGeometryChange: geometry => changes.push(geometry), onSelectFeature: options.onSelectFeature ?? (() => {}),
+      onCutLine: options.onCutLine,
       mapEngine: {Map: CanvasMap, NavigationControl: class {}}});
     dom.window.document.body.append(root);map.handlers.get("load")();
     const button = label => {const control = [...root.querySelectorAll("button")].find(button => button.textContent === label);assert(control, label);return control;};
-    run({root, map, button, changes});root.__destroy();
+    const result = run({root, map, button, changes});
+    if (result?.then) {
+      deferredCleanup = true;
+      return Promise.resolve(result).finally(cleanup);
+    }
+    return result;
   } finally {
-    if (previousDocument) Object.defineProperty(globalThis, "document", previousDocument);else delete globalThis.document;
-    dom.window.close();
+    if (!deferredCleanup) cleanup();
   }
 }

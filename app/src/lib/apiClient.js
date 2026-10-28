@@ -5222,6 +5222,47 @@ export class OpenGeoApiClient {
     ), "separate_parts");
   }
 
+  async cutMultipolygonFeature(
+    projectId,
+    datasetId,
+    {featureId, expectedVersion, partIndex = 0, cutLine, changeMessage = null, lockToken = null}
+  ) {
+    if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1) {
+      throw new TypeError("feature expectedVersion must be a positive integer");
+    }
+    if (!Number.isSafeInteger(partIndex) || partIndex < 0 || partIndex > 255) {
+      throw new TypeError("partIndex must be between 0 and 255");
+    }
+    const blade = structuredClone(boundedObject(cutLine, 32_768, "polygon cut line"));
+    const positions = blade.coordinates;
+    if (Object.keys(blade).some(key => !["type", "coordinates"].includes(key))
+      || blade.type !== "LineString" || !Array.isArray(positions)
+      || positions.length < 2 || positions.length > 256
+      || positions.some(point => !Array.isArray(point) || point.length !== 2
+        || point.some(value => !Number.isFinite(value))
+        || Math.abs(point[0]) > 180 || Math.abs(point[1]) > 90)
+      || positions[0].every((value, index) => value === positions.at(-1)[index])) {
+      throw new TypeError("polygon cut needs an open CRS84 LineString with 2–256 positions");
+    }
+    const id = assertUuid(featureId, "feature id");
+    const result = parseFeatureStructureMutation(await this.request(
+      `${featurePath(projectId, datasetId)}/cut-line`,
+      {method: "POST", body: {
+        feature_id: id,
+        expected_version: expectedVersion,
+        part_index: partIndex,
+        cut_line: blade,
+        ...(lockToken === null ? {} : {lock_token: assertUuid(lockToken, "feature lock token")}),
+        change_message: boundedQuery(changeMessage, 500, "feature change message")
+      }}
+    ), "cut_line");
+    if (result.retainedFeature.id !== id || result.retainedFeature.version !== expectedVersion + 1
+      || result.createdFeatures.some(feature => feature.version !== 1)) {
+      contract("polygon cut feature identity or version changed");
+    }
+    return result;
+  }
+
   async mergeMultipolygonFeatures(
     projectId,
     datasetId,
@@ -7598,7 +7639,7 @@ export function parseFeatureStructureMutation(value, expectedOperation, expected
   const record = boundedObject(value, 6_000_000, "feature structure mutation");
   const operation = oneOf(
     record.operation,
-    ["separate_parts", "merge_parts"],
+    ["separate_parts", "merge_parts", "cut_line"],
     "feature structure mutation.operation"
   );
   if (operation !== expectedOperation) contract("feature structure mutation operation changed");
@@ -7645,9 +7686,10 @@ export function parseFeatureStructureMutation(value, expectedOperation, expected
   if (deletedFeatures.some((item) => item.collectionGeneration !== collectionGeneration)) {
     contract("feature structure mutation deletion generation is inconsistent");
   }
-  if (operation === "separate_parts") {
-    if (!createdFeatures.length || createdFeatures.length > 255 || deletedFeatures.length) {
-      contract("separate-parts mutation counts are invalid");
+  if (operation === "separate_parts" || operation === "cut_line") {
+    if (!createdFeatures.length || createdFeatures.length > (operation === "cut_line" ? 19 : 255)
+      || deletedFeatures.length || featureCount < createdFeatures.length + 1) {
+      contract("polygon separation mutation counts are invalid");
     }
   } else if (createdFeatures.length || !deletedFeatures.length || deletedFeatures.length > 19) {
     contract("merge-parts mutation counts are invalid");

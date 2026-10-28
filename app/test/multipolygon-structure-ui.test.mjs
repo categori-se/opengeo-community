@@ -3,7 +3,7 @@ import {afterEach, beforeEach, describe, it} from "node:test";
 
 import {JSDOM} from "jsdom";
 
-import {multipolygonStructureEditor} from "../src/components/ProjectDatasets.js";
+import {featureEditor, multipolygonStructureEditor} from "../src/components/ProjectDatasets.js";
 
 let harness;
 
@@ -201,6 +201,118 @@ describe("MultiPolygon structure controls", () => {
     assert.equal(dissolve.disabled, false);
   });
 });
+
+describe("Polygon cut editor integration", () => {
+  it("rejects unsaved repeated-record additions and removals without change events", async () => {
+    const current = feature("90000000-0000-4000-8000-000000000251", 2, 1);
+    current.properties.samples = [{note: "First"}, {note: "Second"}];
+    const view = cutEditorFixture({current, fields: [
+      {name: "name", type: "string", required: true},
+      {name: "samples", type: "group", repeat: true, minItems: 0, maxItems: 3,
+        fields: [{name: "note", type: "string"}]}
+    ]});
+    view.button("Edit").click();
+    view.button("Add samples").click();
+    assert.equal(view.content.querySelectorAll(".project-feature-repeat-item").length, 3);
+    await assert.rejects(view.applyCut(), /Save or cancel the feature changes/);
+
+    view.button("Edit").click();
+    view.button("Remove").click();
+    assert.equal(view.content.querySelectorAll(".project-feature-repeat-item").length, 1);
+    await assert.rejects(view.applyCut(), /Save or cancel the feature changes/);
+    assert.equal(view.calls.cuts.length, 0);
+  });
+
+  it("rejects detached dispatch and skips refresh after a pending cut finishes offscreen", async () => {
+    let finishCut;
+    const pending = new Promise(resolve => { finishCut = resolve; });
+    const view = cutEditorFixture({cutResult: () => pending});
+    view.button("Edit").click();
+    view.details.remove();
+    assert.equal(view.details.contains(view.content), true);
+    await assert.rejects(view.applyCut(), /selected feature changed/);
+    assert.equal(view.calls.cuts.length, 0);
+
+    document.body.append(view.details);
+    const completion = view.applyCut();
+    assert.equal(view.calls.cuts.length, 1);
+    view.details.remove();
+    const replacement = document.createElement("section");
+    replacement.textContent = "Current view draft";
+    document.body.append(replacement);
+    finishCut({});
+    await completion;
+    assert.equal(view.calls.reads, 0, "late success must not load a detached editor");
+    assert.equal(view.calls.canvases, 1, "late success must not construct another editor canvas");
+    assert.equal(view.details.firstElementChild, view.content);
+    assert.equal(replacement.textContent, "Current view draft");
+  });
+
+  it("keeps a historical restore dirty after the canvas selection callback", async () => {
+    const current = feature("90000000-0000-4000-8000-000000000251", 2, 2);
+    const historical = feature(current.id, 1, 1);
+    historical.properties.name = "Historical area";
+    const revision = {...historical, operation: "create", changeMessage: "Original area"};
+    const view = cutEditorFixture({current, revisions: [revision]});
+    view.button("Edit").click();
+    view.button("History").click();
+    await new Promise(setImmediate);
+    view.button("Restore content from v1").click();
+    assert.deepEqual(view.selected().geometry, historical.geometry);
+    assert.deepEqual(JSON.parse(view.content.querySelector('[aria-label="GeoJSON geometry"]').value), historical.geometry);
+    assert.match(view.content.textContent, /Reviewing the immutable v1 snapshot/);
+    await assert.rejects(view.applyCut(), /Save or cancel the feature changes/);
+    assert.equal(view.calls.cuts.length, 0);
+  });
+});
+
+function cutEditorFixture({current = feature("90000000-0000-4000-8000-000000000251", 2, 1),
+  fields = [{name: "name", type: "string", required: true}], revisions = [], cutResult = null} = {}) {
+  const calls = {cuts: [], reads: 0, canvases: 0};
+  const page = {collection: {geometryType: "MultiPolygon", generation: 1, fields},
+    features: [current], numberMatched: 1};
+  const read = async value => { calls.reads++; return value; };
+  const adapter = {
+    async cutMultipolygonFeature(projectId, datasetId, request) {
+      calls.cuts.push({projectId, datasetId, request});
+      if (cutResult) return cutResult();
+      throw new Error("Unexpected cut write");
+    },
+    listFeatures: () => read(page),
+    listFeatureLocks: () => read([]),
+    listFeatureTombstones: () => read({tombstones: [], numberMatched: 0, numberReturned: 0}),
+    async listFeatureHistory() { return {revisions}; }
+  };
+  const details = document.createElement("div");
+  document.body.append(details);
+  let callbacks;
+  let selected;
+  const content = featureEditor({adapter, project: {id: "project-1"}, maps: []},
+    {id: "dataset-1", classification: "internal"}, details, page, [],
+    {tombstones: [], numberMatched: 0, numberReturned: 0}, null, options => {
+      calls.canvases++;
+      callbacks = options;
+      const canvas = document.createElement("section");
+      canvas.className = "project-feature-canvas";
+      canvas.selectFeature = value => {
+        selected = structuredClone(value);
+        options.onSelectFeature(value);
+      };
+      canvas.resetGeometry = () => {};
+      canvas.__destroy = () => {};
+      return canvas;
+    });
+  details.append(content);
+  return {content, details, calls, selected: () => selected,
+    button: label => {
+      const control = [...content.querySelectorAll("button")].find(item => item.textContent === label);
+      assert.ok(control, `Expected editor button ${label}`);
+      return control;
+    },
+    applyCut: () => callbacks.onCutLine({feature: structuredClone(selected), partIndex: 0,
+      cutLine: {type: "LineString", coordinates: [[0.5, -1], [0.5, 2]]}})
+  };
+}
 
 function feature(id, version, partCount) {
   return {

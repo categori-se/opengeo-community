@@ -26,6 +26,7 @@ const MAX_EDITABLE_MULTI_PARTS = 256;
 const MAX_GEOMETRY_POSITIONS = 10000;
 const MAX_RING_VERTICES = MAX_GEOMETRY_POSITIONS;
 const MAX_TOPOLOGY_VERTICES = 2048;
+const MAX_CUT_LINE_VERTICES = 256;
 const TOPOLOGY_EPSILON = 1e-12;
 const DRAG_ACTIVATION_PIXELS = 3;
 export const EDIT_HISTORY_LIMIT = 50;
@@ -826,7 +827,7 @@ export function commitVertexDragHistory(history, session, featureId) {
   });
 }
 
-export function FeatureCanvas({collection, features, initialGeometry, onGeometryChange, onSelectFeature, mapEngine = maplibregl}) {
+export function FeatureCanvas({collection, features, initialGeometry, onGeometryChange, onSelectFeature, onCutLine, mapEngine = maplibregl}) {
   const root = document.createElement("section");
   root.className = "project-feature-canvas";
   root.append(
@@ -865,6 +866,13 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   const mergePart = collection.geometryType === "MultiLineString"
     ? button("Merge touching")
     : null;
+  const cutPolygon = collection.geometryType === "MultiPolygon" ? button("Cut polygon") : null;
+  if (cutPolygon) {
+    cutPolygon.disabled = true;
+    cutPolygon.title = typeof onCutLine === "function"
+      ? "Select a saved polygon feature and choose its part before drawing a cut"
+      : "Polygon cutting is unavailable in this editor";
+  }
   if (splitPart) {
     splitPart.title = "Split one multiline component at an interior vertex";
     mergePart.title = "Merge the selected component with its one unambiguous endpoint neighbor";
@@ -902,6 +910,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   if (insertVertex) structureToolbar.append(insertVertex);
   if (removeVertex) structureToolbar.append(removeVertex);
   if (splitPart) structureToolbar.append(splitPart, mergePart);
+  if (cutPolygon) structureToolbar.append(cutPolygon);
   if (addPart) structureToolbar.append(addPart);
   if (addHole) structureToolbar.append(addHole, removeHole);
   if (targetPart) structureToolbar.append(targetPart, partEarlier, partLater, removePart);
@@ -931,6 +940,9 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     selectedPartIndex: 0,
     holeBaseGeometry: null,
     partBaseGeometry: null,
+    cutContext: null,
+    cutBusy: false,
+    cutSaved: false,
     dragSession: null,
     dragStartPixel: null,
     dragActivated: false,
@@ -1035,6 +1047,30 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     syncMap(map, displayFeatures, state);
   });
   mergePart?.addEventListener("click", () => mergeSelectedLinePart());
+  cutPolygon?.addEventListener("click", () => {
+    if (state.cutBusy || ["draw", "hole", "part"].includes(state.mode) || typeof onCutLine !== "function") return;
+    cancelActiveVertexDrag({announce: false});
+    if (!state.selectedFeature || state.selectedGeometry?.type !== "MultiPolygon") {
+      status.textContent = "Select a saved multipolygon feature before drawing a cut.";
+      return;
+    }
+    if (JSON.stringify(state.selectedGeometry) !== JSON.stringify(state.selectedFeature.geometry)) {
+      status.textContent = "Save the geometry draft or reselect the saved feature before cutting.";
+      return;
+    }
+    state.cutContext = {
+      feature: structuredClone(state.selectedFeature),
+      partIndex: state.selectedPartIndex,
+      history: state.history
+    };
+    state.mode = "cut";
+    state.clicks = [];
+    state.selectedVertex = null;
+    state.history = createDraftHistory({kind: "cut", clicks: []});
+    updateHistoryControls();
+    status.textContent = cutInstruction();
+    syncMap(map, displayFeatures, state);
+  });
   addPart?.addEventListener("click", () => {
     cancelActiveVertexDrag({announce: false});
     const geometry = state.selectedGeometry ?? state.draftGeometry;
@@ -1159,6 +1195,12 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   undo.addEventListener("click", () => moveThroughHistory("undo"));
   redo.addEventListener("click", () => moveThroughHistory("redo"));
   root.addEventListener("keydown", (event) => {
+    if (state.cutBusy) return;
+    if (event.key === "Escape" && state.mode === "cut") {
+      event.preventDefault();
+      cancelCut();
+      return;
+    }
     if (event.key === "Escape" && state.dragSession) {
       event.preventDefault();
       cancelActiveVertexDrag();
@@ -1175,7 +1217,11 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     }
   });
   finish.addEventListener("click", () => finishDraw());
-  cancel.addEventListener("click", () => resetCanvas(initialGeometry));
+  cancel.addEventListener("click", () => {
+    if (state.cutBusy) return;
+    if (state.mode === "cut") cancelCut();
+    else resetCanvas(initialGeometry);
+  });
 
   root.selectFeature = (feature) => selectExisting(feature);
   root.resetGeometry = (geometry) => resetCanvas(geometry);
@@ -1191,8 +1237,22 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   return root;
 
   function handleMapClick(event) {
+    if (disposed || state.cutBusy) return;
     if (Date.now() <= state.suppressClickUntil) return;
     const rawPosition = roundedPosition([event.lngLat.lng, event.lngLat.lat]);
+    if (state.mode === "cut") {
+      if (state.clicks.length >= MAX_CUT_LINE_VERTICES) {
+        status.textContent = `A cut line supports at most ${MAX_CUT_LINE_VERTICES} vertices. Undo a vertex or apply the cut.`;
+        return;
+      }
+      const snapped = snappedPosition(rawPosition);
+      state.clicks.push(snapped.position);
+      state.history = commitDraftHistory(state.history, {kind: "cut", clicks: structuredClone(state.clicks)});
+      updateHistoryControls();
+      status.textContent = `${state.clicks.length} cut vertices captured. ${cutInstruction()}`;
+      syncMap(map, displayFeatures, state);
+      return;
+    }
     if (["draw", "hole", "part"].includes(state.mode)) {
       const drawingHole = state.mode === "hole";
       const drawingPart = state.mode === "part";
@@ -1231,7 +1291,8 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     }
     if (state.mode === "select") {
       const hit = map.queryRenderedFeatures(event.point, {layers: FEATURE_LAYERS})[0];
-      const feature = hit ? displayFeatures.get(String(hit.id)) : null;
+      const featureId = hit?.properties?.["opengeo:featureId"] ?? hit?.id;
+      const feature = hit ? displayFeatures.get(String(featureId)) : null;
       if (feature) selectExisting(feature, rawPosition);
       else status.textContent = "No governed feature was found at that location.";
       return;
@@ -1545,6 +1606,11 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   }
 
   function finishDraw() {
+    if (state.cutBusy || disposed) return;
+    if (state.mode === "cut") {
+      applyCut();
+      return;
+    }
     if (state.mode === "hole") {
       finishHole();
       return;
@@ -1576,6 +1642,58 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     updatePartTargetControl();
     updateHistoryControls();
     syncMap(map, displayFeatures, state);
+  }
+
+  function cutInstruction() {
+    return `Draw an open line across polygon part ${(state.cutContext?.partIndex ?? 0) + 1}, then choose Apply cut to save immediately. The largest piece keeps this feature's identity; untouched parts are preserved. Cancel discards only the cut line.`;
+  }
+
+  function cancelCut() {
+    if (state.cutBusy || !state.cutContext) return;
+    state.history = state.cutContext.history;
+    state.cutContext = null;
+    state.mode = "inspect";
+    state.clicks = [];
+    updateHistoryControls();
+    updatePartTargetControl();
+    status.textContent = "Cut line discarded. The saved feature and its geometry draft are unchanged.";
+    syncMap(map, displayFeatures, state);
+  }
+
+  async function applyCut() {
+    const context = state.cutContext;
+    if (!context || state.cutBusy || typeof onCutLine !== "function") return;
+    if (state.clicks.length < 2) {
+      status.textContent = "A cut line needs at least two vertices. Draw an open line across the selected polygon part.";
+      return;
+    }
+    const cutLine = geometryFromCanvasClicks("LineString", state.clicks);
+    state.cutBusy = true;
+    updateHistoryControls();
+    status.textContent = `Saving cut for polygon part ${context.partIndex + 1} at v${context.feature.version}…`;
+    const current = () => !disposed && state.cutContext === context
+      && state.selectedFeature?.id === context.feature.id
+      && state.selectedFeature?.version === context.feature.version;
+    try {
+      await onCutLine({feature: structuredClone(context.feature), partIndex: context.partIndex, cutLine});
+      if (!current()) return;
+      state.cutSaved = true;
+      state.cutContext = null;
+      state.mode = "inspect";
+      state.clicks = [];
+      state.history = createDraftHistory({kind: "idle"});
+      status.textContent = "Cut saved. The largest piece keeps the feature identity and untouched parts are preserved. Select the refreshed feature to continue editing.";
+    } catch (error) {
+      if (!current()) return;
+      status.textContent = `The cut was not applied: ${error?.message || "The request failed"}. The draft line is retained; correct the issue before trying again or cancel the cut.`;
+    } finally {
+      if (!disposed && (state.cutContext === context || state.cutSaved)) {
+        state.cutBusy = false;
+        updateHistoryControls();
+        updatePartTargetControl();
+        syncMap(map, displayFeatures, state);
+      }
+    }
   }
 
   function moveSelectedPart(offset) {
@@ -1781,7 +1899,12 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   }
 
   function selectExisting(feature, position = null) {
+    if (disposed) return;
     cancelActiveVertexDrag({announce: false});
+    state.cutContext = null;
+    state.cutBusy = false;
+    state.cutSaved = false;
+    state.clicks = [];
     state.mode = "inspect";
     state.selectedFeature = feature;
     state.selectedGeometry = structuredClone(feature.geometry);
@@ -1808,7 +1931,11 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   }
 
   function resetCanvas(geometry) {
+    if (disposed) return;
     cancelActiveVertexDrag({announce: false});
+    state.cutContext = null;
+    state.cutBusy = false;
+    state.cutSaved = false;
     state.mode = "inspect";
     state.clicks = [];
     state.draftGeometry = structuredClone(geometry);
@@ -1826,6 +1953,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   }
 
   function moveThroughHistory(direction) {
+    if (state.cutBusy || disposed) return;
     cancelActiveVertexDrag({announce: false});
     const next = direction === "undo"
       ? undoDraftHistory(state.history)
@@ -1836,7 +1964,11 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     }
     state.history = next;
     const snapshot = structuredClone(state.history.present);
-    if (snapshot.kind === "draw") {
+    if (snapshot.kind === "cut" && state.cutContext) {
+      state.mode = "cut";
+      state.clicks = snapshot.clicks.map(validPosition);
+      status.textContent = `${direction === "undo" ? "Undid" : "Redid"} a cut vertex · ${state.clicks.length} captured. ${cutInstruction()}`;
+    } else if (snapshot.kind === "draw") {
       state.mode = "draw";
       state.clicks = snapshot.clicks.map(validPosition);
       state.holeBaseGeometry = null;
@@ -1909,6 +2041,37 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   function updateHistoryControls() {
     undo.disabled = state.history.past.length === 0;
     redo.disabled = state.history.future.length === 0;
+    updateCutControls();
+  }
+
+  function updateCutControls() {
+    const cutting = state.mode === "cut";
+    for (const control of [draw, select, move, insertVertex, removeVertex, addPart, addHole,
+      removeHole, splitPart, mergePart, targetPart, partEarlier, partLater, removePart]) {
+      if (control) {
+        if (cutting || state.cutBusy || state.cutSaved) {
+          if (!control.hasAttribute("data-cut-disabled")) control.dataset.cutDisabled = String(control.disabled);
+          control.disabled = true;
+        } else if (control.hasAttribute("data-cut-disabled")) {
+          control.disabled = control.dataset.cutDisabled === "true";
+          delete control.dataset.cutDisabled;
+        }
+      }
+    }
+    if (cutPolygon) {
+      cutPolygon.disabled = cutting || state.cutBusy || state.cutSaved || typeof onCutLine !== "function"
+        || ["draw", "hole", "part"].includes(state.mode)
+        || state.selectedGeometry?.type !== "MultiPolygon" || !state.selectedFeature;
+      cutPolygon.title = typeof onCutLine !== "function"
+        ? "Polygon cutting is unavailable in this editor"
+        : "Draw a cut across the selected saved polygon part; Apply cut saves immediately";
+    }
+    finish.textContent = cutting ? "Apply cut" : "Finish geometry";
+    finish.title = cutting ? "Save this cut immediately using the selected feature version" : "Complete the geometry draft";
+    finish.disabled = state.cutBusy || state.cutSaved || (cutting && state.clicks.length < 2);
+    cancel.disabled = state.cutBusy;
+    snap.disabled = state.cutBusy || state.cutSaved;
+    if (state.cutBusy || state.cutSaved) undo.disabled = redo.disabled = true;
   }
 
   function updatePartTargetControl() {
@@ -1951,11 +2114,12 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
         : "Split this line component at an interior vertex";
     }
     if (mergePart) mergePart.disabled = count < 2;
+    updateCutControls();
   }
 }
 
 function addSourcesAndLayers(map) {
-  map.addSource(FEATURE_SOURCE, {type: "geojson", data: featureCollection([])});
+  map.addSource(FEATURE_SOURCE, {type: "geojson", promoteId: "opengeo:featureId", data: featureCollection([])});
   map.addSource(DRAFT_SOURCE, {type: "geojson", data: featureCollection([])});
   map.addSource(VERTEX_SOURCE, {type: "geojson", data: featureCollection([])});
   map.addSource(SEGMENT_SOURCE, {type: "geojson", data: featureCollection([])});
@@ -2047,7 +2211,7 @@ function syncMap(map, displayFeatures, state) {
       type: "Feature",
       id: feature.id,
       geometry: feature.geometry,
-      properties: {...feature.properties, "opengeo:version": feature.version}
+      properties: {...feature.properties, "opengeo:version": feature.version, "opengeo:featureId": feature.id}
     })
   )));
   const drafts = draftPreviews(state);
@@ -2067,7 +2231,7 @@ function syncMap(map, displayFeatures, state) {
       startVertexIndex: segment.startVertexIndex
     }
   }))));
-  const capturing = ["draw", "hole", "part"].includes(state.mode);
+  const capturing = ["draw", "hole", "part", "cut"].includes(state.mode);
   const capturePartIndex = state.mode === "part"
     ? geometryPartCount(state.partBaseGeometry)
     : state.mode === "hole" ? state.selectedPartIndex : 0;
@@ -2089,6 +2253,10 @@ function syncMap(map, displayFeatures, state) {
 }
 
 function draftPreviews(state) {
+  if (state.mode === "cut") {
+    const preview = clickPreview("LineString", state.clicks);
+    return preview ? [preview] : [];
+  }
   if (state.mode === "hole" || state.mode === "part") {
     const baseGeometry = state.mode === "hole" ? state.holeBaseGeometry : state.partBaseGeometry;
     const base = state.selectedFeature ? [] : [baseGeometry];
