@@ -12,6 +12,89 @@ afterEach(() => {
 });
 
 describe("schema-driven feature fields", () => {
+  it("leaves capture answers unset while preserving explicit zero, false, and choices", () => {
+    const dom = new JSDOM("<!doctype html><body></body>");
+    globalThis.document = dom.window.document;
+    const fields = [
+      {name: "note", type: "string", required: true},
+      {name: "count", type: "number", required: true, minimum: 0},
+      {name: "verified", type: "boolean", required: true},
+      {name: "status", type: "string", required: true, choices: ["Absent", "Present"]},
+      {name: "optional_count", type: "number", required: false},
+      {name: "optional_verified", type: "boolean", required: false}
+    ];
+    const editor = featurePropertyFields(fields, null, {emptyValues: true});
+    const control = name => editor.element.querySelector(`[aria-label="Feature property ${name}"]`);
+    for (const field of fields) assert.equal(control(field.name).value, "");
+    assert.throws(editor.read, {code: "feature_properties_invalid"});
+    control("note").value = "Observed";
+    control("count").value = "0";
+    control("verified").value = "false";
+    control("status").value = "Absent";
+    assert.deepEqual(editor.read(), {note: "Observed", count: 0, verified: false, status: "Absent"});
+    control("optional_count").value = "0";
+    control("optional_verified").value = "false";
+    assert.deepEqual(editor.read(), {
+      note: "Observed", count: 0, verified: false, status: "Absent",
+      optional_count: 0, optional_verified: false
+    });
+    editor.write({note: "Saved", count: 0, verified: false, status: "Absent"});
+    assert.deepEqual(editor.read(), {note: "Saved", count: 0, verified: false, status: "Absent"});
+    editor.write({});
+    for (const field of fields) assert.equal(control(field.name).value, "");
+    assert.throws(editor.read, {code: "feature_properties_invalid"});
+    // Existing ordinary feature editing keeps its separate initialization behavior.
+    assert.deepEqual(featurePropertyFields(fields).read(), {
+      note: "value", count: 0, verified: false, status: "Absent", optional_count: 0, optional_verified: false
+    });
+    dom.window.close();
+  });
+
+  it("keeps optional capture groups absent and new nested or repeated answers blank", () => {
+    const dom = new JSDOM("<!doctype html><body></body>");
+    globalThis.document = dom.window.document;
+    const editor = featurePropertyFields([
+      {name: "details", type: "group", required: true, fields: [
+        {name: "reading", type: "number", required: true},
+        {name: "checked", type: "boolean", required: true}
+      ]},
+      {name: "context", type: "group", required: false, fields: [
+        {name: "context_note", type: "string", required: true}
+      ]},
+      {name: "records", type: "group", required: true, repeat: true, minItems: 1, maxItems: 2, fields: [
+        {name: "record_note", type: "string", required: true}
+      ]},
+      {name: "samples", type: "group", required: false, repeat: true, minItems: 1, maxItems: 2, fields: [
+        {name: "sample_value", type: "number", required: true}
+      ]}
+    ], null, {emptyValues: true});
+    const control = name => editor.element.querySelector(`[aria-label="Feature property ${name}"]`);
+    assert.equal(control("reading").value, "");
+    assert.equal(control("checked").value, "");
+    assert.equal(control("record_note").value, "");
+    assert.equal(editor.element.querySelector('[aria-label="Include context"]').checked, false);
+    const samples = editor.element.querySelector('[aria-label="Include samples"]');
+    assert.equal(samples.checked, false);
+    assert.throws(editor.read, {code: "feature_properties_invalid"});
+    control("reading").value = "0";
+    control("checked").value = "false";
+    control("record_note").value = "Actual record";
+    assert.deepEqual(editor.read(), {details: {reading: 0, checked: false}, records: [{record_note: "Actual record"}]});
+    samples.checked = true;
+    samples.dispatchEvent(new dom.window.Event("change"));
+    assert.equal(control("sample_value").value, "");
+    assert.throws(editor.read, {code: "feature_properties_invalid"});
+    control("sample_value").value = "0";
+    assert.deepEqual(editor.read().samples, [{sample_value: 0}]);
+    [...editor.element.querySelectorAll("button")].find(button => button.textContent === "Add samples").click();
+    assert.equal(editor.element.querySelectorAll('[aria-label="Feature property sample_value"]')[1].value, "");
+    assert.throws(editor.read, {code: "feature_properties_invalid"});
+    samples.checked = false;
+    samples.dispatchEvent(new dom.window.Event("change"));
+    assert.equal(Object.hasOwn(editor.read(), "samples"), false);
+    dom.window.close();
+  });
+
   it("requires deliberate attachment selection and preserves exact saved references", () => {
     const dom = new JSDOM("<!doctype html><body></body>");
     globalThis.document = dom.window.document;

@@ -32,6 +32,49 @@ afterEach(async () => {
   harness = null;
 });
 
+it("keeps the save indicator honest across pending edits, conflict, failure and Help recovery", async () => {
+  const adapter = projectAdapter({kind: "managed"});
+  let finishFirst, writes = 0;
+  adapter.updateMap = async (_project, _map, update) => {
+    const definition = structuredClone(update.changes.definition);
+    writes++;
+    if (writes === 1) return new Promise(resolve => {
+      finishFirst = async () => resolve({...((await adapter.listMaps())[0]), version: 4, definition});
+    });
+    if (writes === 2) throw Object.assign(Error("version changed"), {status: 409});
+    if (writes === 3) throw Error("temporarily unavailable");
+    return {...((await adapter.listMaps())[0]), version: 5, definition};
+  };
+  const page = mountPage(adapter);
+  try {
+    const editor = await waitFor(() => page.querySelector(".opengeo-workbench"));
+    const indicator = () => editor.querySelector('[aria-label="Project save status"]');
+    clickButton(editor, "Save");
+    await waitFor(() => finishFirst);
+    assert.equal(indicator().dataset.state, "saving");
+    editor.querySelector(".gis-theme-command").click();
+    await finishFirst();
+    await waitFor(() => editor.dataset.saveState === "saved");
+    assert.equal(indicator().dataset.state, "unsaved", "The acknowledgement saved the earlier snapshot only");
+    clickButton(editor, "Save");
+    await waitFor(() => editor.dataset.saveState === "conflict");
+    assert.match(indicator().textContent, /Save conflict/);
+    clickButton(editor, "Help");
+    clickButton(editor, "Task guides and recovery");
+    assert.match(indicator().textContent, /Save conflict/, "Help status cannot erase the save outcome");
+    assert.ok(editor.querySelector('a[href$="examples/esia-screening/README.md"]'));
+    assert.match(editor.textContent, /check the Layer list before adding again/);
+    clickButton(editor, "Save");
+    await waitFor(() => editor.dataset.saveState === "error");
+    assert.match(indicator().textContent, /Save failed/);
+    clickButton(editor, "Save");
+    await waitFor(() => editor.dataset.saveState === "saved");
+    assert.equal(indicator().dataset.state, "saved");
+    assert.match(indicator().textContent, /Saved to account · v5/);
+    assert.equal(writes, 4, "Only deliberate Save clicks perform writes");
+  } finally {page.dispose?.();page.remove();}
+});
+
 describe("project durable-job hydration", () => {
   it("identifies publication loading and gives a stalled request a bounded recovery", async () => {
     const originalTimeout = globalThis.setTimeout;

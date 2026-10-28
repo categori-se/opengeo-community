@@ -89,6 +89,8 @@ from opengeo_api.location_links import PostgresLocationLinksRepository
 from opengeo_api.location_routes import router as location_router
 from opengeo_api.logging import configure_logging
 from opengeo_api.managed_display_access import router as managed_display_router
+from opengeo_api.mcp_auth import router as mcp_auth_router
+from opengeo_api.mcp_routes import router as mcp_router
 from opengeo_api.membership_routes import router as membership_router
 from opengeo_api.memberships import (
     MembershipRepository,
@@ -601,6 +603,8 @@ def create_app(
     configure_http_boundary(app)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(mcp_auth_router)
+    app.include_router(mcp_router)
     app.include_router(processing_router)
     app.include_router(organization_router)
     app.include_router(workspace_router)

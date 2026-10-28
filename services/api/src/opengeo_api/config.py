@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     cognito_http_timeout_seconds: PositiveFloat = 5.0
     jwt_leeway_seconds: int = Field(default=30, ge=0, le=300)
 
+    mcp_resource_url: str | None = Field(default=None, max_length=1024)
+    mcp_required_scopes: str = Field(default="openid", max_length=256)
+    mcp_allowed_origins: str | None = Field(default=None, max_length=2048)
+
     aws_region: str | None = None
     application_bucket: str | None = None
     artifact_view_origin: str | None = Field(default=None, max_length=300)
@@ -290,6 +294,43 @@ class Settings(BaseSettings):
                 or self.cognito_client_id in additional_client_ids
             ):
                 raise ValueError("Cognito client ids must be unique")
+
+        if self.mcp_resource_url is not None:
+            if not self.auth_configured:
+                raise ValueError("mcp_resource_url requires complete Cognito configuration")
+            resource = urlsplit(self.mcp_resource_url)
+            try:
+                canonical_preview_origin(
+                    f"{resource.scheme}://{resource.netloc}",
+                    allow_loopback_http=self.env in {"dev", "test"},
+                )
+            except ValueError as error:
+                raise ValueError("mcp_resource_url must use a canonical HTTPS origin") from error
+            if (
+                resource.path != "/mcp"
+                or resource.query
+                or resource.fragment
+                or self.mcp_resource_url != f"{resource.scheme}://{resource.netloc}/mcp"
+            ):
+                raise ValueError("mcp_resource_url must be the exact canonical /mcp URL")
+        scopes = self.mcp_required_scopes.split(" ")
+        if (
+            not 1 <= len(scopes) <= 8
+            or len(set(scopes)) != len(scopes)
+            or any(re.fullmatch(r"[A-Za-z0-9:/._-]{1,128}", scope) is None for scope in scopes)
+        ):
+            raise ValueError("mcp_required_scopes must contain exact space-separated scopes")
+        if self.mcp_allowed_origins is not None:
+            origins = self.mcp_allowed_origins.split(",")
+            if not 1 <= len(origins) <= 10 or len(set(origins)) != len(origins):
+                raise ValueError("mcp_allowed_origins must contain 1 to 10 unique exact origins")
+            for origin in origins:
+                try:
+                    canonical_preview_origin(
+                        origin, allow_loopback_http=self.env in {"dev", "test"}
+                    )
+                except ValueError as error:
+                    raise ValueError("mcp_allowed_origins contains an invalid origin") from error
 
         upload_values = (self.aws_region, self.geodata_bucket, self.geodata_kms_key_arn)
         if any(value is not None for value in upload_values) and not self.upload_configured:

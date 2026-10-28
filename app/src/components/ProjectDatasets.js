@@ -3,7 +3,7 @@ import {FeatureAttachmentPicker} from "./FeatureAttachmentPicker.js";
 import {validateCalculation, evaluateCalculation} from "../lib/fieldCalculations.js";
 import {featureFieldVisible} from "../lib/featureFieldVisibility.js";
 import {ArchiveFolderUpload} from "./ArchiveFolderUpload.js";
-import {FeatureCanvas, canvasEditingSupported, previewSharedPolygonVertexMove} from "./FeatureCanvas.js";
+import {FeatureCanvas, canvasEditingSupported, geometryVertexHandles, previewSharedPolygonVertexMove} from "./FeatureCanvas.js";
 import {MapView} from "./MapView.js";
 import {DatasetInspectionPanels} from "./DatasetInspectionPanels.js";
 import {DatasetAccess} from "./DatasetAccess.js";
@@ -1593,14 +1593,22 @@ function fieldObservationForm(
   let canvas = null;
   const geometry = textarea(
     "Field observation GeoJSON geometry",
-    JSON.stringify(defaultGeometry(formDefinition.geometryType), null, 2)
+    ""
   );
   geometry.rows = 5;
-  const setGeometry = (draft) => {
-    geometry.value = JSON.stringify(draft, null, 2);
-    canvas?.resetGeometry?.(draft);
+  let confirmedGeometry = null;
+  const locationStatus = text("p", "No observation location has been set.", "project-catalog-feedback");
+  locationStatus.ariaLive = "polite";
+  const setGeometry = (draft, {confirmed = false, resetCanvas = true} = {}) => {
+    geometry.value = draft ? JSON.stringify(draft, null, 2) : "";
+    confirmedGeometry = draft && confirmed ? JSON.stringify(draft) : null;
+    locationStatus.textContent = confirmedGeometry
+      ? "Observation location set. Check it before saving or submitting."
+      : draft ? "Check this location, then choose Confirm observation location."
+        : "No observation location has been set.";
+    if (resetCanvas) canvas?.resetGeometry?.(draft ?? null);
   };
-  const properties = featurePropertyFields(formDefinition.fields, {adapter: state.adapter, projectId: state.project.id, classification: dataset.classification, deviceScope: {organizationId: state.organization.id, userId: state.session.userId}, captureStorage: state.captureStorage});
+  const properties = featurePropertyFields(formDefinition.fields, {adapter: state.adapter, projectId: state.project.id, classification: dataset.classification, deviceScope: {organizationId: state.organization.id, userId: state.session.userId}, captureStorage: state.captureStorage}, {emptyValues: true});
   const target = select("Field capture target", [["", "New feature"]]);
   const availableFeatures = new Map(featurePage.features.map((feature) => [feature.id, feature]));
   for (const feature of featurePage.features) {
@@ -1612,7 +1620,7 @@ function fieldObservationForm(
   target.addEventListener("change", () => {
     const selected = availableFeatures.get(target.value);
     if (!selected) {
-      setGeometry(defaultGeometry(formDefinition.geometryType));
+      setGeometry(null);
       properties.write({});
       feedback.textContent = "The next observation will create a new feature after review.";
       return;
@@ -1646,6 +1654,7 @@ function fieldObservationForm(
     "project-catalog-feedback"
   );
   const captureDraft = ({allowDeviceFiles = false} = {}) => {
+    if (!confirmedGeometry) throw codedError("field_location_confirmation_required");
     const submissionId = crypto.randomUUID();
     const targetFeature = availableFeatures.get(target.value) ?? null;
     const correction = submissions.find((item) => item.id === supersedesSubmissionId);
@@ -1656,6 +1665,9 @@ function fieldObservationForm(
       throw codedError("field_correction_target_mismatch");
     }
     const geometryDraft = parseJsonObject(geometry.value, "field_geometry_invalid");
+    if (JSON.stringify(geometryDraft) !== confirmedGeometry) {
+      throw codedError("field_location_confirmation_required");
+    }
     if (geometryDraft.type !== formDefinition.geometryType) {
       throw codedError("field_geometry_type_mismatch");
     }
@@ -1769,7 +1781,8 @@ function fieldObservationForm(
     feedback.textContent = "Finding your current location…";
     try {
       const point = await currentGpsPoint();
-      setGeometry(point.geometry);
+      if (!form.isConnected) return;
+      setGeometry(point.geometry, {confirmed: true});
       feedback.textContent = `Current location set · reported accuracy ${point.accuracyMeters.toFixed(1)} m. Check the location before submitting.`;
     } catch (error) {
       feedback.className = "project-catalog-error";
@@ -1791,7 +1804,9 @@ function fieldObservationForm(
       supersedesSubmissionId = null;
     } catch (error) {
       feedback.className = "project-catalog-error";
-      feedback.textContent = `Observation was not queued (${error?.code ?? "invalid_observation"}).`;
+      feedback.textContent = error?.code === "field_location_confirmation_required"
+        ? "Observation was not queued. Set the location using GPS or the map, or confirm the entered coordinates."
+        : `Observation was not queued (${error?.code ?? "invalid_observation"}).`;
     } finally {
       saveOffline.disabled = !offlineAllowed;
     }
@@ -1808,7 +1823,9 @@ function fieldObservationForm(
       await loadFieldCapture(state, dataset, details, {notice: feedback.textContent});
     } catch (error) {
       feedback.className = "project-catalog-error";
-      feedback.textContent = `Observation was not submitted (${error?.code ?? "invalid_observation"}).`;
+      feedback.textContent = error?.code === "field_location_confirmation_required"
+        ? "Observation was not submitted. Set the location using GPS or the map, or confirm the entered coordinates."
+        : `Observation was not submitted (${error?.code ?? "invalid_observation"}).`;
       submitNow.disabled = false;
     }
   });
@@ -1869,11 +1886,11 @@ function fieldObservationForm(
           canvas = FeatureCanvas({
             collection: {...featurePage.collection, geometryType: formDefinition.geometryType},
             features: featurePage.features,
-            initialGeometry: parseJsonObject(geometry.value, "field_geometry_invalid"),
-            onGeometryChange: (draft) => { geometry.value = JSON.stringify(draft, null, 2); },
+            initialGeometry: geometry.value.trim() ? parseJsonObject(geometry.value, "field_geometry_invalid") : null,
+            onGeometryChange: (draft) => { setGeometry(draft, {confirmed: true, resetCanvas: false}); },
             onSelectFeature: (feature) => {
               target.value = feature.id;
-              geometry.value = JSON.stringify(feature.geometry, null, 2);
+              setGeometry(feature.geometry, {confirmed: true, resetCanvas: false});
               properties.write(feature.properties);
               feedback.textContent = `Editing ${feature.id} from authoritative version ${feature.version}. Acceptance requires that exact base version.`;
             }
@@ -1893,7 +1910,13 @@ function fieldObservationForm(
     });
     location.append(draw, drawing);
   }
+  geometry.addEventListener("input", () => {
+    confirmedGeometry = null;
+    locationStatus.textContent = "Coordinates changed. Confirm the observation location before saving or submitting.";
+  });
   geometry.addEventListener("change", () => {
+    confirmedGeometry = null;
+    locationStatus.textContent = "Coordinates changed. Confirm the observation location before saving or submitting.";
     try {
       const draft = parseJsonObject(geometry.value, "field_geometry_invalid");
       if (draft.type !== formDefinition.geometryType) throw codedError("field_geometry_type_mismatch");
@@ -1903,9 +1926,24 @@ function fieldObservationForm(
       feedback.textContent = `Coordinates do not match this survey (${error?.code ?? "field_geometry_invalid"}). Correct them before saving.`;
     }
   });
+  const confirmLocation = text("button", "Confirm observation location", "platform-button secondary");
+  confirmLocation.type = "button";
+  confirmLocation.addEventListener("click", () => {
+    try {
+      const draft = parseJsonObject(geometry.value, "field_geometry_invalid");
+      if (draft.type !== formDefinition.geometryType || !geometryVertexHandles(draft).length
+        || (draft.type === "LineString" && draft.coordinates.length < 2)) {
+        throw codedError("field_geometry_type_mismatch");
+      }
+      setGeometry(draft, {confirmed: true});
+    } catch {
+      confirmedGeometry = null;
+      locationStatus.textContent = "Enter valid coordinates for this survey before confirming the location.";
+    }
+  });
   const coordinates = document.createElement("details");
-  coordinates.append(text("summary", "Enter or inspect coordinates (GeoJSON)"), field("Geometry (longitude, latitude)", geometry));
-  location.append(coordinates);
+  coordinates.append(text("summary", "Enter or inspect coordinates (GeoJSON)"), field("Geometry (longitude, latitude)", geometry), confirmLocation);
+  location.append(locationStatus, coordinates);
   const actions = document.createElement("div");
   actions.className = "project-dataset-actions";
   actions.append(submitNow, saveOffline, sync);
@@ -1931,13 +1969,33 @@ function fieldSubmissionReview(state, dataset, details, submissions) {
     const item = document.createElement("article");
     item.className = "project-feature-record project-field-submission";
     item.dataset.state = submission.state;
-    const operation = submission.operation === "update"
-      ? `update ${submission.targetFeatureId} from v${submission.targetFeatureVersion}`
-      : "create new feature";
-    item.append(
-      text("strong", `${submission.id} · ${operation} · ${submission.state.replace("_", " ")} · rv${submission.reviewVersion}`),
-      text("pre", JSON.stringify(submission.feature, null, 2))
+    const operation = submission.operation === "update" ? "Update existing feature" : "New observation";
+    item.append(text("strong", `${operation} · ${submission.state.replaceAll("_", " ")}`));
+    const geometry = submission.feature.geometry;
+    item.append(text("p", geometry.type === "Point"
+      ? `Location: longitude ${geometry.coordinates[0]}, latitude ${geometry.coordinates[1]}`
+      : `Location: ${geometry.type}`));
+    const answers = document.createElement("dl");
+    for (const [name, value] of Object.entries(submission.feature.properties)) {
+      answers.append(
+        text("dt", name.replaceAll("_", " ")),
+        text("dd", typeof value === "object" ? JSON.stringify(value) : String(value))
+      );
+    }
+    item.append(answers);
+    const technical = document.createElement("details");
+    technical.append(
+      text("summary", "Technical submission details"),
+      text("pre", JSON.stringify({
+        submissionId: submission.id,
+        operation: submission.operation,
+        targetFeatureId: submission.targetFeatureId,
+        targetFeatureVersion: submission.targetFeatureVersion,
+        reviewVersion: submission.reviewVersion,
+        feature: submission.feature
+      }, null, 2))
     );
+    item.append(technical);
     if (submission.reviewMessage) item.append(text("p", submission.reviewMessage));
     if (canReviewCapture(state, dataset)
       && ["submitted", "in_review"].includes(submission.state)) {
@@ -3679,22 +3737,24 @@ function defaultGeometry(geometryType) {
   }[geometryType];
 }
 
-function defaultPropertyValues(fields) {
+function defaultPropertyValues(fields, {emptyValues = false} = {}) {
   return Object.fromEntries(fields.map((field) => [
     field.name,
-    defaultPropertyValue(field)
+    defaultPropertyValue(field, {emptyValues})
   ]));
 }
 
-function defaultPropertyValue(field) {
+function defaultPropertyValue(field, {emptyValues = false} = {}) {
   if (field.attachment) return "";
   if (field.type === "group") {
+    if (emptyValues && !field.required) return undefined;
     if (field.repeat) {
       const count = Math.max(field.minItems ?? 0, field.required ? 1 : 0);
-      return Array.from({length: count}, () => defaultPropertyValues(field.fields));
+      return Array.from({length: count}, () => defaultPropertyValues(field.fields, {emptyValues}));
     }
-    return defaultPropertyValues(field.fields);
+    return defaultPropertyValues(field.fields, {emptyValues});
   }
+  if (emptyValues) return undefined;
   if (field.type === "boolean") return false;
   if (field.type === "string") {
     if (field.choices?.length) return field.choices[0];
@@ -3713,11 +3773,11 @@ function defaultPropertyValue(field) {
   return 0;
 }
 
-export function featurePropertyFields(fields, attachments = null) {
-  return featurePropertyEditor(fields, {legend: "Schema-driven properties", attachments});
+export function featurePropertyFields(fields, attachments = null, {emptyValues = false} = {}) {
+  return featurePropertyEditor(fields, {legend: "Schema-driven properties", attachments, emptyValues});
 }
 
-function featurePropertyEditor(fields, {legend, nested = false, attachments = null}) {
+function featurePropertyEditor(fields, {legend, nested = false, attachments = null, emptyValues = false}) {
   const element = document.createElement("fieldset");
   element.className = `project-feature-fields${nested ? " nested" : ""}`;
   element.append(text("legend", legend));
@@ -3741,6 +3801,10 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
         wrapper.append(text("small", definition.description, "project-feature-field-help"));
       }
       if (definition.repeat) {
+        const included = emptyValues && !definition.required
+          ? input("checkbox", `Include ${definition.label ?? definition.name}`)
+          : null;
+        if (included) wrapper.append(field("Include this group", included));
         const entries = [];
         const list = document.createElement("div");
         list.className = "project-feature-repeat-list";
@@ -3751,13 +3815,17 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
         const minimum = Math.max(definition.minItems ?? 0, definition.required ? 1 : 0);
         const maximum = definition.maxItems ?? 20;
         const refresh = () => {
+          const inactive = wrapper.disabled || Boolean(included && !included.checked);
+          if (included) included.disabled = wrapper.disabled;
           entries.forEach((entry, index) => {
             entry.title.textContent = `${definition.label ?? definition.name} ${index + 1}`;
-            entry.remove.disabled = wrapper.disabled || entries.length <= minimum;
+            entry.remove.disabled = inactive || entries.length <= minimum;
+            entry.editor.element.disabled = inactive;
           });
-          add.disabled = wrapper.disabled || entries.length >= maximum;
+          add.disabled = inactive || entries.length >= maximum;
         };
-        const addEntry = (values = defaultPropertyValues(definition.fields)) => {
+        included?.addEventListener("change", refresh);
+        const addEntry = (values = defaultPropertyValues(definition.fields, {emptyValues})) => {
           if (entries.length >= maximum) return;
           const item = document.createElement("section");
           item.className = "project-feature-repeat-item";
@@ -3768,7 +3836,7 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
           remove.type = "button";
           const editor = featurePropertyEditor(definition.fields, {
             legend: `${definition.label ?? definition.name} fields`,
-            nested: true, attachments
+            nested: true, attachments, emptyValues
           });
           remove.addEventListener("click", () => {
             const index = entries.findIndex((entry) => entry.item === item);
@@ -3797,12 +3865,14 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
           visible: true,
           peek: () => undefined,
           read: (options) => {
+            if (included && !included.checked) return undefined;
             if (entries.length < minimum || entries.length > maximum) {
               throw codedError("feature_properties_invalid");
             }
             return entries.map((item) => item.editor.read(options));
           },
           write: (value) => {
+            if (included) included.checked = Array.isArray(value);
             list.replaceChildren();
             entries.splice(0);
             const records = Array.isArray(value) ? value.slice(0, maximum) : [];
@@ -3830,7 +3900,7 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
       }
       const editor = featurePropertyEditor(definition.fields, {
         legend: `${definition.label ?? definition.name} fields`,
-        nested: true, attachments
+        nested: true, attachments, emptyValues
       });
       wrapper.append(editor.element);
       const entry = {
@@ -3845,7 +3915,7 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
         write: (value) => {
           const active = definition.required || Boolean(value && typeof value === "object" && !Array.isArray(value));
           if (included) included.checked = active;
-          editor.write(active ? value : defaultPropertyValues(definition.fields));
+          editor.write(active ? value : defaultPropertyValues(definition.fields, {emptyValues}));
           editor.element.disabled = !active || wrapper.disabled;
         },
         setDisabled: (disabled) => {
@@ -3860,14 +3930,14 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
     }
     let control;
     if (definition.type === "boolean") {
-      control = select(`Feature property ${definition.name}`, definition.required
+      control = select(`Feature property ${definition.name}`, definition.required && !emptyValues
         ? [["false", "false"], ["true", "true"]]
         : [["", "unset"], ["false", "false"], ["true", "true"]]);
     } else if (definition.choices?.length) {
       control = select(
         `Feature property ${definition.name}`,
         [
-          ...(definition.required ? [] : [["", "unset"]]),
+          ...(definition.required && !emptyValues ? [] : [["", "unset"]]),
           ...definition.choices.map((choice) => [choice, choice])
         ]
       );
@@ -3957,7 +4027,7 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
     control.addEventListener("change", updateVisibility);
   }
   const write = (values) => {
-    const defaults = defaultPropertyValues(fields);
+    const defaults = defaultPropertyValues(fields, {emptyValues});
     for (const [name, entry] of controls) {
       const {definition} = entry;
       const value = Object.hasOwn(values, name)
@@ -3983,7 +4053,7 @@ function featurePropertyEditor(fields, {legend, nested = false, attachments = nu
     }
     return values;
   };
-  write(defaultPropertyValues(fields));
+  write(defaultPropertyValues(fields, {emptyValues}));
   return {element, read, write};
 }
 

@@ -1605,6 +1605,17 @@ def test_cut_native_postgis_bent_line_holes_ties_and_rejections():
             ]
         ],
     }
+    # Actual native OpenLayers failure: a horizontal cut intersects the slanted
+    # boundary created by the accepted shared-vertex edit, above the intact hole.
+    slanted = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [
+                [[0, 0], [3, 0], [3.25, 1.75], [3, 3], [0, 3], [0, 0]],
+                [[0.5, 0.5], [0.5, 1], [1.5, 1], [1.5, 0.5], [0.5, 0.5]],
+            ]
+        ],
+    }
     with (
         psycopg.connect(os.environ["OPENGEO_FEATURE_TEST_DSN"]) as connection,
         connection.cursor() as cursor,
@@ -1622,6 +1633,7 @@ def test_cut_native_postgis_bent_line_holes_ties_and_rejections():
             (source, [[1, -1], [1, 1], [3, 3], [3, 5]], 16, 0),
             (donut, [[0.5, -1], [0.5, 5]], 12, 1),
             (donut, [[2, -1], [2, 5]], 12, 0),
+            (slanted, [[-0.5, 2.4], [3.75, 2.4]], 8.875, 1),
         ]:
             pieces, accepted = split(geometry, line)
             assert accepted is True and len(pieces) == 2
@@ -1632,7 +1644,49 @@ def test_cut_native_postgis_bent_line_holes_ties_and_rejections():
                 "FROM jsonb_array_elements(%s::jsonb)) parts",
                 (Jsonb(pieces),),
             )
-            assert cursor.fetchone() == (area, holes, True)
+            total_area, total_holes, valid = cursor.fetchone()
+            assert total_area == pytest.approx(area, abs=1e-12)
+            assert (total_holes, valid) == (holes, True)
+            if geometry is slanted:
+                # The conservation check must return the unmodified split output,
+                # including the original hole and new slanted-edge intersection.
+                cursor.execute(
+                    "WITH raw AS (SELECT (ST_Dump(ST_Split("
+                    "ST_GeometryN(ST_GeomFromGeoJSON(%s::text),1),"
+                    "ST_GeomFromGeoJSON(%s::text)))).geom AS geom) "
+                    "SELECT jsonb_agg(ST_AsGeoJSON(geom,17)::jsonb "
+                    "ORDER BY ST_Area(geom) DESC,ST_AsEWKB(ST_Normalize(geom))) FROM raw",
+                    (Jsonb(slanted), Jsonb({"type": "LineString", "coordinates": line})),
+                )
+                assert pieces == cursor.fetchone()[0]
+        # Exercise the actual conservation gates with deliberately damaged server
+        # split results. Even a new hole below the relative area allowance must
+        # fail the boundary check; an unchanged union cannot hide overlap.
+        raw_parts = "SELECT (ST_Dump(ST_CollectionExtract(pieces, 3))).geom AS geom FROM split"
+        assert _CUT_MULTIPOLYGON_SQL.count(raw_parts) == 1
+        for damaged_parts in [
+            "SELECT ST_Difference(raw.geom, ST_MakeEnvelope(2,1.1,2.25,1.35,4326)) AS geom "
+            "FROM split CROSS JOIN LATERAL ST_Dump(ST_CollectionExtract(pieces,3)) raw",
+            "SELECT ST_MakePolygon(ST_ExteriorRing(raw.geom)) AS geom "
+            "FROM split CROSS JOIN LATERAL ST_Dump(ST_CollectionExtract(pieces,3)) raw",
+            "SELECT ST_Difference(raw.geom, ST_Buffer(ST_SetSRID(ST_Point(2,1.5),4326),"
+            "1e-8)) AS geom "
+            "FROM split CROSS JOIN LATERAL ST_Dump(ST_CollectionExtract(pieces,3)) raw",
+            "SELECT ST_Translate(raw.geom,1e-10,0) AS geom "
+            "FROM split CROSS JOIN LATERAL ST_Dump(ST_CollectionExtract(pieces,3)) raw",
+            "SELECT raw.geom FROM split "
+            "CROSS JOIN LATERAL ST_Dump(ST_CollectionExtract(pieces,3)) raw "
+            "CROSS JOIN generate_series(1,2)",
+        ]:
+            cursor.execute(
+                _CUT_MULTIPOLYGON_SQL.replace(raw_parts, damaged_parts),
+                (
+                    Jsonb(slanted),
+                    Jsonb({"type": "LineString", "coordinates": [[-0.5, 2.4], [3.75, 2.4]]}),
+                    1,
+                ),
+            )
+            assert cursor.fetchone() == (None, False)
         tied, accepted = split(source, [[2, -1], [2, 5]])
         reversed_tied, reversed_accepted = split(source, [[2, 5], [2, -1]])
         assert accepted and reversed_accepted

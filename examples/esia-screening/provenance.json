@@ -1,0 +1,59 @@
+{
+  "schemaVersion": 1,
+  "title": "Synthetic footprint and influence-area screening",
+  "fixtureVersion": "1.0.0",
+  "source": "Author-created OpenGeo documentation geometry; no provider data or field observations.",
+  "coordinateReference": "OGC:CRS84; longitude, latitude in degrees",
+  "observationPeriod": null,
+  "sourceQuality": null,
+  "coverageCompleteness": null,
+  "license": null,
+  "accessRights": null,
+  "rights": null,
+  "rightsNote": "Null fixture metadata deliberately represents unknown source/distribution and land-access rights. Do not infer permission, tenure or consent from the map or the software license.",
+  "inputFiles": {
+    "footprint": {
+      "path": "data/footprint.geojson",
+      "sha256": "3f8389039ce9a03cfe265ea81a163eb1b21ede80a232b9c9aa73b5e96723938e",
+      "bytes": 781,
+      "features": 1
+    },
+    "influence": {
+      "path": "data/influence.geojson",
+      "sha256": "86a70eedfa16b91e873ceb96d5badf008ba051db5a7522cf6237344bd0fb26f4",
+      "bytes": 798,
+      "features": 1
+    },
+    "receptors": {
+      "path": "data/receptors.geojson",
+      "sha256": "2874cce447b62a06f3245efdb638eab395b2fde39b50dfeaa734aa0fd965f547",
+      "bytes": 2325,
+      "features": 5
+    }
+  },
+  "question": "Which synthetic point receptors intersect each explicitly selected area?",
+  "influenceBasis": "A larger author-drawn rectangle for this numerical exercise; not a buffer, modeled impact zone or regulatory distance.",
+  "expected": {
+    "sourcePoints": 5,
+    "footprintPoints": [
+      "Fixture point A",
+      "Fixture point B"
+    ],
+    "influencePoints": [
+      "Fixture point A",
+      "Fixture point B",
+      "Fixture point C",
+      "Fixture point D"
+    ],
+    "outsideBoth": [
+      "Fixture point E"
+    ],
+    "screeningRows": 6,
+    "uniqueScreenedPoints": 4
+  },
+  "methods": {
+    "studio": "Existing Screen footprint and influence area: native PostGIS planar CRS84 clip; scope summaries remain separate. Capture actual runtime method/version and input dataset generations from the export.",
+    "localCheck": "Existing OpenLayers 10.10.0 Polygon.intersectsCoordinate; all points are strictly away from boundaries. This checks fixture counts only, not API, account persistence or hosted acceptance."
+  },
+  "limits": "Synthetic training example for a supported pilot workflow; no impact significance, households, biodiversity condition, rights, compensation or complete ESIA conclusions."
+}

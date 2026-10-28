@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:v="https://example.test/gps" version="1.1" creator="OpenGeo analytical fixture">
+  <metadata><name>Field survey 田</name><desc>Waypoints, a route and separated track segments.</desc><link href="https://never-fetch.example.test/info"/><extensions><v:context>Preserve this source field</v:context></extensions></metadata>
+  <wpt lat="27.7" lon="85.3"><ele>1450.25</ele><time>2026-10-16T01:02:03.123400+05:45</time><name>Survey point</name><extensions><v:accuracy unit="m">4</v:accuracy></extensions></wpt>
+  <rte><name>Walking route</name><rtept lat="27.7" lon="85.3"><name>Start</name></rtept><rtept lat="27.71" lon="85.31"><ele>1500</ele><name>End</name></rtept></rte>
+  <trk><name>Separated track</name>
+    <trkseg><trkpt lat="27.72" lon="85.32"><ele>1510</ele><time>2026-10-16T00:00:00Z</time></trkpt><trkpt lat="27.73" lon="85.33"><ele>1520</ele><time>2026-10-16T00:01:00Z</time></trkpt></trkseg>
+    <trkseg><trkpt lat="27.8" lon="85.4"/><trkpt lat="27.81" lon="85.41"><ele>1530</ele></trkpt></trkseg>
+    <trkseg><trkpt lat="27.9" lon="85.5"><time>2026-10-16T12:00:00</time></trkpt></trkseg>
+    <trkseg/>
+  </trk>
+</gpx>

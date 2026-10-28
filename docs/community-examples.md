@@ -16,6 +16,18 @@ Their source data and reuse terms are described on the individual pages; this
 repository does not include a complete installation and input bundle for every
 publication.
 
+## Reproduce a small E&S screening step
+
+The [synthetic screening example](../examples/esia-screening/README.md) supplies
+three exact GeoJSON files: a footprint Polygon, an explicit influence-area Polygon
+and five invented point receptors. Expect two points in the footprint and four
+in the influence area, kept as separate scopes. It shows normal Project/Processing
+controls, source/version pins, unknown rights, methods/CSV/GeoJSON exports and
+deliberate save/reopen steps. Its local count command reuses installed OpenLayers
+without provider reads. It is a pilot training exercise, not real field evidence,
+impact assessment or a claim of hosted acceptance. The same README includes short
+[task and recovery notes](../examples/esia-screening/README.md#task-and-recovery-notes).
+
 ## Reproduce a Berkshire conservation study
 
 The [Berkshire conservation example](../examples/berkshires-acecs/README.md)

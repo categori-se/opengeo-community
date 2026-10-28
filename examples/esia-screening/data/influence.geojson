@@ -1,0 +1,43 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "b3000000-0000-4000-8000-000000000003",
+      "properties": {
+        "name": "Synthetic influence area",
+        "synthetic": true,
+        "fixture_version": "1.0.0",
+        "observation_period": null,
+        "rights": null
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              9.99,
+              9.99
+            ],
+            [
+              10.03,
+              9.99
+            ],
+            [
+              10.03,
+              10.03
+            ],
+            [
+              9.99,
+              10.03
+            ],
+            [
+              9.99,
+              9.99
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

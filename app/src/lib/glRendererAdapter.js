@@ -7,7 +7,7 @@ export function rendererAdapterFor(map, fallback) {
   return mapAdapters.get(map) ?? fallback;
 }
 
-export function createGlRendererAdapter({id, engine, initialize = () => {}}) {
+export function createGlRendererAdapter({id, engine, initialize = () => {}, requiresPainter = false}) {
   const disposed = new WeakSet();
   const adapter = Object.freeze({
     id,
@@ -26,6 +26,12 @@ export function createGlRendererAdapter({id, engine, initialize = () => {}}) {
     createMap(options) {
       const map = new engine.Map(options);
       mapAdapters.set(map, adapter);
+      // MapLibre 6 can return from its constructor after WebGL2 setup fails,
+      // leaving an object whose resize/remove methods require a missing painter.
+      if ((requiresPainter || "painter" in map) && !map.painter) {
+        adapter.disposeMap(map);
+        throw new Error("renderer_graphics_unavailable");
+      }
       return map;
     },
     createBounds() { return new engine.LngLatBounds(); },
@@ -33,9 +39,13 @@ export function createGlRendererAdapter({id, engine, initialize = () => {}}) {
     disposeMap(map) {
       if (!map || disposed.has(map)) return;
       if (mapAdapters.get(map) !== adapter) throw new Error("renderer_map_owner_mismatch");
-      map.remove();
       disposed.add(map);
-      mapAdapters.delete(map);
+      try { map.remove(); }
+      catch {
+        // A failed/context-lost SDK must not trap the user inside its dialog.
+        // Detach its owned surface even when the SDK cannot finish teardown.
+        try { map.getCanvas?.()?.remove(); } catch { /* No usable canvas. */ }
+      } finally { mapAdapters.delete(map); }
     }
   });
   return adapter;

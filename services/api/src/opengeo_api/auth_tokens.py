@@ -181,6 +181,15 @@ class CognitoTokenVerifier:
             if isinstance(groups_value, list)
             else ()
         )
+        audience_value = payload.get("aud")
+        audiences = (
+            (audience_value,)
+            if isinstance(audience_value, str) and audience_value
+            else tuple(audience_value)
+            if isinstance(audience_value, list)
+            and all(isinstance(value, str) and value for value in audience_value)
+            else ()
+        )
 
         return VerifiedAccessToken(
             subject=subject,
@@ -188,4 +197,5 @@ class CognitoTokenVerifier:
             username=username,
             scopes=scopes,
             groups=groups,
+            audiences=audiences,
         )

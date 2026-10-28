@@ -55,3 +55,26 @@ test("failed protocol setup can retry without replaying successful registration"
   adapter.registerProtocol("second", handler);
   assert.deepEqual(engine.protocols.map(p => p.name), ["first", "second"]);
 });
+
+test("partial graphics initialization is rejected before resize and failed owned teardown stays idempotent", () => {
+  const engine = sdk("partial");let removals = 0, detached = 0, partial;
+  engine.Map = class {
+    constructor() {partial=this;}
+    getCanvas() { return {remove() {detached++;}}; }
+    remove() {removals++;throw Error("missing painter");}
+  };
+  const adapter = createGlRendererAdapter({id:"partial", engine, requiresPainter:true});
+  assert.throws(() => adapter.createMap({}), /renderer_graphics_unavailable/);
+  assert.equal(Object.hasOwn(partial,"painter"),false,"Actual failed MapLibre constructor never assigns painter");
+  assert.equal(removals, 1);assert.equal(detached, 1);
+
+  engine.Map = class {
+    painter = {};
+    getCanvas() { return {remove() {detached++;}}; }
+    remove() {removals++;throw Error("lost context");}
+  };
+  const map = adapter.createMap({});
+  assert.doesNotThrow(() => adapter.disposeMap(map));
+  assert.doesNotThrow(() => adapter.disposeMap(map));
+  assert.equal(removals, 2);assert.equal(detached, 2);
+});

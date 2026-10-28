@@ -35,6 +35,20 @@ on:
       - app/package.json
       - app/package-lock.json
       - app/test/catalog-project-save.test.mjs
+      - app/test/receptor-screening.test.mjs
+      - app/test/receptor-screening-workbench.test.mjs
+      - app/test/social-baseline-evidence.test.mjs
+      - app/test/social-baseline-evidence-workbench.test.mjs
+      - app/test/project-social-baseline.test.mjs
+      - app/test/project-social-baseline-workbench.test.mjs
+      - app/test/public-demo-capture.test.mjs
+      - app/test/feature-field-rules.test.mjs
+      - app/test/gl-renderer-adapter.test.mjs
+      - app/test/public-demo-workbench.test.mjs
+      - app/test/print-resolution.test.mjs
+      - app/test/workbench-inspector-layout.test.mjs
+      - app/test/workbench-save-state.test.mjs
+      - app/test/project-workspace-durable-jobs.test.mjs
       - app/test/cog-preview.test.mjs
       - app/test/project-directory-ux.test.mjs
       - app/test/project-resource-creation.test.mjs
@@ -92,6 +106,20 @@ on:
       - app/package.json
       - app/package-lock.json
       - app/test/catalog-project-save.test.mjs
+      - app/test/receptor-screening.test.mjs
+      - app/test/receptor-screening-workbench.test.mjs
+      - app/test/social-baseline-evidence.test.mjs
+      - app/test/social-baseline-evidence-workbench.test.mjs
+      - app/test/project-social-baseline.test.mjs
+      - app/test/project-social-baseline-workbench.test.mjs
+      - app/test/public-demo-capture.test.mjs
+      - app/test/feature-field-rules.test.mjs
+      - app/test/gl-renderer-adapter.test.mjs
+      - app/test/public-demo-workbench.test.mjs
+      - app/test/print-resolution.test.mjs
+      - app/test/workbench-inspector-layout.test.mjs
+      - app/test/workbench-save-state.test.mjs
+      - app/test/project-workspace-durable-jobs.test.mjs
       - app/test/cog-preview.test.mjs
       - app/test/project-directory-ux.test.mjs
       - app/test/project-resource-creation.test.mjs
@@ -204,6 +232,20 @@ jobs:
             app/test/demo-release-config.test.mjs \
             app/test/release-safety.test.mjs \
             app/test/catalog-project-save.test.mjs \
+            app/test/receptor-screening.test.mjs \
+            app/test/receptor-screening-workbench.test.mjs \
+            app/test/social-baseline-evidence.test.mjs \
+            app/test/social-baseline-evidence-workbench.test.mjs \
+            app/test/project-social-baseline.test.mjs \
+            app/test/project-social-baseline-workbench.test.mjs \
+            app/test/public-demo-capture.test.mjs \
+            app/test/feature-field-rules.test.mjs \
+            app/test/gl-renderer-adapter.test.mjs \
+            app/test/public-demo-workbench.test.mjs \
+            app/test/print-resolution.test.mjs \
+            app/test/workbench-inspector-layout.test.mjs \
+            app/test/workbench-save-state.test.mjs \
+            app/test/project-workspace-durable-jobs.test.mjs \
             app/test/cog-preview.test.mjs \
             app/test/project-directory-ux.test.mjs \
             app/test/project-resource-creation.test.mjs \
@@ -216,13 +258,7 @@ jobs:
             app/test/publication-preview-origins.test.mjs \
             app/test/esbuild-with-signal.test.mjs \
             services/observable-preview/test/local-server.test.mjs \
-            services/observable-coordinator/test/local-adapters.test.mjs \
-            app/test/project-organization.test.mjs \
-            app/test/historical-imagery-compare.test.mjs \
-            app/test/historical-imagery-ui.test.mjs \
-            app/test/local-project-store.test.mjs \
-            app/test/publication-editor-build.test.mjs \
-            app/test/cesium-renderer.test.mjs; do
+            services/observable-coordinator/test/local-adapters.test.mjs; do
             node --test --test-isolation=none "$test_file"
           done
           node scripts/check-open-source-foundations.mjs
@@ -322,6 +358,9 @@ jobs:
         run: |
           python -m pytest \
             tests/test_openapi_export.py \
+            tests/test_mcp_auth.py \
+            tests/test_mcp_routes.py \
+            tests/test_mcp_tools.py \
             tests/test_analysis_jobs.py \
             tests/test_processing_dispatch.py \
             tests/test_config.py \

@@ -28,6 +28,139 @@ const MASSGIS = JSON.parse(await readFile(
 
 if(process.env.OPEN_GEO_GPX_DIST){await checkGpxBrowser();process.exit(0);}
 
+it("graphics failure retains Catalog additions and draft state, disables capture and recovers only on Retry", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url:"https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), listeners = new Map();let shell, creates = 0, removes = 0;
+  const layer = {layerId:"catalog-source",datasetId:"catalog-source",title:"Retained Catalog Layer",
+    sourceType:"geojson-object",geometryType:"Point",visible:true,style:{},labels:{enabled:false}};
+  const data = {type:"FeatureCollection",features:[{type:"Feature",properties:{name:"Retained"},
+    geometry:{type:"Point",coordinates:[2,3]}}]};
+  const map = {
+    on(type, callback) {listeners.set(type,callback);}, off(type) {listeners.delete(type);},
+    resize() {}, isStyleLoaded:()=>false, getZoom:()=>2, getBearing:()=>0,getPitch:()=>0,
+    getCenter:()=>({lng:0,lat:0}),getStyle:()=>({version:8,sources:{},layers:[]}),getLayer:()=>null,
+  };
+  try {
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    shell = WorkbenchView({workspace:{workspaceId:"50000000-0000-4000-8000-000000000001",title:"Graphics recovery"},
+      project:emptyMapDefinition(),role:"local",publicDemo:true,restoreBrowserDraft:false,initialPanel:"catalog",
+      browserCatalog:[{id:"retained",title:layer.title,load:async()=>({layer,geojson:data})}],
+      rendererAdapter:{id:"maplibre",initialize(){},registerProtocol(){},createMap(){
+        creates++;if(creates===1)throw Error("WebGL2 unavailable");return map;
+      },disposeMap(){removes++;throw Error("SDK teardown failed");}}});
+    document.body.append(shell);
+    await waitFor(()=>shell.querySelector(".gis-map-startup-error"));
+    assert.equal(creates,1);assert.equal(shell.getPrintContext().ready,false);
+    assert.match(shell.getPrintContext().unavailableReason,/Map graphics unavailable/);
+    let captures=0;
+    await assert.rejects(shell.getPrintContext().withPrintResolution({maxWidth:600,maxHeight:300},()=>{captures++;}),/Retry the map/);
+    assert.equal(captures,0);
+    shell.querySelector('[aria-label="Review and add Retained Catalog Layer"]').click();
+    const dialog = await waitFor(()=>document.querySelector(".browser-layer-registration"));
+    dialog.querySelector("form").dispatchEvent(new dom.window.Event("submit",{bubbles:true,cancelable:true}));
+    await waitFor(()=>!dialog.isConnected);
+    assert.equal(shell.__opengeoLayers.length,1);
+    assert.deepEqual(shell.__opengeoData.get(shell.__opengeoLayers[0].layerId),data);
+    assert.match(shell.querySelector('[data-status-field="message"]').textContent,/Layer was added/);
+    assert.equal(creates,1,"Rendering the draft never retries graphics automatically");
+    shell.querySelector(".gis-map-startup-error button").click();
+    await waitFor(()=>listeners.has("webglcontextlost"));
+    assert.equal(creates,2);assert.equal(shell.getPrintContext().map,map);
+    assert.equal(shell.querySelector(".gis-map-startup-error"),null);
+    assert.equal(shell.__opengeoLayers.length,1);
+    map.resize = () => {throw Error("graphics resize failed");};
+    const separator = shell.querySelector('[aria-label="Resize layers panel"]');
+    assert.doesNotThrow(()=>separator.dispatchEvent(new dom.window.KeyboardEvent("keydown",{key:"ArrowRight",bubbles:true})));
+    assert.equal(shell.getPrintContext().map,null);
+    map.resize = () => {};
+    shell.querySelector(".gis-map-startup-error button").click();
+    await waitFor(()=>listeners.has("webglcontextlost"));
+    assert.equal(creates,3);
+    listeners.get("webglcontextlost")({});
+    assert.equal(shell.getPrintContext().map,null);
+    assert.equal(shell.__opengeoLayers.length,1);
+    assert.match(shell.querySelector('[data-status-field="loading"]').textContent,/graphics unavailable/);
+    assert.doesNotThrow(()=>shell.dispose());assert.doesNotThrow(()=>shell.dispose());
+    assert.ok(removes>=1);
+  } finally {shell?.dispose?.();shell?.remove();restore();dom.window.close();}
+});
+
+it("graphics display and camera-fit failures after Catalog add keep one committed Layer and close review", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>",{url:"https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), listeners = new Map();let shell, fits=0;
+  const layer = {layerId:"catalog-source",datasetId:"catalog-source",title:"Display failure Layer",sourceType:"geojson-object",
+    geometryType:"Point",visible:true,style:{},labels:{enabled:false}};
+  const data = {type:"FeatureCollection",features:[{type:"Feature",properties:{name:"Kept"},geometry:{type:"Point",coordinates:[2,3]}}]};
+  const map = {on(type,callback){listeners.set(type,callback);},off(type){listeners.delete(type);},resize(){},
+    isStyleLoaded:()=>false,getZoom:()=>2,getBearing:()=>0,getPitch:()=>0,getCenter:()=>({lng:0,lat:0}),
+    getStyle:()=>({version:8,sources:{},layers:[]}),getLayer:()=>null,getSource:()=>null,
+    addSource(){throw Error("graphics display failed");},fitBounds(){fits++;throw Error("camera painter unavailable");}};
+  try {
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    shell=WorkbenchView({workspace:{workspaceId:"50000000-0000-4000-8000-000000000001",title:"Add recovery"},
+      project:emptyMapDefinition(),role:"local",publicDemo:true,restoreBrowserDraft:false,initialPanel:"catalog",
+      browserCatalog:[{id:"display-failure",title:layer.title,load:async()=>({layer,geojson:data})}],
+      rendererAdapter:{id:"maplibre",initialize(){},registerProtocol(){},createMap:()=>map,disposeMap(){}}});
+    document.body.append(shell);await waitFor(()=>listeners.has("click"));
+    shell.querySelector('[aria-label="Review and add Display failure Layer"]').click();
+    const dialog=await waitFor(()=>document.querySelector(".browser-layer-registration"));
+    dialog.querySelector("form").dispatchEvent(new dom.window.Event("submit",{bubbles:true,cancelable:true}));
+    await waitFor(()=>!dialog.isConnected);
+    assert.equal(shell.__opengeoLayers.length,1);assert.equal(fits,1);
+    assert.deepEqual(shell.__opengeoData.get(shell.__opengeoLayers[0].layerId),data);
+    assert.equal(shell.getPrintContext().ready,false);
+    assert.match(shell.querySelector('[data-status-field="message"]').textContent,/Layer was added/);
+    assert.equal(document.querySelector(".browser-layer-registration"),null);
+  } finally {shell?.dispose?.();shell?.remove();restore();dom.window.close();}
+});
+
+it("selected Processing controls come first while unrelated analysis stays collapsed and reachable", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>",{url:"https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window);let shell;
+  try {
+    shell=WorkbenchView({workspace:{workspaceId:"50000000-0000-4000-8000-000000000001",title:"Focused processing"},
+      project:emptyMapDefinition(),role:"local",publicDemo:true,restoreBrowserDraft:false,initialPanel:"processing"});
+    document.body.append(shell);
+    const selected=shell.querySelector(".gis-processing-selected-tool"), others=shell.querySelector(".gis-processing-other-tools");
+    assert.ok(selected);assert.equal(others.open,false);
+    assert.ok(selected.compareDocumentPosition(others)&dom.window.Node.DOCUMENT_POSITION_FOLLOWING);
+    assert.equal(selected.querySelector('[aria-label="Tool"]').value,"count");
+    assert.ok([...selected.querySelectorAll("button")].some(button=>button.textContent==="Run"));
+    others.open=true;others.dispatchEvent(new dom.window.Event("toggle"));
+    const choice=selected.querySelector('[aria-label="Tool"]');choice.value="bounds";
+    choice.dispatchEvent(new dom.window.Event("change",{bubbles:true}));
+    assert.equal(shell.querySelector('.gis-processing-selected-tool [aria-label="Tool"]').value,"bounds");
+    assert.equal(shell.querySelector(".gis-processing-other-tools").open,true);
+    const menu=shell.querySelector('[data-menu="processing"]');menu.querySelector("button").click();
+    [...shell.querySelectorAll('[role="menuitem"]')].find(button=>button.textContent==="Compare surface and terrain heights…").click();
+    shell.dispatchEvent(new dom.window.Event("workbench:render"));
+    const focused=shell.querySelector(".gis-processing-other-tools");
+    assert.equal(focused.contains(shell.querySelector(".gis-processing-selected-tool")),true);
+    const height=shell.querySelector(".gis-raster-height-difference");
+    assert.ok(height);assert.equal(height.open,true);assert.equal(focused.contains(height),false);
+  } finally {shell?.dispose?.();shell?.remove();restore();dom.window.close();}
+});
+
+it("Layer names keep full selection labels while information and ordering remain in existing overflow", () => {
+  const dom=new JSDOM("<!doctype html><body></body>",{url:"https://studio.opengeo.tools/"});
+  const restore=installDomGlobals(dom.window);let shell;
+  const title="A long regional environmental monitoring Layer name with complete provenance";
+  try {
+    shell=WorkbenchView({workspace:{workspaceId:"50000000-0000-4000-8000-000000000001",title:"Layer names"},
+      project:emptyMapDefinition(),role:"local",publicDemo:true,restoreBrowserDraft:false,
+      layers:[{layerId:"long-name",title,sourceType:"geojson-object",geometryType:"Point",visible:true,style:{},labels:{}}]});
+    document.body.append(shell);
+    const row=shell.querySelector('[data-layer-id="long-name"]'), top=row.querySelector(".gis-layer-row-top"),more=row.querySelector(".gis-layer-more");
+    assert.equal(top.children.length,4);assert.equal(top.querySelector(".gis-layer-name").textContent,title);
+    assert.equal(top.querySelector(".gis-layer-name").getAttribute("aria-label"),`Select layer ${title}`);
+    assert.ok(more.contains(row.querySelector(".gis-layer-order-controls")));
+    more.open=true;row.querySelector(".gis-layer-info-toggle").click();
+    assert.equal(row.querySelector(".gis-layer-info").hidden,false);
+    assert.ok(row.querySelector(`[aria-label="Move ${title} up"]`));
+    assert.ok(more.querySelector('button[title="Open attribute table"]'));
+  } finally {shell?.dispose?.();shell?.remove();restore();dom.window.close();}
+});
+
 it("Workbench save shortcuts use the existing enabled command and respect modal, permission and Print boundaries", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/workspaces"});
   const restore = installDomGlobals(dom.window); const shells = []; let saves = 0;
@@ -43,24 +176,24 @@ it("Workbench save shortcuts use the existing enabled command and respect modal,
       const event = new dom.window.KeyboardEvent("keydown", {key: "s", code: "KeyS", ctrlKey: true, bubbles: true, cancelable: true, ...options});
       target.dispatchEvent(event); return event;
     };
-    let clicks = 0; shell.querySelector(".gis-save-command").addEventListener("click", () => clicks++);
+    let clicks = 0; shell.addEventListener("click", event => {if (event.target.closest(".gis-save-command")) clicks++;});
     assert.equal(send(shell).defaultPrevented, true); assert.equal(saves, 1); assert.equal(clicks, 1);
-    await Promise.resolve();
+    await waitFor(() => shell.dataset.saveState === "saved");
     assert.equal(send(shell, {ctrlKey: false, metaKey: true}).defaultPrevented, true); assert.equal(saves, 2); assert.equal(clicks, 2);
-    await Promise.resolve();
+    await waitFor(() => shell.dataset.saveState === "saved");
     const control = document.createElement("input"); shell.querySelector(".gis-top-actions").append(control); control.focus();
     shell.dispatchEvent(new dom.window.Event("workbench:render"));
     assert.equal(control.isConnected, false);
     assert.equal(document.activeElement, document.body);
     assert.equal(send(document.body).defaultPrevented, true, "Body focus after a full render still belongs to the only visible Workbench");
-    assert.equal(saves, 3); await Promise.resolve();
+    assert.equal(saves, 3); await waitFor(() => shell.dataset.saveState === "saved");
     const outside = document.createElement("input"); document.body.append(outside);
     assert.equal(send(outside).defaultPrevented, false); assert.equal(saves, 3); outside.remove();
     shell.hidden = true; assert.equal(send(document.body).defaultPrevented, false); shell.hidden = false;
     shell.inert = true; shell.setAttribute("inert", ""); assert.equal(send(document.body).defaultPrevented, false); shell.removeAttribute("inert"); shell.inert = false;
     shell.getClientRects = () => []; assert.equal(send(document.body).defaultPrevented, false); shell.getClientRects = () => [{}];
     const other = mount(); assert.equal(send(document.body).defaultPrevented, false, "Two visible Workbenches cannot claim body focus");
-    other.hidden = true; assert.equal(send(document.body).defaultPrevented, true); assert.equal(saves, 4); await Promise.resolve();
+    other.hidden = true; assert.equal(send(document.body).defaultPrevented, true); assert.equal(saves, 4); await waitFor(() => shell.dataset.saveState === "saved");
     other.dispose(); other.remove(); assert.equal(keyListeners.size, 1);
     const completedSaves = saves;
     for (const modifiers of [{shiftKey: true}, {altKey: true}, {ctrlKey: false, metaKey: false}]) {

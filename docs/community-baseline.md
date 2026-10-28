@@ -6,6 +6,14 @@ each result. These bounded tools do not establish a complete environmental or
 social baseline. See [capabilities and maturity](community-capabilities.md) and the
 [development guide](community-development.md) for available workflows and setup.
 
+For a small reproducible start, follow the [synthetic footprint and influence-area
+example](../examples/esia-screening/README.md). Three exact GeoJSON inputs produce
+separate expected counts of two footprint receptors and four influence-area
+receptors. It includes local reproduction, methods/CSV/GeoJSON exports, explicit
+unknown rights and save/reopen and recovery steps. Use the existing general GIS
+Project and Processing controls; this is a screening exercise, not a complete ESIA
+or a collection of real field observations.
+
 ## Choose source evidence
 
 In **Catalog → Register Layer → Published baseline sources**, enter study bounds
@@ -40,6 +48,19 @@ cells, native source meanings and your custom labels. JSON/CSV include the full
 pinned legend and history periods. Areas describe cached cells, which may be
 coarse overviews; they do not establish complete coverage, pristine forest,
 ecological condition or independent accuracy. Review source terms before sharing.
+
+The same selector also offers **Hansen Global Forest Change 2025 v1.13 — annual
+tree-cover loss year** for a checked `lossyear` band. Codes 1–25 describe mapped
+events in 2001–2025; code 0 records no loss code and does not establish intact
+forest or valid land coverage. The separate data mask is not applied. Unknown
+codes, source NoData and your labels remain separate. Selection and calculation
+read only the already loaded window. JSON/CSV retain the declared profile and
+source facts. Sensor and algorithm differences limit annual comparisons, and
+mapped-cell footprints are not definitive forest-loss area estimates. See the
+[pinned usage notes](https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/download.html)
+and [band definitions](https://developers.google.com/earth-engine/datasets/catalog/UMD_hansen_global_forest_change_2025_v1_13).
+This interpretation does not verify a selected raster or demonstrate a complete
+monitoring update.
 
 ## Discover analytical assets through STAC
 

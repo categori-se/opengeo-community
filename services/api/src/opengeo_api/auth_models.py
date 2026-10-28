@@ -12,6 +12,7 @@ class VerifiedAccessToken:
     username: str | None
     scopes: tuple[str, ...]
     groups: tuple[str, ...]
+    audiences: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

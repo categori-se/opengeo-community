@@ -1,0 +1,5 @@
+site,east,north,height_ft,identifier,notes
+"Clinic, 田",85.3,27.7,100,00123,"first line
+second ""quoted"" line"
+"Missing height",85.31,27.71,,9007199254740993,"=not a formula"
+"Missing coordinate",,27.72,120,00003,"retain original"
