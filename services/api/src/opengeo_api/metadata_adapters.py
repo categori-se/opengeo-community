@@ -893,7 +893,7 @@ def _iso_plan(
     abstract = _optional_string(
         _first_text(abstract_scope, "CharacterString"), 8_000, "ISO abstract"
     )
-    language_code = _first_element(root, "LanguageCode")
+    language_code = _first_element(_first_scope(root, "defaultLocale"), "LanguageCode")
     language_value = (
         language_code.attrib.get("codeListValue") or language_code.text
         if language_code is not None
@@ -914,6 +914,7 @@ def _iso_plan(
     attribution = _optional_string(
         _first_text(attribution_scope, "CharacterString"), 2_000, "ISO credit"
     )
+    translations, localized_unmapped = _iso_translations(root, identification, language)
     spatial_extent = _iso_spatial(identification)
     temporal_start, temporal_end = _iso_temporal(identification)
     catalog_extension, catalog_mapped, catalog_unmapped = _iso_catalog_extension(root)
@@ -924,6 +925,8 @@ def _iso_plan(
         "mdb:defaultLocale.LanguageCode->language",
     ]
     mapped.extend(catalog_mapped)
+    if translations:
+        mapped.append("lan:PT_FreeText->translations")
     for source, target, condition in (
         ("mri:abstract", "abstract", abstract is not None),
         ("mri:descriptiveKeywords", "keywords", bool(keywords)),
@@ -959,11 +962,11 @@ def _iso_plan(
             "dataQualityInfo",
             "resourceLineage",
             "acquisitionInformation",
-            "LocalisedCharacterString",
         )
         if name in root_names and name not in mapped_root_sections
     ]
     explicitly_unmapped.extend(catalog_unmapped)
+    explicitly_unmapped.extend(localized_unmapped)
     report = _report(
         "iso_19115_3",
         mapped,
@@ -992,7 +995,7 @@ def _iso_plan(
         license_value=license_value,
         attribution=attribution,
         keywords=keywords,
-        translations={},
+        translations=translations,
         spatial_extent=spatial_extent,
         temporal_start=temporal_start,
         temporal_end=temporal_end,
@@ -1001,6 +1004,104 @@ def _iso_plan(
         metadata_profile=metadata_profile,
         extensions=extensions,
     )
+
+
+def _iso_translations(
+    root: ET.Element, identification: ET.Element | None, language: str
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    lan = "{http://standards.iso.org/iso/19115/-3/lan/1.0}"
+    mdb = "{http://standards.iso.org/iso/19115/-3/mdb/2.0}"
+    mri = "{http://standards.iso.org/iso/19115/-3/mri/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    srv = "{http://standards.iso.org/iso/19115/-3/srv/2.0}"
+    locales: dict[str, str | None] = {}
+    unmapped: list[str] = []
+    for scope_name in ("defaultLocale", "otherLocale"):
+        for scope in root.findall(f"{mdb}{scope_name}/{lan}PT_Locale"):
+            identifier = scope.get("id")
+            if not identifier:
+                continue
+            reference = f"#{identifier}"
+            code = scope.find(f"{lan}language/{lan}LanguageCode")
+            try:
+                value = _language(
+                    code.get("codeListValue") or code.text if code is not None else None
+                ).lower()
+                if "-" in value:
+                    # BCP 47 locale tags require separate country/script mapping.
+                    value = None
+            except MetadataImportInvalid:
+                value = None
+            if reference in locales:
+                locales[reference] = None
+            else:
+                locales[reference] = value
+            if scope.find(f"{lan}country") is not None:
+                # A country is not necessarily a BCP 47 region; never guess a tag.
+                locales[reference] = None
+
+    localized = [
+        node for node in root.iter() if _local_name(node.tag) == "LocalisedCharacterString"
+    ]
+    labels = {node: f"LocalisedCharacterString[{index}]" for index, node in enumerate(localized)}
+    values: dict[str, dict[str, Any]] = {}
+    consumed: set[ET.Element] = set()
+    data_identification = None
+    if identification is not None and identification.tag == f"{mdb}identificationInfo":
+        data_identification = next(
+            (
+                node
+                for node in identification
+                if node.tag in {f"{mri}MD_DataIdentification", f"{srv}SV_ServiceIdentification"}
+            ),
+            None,
+        )
+    if data_identification is not None:
+        scopes = [
+            (data_identification.find(f"{mri}citation/{cit}CI_Citation/{cit}title"), "title", 300),
+            (data_identification.find(f"{mri}abstract"), "abstract", 8_000),
+            (data_identification.find(f"{mri}credit"), "attribution", 2_000),
+            *[
+                (scope, "keywords", 100)
+                for scope in data_identification.findall(
+                    f"{mri}descriptiveKeywords/{mri}MD_Keywords/{mri}keyword"
+                )
+            ],
+        ]
+        for scope, field, maximum in scopes:
+            if scope is None:
+                continue
+            localized_path = f"{lan}PT_FreeText/{lan}textGroup/{lan}LocalisedCharacterString"
+            for node in scope.findall(localized_path):
+                translated_language = locales.get(node.get("locale", ""))
+                if translated_language is None or translated_language == language or len(node):
+                    continue
+                value = _bounded_string(node.text, 1, maximum, f"ISO translated {field}")
+                translation = values.setdefault(translated_language, {})
+                if field == "keywords":
+                    translation.setdefault(field, []).append(value)
+                elif field in translation:
+                    raise MetadataImportInvalid(
+                        f"ISO translated {field} has multiple values for one language"
+                    )
+                else:
+                    translation[field] = value
+                consumed.add(node)
+    translations = {key: value for key, value in values.items() if "title" in value}
+    for node in localized:
+        translated_language = locales.get(node.get("locale", ""))
+        if node not in consumed or translated_language not in translations:
+            unmapped.append(labels[node])
+    if len(translations) > 8:
+        raise MetadataImportInvalid("ISO translations exceed 8 languages")
+    for translation in translations.values():
+        if "keywords" in translation:
+            translation["keywords"] = list(
+                _keywords(translation["keywords"], "ISO translated keywords")
+            )
+    if len(canonical_json_bytes(translations)) > 16_384:
+        raise MetadataImportInvalid("ISO translations exceed 16384 canonical bytes")
+    return translations, unmapped
 
 
 def _plan(

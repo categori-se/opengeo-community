@@ -1229,6 +1229,22 @@ def export_geodcat_ap_3_1(resource: Any) -> dict[str, Any]:
 
 def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     summary = resource.summary
+    native_translations = getattr(resource, "translations", {})
+    translations = {
+        language: value
+        for language, value in native_translations.items()
+        if re.fullmatch(r"[A-Za-z]{2,3}", language)
+    }
+    unmapped_translations = [
+        f"translations.{language}"
+        for language in sorted(native_translations)
+        if language not in translations
+    ]
+    mapped_translations = (
+        [f"translations.{language}" for language in sorted(translations)]
+        if unmapped_translations
+        else (["translations"] if translations else [])
+    )
     if summary.kind not in {"dataset", "service"}:
         return _not_applicable_export(
             "iso_19115_3", "ISO 19115-3:2023", "application/xml", resource
@@ -1282,6 +1298,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         "gco": "http://standards.iso.org/iso/19115/-3/gco/1.0",
         "gml": "http://www.opengis.net/gml/3.2",
         "xlink": "http://www.w3.org/1999/xlink",
+        "xsi": "http://www.w3.org/2001/XMLSchema-instance",
     }
     for prefix, uri in namespaces.items():
         ET.register_namespace(prefix, uri)
@@ -1294,6 +1311,26 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         if text is not None:
             element.text = text
         return element
+
+    def localized_text(
+        parent: ET.Element, prefix: str, name: str, text: str | None, field: str
+    ) -> ET.Element:
+        property_value = child(parent, prefix, name)
+        if text is not None:
+            child(property_value, "gco", "CharacterString", text)
+        localized = [
+            (language, value[field])
+            for language, value in sorted(translations.items())
+            if value.get(field) is not None
+        ]
+        if localized:
+            property_value.set(tag("xsi", "type"), "lan:PT_FreeText_PropertyType")
+            free_text = child(property_value, "lan", "PT_FreeText")
+            for language, value in localized:
+                group = child(free_text, "lan", "textGroup")
+                localized_value = child(group, "lan", "LocalisedCharacterString", value)
+                localized_value.set("locale", f"#locale-{language}")
+        return property_value
 
     root = ET.Element(tag("mdb", "MD_Metadata"))
     metadata_identifier = child(root, "mdb", "metadataIdentifier")
@@ -1354,6 +1391,23 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_DateTypeCode",
     )
     date_code.set("codeListValue", "revision")
+    for translated_language in sorted(translations):
+        other_locale = child(root, "mdb", "otherLocale")
+        locale = child(other_locale, "lan", "PT_Locale")
+        locale.set("id", f"locale-{translated_language}")
+        language = child(locale, "lan", "language")
+        code = child(language, "lan", "LanguageCode", translated_language)
+        code.set(
+            "codeList", "https://schemas.isotc211.org/19115/resources/Codelist/lan/LanguageCode.xml"
+        )
+        code.set("codeListValue", translated_language)
+        encoding = child(locale, "lan", "characterEncoding")
+        code = child(encoding, "lan", "MD_CharacterSetCode", "utf8")
+        code.set(
+            "codeList",
+            "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_CharacterSetCode",
+        )
+        code.set("codeListValue", "utf8")
     reference_systems = cast(list[dict[str, str]], catalog.get("referenceSystems", []))
     for value in reference_systems:
         reference_info = child(root, "mdb", "referenceSystemInfo")
@@ -1381,10 +1435,10 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     )
     citation = child(identification, "mri", "citation")
     citation_value = child(citation, "cit", "CI_Citation")
-    child(child(citation_value, "cit", "title"), "gco", "CharacterString", summary.title)
-    child(child(identification, "mri", "abstract"), "gco", "CharacterString", summary.abstract)
-    if summary.attribution:
-        child(child(identification, "mri", "credit"), "gco", "CharacterString", summary.attribution)
+    localized_text(citation_value, "cit", "title", summary.title, "title")
+    localized_text(identification, "mri", "abstract", summary.abstract, "abstract")
+    if summary.attribution or any(value.get("attribution") for value in translations.values()):
+        localized_text(identification, "mri", "credit", summary.attribution, "attribution")
     if summary.spatial_extent or summary.temporal_start or summary.temporal_end:
         extent = child(identification, "mri", "extent")
         extent_value = child(extent, "gex", "EX_Extent")
@@ -1421,11 +1475,20 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             )
             if summary.temporal_end is None:
                 end.set("indeterminatePosition", "unknown")
-    if summary.keywords:
+    if summary.keywords or any(value.get("keywords") for value in translations.values()):
         descriptive = child(identification, "mri", "descriptiveKeywords")
         keyword_group = child(descriptive, "mri", "MD_Keywords")
         for keyword in summary.keywords:
             child(child(keyword_group, "mri", "keyword"), "gco", "CharacterString", keyword)
+        # Native translations retain vocabulary lists, not term-to-term alignments.
+        for translated_language, value in sorted(translations.items()):
+            for keyword in value.get("keywords", []):
+                property_value = child(keyword_group, "mri", "keyword")
+                property_value.set(tag("xsi", "type"), "lan:PT_FreeText_PropertyType")
+                free_text = child(property_value, "lan", "PT_FreeText")
+                group = child(free_text, "lan", "textGroup")
+                localized_value = child(group, "lan", "LocalisedCharacterString", keyword)
+                localized_value.set("locale", f"#locale-{translated_language}")
     if summary.license:
         constraints = child(identification, "mri", "resourceConstraints")
         legal = child(constraints, "mco", "MD_LegalConstraints")
@@ -1963,6 +2026,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 "spatial_extent",
                 "temporal_extent",
                 "updated_at",
+                *mapped_translations,
                 *iso_catalog_mapped,
             ],
             "defaulted": (
@@ -1979,7 +2043,8 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 "content",
                 "provenance",
                 "relationships",
-                "translations",
+                *([] if native_translations else ["translations"]),
+                *unmapped_translations,
                 *iso_catalog_unmapped,
             ],
             "schemaValidated": False,
