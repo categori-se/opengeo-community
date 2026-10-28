@@ -13,6 +13,7 @@ from opengeo_api.features import (
     _CUT_MULTIPOLYGON_SQL,
     _DISSOLVE_MULTIPOLYGON_SQL,
     _DISSOLVE_TIMEOUT_SQL,
+    _MOVE_SHARED_POLYGON_VERTEX_SQL,
     AttributeQueryStep,
     FeatureAccessDenied,
     FeatureCollection,
@@ -32,6 +33,7 @@ from opengeo_api.features import (
     normalize_properties,
     normalize_query_geometry,
     separate_multipolygon_drafts,
+    shared_polygon_vertex_drafts,
 )
 from opengeo_api.ogc_features import collection_document
 from opengeo_api.tenant_database import TenantContext
@@ -1120,6 +1122,245 @@ def test_cut_drafts_and_blade_are_bounded_before_heads_change():
         normalize_cut_line({"type": "LineString", "coordinates": [[181, 0], [1, 1]]})
 
 
+def shared_vertex_geometries(kind="Polygon"):
+    left = {
+        "type": "Polygon",
+        "coordinates": [
+            [[0, 0], [1, 0], [1, 1], [1, 2], [0, 2], [0, 0]],
+            [[0.2, 0.5], [0.2, 1], [0.4, 1], [0.4, 0.5], [0.2, 0.5]],
+        ],
+    }
+    right = {
+        "type": "Polygon",
+        "coordinates": [
+            [[1, 0], [2, 0], [2, 2], [1, 2], [1, 1], [1, 0]],
+        ],
+    }
+    if kind == "MultiPolygon":
+        left = {
+            "type": kind,
+            "coordinates": [
+                left["coordinates"],
+                [
+                    [[10, 0], [11, 0], [11, 1], [10, 1], [10, 0]],
+                ],
+            ],
+        }
+        right = {
+            "type": kind,
+            "coordinates": [
+                right["coordinates"],
+                [
+                    [[13, 0], [14, 0], [14, 1], [13, 1], [13, 0]],
+                ],
+            ],
+        }
+    return [left, right]
+
+
+def shared_vertex_transaction(
+    *, kind="Polygon", accepted=True, role="editor", foreign=False, geometries=None, committed=False
+):
+    other_id = UUID("90000000-0000-4000-8000-000000000132")
+    geometries = geometries or shared_vertex_geometries(kind)
+    schema = {
+        "schemaVersion": "1.0.0",
+        "fields": [
+            {"name": "name", "type": "string", "required": True},
+        ],
+    }
+    records = []
+    for feature_id, version, geometry, name in zip(
+        [FEATURE_ID, other_id], [2, 3], geometries, ["Left parcel", "Right parcel"], strict=True
+    ):
+        record = replace(
+            PostgresFeatureRepository._feature(
+                feature_row(feature_id, version, geometry, (0, 0, 2, 2), geometry_type=kind)
+            ),
+            properties={"name": name},
+        )
+        records.append(record)
+
+    def row(record):
+        result = list(
+            feature_row(
+                record.feature_id,
+                record.version_number,
+                record.geometry,
+                record.bbox,
+                geometry_type=record.geometry_type,
+            )
+        )
+        result[3] = record.properties
+        return tuple(result)
+
+    rows = [
+        ("member", role, None, False, "active", "geojson"),
+        (DATASET_ID, kind, schema, 7, 2, USER_ID, NOW, USER_ID, NOW),
+        *[row(record) for record in records],
+        (LOCK_TOKEN, OTHER_USER_ID if foreign else USER_ID, 3),
+        None,
+        (accepted,),
+    ]
+    if committed:
+        drafts = shared_polygon_vertex_drafts(
+            records, normalize_fields(schema["fields"]), [1, 1], [1.2, 1]
+        )
+        rows += [
+            row(
+                replace(
+                    records[index],
+                    version_number=records[index].version_number + 1,
+                    geometry=drafts[index].geometry,
+                )
+            )
+            for index in [1, 0]
+        ]
+        rows.append((8, 2, NOW))
+    return QueryTransaction(rows), records, other_id
+
+
+def shared_vertex_move(transaction, other_id, *, version=3, source=None, target=None):
+    return asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(transaction)).move_shared_polygon_vertex(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            ((other_id, version, LOCK_TOKEN), (FEATURE_ID, 2, None)),
+            [1, 1] if source is None else source,
+            [1.2, 1] if target is None else target,
+            None,
+            "shared-vertex-request",
+        )
+    )
+
+
+@pytest.mark.parametrize("kind", ["Polygon", "MultiPolygon"])
+def test_shared_vertex_atomic_heads_sorted_locks_properties_holes_and_generation(kind):
+    transaction, originals, other_id = shared_vertex_transaction(kind=kind, committed=True)
+    result = shared_vertex_move(transaction, other_id)
+    assert [feature.feature_id for feature in result.updated_features] == [other_id, FEATURE_ID]
+    assert [feature.version_number for feature in result.updated_features] == [4, 3]
+    assert [feature.properties for feature in result.updated_features] == [
+        {"name": "Right parcel"},
+        {"name": "Left parcel"},
+    ]
+    assert all(
+        feature.geometry_type == feature.geometry["type"] == kind
+        for feature in result.updated_features
+    )
+    assert (result.collection.generation, result.collection.feature_count) == (8, 2)
+    validation_index = next(
+        i for i, call in enumerate(transaction.calls) if call[1] == _MOVE_SHARED_POLYGON_VERTEX_SQL
+    )
+    previous = transaction.calls[:validation_index]
+    assert sum("FOR UPDATE" in statement for _kind, statement, _parameters in previous) == 3
+    heads = [
+        parameters[2]
+        for _kind, statement, parameters in previous
+        if "FROM app.dataset_features" in statement
+    ]
+    assert heads == sorted([FEATURE_ID, other_id], key=str)
+    assert transaction.calls[validation_index - 1][1] == _DISSOLVE_TIMEOUT_SQL
+    assert sum("UPDATE app.feature_collections" in call[1] for call in transaction.calls) == 1
+    assert (
+        sum("INSERT INTO app.dataset_feature_revisions" in call[1] for call in transaction.calls)
+        == 2
+    )
+    assert not any("deleted_at = clock_timestamp" in call[1] for call in transaction.calls)
+    assert originals[0].geometry == shared_vertex_geometries(kind)[0]
+    left = result.updated_features[1].geometry["coordinates"]
+    old_left = originals[0].geometry["coordinates"]
+    if kind == "MultiPolygon":
+        assert left[1:] == old_left[1:]
+        left, old_left = left[0], old_left[0]
+    assert left[1:] == old_left[1:]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "stale",
+        "foreign",
+        "union",
+        "wrong_geometry",
+        "missing",
+        "ambiguous",
+        "noop",
+        "target_exists",
+        "authority",
+    ],
+)
+def test_shared_vertex_rejects_without_heads_or_history(failure):
+    geometries = shared_vertex_geometries()
+    if failure == "missing":
+        geometries[1]["coordinates"][0][4] = [1, 1.5]
+    elif failure == "ambiguous":
+        geometries[1]["coordinates"][0].insert(2, [1, 1])
+    elif failure == "wrong_geometry":
+        geometries[1] = {"type": "Point", "coordinates": [1, 1]}
+    transaction, _originals, other_id = shared_vertex_transaction(
+        geometries=geometries,
+        accepted=failure != "union",
+        foreign=failure == "foreign",
+        role="viewer" if failure == "authority" else "editor",
+    )
+    with pytest.raises((FeatureInvalid, FeatureConflict, FeatureAccessDenied)):
+        shared_vertex_move(
+            transaction,
+            other_id,
+            version=4 if failure == "stale" else 3,
+            target=[1, 1]
+            if failure == "noop"
+            else ([1, 0] if failure == "target_exists" else None),
+        )
+    assert all(
+        kind != "execute" or statement == _DISSOLVE_TIMEOUT_SQL
+        for kind, statement, _parameters in transaction.calls
+    )
+    if failure != "union":
+        assert not any(call[1] == _MOVE_SHARED_POLYGON_VERTEX_SQL for call in transaction.calls)
+
+
+def test_shared_vertex_closure_and_aggregate_bounds():
+    _transaction, records, _other_id = shared_vertex_transaction()
+    drafts = shared_polygon_vertex_drafts(
+        records,
+        normalize_fields(
+            [
+                {"name": "name", "type": "string", "required": True},
+            ]
+        ),
+        [1, 0],
+        [1.1, 0],
+    )
+    assert (
+        drafts[1].geometry["coordinates"][0][0]
+        == drafts[1].geometry["coordinates"][0][-1]
+        == [1.1, 0]
+    )
+    with pytest.raises(FeatureInvalid, match="unique"):
+        shared_polygon_vertex_drafts([records[0], records[0]], (), [1, 1], [1.2, 1])
+    fields = normalize_fields([{"name": "name", "type": "string", "required": True}])
+    for count, position, message in [
+        (5001, [0.5, 0.5], "10000"),
+        (4000, [0.12345678901234568, 0.4567890123456789], "262144"),
+    ]:
+        crowded = []
+        for record in records:
+            geometry = {
+                "type": "Polygon",
+                "coordinates": [
+                    record.geometry["coordinates"][0][:-1]
+                    + [position] * count
+                    + record.geometry["coordinates"][0][-1:],
+                ],
+            }
+            crowded.append(replace(record, geometry=geometry))
+        with pytest.raises(FeatureInvalid, match=message):
+            shared_polygon_vertex_drafts(crowded, fields, [1, 1], [1.2, 1])
+
+
 def test_selected_dissolve_retains_identity_and_uses_bounded_parameterized_union():
     geometry = {
         "type": "MultiPolygon",
@@ -1426,6 +1667,182 @@ def test_cut_native_postgis_bent_line_holes_ties_and_rejections():
             assert split(geometry, positions) == (None, False)
 
 
+async def native_shared_polygon_vertex(
+    connection, cursor, repository, context, project_id, dataset_id, fields, kind
+):
+    from opengeo_api.tenant_database import _PostgresTenantTransaction
+
+    left_id, right_id = uuid4(), uuid4()
+    left_token, right_token = uuid4(), uuid4()
+    geometries = shared_vertex_geometries(kind)
+    await repository.create_collection(
+        context,
+        project_id,
+        dataset_id,
+        kind,
+        fields,
+        tuple(
+            feature_draft(geometry, {"name": name}, fields, feature_id)
+            for feature_id, name, geometry in zip(
+                [left_id, right_id], ["Left parcel", "Right parcel"], geometries, strict=True
+            )
+        ),
+        "shared-vertex-collection",
+    )
+    for feature_id, token in [(left_id, left_token), (right_id, right_token)]:
+        await repository.acquire_feature_lock(
+            context, project_id, dataset_id, feature_id, 1, token, 120, "shared-vertex-lock"
+        )
+
+    async def snapshot():
+        page = await repository.list_features(
+            context, project_id, dataset_id, bbox=None, limit=20, offset=0
+        )
+        histories = [
+            await repository.list_feature_history(
+                context, project_id, dataset_id, feature_id, 20, 0
+            )
+            for feature_id in (left_id, right_id)
+        ]
+        locks = await repository.list_feature_locks(context, project_id, dataset_id)
+        return page, histories, locks
+
+    before = await snapshot()
+    records = [
+        next(feature for feature in before[0].features if feature.feature_id == feature_id)
+        for feature_id in (left_id, right_id)
+    ]
+    expected = ((right_id, 1, right_token), (left_id, 1, left_token))
+
+    async def move(*, selected=expected, source=None, target=None, implementation=repository):
+        return await implementation.move_shared_polygon_vertex(
+            context,
+            project_id,
+            dataset_id,
+            selected,
+            [1, 1] if source is None else source,
+            [1.2, 1] if target is None else target,
+            "Move shared survey vertex",
+            "native-shared-vertex",
+        )
+
+    # A valid partial boundary move can preserve the union while introducing
+    # overlap, so exercise that check independently of validity/conservation.
+    candidates = shared_polygon_vertex_drafts(records, fields, [1, 1], [1.2, 1])
+    overlap = [
+        {
+            "before": records[index].geometry,
+            "after": candidates[index].geometry if index == 0 else records[index].geometry,
+        }
+        for index in range(2)
+    ]
+    await cursor.execute(
+        "SELECT ST_IsValid(a),ST_IsValid(b),ST_Relate(a,b,'2********'),"
+        "ST_Equals(ST_UnaryUnion(ST_Collect(a,b)),ST_UnaryUnion(ST_Collect(c,d))) "
+        "FROM (SELECT ST_GeomFromGeoJSON(%s::text) a,ST_GeomFromGeoJSON(%s::text) b,"
+        "ST_GeomFromGeoJSON(%s::text) c,ST_GeomFromGeoJSON(%s::text) d) fixture",
+        tuple(
+            Jsonb(geometry)
+            for geometry in [
+                overlap[0]["after"],
+                overlap[1]["after"],
+                records[0].geometry,
+                records[1].geometry,
+            ]
+        ),
+    )
+    assert await cursor.fetchone() == (True, True, True, True)
+    await cursor.execute(_DISSOLVE_TIMEOUT_SQL)
+    await cursor.execute(_MOVE_SHARED_POLYGON_VERTEX_SQL, (Jsonb(overlap),))
+    assert await cursor.fetchone() == (False,)
+    closure = shared_polygon_vertex_drafts(records, fields, [1, 0], [1.1, 0])
+    await cursor.execute(
+        _MOVE_SHARED_POLYGON_VERTEX_SQL,
+        (
+            Jsonb(
+                [
+                    {"before": record.geometry, "after": draft.geometry}
+                    for record, draft in zip(records, closure, strict=True)
+                ]
+            ),
+        ),
+    )
+    assert await cursor.fetchone() == (True,)
+    with pytest.raises(FeatureInvalid, match="identical combined footprint"):
+        await move(source=[1, 0], target=[1, 0.2])
+    with pytest.raises(FeatureConflict, match="feature_version_conflict"):
+        await move(selected=((right_id, 2, right_token), (left_id, 1, left_token)))
+    with pytest.raises(FeatureConflict):
+        await move(selected=((right_id, 1, None), (left_id, 1, left_token)))
+    assert await snapshot() == before
+
+    class FailAfterFirstHead(PostgresFeatureRepository):
+        @staticmethod
+        async def _advance_feature_lock_version(*args, **kwargs):
+            await PostgresFeatureRepository._advance_feature_lock_version(*args, **kwargs)
+            raise RuntimeError("injected failure after first head, revision and reservation")
+
+    failing = FailAfterFirstHead(QueryExecutor(_PostgresTenantTransaction(cursor)))
+    with pytest.raises(RuntimeError, match="injected failure"):
+        async with connection.transaction():
+            await move(implementation=failing)
+    assert await snapshot() == before
+    result = await move()
+    assert (result.collection.generation, result.collection.feature_count) == (2, 2)
+    assert [feature.feature_id for feature in result.updated_features] == [right_id, left_id]
+    assert all(
+        feature.geometry_type == feature.geometry["type"] == kind and feature.version_number == 2
+        for feature in result.updated_features
+    )
+    page, histories, locks = await snapshot()
+    assert {feature.feature_id for feature in page.features} == {left_id, right_id}
+    for index, feature_id in enumerate((left_id, right_id)):
+        current = next(
+            feature for feature in result.updated_features if feature.feature_id == feature_id
+        )
+        assert current.properties == records[index].properties
+        assert [(item.version_number, item.operation) for item in histories[index]] == [
+            (2, "update"),
+            (1, "create"),
+        ]
+        assert histories[index][-1].geometry == records[index].geometry
+        assert histories[index][0].geometry == current.geometry
+        assert all(
+            item.properties == current.properties and item.geometry_type == kind
+            for item in histories[index]
+        )
+        old_parts = records[index].geometry["coordinates"]
+        new_parts = current.geometry["coordinates"]
+        if kind == "MultiPolygon":
+            assert old_parts[1:] == new_parts[1:]
+            old_parts, new_parts = old_parts[0], new_parts[0]
+        assert old_parts[1:] == new_parts[1:]  # every hole unchanged
+    assert {lock.feature_id: lock.feature_version for lock in locks} == {left_id: 2, right_id: 2}
+    assert all(lock.lock_token in (left_token, right_token) for lock in locks)
+    deleted = await repository.list_deleted_features(
+        context, project_id, dataset_id, limit=20, offset=0
+    )
+    assert deleted.tombstones == ()
+    await cursor.execute(
+        "SELECT ST_Equals(ST_UnaryUnion(ST_Collect(geom)),(SELECT ST_UnaryUnion(ST_Collect(geom)) "
+        "FROM (SELECT ST_GeomFromGeoJSON(value::text) geom "
+        "FROM jsonb_array_elements(%s::jsonb)) old)),"
+        "sum(ST_Area(geom)),sum(ST_NumInteriorRings(ST_GeometryN(geom,1))) "
+        "FROM (SELECT ST_GeomFromGeoJSON(value::text) geom "
+        "FROM jsonb_array_elements(%s::jsonb)) current",
+        (
+            Jsonb([record.geometry for record in records]),
+            Jsonb([feature.geometry for feature in result.updated_features]),
+        ),
+    )
+    conserved, area, holes = await cursor.fetchone()
+    assert (
+        conserved is True
+        and area == pytest.approx(5.9 if kind == "MultiPolygon" else 3.9)
+        and holes == 1
+    )
+
+
 async def native_connected_polygon_dissolve(
     connection, cursor, repository, context, project_id, dataset_id, fields
 ):
@@ -1594,8 +2011,13 @@ async def native_connected_polygon_dissolve(
 )
 @pytest.mark.parametrize(
     ("polygon_geometry_type", "polygon_operation"),
-    [("MultiPolygon", "cut"), ("Polygon", "cut"), ("Polygon", "dissolve")],
-    ids=["MultiPolygon", "Polygon", "PolygonDissolve"],
+    [
+        ("MultiPolygon", "cut"),
+        ("Polygon", "cut"),
+        ("Polygon", "dissolve"),
+        ("Polygon", "shared_vertex"),
+    ],
+    ids=["MultiPolygon", "Polygon", "PolygonDissolve", "SharedVertex"],
 )
 def test_native_postgis_typed_text_feature_crud_and_history(
     polygon_geometry_type, polygon_operation
@@ -1677,6 +2099,22 @@ def test_native_postgis_typed_text_feature_crud_and_history(
                 )
                 context = TenantContext(user_id=user_id, organization_id=organization_id)
                 fields = normalize_fields([{"name": "name", "type": "string", "required": True}])
+                if polygon_operation == "shared_vertex":
+                    for shared_dataset, shared_kind in [
+                        (polygon_dataset_id, "Polygon"),
+                        (dataset_id, "MultiPolygon"),
+                    ]:
+                        await native_shared_polygon_vertex(
+                            connection,
+                            cursor,
+                            repository,
+                            context,
+                            project_id,
+                            shared_dataset,
+                            fields,
+                            shared_kind,
+                        )
+                    return
                 if polygon_operation == "dissolve":
                     await native_connected_polygon_dissolve(
                         connection,

@@ -3,7 +3,7 @@ import {FeatureAttachmentPicker} from "./FeatureAttachmentPicker.js";
 import {validateCalculation, evaluateCalculation} from "../lib/fieldCalculations.js";
 import {featureFieldVisible} from "../lib/featureFieldVisibility.js";
 import {ArchiveFolderUpload} from "./ArchiveFolderUpload.js";
-import {FeatureCanvas, canvasEditingSupported} from "./FeatureCanvas.js";
+import {FeatureCanvas, canvasEditingSupported, previewSharedPolygonVertexMove} from "./FeatureCanvas.js";
 import {MapView} from "./MapView.js";
 import {DatasetInspectionPanels} from "./DatasetInspectionPanels.js";
 import {DatasetAccess} from "./DatasetAccess.js";
@@ -2898,6 +2898,72 @@ export function featureEditor(
           cutPending = false;
           if (details.isConnected && details.contains(content)) {
             for (const [control, disabled] of controls) control.disabled = disabled;
+          }
+        }
+      }
+    } : {}),
+    ...(typeof state.adapter.moveSharedPolygonVertex === "function" ? {
+      onSharedVertexMove: async ({feature, features, fromPosition, toPosition, isCurrent = () => true}) => {
+        const current = () => isCurrent() && details.isConnected && details.contains(content)
+          && selected?.id === feature.id && selected?.version === feature.version;
+        if (cutPending || !current()) throw new Error("The selected feature changed. Reload before moving a shared vertex.");
+        if (formDirty || selectedPropertySnapshot === null || propertySnapshot() !== selectedPropertySnapshot
+          || JSON.stringify(parseJsonObject(geometry.value, "feature_geometry_invalid")) !== JSON.stringify(feature.geometry)) {
+          throw new Error("Save or cancel the feature changes before moving a shared vertex.");
+        }
+        const saved = new Map(page.features.map(item => [item.id, item]));
+        if (!Array.isArray(features) || !features.some(item => item.id === feature.id)
+          || features.some(item => {
+            const original = saved.get(item.id);
+            return !original || original.version !== item.version
+              || JSON.stringify(original.geometry) !== JSON.stringify(item.geometry)
+              || JSON.stringify(original.properties) !== JSON.stringify(item.properties);
+          })) throw new Error("The shared vertex participants changed. Reload their saved versions.");
+        const previews = previewSharedPolygonVertexMove(features, fromPosition, toPosition);
+        if (previews.length !== features.length) throw new Error("Every shared vertex participant must contain the source vertex.");
+        const expected = new Map(previews.map(item => [item.id, item]));
+        const participants = features.map(item => {
+          const lock = locksByFeature.get(item.id);
+          if (lock && !lock.heldByCurrentUser) throw new Error("Another editor holds a shared vertex participant's reservation.");
+          return {featureId: item.id, expectedVersion: item.version,
+            ...(lock?.heldByCurrentUser ? {lockToken: lock.lockToken} : {})};
+        });
+        cutPending = true;
+        const controls = [...form.querySelectorAll("input, textarea, select, button")].map(control => [control, control.disabled]);
+        const inertElements = [canvas, list, polygonStructure?.element].filter(Boolean).map(element => [element, element.inert]);
+        for (const [control] of controls) control.disabled = true;
+        for (const [element] of inertElements) element.inert = true;
+        feedback.className = "project-catalog-feedback";
+        feedback.textContent = `Moving a shared vertex across ${participants.length} saved features in one transaction…`;
+        try {
+          const result = await state.adapter.moveSharedPolygonVertex(state.project.id, dataset.id, {
+            features: participants, fromPosition: [...fromPosition], toPosition: [...toPosition],
+            changeMessage: message.value.trim() || "Moved a shared polygon vertex in Studio"
+          });
+          if (!current()) return result;
+          if (result?.operation !== "move_shared_vertex" || !Array.isArray(result.updatedFeatures)
+            || result.updatedFeatures.length !== expected.size
+            || new Set(result.updatedFeatures.map(item => item.id)).size !== expected.size
+            || result.updatedFeatures.some(item => {
+              const original = saved.get(item.id), preview = expected.get(item.id);
+              return !original || !preview || item.version !== original.version + 1
+                || item.geometry.type !== original.geometry.type
+                || JSON.stringify(item.geometry) !== JSON.stringify(preview.geometry)
+                || JSON.stringify(item.properties) !== JSON.stringify(original.properties);
+            })) throw new Error("The shared move response changed participant identities, versions, geometry or attributes. Reload current data.");
+          await loadFeatureEditing(state, dataset, details);
+          return result;
+        } catch (error) {
+          if (current()) {
+            feedback.className = "project-catalog-error";
+            feedback.textContent = featureMutationError(error, "Shared vertex was not moved");
+          }
+          throw error;
+        } finally {
+          cutPending = false;
+          if (details.isConnected && details.contains(content)) {
+            for (const [control, disabled] of controls) control.disabled = disabled;
+            for (const [element, inert] of inertElements) element.inert = inert;
           }
         }
       }

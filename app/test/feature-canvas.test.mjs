@@ -25,6 +25,7 @@ import {
   mergeTouchingLineParts,
   multiPolygonPartAtPosition,
   previewVertexDrag,
+  previewSharedPolygonVertexMove,
   redoDraftHistory,
   removeGeometryPart,
   removePolygonRing,
@@ -32,6 +33,7 @@ import {
   replaceGeometryVertex,
   reorderGeometryPart,
   snapToGeometry,
+  sharedPolygonVertexParticipants,
   snapToNearestVertex,
   splitMultiLinePart,
   undoDraftHistory,
@@ -1025,6 +1027,7 @@ function withCanvas(geometryType, run, options = {}) {
     root = FeatureCanvas({collection: {geometryType}, features: options.features ?? [], initialGeometry: null,
       onGeometryChange: geometry => changes.push(geometry), onSelectFeature: options.onSelectFeature ?? (() => {}),
       onCutLine: options.onCutLine,
+      onSharedVertexMove: options.onSharedVertexMove,
       mapEngine: {Map: CanvasMap, NavigationControl: class {}}});
     dom.window.document.body.append(root);map.handlers.get("load")();
     const button = label => {const control = [...root.querySelectorAll("button")].find(button => button.textContent === label);assert(control, label);return control;};
@@ -1038,3 +1041,132 @@ function withCanvas(geometryType, run, options = {}) {
     if (!deferredCleanup) cleanup();
   }
 }
+
+function sharedVertexPair() {
+  return [
+    {id: "90000000-0000-4000-8000-000000000251", version: 2, bbox: [0, 0, 1, 1], properties: {name: "West", nested: {kept: true}},
+      geometry: {type: "Polygon", coordinates: [
+        [[0, 0], [1, 0], [1, 0.5], [1, 1], [0, 1], [0, 0]],
+        [[0.2, 0.2], [0.2, 0.4], [0.4, 0.4], [0.4, 0.2], [0.2, 0.2]]]}},
+    {id: "90000000-0000-4000-8000-000000000252", version: 1, bbox: [1, 0, 2, 1], properties: {name: "East"},
+      geometry: {type: "Polygon", coordinates: [
+        [[1, 0], [2, 0], [2, 1], [1, 1], [1, 0.5], [1, 0]]]}}
+  ];
+}
+
+function stageSharedVertex({root, map, button}, features) {
+  root.selectFeature(features[0]);
+  button("Move shared vertex").click();
+  map.renderedFeatures = [{properties: {partIndex: 0, ringIndex: 0, vertexIndex: 2}}];
+  map.click([1.01, 0.51]);
+  map.renderedFeatures = [];
+  map.click([1.2, 0.5]);
+}
+
+describe("shared vertex polygon move", () => {
+  it("previews only exact saved participants while preserving types, holes, properties and source input", () => {
+    const pair = sharedVertexPair();
+    pair[1].geometry = {type: "MultiPolygon", coordinates: [pair[1].geometry.coordinates,
+      [[[4, 0], [5, 0], [5, 1], [4, 1], [4, 0]]]]};
+    const before = structuredClone(pair);
+    const unrelated = {id: "other", version: 1, geometry: {type: "Point", coordinates: [1, 0.5]}};
+    assert.deepEqual(sharedPolygonVertexParticipants([...pair, unrelated], [1, 0.5]).map(item => item.handle.vertexIndex), [2, 4]);
+    const preview = previewSharedPolygonVertexMove(pair, [1, 0.5], [1.2, 0.5]);
+    assert.deepEqual(pair, before);
+    assert.deepEqual(preview.map(item => [item.id, item.version, item.properties, item.geometry.type]),
+      before.map(item => [item.id, item.version, item.properties, item.geometry.type]));
+    assert.deepEqual(preview[0].geometry.coordinates[1], before[0].geometry.coordinates[1]);
+    assert.deepEqual(preview[1].geometry.coordinates[1], before[1].geometry.coordinates[1]);
+    assert.deepEqual(preview[0].geometry.coordinates[0][2], [1.2, 0.5]);
+    assert.deepEqual(preview[1].geometry.coordinates[0][0][4], [1.2, 0.5]);
+  });
+
+  it("counts a closed ring endpoint once and moves both endpoint positions", () => {
+    const pair = sharedVertexPair();
+    const result = previewSharedPolygonVertexMove(pair, [1, 0], [1, -0.1]);
+    assert.deepEqual(result[1].geometry.coordinates[0][0], [1, -0.1]);
+    assert.deepEqual(result[1].geometry.coordinates[0].at(-1), [1, -0.1]);
+  });
+
+  it("rejects ambiguous, unsaved, excessive, collapsed and malformed shared moves", () => {
+    const pair = sharedVertexPair();
+    const ambiguous = structuredClone(pair);
+    ambiguous[0].geometry = {type: "MultiPolygon", coordinates: [pair[0].geometry.coordinates, pair[0].geometry.coordinates]};
+    assert.throws(() => sharedPolygonVertexParticipants(ambiguous, [1, 0.5]), /ambiguous/);
+    assert.throws(() => sharedPolygonVertexParticipants(pair.slice(0, 1), [1, 0.5]), /2–20/);
+    assert.throws(() => sharedPolygonVertexParticipants(Array.from({length: 21}, (_, index) =>
+      ({...pair[0], id: String(index)})), [1, 0.5]), /2–20/);
+    assert.throws(() => sharedPolygonVertexParticipants([{...pair[0], version: 0}, pair[1]], [1, 0.5]), /saved/);
+    assert.throws(() => sharedPolygonVertexParticipants([pair[0], pair[0]], [1, 0.5]), /distinct/);
+    const oversized = structuredClone(pair);
+    oversized[0].geometry.coordinates[0].push(...Array.from({length: 10000}, () => [0, 0]));
+    assert.throws(() => sharedPolygonVertexParticipants(oversized, [1, 0.5]), /aggregate|10000 vertices/);
+    for (const target of [[1, 0.5], [1, 1], [1, 0.5, 3], [181, 0], [NaN, 0]]) {
+      assert.throws(() => previewSharedPolygonVertexMove(pair, [1, 0.5], target));
+    }
+    assert.throws(() => previewSharedPolygonVertexMove(pair, [1, 0.5], [3, 0.5]), /intersect|invalid|overlap|area/i);
+  });
+
+  it("stages all participant geometries without a form write and cancel restores them exactly", () => {
+    const pair = sharedVertexPair();
+    let calls = 0;
+    withCanvas("Polygon", view => {
+      stageSharedVertex(view, pair);
+      assert.equal(calls, 0);
+      assert.equal(view.changes.length, 0);
+      assert.match(view.root.textContent, /Shared move preview: 2 features/);
+      const source = () => view.map.sources.get("opengeo-authoritative-features").data.features;
+      assert.deepEqual(source()[0].geometry.coordinates[0][2], [1.2, 0.5]);
+      assert.deepEqual(source()[1].geometry.coordinates[0][4], [1.2, 0.5]);
+      view.button("Cancel canvas edit").click();
+      assert.deepEqual(source().map(item => item.geometry), pair.map(item => item.geometry));
+      assert.match(view.root.textContent, /Shared move discarded/);
+      assert.equal(view.button("Move shared vertex").disabled, false);
+      assert.equal(view.changes.length, 0);
+    }, {features: pair, onSharedVertexMove() {calls++;}});
+  });
+
+  it("applies once with original versions and disables pending canvas writes", async () => {
+    const pair = sharedVertexPair(), calls = [];
+    let finish;
+    await withCanvas("Polygon", async view => {
+      stageSharedVertex(view, pair);
+      view.button("Apply shared move").click();
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0].features, pair);
+      assert.deepEqual(calls[0].fromPosition, [1, 0.5], "source comes from the exact handle, not click coordinates");
+      assert.deepEqual(calls[0].toPosition, [1.2, 0.5]);
+      assert.equal(calls[0].isCurrent(), true);
+      assert.equal(view.button("Apply shared move").disabled, true);
+      assert.equal(view.button("Cancel canvas edit").disabled, true);
+      view.map.click([1.3, 0.5]);view.button("Apply shared move").click();
+      assert.equal(calls.length, 1);
+      finish();await Promise.resolve();await Promise.resolve();
+      assert.match(view.root.textContent, /Shared move saved/);
+      assert.equal(view.changes.length, 0);
+    }, {features: pair, onSharedVertexMove: payload => {calls.push(payload);return new Promise(resolve => {finish = resolve;});}});
+  });
+
+  it("retains rejected preview and ignores completion after selection changes or disposal", async () => {
+    const pair = sharedVertexPair();
+    await withCanvas("Polygon", async view => {
+      stageSharedVertex(view, pair);view.button("Apply shared move").click();
+      await Promise.resolve();await Promise.resolve();
+      assert.match(view.root.textContent, /not applied: feature_version_conflict/);
+      assert.equal(view.button("Apply shared move").disabled, false);
+      view.button("Cancel canvas edit").click();
+      assert.deepEqual(view.map.sources.get("opengeo-authoritative-features").data.features.map(item => item.geometry), pair.map(item => item.geometry));
+    }, {features: pair, onSharedVertexMove: async () => {throw new Error("feature_version_conflict");}});
+    for (const dispose of [false, true]) {
+      let finish, pending;
+      await withCanvas("Polygon", async view => {
+        stageSharedVertex(view, pair);view.button("Apply shared move").click();
+        if (dispose) view.root.__destroy();else view.root.selectFeature(pair[1]);
+        const before = view.root.textContent;
+        assert.equal(pending.isCurrent(), false);
+        finish();await Promise.resolve();await Promise.resolve();
+        assert.equal(view.root.textContent, before);
+      }, {features: pair, onSharedVertexMove: payload => {pending = payload;return new Promise(resolve => {finish = resolve;});}});
+    }
+  });
+});

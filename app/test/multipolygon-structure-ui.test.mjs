@@ -401,8 +401,8 @@ describe("Polygon dissolve editor integration", () => {
 function cutEditorFixture({current = feature("90000000-0000-4000-8000-000000000251", 2, 1),
   fields = [{name: "name", type: "string", required: true}], revisions = [], cutResult = null,
   truePolygon = false, features = null, featureLocks = [], reloadError = null,
-  mergeResult = null} = {}) {
-  const calls = {cuts: [], merges: [], reads: 0, canvases: 0, disposals: 0};
+  mergeResult = null, sharedResult = null} = {}) {
+  const calls = {cuts: [], merges: [], sharedMoves: [], reads: 0, canvases: 0, disposals: 0};
   const records = (features ?? [current]).map(record => truePolygon && record.geometry.type === "MultiPolygon"
     ? {...record, geometry: {type: "Polygon", coordinates: record.geometry.coordinates[0]}}
     : record);
@@ -419,6 +419,11 @@ function cutEditorFixture({current = feature("90000000-0000-4000-8000-0000000002
       calls.merges.push({projectId, datasetId, request});
       if (mergeResult) return mergeResult();
       throw new Error("Unexpected polygon merge write");
+    },
+    async moveSharedPolygonVertex(projectId, datasetId, request) {
+      calls.sharedMoves.push({projectId, datasetId, request});
+      if (sharedResult) return sharedResult();
+      throw new Error("Unexpected shared vertex write");
     },
     async listFeatures() {
       const result = await read(page);
@@ -456,7 +461,9 @@ function cutEditorFixture({current = feature("90000000-0000-4000-8000-0000000002
       return control;
     },
     applyCut: () => callbacks.onCutLine({feature: structuredClone(selected), partIndex: 0,
-      cutLine: {type: "LineString", coordinates: [[0.5, -1], [0.5, 2]]}})
+      cutLine: {type: "LineString", coordinates: [[0.5, -1], [0.5, 2]]}}),
+    applyShared: (options = {}) => callbacks.onSharedVertexMove({feature: structuredClone(selected),
+      features: structuredClone(records), fromPosition: [1, 0.5], toPosition: [1.2, 0.5], ...options})
   };
 }
 
@@ -495,3 +502,102 @@ function feature(id, version, partCount) {
     properties: {name: `Area ${id.slice(-1)}`}
   };
 }
+
+function sharedEditorFeatures() {
+  const pair = connectedPolygonFeatures();
+  pair[0].geometry.coordinates[0].splice(2, 0, [1, 0.5]);
+  pair[1].geometry.coordinates[0].splice(4, 0, [1, 0.5]);
+  return pair;
+}
+
+function sharedEditorResponse(features) {
+  const updatedFeatures = structuredClone(features);
+  updatedFeatures[0].geometry.coordinates[0][2] = [1.2, 0.5];
+  updatedFeatures[1].geometry.coordinates[0][4] = [1.2, 0.5];
+  for (const item of updatedFeatures) item.version++;
+  return {operation: "move_shared_vertex", updatedFeatures, tombstonedFeatureIds: [],
+    projectId: "project-1", datasetId: "dataset-1", collectionGeneration: 2, featureCount: 2};
+}
+
+describe("shared vertex editor transaction", () => {
+  it("dispatches only saved identities, versions and owned tokens, then reloads exactly once", async () => {
+    const features = sharedEditorFeatures();
+    const lockToken = "a0000000-0000-4000-8000-000000000001";
+    const view = cutEditorFixture({truePolygon: true, features,
+      featureLocks: [{featureId: features[0].id, heldByCurrentUser: true, lockToken, expiresAt: "2099-01-01T12:00:00Z"}],
+      sharedResult: () => sharedEditorResponse(features), reloadError: Object.assign(new Error("test_stop"), {code: "test_stop"})});
+    view.button("Edit").click();
+    await view.applyShared();
+    assert.deepEqual(view.calls.sharedMoves, [{projectId: "project-1", datasetId: "dataset-1", request: {
+      features: [{featureId: features[0].id, expectedVersion: 2, lockToken},
+        {featureId: features[1].id, expectedVersion: 1}],
+      fromPosition: [1, 0.5], toPosition: [1.2, 0.5],
+      changeMessage: "Moved a shared polygon vertex in Studio"
+    }}]);
+    assert.equal(view.calls.reads, 3);
+    assert.equal(view.calls.disposals, 1);
+    assert.match(view.details.textContent, /test_stop/);
+  });
+
+  it("refuses unsaved geometry and property changes, foreign reservations, and missing participants before dispatch", async () => {
+    for (const mode of ["geometry", "property", "foreign", "missing"]) {
+      const features = sharedEditorFeatures();
+      const view = cutEditorFixture({truePolygon: true, features,
+        featureLocks: mode === "foreign" ? [{featureId: features[1].id, heldByCurrentUser: false, expiresAt: "2099-01-01T12:00:00Z"}] : []});
+      view.button("Edit").click();
+      if (mode === "geometry") {
+        const textarea = view.content.querySelector('[aria-label="GeoJSON geometry"]');
+        textarea.value = JSON.stringify({...features[0].geometry, coordinates: features[1].geometry.coordinates});
+      }
+      if (mode === "property") {
+        const control = view.content.querySelector('[aria-label="Feature property name"]');
+        assert.ok(control);control.value = "Unsaved changed name";
+      }
+      const request = mode === "missing" ? {features: [features[0], {...features[1], geometry: {
+        type: "Polygon", coordinates: [[[3, 0], [4, 0], [4, 1], [3, 1], [3, 0]]]
+      }}]} : {};
+      await assert.rejects(view.applyShared(request), /Save or cancel|reservation|participants changed/);
+      assert.equal(view.calls.sharedMoves.length, 0, mode);
+      assert.equal(view.calls.reads, 0, mode);
+    }
+  });
+
+  it("blocks repeated pending writes and performs no refresh or late feedback write after detachment", async () => {
+    const features = sharedEditorFeatures();
+    let finish;
+    const view = cutEditorFixture({truePolygon: true, features,
+      sharedResult: () => new Promise(resolve => {finish = resolve;})});
+    view.button("Edit").click();
+    const pending = view.applyShared();
+    assert.equal(view.calls.sharedMoves.length, 1);
+    assert.equal(view.content.querySelector('[aria-label="GeoJSON geometry"]').disabled, true);
+    assert.equal(view.content.querySelector(".project-feature-canvas").inert, true);
+    await assert.rejects(view.applyShared(), /selected feature changed/);
+    view.details.remove();
+    const before = view.content.textContent;
+    finish(sharedEditorResponse(features));await pending;
+    assert.equal(view.calls.reads, 0);
+    assert.equal(view.content.textContent, before);
+    assert.equal(view.calls.canvases, 1);
+    await assert.rejects(view.applyShared(), /selected feature changed/);
+    assert.equal(view.calls.sharedMoves.length, 1);
+  });
+
+  it("rejects stale selection and mismatched mutation receipts without refresh", async () => {
+    for (const mode of ["stale", "identity", "version", "type", "geometry", "properties"]) {
+      const features = sharedEditorFeatures(), result = sharedEditorResponse(features);
+      if (mode === "identity") result.updatedFeatures[1].id = features[0].id;
+      if (mode === "version") result.updatedFeatures[1].version = 1;
+      if (mode === "type") result.updatedFeatures[1].geometry = {type: "MultiPolygon", coordinates: [result.updatedFeatures[1].geometry.coordinates]};
+      if (mode === "geometry") result.updatedFeatures[1].geometry.coordinates[0][4] = [1.3, 0.5];
+      if (mode === "properties") result.updatedFeatures[1].properties.name = "Changed";
+      const view = cutEditorFixture({truePolygon: true, features, sharedResult: () => result});
+      view.button("Edit").click();
+      await assert.rejects(view.applyShared(mode === "stale" ? {isCurrent: () => false} : {}),
+        /selected feature changed|response changed/);
+      assert.equal(view.calls.sharedMoves.length, mode === "stale" ? 0 : 1, mode);
+      assert.equal(view.calls.reads, 0, mode);
+      assert.equal(view.content.querySelector('[aria-label="GeoJSON geometry"]').disabled, false);
+    }
+  });
+});

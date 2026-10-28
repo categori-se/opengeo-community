@@ -148,6 +148,46 @@ export function replaceGeometryVertex(geometry, vertexIndex, position, ringIndex
   return next;
 }
 
+export function sharedPolygonVertexParticipants(features, fromPosition) {
+  const from = validPosition(fromPosition);
+  if (!Array.isArray(features)) throw new TypeError("visible saved features are required");
+  const participants = [];
+  let positions = 0, bytes = 0;
+  for (const feature of features) {
+    if (!["Polygon", "MultiPolygon"].includes(feature.geometry?.type)) continue;
+    const matches = geometryVertexHandles(feature.geometry).filter(handle => samePosition(handle.coordinates, from));
+    if (!matches.length) continue;
+    if (matches.length !== 1) throw new TypeError("shared vertex is ambiguous within a feature's rings or parts");
+    if (!feature.id || !Number.isSafeInteger(feature.version) || feature.version < 1
+      || participants.some(item => item.feature.id === feature.id)) {
+      throw new TypeError("shared move requires distinct saved feature identities and versions");
+    }
+    const parts = feature.geometry.type === "Polygon" ? [feature.geometry.coordinates] : feature.geometry.coordinates;
+    positions += parts.reduce((sum, rings) => sum + rings.reduce((total, ring) => total + ring.length, 0), 0);
+    bytes += new TextEncoder().encode(JSON.stringify(feature.geometry)).length;
+    if (positions > MAX_GEOMETRY_POSITIONS || bytes > 262144) throw new RangeError("shared move exceeds the aggregate geometry limits");
+    participants.push({feature: structuredClone(feature), handle: matches[0]});
+  }
+  if (participants.length < 2 || participants.length > 20) throw new RangeError("choose a vertex shared by 2–20 visible saved polygon features");
+  return participants;
+}
+
+export function previewSharedPolygonVertexMove(features, fromPosition, toPosition) {
+  const to = validPosition(toPosition);
+  if (samePosition(validPosition(fromPosition), to)) throw new TypeError("shared vertex destination must differ from its source");
+  const participants = sharedPolygonVertexParticipants(features, fromPosition);
+  const preview = participants.map(({feature, handle}) => {
+    if (geometryVertexHandles(feature.geometry).some(vertex => samePosition(vertex.coordinates, to))) {
+      throw new TypeError("shared vertex destination already belongs to a polygon vertex");
+    }
+    return {...feature, geometry: replaceGeometryVertex(feature.geometry, handle.vertexIndex, to, handle.ringIndex, handle.partIndex)};
+  });
+  if (preview.reduce((sum, feature) => sum + new TextEncoder().encode(JSON.stringify(feature.geometry)).length, 0) > 262144) {
+    throw new RangeError("shared move exceeds the aggregate geometry byte limit");
+  }
+  return preview;
+}
+
 export function addPolygonHole(geometry, positions, partIndex = 0) {
   if (!Number.isInteger(partIndex) || partIndex < 0) {
     throw new RangeError("part index is outside the geometry");
@@ -827,7 +867,7 @@ export function commitVertexDragHistory(history, session, featureId) {
   });
 }
 
-export function FeatureCanvas({collection, features, initialGeometry, onGeometryChange, onSelectFeature, onCutLine, mapEngine = maplibregl}) {
+export function FeatureCanvas({collection, features, initialGeometry, onGeometryChange, onSelectFeature, onCutLine, onSharedVertexMove, mapEngine = maplibregl}) {
   const root = document.createElement("section");
   root.className = "project-feature-canvas";
   root.append(
@@ -869,6 +909,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   const cutPolygon = ["Polygon", "MultiPolygon"].includes(collection.geometryType)
     ? button("Cut polygon")
     : null;
+  const sharedVertex = cutPolygon ? button("Move shared vertex") : null;
   if (cutPolygon) {
     cutPolygon.disabled = true;
     cutPolygon.title = typeof onCutLine === "function"
@@ -915,6 +956,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   if (removeVertex) structureToolbar.append(removeVertex);
   if (splitPart) structureToolbar.append(splitPart, mergePart);
   if (cutPolygon) structureToolbar.append(cutPolygon);
+  if (sharedVertex) structureToolbar.append(sharedVertex);
   if (addPart) structureToolbar.append(addPart);
   if (addHole) structureToolbar.append(addHole, removeHole);
   if (targetPart) structureToolbar.append(targetPart, partEarlier, partLater, removePart);
@@ -933,6 +975,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   root.append(toolbar, mapContainer, status);
 
   const displayFeatures = new Map(features.map((feature) => [feature.id, structuredClone(feature)]));
+  const savedFeatures = new Map(features.map((feature) => [feature.id, structuredClone(feature)]));
   const state = {
     geometryType: collection.geometryType,
     mode: "inspect",
@@ -947,6 +990,9 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     cutContext: null,
     cutBusy: false,
     cutSaved: false,
+    sharedContext: null,
+    sharedBusy: false,
+    sharedSaved: false,
     dragSession: null,
     dragStartPixel: null,
     dragActivated: false,
@@ -1076,6 +1122,29 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     status.textContent = cutInstruction();
     syncMap(map, displayFeatures, state);
   });
+  sharedVertex?.addEventListener("click", () => {
+    if (state.sharedBusy || state.cutBusy || ["draw", "hole", "part", "cut"].includes(state.mode)
+      || typeof onSharedVertexMove !== "function") return;
+    cancelActiveVertexDrag({announce: false});
+    const saved = savedFeatures.get(state.selectedFeature?.id);
+    if (!saved || !["Polygon", "MultiPolygon"].includes(saved.geometry.type)
+      || saved.version !== state.selectedFeature.version) {
+      status.textContent = "Select a saved polygon feature before moving a shared vertex.";
+      return;
+    }
+    if (JSON.stringify(state.selectedGeometry) !== JSON.stringify(saved.geometry)) {
+      status.textContent = "Save or cancel the geometry draft before moving a shared vertex.";
+      return;
+    }
+    state.sharedContext = {feature: structuredClone(saved), geometry: structuredClone(state.selectedGeometry),
+      history: state.history, selectedVertex: state.selectedVertex, originals: [], participants: [],
+      fromPosition: null, toPosition: null, preview: null};
+    state.mode = "shared";
+    state.selectedVertex = null;
+    status.textContent = "Click a highlighted vertex shared by visible polygons, then click its destination. Apply shared move saves the participants together.";
+    updateHistoryControls();
+    syncMap(map, displayFeatures, state);
+  });
   addPart?.addEventListener("click", () => {
     cancelActiveVertexDrag({announce: false});
     const geometry = state.selectedGeometry ?? state.draftGeometry;
@@ -1200,7 +1269,12 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   undo.addEventListener("click", () => moveThroughHistory("undo"));
   redo.addEventListener("click", () => moveThroughHistory("redo"));
   root.addEventListener("keydown", (event) => {
-    if (state.cutBusy) return;
+    if (state.cutBusy || state.sharedBusy) return;
+    if (event.key === "Escape" && state.mode === "shared") {
+      event.preventDefault();
+      cancelSharedMove();
+      return;
+    }
     if (event.key === "Escape" && state.mode === "cut") {
       event.preventDefault();
       cancelCut();
@@ -1223,8 +1297,9 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   });
   finish.addEventListener("click", () => finishDraw());
   cancel.addEventListener("click", () => {
-    if (state.cutBusy) return;
-    if (state.mode === "cut") cancelCut();
+    if (state.cutBusy || state.sharedBusy) return;
+    if (state.mode === "shared") cancelSharedMove();
+    else if (state.mode === "cut") cancelCut();
     else resetCanvas(initialGeometry);
   });
 
@@ -1242,9 +1317,42 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   return root;
 
   function handleMapClick(event) {
-    if (disposed || state.cutBusy) return;
+    if (disposed || state.cutBusy || state.sharedBusy) return;
     if (Date.now() <= state.suppressClickUntil) return;
     const rawPosition = roundedPosition([event.lngLat.lng, event.lngLat.lat]);
+    if (state.mode === "shared") {
+      const context = state.sharedContext;
+      if (!context) return;
+      try {
+        if (!context.fromPosition) {
+          const hit = map.queryRenderedFeatures(event.point, {layers: [VERTEX_HIT_LAYER]})[0];
+          const handle = geometryVertexHandles(context.geometry).find(vertex => vertex.vertexIndex === Number(hit?.properties?.vertexIndex)
+            && vertex.ringIndex === Number(hit?.properties?.ringIndex ?? 0)
+            && vertex.partIndex === Number(hit?.properties?.partIndex ?? 0));
+          if (!handle) throw new TypeError("click an existing highlighted vertex handle");
+          const participants = sharedPolygonVertexParticipants([...savedFeatures.values()], handle.coordinates);
+          if (!participants.some(item => item.feature.id === context.feature.id)) throw new TypeError("selected feature must participate");
+          context.fromPosition = [...handle.coordinates];
+          context.participants = participants.map(item => item.feature);
+          context.originals = context.participants.map(feature => structuredClone(displayFeatures.get(feature.id)));
+          state.selectedVertex = handle;
+          status.textContent = `${participants.length} visible polygon features share this vertex. Click its destination, then choose Apply shared move.`;
+        } else {
+          const target = snappedPosition(rawPosition).position;
+          const preview = previewSharedPolygonVertexMove(context.participants, context.fromPosition, target);
+          context.toPosition = target;
+          context.preview = preview;
+          for (const feature of preview) displayFeatures.set(feature.id, feature);
+          state.selectedGeometry = structuredClone(preview.find(feature => feature.id === context.feature.id).geometry);
+          status.textContent = `Shared move preview: ${preview.length} features. Apply shared move saves together and validates the combined footprint; Cancel restores the saved geometries.`;
+        }
+      } catch (error) {
+        status.textContent = `Shared move unavailable: ${error.message}`;
+      }
+      updateHistoryControls();
+      syncMap(map, displayFeatures, state);
+      return;
+    }
     if (state.mode === "cut") {
       if (state.clicks.length >= MAX_CUT_LINE_VERTICES) {
         status.textContent = `A cut line supports at most ${MAX_CUT_LINE_VERTICES} vertices. Undo a vertex or apply the cut.`;
@@ -1611,7 +1719,11 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   }
 
   function finishDraw() {
-    if (state.cutBusy || disposed) return;
+    if (state.cutBusy || state.sharedBusy || disposed) return;
+    if (state.mode === "shared") {
+      applySharedMove();
+      return;
+    }
     if (state.mode === "cut") {
       applyCut();
       return;
@@ -1647,6 +1759,59 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
     updatePartTargetControl();
     updateHistoryControls();
     syncMap(map, displayFeatures, state);
+  }
+
+  function discardSharedPreview() {
+    const context = state.sharedContext;
+    if (context) {
+      for (const feature of context.originals) displayFeatures.set(feature.id, structuredClone(feature));
+      state.selectedGeometry = structuredClone(context.geometry);
+      state.selectedVertex = context.selectedVertex;
+      state.history = context.history;
+    }
+    state.sharedContext = null;
+    state.sharedBusy = false;
+    state.sharedSaved = false;
+  }
+
+  function cancelSharedMove() {
+    if (state.sharedBusy || !state.sharedContext) return;
+    discardSharedPreview();
+    state.mode = "inspect";
+    updateHistoryControls();
+    updatePartTargetControl();
+    status.textContent = "Shared move discarded. Saved geometries and the existing form draft are unchanged.";
+    syncMap(map, displayFeatures, state);
+  }
+
+  async function applySharedMove() {
+    const context = state.sharedContext;
+    if (!context?.preview || state.sharedBusy || typeof onSharedVertexMove !== "function") return;
+    const current = () => !disposed && state.sharedContext === context
+      && state.selectedFeature?.id === context.feature.id && state.selectedFeature?.version === context.feature.version;
+    state.sharedBusy = true;
+    updateHistoryControls();
+    status.textContent = `Saving shared vertex across ${context.participants.length} features…`;
+    try {
+      await onSharedVertexMove({feature: structuredClone(context.feature), features: structuredClone(context.participants),
+        fromPosition: [...context.fromPosition], toPosition: [...context.toPosition], isCurrent: current});
+      if (!current()) return;
+      state.sharedSaved = true;
+      state.sharedContext = null;
+      state.mode = "inspect";
+      state.history = createDraftHistory({kind: "idle"});
+      status.textContent = "Shared move saved. Feature identities, attributes and their combined footprint are preserved. Select the refreshed features to continue editing.";
+    } catch (error) {
+      if (!current()) return;
+      status.textContent = `The shared move was not applied: ${error?.message || "The request failed"}. The preview is retained; reload after an uncertain response before trying again.`;
+    } finally {
+      if (!disposed && (state.sharedContext === context || state.sharedSaved)) {
+        state.sharedBusy = false;
+        updatePartTargetControl();
+        updateHistoryControls();
+        syncMap(map, displayFeatures, state);
+      }
+    }
   }
 
   function cutInstruction() {
@@ -1908,6 +2073,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
 
   function selectExisting(feature, position = null) {
     if (disposed) return;
+    discardSharedPreview();
     cancelActiveVertexDrag({announce: false});
     state.cutContext = null;
     state.cutBusy = false;
@@ -1940,6 +2106,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
 
   function resetCanvas(geometry) {
     if (disposed) return;
+    discardSharedPreview();
     cancelActiveVertexDrag({announce: false});
     state.cutContext = null;
     state.cutBusy = false;
@@ -1961,7 +2128,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
   }
 
   function moveThroughHistory(direction) {
-    if (state.cutBusy || disposed) return;
+    if (state.cutBusy || state.sharedBusy || state.mode === "shared" || disposed) return;
     cancelActiveVertexDrag({announce: false});
     const next = direction === "undo"
       ? undoDraftHistory(state.history)
@@ -2054,10 +2221,13 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
 
   function updateCutControls() {
     const cutting = state.mode === "cut";
+    const sharing = state.mode === "shared";
+    const busy = state.cutBusy || state.sharedBusy;
+    const saved = state.cutSaved || state.sharedSaved;
     for (const control of [draw, select, move, insertVertex, removeVertex, addPart, addHole,
       removeHole, splitPart, mergePart, targetPart, partEarlier, partLater, removePart]) {
       if (control) {
-        if (cutting || state.cutBusy || state.cutSaved) {
+        if (cutting || sharing || busy || saved) {
           if (!control.hasAttribute("data-cut-disabled")) control.dataset.cutDisabled = String(control.disabled);
           control.disabled = true;
         } else if (control.hasAttribute("data-cut-disabled")) {
@@ -2067,7 +2237,7 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
       }
     }
     if (cutPolygon) {
-      cutPolygon.disabled = cutting || state.cutBusy || state.cutSaved || typeof onCutLine !== "function"
+      cutPolygon.disabled = cutting || sharing || busy || saved || typeof onCutLine !== "function"
         || ["draw", "hole", "part"].includes(state.mode)
         || !["Polygon", "MultiPolygon"].includes(state.selectedGeometry?.type)
         || state.selectedGeometry.type !== collection.geometryType || !state.selectedFeature;
@@ -2075,12 +2245,21 @@ export function FeatureCanvas({collection, features, initialGeometry, onGeometry
         ? "Polygon cutting is unavailable in this editor"
         : `Draw a cut across the selected saved ${collection.geometryType === "Polygon" ? "polygon" : "polygon part"}; Apply cut saves immediately`;
     }
-    finish.textContent = cutting ? "Apply cut" : "Finish geometry";
-    finish.title = cutting ? "Save this cut immediately using the selected feature version" : "Complete the geometry draft";
-    finish.disabled = state.cutBusy || state.cutSaved || (cutting && state.clicks.length < 2);
-    cancel.disabled = state.cutBusy;
-    snap.disabled = state.cutBusy || state.cutSaved;
-    if (state.cutBusy || state.cutSaved) undo.disabled = redo.disabled = true;
+    if (sharedVertex) {
+      sharedVertex.disabled = cutting || sharing || busy || saved || typeof onSharedVertexMove !== "function"
+        || ["draw", "hole", "part"].includes(state.mode) || !state.selectedFeature
+        || !["Polygon", "MultiPolygon"].includes(state.selectedGeometry?.type);
+      sharedVertex.title = typeof onSharedVertexMove === "function"
+        ? "Move one exact vertex shared by 2–20 visible saved polygons in one transaction"
+        : "Shared vertex editing is unavailable in this editor";
+    }
+    finish.textContent = sharing ? "Apply shared move" : cutting ? "Apply cut" : "Finish geometry";
+    finish.title = sharing ? "Save all shared vertex participants in one version-checked transaction"
+      : cutting ? "Save this cut immediately using the selected feature version" : "Complete the geometry draft";
+    finish.disabled = busy || saved || (sharing && !state.sharedContext?.preview) || (cutting && state.clicks.length < 2);
+    cancel.disabled = busy;
+    snap.disabled = busy || saved;
+    if (busy || saved || sharing) undo.disabled = redo.disabled = true;
   }
 
   function updatePartTargetControl() {
