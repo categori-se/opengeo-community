@@ -203,6 +203,28 @@ describe("MultiPolygon structure controls", () => {
 });
 
 describe("Polygon cut editor integration", () => {
+  it("cuts a saved Polygon with its reservation and requests fresh collection data", async () => {
+    const current = feature("90000000-0000-4000-8000-000000000251", 2, 1);
+    const lockToken = "a0000000-0000-4000-8000-000000000251";
+    const view = cutEditorFixture({current, truePolygon: true,
+      featureLocks: [{featureId: current.id, featureVersion: 2, heldByCurrentUser: true,
+        lockToken, expiresAt: "2099-01-01T12:00:00Z"}],
+      reloadError: Object.assign(new Error("Stop before constructing the real map"), {code: "test_stop"}),
+      cutResult: () => ({})});
+    view.button("Edit").click();
+    assert.equal(view.selected().geometry.type, "Polygon");
+    await view.applyCut();
+
+    assert.deepEqual(view.calls.cuts, [{projectId: "project-1", datasetId: "dataset-1", request: {
+      featureId: current.id, expectedVersion: 2, partIndex: 0,
+      cutLine: {type: "LineString", coordinates: [[0.5, -1], [0.5, 2]]},
+      changeMessage: "Cut polygon along a drawn line in Studio", lockToken
+    }}]);
+    assert.equal(view.calls.reads, 3, "success reloads features, reservations and tombstones");
+    assert.match(view.details.textContent, /Feature editing is unavailable \(test_stop\)/);
+    assert.equal(view.calls.canvases, 1, "fixture stops the fresh read before a real map is constructed");
+  });
+
   it("rejects unsaved repeated-record additions and removals without change events", async () => {
     const current = feature("90000000-0000-4000-8000-000000000251", 2, 1);
     current.properties.samples = [{note: "First"}, {note: "Second"}];
@@ -266,11 +288,126 @@ describe("Polygon cut editor integration", () => {
   });
 });
 
+describe("Polygon dissolve editor integration", () => {
+  it("requires dissolve confirmation and defaults to the first selected identity, versions and reservation", async () => {
+    const [first, second] = connectedPolygonFeatures();
+    const locked = feature("90000000-0000-4000-8000-000000000253", 3, 1);
+    const lockToken = "a0000000-0000-4000-8000-000000000251";
+    const confirmations = [];
+    let accepted = false;
+    globalThis.confirm = message => { confirmations.push(message); return accepted; };
+    const view = cutEditorFixture({truePolygon: true, features: [first, second, locked],
+      featureLocks: [
+        {featureId: first.id, featureVersion: 2, heldByCurrentUser: true,
+          lockToken, expiresAt: "2099-01-01T12:00:00Z"},
+        {featureId: locked.id, featureVersion: 3, heldByCurrentUser: false,
+          expiresAt: "2099-01-01T12:00:00Z"}
+      ],
+      reloadError: Object.assign(new Error("Stop before constructing the real map"), {code: "test_stop"}),
+      mergeResult: () => ({})});
+    const action = view.button("Dissolve selected");
+    const dissolve = view.content.querySelector('[aria-label="Dissolve boundaries"]');
+    assert.equal(dissolve.checked, true);
+    assert.equal(dissolve.disabled, true, "Polygon collections always require dissolving boundaries");
+    assert.equal(action.disabled, true);
+    assert.equal([...view.content.querySelectorAll("button")]
+      .some(({textContent}) => textContent === "Merge selected" || textContent.startsWith("Separate ")), false,
+    "Polygon rings, including holes, must not expose MultiPolygon separate or plain merge");
+    assert.equal(view.content.querySelector(
+      `[aria-label="Select feature ${locked.id} for polygon merge"]`).disabled, true);
+    action.click();
+    assert.equal(view.calls.merges.length, 0);
+    assert.equal(confirmations.length, 0);
+
+    selectPolygonFeatures(view, first.id, second.id);
+    const retained = view.content.querySelector(
+      '[aria-label="Feature identity and attributes to retain when merging"]');
+    assert.equal(retained.value, first.id);
+    assert.equal(dissolve.checked, true);
+    assert.equal(dissolve.disabled, true);
+    assert.equal(action.disabled, false);
+    action.click();
+    assert.equal(view.calls.merges.length, 0);
+    assert.match(confirmations[0], /Dissolve boundaries and union 2 features/);
+    assert.match(confirmations[0], /90000000…0251 keeps its ID and attributes/);
+    assert.match(confirmations[0], /1 donor feature become immutable tombstones/);
+
+    accepted = true;
+    action.click();
+    await new Promise(setImmediate);
+    assert.deepEqual(view.calls.merges, [{projectId: "project-1", datasetId: "dataset-1", request: {
+      retainedFeatureId: first.id,
+      features: [
+        {featureId: first.id, expectedVersion: 2, lockToken},
+        {featureId: second.id, expectedVersion: 1}
+      ],
+      geometryOperation: "dissolve",
+      changeMessage: "Dissolved boundaries of 2 polygon features in Studio"
+    }}]);
+    assert.equal(view.calls.reads, 3, "success reloads features, reservations and tombstones");
+    assert.match(view.details.textContent, /Feature editing is unavailable \(test_stop\)/);
+    assert.equal(view.calls.canvases, 1, "fresh read stops before constructing a real map");
+    assert.equal(view.calls.disposals, 1, "the replaced editor disposes its canvas before refreshing");
+  });
+
+  it("blocks dissolve while repeated-record additions have unsaved changes", async () => {
+    const features = connectedPolygonFeatures();
+    features[0].properties.samples = [{note: "Original"}];
+    const view = cutEditorFixture({truePolygon: true, features, fields: [
+      {name: "name", type: "string", required: true},
+      {name: "samples", type: "group", repeat: true, minItems: 0, maxItems: 3,
+        fields: [{name: "note", type: "string"}]}
+    ]});
+    selectPolygonFeatures(view, ...features.map(({id}) => id));
+    view.button("Edit").click();
+    view.button("Add samples").click();
+    assert.equal(view.content.querySelectorAll(".project-feature-repeat-item").length, 2);
+    view.button("Dissolve selected").click();
+    await new Promise(setImmediate);
+    assert.equal(view.calls.merges.length, 0);
+    assert.match(view.content.textContent, /Save or cancel the feature changes/);
+  });
+
+  it("blocks detached dissolve and skips refresh when a pending dissolve finishes offscreen", async () => {
+    let finishMerge;
+    const pending = new Promise(resolve => { finishMerge = resolve; });
+    const features = connectedPolygonFeatures();
+    const view = cutEditorFixture({truePolygon: true, features, mergeResult: () => pending});
+    selectPolygonFeatures(view, ...features.map(({id}) => id));
+    view.details.remove();
+    view.button("Dissolve selected").click();
+    await new Promise(setImmediate);
+    assert.equal(view.calls.merges.length, 0);
+
+    document.body.append(view.details);
+    view.button("Dissolve selected").click();
+    await new Promise(setImmediate);
+    assert.equal(view.calls.merges.length, 1);
+    assert.equal(view.content.querySelector('[aria-label="GeoJSON geometry"]').disabled, true,
+      "a pending dissolve must prevent concurrent feature form writes");
+    view.details.remove();
+    const replacement = document.createElement("section");
+    replacement.textContent = "Current view draft";
+    document.body.append(replacement);
+    finishMerge({});
+    await new Promise(setImmediate);
+    assert.equal(view.calls.reads, 0, "late success must not load a detached editor");
+    assert.equal(view.calls.canvases, 1);
+    assert.equal(view.details.firstElementChild, view.content);
+    assert.equal(replacement.textContent, "Current view draft");
+  });
+});
+
 function cutEditorFixture({current = feature("90000000-0000-4000-8000-000000000251", 2, 1),
-  fields = [{name: "name", type: "string", required: true}], revisions = [], cutResult = null} = {}) {
-  const calls = {cuts: [], reads: 0, canvases: 0};
-  const page = {collection: {geometryType: "MultiPolygon", generation: 1, fields},
-    features: [current], numberMatched: 1};
+  fields = [{name: "name", type: "string", required: true}], revisions = [], cutResult = null,
+  truePolygon = false, features = null, featureLocks = [], reloadError = null,
+  mergeResult = null} = {}) {
+  const calls = {cuts: [], merges: [], reads: 0, canvases: 0, disposals: 0};
+  const records = (features ?? [current]).map(record => truePolygon && record.geometry.type === "MultiPolygon"
+    ? {...record, geometry: {type: "Polygon", coordinates: record.geometry.coordinates[0]}}
+    : record);
+  const page = {collection: {geometryType: truePolygon ? "Polygon" : "MultiPolygon", generation: 1, fields},
+    features: records, numberMatched: records.length};
   const read = async value => { calls.reads++; return value; };
   const adapter = {
     async cutMultipolygonFeature(projectId, datasetId, request) {
@@ -278,8 +415,17 @@ function cutEditorFixture({current = feature("90000000-0000-4000-8000-0000000002
       if (cutResult) return cutResult();
       throw new Error("Unexpected cut write");
     },
-    listFeatures: () => read(page),
-    listFeatureLocks: () => read([]),
+    async mergeMultipolygonFeatures(projectId, datasetId, request) {
+      calls.merges.push({projectId, datasetId, request});
+      if (mergeResult) return mergeResult();
+      throw new Error("Unexpected polygon merge write");
+    },
+    async listFeatures() {
+      const result = await read(page);
+      if (reloadError) throw reloadError;
+      return result;
+    },
+    listFeatureLocks: () => read(featureLocks),
     listFeatureTombstones: () => read({tombstones: [], numberMatched: 0, numberReturned: 0}),
     async listFeatureHistory() { return {revisions}; }
   };
@@ -288,7 +434,7 @@ function cutEditorFixture({current = feature("90000000-0000-4000-8000-0000000002
   let callbacks;
   let selected;
   const content = featureEditor({adapter, project: {id: "project-1"}, maps: []},
-    {id: "dataset-1", classification: "internal"}, details, page, [],
+    {id: "dataset-1", classification: "internal"}, details, page, featureLocks,
     {tombstones: [], numberMatched: 0, numberReturned: 0}, null, options => {
       calls.canvases++;
       callbacks = options;
@@ -299,7 +445,7 @@ function cutEditorFixture({current = feature("90000000-0000-4000-8000-0000000002
         options.onSelectFeature(value);
       };
       canvas.resetGeometry = () => {};
-      canvas.__destroy = () => {};
+      canvas.__destroy = () => { calls.disposals++; };
       return canvas;
     });
   details.append(content);
@@ -312,6 +458,27 @@ function cutEditorFixture({current = feature("90000000-0000-4000-8000-0000000002
     applyCut: () => callbacks.onCutLine({feature: structuredClone(selected), partIndex: 0,
       cutLine: {type: "LineString", coordinates: [[0.5, -1], [0.5, 2]]}})
   };
+}
+
+function selectPolygonFeatures(view, ...ids) {
+  for (const id of ids) {
+    const checkbox = view.content.querySelector(`[aria-label="Select feature ${id} for polygon merge"]`);
+    assert.ok(checkbox, `Expected Polygon dissolve selection for ${id}`);
+    checkbox.checked = true;
+    checkbox.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+  }
+}
+
+function connectedPolygonFeatures() {
+  const first = feature("90000000-0000-4000-8000-000000000251", 2, 1);
+  first.geometry = {type: "Polygon", coordinates: [first.geometry.coordinates[0][0], [
+    [0.2, 0.2], [0.2, 0.4], [0.4, 0.4], [0.4, 0.2], [0.2, 0.2]
+  ]]};
+  const second = feature("90000000-0000-4000-8000-000000000252", 1, 1);
+  second.geometry = {type: "Polygon", coordinates: [
+    second.geometry.coordinates[0][0].map(([x, y]) => [x + 1, y])
+  ]};
+  return [first, second];
 }
 
 function feature(id, version, partCount) {

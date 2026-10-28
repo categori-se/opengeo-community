@@ -5257,6 +5257,7 @@ export class OpenGeoApiClient {
       }}
     ), "cut_line");
     if (result.retainedFeature.id !== id || result.retainedFeature.version !== expectedVersion + 1
+      || (result.retainedFeature.geometry.type === "Polygon" && partIndex !== 0)
       || result.createdFeatures.some(feature => feature.version !== 1)) {
       contract("polygon cut feature identity or version changed");
     }
@@ -5294,7 +5295,7 @@ export class OpenGeoApiClient {
     if (!normalized.some(({feature_id: id}) => id === retained)) {
       throw new TypeError("retained polygon feature must be included in the merge");
     }
-    return parseFeatureStructureMutation(await this.request(
+    const result = parseFeatureStructureMutation(await this.request(
       `${featurePath(projectId, datasetId)}/merge-parts`,
       {
         method: "POST",
@@ -5306,6 +5307,14 @@ export class OpenGeoApiClient {
         }
       }
     ), "merge_parts", geometryOperation);
+    const expected = new Map(normalized.map(feature => [feature.feature_id, feature.expected_version]));
+    if (result.retainedFeature.id !== retained || result.retainedFeature.version !== expected.get(retained) + 1
+      || result.deletedFeatures.length !== normalized.length - 1
+      || result.deletedFeatures.some(feature => feature.featureId === retained
+        || !expected.has(feature.featureId) || feature.deletedVersion !== expected.get(feature.featureId) + 1)) {
+      contract("polygon merge feature identity or version changed");
+    }
+    return result;
   }
 
   async listFeatureHistory(projectId, datasetId, featureId, page = {}) {
@@ -7674,9 +7683,13 @@ export function parseFeatureStructureMutation(value, expectedOperation, expected
     record.feature_count,
     "feature structure mutation.feature_count"
   );
-  if (retainedFeature.geometry.type !== "MultiPolygon"
-    || createdFeatures.some((feature) => feature.geometry.type !== "MultiPolygon")) {
-    contract("feature structure mutation contains a non-MultiPolygon feature");
+  const geometryType = retainedFeature.geometry.type;
+  const allowedGeometryTypes = operation === "cut_line" || (operation === "merge_parts" && geometryOperation === "dissolve")
+    ? ["Polygon", "MultiPolygon"]
+    : ["MultiPolygon"];
+  if (!allowedGeometryTypes.includes(geometryType)
+    || createdFeatures.some((feature) => feature.geometry.type !== geometryType)) {
+    contract("feature structure mutation contains incompatible polygon geometry types");
   }
   const liveIds = [retainedFeature.id, ...createdFeatures.map(({id}) => id)];
   const deletedIds = deletedFeatures.map(({featureId}) => featureId);
@@ -7691,7 +7704,7 @@ export function parseFeatureStructureMutation(value, expectedOperation, expected
       || deletedFeatures.length || featureCount < createdFeatures.length + 1) {
       contract("polygon separation mutation counts are invalid");
     }
-  } else if (createdFeatures.length || !deletedFeatures.length || deletedFeatures.length > 19) {
+  } else if (createdFeatures.length || !deletedFeatures.length || deletedFeatures.length > 19 || featureCount < 1) {
     contract("merge-parts mutation counts are invalid");
   }
   return {

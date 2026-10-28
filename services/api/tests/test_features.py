@@ -829,6 +829,7 @@ def dissolve_transaction(
     locks=(None, None),
     result=None,
     committed=False,
+    geometry_type="MultiPolygon",
 ):
     donor_id = UUID("90000000-0000-4000-8000-000000000132")
     schema = {
@@ -850,25 +851,38 @@ def dissolve_transaction(
                 ],
             },
         ]
+    if geometry_type == "Polygon":
+        geometries = [
+            {"type": "Polygon", "coordinates": geometry["coordinates"][0]}
+            for geometry in geometries
+        ]
     rows = [
         ("member", role, None, False, "active", "geojson"),
-        (DATASET_ID, "MultiPolygon", schema, 7, 2, USER_ID, NOW, USER_ID, NOW),
-        feature_row(FEATURE_ID, 2, geometries[0], (0, 0, 2, 2)),
-        feature_row(donor_id, 3, geometries[1], (1, 0, 3, 2)),
+        (DATASET_ID, geometry_type, schema, 7, 2, USER_ID, NOW, USER_ID, NOW),
+        feature_row(FEATURE_ID, 2, geometries[0], (0, 0, 2, 2), geometry_type=geometry_type),
+        feature_row(donor_id, 3, geometries[1], (1, 0, 3, 2), geometry_type=geometry_type),
         *locks,
         result,
     ]
     if committed:
         rows.extend(
             [
-                feature_row(FEATURE_ID, 3, result[0], (0, 0, 3, 2)),
+                feature_row(
+                    FEATURE_ID,
+                    3,
+                    {"type": "Polygon", "coordinates": result[0]["coordinates"][0]}
+                    if geometry_type == "Polygon"
+                    else result[0],
+                    (0, 0, 3, 2),
+                    geometry_type=geometry_type,
+                ),
                 (8, 1, NOW),
             ]
         )
     return QueryTransaction(rows), donor_id
 
 
-def dissolve_selected(transaction, donor_id, *, version=2):
+def dissolve_selected(transaction, donor_id, *, version=2, geometry_operation="dissolve"):
     return asyncio.run(
         PostgresFeatureRepository(QueryExecutor(transaction)).merge_multipolygon_features(
             TenantContext(user_id=USER_ID, organization_id=ORG_ID),
@@ -878,7 +892,7 @@ def dissolve_selected(transaction, donor_id, *, version=2):
             ((FEATURE_ID, version, None), (donor_id, 3, None)),
             None,
             "polygon-dissolve-request",
-            geometry_operation="dissolve",
+            geometry_operation=geometry_operation,
         )
     )
 
@@ -898,13 +912,16 @@ def cut_source_and_pieces():
     return source, pieces
 
 
-def cut_transaction(*, accepted=True, role="editor", lock=None):
+def cut_transaction(*, accepted=True, role="editor", lock=None, geometry_type="MultiPolygon"):
     source, pieces = cut_source_and_pieces()
     retained = {
         "type": "MultiPolygon",
         "coordinates": [pieces[0]["coordinates"], source["coordinates"][1]],
     }
     created = {"type": "MultiPolygon", "coordinates": [pieces[1]["coordinates"]]}
+    if geometry_type == "Polygon":
+        source = {"type": "Polygon", "coordinates": source["coordinates"][0]}
+        retained, created = pieces
     schema = {
         "schemaVersion": "1.0.0",
         "fields": [{"name": "name", "type": "string", "required": True}],
@@ -912,12 +929,12 @@ def cut_transaction(*, accepted=True, role="editor", lock=None):
     return QueryTransaction(
         [
             ("member", role, None, False, "active", "geojson"),
-            (DATASET_ID, "MultiPolygon", schema, 7, 1, USER_ID, NOW, USER_ID, NOW),
-            feature_row(FEATURE_ID, 2, source, (0, 0, 11, 4)),
+            (DATASET_ID, geometry_type, schema, 7, 1, USER_ID, NOW, USER_ID, NOW),
+            feature_row(FEATURE_ID, 2, source, (0, 0, 11, 4), geometry_type=geometry_type),
             lock,
             (pieces if accepted else None, accepted),
-            feature_row(FEATURE_ID, 3, retained, (1, 0, 11, 4)),
-            feature_row(uuid4(), 1, created, (0, 0, 1, 4)),
+            feature_row(FEATURE_ID, 3, retained, (1, 0, 11, 4), geometry_type=geometry_type),
+            feature_row(uuid4(), 1, created, (0, 0, 1, 4), geometry_type=geometry_type),
             (8, 2, NOW),
         ]
     )
@@ -969,6 +986,86 @@ def test_cut_retains_largest_piece_untouched_parts_attributes_history_and_lock()
     assert any(
         "dataset.feature.cut" in parameters for _kind, _statement, parameters in transaction.calls
     )
+
+
+def test_polygon_cut_retains_exact_type_identity_properties_and_transaction_guards():
+    transaction = cut_transaction(geometry_type="Polygon", lock=(LOCK_TOKEN, USER_ID, 2))
+    result = cut_selected(transaction, lock_token=LOCK_TOKEN)
+    source, pieces = cut_source_and_pieces()
+    assert result.collection.geometry_type == "Polygon"
+    assert result.retained_feature.feature_id == FEATURE_ID
+    assert result.retained_feature.version_number == 3
+    assert result.retained_feature.geometry == pieces[0]
+    assert result.created_features[0].geometry == pieces[1]
+    assert result.created_features[0].feature_id != FEATURE_ID
+    assert result.created_features[0].version_number == 1
+    assert (
+        result.retained_feature.properties
+        == result.created_features[0].properties
+        == {"name": "Survey areas"}
+    )
+    assert result.deleted_features == ()
+    assert (result.collection.generation, result.collection.feature_count) == (8, 2)
+    split = next(call for call in transaction.calls if call[1] == _CUT_MULTIPOLYGON_SQL)
+    assert split[2][0].obj == {"type": "MultiPolygon", "coordinates": source["coordinates"][:1]}
+    assert split[2][2] == 1
+    assert sum("FOR UPDATE" in call[1] for call in transaction.calls) == 2
+    assert sum("UPDATE app.feature_collections" in call[1] for call in transaction.calls) == 1
+    assert (
+        sum("INSERT INTO app.dataset_feature_revisions" in call[1] for call in transaction.calls)
+        == 2
+    )
+    assert any("UPDATE app.dataset_feature_locks" in call[1] for call in transaction.calls)
+
+
+@pytest.mark.parametrize("failure", ["viewer", "stale", "locked", "part", "result"])
+def test_polygon_cut_rejects_before_writes(failure):
+    transaction = cut_transaction(
+        geometry_type="Polygon",
+        accepted=failure != "result",
+        role="viewer" if failure == "viewer" else "editor",
+        lock=(LOCK_TOKEN, OTHER_USER_ID, 2) if failure == "locked" else None,
+    )
+    with pytest.raises((FeatureInvalid, FeatureConflict, FeatureAccessDenied)):
+        cut_selected(
+            transaction,
+            version=1 if failure == "stale" else 2,
+            part_index=1 if failure == "part" else 0,
+        )
+    assert not any(
+        "INSERT INTO" in statement or "UPDATE app." in statement
+        for _kind, statement, _parameters in transaction.calls
+    )
+    if failure != "result":
+        assert not any(
+            statement == _CUT_MULTIPOLYGON_SQL
+            for _kind, statement, _parameters in transaction.calls
+        )
+
+
+def test_polygon_cut_drafts_preserve_holes_and_reject_nonzero_parts_and_mixed_types():
+    source, pieces = cut_source_and_pieces()
+    polygon = {"type": "Polygon", "coordinates": source["coordinates"][0]}
+    hole = [[2, 1], [2, 2], [3, 2], [3, 1], [2, 1]]
+    polygon["coordinates"].append(hole)
+    pieces[0]["coordinates"].append(hole)
+    current = replace(
+        PostgresFeatureRepository._feature(
+            feature_row(FEATURE_ID, 2, polygon, (0, 0, 4, 4), geometry_type="Polygon")
+        ),
+        properties={},
+    )
+    drafts = cut_multipolygon_drafts(current, (), 0, pieces)
+    assert [draft.geometry_type for draft in drafts] == ["Polygon", "Polygon"]
+    assert drafts[0].geometry["coordinates"][1] == hole
+    assert drafts[0].feature_id == FEATURE_ID and drafts[1].feature_id != FEATURE_ID
+    assert current.geometry == polygon
+    with pytest.raises(FeatureInvalid, match="part index"):
+        cut_multipolygon_drafts(current, (), 1, pieces)
+    with pytest.raises(FeatureInvalid, match="between 2 and 20"):
+        cut_multipolygon_drafts(current, (), 0, pieces * 11)
+    with pytest.raises(FeatureInvalid, match="geometry type"):
+        cut_multipolygon_drafts(replace(current, geometry_type="MultiPolygon"), (), 0, pieces)
 
 
 @pytest.mark.parametrize(
@@ -1066,6 +1163,82 @@ def test_selected_dissolve_retains_identity_and_uses_bounded_parameterized_union
         isinstance(value, Jsonb) and value.obj.get("geometry_operation") == "dissolve"
         for value in event
     )
+
+
+def test_connected_polygon_dissolve_preserves_type_identity_properties_and_donor_history():
+    union = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[0, 0], [3, 0], [3, 2], [0, 2], [0, 0]]],
+        ],
+    }
+    transaction, donor_id = dissolve_transaction(
+        geometry_type="Polygon", result=(union, True), committed=True
+    )
+    result = dissolve_selected(transaction, donor_id)
+    assert result.collection.geometry_type == result.retained_feature.geometry_type == "Polygon"
+    assert result.retained_feature.geometry == {
+        "type": "Polygon",
+        "coordinates": union["coordinates"][0],
+    }
+    assert result.retained_feature.feature_id == FEATURE_ID
+    assert result.retained_feature.version_number == 3
+    assert result.retained_feature.properties == {"name": "Survey areas"}
+    assert result.created_features == ()
+    assert [(item.feature_id, item.deleted_version) for item in result.deleted_features] == [
+        (donor_id, 4)
+    ]
+    assert (result.collection.generation, result.collection.feature_count) == (8, 1)
+    union_call = next(call for call in transaction.calls if call[1] == _DISSOLVE_MULTIPOLYGON_SQL)
+    assert all(geometry["type"] == "MultiPolygon" for geometry in union_call[2][0].obj)
+    revisions = [
+        parameters
+        for _kind, statement, parameters in transaction.calls
+        if "INSERT INTO app.dataset_feature_revisions" in statement
+    ]
+    assert len(revisions) == 2 and all(parameters[5] == "Polygon" for parameters in revisions)
+    assert any(
+        "DELETE FROM app.dataset_feature_locks" in statement
+        for _kind, statement, _parameters in transaction.calls
+    )
+
+
+@pytest.mark.parametrize(
+    "failure", ["collect", "authority", "stale", "lock", "disconnected", "wrong_result"]
+)
+def test_connected_polygon_dissolve_rejects_without_feature_writes(failure):
+    union = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[0, 0], [3, 0], [3, 2], [0, 2], [0, 0]]],
+        ],
+    }
+    if failure == "disconnected":
+        union["coordinates"] *= 2
+    elif failure == "wrong_result":
+        union = {"type": "Polygon", "coordinates": union["coordinates"][0]}
+    transaction, donor_id = dissolve_transaction(
+        geometry_type="Polygon",
+        result=(union, True),
+        role="viewer" if failure == "authority" else "editor",
+        locks=((LOCK_TOKEN, OTHER_USER_ID, 2), None) if failure == "lock" else (None, None),
+    )
+    with pytest.raises((FeatureInvalid, FeatureConflict, FeatureAccessDenied)):
+        dissolve_selected(
+            transaction,
+            donor_id,
+            geometry_operation="collect" if failure == "collect" else "dissolve",
+            version=1 if failure == "stale" else 2,
+        )
+    assert all(
+        kind != "execute" or statement == _DISSOLVE_TIMEOUT_SQL
+        for kind, statement, _parameters in transaction.calls
+    )
+    if failure in {"collect", "authority", "stale", "lock"}:
+        assert not any(
+            statement == _DISSOLVE_MULTIPOLYGON_SQL
+            for _kind, statement, _parameters in transaction.calls
+        )
 
 
 @pytest.mark.parametrize("failure", ["authority", "stale", "reservation", "positions", "parts"])
@@ -1253,10 +1426,180 @@ def test_cut_native_postgis_bent_line_holes_ties_and_rejections():
             assert split(geometry, positions) == (None, False)
 
 
+async def native_connected_polygon_dissolve(
+    connection, cursor, repository, context, project_id, dataset_id, fields
+):
+    from opengeo_api.tenant_database import _PostgresTenantTransaction
+
+    retained_id, donor_id, separate_id = uuid4(), uuid4(), uuid4()
+    retained_token, donor_token = uuid4(), uuid4()
+    retained_geometry = {
+        "type": "Polygon",
+        "coordinates": [
+            [[1, 0], [4, 0], [4, 4], [1, 4], [1, 0]],
+            [[2, 1], [2, 3], [3, 3], [3, 1], [2, 1]],
+        ],
+    }
+    donor_geometry = {
+        "type": "Polygon",
+        "coordinates": [
+            [[0, 0], [1, 0], [1, 4], [0, 4], [0, 0]],
+        ],
+    }
+    separate_geometry = {
+        "type": "Polygon",
+        "coordinates": [
+            [[10, 0], [11, 0], [11, 1], [10, 1], [10, 0]],
+        ],
+    }
+    original = {
+        "type": "Polygon",
+        "coordinates": [
+            [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]],
+            retained_geometry["coordinates"][1],
+        ],
+    }
+    await repository.create_collection(
+        context,
+        project_id,
+        dataset_id,
+        "Polygon",
+        fields,
+        tuple(
+            feature_draft(geometry, {"name": name}, fields, feature_id)
+            for feature_id, geometry, name in [
+                (retained_id, retained_geometry, "Retained parcel"),
+                (donor_id, donor_geometry, "Donor parcel"),
+                (separate_id, separate_geometry, "Separate parcel"),
+            ]
+        ),
+        "polygon-dissolve-collection",
+    )
+    for feature_id, token in [(retained_id, retained_token), (donor_id, donor_token)]:
+        await repository.acquire_feature_lock(
+            context, project_id, dataset_id, feature_id, 1, token, 120, "polygon-dissolve-lock"
+        )
+
+    async def snapshot():
+        page = await repository.list_features(
+            context, project_id, dataset_id, bbox=None, limit=20, offset=0
+        )
+        histories = [
+            await repository.list_feature_history(
+                context, project_id, dataset_id, feature_id, 20, 0
+            )
+            for feature_id in (retained_id, donor_id)
+        ]
+        locks = await repository.list_feature_locks(context, project_id, dataset_id)
+        return page, histories, locks
+
+    before = await snapshot()
+    selection = ((retained_id, 1, retained_token), (donor_id, 1, donor_token))
+
+    async def merge(selected=selection, operation="dissolve", implementation=repository):
+        return await implementation.merge_multipolygon_features(
+            context,
+            project_id,
+            dataset_id,
+            retained_id,
+            selected,
+            None,
+            "native-connected-polygon-dissolve",
+            geometry_operation=operation,
+        )
+
+    with pytest.raises(FeatureInvalid, match="explicit dissolve"):
+        await merge(operation="collect")
+    with pytest.raises(FeatureInvalid, match="connected Polygon"):
+        await merge(((retained_id, 1, retained_token), (separate_id, 1, None)))
+    with pytest.raises(FeatureConflict):
+        await merge(((retained_id, 1, None), (donor_id, 1, donor_token)))
+    with pytest.raises(FeatureConflict, match="feature_version_conflict"):
+        await merge(((retained_id, 1, retained_token), (donor_id, 2, donor_token)))
+    assert await snapshot() == before
+
+    class FailAfterTombstone(PostgresFeatureRepository):
+        @staticmethod
+        async def _tombstone_feature_head(*args, **kwargs):
+            await PostgresFeatureRepository._tombstone_feature_head(*args, **kwargs)
+            raise RuntimeError("injected failure after donor tombstone and revision")
+
+    failing = FailAfterTombstone(QueryExecutor(_PostgresTenantTransaction(cursor)))
+    with pytest.raises(RuntimeError, match="injected failure"):
+        async with connection.transaction():
+            await merge(implementation=failing)
+    assert await snapshot() == before
+
+    merged = await merge()
+    assert merged.collection.geometry_type == merged.retained_feature.geometry_type == "Polygon"
+    assert merged.retained_feature.geometry["type"] == "Polygon"
+    assert merged.retained_feature.feature_id == retained_id
+    assert merged.retained_feature.version_number == 2
+    assert merged.retained_feature.properties == {"name": "Retained parcel"}
+    assert merged.created_features == ()
+    assert [(item.feature_id, item.deleted_version) for item in merged.deleted_features] == [
+        (donor_id, 2)
+    ]
+    assert (merged.collection.generation, merged.collection.feature_count) == (2, 2)
+    await cursor.execute(
+        "SELECT ST_Equals(geom,ST_GeomFromGeoJSON(%s::text)),ST_Area(geom),"
+        "ST_NumInteriorRings(geom),ST_IsValid(geom),ST_GeometryType(geom) "
+        "FROM (SELECT ST_GeomFromGeoJSON(%s::text) AS geom) result",
+        (Jsonb(original), Jsonb(merged.retained_feature.geometry)),
+    )
+    assert await cursor.fetchone() == (True, 14, 1, True, "ST_Polygon")
+    page, histories, locks = await snapshot()
+    assert {feature.feature_id for feature in page.features} == {retained_id, separate_id}
+    assert (
+        next(feature for feature in page.features if feature.feature_id == separate_id).geometry
+        == separate_geometry
+    )
+    assert (
+        next(feature for feature in page.features if feature.feature_id == retained_id)
+        == merged.retained_feature
+    )
+    retained_history, donor_history = histories
+    assert [(item.version_number, item.operation) for item in retained_history] == [
+        (2, "update"),
+        (1, "create"),
+    ]
+    assert [(item.version_number, item.operation) for item in donor_history] == [
+        (2, "delete"),
+        (1, "create"),
+    ]
+    assert retained_history[-1].geometry == retained_geometry
+    assert donor_history[0].geometry == donor_history[-1].geometry == donor_geometry
+    assert donor_history[0].properties == {"name": "Donor parcel"}
+    assert all(
+        item.geometry_type == item.geometry["type"] == "Polygon"
+        for history in histories
+        for item in history
+    )
+    assert len(locks) == 1 and locks[0].feature_id == retained_id
+    assert locks[0].feature_version == 2 and locks[0].lock_token == retained_token
+    deleted = await repository.list_deleted_features(
+        context, project_id, dataset_id, limit=20, offset=0
+    )
+    assert [(item.feature_id, item.deleted_version) for item in deleted.tombstones] == [
+        (donor_id, 2)
+    ]
+    after = await snapshot()
+    with pytest.raises(FeatureConflict, match="feature_version_conflict"):
+        await merge(((retained_id, 1, retained_token), (separate_id, 1, None)))
+    assert await snapshot() == after
+
+
 @pytest.mark.skipif(
     not os.environ.get("OPENGEO_FEATURE_TEST_DSN"), reason="explicit local PostGIS DSN required"
 )
-def test_native_postgis_typed_text_feature_crud_and_history() -> None:
+@pytest.mark.parametrize(
+    ("polygon_geometry_type", "polygon_operation"),
+    [("MultiPolygon", "cut"), ("Polygon", "cut"), ("Polygon", "dissolve")],
+    ids=["MultiPolygon", "Polygon", "PolygonDissolve"],
+)
+def test_native_postgis_typed_text_feature_crud_and_history(
+    polygon_geometry_type, polygon_operation
+) -> None:
     """Use the fully migrated local database and roll back every fixture row."""
     import psycopg
     from psycopg.types.string import StrDumper
@@ -1334,6 +1677,17 @@ def test_native_postgis_typed_text_feature_crud_and_history() -> None:
                 )
                 context = TenantContext(user_id=user_id, organization_id=organization_id)
                 fields = normalize_fields([{"name": "name", "type": "string", "required": True}])
+                if polygon_operation == "dissolve":
+                    await native_connected_polygon_dissolve(
+                        connection,
+                        cursor,
+                        repository,
+                        context,
+                        project_id,
+                        polygon_dataset_id,
+                        fields,
+                    )
+                    return
                 initial_geometry = {"type": "Point", "coordinates": [-71.1, 42.3]}
                 changed_geometry = {"type": "Point", "coordinates": [-71.2, 42.4]}
                 initial = feature_draft(
@@ -1449,6 +1803,11 @@ def test_native_postgis_typed_text_feature_crud_and_history() -> None:
                 # immutable history and reservation path as ordinary edits.
                 polygon_geometry, _pieces = cut_source_and_pieces()
                 polygon_geometry["coordinates"][0].append([[2, 1], [2, 3], [3, 3], [3, 1], [2, 1]])
+                if polygon_geometry_type == "Polygon":
+                    polygon_geometry = {
+                        "type": "Polygon",
+                        "coordinates": polygon_geometry["coordinates"][0],
+                    }
                 polygon_draft = feature_draft(
                     polygon_geometry, {"name": "Survey areas"}, fields, polygon_feature_id
                 )
@@ -1456,7 +1815,7 @@ def test_native_postgis_typed_text_feature_crud_and_history() -> None:
                     context,
                     project_id,
                     polygon_dataset_id,
-                    "MultiPolygon",
+                    polygon_geometry_type,
                     fields,
                     (polygon_draft,),
                     "cut-collection",
@@ -1487,13 +1846,35 @@ def test_native_postgis_typed_text_feature_crud_and_history() -> None:
                 assert cut.retained_feature.feature_id == polygon_feature_id
                 assert cut.retained_feature.version_number == 2
                 assert (cut.collection.generation, cut.collection.feature_count) == (2, 2)
-                assert len(cut.retained_feature.geometry["coordinates"][0]) == 2  # original hole
-                assert (
-                    cut.retained_feature.geometry["coordinates"][1]
-                    == polygon_geometry["coordinates"][1]
-                )
+                if polygon_geometry_type == "Polygon":
+                    assert len(cut.retained_feature.geometry["coordinates"]) == 2  # original hole
+                else:
+                    assert len(cut.retained_feature.geometry["coordinates"][0]) == 2
+                    assert (
+                        cut.retained_feature.geometry["coordinates"][1]
+                        == polygon_geometry["coordinates"][1]
+                    )
                 assert cut.created_features[0].properties == {"name": "Survey areas"}
+                assert cut.collection.geometry_type == polygon_geometry_type
+                assert cut.retained_feature.geometry_type == polygon_geometry_type
+                assert cut.created_features[0].geometry_type == polygon_geometry_type
                 assert len(cut.created_features[0].geometry["coordinates"]) == 1
+                await cursor.execute(
+                    "SELECT ST_Equals(ST_UnaryUnion(ST_Collect(geom)),"
+                    "ST_GeomFromGeoJSON(%s::text)),sum(ST_Area(geom)),"
+                    "sum(ST_NumInteriorRings(ST_GeometryN(geom,1))) "
+                    "FROM (SELECT ST_GeomFromGeoJSON(value::text) AS geom "
+                    "FROM jsonb_array_elements(%s::jsonb)) pieces",
+                    (
+                        Jsonb(polygon_geometry),
+                        Jsonb([cut.retained_feature.geometry, cut.created_features[0].geometry]),
+                    ),
+                )
+                assert await cursor.fetchone() == (
+                    True,
+                    14 if polygon_geometry_type == "Polygon" else 15,
+                    1,
+                )
                 locks = await repository.list_feature_locks(context, project_id, polygon_dataset_id)
                 assert locks[0].feature_version == 2 and locks[0].lock_token == lock_token
                 cut_history = await repository.list_feature_history(
@@ -1719,11 +2100,13 @@ def feature_row(
     version: int,
     geometry: dict[str, Any],
     bbox: tuple[float, float, float, float],
+    *,
+    geometry_type: str = "MultiPolygon",
 ) -> tuple[Any, ...]:
     return (
         feature_id,
         version,
-        "MultiPolygon",
+        geometry_type,
         {"name": "Survey areas"},
         geometry,
         bbox,
