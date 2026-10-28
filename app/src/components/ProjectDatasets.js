@@ -2687,14 +2687,15 @@ export function featureCollectionInitializer(state, dataset, details) {
   return content;
 }
 
-function featureEditor(
+export function featureEditor(
   state,
   dataset,
   details,
   page,
   featureLocks,
   tombstones,
-  initialFeatureId = null
+  initialFeatureId = null,
+  createCanvas = FeatureCanvas
 ) {
   const content = document.createElement("div");
   content.className = "project-feature-editor";
@@ -2734,8 +2735,20 @@ function featureEditor(
   );
   let selected = null;
   let canvas = null;
+  let formDirty = false;
+  let selectedPropertySnapshot = null;
+  let cutPending = false;
+  const propertySnapshot = () => {
+    try {return JSON.stringify(properties.read());} catch {return null;}
+  };
+  const markDirty = event => {if (event.target !== message) formDirty = true;};
+  form.addEventListener("input", markDirty);
+  form.addEventListener("change", markDirty);
   const reset = () => {
+    if (cutPending) return;
     selected = null;
+    formDirty = false;
+    selectedPropertySnapshot = null;
     save.textContent = "Create feature";
     cancel.hidden = true;
     geometry.value = JSON.stringify(initialGeometry, null, 2);
@@ -2744,6 +2757,7 @@ function featureEditor(
     canvas?.resetGeometry?.(initialGeometry);
   };
   const selectForEdit = (feature, syncCanvas = true, focusEditor = true) => {
+    if (cutPending) return;
     const featureLock = locksByFeature.get(feature.id);
     if (featureLock && !featureLock.heldByCurrentUser) {
       feedback.className = "project-catalog-error";
@@ -2751,14 +2765,17 @@ function featureEditor(
       return;
     }
     selected = feature;
+    formDirty = false;
     geometry.value = JSON.stringify(feature.geometry, null, 2);
     properties.write(feature.properties);
+    selectedPropertySnapshot = propertySnapshot();
     save.textContent = `Save v${feature.version + 1}`;
     cancel.hidden = false;
     if (syncCanvas) canvas?.selectFeature?.(feature);
     if (focusEditor) geometry.focus();
   };
   const selectRevisionForRestore = (feature, revision) => {
+    if (cutPending) return;
     const featureLock = locksByFeature.get(feature.id);
     if (featureLock && !featureLock.heldByCurrentUser) {
       feedback.className = "project-catalog-error";
@@ -2767,6 +2784,7 @@ function featureEditor(
     }
     const draft = featureRevisionRestoreDraft(feature, revision);
     selected = feature;
+    formDirty = true;
     geometry.value = JSON.stringify(draft.geometry, null, 2);
     properties.write(draft.properties);
     message.value = draft.changeMessage;
@@ -2777,6 +2795,9 @@ function featureEditor(
       geometry: draft.geometry,
       properties: draft.properties
     });
+    // Canvas selection reports its input back to the form; the historical
+    // snapshot still needs Save before any operation on the persisted head.
+    formDirty = true;
     feedback.className = "project-catalog-feedback";
     feedback.textContent = `Reviewing the immutable v${revision.version} snapshot. Saving will append v${feature.version + 1}; it will not erase newer history.`;
     geometry.focus();
@@ -2792,6 +2813,7 @@ function featureEditor(
   );
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (cutPending) return;
     save.disabled = true;
     feedback.className = "project-catalog-feedback";
     feedback.textContent = selected ? "Saving version-checked replacement…" : "Saving feature…";
@@ -2830,14 +2852,54 @@ function featureEditor(
     }
   });
 
-  canvas = FeatureCanvas({
+  canvas = createCanvas({
     collection: page.collection,
     features: page.features,
     initialGeometry,
     onGeometryChange: (draft) => {
       geometry.value = JSON.stringify(draft, null, 2);
+      formDirty = true;
     },
-    onSelectFeature: (feature) => selectForEdit(feature, false)
+    onSelectFeature: (feature) => selectForEdit(feature, false),
+    ...(typeof state.adapter.cutMultipolygonFeature === "function" ? {
+      onCutLine: async ({feature, partIndex, cutLine}) => {
+        if (cutPending || !details.isConnected || !details.contains(content) || selected?.id !== feature.id
+          || selected.version !== feature.version) {
+          throw new Error("The selected feature changed. Reload it before cutting.");
+        }
+        if (formDirty || selectedPropertySnapshot === null
+          || propertySnapshot() !== selectedPropertySnapshot) {
+          throw new Error("Save or cancel the feature changes before cutting.");
+        }
+        const featureLock = locksByFeature.get(feature.id);
+        if (featureLock && !featureLock.heldByCurrentUser) {
+          throw new Error("Another editor holds this feature’s reservation.");
+        }
+        cutPending = true;
+        const controls = [...form.querySelectorAll("input, textarea, select, button")]
+          .map(control => [control, control.disabled]);
+        for (const [control] of controls) control.disabled = true;
+        feedback.className = "project-catalog-feedback";
+        feedback.textContent = "Cutting the selected polygon in one version-checked transaction…";
+        try {
+          await state.adapter.cutMultipolygonFeature(state.project.id, dataset.id, {
+            featureId: feature.id, expectedVersion: feature.version, partIndex, cutLine,
+            changeMessage: message.value.trim() || "Cut polygon along a drawn line in Studio",
+            ...(featureLock?.heldByCurrentUser ? {lockToken: featureLock.lockToken} : {})
+          });
+          if (details.isConnected && details.contains(content)) await loadFeatureEditing(state, dataset, details);
+        } catch (error) {
+          feedback.className = "project-catalog-error";
+          feedback.textContent = featureMutationError(error, "Polygon was not cut");
+          throw new Error(feedback.textContent);
+        } finally {
+          cutPending = false;
+          if (details.isConnected && details.contains(content)) {
+            for (const [control, disabled] of controls) control.disabled = disabled;
+          }
+        }
+      }
+    } : {})
   });
 
   const polygonStructure = page.collection.geometryType === "MultiPolygon"

@@ -1353,6 +1353,68 @@ describe("OpenGeo API client", () => {
     );
   });
 
+  it("sends a bounded polygon cut and rejects changed identity, version or mutation counts", async () => {
+    const createdId = "90000000-0000-4000-8000-000000000012";
+    const lockToken = "a0000000-0000-4000-8000-000000000001";
+    const response = {
+      operation: "cut_line",
+      retained_feature: multipolygonFeaturePayload(IDS.feature, 2),
+      created_features: [multipolygonFeaturePayload(createdId, 1)],
+      deleted_features: [], collection_generation: 4, feature_count: 2
+    };
+    const calls = [];
+    let payload = response;
+    const client = new OpenGeoApiClient({tokenProvider: () => "test-token",
+      organizationProvider: () => IDS.organization, fetchImplementation: async (url, options) => {
+      calls.push({url, body: JSON.parse(options.body)});
+      return jsonResponse(payload);
+    }});
+    const request = {featureId: IDS.feature, expectedVersion: 1, partIndex: 1,
+      cutLine: {type: "LineString", coordinates: [[-1, 0], [0, 1], [2, 2]]}, lockToken};
+    const result = await client.cutMultipolygonFeature(IDS.project, IDS.dataset, request);
+    assert.equal(result.operation, "cut_line");
+    assert.equal(result.createdFeatures[0].id, createdId);
+    assert.deepEqual(calls[0], {
+      url: `/api/projects/${IDS.project}/datasets/${IDS.dataset}/features/cut-line`,
+      body: {feature_id: IDS.feature, expected_version: 1, part_index: 1,
+        cut_line: request.cutLine, lock_token: lockToken, change_message: null}
+    });
+    for (const changed of [
+      {...response, retained_feature: multipolygonFeaturePayload(createdId, 2)},
+      {...response, retained_feature: multipolygonFeaturePayload(IDS.feature, 1)},
+      {...response, created_features: [multipolygonFeaturePayload(createdId, 2)]},
+      {...response, created_features: []},
+      {...response, feature_count: 1},
+      {...response, geometry_operation: "dissolve"},
+      {...response, operation: "separate_parts"}
+    ]) {
+      payload = changed;
+      await assert.rejects(client.cutMultipolygonFeature(IDS.project, IDS.dataset, request), ApiContractError);
+    }
+  });
+
+  it("rejects an invalid polygon cut before any network request", async () => {
+    let calls = 0;
+    const client = new OpenGeoApiClient({tokenProvider: () => "test-token",
+      organizationProvider: () => IDS.organization,
+      fetchImplementation: async () => {calls++; throw Error("must not fetch");}});
+    const request = {featureId: IDS.feature, expectedVersion: 1,
+      cutLine: {type: "LineString", coordinates: [[0, 0], [1, 1]]}};
+    for (const changed of [
+      {expectedVersion: 0}, {partIndex: -1}, {partIndex: 256},
+      {cutLine: {type: "Polygon", coordinates: [[0, 0], [1, 1]]}},
+      {cutLine: {type: "LineString", coordinates: [[0, 0]]}},
+      {cutLine: {type: "LineString", coordinates: [[0, 0], [0, 0]]}},
+      {cutLine: {type: "LineString", coordinates: [[0, 0], [181, 0]]}},
+      {cutLine: {type: "LineString", coordinates: [[0, 0], [0, 91]]}},
+      {cutLine: {type: "LineString", coordinates: [[0, 0], [NaN, 0]]}},
+      {cutLine: {type: "LineString", coordinates: [[0, 0], [1, 1, 2]]}},
+      {cutLine: {type: "LineString", coordinates: Array.from({length: 257}, (_, i) => [i / 100, 0])}},
+      {cutLine: {...request.cutLine, sourceUrl: "https://example.invalid/blade"}}
+    ]) await assert.rejects(client.cutMultipolygonFeature(IDS.project, IDS.dataset, {...request, ...changed}));
+    assert.equal(calls, 0);
+  });
+
   it("sends and strictly parses atomic MultiPolygon separate and merge requests", async () => {
     const feature2 = "90000000-0000-4000-8000-000000000012";
     const calls = [];

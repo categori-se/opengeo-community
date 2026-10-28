@@ -25,7 +25,9 @@ from opengeo_api.features import (
     FeatureTombstonePage,
     SpatialQueryStep,
     TemporalQueryStep,
+    cut_multipolygon_drafts,
     merge_multipolygon_draft,
+    normalize_cut_line,
     normalize_properties,
     separate_multipolygon_drafts,
 )
@@ -1019,6 +1021,111 @@ def test_short_feature_lock_lifecycle_is_optional_private_and_version_safe() -> 
     private_listing = client.get(locks_url, headers=headers()).json()["locks"][0]
     assert private_listing["held_by_current_user"] is False
     assert private_listing["lock_token"] is None
+
+
+def test_cut_line_route_auth_contract_conflict_and_structural_receipt() -> None:
+    repository = MemoryFeatureRepository()
+    client = api_client(repository)
+    collection_url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/feature-collection"
+    feature_url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/features"
+    client.post(collection_url, headers=headers(), json=multipolygon_collection_payload())
+    received = []
+
+    async def cut(
+        context,
+        project_id,
+        dataset_id,
+        feature_id,
+        expected_version,
+        part_index,
+        cut_line,
+        change_message,
+        request_id,
+        lock_token=None,
+    ):
+        received.append(
+            (
+                context,
+                project_id,
+                dataset_id,
+                feature_id,
+                part_index,
+                cut_line,
+                change_message,
+                lock_token,
+            )
+        )
+        current = repository.features[feature_id]
+        if current.version_number != expected_version:
+            raise FeatureConflict("feature_version_conflict", current.version_number)
+        repository._require_lock(feature_id, lock_token)
+        normalize_cut_line(cut_line)
+        pieces = [
+            {"type": "Polygon", "coordinates": [[[0.25, 0], [1, 0], [1, 1], [0.25, 1], [0.25, 0]]]},
+            {"type": "Polygon", "coordinates": [[[0, 0], [0.25, 0], [0.25, 1], [0, 1], [0, 0]]]},
+        ]
+        drafts = cut_multipolygon_drafts(current, repository.collection.fields, part_index, pieces)
+        retained = replace(
+            current,
+            version_number=current.version_number + 1,
+            geometry=drafts[0].geometry,
+            bbox=drafts[0].bbox,
+        )
+        created = replace(
+            current,
+            feature_id=drafts[1].feature_id,
+            version_number=1,
+            geometry=drafts[1].geometry,
+            bbox=drafts[1].bbox,
+        )
+        repository.features[feature_id] = retained
+        collection = replace(repository.collection, generation=2, feature_count=2)
+        return FeatureStructureMutation(collection, retained, (created,), ())
+
+    repository.cut_multipolygon_feature = cut
+    payload = {
+        "feature_id": str(FEATURE_ID),
+        "expected_version": 1,
+        "part_index": 0,
+        "cut_line": {"type": "LineString", "coordinates": [[0.25, -1], [0.25, 2]]},
+        "change_message": "Cut surveyed area",
+        "lock_token": str(LOCK_TOKEN),
+    }
+    endpoint = f"{feature_url}/cut-line"
+    assert client.post(endpoint, json=payload).status_code == 401
+    assert (
+        client.post(endpoint, headers=headers(), json={**payload, "unexpected": True}).status_code
+        == 422
+    )
+    assert (
+        client.post(endpoint, headers=headers(), json={**payload, "part_index": 256}).status_code
+        == 422
+    )
+    assert received == []
+    response = client.post(endpoint, headers=headers(), json=payload)
+    assert response.status_code == 200
+    receipt = response.json()
+    assert receipt["operation"] == "cut_line"
+    assert receipt["retained_feature"]["id"] == str(FEATURE_ID)
+    assert receipt["retained_feature"]["opengeo:version"] == 2
+    assert len(receipt["retained_feature"]["geometry"]["coordinates"]) == 2
+    assert receipt["created_features"][0]["properties"] == {"name": "Review area"}
+    assert receipt["deleted_features"] == []
+    assert (receipt["collection_generation"], receipt["feature_count"]) == (2, 2)
+    context, project, dataset, feature, part, line, message, lock = received[-1]
+    assert (context.organization_id, context.user_id) == (ORG_ID, USER_ID)
+    assert (project, dataset, feature, part, line, message, lock) == (
+        PROJECT_ID,
+        DATASET_ID,
+        FEATURE_ID,
+        0,
+        payload["cut_line"],
+        payload["change_message"],
+        LOCK_TOKEN,
+    )
+    stale = client.post(endpoint, headers=headers(), json=payload)
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == {"code": "feature_version_conflict", "current_version": 2}
 
 
 def test_multipolygon_parts_separate_and_merge_atomically_with_exact_versions() -> None:

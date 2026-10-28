@@ -10,6 +10,7 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from opengeo_api.features import (
+    _CUT_MULTIPOLYGON_SQL,
     _DISSOLVE_MULTIPOLYGON_SQL,
     _DISSOLVE_TIMEOUT_SQL,
     AttributeQueryStep,
@@ -21,9 +22,11 @@ from opengeo_api.features import (
     FeatureTombstonePage,
     PostgresFeatureRepository,
     SpatialQueryStep,
+    cut_multipolygon_drafts,
     feature_draft,
     feature_field_document,
     merge_multipolygon_draft,
+    normalize_cut_line,
     normalize_fields,
     normalize_geometry,
     normalize_properties,
@@ -880,6 +883,146 @@ def dissolve_selected(transaction, donor_id, *, version=2):
     )
 
 
+def cut_source_and_pieces():
+    source = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [[[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]]],
+            [[[10, 0], [11, 0], [11, 1], [10, 1], [10, 0]]],
+        ],
+    }
+    pieces = [
+        {"type": "Polygon", "coordinates": [[[1, 0], [4, 0], [4, 4], [1, 4], [1, 0]]]},
+        {"type": "Polygon", "coordinates": [[[0, 0], [1, 0], [1, 4], [0, 4], [0, 0]]]},
+    ]
+    return source, pieces
+
+
+def cut_transaction(*, accepted=True, role="editor", lock=None):
+    source, pieces = cut_source_and_pieces()
+    retained = {
+        "type": "MultiPolygon",
+        "coordinates": [pieces[0]["coordinates"], source["coordinates"][1]],
+    }
+    created = {"type": "MultiPolygon", "coordinates": [pieces[1]["coordinates"]]}
+    schema = {
+        "schemaVersion": "1.0.0",
+        "fields": [{"name": "name", "type": "string", "required": True}],
+    }
+    return QueryTransaction(
+        [
+            ("member", role, None, False, "active", "geojson"),
+            (DATASET_ID, "MultiPolygon", schema, 7, 1, USER_ID, NOW, USER_ID, NOW),
+            feature_row(FEATURE_ID, 2, source, (0, 0, 11, 4)),
+            lock,
+            (pieces if accepted else None, accepted),
+            feature_row(FEATURE_ID, 3, retained, (1, 0, 11, 4)),
+            feature_row(uuid4(), 1, created, (0, 0, 1, 4)),
+            (8, 2, NOW),
+        ]
+    )
+
+
+def cut_selected(transaction, *, version=2, part_index=0, line=None, lock_token=None):
+    return asyncio.run(
+        PostgresFeatureRepository(QueryExecutor(transaction)).cut_multipolygon_feature(
+            TenantContext(user_id=USER_ID, organization_id=ORG_ID),
+            PROJECT_ID,
+            DATASET_ID,
+            FEATURE_ID,
+            version,
+            part_index,
+            line or {"type": "LineString", "coordinates": [[1, -1], [1, 5]]},
+            None,
+            "polygon-cut-request",
+            lock_token,
+        )
+    )
+
+
+def test_cut_retains_largest_piece_untouched_parts_attributes_history_and_lock():
+    transaction = cut_transaction(lock=(LOCK_TOKEN, USER_ID, 2))
+    result = cut_selected(transaction, lock_token=LOCK_TOKEN)
+    source, pieces = cut_source_and_pieces()
+    assert result.retained_feature.feature_id == FEATURE_ID
+    assert result.retained_feature.version_number == 3
+    assert result.retained_feature.geometry["coordinates"] == [
+        pieces[0]["coordinates"],
+        source["coordinates"][1],
+    ]
+    assert result.retained_feature.properties == {"name": "Survey areas"}
+    assert len(result.created_features) == 1 and result.deleted_features == ()
+    assert result.created_features[0].geometry["coordinates"] == [pieces[1]["coordinates"]]
+    assert result.created_features[0].properties == result.retained_feature.properties
+    assert (result.collection.generation, result.collection.feature_count) == (8, 2)
+    statements = [statement for _kind, statement, _parameters in transaction.calls]
+    split_index = statements.index(_CUT_MULTIPOLYGON_SQL)
+    assert sum("FOR UPDATE" in statement for statement in statements[:split_index]) == 2
+    assert statements[split_index - 1] == _DISSOLVE_TIMEOUT_SQL
+    assert transaction.calls[split_index][2][2] == 1
+    assert (
+        sum("INSERT INTO app.dataset_feature_revisions" in statement for statement in statements)
+        == 2
+    )
+    assert sum("UPDATE app.feature_collections" in statement for statement in statements) == 1
+    assert any("UPDATE app.dataset_feature_locks" in statement for statement in statements)
+    assert any(
+        "dataset.feature.cut" in parameters for _kind, _statement, parameters in transaction.calls
+    )
+
+
+@pytest.mark.parametrize(
+    "failure", ["viewer", "stale", "locked", "part", "line", "closed", "positions", "result"]
+)
+def test_cut_fails_before_writes_and_preserves_version_and_authority(failure):
+    transaction = cut_transaction(
+        accepted=failure != "result",
+        role="viewer" if failure == "viewer" else "editor",
+        lock=(LOCK_TOKEN, OTHER_USER_ID, 2) if failure == "locked" else None,
+    )
+    line = {"type": "LineString", "coordinates": [[1, -1], [1, 5]]}
+    if failure == "line":
+        line = {"type": "Point", "coordinates": [1, 1]}
+    elif failure == "closed":
+        line["coordinates"] = [[0, 0], [1, 1], [0, 0]]
+    elif failure == "positions":
+        line["coordinates"] = [[index / 1000, 1] for index in range(257)]
+    with pytest.raises((FeatureInvalid, FeatureConflict, FeatureAccessDenied)):
+        cut_selected(
+            transaction,
+            version=1 if failure == "stale" else 2,
+            part_index=4 if failure == "part" else 0,
+            line=line,
+        )
+    assert not any(
+        "INSERT INTO" in statement or "UPDATE app." in statement
+        for _kind, statement, _parameters in transaction.calls
+    )
+    if failure != "result":
+        assert not any(
+            "ST_Split" in statement for _kind, statement, _parameters in transaction.calls
+        )
+
+
+def test_cut_drafts_and_blade_are_bounded_before_heads_change():
+    source, pieces = cut_source_and_pieces()
+    row = feature_row(FEATURE_ID, 2, source, (0, 0, 11, 4))
+    feature = PostgresFeatureRepository._feature(row)
+    with pytest.raises(FeatureInvalid, match="between 2 and 20"):
+        cut_multipolygon_drafts(feature, (), 0, pieces * 11)
+    # The combined result must obey the original 256-part limit even though
+    # every individual new feature is a valid one-part geometry.
+    crowded = replace(
+        feature,
+        geometry={"type": "MultiPolygon", "coordinates": source["coordinates"][:1] * 256},
+        properties={},
+    )
+    with pytest.raises(FeatureInvalid, match="256"):
+        cut_multipolygon_drafts(crowded, (), 0, pieces)
+    with pytest.raises(FeatureInvalid, match="WGS84"):
+        normalize_cut_line({"type": "LineString", "coordinates": [[181, 0], [1, 1]]})
+
+
 def test_selected_dissolve_retains_identity_and_uses_bounded_parameterized_union():
     geometry = {
         "type": "MultiPolygon",
@@ -1035,6 +1178,84 @@ def test_selected_dissolve_native_postgis_overlap_shared_edge_hole_and_rejection
 @pytest.mark.skipif(
     not os.environ.get("OPENGEO_FEATURE_TEST_DSN"), reason="explicit local PostGIS DSN required"
 )
+def test_cut_native_postgis_bent_line_holes_ties_and_rejections():
+    import psycopg
+
+    source, _pieces = cut_source_and_pieces()
+    donut = {
+        "type": "MultiPolygon",
+        "coordinates": [
+            [
+                [[0, 0], [4, 0], [4, 4], [0, 4], [0, 0]],
+                [[1, 1], [1, 3], [3, 3], [3, 1], [1, 1]],
+            ]
+        ],
+    }
+    with (
+        psycopg.connect(os.environ["OPENGEO_FEATURE_TEST_DSN"]) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(_DISSOLVE_TIMEOUT_SQL)
+
+        def split(geometry, positions):
+            cursor.execute(
+                _CUT_MULTIPOLYGON_SQL,
+                (Jsonb(geometry), Jsonb({"type": "LineString", "coordinates": positions}), 1),
+            )
+            return cursor.fetchone()
+
+        for geometry, line, area, holes in [
+            (source, [[1, -1], [1, 1], [3, 3], [3, 5]], 16, 0),
+            (donut, [[0.5, -1], [0.5, 5]], 12, 1),
+            (donut, [[2, -1], [2, 5]], 12, 0),
+        ]:
+            pieces, accepted = split(geometry, line)
+            assert accepted is True and len(pieces) == 2
+            cursor.execute(
+                "SELECT sum(ST_Area(geom)),sum(ST_NumInteriorRings(geom)),"
+                "bool_and(ST_IsValid(geom)) "
+                "FROM (SELECT ST_GeomFromGeoJSON(value::text) AS geom "
+                "FROM jsonb_array_elements(%s::jsonb)) parts",
+                (Jsonb(pieces),),
+            )
+            assert cursor.fetchone() == (area, holes, True)
+        tied, accepted = split(source, [[2, -1], [2, 5]])
+        reversed_tied, reversed_accepted = split(source, [[2, 5], [2, -1]])
+        assert accepted and reversed_accepted
+        cursor.execute(
+            "SELECT ST_Equals(ST_GeomFromGeoJSON(%s::text),ST_GeomFromGeoJSON(%s::text))",
+            (Jsonb(tied[0]), Jsonb(reversed_tied[0])),
+        )
+        assert cursor.fetchone() == (True,)
+        for geometry, positions in [
+            (source, [[-1, -1], [-1, 5]]),  # outside
+            (source, [[-1, -1], [0, 0], [-1, 1]]),  # tangent
+            (source, [[0, -1], [0, 2], [2, 2]]),  # boundary overlap
+            (source, [[1, 1], [3, 3]]),  # ends inside
+            (source, [[1, -1], [1, 5], [1, -1]]),  # closed
+            (source, [[-1, -1], [5, 5], [-1, 5], [5, -1]]),  # self intersection
+            (source, [[1, 1], [1, 1]]),  # zero length
+            (donut, [[1.2, 1.2], [2.8, 2.8]]),  # entirely in the hole
+            (source, [[index / 1000, 1] for index in range(257)]),
+            (
+                source,
+                [
+                    [x, index / 6]
+                    for index in range(1, 22)
+                    for x in ([-1, 5] if index % 2 else [5, -1])
+                ],
+            ),  # 22 pieces
+            (
+                {"type": "MultiPolygon", "coordinates": [source["coordinates"][0]] * 2},
+                [[1, -1], [1, 5]],
+            ),
+        ]:
+            assert split(geometry, positions) == (None, False)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("OPENGEO_FEATURE_TEST_DSN"), reason="explicit local PostGIS DSN required"
+)
 def test_native_postgis_typed_text_feature_crud_and_history() -> None:
     """Use the fully migrated local database and roll back every fixture row."""
     import psycopg
@@ -1051,6 +1272,7 @@ def test_native_postgis_typed_text_feature_crud_and_history() -> None:
             async with connection.transaction(force_rollback=True), connection.cursor() as cursor:
                 user_id, organization_id, project_id, dataset_id = (uuid4() for _ in range(4))
                 initial_id, feature_id = uuid4(), uuid4()
+                polygon_dataset_id, polygon_feature_id = uuid4(), uuid4()
                 await cursor.execute(
                     "INSERT INTO app.users (id,cognito_subject,email,display_name) "
                     "VALUES (%s,%s,%s,'Feature typed-text regression')",
@@ -1083,6 +1305,18 @@ def test_native_postgis_typed_text_feature_crud_and_history() -> None:
                     "INSERT INTO app.project_datasets "
                     "(organization_id,project_id,dataset_id,linked_by) VALUES (%s,%s,%s,%s)",
                     (organization_id, project_id, dataset_id, user_id),
+                )
+                await cursor.execute(
+                    "INSERT INTO app.datasets "
+                    "(id,organization_id,name,classification,source_type,format,status,"
+                    "owner_user_id,created_by,updated_by) "
+                    "VALUES (%s,%s,'Cut polygons','internal','upload','geojson','active',%s,%s,%s)",
+                    (polygon_dataset_id, organization_id, user_id, user_id, user_id),
+                )
+                await cursor.execute(
+                    "INSERT INTO app.project_datasets "
+                    "(organization_id,project_id,dataset_id,linked_by) VALUES (%s,%s,%s,%s)",
+                    (organization_id, project_id, polygon_dataset_id, user_id),
                 )
                 # psycopg normally sends strings as unknown. Data API strings are
                 # text (OID 25), so register the text dumper after fixture setup.
@@ -1210,6 +1444,126 @@ def test_native_postgis_typed_text_feature_crud_and_history() -> None:
                 ]
                 assert history[-1].geometry == initial_geometry
                 assert history[-1].properties == {"name": "Added station"}
+
+                # Cut through the same runtime authority, typed-text transport,
+                # immutable history and reservation path as ordinary edits.
+                polygon_geometry, _pieces = cut_source_and_pieces()
+                polygon_geometry["coordinates"][0].append([[2, 1], [2, 3], [3, 3], [3, 1], [2, 1]])
+                polygon_draft = feature_draft(
+                    polygon_geometry, {"name": "Survey areas"}, fields, polygon_feature_id
+                )
+                await repository.create_collection(
+                    context,
+                    project_id,
+                    polygon_dataset_id,
+                    "MultiPolygon",
+                    fields,
+                    (polygon_draft,),
+                    "cut-collection",
+                )
+                lock_token = uuid4()
+                await repository.acquire_feature_lock(
+                    context,
+                    project_id,
+                    polygon_dataset_id,
+                    polygon_feature_id,
+                    1,
+                    lock_token,
+                    120,
+                    "cut-lock",
+                )
+                cut = await repository.cut_multipolygon_feature(
+                    context,
+                    project_id,
+                    polygon_dataset_id,
+                    polygon_feature_id,
+                    1,
+                    0,
+                    {"type": "LineString", "coordinates": [[1, -1], [1, 5]]},
+                    "Cut survey area",
+                    "native-cut",
+                    lock_token,
+                )
+                assert cut.retained_feature.feature_id == polygon_feature_id
+                assert cut.retained_feature.version_number == 2
+                assert (cut.collection.generation, cut.collection.feature_count) == (2, 2)
+                assert len(cut.retained_feature.geometry["coordinates"][0]) == 2  # original hole
+                assert (
+                    cut.retained_feature.geometry["coordinates"][1]
+                    == polygon_geometry["coordinates"][1]
+                )
+                assert cut.created_features[0].properties == {"name": "Survey areas"}
+                assert len(cut.created_features[0].geometry["coordinates"]) == 1
+                locks = await repository.list_feature_locks(context, project_id, polygon_dataset_id)
+                assert locks[0].feature_version == 2 and locks[0].lock_token == lock_token
+                cut_history = await repository.list_feature_history(
+                    context, project_id, polygon_dataset_id, polygon_feature_id, 20, 0
+                )
+                assert [(item.version_number, item.operation) for item in cut_history] == [
+                    (2, "update"),
+                    (1, "create"),
+                ]
+                assert cut_history[-1].geometry == polygon_geometry
+                await validate_revisions()
+                with pytest.raises(FeatureConflict, match="feature_version_conflict"):
+                    await repository.cut_multipolygon_feature(
+                        context,
+                        project_id,
+                        polygon_dataset_id,
+                        polygon_feature_id,
+                        1,
+                        0,
+                        {"type": "LineString", "coordinates": [[3.5, -1], [3.5, 5]]},
+                        None,
+                        "native-cut-stale",
+                        lock_token,
+                    )
+
+                class FailAfterInsert(PostgresFeatureRepository):
+                    @staticmethod
+                    async def _insert_feature(*args, **kwargs):
+                        await PostgresFeatureRepository._insert_feature(*args, **kwargs)
+                        raise RuntimeError("injected failure after new feature insertion")
+
+                failing = FailAfterInsert(QueryExecutor(_PostgresTenantTransaction(cursor)))
+                with pytest.raises(RuntimeError, match="injected failure"):
+                    async with connection.transaction():
+                        await failing.cut_multipolygon_feature(
+                            context,
+                            project_id,
+                            polygon_dataset_id,
+                            polygon_feature_id,
+                            2,
+                            0,
+                            {"type": "LineString", "coordinates": [[3.5, -1], [3.5, 5]]},
+                            None,
+                            "native-cut-rollback",
+                            lock_token,
+                        )
+                reopened = await repository.list_features(
+                    context, project_id, polygon_dataset_id, bbox=None, limit=20, offset=0
+                )
+                assert (reopened.collection.generation, reopened.collection.feature_count) == (2, 2)
+                assert {item.feature_id for item in reopened.features} == {
+                    cut.retained_feature.feature_id,
+                    cut.created_features[0].feature_id,
+                }
+                assert (
+                    next(
+                        item for item in reopened.features if item.feature_id == polygon_feature_id
+                    )
+                    == cut.retained_feature
+                )
+                assert (
+                    await repository.list_feature_history(
+                        context, project_id, polygon_dataset_id, polygon_feature_id, 20, 0
+                    )
+                    == cut_history
+                )
+                assert (
+                    await repository.list_feature_locks(context, project_id, polygon_dataset_id)
+                )[0].feature_version == 2
+                await validate_revisions()
 
     asyncio.run(scenario())
 

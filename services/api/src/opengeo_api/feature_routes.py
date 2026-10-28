@@ -131,6 +131,15 @@ class SeparateMultipolygonPartsRequest(RequestModel):
     change_message: ChangeMessage | None = None
 
 
+class CutMultipolygonFeatureRequest(RequestModel):
+    feature_id: UUID
+    expected_version: int = Field(ge=1)
+    part_index: int = Field(default=0, ge=0, le=255)
+    cut_line: dict[str, Any]
+    lock_token: UUID | None = None
+    change_message: ChangeMessage | None = None
+
+
 class FeatureExpectedVersionRequest(RequestModel):
     feature_id: UUID
     expected_version: int = Field(ge=1)
@@ -388,6 +397,31 @@ async def separate_multipolygon_parts(
         )
     )
     return _structure_mutation_response(mutation, "separate_parts")
+
+
+@router.post("/projects/{project_id}/datasets/{dataset_id}/features/cut-line")
+async def cut_multipolygon_feature(
+    project_id: UUID,
+    dataset_id: UUID,
+    payload: CutMultipolygonFeatureRequest,
+    session: Annotated[AuthSession, Depends(current_session)],
+    repository: Annotated[FeatureRepository, Depends(repository_from_request)],
+) -> JSONResponse:
+    mutation = await execute_feature(
+        repository.cut_multipolygon_feature(
+            tenant_context(session),
+            project_id,
+            dataset_id,
+            payload.feature_id,
+            payload.expected_version,
+            payload.part_index,
+            payload.cut_line,
+            payload.change_message,
+            get_request_id(),
+            payload.lock_token,
+        )
+    )
+    return _structure_mutation_response(mutation, "cut_line")
 
 
 @router.post("/projects/{project_id}/datasets/{dataset_id}/features/merge-parts")
@@ -758,7 +792,7 @@ def _mutation_response(mutation: FeatureMutation, *, status_code: int = 200) -> 
 
 def _structure_mutation_response(
     mutation: FeatureStructureMutation,
-    operation: Literal["separate_parts", "merge_parts"],
+    operation: Literal["separate_parts", "merge_parts", "cut_line"],
     *,
     geometry_operation: Literal["collect", "dissolve"] = "collect",
 ) -> JSONResponse:

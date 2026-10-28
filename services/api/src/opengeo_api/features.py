@@ -75,6 +75,7 @@ _MAX_SAFE_INTEGER = 9_007_199_254_740_991
 _MAX_COORDINATES = 10_000
 _MAX_QUERY_COORDINATES = 2_048
 _MAX_QUERY_GEOMETRY_BYTES = 65_536
+_MAX_CUT_LINE_COORDINATES = 256
 _MAX_SCHEMA_FIELDS = 64
 _MAX_GROUP_DEPTH = 3
 _MAX_REPEAT_ITEMS = 20
@@ -108,6 +109,56 @@ _DISSOLVE_MULTIPOLYGON_SQL = """
         FROM dissolved
     )
     SELECT CASE WHEN accepted THEN ST_AsGeoJSON(geom, 17)::jsonb END, accepted
+    FROM bounded
+"""
+_CUT_MULTIPOLYGON_SQL = """
+    WITH inputs AS MATERIALIZED (
+        SELECT ST_SetSRID(ST_GeomFromGeoJSON(%s::text), 4326) AS source,
+               ST_SetSRID(ST_GeomFromGeoJSON(%s::text), 4326) AS blade,
+               %s::int AS part_number
+    ), selected AS MATERIALIZED (
+        SELECT *, ST_GeometryN(source, part_number) AS target FROM inputs
+    ), checked AS MATERIALIZED (
+        SELECT *, COALESCE(
+            ST_GeometryType(source) = 'ST_MultiPolygon'
+            AND ST_IsValid(source) AND NOT ST_IsEmpty(source)
+            AND ST_GeometryType(blade) = 'ST_LineString'
+            AND ST_IsValid(blade) AND ST_IsSimple(blade)
+            AND NOT ST_IsClosed(blade) AND ST_Length(blade) > 0
+            AND ST_NPoints(source) <= 10000 AND ST_NumGeometries(source) <= 256
+            AND ST_NPoints(blade) <= 256
+            AND target IS NOT NULL AND NOT ST_IsEmpty(target), false) AS valid
+        FROM selected
+    ), split AS MATERIALIZED (
+        SELECT *, CASE WHEN valid THEN
+            CASE WHEN ST_Dimension(ST_Intersection(ST_Boundary(target), blade)) < 1
+                 THEN ST_Split(target, blade) END
+            END AS pieces
+        FROM checked
+    ), parts AS MATERIALIZED (
+        SELECT (ST_Dump(ST_CollectionExtract(pieces, 3))).geom AS geom FROM split
+        LIMIT 21
+    ), ordered AS MATERIALIZED (
+        SELECT geom, row_number() OVER (
+            ORDER BY ST_Area(geom) DESC, ST_AsEWKB(ST_Normalize(geom))) AS piece_index
+        FROM parts
+    ), bounded AS MATERIALIZED (
+        SELECT count(*) BETWEEN 2 AND 20
+            AND bool_and(ST_IsValid(geom) AND NOT ST_IsEmpty(geom)
+                         AND ST_GeometryType(geom) = 'ST_Polygon')
+            AND sum(ST_NPoints(geom)) +
+                (SELECT ST_NPoints(source) - ST_NPoints(target) FROM selected) <= 10000
+            AND count(*) + (SELECT ST_NumGeometries(source) - 1 FROM selected) <= 256
+            AND ST_Equals(ST_UnaryUnion(ST_Collect(geom)), (SELECT target FROM selected))
+            AND NOT EXISTS (
+                SELECT 1 FROM ordered a JOIN ordered b ON a.piece_index < b.piece_index
+                WHERE ST_Relate(a.geom, b.geom, '2********')
+            ) AS accepted
+        FROM ordered
+    )
+    SELECT CASE WHEN accepted THEN (
+        SELECT jsonb_agg(ST_AsGeoJSON(geom, 17)::jsonb ORDER BY piece_index) FROM ordered
+    ) END, COALESCE(accepted, false)
     FROM bounded
 """
 
@@ -437,6 +488,20 @@ class FeatureRepository(Protocol):
         feature_id: UUID,
         expected_version: int,
         retained_part_index: int,
+        change_message: str | None,
+        request_id: str,
+        lock_token: UUID | None = None,
+    ) -> FeatureStructureMutation: ...
+
+    async def cut_multipolygon_feature(
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        dataset_id: UUID,
+        feature_id: UUID,
+        expected_version: int,
+        part_index: int,
+        cut_line: dict[str, Any],
         change_message: str | None,
         request_id: str,
         lock_token: UUID | None = None,
@@ -1030,6 +1095,64 @@ def separate_multipolygon_drafts(
             feature.feature_id if index == 0 else None,
         )
         for index, part in enumerate(ordered)
+    )
+
+
+def normalize_cut_line(value: dict[str, Any]) -> dict[str, Any]:
+    geometry_type, geometry, _bbox = normalize_geometry(value)
+    if geometry_type != "LineString":
+        raise FeatureInvalid("cut line must be a LineString")
+    if len(geometry["coordinates"]) > _MAX_CUT_LINE_COORDINATES:
+        raise FeatureInvalid("cut line supports at most 256 positions")
+    if len(_canonical_json(geometry)) > _MAX_QUERY_GEOMETRY_BYTES:
+        raise FeatureInvalid("cut line exceeds 65536 bytes")
+    if geometry["coordinates"][0] == geometry["coordinates"][-1]:
+        raise FeatureInvalid("cut line must be open")
+    return geometry
+
+
+def cut_multipolygon_drafts(
+    feature: FeatureRecord,
+    fields: tuple[FeatureField, ...],
+    part_index: int,
+    pieces: list[dict[str, Any]],
+) -> tuple[FeatureDraft, ...]:
+    """Reassemble already validated, deterministically ordered PostGIS pieces."""
+    if feature.geometry_type != "MultiPolygon":
+        raise FeatureInvalid("only MultiPolygon features can be cut")
+    kind, original, _bbox = normalize_geometry(feature.geometry)
+    if kind != "MultiPolygon":
+        raise FeatureInvalid("only MultiPolygon features can be cut")
+    coordinates = original["coordinates"]
+    if not 0 <= part_index < len(coordinates):
+        raise FeatureInvalid("cut polygon part index is outside the feature")
+    if not 2 <= len(pieces) <= 20:
+        raise FeatureInvalid("cut line must produce between 2 and 20 polygon pieces")
+    cut_coordinates = []
+    for piece in pieces:
+        kind, geometry, _bbox = normalize_geometry(piece)
+        if kind != "Polygon":
+            raise FeatureInvalid("cut line result must contain only polygons")
+        cut_coordinates.append(geometry["coordinates"])
+    retained_coordinates = list(coordinates)
+    retained_coordinates[part_index] = cut_coordinates[0]
+    if len(retained_coordinates) + len(cut_coordinates) - 1 > 256:
+        raise FeatureInvalid("cut line result supports at most 256 polygon parts")
+    # Bound the entire mutation together, including untouched parts and the
+    # duplicated endpoints introduced by the split, before creating any heads.
+    normalize_geometry(
+        {"type": "MultiPolygon", "coordinates": retained_coordinates + cut_coordinates[1:]}
+    )
+    return tuple(
+        feature_draft(
+            {"type": "MultiPolygon", "coordinates": parts},
+            feature.properties,
+            fields,
+            feature.feature_id if index == 0 else None,
+        )
+        for index, parts in enumerate(
+            [retained_coordinates] + [[part] for part in cut_coordinates[1:]]
+        )
     )
 
 
@@ -2105,6 +2228,100 @@ class PostgresFeatureRepository:
                     "dataset_id": str(dataset_id),
                     "retained_feature_id": str(feature_id),
                     "retained_part_index": retained_part_index,
+                    "created_feature_ids": [str(item.feature_id) for item in created],
+                    "generation": collection.generation,
+                },
+            )
+            return FeatureStructureMutation(collection, retained, created, ())
+
+        return await self._run(context, operation)
+
+    async def cut_multipolygon_feature(
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        dataset_id: UUID,
+        feature_id: UUID,
+        expected_version: int,
+        part_index: int,
+        cut_line: dict[str, Any],
+        change_message: str | None,
+        request_id: str,
+        lock_token: UUID | None = None,
+    ) -> FeatureStructureMutation:
+        async def operation(transaction: TenantTransaction) -> FeatureStructureMutation:
+            scope = await self._scope(transaction, context, project_id, dataset_id)
+            self._require(Action.DATASET_EDIT, scope.roles)
+            self._require_editable_dataset(scope)
+            collection = await self._collection(transaction, context, dataset_id, lock=True)
+            if collection.geometry_type != "MultiPolygon":
+                raise FeatureInvalid("only MultiPolygon collections can cut polygon features")
+            current = await self._feature_head(
+                transaction, context, dataset_id, feature_id, lock=True
+            )
+            if current.version_number != expected_version:
+                raise FeatureConflict("feature_version_conflict", current.version_number)
+            await self._require_feature_lock_access(
+                transaction, context, dataset_id, feature_id, lock_token
+            )
+            kind, geometry, _bbox = normalize_geometry(current.geometry)
+            if kind != "MultiPolygon" or not 0 <= part_index < len(geometry["coordinates"]):
+                raise FeatureInvalid("cut polygon part index is outside the feature")
+            blade = normalize_cut_line(cut_line)
+            await authorize_feature_attachments(
+                transaction, context, [current.properties], collection.fields
+            )
+            await transaction.execute(_DISSOLVE_TIMEOUT_SQL, ())
+            row = await transaction.fetch_one(
+                _CUT_MULTIPOLYGON_SQL, (Jsonb(geometry), Jsonb(blade), part_index + 1)
+            )
+            if row is None or row[1] is not True or not isinstance(row[0], list):
+                raise FeatureInvalid(
+                    "cut requires an open simple line crossing the selected polygon without "
+                    "boundary overlap, and 2 to 20 valid pieces within geometry limits"
+                )
+            drafts = cut_multipolygon_drafts(current, collection.fields, part_index, row[0])
+            retained = await self._replace_feature_head(
+                transaction,
+                context,
+                dataset_id,
+                current,
+                drafts[0],
+                change_message or "Cut polygon with a line",
+                request_id,
+            )
+            await self._advance_feature_lock_version(
+                transaction, context, dataset_id, feature_id, lock_token, retained.version_number
+            )
+            created = tuple(
+                [
+                    await self._insert_feature(
+                        transaction,
+                        context,
+                        dataset_id,
+                        draft,
+                        "create",
+                        change_message or f"Cut from feature {feature_id}",
+                        request_id,
+                    )
+                    for draft in drafts[1:]
+                ]
+            )
+            collection = await self._advance_collection(
+                transaction, context, collection, count_delta=len(created)
+            )
+            await self._event(
+                transaction,
+                context,
+                project_id,
+                dataset_id,
+                "dataset.feature.cut",
+                "feature",
+                feature_id,
+                request_id,
+                {
+                    "dataset_id": str(dataset_id),
+                    "part_index": part_index,
                     "created_feature_ids": [str(item.feature_id) for item in created],
                     "generation": collection.generation,
                 },
