@@ -22240,6 +22240,76 @@
         "title": "ShareDraft",
         "type": "object"
       },
+      "SharedPolygonVertexRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "change_message": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Message"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/FeatureExpectedVersionRequest"
+            },
+            "maxItems": 20,
+            "minItems": 2,
+            "title": "Features",
+            "type": "array"
+          },
+          "from_position": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              }
+            ],
+            "title": "From Position",
+            "type": "array"
+          },
+          "to_position": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              }
+            ],
+            "title": "To Position",
+            "type": "array"
+          }
+        },
+        "required": [
+          "features",
+          "from_position",
+          "to_position"
+        ],
+        "title": "SharedPolygonVertexRequest",
+        "type": "object"
+      },
       "SiteAssetCandidateResponse": {
         "properties": {
           "checksum_sha256": {
@@ -40559,6 +40629,88 @@
           }
         ],
         "summary": "Separate Multipolygon Parts",
+        "tags": [
+          "governed feature editing"
+        ]
+      }
+    },
+    "/projects/{project_id}/datasets/{dataset_id}/features/shared-vertex": {
+      "post": {
+        "operationId": "move_shared_polygon_vertex_projects__project_id__datasets__dataset_id__features_shared_vertex_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SharedPolygonVertexRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Shared Polygon Vertex",
         "tags": [
           "governed feature editing"
         ]

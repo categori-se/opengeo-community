@@ -5317,6 +5317,55 @@ export class OpenGeoApiClient {
     return result;
   }
 
+  async moveSharedPolygonVertex(projectId, datasetId, {
+    features, fromPosition, toPosition, changeMessage = null
+  }) {
+    if (!Array.isArray(features) || features.length < 2 || features.length > 20) {
+      throw new TypeError("shared vertex move requires 2–20 features");
+    }
+    const position = (value) => {
+      if (!Array.isArray(value) || value.length !== 2 || value.some(item => !Number.isFinite(item))
+        || Math.abs(value[0]) > 180 || Math.abs(value[1]) > 90) {
+        throw new TypeError("shared vertex position must be a finite two-dimensional CRS84 position");
+      }
+      return [...value];
+    };
+    const from = position(fromPosition), to = position(toPosition);
+    if (from.every((value, index) => value === to[index])) throw new TypeError("shared vertex destination must differ");
+    const normalized = features.map(value => {
+      const feature = object(value, "shared vertex feature");
+      if (!Number.isSafeInteger(feature.expectedVersion) || feature.expectedVersion < 1) {
+        throw new TypeError("shared vertex expectedVersion must be a positive integer");
+      }
+      return {feature_id: assertUuid(feature.featureId, "shared vertex feature id"), expected_version: feature.expectedVersion,
+        ...(feature.lockToken == null ? {} : {lock_token: assertUuid(feature.lockToken, "feature lock token")})};
+    });
+    const expected = new Map(normalized.map(feature => [feature.feature_id, feature.expected_version]));
+    if (expected.size !== normalized.length) throw new TypeError("shared vertex feature identities must be distinct");
+    const record = boundedObject(await this.request(`${featurePath(projectId, datasetId)}/shared-vertex`, {
+      method: "POST", body: {features: normalized, from_position: from, to_position: to,
+        change_message: boundedQuery(changeMessage, 500, "feature change message")}
+    }), 6_000_000, "shared vertex mutation");
+    if (record.operation !== "move_shared_vertex"
+      || uuid(record.dataset_id, "shared vertex dataset") !== assertUuid(datasetId, "dataset id")
+      || uuid(record.project_id, "shared vertex project") !== assertUuid(projectId, "project id")
+      || !Array.isArray(record.tombstoned_feature_ids) || record.tombstoned_feature_ids.length
+      || ["retained_feature", "created_features", "deleted_features"].some(key => record[key] !== undefined)) {
+      contract("shared vertex mutation scope or operation changed");
+    }
+    const updatedFeatures = parseArray(record.updated_features, parseGovernedFeature, "shared vertex updated features");
+    const collectionGeneration = positiveInteger(record.collection_generation, "shared vertex collection generation");
+    const featureCount = nonNegativeInteger(record.feature_count, "shared vertex feature count");
+    if (updatedFeatures.length !== expected.size || featureCount < expected.size
+      || new Set(updatedFeatures.map(feature => feature.id)).size !== expected.size
+      || updatedFeatures.some(feature => !expected.has(feature.id) || feature.version !== expected.get(feature.id) + 1
+        || !["Polygon", "MultiPolygon"].includes(feature.geometry.type))) {
+      contract("shared vertex feature identities, types or versions changed");
+    }
+    return {operation: "move_shared_vertex", updatedFeatures, tombstonedFeatureIds: [],
+      collectionGeneration, featureCount, datasetId: record.dataset_id, projectId: record.project_id};
+  }
+
   async listFeatureHistory(projectId, datasetId, featureId, page = {}) {
     return parseFeatureHistory(await this.request(
       `${featurePath(projectId, datasetId)}/${pathUuid(featureId, "feature id")}/history${pageQuery(page)}`

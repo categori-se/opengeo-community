@@ -159,6 +159,19 @@ class MergeMultipolygonFeaturesRequest(RequestModel):
     geometry_operation: Literal["collect", "dissolve"] = "collect"
 
 
+class SharedPolygonVertexRequest(RequestModel):
+    features: list[FeatureExpectedVersionRequest] = Field(min_length=2, max_length=20)
+    from_position: tuple[
+        Annotated[float, Field(strict=True, ge=-180, le=180, allow_inf_nan=False)],
+        Annotated[float, Field(strict=True, ge=-90, le=90, allow_inf_nan=False)],
+    ]
+    to_position: tuple[
+        Annotated[float, Field(strict=True, ge=-180, le=180, allow_inf_nan=False)],
+        Annotated[float, Field(strict=True, ge=-90, le=90, allow_inf_nan=False)],
+    ]
+    change_message: ChangeMessage | None = None
+
+
 class AttributeQueryStepRequest(RequestModel):
     kind: Literal["attribute"]
     field: Annotated[str, StringConstraints(pattern=r"^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$")]
@@ -449,6 +462,45 @@ async def merge_multipolygon_features(
     )
     return _structure_mutation_response(
         mutation, "merge_parts", geometry_operation=payload.geometry_operation
+    )
+
+
+@router.post("/projects/{project_id}/datasets/{dataset_id}/features/shared-vertex")
+async def move_shared_polygon_vertex(
+    project_id: UUID,
+    dataset_id: UUID,
+    payload: SharedPolygonVertexRequest,
+    session: Annotated[AuthSession, Depends(current_session)],
+    repository: Annotated[FeatureRepository, Depends(repository_from_request)],
+) -> JSONResponse:
+    mutation = await execute_feature(
+        repository.move_shared_polygon_vertex(
+            tenant_context(session),
+            project_id,
+            dataset_id,
+            tuple(
+                (item.feature_id, item.expected_version, item.lock_token)
+                for item in payload.features
+            ),
+            list(payload.from_position),
+            list(payload.to_position),
+            payload.change_message,
+            get_request_id(),
+        )
+    )
+    return JSONResponse(
+        {
+            "operation": "move_shared_vertex",
+            "project_id": str(project_id),
+            "dataset_id": str(dataset_id),
+            "updated_features": [
+                _feature_document(feature) for feature in mutation.updated_features
+            ],
+            "collection_generation": mutation.collection.generation,
+            "feature_count": mutation.collection.feature_count,
+            "tombstoned_feature_ids": [],
+        },
+        media_type="application/geo+json",
     )
 
 

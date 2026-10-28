@@ -9379,3 +9379,71 @@ it('attaches reviewed input approval to the final output review without creating
   assert.equal(calls[1].body.distribution_approval_id,IDS.idempotency);
   assert(calls.every(call=>call.url.endsWith('/publications/reviews')));
 });
+
+describe("shared vertex client contract", () => {
+  const secondId = "90000000-0000-4000-8000-000000000012";
+  const lockToken = "a0000000-0000-4000-8000-000000000001";
+  const request = () => ({features: [{featureId: IDS.feature, expectedVersion: 1, lockToken},
+    {featureId: secondId, expectedVersion: 4}], fromPosition: [1, 0.5], toPosition: [1.2, 0.5],
+    changeMessage: "Move the shared boundary vertex"});
+  const response = () => ({operation: "move_shared_vertex", project_id: IDS.project, dataset_id: IDS.dataset,
+    collection_generation: 5, feature_count: 2, tombstoned_feature_ids: [],
+    updated_features: [multipolygonFeaturePayload(IDS.feature, 2), multipolygonFeaturePayload(secondId, 5)]});
+  const clientFor = (payload, calls = []) => new OpenGeoApiClient({
+    tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+    fetchImplementation: async (url, options) => {calls.push({url, options});return jsonResponse(payload);}
+  });
+
+  it("sends one snake_case identity-only transaction and accepts exact mixed Polygon/MultiPolygon receipts", async () => {
+    const payload = response(), calls = [];
+    payload.updated_features[0].geometry = {type: "Polygon", coordinates: payload.updated_features[0].geometry.coordinates[0]};
+    const result = await clientFor(payload, calls).moveSharedPolygonVertex(IDS.project, IDS.dataset, request());
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, `/api/projects/${IDS.project}/datasets/${IDS.dataset}/features/shared-vertex`);
+    assert.equal(calls[0].options.method, "POST");
+    assert.deepEqual(JSON.parse(calls[0].options.body), {
+      features: [{feature_id: IDS.feature, expected_version: 1, lock_token: lockToken},
+        {feature_id: secondId, expected_version: 4}],
+      from_position: [1, 0.5], to_position: [1.2, 0.5], change_message: "Move the shared boundary vertex"
+    });
+    assert.deepEqual(result.updatedFeatures.map(item => [item.id, item.version, item.geometry.type]),
+      [[IDS.feature, 2, "Polygon"], [secondId, 5, "MultiPolygon"]]);
+    assert.equal(result.operation, "move_shared_vertex");
+    assert.equal(result.projectId, IDS.project);assert.equal(result.datasetId, IDS.dataset);
+    assert.deepEqual(result.tombstonedFeatureIds, []);
+  });
+
+  it("rejects invalid participants, positions and no-op moves before any request", async () => {
+    const invalid = [
+      {...request(), features: request().features.slice(0, 1)},
+      {...request(), features: Array.from({length: 21}, () => request().features[0])},
+      {...request(), features: [request().features[0], request().features[0]]},
+      {...request(), features: [{featureId: "invalid", expectedVersion: 1}, request().features[1]]},
+      {...request(), features: [{featureId: IDS.feature, expectedVersion: 0}, request().features[1]]},
+      {...request(), features: [{...request().features[0], lockToken: "invalid"}, request().features[1]]},
+      {...request(), fromPosition: [1, 0.5, 0]}, {...request(), toPosition: [181, 0]},
+      {...request(), toPosition: [0, 91]}, {...request(), toPosition: [NaN, 0]},
+      {...request(), toPosition: request().fromPosition}
+    ];
+    const calls = [], client = clientFor(response(), calls);
+    for (const input of invalid) await assert.rejects(client.moveSharedPolygonVertex(IDS.project, IDS.dataset, input), TypeError);
+    assert.equal(calls.length, 0);
+  });
+
+  it("rejects wrong scope, identity sets, versions, types, tombstones and mixed structural receipts", async () => {
+    const variants = [];
+    for (const fields of [
+      {operation: "merge_parts"}, {project_id: secondId}, {dataset_id: secondId},
+      {collection_generation: 0}, {feature_count: 1}, {tombstoned_feature_ids: [secondId]},
+      {tombstoned_feature_ids: undefined}, {retained_feature: multipolygonFeaturePayload(IDS.feature, 2)},
+      {created_features: []}, {deleted_features: []}, {updated_features: []}
+    ]) variants.push({...response(), ...fields});
+    const duplicate = response();duplicate.updated_features[1] = duplicate.updated_features[0];variants.push(duplicate);
+    const wrongVersion = response();wrongVersion.updated_features[1]["opengeo:version"] = 4;variants.push(wrongVersion);
+    const wrongIdentity = response();wrongIdentity.updated_features[1].id = IDS.user;variants.push(wrongIdentity);
+    const wrongType = response();wrongType.updated_features[1] = featurePayload({id: secondId, "opengeo:version": 5});variants.push(wrongType);
+    for (const payload of variants) {
+      await assert.rejects(clientFor(payload).moveSharedPolygonVertex(IDS.project, IDS.dataset, request()), ApiContractError);
+    }
+  });
+});

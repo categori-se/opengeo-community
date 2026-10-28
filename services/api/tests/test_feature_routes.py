@@ -10,6 +10,7 @@ from opengeo_api.auth_models import OrganizationMembership, Principal, VerifiedA
 from opengeo_api.config import Settings
 from opengeo_api.features import (
     AttributeQueryStep,
+    FeatureAccessDenied,
     FeatureCollection,
     FeatureConflict,
     FeatureDeletion,
@@ -21,6 +22,7 @@ from opengeo_api.features import (
     FeaturePage,
     FeatureRecord,
     FeatureRevision,
+    FeatureSharedVertexMutation,
     FeatureStructureMutation,
     FeatureTombstone,
     FeatureTombstonePage,
@@ -1775,3 +1777,126 @@ def test_cql2_route_and_queryables_share_collection_schema():
         assert client.get(f"{root}/items?{parameters}", headers=headers()).status_code == 400
     stale = client.get(f"{root}/queryables?expected_generation=99", headers=headers())
     assert stale.status_code == 409
+
+
+def shared_vertex_payload() -> dict:
+    return {
+        "features": [
+            {"feature_id": str(FEATURE_ID), "expected_version": 1},
+            {
+                "feature_id": str(FEATURE_ID_2),
+                "expected_version": 3,
+                "lock_token": str(LOCK_TOKEN),
+            },
+        ],
+        "from_position": [3, 1.5],
+        "to_position": [3.5, 1.5],
+        "change_message": "Correct shared survey boundary",
+    }
+
+
+def test_shared_vertex_route_binds_identity_versions_and_every_updated_head() -> None:
+    repository = MemoryFeatureRepository()
+    client = api_client(repository)
+    client.post(
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/feature-collection",
+        headers=headers(),
+        json=multipolygon_collection_payload(),
+    )
+    received = []
+    original = repository.features[FEATURE_ID]
+
+    async def move(context, project_id, dataset_id, versions, before, after, message, request_id):
+        received.append(
+            (context, project_id, dataset_id, versions, before, after, message, request_id)
+        )
+        return FeatureSharedVertexMutation(
+            replace(repository.collection, generation=7, feature_count=2),
+            (
+                replace(original, version_number=2),
+                replace(original, feature_id=FEATURE_ID_2, version_number=4),
+            ),
+        )
+
+    repository.move_shared_polygon_vertex = move
+    url = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/features/shared-vertex"
+    assert client.post(url, json=shared_vertex_payload()).status_code == 401
+    assert received == []
+    response = client.post(url, headers=headers(), json=shared_vertex_payload())
+    assert response.status_code == 200
+    result = response.json()
+    assert result["operation"] == "move_shared_vertex"
+    assert result["project_id"] == str(PROJECT_ID)
+    assert result["dataset_id"] == str(DATASET_ID)
+    assert result["collection_generation"] == 7
+    assert result["feature_count"] == 2
+    assert result["tombstoned_feature_ids"] == []
+    assert [item["id"] for item in result["updated_features"]] == [
+        str(FEATURE_ID),
+        str(FEATURE_ID_2),
+    ]
+    assert [item["opengeo:version"] for item in result["updated_features"]] == [2, 4]
+    assert received[0][0].organization_id == ORG_ID
+    assert received[0][1:] == (
+        PROJECT_ID,
+        DATASET_ID,
+        ((FEATURE_ID, 1, None), (FEATURE_ID_2, 3, LOCK_TOKEN)),
+        [3.0, 1.5],
+        [3.5, 1.5],
+        "Correct shared survey boundary",
+        "feature-edit-request-123",
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"features": [{"feature_id": str(FEATURE_ID), "expected_version": 1}]},
+        {"features": shared_vertex_payload()["features"] * 11},
+        {"from_position": [3]},
+        {"from_position": [3, 1.5, 0]},
+        {"from_position": [181, 1.5]},
+        {"to_position": [3.5, -91]},
+        {"to_position": [True, 1.5]},
+        {"to_position": [3.5, "1.5"]},
+        {"to_position": [3.5, None]},
+        {"unexpected": True},
+    ],
+)
+def test_shared_vertex_route_rejects_invalid_bounded_request_before_repository(changes) -> None:
+    repository = MemoryFeatureRepository()
+    received = []
+
+    async def move(*args):
+        received.append(args)
+        raise AssertionError("Invalid requests may not reach the repository")
+
+    repository.move_shared_polygon_vertex = move
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/features/shared-vertex",
+        headers=headers(),
+        json={**shared_vertex_payload(), **changes},
+    )
+    assert response.status_code == 422
+    assert received == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status_code"),
+    [(FeatureConflict("feature_version_conflict", 4), 409), (FeatureAccessDenied(), 403)],
+)
+def test_shared_vertex_route_preserves_repository_authority_and_conflicts(
+    error, status_code
+) -> None:
+    repository = MemoryFeatureRepository()
+
+    async def move(*args):
+        raise error
+
+    repository.move_shared_polygon_vertex = move
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/features/shared-vertex",
+        headers=headers(),
+        json=shared_vertex_payload(),
+    )
+    assert response.status_code == status_code

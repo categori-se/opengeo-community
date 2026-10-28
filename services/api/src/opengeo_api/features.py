@@ -161,6 +161,38 @@ _CUT_MULTIPOLYGON_SQL = """
     ) END, COALESCE(accepted, false)
     FROM bounded
 """
+_MOVE_SHARED_POLYGON_VERTEX_SQL = """
+    WITH inputs AS MATERIALIZED (
+        SELECT ordinal,
+               ST_SetSRID(ST_GeomFromGeoJSON((value->'before')::text), 4326) AS before_geom,
+               ST_SetSRID(ST_GeomFromGeoJSON((value->'after')::text), 4326) AS after_geom
+        FROM jsonb_array_elements(%s::jsonb) WITH ORDINALITY AS selected(value, ordinal)
+    ), checked AS MATERIALIZED (
+        SELECT COALESCE(count(*) BETWEEN 2 AND 20
+            AND bool_and(ST_IsValid(before_geom) AND NOT ST_IsEmpty(before_geom)
+                AND ST_IsValid(after_geom) AND NOT ST_IsEmpty(after_geom)
+                AND ST_GeometryType(before_geom) IN ('ST_Polygon', 'ST_MultiPolygon')
+                AND ST_GeometryType(before_geom) = ST_GeometryType(after_geom))
+            AND sum(ST_NPoints(before_geom)) <= 10000
+            AND sum(ST_NPoints(after_geom)) <= 10000, false) AS valid,
+            array_agg(before_geom) AS before_geometries,
+            array_agg(after_geom) AS after_geometries
+        FROM inputs
+    ), unions AS MATERIALIZED (
+        SELECT valid,
+            CASE WHEN valid THEN ST_UnaryUnion(ST_Collect(before_geometries)) END AS before_union,
+            CASE WHEN valid THEN ST_UnaryUnion(ST_Collect(after_geometries)) END AS after_union
+        FROM checked
+    )
+    SELECT CASE WHEN valid THEN COALESCE(
+        ST_Equals(before_union, after_union)
+        AND NOT EXISTS (
+            SELECT 1 FROM inputs a JOIN inputs b ON a.ordinal < b.ordinal
+            WHERE ST_Relate(a.before_geom, b.before_geom, '2********')
+               OR ST_Relate(a.after_geom, b.after_geom, '2********')
+        ), false) ELSE false END
+    FROM unions
+"""
 
 
 class FeatureStoreUnavailable(RuntimeError):
@@ -311,6 +343,12 @@ class FeatureStructureMutation:
     retained_feature: FeatureRecord
     created_features: tuple[FeatureRecord, ...]
     deleted_features: tuple[FeatureDeletion, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class FeatureSharedVertexMutation:
+    collection: FeatureCollection
+    updated_features: tuple[FeatureRecord, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,6 +556,18 @@ class FeatureRepository(Protocol):
         request_id: str,
         geometry_operation: PolygonGeometryOperation = "collect",
     ) -> FeatureStructureMutation: ...
+
+    async def move_shared_polygon_vertex(
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        dataset_id: UUID,
+        expected_versions: tuple[tuple[UUID, int, UUID | None], ...],
+        from_position: list[float],
+        to_position: list[float],
+        change_message: str | None,
+        request_id: str,
+    ) -> FeatureSharedVertexMutation: ...
 
     async def list_feature_locks(
         self,
@@ -1196,6 +1246,66 @@ def merge_multipolygon_draft(
         fields,
         retained_feature_id,
     )
+
+
+def shared_polygon_vertex_drafts(
+    features: list[FeatureRecord],
+    fields: tuple[FeatureField, ...],
+    from_position: list[float],
+    to_position: list[float],
+) -> tuple[FeatureDraft, ...]:
+    """Move one unambiguous logical vertex per feature; closure is the same vertex."""
+    if not 2 <= len(features) <= 20:
+        raise FeatureInvalid("shared vertex move requires between 2 and 20 polygon features")
+    if len({feature.feature_id for feature in features}) != len(features):
+        raise FeatureInvalid("shared vertex feature ids must be unique")
+    source = normalize_geometry({"type": "Point", "coordinates": from_position})[1]["coordinates"]
+    target = normalize_geometry({"type": "Point", "coordinates": to_position})[1]["coordinates"]
+    if source == target:
+        raise FeatureInvalid("shared vertex move must change the position")
+    originals, drafts = [], []
+    for feature in features:
+        kind, geometry, _bbox = normalize_geometry(feature.geometry)
+        if kind not in {"Polygon", "MultiPolygon"} or kind != feature.geometry_type:
+            raise FeatureInvalid(
+                "shared vertex move requires matching Polygon or MultiPolygon types"
+            )
+        originals.append(feature.geometry)
+        polygons = [geometry["coordinates"]] if kind == "Polygon" else geometry["coordinates"]
+        matches = [
+            (ring, index)
+            for polygon in polygons
+            for ring in polygon
+            for index, position in enumerate(ring[:-1])
+            if position == source
+        ]
+        if len(matches) != 1:
+            raise FeatureInvalid(
+                "shared source vertex must occur once per feature, excluding closure"
+            )
+        if any(
+            position == target for polygon in polygons for ring in polygon for position in ring[:-1]
+        ):
+            raise FeatureInvalid("shared target position already exists as another vertex")
+        ring, index = matches[0]
+        ring[index] = list(target)
+        if index == 0:
+            ring[-1] = list(target)
+        drafts.append(feature_draft(geometry, feature.properties, fields, feature.feature_id))
+
+    # Each head keeps its own geometry family/parts. Aggregate bounds must not
+    # invent a new MultiPolygon or silently impose its per-feature part limit.
+    def positions(value):
+        if value and isinstance(value[0], int | float):
+            return 1
+        return sum(positions(child) for child in value)
+
+    for geometries in (originals, [draft.geometry for draft in drafts]):
+        if sum(positions(geometry["coordinates"]) for geometry in geometries) > _MAX_COORDINATES:
+            raise FeatureInvalid("shared vertex selection exceeds 10000 positions")
+        if len(_canonical_json(geometries)) > 262_144:
+            raise FeatureInvalid("shared vertex selection exceeds 262144 geometry bytes")
+    return tuple(drafts)
 
 
 class _CoordinateState:
@@ -2348,6 +2458,118 @@ class PostgresFeatureRepository:
                 },
             )
             return FeatureStructureMutation(collection, retained, created, ())
+
+        return await self._run(context, operation)
+
+    async def move_shared_polygon_vertex(
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        dataset_id: UUID,
+        expected_versions: tuple[tuple[UUID, int, UUID | None], ...],
+        from_position: list[float],
+        to_position: list[float],
+        change_message: str | None,
+        request_id: str,
+    ) -> FeatureSharedVertexMutation:
+        async def operation(transaction: TenantTransaction) -> FeatureSharedVertexMutation:
+            scope = await self._scope(transaction, context, project_id, dataset_id)
+            self._require(Action.DATASET_EDIT, scope.roles)
+            self._require_editable_dataset(scope)
+            collection = await self._collection(transaction, context, dataset_id, lock=True)
+            if collection.geometry_type not in {"Polygon", "MultiPolygon"}:
+                raise FeatureInvalid(
+                    "shared vertex move requires a Polygon or MultiPolygon collection"
+                )
+            if not 2 <= len(expected_versions) <= 20:
+                raise FeatureInvalid(
+                    "shared vertex move requires between 2 and 20 polygon features"
+                )
+            selected_ids = [feature_id for feature_id, _version, _token in expected_versions]
+            if len(set(selected_ids)) != len(selected_ids):
+                raise FeatureInvalid("shared vertex feature ids must be unique")
+            locked = {}
+            for feature_id in sorted(selected_ids, key=str):
+                locked[feature_id] = await self._feature_head(
+                    transaction, context, dataset_id, feature_id, lock=True
+                )
+            tokens = {}
+            for feature_id, version, token in expected_versions:
+                current = locked[feature_id]
+                if current.version_number != version:
+                    raise FeatureConflict("feature_version_conflict", current.version_number)
+                await self._require_feature_lock_access(
+                    transaction, context, dataset_id, feature_id, token
+                )
+                if current.geometry_type != collection.geometry_type:
+                    raise FeatureInvalid("shared vertex source does not match the collection type")
+                tokens[feature_id] = token
+            ordered = [locked[feature_id] for feature_id in selected_ids]
+            drafts = shared_polygon_vertex_drafts(
+                ordered, collection.fields, from_position, to_position
+            )
+            await authorize_feature_attachments(
+                transaction, context, [feature.properties for feature in ordered], collection.fields
+            )
+            await transaction.execute(_DISSOLVE_TIMEOUT_SQL, ())
+            row = await transaction.fetch_one(
+                _MOVE_SHARED_POLYGON_VERTEX_SQL,
+                (
+                    Jsonb(
+                        [
+                            {"before": current.geometry, "after": draft.geometry}
+                            for current, draft in zip(ordered, drafts, strict=True)
+                        ]
+                    ),
+                ),
+            )
+            if row is None or row[0] is not True:
+                raise FeatureInvalid(
+                    "shared vertex move requires valid non-overlapping old and new polygons "
+                    "with an identical combined footprint"
+                )
+            updated = []
+            for current, draft in zip(ordered, drafts, strict=True):
+                _require_geometry_type(draft, collection.geometry_type)
+                feature = await self._replace_feature_head(
+                    transaction,
+                    context,
+                    dataset_id,
+                    current,
+                    draft,
+                    change_message or "Moved shared polygon vertex",
+                    request_id,
+                )
+                await self._advance_feature_lock_version(
+                    transaction,
+                    context,
+                    dataset_id,
+                    current.feature_id,
+                    tokens[current.feature_id],
+                    feature.version_number,
+                )
+                updated.append(feature)
+            collection = await self._advance_collection(
+                transaction, context, collection, count_delta=0
+            )
+            await self._event(
+                transaction,
+                context,
+                project_id,
+                dataset_id,
+                "dataset.feature.shared_vertex.moved",
+                "dataset",
+                dataset_id,
+                request_id,
+                {
+                    "dataset_id": str(dataset_id),
+                    "feature_ids": [str(value) for value in selected_ids],
+                    "from_position": from_position,
+                    "to_position": to_position,
+                    "generation": collection.generation,
+                },
+            )
+            return FeatureSharedVertexMutation(collection, tuple(updated))
 
         return await self._run(context, operation)
 
