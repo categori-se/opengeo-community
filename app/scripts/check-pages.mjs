@@ -27,6 +27,11 @@ const kmlNetworkLinkMode = process.argv.includes("--kml-network-link")
   || process.argv.length === 2;
 const geomooseQueryMode = process.argv.includes("--geomoose-query");
 const shellOnly = process.argv.includes("--shell-only");
+const reviewControlsMode = process.argv.includes("--review-controls");
+if (reviewControlsMode && (!process.argv.includes("--workbench-interactions") || shellOnly)) {
+  throw new Error("--review-controls requires --workbench-interactions without --shell-only");
+}
+const reviewControlsStartedAt = Date.now();
 const graphicsFailureMode = process.argv.includes("--graphics-failure-recovery");
 const graphicsFreshReopenMode = process.argv.includes("--graphics-fresh-reopen");
 assert.ok(!(graphicsFailureMode && graphicsFreshReopenMode), "Select one graphics method");
@@ -49,7 +54,37 @@ if (!existsSync(distRoot) || !statSync(distRoot).isDirectory()) {
 }
 const artifactRoot = graphicsMode
   ? resolve(process.env.OPEN_GEO_GRAPHICS_ARTIFACT_ROOT ?? join(appRoot, "page-check-artifacts", graphicsFreshReopenMode ? "graphics-fresh-reopen" : "graphics-failure-recovery"))
+  : reviewControlsMode
+  ? resolve(process.env.OPEN_GEO_BROWSER_ARTIFACT_ROOT ?? (() => {throw new Error("--review-controls requires an owned OPEN_GEO_BROWSER_ARTIFACT_ROOT");})())
   : resolve(appRoot, "page-check-artifacts");
+const reviewControlsReceiptPath = join(artifactRoot, "review-controls.json");
+const reviewControlsReceipt = reviewControlsMode ? {
+  schemaVersion: 1, case: "review-controls", status: "running",
+  transport: "Local fixture API and intercepted provider fixtures; no production or authentication evidence",
+  limits: {seconds: 60, requests: 600, decodedResponseAndScreenshotBytes: 33554432, externalNetwork: 0, screenshots: 1, attempts: 1},
+  usage: {requests: 0, admittedRequests: 0, refusedRequests: 0, decodedResponseBytes: 0, screenshotBytes: 0, apiWrites: 0, interceptedExternal: 0, wallSeconds: 0},
+  cleanup: {contextClosed: false, browserClosed: false, serverClosed: false}, proof: {},
+  limitsOfEvidence: ["Changed Catalog cancellation/retry, loaded Help identity, Processing menu and missing-capture Print readiness/close only.",
+    "No new Print capture/export, account persistence, authorization, hosted pilot or API acceptance; unchanged evidence is reused separately."]
+} : null;
+if (reviewControlsMode) assert.ok(!existsSync(reviewControlsReceiptPath), "Preserve prior review-controls receipt; use a new owned directory");
+if (reviewControlsMode && process.env.OPEN_GEO_REVIEW_PRIOR_RECEIPT) {
+  const bytes = await readFile(process.env.OPEN_GEO_REVIEW_PRIOR_RECEIPT);
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), process.env.OPEN_GEO_REVIEW_PRIOR_SHA256);
+  const prior = JSON.parse(bytes);
+  assert.equal(prior.case, "review-controls");assert.equal(prior.status, "failed");
+  assert.deepEqual(prior.cleanup, {contextClosed: true, browserClosed: true, serverClosed: true});
+  assert.equal(prior.proof.catalog?.cancelled, true);assert.equal(prior.proof.catalog?.retryRendered, true);
+  assert.equal(prior.usage.apiWrites, 0);assert.equal(prior.usage.screenshotBytes, 0);
+  assert.ok(prior.usage.wallSeconds < 60 && prior.usage.requests < 600);
+  reviewControlsReceipt.prior = {path: process.env.OPEN_GEO_REVIEW_PRIOR_RECEIPT,
+    sha256: process.env.OPEN_GEO_REVIEW_PRIOR_SHA256, status: prior.status, usage: prior.usage, error: prior.error};
+  reviewControlsReceipt.proof.catalog = {...prior.proof.catalog, reused: true};
+  reviewControlsReceipt.limits.seconds -= prior.usage.wallSeconds;
+  reviewControlsReceipt.limits.requests -= prior.usage.requests;
+  reviewControlsReceipt.limits.decodedResponseAndScreenshotBytes -= prior.usage.decodedResponseBytes;
+}
+const browserExpectedCatalogAborts = new WeakSet();
 const graphicsReceiptPath = join(artifactRoot, graphicsFreshReopenMode ? "graphics-fresh-reopen.json" : "graphics-failure-recovery.json");
 let graphicsReceipt = null;
 let graphicsSeedModules = null;
@@ -345,6 +380,12 @@ if (geomooseQueryMode) {
 }
 const browserUploads = new Map();
 const browserSources = [];
+if (reviewControlsMode) {
+  const source = externalSourcePayload({name: "Review controls referenced tiles"});
+  browserSources.push(source);
+  browserDatasets.push(datasetPayload({id: source.dataset_id, name: source.name, source_type: "xyz", format: "xyz",
+    feature_count: null, geometry_type: "Raster", extent: [-72, 41, -70, 43], crs: "EPSG:3857"}));
+}
 const browserProjectDatasetLinks = new Map();
 for (const dataset of browserDatasets) {
   projectDatasetIds(dataset.project_id).add(dataset.id);
@@ -482,6 +523,7 @@ const baseUrl = `http://127.0.0.1:${server.address().port}`;
 browserProgress(`Browser fixture server: ${baseUrl}`);
 const launchBrowser = () => chromium.launch({
   headless: true,
+  ...(reviewControlsMode ? {timeout: 10000} : {}),
   ...chromiumExecutable(),
   ...(graphicsMode || process.argv.includes("--project-dataset-reuse")
     ? {
@@ -505,6 +547,12 @@ catch (error) {
     graphicsReceipt.cleanup={contextClosed:true,browserClosed:true,serverClosed:true,browserNeverAdmitted:true};
     await writeFile(graphicsReceiptPath,JSON.stringify(graphicsReceipt,null,2)+"\n");
   }
+  if (reviewControlsReceipt) {
+    reviewControlsReceipt.status = "failed";reviewControlsReceipt.error = error.message;
+    reviewControlsReceipt.usage.wallSeconds = (Date.now() - reviewControlsStartedAt) / 1000;
+    reviewControlsReceipt.cleanup = {contextClosed: true, browserClosed: true, serverClosed: true, browserNeverAdmitted: true};
+    await writeFile(reviewControlsReceiptPath, JSON.stringify(reviewControlsReceipt, null, 2) + "\n");
+  }
   throw error;
 }
 const failures = [];
@@ -516,6 +564,8 @@ try {
     await assertGraphicsFailureRecovery(browser, baseUrl);
   } else if (process.argv.includes("--auth")) {
     await assertAuthenticationStates(browser, baseUrl);
+  } else if (reviewControlsMode) {
+    await assertReviewControls(browser, baseUrl);
   } else if (process.argv.includes("--workbench-interactions")) {
     await checkScreenshots(browser, baseUrl, [fixtureProjectRoute]);
   } else if (process.argv.includes("--studio-account")) {
@@ -614,17 +664,28 @@ try {
     await assertBasemapResourceFeedback(browser, baseUrl);
   }
 } catch (error) {
+  if (reviewControlsReceipt) {reviewControlsReceipt.status = "failed";reviewControlsReceipt.error ??= error.message;}
   if (graphicsReceipt) {graphicsReceipt.status="failed";graphicsReceipt.error ??= error.message;}
   throw error;
 } finally {
   try {
     await browser.close();
     if (graphicsReceipt) graphicsReceipt.cleanup.browserClosed = true;
+    if (reviewControlsReceipt) reviewControlsReceipt.cleanup.browserClosed = true;
   } finally {
     try {
       await close(server);
       if (graphicsReceipt) graphicsReceipt.cleanup.serverClosed = true;
+      if (reviewControlsReceipt) reviewControlsReceipt.cleanup.serverClosed = true;
     } finally {
+      if (reviewControlsReceipt) {
+        reviewControlsReceipt.usage.wallSeconds = (Date.now() - reviewControlsStartedAt) / 1000;
+        if (failures.length || reviewControlsReceipt.usage.wallSeconds > reviewControlsReceipt.limits.seconds) {
+          reviewControlsReceipt.status = "failed";reviewControlsReceipt.error ??= failures[0] ?? "Remaining wall-time budget exceeded";
+        }
+        if (reviewControlsReceipt.status === "failed") process.exitCode = 1;
+        await writeFile(reviewControlsReceiptPath, JSON.stringify(reviewControlsReceipt, null, 2) + "\n");
+      }
       if (graphicsReceipt) {
         graphicsReceipt.usage.wallSeconds += (Date.now() - graphicsStartedAt) / 1000;
         if (graphicsFreshReopenMode && graphicsReceipt.usage.wallSeconds - graphicsReceipt.prior.usage.wallSeconds > 30) {
@@ -646,7 +707,9 @@ if (failures.length) {
   process.exitCode = 1;
 } else {
   console.log(
-    graphicsFreshReopenMode
+    reviewControlsMode
+      ? `Checked changed controls in one local fixture journey; receipt ${reviewControlsReceiptPath}.`
+      : graphicsFreshReopenMode
       ? `Checked one compiled graphics-disabled synthetic Project fresh reopen; receipt ${graphicsReceiptPath}.`
       : graphicsFailureMode
       ? `Checked one compiled graphics-disabled recovery journey; receipt ${graphicsReceiptPath}.`
@@ -733,6 +796,137 @@ async function checkRoutes(browser, baseUrl, routes) {
   }
 
   await context.close();
+}
+
+async function assertReviewControls(browser, baseUrl) {
+  const receipt = reviewControlsReceipt, usage = receipt.usage, pendingBodies = new Set();
+  const sourcePath = `/api/projects/${IDS.projects[0]}/datasets/${IDS.sourceDataset}/source`;
+  let sourceReads = 0, releaseFirstRead, firstReadStarted, timer, context;
+  const firstReadEntered = new Promise(resolve => {firstReadStarted = resolve;});
+  const firstRead = new Promise(resolve => {releaseFirstRead = resolve;});
+  const fail = message => {receipt.status = "failed";receipt.error ??= message;};
+  const withinBytes = () => {
+    if (usage.decodedResponseBytes + usage.screenshotBytes > receipt.limits.decodedResponseAndScreenshotBytes) {
+      fail("Decoded response and screenshot byte ceiling exceeded");void context?.close().catch(() => {});
+    }
+  };
+  try {
+    await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async page => {
+      context = page.context();context.setDefaultTimeout(7000);context.setDefaultNavigationTimeout(12000);
+      context.on("close", () => {receipt.cleanup.contextClosed = true;});
+      context.on("request", request => {
+        usage.requests++;
+        if (new URL(request.url()).origin !== baseUrl) usage.interceptedExternal++;
+        if (usage.requests > receipt.limits.requests) fail("Raw observed request ceiling exceeded");
+      });
+      context.on("response", response => {
+        if ([204, 205].includes(response.status()) || response.status() >= 300 && response.status() < 400 || response.request().method() === "HEAD") return;
+        const body = response.body().then(bytes => {usage.decodedResponseBytes += bytes.length;withinBytes();})
+          .catch(error => {if (!browserExpectedCatalogAborts.has(response.request()) && !receipt.cleanup.contextClosed) fail(`Response accounting failed: ${error.message}`);})
+          .finally(() => pendingBodies.delete(body));
+        pendingBodies.add(body);
+      });
+      await context.route(`${baseUrl}${sourcePath}`, async route => {
+        sourceReads++;
+        if (sourceReads === 1) {
+          browserExpectedCatalogAborts.add(route.request());firstReadStarted();await firstRead;
+          await route.abort("aborted").catch(() => {});return;
+        }
+        await route.fulfill({status: 200, contentType: "application/json", body: JSON.stringify(externalSourcePayload({name: "Review controls referenced tiles"}))});
+      });
+      // Last registered: admit synchronously before any existing local/provider fixture handler.
+      await context.route("**/*", route => {
+        if (usage.admittedRequests >= receipt.limits.requests || receipt.status === "failed") {
+          usage.refusedRequests++;fail("Request admission ceiling reached");return route.abort("blockedbyclient");
+        }
+        const request = route.request(), url = new URL(request.url());
+        usage.admittedRequests++;
+        if (url.origin === baseUrl && url.pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+          usage.apiWrites++;fail("API mutation refused in read-only controls journey");return route.abort("blockedbyclient");
+        }
+        // Existing fixture routes fulfill their explicit provider URLs locally;
+        // withPlatformPage's first catch-all blocks every other external URL.
+        return route.fallback();
+      });
+      timer = setTimeout(() => {fail("Remaining wall deadline reached");void context.close().catch(() => {});},
+        Math.max(1, receipt.limits.seconds * 1000 - (Date.now() - reviewControlsStartedAt)));
+      try {
+      if (!receipt.proof.catalog?.reused) {
+      await visit(page, `${baseUrl}/workspaces?view=data`, "review controls account Catalog fixture");
+      const row = page.locator(`.platform-catalog-resource-row[data-dataset-id="${IDS.sourceDataset}"]`);
+      await row.getByRole("button", {name: "Open map", exact: true}).click();
+      const panelId = await row.getByRole("button", {name: "Open map", exact: true}).getAttribute("aria-controls");
+      const preview = page.locator(`#${panelId}`);
+      await preview.getByRole("button", {name: "Cancel loading", exact: true}).waitFor();
+      let sourceDeadline;
+      try {await Promise.race([firstReadEntered, new Promise((_, reject) => {
+        sourceDeadline = setTimeout(() => reject(new Error("Catalog source read did not start within7seconds")), 7000);
+      })]);} finally {clearTimeout(sourceDeadline);}
+      await page.waitForFunction(() => document.querySelector('.platform-catalog-map-container[aria-busy="true"]'));
+      await preview.getByRole("button", {name: "Cancel loading", exact: true}).click();releaseFirstRead();
+      assert.match(await preview.innerText(), /Map loading cancelled.*No saved Project or retained data was changed/s);
+      assert.equal(await preview.getAttribute("aria-busy"), "false");
+      await row.getByRole("button", {name: "Retry map", exact: true}).click();
+      await preview.getByText("Temporary Layer view. Exploring this map does not change a saved Project.", {exact: true}).waitFor();
+      await preview.locator(".map-frame canvas").first().waitFor();
+      assert.match(await preview.innerText(), /Live provider tiles.*no archived images/s);
+      assert.equal(sourceReads, 2);receipt.proof.catalog = {sourceReads, cancelled: true, retryRendered: true, custodyDisclosed: true};
+      }
+      await stubResponsiveMapRequests(context);
+      await visit(page, `${baseUrl}/?adapter=fixture`, "review controls local Studio fixture");
+      const start = page.getByRole("button", {name: "Close start panel and use an empty map", exact: true});
+      await start.click();
+      await page.locator(".opengeo-workbench").waitFor();
+      const menu = async (id, name) => {
+        await page.locator(`.gis-menubar [data-menu="${id}"] > button`).click();
+        await page.getByRole("menuitem", {name, exact: true}).click();
+      };
+      await menu("help", "Task guides and recovery");
+      const identity = await page.locator(".gis-panel-right").evaluate(panel => {
+        const term = [...panel.querySelectorAll("dt")].find(node => node.textContent === "Loaded interface fingerprint");
+        return {fingerprint: term?.nextElementSibling?.textContent, url: [...panel.querySelectorAll("code")].map(node => node.textContent).find(value => /\/WorkbenchView\.[a-f0-9]+\.js$/.test(value)),
+          loaded: performance.getEntriesByType("resource").map(entry => entry.name).filter(value => /\/WorkbenchView\.[a-f0-9]+\.js$/.test(value))};
+      });
+      assert.match(identity.fingerprint ?? "", /^[a-f0-9]{8,64}$/);
+      assert.ok(identity.loaded.includes(identity.url));assert.ok(identity.url.endsWith(`/WorkbenchView.${identity.fingerprint}.js`));
+      receipt.proof.help = identity;
+      await menu("processing", "Processing Toolbox");
+      await page.locator(".gis-panel-right").getByText("Processing Toolbox", {exact: true}).first().waitFor();
+      const selectedTool = await page.locator('.gis-processing-selected-tool [aria-label="Tool"]').inputValue();
+      await menu("help", "Task guides and recovery");await menu("processing", "Processing Toolbox");
+      assert.equal(await page.locator('.gis-processing-selected-tool [aria-label="Tool"]').inputValue(), selectedTool);
+      receipt.proof.processing = {directMenuOpened: true, selectedTool, preservedOnReopen: true, noToolRun: "No Run action invoked; direct entry is navigation-only by source review"};
+      await menu("project", "Open Print Studio");
+      const print = page.getByRole("dialog", {name: "Local Print Studio", exact: true});await print.waitFor();
+      const readiness = print.getByLabel("Output readiness", {exact: true});
+      assert.match(await readiness.innerText(), /Capture every map frame before exporting/);
+      assert.equal(await print.getByRole("button", {name: "Prepare selected output", exact: true}).isDisabled(), true);
+      const screenshot = await page.screenshot({path: join(artifactRoot, "review-controls.png"), fullPage: false, timeout: 5000});
+      usage.screenshotBytes = screenshot.length;withinBytes();
+      receipt.proof.print = {missingCaptureReadiness: await readiness.innerText(), prepareDisabled: true, captures: 0, exports: 0};
+      await print.getByRole("button", {name: "Back to map", exact: true}).click();await print.waitFor({state: "detached"});
+      await menu("help", "Task guides and recovery");
+      await page.locator(".gis-task-help").waitFor();receipt.proof.print.closedAndMapUsable = true;
+      await assertNoRuntimeError(page, "review controls");
+      while (pendingBodies.size) await Promise.all([...pendingBodies]);
+      assert.equal(usage.apiWrites, 0);assert.equal(usage.refusedRequests, 0);assert.ok(usage.requests <= receipt.limits.requests);
+      assert.equal(flightBrowserRequests.blockedUnexpected, 0);assert.equal(failures.length, 0);
+      assert.notEqual(receipt.status, "failed", receipt.error);receipt.status = "passed";
+      } catch (error) {
+        if (receipt.error && receipt.error !== error.message) receipt.accountingOrEarlierError = receipt.error;
+        receipt.status = "failed";receipt.error = error.message;receipt.failures = failures.slice(0, 8);
+        await page.content().then(html => writeFile(join(artifactRoot, "review-controls-failure.html"), html)).catch(() => {});
+        if (!usage.screenshotBytes && !page.isClosed()) {
+          await page.screenshot({path: join(artifactRoot, "review-controls-failure.png"), timeout: 3000})
+            .then(bytes => {usage.screenshotBytes = bytes.length;withinBytes();}).catch(() => {});
+        }
+        throw error;
+      }
+    });
+  } finally {
+    clearTimeout(timer);releaseFirstRead();
+    await Promise.allSettled([...pendingBodies]);
+  }
 }
 
 async function checkScreenshots(browser, baseUrl, routes) {
@@ -2001,6 +2195,8 @@ function capturePageErrors(page, label) {
   page.on("requestfailed", (request) => {
     const requestKey = `${request.method()} ${request.url()}`;
     if (noContentResponses.delete(requestKey)
+      && request.failure()?.errorText === "net::ERR_ABORTED") return;
+    if (reviewControlsMode && browserExpectedCatalogAborts.has(request)
       && request.failure()?.errorText === "net::ERR_ABORTED") return;
     const expectedFeatureQueryAbort = request.failure()?.errorText === "net::ERR_ABORTED"
       && request.url().includes("/feature-query")

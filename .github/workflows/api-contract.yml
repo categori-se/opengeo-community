@@ -47,6 +47,7 @@ on:
       - app/test/public-demo-workbench.test.mjs
       - app/test/print-resolution.test.mjs
       - app/test/workbench-inspector-layout.test.mjs
+      - app/test/workbench-help.test.mjs
       - app/test/workbench-save-state.test.mjs
       - app/test/project-workspace-durable-jobs.test.mjs
       - app/test/cog-preview.test.mjs
@@ -118,6 +119,7 @@ on:
       - app/test/public-demo-workbench.test.mjs
       - app/test/print-resolution.test.mjs
       - app/test/workbench-inspector-layout.test.mjs
+      - app/test/workbench-help.test.mjs
       - app/test/workbench-save-state.test.mjs
       - app/test/project-workspace-durable-jobs.test.mjs
       - app/test/cog-preview.test.mjs
@@ -234,6 +236,7 @@ jobs:
             app/test/catalog-project-save.test.mjs \
             app/test/receptor-screening.test.mjs \
             app/test/receptor-screening-workbench.test.mjs \
+            app/test/workbench-help.test.mjs \
             app/test/social-baseline-evidence.test.mjs \
             app/test/social-baseline-evidence-workbench.test.mjs \
             app/test/project-social-baseline.test.mjs \
@@ -259,7 +262,7 @@ jobs:
             app/test/esbuild-with-signal.test.mjs \
             services/observable-preview/test/local-server.test.mjs \
             services/observable-coordinator/test/local-adapters.test.mjs; do
-            node --test --test-isolation=none "$test_file"
+            node --test --test-isolation=none --test-reporter=tap "$test_file"
           done
           node scripts/check-open-source-foundations.mjs
       - name: Build the documented public source images
