@@ -8716,8 +8716,9 @@ async function addProjectDatasetToMap(
   context,
   dataset,
   button,
-  {expectedVersionId = null, liveCollection = false} = {}
+  {expectedVersionId = null, liveCollection = false, assertCurrentScope = null} = {}
 ) {
+  assertCurrentScope?.();
   if (isPreservedManagedDataset(dataset)) {
     setStatus(context, `${dataset.title} has no raw map preview. Review and choose an admitted tiled display of its preserved version.`);
     return;
@@ -8740,6 +8741,7 @@ async function addProjectDatasetToMap(
     return;
   }
   if (externalSource) {
+    assertCurrentScope?.();
     context.addLayer(layerFromExternalSource(externalSource), null);
     setStatus(context, `${dataset.title} added from its governed source revision. Save the map to persist its independent presentation.`);
     return;
@@ -8772,7 +8774,6 @@ async function addProjectDatasetToMap(
       geometryType = "Raster";
       layer = layerFromGovernedDataset(dataset, geometryType, expectedVersionId);
       layer.style = {};
-      managedCogBinding(context, layer, rasterBinding);
     } else if (expectedVersionId) {
       const preview = await context.loadDatasetVersionPreview(dataset.datasetId, expectedVersionId, dataset.geometryType);
       if (preview.datasetVersionId !== expectedVersionId) {
@@ -8817,6 +8818,8 @@ async function addProjectDatasetToMap(
       setStatus(context, `${dataset.title} ${expectedVersionId ? "exact saved version" : "editable collection"} is already in this map.`);
       return;
     }
+    assertCurrentScope?.();
+    if (managedRaster) managedCogBinding(context, layer, rasterBinding);
     context.addLayer(
       layer,
       geojson ?? null
@@ -9878,7 +9881,9 @@ export function nativeAnalysisPanel(context) {
   }
   if (result && !state.analysisPreviewAdded && (result === preview || result.collection.features.length)) section.append(actionButton(result === preview ? "Add preview to map" : "Add reviewed inventory to map", () => {
     if (result.operation === "receptor-screen" && receptorScreeningLocked(context)) return;
+    const previousLayers = new Set(context.layers);
     addProcessingOutputLayer(context, result.source, result.operation, result.collection, `${result.source.title} — ${result.operation} preview`);
+    state.analysisPreviewTemporary = retainedTemporaryResult(context, context.layers.find(layer => !previousLayers.has(layer)));
     state.analysisPreviewAdded = true;
     state.analysisPreviewMessage = "Added a temporary result. Register it as a catalog Layer to retain its data.";
     context.render();
@@ -9895,10 +9900,15 @@ export function nativeAnalysisPanel(context) {
       const save = actionButton(state.analysisRegistrationSession ? "Resume Layer registration" : "Save as catalog Layer", () => {void saveNativeAnalysis(context);});
       save.disabled = Boolean(state.analysisRegistrationRunning || result.operation === "receptor-screen" && (context.disposed || context.queryLocationScopeInvalid));
       section.append(save);
-    } else section.append(textElement("p", `Catalog Layer ${state.analysisRegistrationComplete.dataset.id} registered; version ${state.analysisRegistrationComplete.versionNumber} is queued for processing.`));
+    } else {
+      section.append(textElement("p", `Catalog Layer ${state.analysisRegistrationComplete.dataset.id} registered; version ${state.analysisRegistrationComplete.versionNumber} is retained.`));
+      state.analysisRetainedResult ??= {complete: state.analysisRegistrationComplete, temporary: state.analysisPreviewTemporary};
+    }
     if (state.analysisRegistrationComplete) section.append(actionButton("Start another analysis", () => {
       state.analysisRegistrationSession = null;
       state.analysisRegistrationComplete = null;
+      state.analysisRetainedResult = null;
+      state.analysisPreviewTemporary = null;
       state.analysisRegistrationReview = null;
       state.analysisPreviewResult = null;
       context.render();
@@ -10140,6 +10150,211 @@ function buildingComparisonTable(summary) {
   table.append(body); return table;
 }
 
+export function resumeSavedResultPanel(context) {
+  const layer = context.layers.find(item => item.layerId === context.state.activeLayerId);
+  if (context.publicDemo || context.persistenceMode !== "api" || !canPersist(context)
+    || !context.workspace?.workspaceId || !context.workspace?.tenantId
+    || layer?.sourceType !== "governed-dataset" || !layer.datasetId || !layer.datasetVersionId
+    || !Number.isSafeInteger(layer.sourceVersion) || layer.sourceVersion < 1
+    || typeof context.loadSocialBaselineKnowledge !== "function" || typeof context.loadManagedDatasetMetadata !== "function") return null;
+  const model = context.state.savedResultResume ??= {busy: false, message: "Resume a committed derived result using its saved Catalog metadata. Processing and registration will not run again."};
+  const same = record => record?.complete?.dataset?.id === layer.datasetId && record.complete.datasetVersionId === layer.datasetVersionId;
+  if (same(model.record) || same(context.state.analysisRetainedResult)
+    || [...(context.baselineRegistrations?.values() ?? [])].some(same)) return null;
+  const section = editorSection("Resume a saved result", "Keep the current account Project and its saved Layer version.");
+  const button = actionButton("Resume saved result", () => {
+    if (model.busy) return;
+    const workspace = context.workspace, project = context.project, reviewer = context.analysisReviewerId,
+      workspaceId = workspace.workspaceId, tenantId = workspace.tenantId,
+      projectIdentity = JSON.stringify([project?.id ?? null, project?.mapId ?? null, project?.workspaceId ?? null]),
+      datasetId = layer.datasetId, versionId = layer.datasetVersionId, version = layer.sourceVersion,
+      saveProject = context.saveProject, registration = context.createAnalysisRegistration;
+    const assertScope = () => {
+      if (context.disposed || context.queryLocationScopeInvalid || context.publicDemo || context.persistenceMode !== "api"
+        || !canPersist(context) || context.workspace !== workspace || context.project !== project
+        || workspace.workspaceId !== workspaceId || workspace.tenantId !== tenantId
+        || JSON.stringify([project?.id ?? null, project?.mapId ?? null, project?.workspaceId ?? null]) !== projectIdentity
+        || context.analysisReviewerId !== reviewer || context.saveProject !== saveProject || context.createAnalysisRegistration !== registration
+        || context.state.activeLayerId !== layer.layerId || !context.layers.includes(layer)
+        || layer.sourceType !== "governed-dataset" || layer.datasetId !== datasetId || layer.datasetVersionId !== versionId || layer.sourceVersion !== version) {
+        throw Error("The editable account Project or selected saved Layer changed. Select it again before resuming.");
+      }
+    };
+    try {assertScope();} catch (error) {model.message = error.message;context.render();return;}
+    model.busy = true;context.render();
+    void (async () => {
+      try {
+        assertScope();
+        const signal = new AbortController().signal;
+        const knowledge = await context.loadSocialBaselineKnowledge(datasetId, {signal, refresh: true});
+        assertScope();
+        const distribution = `urn:opengeo:dataset:${datasetId}:version:${versionId}:original`, evidence = `urn:opengeo:dataset:${datasetId}:analysis`;
+        const methods = ["native_vector_analysis", "receptor_overlap_screening", "building_inventory_review", "mapped_field_area_inventory", "published_product_field_query",
+          "cached_raster_comparison", "cached_raster_patches", "cached_raster_validation", "cached_raster_height_difference"];
+        if (knowledge?.datasetId !== datasetId || !Number.isSafeInteger(knowledge.version) || knowledge.version < 1
+          || !knowledge.document?.distributions?.some(item => item.id === distribution && item.custody === "derived")
+          || !knowledge.document?.metadata?.source?.some(item => item.id === evidence && item.mediaType === "application/json")
+          || !knowledge.document?.metadata?.normalized?.some(claim => claim.property === "http://www.w3.org/ns/prov#wasGeneratedBy"
+            && claim.provenance === "derived" && methods.includes(claim.method) && claim.value && typeof claim.value === "object"
+            && claim.evidence?.includes(evidence))) {
+          throw Error("This saved version has no matching committed derived-analysis evidence. Its data and Project remain unchanged.");
+        }
+        assertScope();
+        const dataset = await context.loadManagedDatasetMetadata(datasetId, signal, {refresh: true});
+        assertScope();
+        if (dataset?.datasetId !== datasetId || dataset.workspaceId !== workspaceId || dataset.currentVersionId !== versionId
+          || dataset.currentVersionNumber !== version || dataset.status !== "active" || dataset.currentVersionState !== "active") {
+          throw Error("The selected saved result is not the exact active Catalog version. Review it in Catalog; no other version was substituted.");
+        }
+        const record = {complete: {dataset: {id: datasetId}, datasetVersionId: versionId, versionNumber: version}, resumedLayer: layer, temporary: null};
+        retainedResultPanel(context, record);
+        record.continuation.dataset = dataset;
+        record.continuation.message = "The exact saved Layer is already in this Project. Check readiness deliberately, then save and reopen this existing Project.";
+        model.record = record;
+        model.message = "Saved result resumed without processing, upload or registration.";
+      } catch (error) {model.message = error.message || "The saved result could not be resumed. Existing Layers are preserved.";}
+      finally {model.busy = false;if (!context.disposed) context.render();}
+    })();
+  });
+  button.disabled = model.busy || context.disposed || context.queryLocationScopeInvalid;
+  const status = textElement("p", model.message);status.role = "status";status.setAttribute("aria-live", "polite");
+  section.append(textElement("p", layer.title), status, button);
+  return section;
+}
+
+function retainedTemporaryResult(context, layer) {
+  if (!layer) return null;
+  return {layer, signature: JSON.stringify({layer: {...layer, order: undefined}, data: context.dataByLayerId.get(layer.layerId)})};
+}
+
+export function retainedResultPanel(context, record) {
+  const section = editorSection("Retain result in this Project", "Registration, map composition and Project saving are separate steps.");
+  const complete = record.complete;
+  if (!complete?.dataset?.id || !complete.datasetVersionId || !Number.isSafeInteger(complete.versionNumber)) {
+    section.append(textElement("p", "The committed Catalog identity is retained. Open Catalog to review its processing state."));
+    return section;
+  }
+  const model = record.continuation ??= {
+    workspace: context.workspace, project: context.project, workspaceId: context.workspace?.workspaceId,
+    tenantId: context.workspace?.tenantId, reviewer: context.analysisReviewerId,
+    projectIdentity: JSON.stringify([context.project?.id ?? null, context.project?.mapId ?? null, context.project?.workspaceId ?? null]),
+    saveProject: context.saveProject, registration: context.createAnalysisRegistration,
+    complete, datasetId: complete.dataset.id, versionId: complete.datasetVersionId, version: complete.versionNumber,
+    temporary: record.temporary ?? null, resumedLayer: record.resumedLayer ?? null, busy: false, message: "Check when the registered version is ready. This does not repeat registration or processing."
+  };
+  const assertScope = () => {
+    if (context.disposed || context.queryLocationScopeInvalid || context.publicDemo || context.persistenceMode !== "api"
+      || !canPersist(context) || !model.workspaceId || !model.tenantId
+      || context.workspace !== model.workspace || context.project !== model.project
+      || JSON.stringify([context.project?.id ?? null, context.project?.mapId ?? null, context.project?.workspaceId ?? null]) !== model.projectIdentity
+      || context.workspace.workspaceId !== model.workspaceId || context.workspace.tenantId !== model.tenantId
+      || context.analysisReviewerId !== model.reviewer || context.saveProject !== model.saveProject
+      || context.createAnalysisRegistration !== model.registration || record.complete !== model.complete
+      || complete.dataset.id !== model.datasetId || complete.datasetVersionId !== model.versionId || complete.versionNumber !== model.version
+      || model.resumedLayer && (record.resumedLayer !== model.resumedLayer || !context.layers.includes(model.resumedLayer)
+        || context.state.activeLayerId !== model.resumedLayer.layerId || model.resumedLayer.sourceType !== "governed-dataset"
+        || model.resumedLayer.datasetId !== model.datasetId || model.resumedLayer.datasetVersionId !== model.versionId || model.resumedLayer.sourceVersion !== model.version)) {
+      throw Error("This editable account Project changed. The registered Catalog Layer is retained; reopen it under the correct account.");
+    }
+  };
+  let scopeError = null;
+  try {assertScope();} catch (error) {scopeError = error.message;}
+  const savedLayer = () => context.layers.find(layer => layer.sourceType === "governed-dataset"
+    && layer.datasetId === model.datasetId && layer.datasetVersionId === model.versionId);
+  const temporaryLayer = () => model.temporary && context.layers.includes(model.temporary.layer) ? model.temporary.layer : null;
+  const temporaryUnchanged = () => {
+    const layer = temporaryLayer();
+    return Boolean(layer && retainedTemporaryResult(context, layer).signature === model.temporary.signature);
+  };
+  const isReady = () => model.dataset?.status === "active" && model.dataset.currentVersionState === "active"
+    && model.dataset.currentVersionId === model.versionId && model.dataset.currentVersionNumber === model.version;
+  const ready = isReady();
+  const acknowledged = () => Boolean(model.savedMapId && !temporaryLayer() && savedLayer()
+    && context.shell?.dataset.saveState === "saved" && context.savedProjectOrigin?.id === model.savedMapId
+    && context.accountSaveBaseline === accountSaveSignature(currentProjectDefinition(context))
+    && context.savedProjectOrigin.definition?.layers?.some(layer => layer.sourceType === "governed-dataset"
+      && layer.datasetId === model.datasetId && layer.datasetVersionId === model.versionId));
+  const action = (label, perform, disabled = false) => {
+    const button = actionButton(label, () => {
+      if (model.busy) return;
+      try {assertScope();} catch (error) {model.message = error.message;context.render();return;}
+      model.busy = true;context.render();
+      void (async () => {
+        try {await perform(button);assertScope();}
+        catch (error) {model.message = error.message || "The saved Layer is retained. Retry this step when access is available.";}
+        finally {model.busy = false;if (!context.disposed) context.render();}
+      })();
+    });
+    button.disabled = Boolean(scopeError || model.busy || disabled);
+    return button;
+  };
+  const status = textElement("p", scopeError ?? model.message);status.role = "status";status.setAttribute("aria-live", "polite");
+  section.append(textElement("p", `Catalog Layer ${model.datasetId}, registered version ${model.version}. Unknown distribution rights remain unknown.`), status,
+    action("Check saved Layer readiness", async () => {
+      const dataset = await context.loadManagedDatasetMetadata(model.datasetId, new AbortController().signal, {refresh: true});
+      assertScope();
+      if (dataset.datasetId !== model.datasetId || dataset.workspaceId !== model.workspaceId) throw Error("The Catalog response belongs to a different Project or Layer.");
+      model.dataset = dataset;
+      for (const rows of new Set([context.datasets, context.allDatasets])) {
+        const existing = rows.find(item => item.datasetId === dataset.datasetId);
+        if (existing) Object.assign(existing, dataset);else rows.push(dataset);
+      }
+      model.message = dataset.currentVersionId !== model.versionId || dataset.currentVersionNumber !== model.version
+        ? "The Catalog Layer's current version changed. Review the registered version in Catalog; no other version was added."
+        : dataset.status === "failed" || dataset.currentVersionState === "failed"
+        ? "Processing failed. Review the existing Catalog record; registration will not be repeated."
+        : dataset.status === "active" && dataset.currentVersionState === "active"
+        ? "The registered version is ready. Add its saved Layer to this Project, then inspect it."
+        : "Processing is not ready. Check again deliberately after it finishes; no automatic refresh is running.";
+    }, typeof context.loadManagedDatasetMetadata !== "function"),
+    action("Add saved Layer to this Project", async button => {
+      const assertReadyScope = () => {
+        assertScope();
+        if (!isReady()) throw Error("Check that the exact registered version is ready before adding it.");
+      };
+      assertReadyScope();
+      await addProjectDatasetToMap(context, model.dataset, button, {expectedVersionId: model.versionId, assertCurrentScope: assertReadyScope});
+      assertScope();
+      if (savedLayer() && context.state.activePanel === "style") context.state.activePanel = "processing";
+      model.message = savedLayer()
+        ? "The exact saved Layer is in this Project. Inspect it before deliberately removing the unchanged temporary result."
+        : "The saved Layer was not added. Review the map's loading message and retry this step; registration is retained.";
+    }, !ready || Boolean(savedLayer())));
+  const temporary = temporaryLayer();
+  if (model.resumedLayer) section.append(textElement("p", "The exact saved Layer is already in this Project."),
+    textElement("p", "No temporary result was restored. Existing Layers are preserved."));
+  if (temporary) {
+    section.append(textElement("p", temporaryUnchanged()
+      ? "The temporary result remains in the map until you choose to remove it after checking the saved Layer."
+      : "The temporary result has changed. Its edits are preserved; review and retain them separately or remove it using its Layer controls."),
+      action("Remove checked temporary result", async () => {
+        if (!savedLayer() || !temporaryUnchanged()) throw Error("Keep the temporary result until the saved Layer is added and its unchanged source is checked.");
+        removeLayer(context, temporaryLayer());
+        model.message = "The checked temporary result was removed deliberately. Save this existing account Project to retain the saved Layer reference.";
+      }, !savedLayer() || !temporaryUnchanged()));
+  }
+  section.append(action("Save this Project with retained result", async () => {
+    if (!savedLayer() || temporaryLayer()) throw Error("Add the saved Layer and deliberately resolve the temporary result before saving.");
+    await saveAuthoritativeProject(context, {assertCurrentScope: assertScope});assertScope();
+    const origin = context.savedProjectOrigin;
+    if (context.shell.dataset.saveState !== "saved" || !origin?.id
+      || context.accountSaveBaseline !== accountSaveSignature(currentProjectDefinition(context))
+      || !origin.definition?.layers?.some(layer => layer.datasetId === model.datasetId && layer.datasetVersionId === model.versionId)) {
+      throw Error("The Project has not acknowledged this retained result. Keep the current work and resolve the save status before reopening.");
+    }
+    model.savedMapId = origin.id;
+    model.message = "This account Project acknowledged the retained Layer reference. Reopen the saved Project to check its persisted result.";
+  }, !savedLayer() || Boolean(temporary) || context.shell?.dataset.saveState === "saving"));
+  if (acknowledged()) {
+    const reopen = document.createElement("a");reopen.href = compositionHref(model.savedMapId);reopen.textContent = "Reopen saved Project";
+    reopen.addEventListener("click", event => {
+      try {assertScope();if (!acknowledged()) throw Error("The Project changed after saving. Save its current state before reopening.");}
+      catch (error) {event.preventDefault();model.message = error.message;context.render();}
+    });
+    section.append(reopen);
+  }
+  return section;
+}
 async function saveNativeAnalysis(context) {
   const {state} = context;
   if (state.analysisRegistrationRunning || state.analysisRegistrationComplete) return;
@@ -10155,6 +10370,7 @@ async function saveNativeAnalysis(context) {
     });
     context.render();
     state.analysisRegistrationComplete = await state.analysisRegistrationSession.run();
+    state.analysisRetainedResult = {complete: state.analysisRegistrationComplete, temporary: state.analysisPreviewTemporary};
     state.analysisPreviewMessage = "Derived Layer and lineage registered. Processing is queued; catalog assignment to a map remains separate.";
   } catch (error) {
     state.analysisPreviewMessage = `${error.message || "Registration failed."} Any committed registration is retained; resume to continue it.`;
@@ -10190,6 +10406,7 @@ export async function runNativeAnalysisPreview(context) {
   state.analysisPreviewCancellation = null;
   state.analysisPreviewResult = null;
   state.analysisPreviewAdded = false;
+  state.analysisPreviewTemporary = null;
   state.analysisRegistrationReview = null;
   state.analysisPreviewMessage = "Checking source versions…";
   context.render();
@@ -10247,7 +10464,8 @@ async function runReceptorScreeningPreview(context, draft) {
     && !state.analysisRegistrationSession && state.analysisPreviewController === controller && state.analysisPreviewActive === active;
   state.analysisPreviewController = controller; state.analysisPreviewActive = active;
   state.analysisPreviewCancellation = null; state.analysisPreviewResult = null;
-  state.analysisPreviewAdded = false; state.analysisRegistrationReview = null;
+  state.analysisPreviewAdded = false;
+  state.analysisPreviewTemporary = null; state.analysisRegistrationReview = null;
   state.analysisPreviewMessage = "Checking receptor and polygon area versions…"; context.render();
   try {
     const reads = new Map();
@@ -10406,7 +10624,7 @@ export function baselineLayerRegistrationPanel(context) {
   status.role = "status"; status.setAttribute("aria-live", "polite"); section.append(status);
   if (record.complete || record.session?.datasetId) {
     section.append(actionButton(`Open Catalog for saved ${output} Layer`, () => openProjectCatalog(context)),
-      textElement("p", "When processing is ready, add the saved Layer from Catalog. Remove temporary Layers after checking the saved data, then save the account Project."));
+      textElement("p", "The committed registration is retained. Check readiness before adding its exact saved version."));
   }
   return section;
 }
@@ -10458,6 +10676,7 @@ export async function saveBaselineLayerRegistration(context, record) {
     const result = await record.session.run();
     await record.assertCurrentScope();
     record.complete = result;
+    record.temporary = retainedTemporaryResult(context, record.layer);
     record.session = null;
   } catch (error) {
     record.message = `${error.message || "Registration failed."} Any committed upload is retained; resume this registration rather than uploading again.`;
@@ -10555,6 +10774,10 @@ function processingPanel(context) {
   }
   const focused = alternatives.find(([id]) => id === state.processingFocus)?.[1];
   panel.append(focused ?? browserTools);
+  const resume = resumeSavedResultPanel(context);
+  if (resume) panel.append(resume);
+  const retainedResults = [state.analysisRetainedResult, state.savedResultResume?.record, ...(context.baselineRegistrations?.values() ?? [])];
+  for (const record of retainedResults) if (record?.complete) panel.append(retainedResultPanel(context, record));
   if (registration) panel.append(registration);
   const others = document.createElement("details");
   others.className = "gis-processing-other-tools";
@@ -17099,7 +17322,8 @@ function portalExtensionForProject(project) {
   return copy;
 }
 
-async function saveAuthoritativeProject(context) {
+async function saveAuthoritativeProject(context, {assertCurrentScope = null} = {}) {
+  assertCurrentScope?.();
   if (context.shell.dataset.saveState === "saving") return;
   if (!canPersist(context)) {
     setStatus(context, "Your current role cannot update this map.");
@@ -17111,6 +17335,7 @@ async function saveAuthoritativeProject(context) {
   try {
     const definition = currentProjectDefinition(context);
     const saved = await context.saveProject(definition);
+    assertCurrentScope?.();
     context.accountSaveBaseline = accountSaveSignature(saved.definition ?? definition);
     context.serverMapVersion = saved.version;
     context.savedProjectOrigin = saved.definition ? {id: saved.id, version: saved.version, definition: structuredClone(saved.definition)} : null;

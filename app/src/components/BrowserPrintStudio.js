@@ -28,14 +28,18 @@ export function BrowserPrintStudio({definition, projectId, name, createWorkbench
     }
   }};
   const editor = ProjectPrintEditor({state, workbench: editFrame(layouts.layouts[0]?.frames[0]), editFrame, canSave: true, persistence: "browser"});
-  const dispose = () => {editor.dispose?.();workbench?.dispose?.();};
+  const dispose = () => {try {editor.dispose?.();} finally {workbench?.dispose?.();}};
+  const finish = notify => {
+    try {dispose();}
+    finally {try {dialog.close?.();} finally {dialog.remove();if (notify) onClose();}}
+  };
   const close = () => {
     if (editor.shouldBlockNavigation?.()) {editor.checkDraft();return;}
-    dispose();dialog.close?.();dialog.remove();onClose();
+    finish(true);
   };
   back.onclick = close;
   dialog.addEventListener("cancel", event => {event.preventDefault();close();});
-  dialog.dispose = () => {dispose();dialog.close?.();dialog.remove();};
+  dialog.dispose = () => finish(false);
   dialog.append(back, editor);
   return dialog;
 }
