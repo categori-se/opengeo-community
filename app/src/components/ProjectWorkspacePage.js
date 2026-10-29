@@ -517,23 +517,25 @@ export function ProjectWorkspacePage({
     // and revalidate the session at action boundaries instead of twice per row.
     const geoLibreCall = async task => {await assertArchiveScope(); const value = await task(); await assertArchiveScope(); return value;};
     const managedDatasetMetadataReads = new Map();
-    const readDatasetMetadata = async (datasetId, signal) => {
-      let dataset = state.datasets.find(item => item.id === datasetId);
-      if (!dataset) {
-        let pending = managedDatasetMetadataReads.get(datasetId);
-        if (!pending) {
-          pending = geoLibreCall(() => adapter.getDataset(state.project.id, datasetId, {signal: AbortSignal.timeout(20_000)}))
-            .then(value => {
-              if (disposed || value.id !== datasetId || value.projectId !== state.project.id)
-                throw Error("The selected Layer's dataset metadata changed.");
-              if (!state.datasets.some(item => item.id === datasetId)) state.datasets.push(value);
-              return value;
-            });
-          managedDatasetMetadataReads.set(datasetId, pending);
-          pending.catch(() => managedDatasetMetadataReads.delete(datasetId));
-        }
-        dataset = await pending;
+    const readDatasetMetadata = async (datasetId, signal, {refresh = false} = {}) => {
+      if (typeof refresh !== "boolean") throw Error("Choose whether to refresh the saved Layer metadata.");
+      const cached = state.datasets.find(item => item.id === datasetId);
+      if (cached && !refresh) {signal?.throwIfAborted();return cached;}
+      let pending = refresh ? null : managedDatasetMetadataReads.get(datasetId);
+      if (!pending) {
+        const requestSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000);
+        pending = geoLibreCall(() => adapter.getDataset(state.project.id, datasetId, {signal: requestSignal}))
+          .then(value => {
+            if (disposed || value.id !== datasetId || value.projectId !== state.project.id)
+              throw Error("The selected Layer's dataset metadata changed.");
+            const index = state.datasets.findIndex(item => item.id === datasetId);
+            if (index < 0) state.datasets.push(value);else state.datasets.splice(index, 1, value);
+            return value;
+          });
+        managedDatasetMetadataReads.set(datasetId, pending);
+        pending.catch(() => {if (managedDatasetMetadataReads.get(datasetId) === pending) managedDatasetMetadataReads.delete(datasetId);});
       }
+      const dataset = await pending;
       signal?.throwIfAborted();
       return dataset;
     };
@@ -697,8 +699,8 @@ export function ProjectWorkspacePage({
       admitPmtilesDisplay: canEdit(state) && typeof adapter.admitPmtilesDisplayReview === "function"
         ? (job, request) => archiveCall(() => adapter.admitPmtilesDisplayReview(state.project.id, job.datasetId, job.datasetVersionId, job.jobId, request)) : null,
       loadManagedDatasetMetadata: typeof adapter.getDataset === "function"
-        ? async (datasetId, signal) => {
-          const dataset = await readDatasetMetadata(datasetId, signal);
+        ? async (datasetId, signal, options = {}) => {
+          const dataset = await readDatasetMetadata(datasetId, signal, options);
           signal.throwIfAborted();
           if (disposed || dataset.id !== datasetId || dataset.projectId !== state.project.id) throw Error("The selected Layer's dataset metadata changed.");
           if (!state.datasets.some(item => item.id === dataset.id)) state.datasets.push(dataset);

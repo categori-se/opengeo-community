@@ -141,11 +141,13 @@ test("template collection preserves legacy shape and enforces aggregate bounds a
 test("output controls report page pixels and captured detail, expose progress and recover from raster failure", async () => {
   const {map} = fixture();editor(map);assert.match(root.querySelector('[aria-label="Output dimensions"]').textContent, /297 × 210 mm; 1123 × 794 page pixels at 96 DPI/);
   field("Output format", "png");assert.equal(root.hasUnsavedChanges(), false);
-  await click("Prepare selected output");assert.match(status(), /Capture every map frame/);
+  assert.equal([...root.querySelectorAll("button")].find(node => node.textContent === "Prepare selected output").disabled, true);
+  assert.match(root.querySelector('[aria-label="Output readiness"]').textContent, /Capture every map frame/);
   await click("Capture map frame");assert.match(root.querySelector('[aria-label="Captured map detail"]').textContent, /800 × 600 captured map pixels/);
   field("Output DPI", "150");assert.match(root.querySelector('[aria-label="Output dimensions"]').textContent, /1754 × 1240 page pixels at 150 DPI/);
   assert.match(root.querySelector('[aria-label="Captured map detail"]').textContent, /capture required/);
-  await click("Prepare selected output");assert.match(status(), /Capture every map frame/);
+  assert.equal([...root.querySelectorAll("button")].find(node => node.textContent === "Prepare selected output").disabled, true);
+  assert.match(root.querySelector('[aria-label="Output readiness"]').textContent, /Capture every map frame/);
   await click("Capture map frame");
   let rejectImage, revoked = 0;const create = URL.createObjectURL, revoke = URL.revokeObjectURL;
   URL.createObjectURL = () => "blob:print-test";URL.revokeObjectURL = () => {revoked++;};
@@ -196,11 +198,17 @@ test("Print output reports an actual dialog request without claiming a saved PDF
 test("vector output explains an unsupported capture and retains the existing raster page and draft", async () => {
   const {map} = fixture();editor(map);await click("Capture map frame");
   const image = root.querySelector(".print-stage image").getAttribute("href"), before = JSON.stringify(map.definition);
-  for (const format of ["vector-svg", "vector-print"]) {
-    field("Output format", format);await click("Prepare selected output");
-    assert.match(status(), /Vector map output is unavailable.*Capture this frame again/);
+  for (const format of ["vector-svg", "vector-print", "vector-pdf", "geospatial-pdf"]) {
+    field("Output format", format);
+    const prepare = [...root.querySelectorAll("button")].find(node => node.textContent === "Prepare selected output");
+    assert.equal(prepare.disabled, true);
+    const readiness = root.querySelector('[aria-label="Output readiness"]');
+    assert.equal(prepare.getAttribute("aria-describedby"), readiness.id);
+    assert.match(readiness.textContent, /capture again to check vector support.*Choose a raster output/);
     assert.equal(root.querySelector("iframe"), null);assert.equal(root.querySelector(".print-stage image").getAttribute("href"), image);
     assert.equal(root.querySelector(".print-studio-controls").getAttribute("aria-busy"), "false");
   }
+  field("Output format", "svg");
+  assert.equal([...root.querySelectorAll("button")].find(node => node.textContent === "Prepare selected output").disabled, false);
   assert.equal(JSON.stringify(map.definition), before);assert.equal(root.hasUnsavedChanges(), true, "capturing retains its ordinary unsaved layout state");
 });

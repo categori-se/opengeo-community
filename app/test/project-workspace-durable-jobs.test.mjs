@@ -75,6 +75,179 @@ it("keeps the save indicator honest across pending edits, conflict, failure and 
   } finally {page.dispose?.();page.remove();}
 });
 
+it("retains one registered native result through explicit readiness, exact-version Add, deliberate temporary removal and acknowledged Project reopening", async () => {
+  const adapter = projectAdapter({kind: "managed"});
+  adapter.organizationProvider = async () => IDS.organization;
+  const derivedId = "80000000-0000-4000-8000-000000000001", derivedVersion = "83000000-0000-4000-8000-000000000001";
+  const source = structuredClone((await adapter.listDatasets())[0]);
+  let saved = structuredClone((await adapter.listMaps())[0]), registered = false, active = false, acknowledgeSave;
+  let knowledge = {datasetId: derivedId, version: 0, document: {}}, knowledgeReads = 0;
+  const counts = {request: 0, upload: 0, complete: 0, knowledgeSave: 0, collection: 0, analysis: 0, metadata: 0, preview: 0};
+  const saves = [], previewPins = [];
+  const collection = {type: "FeatureCollection", features: [{type: "Feature", properties: {}, geometry: {type: "Point", coordinates: [-71, 42]}}],
+    "opengeo:analysis": {operation: "centroid", version: "1.0.0", sourceDatasetId: IDS.dataset, source_generation: 3,
+      targetDatasetId: null, persisted: false, crs: "CRS:84"}};
+  const derived = () => ({...source, id: derivedId, name: "Saved screening centers", sourceType: "upload", format: "geojson",
+    status: active ? "active" : "processing", currentVersionId: derivedVersion, currentVersionNumber: 1,
+    currentVersionState: active ? "active" : "queued", geometryType: "Point", featureCount: 1});
+  adapter.listMaps = async () => [structuredClone(saved)];
+  adapter.listDatasets = async () => [structuredClone(source), ...(registered ? [derived()] : [])];
+  adapter.createMap = async () => assert.fail("Retention must save the existing Project");
+  adapter.getFeatureCollection = async (projectId, datasetId) => {
+    counts.collection++; assert.deepEqual([projectId, datasetId], [IDS.project, IDS.dataset]);
+    return {datasetId, generation: 3, geometryType: "Polygon", featureCount: 1};
+  };
+  adapter.previewVectorAnalysis = async (projectId, datasetId, request) => {
+    counts.analysis++; assert.deepEqual([projectId, datasetId], [IDS.project, IDS.dataset]);
+    assert.equal(request.operation, "centroid"); assert.equal(request.source_generation, 3);
+    return structuredClone(collection);
+  };
+  adapter.requestUpload = async (projectId, metadata) => {
+    counts.request++; assert.equal(projectId, IDS.project); assert.equal(metadata.classification, "restricted");
+    assert.equal(metadata.format, "geojson");
+    return {dataset: {id: derivedId}, uploadId: derivedVersion, expiresAt: "2099-01-01T00:00:00Z", upload: {fixture: true}};
+  };
+  adapter.uploadFile = async (_upload, file) => {
+    counts.upload++;
+    assert.deepEqual(JSON.parse(await file.text()), {type: "FeatureCollection", features: collection.features});
+  };
+  adapter.completeUpload = async (projectId, uploadId) => {
+    counts.complete++; assert.deepEqual([projectId, uploadId], [IDS.project, derivedVersion]); registered = true;
+    return {dataset: {id: derivedId}, datasetVersionId: derivedVersion, versionNumber: 1};
+  };
+  adapter.getDatasetKnowledge = async datasetId => {knowledgeReads++; assert.equal(datasetId, derivedId); return structuredClone(knowledge);};
+  adapter.saveDatasetKnowledge = async (datasetId, draft) => {
+    counts.knowledgeSave++; assert.equal(datasetId, derivedId); assert.equal(draft.expectedVersion, 0);
+    knowledge = {datasetId: derivedId, version: 1, document: structuredClone(draft.document)}; return structuredClone(knowledge);
+  };
+  adapter.getDataset = async (projectId, datasetId, {signal}) => {
+    counts.metadata++; assert.deepEqual([projectId, datasetId], [IDS.project, derivedId]); assert.equal(signal.aborted, false);
+    return derived();
+  };
+  adapter.getDatasetSpatialPreview = async (projectId, datasetId, versionId) => {
+    counts.preview++; previewPins.push([projectId, datasetId, versionId]);
+    assert.deepEqual([projectId, datasetId, versionId], [IDS.project, derivedId, derivedVersion]);
+    return {datasetVersionId: versionId, numberReturned: 1, numberMatched: 1, mayBeTruncated: false,
+      geojson: {type: "FeatureCollection", features: structuredClone(collection.features)}};
+  };
+  adapter.updateMap = async (projectId, mapId, update) => {
+    assert.deepEqual([projectId, mapId, update.expectedVersion], [IDS.project, IDS.map, saved.version]);
+    saves.push(structuredClone(update));
+    if (saves.length === 1) throw Object.assign(Error("version changed"), {status: 409});
+    if (saves.length === 3) {
+      saved = {...saved, version: 5, definition: structuredClone(update.changes.definition)};
+      return structuredClone(saved);
+    }
+    assert.equal(saves.length, 2, "Only deliberate retention Saves update the map");
+    return new Promise(resolve => {acknowledgeSave = () => {
+      saved = {...saved, version: 4, definition: structuredClone(update.changes.definition)};
+      resolve(structuredClone(saved));
+    };});
+  };
+  let page = mountPage(adapter, {startPanel: "processing"}), reopened;
+  try {
+    const editor = await waitFor(() => page.querySelector(".opengeo-workbench"));
+    const layers = () => editor.__opengeoLayers;
+    const savedLayers = () => layers().filter(layer => layer.datasetId === derivedId);
+    const reopenLink = () => [...page.querySelectorAll("a")].find(link => link.textContent === "Reopen saved Project");
+    await waitFor(() => findButton(page, "Preview analysis"));
+    assert.equal(counts.metadata + counts.request + counts.analysis, 0);
+    clickButton(page, "Preview analysis"); await waitFor(() => findButton(page, "Add preview to map"));
+    clickButton(page, "Add preview to map");
+    const temporary = layers().find(layer => layer.sourceType === "geojson-object"); assert.ok(temporary);
+    const originalTitle = temporary.title;
+    clickButton(page, "Save as catalog Layer");
+    await waitFor(() => findButton(page, "Check saved Layer readiness"));
+    assert.deepEqual([counts.request, counts.upload, counts.complete, counts.knowledgeSave], [1, 1, 1, 1]);
+    assert.equal(counts.metadata, 0, "Registration and rendering do not refresh readiness");
+    clickButton(page, "Check saved Layer readiness");
+    await waitFor(() => counts.metadata === 1 && !findButton(page, "Check saved Layer readiness").disabled);
+    assert.equal(findButton(page, "Add saved Layer to this Project").disabled, true);
+    assert.match(page.textContent, /Processing is not ready/);
+    active = true;
+    clickButton(page, "Check saved Layer readiness");
+    await waitFor(() => counts.metadata === 2 && !findButton(page, "Add saved Layer to this Project").disabled);
+    const add = findButton(page, "Add saved Layer to this Project");
+    add.click(); add.dispatchEvent(new harness.dom.window.Event("click"));
+    await waitFor(() => savedLayers().length === 1 && !findButton(page, "Check saved Layer readiness").disabled);
+    assert.equal(savedLayers()[0].datasetVersionId, derivedVersion); assert.equal(savedLayers()[0].sourceVersion, 1);
+    assert.equal(counts.preview, 1); assert.equal(counts.metadata, 2);
+    assert.equal(findButton(page, "Add saved Layer to this Project").disabled, true);
+    assert.ok(layers().includes(temporary), "Adding the saved Layer preserves the temporary result");
+    assert.equal(findButton(page, "Save this Project with retained result").disabled, true);
+    const renameTemporary = title => {
+      const style = page.querySelector(`[aria-label="Style ${temporary.title}"]`); assert.ok(style); style.click();
+      const input = page.querySelector('[aria-label="Layer name"]'); assert.ok(input);
+      input.value = title; input.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+      clickButton(page, "Processing"); clickButton(page, "Count features (browser)");
+    };
+    renameTemporary(`${originalTitle} edited`);
+    assert.equal(temporary.title, `${originalTitle} edited`);
+    const removeEdited = findButton(page, "Remove checked temporary result"); assert.ok(removeEdited); assert.equal(removeEdited.disabled, true);
+    removeEdited.dispatchEvent(new harness.dom.window.Event("click"));
+    assert.ok(layers().includes(temporary), "Edited temporary data is preserved even if its disabled handler is dispatched");
+    await waitFor(() => !findButton(page, "Check saved Layer readiness").disabled);
+    renameTemporary(originalTitle);
+    assert.equal(findButton(page, "Remove checked temporary result").disabled, false);
+    clickButton(page, "Remove checked temporary result");
+    await waitFor(() => !layers().includes(temporary) && !findButton(page, "Save this Project with retained result").disabled);
+    assert.equal(savedLayers().length, 1); assert.equal(layers().length, 2);
+    clickButton(page, "Save this Project with retained result");
+    await waitFor(() => editor.dataset.saveState === "conflict" && !findButton(page, "Save this Project with retained result").disabled);
+    assert.equal(saves.length, 1); assert.equal(reopenLink(), undefined);
+    assert.equal(savedLayers().length, 1); assert.ok(findButton(page, "Check saved Layer readiness"));
+    assert.deepEqual([counts.request, counts.upload, counts.complete, counts.knowledgeSave], [1, 1, 1, 1]);
+    clickButton(page, "Save this Project with retained result"); await waitFor(() => acknowledgeSave);
+    assert.equal(editor.dataset.saveState, "saving"); assert.equal(reopenLink(), undefined);
+    assert.equal(saved.version, 3, "No reopening claim precedes the actual map acknowledgement");
+    acknowledgeSave(); await waitFor(() => editor.dataset.saveState === "saved" && reopenLink());
+    assert.equal(saved.version, 4); assert.deepEqual(saves[1].changes.definition, saves[0].changes.definition);
+    const retained = saved.definition.layers.filter(layer => layer.datasetId === derivedId);
+    assert.equal(retained.length, 1); assert.equal(retained[0].datasetVersionId, derivedVersion);
+    assert.equal(saved.definition.layers.some(layer => layer.layerId === temporary.layerId), false);
+    assert.ok(reopenLink().href.includes(IDS.map));
+    page.dispose(); page.remove(); page = null;
+    reopened = mountPage(adapter, {mapId: IDS.map, startPanel: "processing"});
+    const fresh = await waitFor(() => reopened.querySelector(".opengeo-workbench"));
+    await waitFor(() => counts.preview === 2);
+    assert.deepEqual(fresh.__opengeoLayers.map(layer => [layer.layerId, layer.datasetId, layer.datasetVersionId ?? null]),
+      saved.definition.layers.map(layer => [layer.layerId, layer.datasetId, layer.datasetVersionId ?? null]));
+    assert.equal(fresh.__opengeoLayers.filter(layer => layer.datasetId === derivedId).length, 1);
+    assert.equal(fresh.__opengeoLayers.some(layer => layer.layerId === temporary.layerId), false);
+    assert.deepEqual(previewPins, [[IDS.project, derivedId, derivedVersion], [IDS.project, derivedId, derivedVersion]]);
+    assert.deepEqual([counts.request, counts.upload, counts.complete, counts.knowledgeSave, counts.collection, counts.analysis, counts.metadata, saves.length],
+      [1, 1, 1, 1, 1, 1, 2, 2], "Reopening reuses registration and the acknowledged existing Project");
+    const priorKnowledgeReads = knowledgeReads;
+    const existingLayers = [...fresh.__opengeoLayers];
+    assert.ok(findButton(reopened, "Resume saved result"), "A fresh account Project exposes a normal durable continuation entry");
+    clickButton(reopened, "Resume saved result");
+    await waitFor(() => findButton(reopened, "Check saved Layer readiness"));
+    assert.equal(knowledgeReads, priorKnowledgeReads + 1, "Resume deliberately reads the existing committed metadata once");
+    assert.equal(counts.metadata, 3, "Resume validates the exact current dataset version once");
+    assert.match(fresh.textContent, /The exact saved Layer is already in this Project/);
+    assert.match(fresh.textContent, /No temporary result was restored/);
+    assert.equal(findButton(reopened, "Add saved Layer to this Project").disabled, true);
+    assert.equal(findButton(reopened, "Remove checked temporary result"), null);
+    assert.deepEqual(fresh.__opengeoLayers, existingLayers, "Resuming preserves every existing Layer and its edits");
+    clickButton(reopened, "Check saved Layer readiness");
+    await waitFor(() => !findButton(reopened, "Check saved Layer readiness").disabled);
+    assert.equal(counts.metadata, 4, "Only the separate deliberate readiness action refreshes again");
+    clickButton(reopened, "Save this Project with retained result");
+    await waitFor(() => fresh.dataset.saveState === "saved" && [...reopened.querySelectorAll("a")].some(link => link.textContent === "Reopen saved Project"));
+    assert.equal(saved.version, 5); assert.equal(saves.length, 3);
+    assert.deepEqual(saved.definition.layers.map(layer => [layer.layerId, layer.datasetVersionId]),
+      existingLayers.map(layer => [layer.layerId, layer.datasetVersionId]));
+    reopened.dispose(); reopened.remove(); reopened = mountPage(adapter, {mapId: IDS.map, startPanel: "processing"});
+    const resumedFresh = await waitFor(() => reopened.querySelector(".opengeo-workbench"));
+    await waitFor(() => counts.preview === 3);
+    assert.equal(resumedFresh.__opengeoLayers.filter(layer => layer.datasetId === derivedId && layer.datasetVersionId === derivedVersion).length, 1);
+    assert.equal(resumedFresh.__opengeoLayers.some(layer => layer.layerId === temporary.layerId), false);
+    assert.ok(findButton(reopened, "Resume saved result"), "The entry survives another actual account-component reload");
+    assert.deepEqual([counts.request, counts.upload, counts.complete, counts.knowledgeSave, counts.collection, counts.analysis, counts.metadata, saves.length],
+      [1, 1, 1, 1, 1, 1, 4, 3], "Durable resume, Save and reopen do not replay upload, registration, analysis or readiness");
+  } finally {page?.dispose?.(); page?.remove(); reopened?.dispose?.(); reopened?.remove();}
+});
+
 describe("project durable-job hydration", () => {
   it("identifies publication loading and gives a stalled request a bounded recovery", async () => {
     const originalTimeout = globalThis.setTimeout;

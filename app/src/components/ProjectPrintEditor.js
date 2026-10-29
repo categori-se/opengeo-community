@@ -297,6 +297,24 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
   function outputDimensions(selected = layout()) {
     return `${selected.page.widthMm} × ${selected.page.heightMm} mm; ${mmToPx(selected.page.widthMm, selected.dpi)} × ${mmToPx(selected.page.heightMm, selected.dpi)} page pixels at ${selected.dpi} DPI`;
   }
+  function outputUnavailable(format) {
+    for (const item of layout().frames) {
+      const capture = captures.get(key(item));
+      if (!capture) return `Capture every map frame before exporting this layout. ${item.title} still needs a capture.`;
+      if (capture.signature !== canonicalJson({view: item.view, presentation: item.presentation})
+        || capture.outputSignature !== undefined && capture.outputSignature !== printCaptureOutputSignature(item, layout().dpi)) {
+        return `${item.title}: capture again after changing its view, styling, dimensions or DPI.`;
+      }
+      if (["vector-svg", "vector-print", "vector-pdf", "geospatial-pdf"].includes(format) && !capture.vectorScene) {
+        return `${item.title}: ${capture.vectorUnavailable ?? "capture again to check vector support"}. Choose a raster output to use the captured map image.`;
+      }
+    }
+    if (format === "geospatial-pdf") {
+      try {printGeoPdfRegistrations(layout(), captures, activeId);}
+      catch (error) {return error.message;}
+    }
+    return null;
+  }
   function renderOutputControls() {
     const section = el("section");section.className = "print-output-controls";section.append(el("h3", "Page output"));
     const dimensions = el("output", outputDimensions());dimensions.setAttribute("aria-label", "Output dimensions");section.append(dimensions);
@@ -317,14 +335,18 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       html: "Self-contained paper-sized HTML. Map frames retain captured pixels.",
       print: "Open the browser print dialog. Choose the matching paper size and scale; the browser controls PDF settings and completion."
     };
+    const unavailable = outputUnavailable(outputFormat), readiness = el("p", unavailable ?? "Captured map frames are ready. Prepare the output, then inspect it before sharing.");
+    readiness.id = `${help.id}-output-readiness`;readiness.setAttribute("aria-label", "Output readiness");readiness.setAttribute("aria-live", "polite");
+    const prepare = button("Prepare selected output", () => output(outputFormat), Boolean(unavailable));
+    prepare.setAttribute("aria-describedby", readiness.id);
     section.append(detail, el("small", "Capture again after changing frame dimensions or DPI. Capture preserves the map's aspect ratio; raster imagery retains its source resolution."),
       selectField("Output format", outputFormat, [["svg", "Paper SVG"], ["vector-svg", "Vector map SVG"], ["vector-pdf", "Vector PDF"], ["geospatial-pdf", "Geospatial PDF"], ["vector-print", "Vector Print / Save PDF"], ["png", "Page PNG"], ["pack", "Figure and print ZIP"], ["html", "Static web page"], ["print", "Print / Save PDF"]], value => {outputFormat = value;render();controls.querySelector('[aria-label="Output format"]').focus();}),
-      el("p", descriptions[outputFormat]), button("Prepare selected output", () => output(outputFormat)));
+      el("p", descriptions[outputFormat]), readiness, prepare);
     if (outputRunning) {const progress = el("progress");progress.setAttribute("aria-label", "Preparing Print output");section.append(progress);}
     if (captureController) {const progress = el("progress");progress.setAttribute("aria-label", "Capturing Print map");section.append(progress);}
     const direct = el("details");direct.append(el("summary", "Direct output shortcuts"),
-      button("Download paper SVG", () => output("svg")), button("Download page PNG", () => output("png")),
-      button("Download figure and print ZIP", () => output("pack")), button("Download static web page", () => output("html")), button("Print / Save PDF", () => output("print")));
+      button("Download paper SVG", () => output("svg"), Boolean(outputUnavailable("svg"))), button("Download page PNG", () => output("png"), Boolean(outputUnavailable("png"))),
+      button("Download figure and print ZIP", () => output("pack"), Boolean(outputUnavailable("pack"))), button("Download static web page", () => output("html"), Boolean(outputUnavailable("html"))), button("Print / Save PDF", () => output("print"), Boolean(outputUnavailable("print"))));
     section.append(direct);controls.append(section);
   }
   function restore(from, to) {
