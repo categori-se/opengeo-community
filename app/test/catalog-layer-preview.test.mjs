@@ -12,6 +12,126 @@ const metadata = {capabilities: "Query", supportedQueryFormats: "JSON, geoJSON",
 const feature = id => ({type: "Feature", properties: {OBJECTID: id, heat: id}, geometry: {type: "Point", coordinates: [-71, 42]}});
 const record = {projectId: "project", mapId: "map", mapVersion: 1, datasetId: "dataset", layerId: "heat", title: "Heat", geometryType: "Point", styleField: "heat"};
 
+function previewDeferred() {let resolve; const promise = new Promise(done => {resolve = done;}); return {promise, resolve};}
+const finishPreviewAction = () => new Promise(resolve => setImmediate(resolve));
+const previewButton = (panel, label) => [...panel.querySelectorAll("button")].find(button => button.textContent === label);
+const previewDataset = (sourceType = "arcgis") => ({id: "dataset", projectId: "project", name: "Selected Layer", sourceType,
+  status: "active", geometryType: "Point", capabilities: {read: true}, preservationSummary: {sourceVersion: 2}});
+const previewResult = id => ({kind: "features", endpoint, metadata: {}, complete: true, attribution: "Fixture provider",
+  geometryNote: "Bounded fixture", geojson: {type: "FeatureCollection", features: [feature(id)]}});
+
+it("keeps cancellation visible and retries immediately while ignoring the first late load", async () => {
+  const dom = new JSDOM("<!doctype html>"), old = globalThis.document; globalThis.document = dom.window.document;
+  const first = previewDeferred(), second = previewDeferred(), calls = [], rendered = []; let resized = 0, action;
+  try {
+    action = CatalogResourceMapAction({dataset: previewDataset(), adapter: {getSource() {}},
+      load: (_record, {signal}) => {calls.push(signal); return calls.length === 1 ? first.promise : second.promise;},
+      renderMap: async options => {rendered.push(options.geojson.features[0].properties.OBJECTID);
+        const map = document.createElement("div"); map.className = "map-frame"; map.textContent = "Current retry map";
+        map.__resize = () => {resized++;}; return map;}});
+    document.body.append(action.button, action.panel);
+    assert.equal(calls.length, 0);
+    action.button.click(); assert.equal(calls.length, 1); assert.equal(action.button.disabled, true);
+    assert.equal(action.panel.getAttribute("aria-busy"), "true");
+    const cancel = previewButton(action.panel, "Cancel loading"); assert.ok(cancel); cancel.click();
+    assert.equal(calls[0].aborted, true); assert.equal(action.panel.hidden, false);
+    assert.match(action.panel.querySelector('[role="status"]').textContent, /cancelled/i);
+    assert.equal(action.panel.getAttribute("aria-busy"), "false"); assert.equal(action.button.disabled, false);
+    assert.equal(action.button.textContent, "Retry map");
+    action.button.click(); assert.equal(calls.length, 2); assert.equal(action.panel.hidden, false);
+    assert.equal(calls[1].aborted, false); assert.equal(action.button.disabled, true);
+    first.resolve(previewResult(1)); await finishPreviewAction();
+    assert.deepEqual(rendered, []); assert.equal(action.button.disabled, true);
+    assert.equal(action.panel.getAttribute("aria-busy"), "true"); assert.ok(previewButton(action.panel, "Cancel loading"));
+    second.resolve(previewResult(2)); await finishPreviewAction();
+    assert.deepEqual(rendered, [2]); assert.equal(action.button.disabled, false);
+    assert.equal(action.panel.getAttribute("aria-busy"), "false"); assert.match(action.panel.textContent, /Current retry map/);
+    const map = action.panel.querySelector(".map-frame");
+    action.button.click(); assert.equal(action.panel.hidden, true);
+    action.button.click(); assert.equal(action.panel.hidden, false); assert.equal(action.panel.querySelector(".map-frame"), map);
+    assert.equal(calls.length, 2); assert.equal(resized, 1);
+  } finally {action?.dispose(); globalThis.document = old; dom.window.close();}
+});
+
+it("leaves an injected shared loader and another consumer active after cancellation and disposal", async () => {
+  const dom = new JSDOM("<!doctype html>"), old = globalThis.document; globalThis.document = dom.window.document;
+  const {bytes, source} = archiveFixture(), pending = previewDeferred(), started = previewDeferred(), secondRendered = previewDeferred();
+  let sourceReads = 0, archiveReads = 0, loaderDisposals = 0, firstRenders = 0, secondRenders = 0, sourceSignal, first, second;
+  const adapter = {getSource: (_project, _dataset, {signal}) => {sourceReads++; sourceSignal = signal; started.resolve(); return pending.promise;}};
+  const loader = createCatalogPreviewLoader({adapter, fetchImplementation: async () => {archiveReads++;
+    return new Response(bytes, {headers: {"content-type": "application/geo+json", "content-length": String(bytes.length)}});}});
+  const disposeLoader = loader.dispose; loader.dispose = () => {loaderDisposals++; disposeLoader();};
+  try {
+    first = CatalogResourceMapAction({dataset: previewDataset("geojson"), adapter, load: loader,
+      renderMap: async () => {firstRenders++; return document.createElement("div");}});
+    second = CatalogResourceMapAction({dataset: previewDataset("geojson"), adapter, load: loader,
+      renderMap: async () => {secondRenders++; secondRendered.resolve(); return document.createElement("div");}});
+    document.body.append(first.button, first.panel, second.button, second.panel);
+    first.button.click(); second.button.click(); await started.promise;
+    assert.equal(sourceReads, 1, "Consumers share the existing source read");
+    previewButton(first.panel, "Cancel loading").click(); first.dispose();
+    assert.equal(loaderDisposals, 0); assert.equal(sourceSignal.aborted, false);
+    pending.resolve(source); await secondRendered.promise; await finishPreviewAction();
+    assert.equal(firstRenders, 0); assert.equal(first.panel.hidden, true); assert.equal(first.button.disabled, true);
+    assert.equal(secondRenders, 1); assert.equal(second.button.disabled, false); assert.equal(second.panel.hidden, false);
+    assert.equal(archiveReads, 1); assert.equal(loaderDisposals, 0);
+    second.button.click(); second.button.click(); assert.equal(secondRenders, 1);
+    second.dispose(); assert.equal(loaderDisposals, 0, "Consumers never dispose the injected loader");
+    loader.dispose(); assert.equal(loaderDisposals, 1, "Only its owner disposes the shared loader");
+  } finally {first?.dispose(); second?.dispose(); if (!loaderDisposals) loader.dispose(); globalThis.document = old; dom.window.close();}
+});
+
+it("aborts the owned loader's pending source read and retries with a fresh source cache", async () => {
+  const dom = new JSDOM("<!doctype html>"), old = globalThis.document; globalThis.document = dom.window.document;
+  const pending = previewDeferred(), started = previewDeferred(), signals = [], rendered = []; let action;
+  const source = {datasetId: "dataset", projectId: "project", versionNumber: 2, status: "active", credentialMode: "none",
+    accessMode: "direct_browser", capabilities: {read: true}, sourceType: "xyz",
+    sourceUrl: "https://coast.noaa.gov/arcgis/rest/services/dc_slr/slr_2ft/MapServer/tile/{z}/{y}/{x}",
+    configuration: {minZoom: 0, maxZoom: 15, tileSize: 256, scheme: "xyz", attribution: "NOAA"}};
+  try {
+    action = CatalogResourceMapAction({dataset: previewDataset("xyz"), adapter: {
+      getSource: (_project, _dataset, {signal}) => {signals.push(signal); started.resolve(); return signals.length === 1 ? pending.promise : Promise.resolve(source);}
+    }, renderMap: async options => {rendered.push(options.xyz.endpoint); return document.createElement("div");}});
+    document.body.append(action.button, action.panel);
+    action.button.click(); await started.promise;
+    previewButton(action.panel, "Cancel loading").click(); assert.equal(signals[0].aborted, true);
+    assert.equal(action.panel.hidden, false); assert.equal(action.button.textContent, "Retry map");
+    action.button.click(); await finishPreviewAction();
+    assert.equal(signals.length, 2, "A fresh owned loader must request source metadata again");
+    assert.equal(signals[1].aborted, false); assert.deepEqual(rendered, [source.sourceUrl]);
+    const current = action.panel.querySelector(".catalog-layer-preview"); assert.ok(current);
+    pending.resolve(source); await finishPreviewAction();
+    assert.deepEqual(rendered, [source.sourceUrl]); assert.equal(action.panel.querySelector(".catalog-layer-preview"), current);
+    assert.equal(action.button.disabled, false); assert.equal(action.panel.hidden, false);
+  } finally {pending.resolve(source); action?.dispose(); globalThis.document = old; dom.window.close();}
+});
+
+it("disposes late rendered maps after cancellation and disposal without replacing a newer attempt", async () => {
+  const dom = new JSDOM("<!doctype html>"), old = globalThis.document; globalThis.document = dom.window.document;
+  const firstMap = previewDeferred(), secondMap = previewDeferred(), firstStarted = previewDeferred(), secondStarted = previewDeferred();
+  const maps = [], signals = []; let action, renderCalls = 0;
+  try {
+    for (const label of ["Cancelled map", "Disposed retry map"]) {
+      const map = document.createElement("div"); map.textContent = label; map.disposals = 0; map.dispose = () => {map.disposals++;}; maps.push(map);
+    }
+    action = CatalogResourceMapAction({dataset: previewDataset(), adapter: {getSource() {}},
+      load: async (_record, {signal}) => {signals.push(signal); return previewResult(signals.length);},
+      renderMap: () => {renderCalls++; if (renderCalls === 1) {firstStarted.resolve(); return firstMap.promise;}
+        secondStarted.resolve(); return secondMap.promise;}});
+    document.body.append(action.button, action.panel);
+    action.button.click(); await firstStarted.promise;
+    previewButton(action.panel, "Cancel loading").click(); assert.equal(signals[0].aborted, true);
+    action.button.click(); await secondStarted.promise;
+    firstMap.resolve(maps[0]); await finishPreviewAction();
+    assert.equal(maps[0].disposals, 1); assert.equal(action.button.disabled, true);
+    assert.equal(action.panel.getAttribute("aria-busy"), "true"); assert.doesNotMatch(action.panel.textContent, /Cancelled map/);
+    action.dispose(); assert.equal(signals[1].aborted, true);
+    secondMap.resolve(maps[1]); await finishPreviewAction();
+    assert.equal(maps[1].disposals, 1); assert.equal(action.panel.children.length, 0);
+    assert.equal(action.panel.hidden, true); assert.equal(action.button.disabled, true);
+  } finally {firstMap.resolve(maps[0]); secondMap.resolve(maps[1]); action?.dispose(); globalThis.document = old; dom.window.close();}
+});
+
 function managedCatalogFixture() {
   const projectId = "11111111-1111-4111-8111-111111111111", datasetId = "22222222-2222-4222-8222-222222222222",
     versionId = "33333333-3333-4333-8333-333333333333", organization = "44444444-4444-4444-8444-444444444444";

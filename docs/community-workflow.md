@@ -10,6 +10,11 @@ implementation. The [Demo and managed Studio](community-deployments.md) show
 different configurations of that software; their accounts, private connections
 and service limits are specific to those deployments.
 
+In the map, **Help → About OpenGeo Studio** identifies the loaded interface and
+its storage mode. Its fingerprint belongs to the interface already running in
+that tab; API and deployment versions are separate. Development modules explicitly
+report when no build fingerprint is available.
+
 [Reading beyond the visible](https://opengeo.tools/noaa-coastal-imagery/reading-beyond-visible/)
 shows the kind of result this supports: linked NOAA imagery, interactive
 comparisons, documented calculations and exportable analysis parameters. The

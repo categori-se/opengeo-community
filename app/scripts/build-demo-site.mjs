@@ -191,6 +191,7 @@ async function stageDemoSource() {
     ["lib/projectFileFormat.js", "lib/projectFileFormat.js"],
     ["components/ProjectVersionExport.js", "components/ProjectVersionExport.js"],
     ["components/WorkbenchView.js", "components/WorkbenchView.js"],
+    ["components/WorkbenchHelp.js", "components/WorkbenchHelp.js"],
     ["components/AnalysisConsole.js", "components/AnalysisConsole.js"],
     ["components/IdentifyResultsPanel.js", "components/IdentifyResultsPanel.js"],
     ["components/PmtilesConversionEditor.js", "components/PmtilesConversionEditor.js"],

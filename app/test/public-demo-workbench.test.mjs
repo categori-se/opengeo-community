@@ -114,6 +114,57 @@ it("graphics display and camera-fit failures after Catalog add keep one committe
   } finally {shell?.dispose?.();shell?.remove();restore();dom.window.close();}
 });
 
+it("browser Catalog cancellation ignores late reads and permits a deliberate retry without adding a Layer", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window); let shell;
+  const reads = [];
+  const candidate = {layer: {layerId: "original", title: "Pending source", sourceType: "geojson-object", geometryType: "Point", style: {}, labels: {}},
+    geojson: {type: "FeatureCollection", features: []}};
+  try {
+    shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Cancel Catalog"},
+      project: emptyMapDefinition(), role: "local", publicDemo: true, restoreBrowserDraft: false, initialPanel: "catalog",
+      browserCatalog: [{id: "pending", title: "Pending source", load: ({signal}) => new Promise((resolve, reject) => reads.push({signal, resolve, reject}))}]});
+    document.body.append(shell);
+    const row = shell.querySelector('[data-browser-catalog-layer="pending"]');
+    const add = row.querySelector('[aria-label="Review and add Pending source"]');
+    const cancel = row.querySelector('[aria-label="Cancel loading Pending source"]');
+    add.click(); assert.equal(add.disabled, true); assert.equal(cancel.hidden, false);
+    cancel.click(); assert.equal(reads[0].signal.aborted, true); assert.equal(add.disabled, false);
+    assert.match(row.textContent, /Review cancelled/); assert.equal(cancel.hidden, true);
+    add.click(); assert.equal(reads.length, 2);
+    reads[0].resolve(candidate); await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(document.querySelector(".browser-layer-registration"), null);
+    assert.equal(add.disabled, true); assert.equal(shell.__opengeoLayers.length, 0);
+    reads[1].resolve(candidate);
+    await waitFor(() => document.querySelector(".browser-layer-registration"));
+    assert.equal(document.querySelectorAll(".browser-layer-registration").length, 1);
+    assert.equal(shell.__opengeoLayers.length, 0); assert.equal(add.disabled, false);
+  } finally {shell?.dispose?.(); shell?.remove(); restore(); dom.window.close();}
+});
+
+it("browser Catalog search and disposal cancel owned review attempts without consuming a late shared read", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window); let shell;
+  const reads = [];
+  try {
+    shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Retire Catalog"},
+      project: emptyMapDefinition(), role: "local", publicDemo: true, restoreBrowserDraft: false, initialPanel: "catalog",
+      browserCatalog: [{id: "pending", title: "Pending source", load: ({signal}) => new Promise(resolve => reads.push({signal, resolve}))}]});
+    document.body.append(shell);
+    shell.querySelector('[aria-label="Review and add Pending source"]').click();
+    const search = shell.querySelector('[aria-label="Search Layers"]');
+    search.value = "other"; search.dispatchEvent(new dom.window.Event("input"));
+    assert.equal(reads[0].signal.aborted, true);
+    search.value = ""; search.dispatchEvent(new dom.window.Event("input"));
+    shell.querySelector('[aria-label="Review and add Pending source"]').click();
+    shell.dispose(); assert.equal(reads[1].signal.aborted, true);
+    for (const read of reads) read.resolve({layer: {title: "Late shared result"}});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(document.querySelector(".browser-layer-registration"), null);
+    assert.equal(shell.__opengeoLayers.length, 0);
+  } finally {shell?.dispose?.(); shell?.remove(); restore(); dom.window.close();}
+});
+
 it("selected Processing controls come first while unrelated analysis stays collapsed and reachable", async () => {
   const dom = new JSDOM("<!doctype html><body></body>",{url:"https://studio.opengeo.tools/"});
   const restore = installDomGlobals(dom.window);let shell;
@@ -132,6 +183,11 @@ it("selected Processing controls come first while unrelated analysis stays colla
     assert.equal(shell.querySelector('.gis-processing-selected-tool [aria-label="Tool"]').value,"bounds");
     assert.equal(shell.querySelector(".gis-processing-other-tools").open,true);
     const menu=shell.querySelector('[data-menu="processing"]');menu.querySelector("button").click();
+    const toolbox = [...shell.querySelectorAll('[role="menuitem"]')].find(button => button.textContent === "Processing Toolbox");
+    assert.ok(toolbox); toolbox.click(); shell.dispatchEvent(new dom.window.Event("workbench:render"));
+    assert.equal(shell.querySelector('.gis-processing-selected-tool [aria-label="Tool"]').value,"bounds");
+    assert.equal(shell.querySelector('.gis-processing-other-tools').open,true);
+    shell.querySelector('[data-menu="processing"] button').click();
     [...shell.querySelectorAll('[role="menuitem"]')].find(button=>button.textContent==="Compare surface and terrain heights…").click();
     shell.dispatchEvent(new dom.window.Event("workbench:render"));
     const focused=shell.querySelector(".gis-processing-other-tools");

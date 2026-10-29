@@ -1,6 +1,7 @@
 import {cesiumWorkbenchContent, prepareCesiumWorkbench, cesiumWorkbenchAdapter, rendererTitle} from "../lib/cesiumWorkbench.js";
 import {cogDisplayOptions, isCogLayer} from "../lib/cogDisplay.js";
 import {AnalysisConsole} from "./AnalysisConsole.js";
+import {WorkbenchHelp} from "./WorkbenchHelp.js";
 import {createLocalAnalysisRuntime} from "../lib/analysisLocalRuntime.js";
 import {RendererPanel} from "./RendererPanel.js";
 import {createMapboxSession} from "../lib/mapboxSession.js";
@@ -1036,6 +1037,7 @@ function createWorkbenchView({
     context.disposed = true;
     disposeHistoricalComparison(context);
     context.disposeSaveShortcut?.();
+    context.browserCatalogPanel?.dispose?.();
     context.analysisConsole?.dispose();
     context.browserPrintStudio?.dispose?.();
     context.localProjectDialog?.dispose?.();
@@ -2786,7 +2788,13 @@ function toolbarMenus(context) {
     {
       id: "processing",
       label: "Processing",
-      sections: [[menuAction("Analysis console…", () => toggleAnalysisConsole(context)),
+      sections: [[menuAction("Processing Toolbox", () => {
+        if (isMobileWorkbenchViewport()) state.leftOpen = false;
+        state.mapOnly = false;
+        state.processingFocus = null;
+        state.activePanel = "processing";
+        state.rightOpen = true;
+      }), menuAction("Analysis console…", () => toggleAnalysisConsole(context)),
         menuAction("Compare surface and terrain heights…", () => {
           state.processingFocus = "height";
           if (isMobileWorkbenchViewport()) state.leftOpen = false;
@@ -2919,6 +2927,7 @@ function toolbarMenus(context) {
           }),
           menuAction("About OpenGeo Studio", () => {
             state.activePanel = "help";
+            state.rightOpen = true;
             setStatus(context, context.demoSurface
               ? "This public workbench demonstrates browser-native OpenGeo Studio GIS workflows without private data or credentials."
               : "OpenGeo Studio keeps desktop GIS-style workflows in a browser-native AWS workspace.");
@@ -12800,6 +12809,7 @@ function elevationProfileChart(measurement) {
 }
 
 function rememberBrowserLayer(context, value) {
+  context.browserCatalogPanel?.dispose?.();
   context.browserCatalogPanel = null;
   context.browserRegistrations.set(value.layer.datasetId, structuredClone(value));
   context.browserCatalogNotice = writeBrowserLayerCatalog(browserLocalStorage(), context.browserRegistrations)
@@ -12817,7 +12827,10 @@ function browserLayerCatalogPanel(context) {
   const clear = actionButton("Clear search", () => {search.value = ""; context.state.browserCatalogSearch = ""; render();});
   const list = document.createElement("div"); list.className = "browser-layer-catalog";
   const entries = [...context.browserCatalog, ...[...context.browserRegistrations].map(([id, value]) => ({id, title: value.layer.title, load: async () => value}))];
+  const pending = new Set();
+  panel.dispose = () => {for (const cancel of [...pending]) cancel();};
   const render = () => {
+    panel.dispose();
     list.replaceChildren();
     const matches = entries.filter(entry => entry.title.toLowerCase().includes(search.value.trim().toLowerCase()));
     summary.textContent = `${matches.length} of ${entries.length} Layers · review a source to add it to this map.`;
@@ -12829,11 +12842,24 @@ function browserLayerCatalogPanel(context) {
       const facts = [entry.source?.license, entry.source?.attribution].filter(Boolean);
       if (facts.length) row.append(textElement("small", facts.join(" · ")));
       const status = textElement("p", ""); status.setAttribute("role", "status");
+      let attempt = null;
+      const cancel = actionButton("Cancel loading", () => attempt?.cancel());
+      cancel.hidden = true;
       const add = actionButton("Review and add", async () => {
         const reviewBrowserLayer = browserLayerReviewForProject(context);
-        add.disabled = true; status.textContent = "Loading source metadata and preview data…";
+        const controller = new AbortController();
+        const current = {cancel: () => {
+          controller.abort(); pending.delete(current.cancel);
+          if (attempt !== current) return;
+          attempt = null; add.disabled = false; cancel.hidden = true;
+          status.textContent = "Review cancelled. No Layer was added. Shared source reads may continue.";
+        }};
+        attempt = current; pending.add(current.cancel);
+        add.disabled = true; cancel.hidden = false;
+        status.textContent = "Loading source metadata and preview data. Nothing has been added to your Project…";
         try {
-          const candidate = await entry.load();
+          const candidate = await entry.load({signal: controller.signal});
+          if (controller.signal.aborted || context.disposed || !panel.isConnected || attempt !== current) return;
           const layer = structuredClone(candidate.layer); layer.visible = true;
           if (!candidate.kml) layer.layerId = `browser_${crypto.randomUUID()}`;
           if (context.browserCatalog.some(item => item.id === entry.id)) layer.browserCatalogId = entry.id;
@@ -12849,11 +12875,16 @@ function browserLayerCatalogPanel(context) {
             setStatus(context, `Added ${reviewed.title} from the catalog. Metadata remains with the Layer in this browser draft.${displayIssue ? " Its map preview is unavailable; the Layer was added. Retry the map to display it." : ""}`);
           }});
           status.textContent = "Source ready for review.";
-        } catch {status.textContent = "This source could not load. Try again; your Project is unchanged.";}
-        finally {add.disabled = false;}
+        } catch {
+          if (!controller.signal.aborted && !context.disposed && attempt === current) status.textContent = "This source could not load. Try again; your Project is unchanged.";
+        } finally {
+          pending.delete(current.cancel);
+          if (attempt === current) {attempt = null; add.disabled = false; cancel.hidden = true;}
+        }
       });
       add.setAttribute("aria-label", `Review and add ${entry.title}`);
-      row.append(add, status); list.append(row);
+      cancel.setAttribute("aria-label", `Cancel loading ${entry.title}`);
+      row.append(add, cancel, status); list.append(row);
     }
     if (!list.children.length) list.append(textElement("p", "No matching Layers. Add a local file or try another search."));
   };
@@ -13360,46 +13391,8 @@ function settingsPanel(context) {
 }
 
 function helpPanel(context) {
-  const panel = panelShell();
-  panel.append(
-    textElement("h3", "OpenGeo Studio workbench"),
-    textElement("p", context.publicDemo
-      ? "This is the anonymous edition of the same browser-native GIS workbench used by Studio. Explore the map, style layers, inspect attributes, process public data, open local files, and exchange GeoLibre projects without signing in."
-      : "This is a browser-native GIS workspace manager: JavaScript map controls, catalog records, layer styling, processing jobs, and AWS object storage instead of a traditional server/Python desktop stack."),
-    compactKeyValues({
-      "Add data": "Add Data menu or layer panel Add button",
-      "Identify": "Toggle Identify, then click a feature",
-      "Measure": "Measure, click along a path, then save it with an optional terrain profile",
-      "Navigate globe": "Drag to pan; right-drag or Control-drag to orbit; wheel to zoom; two-finger pinch/rotate/pitch on touch; arrow and Shift+arrow keyboard controls",
-      "Save": context.landingMode ? "Save in browser keeps this draft on this device; it does not save to your account" : context.publicDemo
-        ? "Browser-only draft; resets daily"
-        : "Save updates the selected map; Save As creates a separate map",
-      "Persist": context.publicDemo
-        ? "Open authenticated Studio to save governed team work"
-        : "Server writes enforce tenant and role permissions before writing project and object records"
-    })
-  );
-  const guides = document.createElement("section");
-  guides.className = "gis-task-help";
-  guides.append(textElement("h3", "Task guides and recovery"));
-  for (const [title, path] of [
-    ["Open, save and reopen a Project", "docs/community-workflow.md"],
-    ["Review sources and retain analytical results", "docs/community-baseline.md"],
-    ["Synthetic E&S screening example and recovery notes", "examples/esia-screening/README.md"]
-  ]) {
-    const link = textElement("a", title);
-    link.href = `https://github.com/categori-se/opengeo-community/blob/main/${path}`;
-    link.target = "_blank";link.rel = "noopener noreferrer";
-    guides.append(link);
-  }
-  for (const text of [
-    "Map graphics failed: keep your Layers and edits, use the map's Retry control, and continue Catalog or attribute work where available.",
-    "Layer addition reported an error: check the Layer list before adding again; a display failure may follow a successful addition.",
-    "Save conflict: export a backup before reloading, then compare the saved version. Resume an interrupted registration instead of uploading another copy.",
-    "Print unavailable: capture every frame when the map is ready, inspect the output requirements, or return to the map while keeping your layout."
-  ]) guides.append(textElement("p", text));
-  panel.append(guides);
-  return panel;
+  return WorkbenchHelp({publicDemo: context.publicDemo, demoSurface: context.demoSurface,
+    landingMode: context.landingMode, persistenceMode: context.persistenceMode, interfaceModuleURL: import.meta.url});
 }
 
 function createMap(adapter, container, savedView, projection, basemap = null, transformRequest = (url) => ({url, credentials: "omit"})) {
