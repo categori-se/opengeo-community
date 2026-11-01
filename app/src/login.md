@@ -1,4 +1,11 @@
-# Login
+---
+title: Sign in
+theme: [air, near-midnight, wide]
+---
+
+<link rel="stylesheet" href="./auth.css">
+
+# Sign in
 
 Sign in once, then continue directly to the project, team, file, or account
 screen you requested.
@@ -23,3 +30,5 @@ const browserAuth = platform.kind === "api" ? createCognitoBrowserAuth() : null;
 ```js
 SessionPanel({adapter: platform, auth: browserAuth})
 ```
+
+[Open source & credits](/credits)

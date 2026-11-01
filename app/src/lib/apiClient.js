@@ -237,6 +237,30 @@ export class OpenGeoApiClient {
     return parseSession(await this.request("/auth/session", {organizationRequired: false, signal}));
   }
 
+  async requestAccount({displayName, email, purpose, website = ""}, {signal} = {}) {
+    const result = object(await this.request("/auth/account-requests", {
+      method: "POST", anonymous: true, signal,
+      body: {display_name: boundedString(displayName.trim(), 200, "request name"),
+        email: boundedString(email.trim().toLowerCase(), 320, "request email"),
+        purpose: boundedString(purpose.trim(), 2000, "request purpose"),
+        website: typeof website === "string" ? website : ""}
+    }), "account request receipt");
+    exactKeys(result, ["status"], "account request receipt");
+    return {status: oneOf(result.status, ["pending"], "account request status")};
+  }
+
+  async listAccountRequests({limit = 50, offset = 0, signal} = {}) {
+    return parseArray(await this.request(`/auth/account-requests${pageQuery({limit, offset})}`, {signal}),
+      parseAccountRequest, "account requests");
+  }
+
+  async reviewAccountRequest(id, decision) {
+    return parseAccountRequest(await this.request(
+      `/auth/account-requests/${pathUuid(id, "account request id")}/review`,
+      {method: "POST", body: {decision: oneOf(decision, ["approve", "reject"], "account request decision")}}
+    ));
+  }
+
   /** @returns {Promise<PendingInvitation[]>} */
   async listMyInvitations({signal} = {}) {
     return parseArray(
@@ -5777,6 +5801,17 @@ export class OpenGeoApiClient {
     }
     return payload;
   }
+}
+
+function parseAccountRequest(value) {
+  const record = object(value, "account request");
+  return {id: uuid(record.id, "account request id"), email: boundedString(record.email, 320, "request email"),
+    displayName: boundedString(record.display_name, 200, "request name"),
+    purpose: boundedString(record.purpose, 2000, "request purpose"),
+    state: oneOf(record.state, ["pending", "approved", "rejected"], "request state"),
+    invitationId: nullableUuid(record.invitation_id, "request invitation"),
+    createdAt: timestamp(record.created_at, "request created"),
+    reviewedAt: nullableTimestamp(record.reviewed_at, "request reviewed")};
 }
 
 function serializeArtifactShareDraft(value) {

@@ -7,12 +7,56 @@ import {
   PRODUCTION_STUDIO_BUCKET,
   PRODUCTION_STUDIO_ORIGIN,
   PRODUCTION_STUDIO_STACK,
+  assertStudioAuthConfig,
   reviewedCloudFrontDomain,
   reviewedStudioOrigin,
   studioDeploymentSettings
 } from "../scripts/studio-release-config.mjs";
 
 describe("Studio release deployment boundary", () => {
+  const managedAuth = () => ({
+    region: "us-east-1",
+    userPoolId: "us-east-1_KXUwaZnuQ",
+    clientId: "6r9315h30gvu9mbrotl1jssgpq",
+    hostedUiBaseUrl: "https://auth-categori-se-977060200223.auth.us-east-1.amazoncognito.com",
+    redirectUri: `${PRODUCTION_STUDIO_ORIGIN}/login`,
+    logoutUri: `${PRODUCTION_STUDIO_ORIGIN}/login`
+  });
+
+  it("admits the exact existing managed sign-in endpoint only for its production Studio client", () => {
+    withEnvironment({OPEN_GEO_COMMUNITY_DEPLOYMENT: undefined}, () => {
+      assert.doesNotThrow(() => assertStudioAuthConfig(managedAuth(), PRODUCTION_STUDIO_ORIGIN));
+    });
+  });
+
+  it("preserves the established classic sign-in binding", () => {
+    withEnvironment({OPEN_GEO_COMMUNITY_DEPLOYMENT: undefined}, () => {
+      const config = {...managedAuth(), hostedUiBaseUrl: "https://auth.categori.se"};
+      assert.doesNotThrow(() => assertStudioAuthConfig(config, PRODUCTION_STUDIO_ORIGIN));
+    });
+  });
+
+  it("rejects every changed managed endpoint, client, pool, region or application origin", () => {
+    withEnvironment({OPEN_GEO_COMMUNITY_DEPLOYMENT: undefined}, () => {
+      for (const patch of [
+        {userPoolId: "us-east-1_other"},
+        {clientId: "anotherclient"},
+        {region: "us-west-2"},
+        {hostedUiBaseUrl: "https://auth-categori-se-977060200223.auth.us-east-1.amazoncognito.com.attacker.test"},
+        {hostedUiBaseUrl: "https://other.auth.us-east-1.amazoncognito.com"},
+        {hostedUiBaseUrl: `${managedAuth().hostedUiBaseUrl}/`},
+        {redirectUri: "https://studio.opengeo.tools/other"},
+        {logoutUri: "https://studio.opengeo.tools/other"}
+      ]) {
+        assert.throws(() => assertStudioAuthConfig({...managedAuth(), ...patch}, PRODUCTION_STUDIO_ORIGIN), /identity provider/);
+      }
+      const devOrigin = "https://dev.studio.opengeo.tools";
+      assert.throws(() => assertStudioAuthConfig({
+        ...managedAuth(), redirectUri: `${devOrigin}/login`, logoutUri: `${devOrigin}/login`
+      }, devOrigin), /identity provider/);
+    });
+  });
+
   it("accepts only the reviewed production, development, managed-demo, or CloudFront origins", () => {
     assert.equal(reviewedStudioOrigin(PRODUCTION_STUDIO_ORIGIN), PRODUCTION_STUDIO_ORIGIN);
     assert.equal(

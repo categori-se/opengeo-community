@@ -51,6 +51,7 @@ class InvitationDraft:
     project_id: UUID | None
     project_role: ProjectRole | None
     expires_at: datetime
+    account_request_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,13 +197,18 @@ class PostgresMembershipRepository:
     async def create_invitation(
         self, context: TenantContext, draft: InvitationDraft, request_id: str
     ) -> MembershipInvitation:
-        async def authorize_operation(transaction: TenantTransaction) -> None:
+        async def authorize_operation(
+            transaction: TenantTransaction,
+        ) -> MembershipInvitation | None:
             role = await self._organization_role(transaction, context)
             self._require(Action.MEMBERSHIP_INVITATIONS_MANAGE, Roles(role))
             if draft.project_id is not None:
                 await self._require_project(transaction, context, draft.project_id)
+            return await self._account_request_invitation(transaction, context, draft)
 
-        await self._run(context, authorize_operation)
+        existing = await self._run(context, authorize_operation)
+        if existing is not None:
+            return existing
         identity = await self._identity_provisioner.ensure_user(draft.email, draft.display_name)
 
         async def create_operation(transaction: TenantTransaction) -> MembershipInvitation:
@@ -210,6 +216,9 @@ class PostgresMembershipRepository:
             self._require(Action.MEMBERSHIP_INVITATIONS_MANAGE, Roles(role))
             if draft.project_id is not None:
                 await self._require_project(transaction, context, draft.project_id)
+            approved = await self._account_request_invitation(transaction, context, draft)
+            if approved is not None:
+                return approved
             user_id = await self._provision_user(transaction, identity)
             existing_membership = await transaction.fetch_one(
                 """
@@ -234,6 +243,18 @@ class PostgresMembershipRepository:
             )
             if pending is not None:
                 if cast(datetime, pending[1]) > datetime.now(UTC):
+                    if draft.account_request_id is not None:
+                        row = await transaction.fetch_one(
+                            self._invitation_select() + " WHERE invitation.id = %s",
+                            (pending[0],),
+                        )
+                        invitation = self._invitation_required(row)
+                        if invitation.organization_role != draft.organization_role:
+                            raise MembershipConflict("account_request_invitation_scope_mismatch")
+                        await self._approve_account_request(
+                            transaction, draft, invitation.invitation_id
+                        )
+                        return invitation
                     raise MembershipConflict("invitation_pending")
                 await transaction.execute(
                     """
@@ -282,6 +303,7 @@ class PostgresMembershipRepository:
                 ),
             )
             invitation = self._invitation_required(row)
+            await self._approve_account_request(transaction, draft, invitation_id)
             await self._record_event(
                 transaction,
                 context,
@@ -300,6 +322,40 @@ class PostgresMembershipRepository:
             return invitation
 
         return await self._run(context, create_operation)
+
+    async def _account_request_invitation(
+        self, transaction: TenantTransaction, context: TenantContext, draft: InvitationDraft
+    ) -> MembershipInvitation | None:
+        if draft.account_request_id is None:
+            return None
+        row = await transaction.fetch_one(
+            """SELECT state,email,display_name,invitation_id FROM app.account_access_requests
+               WHERE id = %s AND organization_id = %s AND reviewer_user_id = %s FOR UPDATE""",
+            (draft.account_request_id, context.organization_id, context.user_id),
+        )
+        if row is None:
+            raise MembershipNotFound("account_request")
+        if row[1] != draft.email or row[2] != draft.display_name:
+            raise MembershipConflict("account_request_identity_mismatch")
+        if row[0] == "rejected":
+            raise MembershipConflict("account_request_rejected")
+        if row[0] == "approved":
+            invitation = await transaction.fetch_one(
+                self._invitation_select() + " WHERE invitation.id = %s", (row[3],)
+            )
+            return self._invitation_required(invitation)
+        return None
+
+    @staticmethod
+    async def _approve_account_request(
+        transaction: TenantTransaction, draft: InvitationDraft, invitation_id: UUID
+    ) -> None:
+        if draft.account_request_id is not None:
+            await transaction.execute(
+                """UPDATE app.account_access_requests SET state = 'approved',
+                   invitation_id = %s, reviewed_at = clock_timestamp() WHERE id = %s""",
+                (invitation_id, draft.account_request_id),
+            )
 
     async def revoke_invitation(
         self, context: TenantContext, invitation_id: UUID, request_id: str

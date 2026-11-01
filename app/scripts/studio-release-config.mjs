@@ -8,6 +8,12 @@ export const DEVELOPMENT_STUDIO_ORIGIN = "https://dev.studio.opengeo.tools";
 export const DEVELOPMENT_STUDIO_BUCKET = "opengeo-dev-studio-222222222222-us-east-1";
 export const DEVELOPMENT_STUDIO_STACK = "OpenGeo-dev-StudioWeb";
 export const DEVELOPMENT_ACCOUNT = "222222222222";
+const PRODUCTION_MANAGED_SIGN_IN = Object.freeze({
+  hostedUiBaseUrl: "https://auth-categori-se-977060200223.auth.us-east-1.amazoncognito.com",
+  region: "us-east-1",
+  userPoolId: "us-east-1_KXUwaZnuQ",
+  clientId: "6r9315h30gvu9mbrotl1jssgpq"
+});
 
 export function communityDeploymentEnabled() {
   const value = process.env.OPEN_GEO_COMMUNITY_DEPLOYMENT;
@@ -64,9 +70,11 @@ export function reviewedCloudFrontDomain(value, label = "Studio bootstrap domain
 
 export function assertStudioAuthConfig(authConfig, origin) {
   const community = communityDeploymentEnabled();
+  const managedProduction = !community && origin === PRODUCTION_STUDIO_ORIGIN
+    && Object.entries(PRODUCTION_MANAGED_SIGN_IN).every(([key, value]) => authConfig[key] === value);
   const hostedUiBaseUrl = community
     ? communityInput("OPEN_GEO_COGNITO_HOSTED_UI_BASE_URL")
-    : "https://auth.categori.se";
+    : managedProduction ? PRODUCTION_MANAGED_SIGN_IN.hostedUiBaseUrl : "https://auth.categori.se";
   if (community && (!hostedUiBaseUrl.startsWith("https://")
     || !new URL(hostedUiBaseUrl).hostname.endsWith(`.auth.${authConfig.region}.amazoncognito.com`))) {
     throw new Error("Community Studio requires its own HTTPS Cognito hosted UI domain");

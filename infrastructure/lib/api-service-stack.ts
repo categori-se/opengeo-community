@@ -23,6 +23,8 @@ export interface ApiServiceStackProps extends StackProps {
   readonly imageDigest: string;
   readonly observableBuilderImageDigest: string;
   readonly additionalCognitoClientIds?: string;
+  readonly accountRequestOrganizationId?: string;
+  readonly accountRequestReviewerUserId?: string;
   readonly observablePreviewPrivateKeySecretArn?: string;
   readonly connectionVerificationQueue?: sqs.IQueue;
   readonly userDatasetVerificationQueue?: sqs.IQueue;
@@ -122,6 +124,10 @@ export class ApiServiceStack extends Stack {
         OPEN_GEO_COGNITO_USER_POOL_ID: foundation.userPool.userPoolId,
         OPEN_GEO_COGNITO_PROVISIONING_ENABLED:
           foundation.identityProvisioningEnabled ? "true" : "false",
+        ...(props.accountRequestOrganizationId && props.accountRequestReviewerUserId ? {
+          OPEN_GEO_ACCOUNT_REQUEST_ORGANIZATION_ID: props.accountRequestOrganizationId,
+          OPEN_GEO_ACCOUNT_REQUEST_REVIEWER_USER_ID: props.accountRequestReviewerUserId
+        } : {}),
         OPEN_GEO_AWS_REGION: this.region,
         OPEN_GEO_APPLICATION_BUCKET: foundation.applicationBucket.bucketName,
         OPEN_GEO_OBSERVABLE_BUILDER_IMAGE_DIGEST: props.observableBuilderImageDigest,

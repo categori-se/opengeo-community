@@ -69,6 +69,35 @@ it("does not mistake an unrelated forbidden response for an empty invitation lis
   assert.match(panel.textContent, /Access unavailable/);
   assert.doesNotMatch(panel.textContent, /No pending invitations|Signed in as/);
   assert.equal(button(panel, "Check invitations"), undefined);
+  assert.equal([...panel.querySelectorAll("a")].some(link => link.textContent === "Request OpenGeo access"), false);
+});
+
+it("offers unprovisioned identities safe access-request recovery without granting access or starting sign-in", () => {
+  const previousLocation = Object.getOwnPropertyDescriptor(globalThis, "location");
+  Object.defineProperty(globalThis, "location", {configurable: true, value: {
+    origin: "https://studio.opengeo.tools", href: "https://studio.opengeo.tools/workspaces?project=selected#data"
+  }});
+  try {
+    for (const code of ["principal_not_provisioned", "organization_membership_required"]) {
+      const panel = platformStatePanel({...state(), code}, () => {assert.fail("No automatic retry");}, {
+        returnTo: "/workspaces?project=selected#data", autoSignIn: true,
+        auth: {beginSignIn() {assert.fail("Already authenticated");}, signOut() {assert.fail("No automatic sign-out");}}
+      });
+      const request = [...panel.querySelectorAll("a")].find(link => link.textContent === "Request OpenGeo access");
+      const target = new URL(request.getAttribute("href"), location.origin);
+      assert.equal(target.pathname, "/login");
+      assert.equal(target.searchParams.get("request"), "account");
+      assert.equal(target.searchParams.get("returnTo"), "/workspaces?project=selected#data");
+      assert.equal(panel.querySelector('[data-action="accept-invitation"]'), null);
+    }
+    const denied = platformStatePanel({...state(), code: "principal_not_provisioned"}, () => {}, {
+      returnTo: "https://attacker.example/steal"
+    });
+    assert.equal(new URL(denied.querySelector("a").getAttribute("href"), location.origin).searchParams.get("returnTo"), "/");
+  } finally {
+    if (previousLocation) Object.defineProperty(globalThis, "location", previousLocation);
+    else delete globalThis.location;
+  }
 });
 
 it("does not log out the real identity from explicit fixture mode", () => {

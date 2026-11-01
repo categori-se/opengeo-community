@@ -54,11 +54,65 @@ export function renderTeamAdministrationState(root, state, refresh, auth = null)
     heading,
     AccountNavigation({adapterKind: state.adapter?.kind, active: "people", admin: state.organization.callerRole === "admin"}),
     feedback,
+    accountRequestsPanel(state, feedback),
     invitePanel(state, feedback, refresh),
     invitationsPanel(state, feedback, refresh),
     organizationMembersPanel(state, feedback, refresh),
     projectMembersPanel(state, feedback, refresh)
   );
+}
+
+function accountRequestsPanel(state, feedback) {
+  const panel = section("Account requests", "Aaron reviews new account requests. Approval creates an invitation; access begins after the person signs in and accepts it.");
+  panel.hidden = true;
+  if (state.organization.callerRole !== "admin" || typeof state.adapter.listAccountRequests !== "function") return panel;
+  let offset = 0;
+  void load();
+  return panel;
+
+  async function load() {
+    try {
+      const records = await state.adapter.listAccountRequests({limit: 50, offset});
+      if (!panel.parentNode) return;
+      panel.hidden = false;
+      panel.replaceChildren(text("h3", "Account requests"), text("p", "Approval creates an account invitation. The person must sign in and accept it before access begins."));
+      if (!records.length) panel.append(empty("No account requests", "New requests will appear here for your review."));
+      for (const record of records) {
+        const row = block("div", text("strong", record.displayName), text("p", record.email),
+          text("p", record.purpose), text("p", `Status: ${record.state}`));
+        row.className = "platform-list-card";
+        if (record.state === "pending") {
+          for (const [decision, label] of [["approve", "Approve and invite"], ["reject", "Decline request"]]) {
+            const button = action(label, async () => {
+              for (const control of row.querySelectorAll("button")) control.disabled = true;
+              showFeedback(feedback, "working", decision === "approve" ? "Approving request and creating invitation…" : "Declining request…");
+              try {
+                const reviewed = await state.adapter.reviewAccountRequest(record.id, decision);
+                showFeedback(feedback, "success", reviewed.state === "approved"
+                  ? `Request approved for ${record.email}. The invitation is ready; access still requires acceptance.`
+                  : `Request declined for ${record.email}.`);
+                await load();
+              } catch (error) {
+                showMutationError(feedback, error);
+                for (const control of row.querySelectorAll("button")) control.disabled = false;
+              }
+            }, "button", decision === "reject" ? "platform-button-secondary" : "");
+            button.dataset.action = `${decision}-account-request`;
+            row.append(button);
+          }
+        }
+        panel.append(row);
+      }
+      if (offset) panel.append(action("Previous requests", () => {offset = Math.max(0, offset - 50); void load();}, "button", "platform-button-secondary"));
+      if (records.length === 50) panel.append(action("More requests", () => {offset += 50; void load();}, "button", "platform-button-secondary"));
+    } catch (error) {
+      if ([401, 403].includes(error?.status) || error?.code === "account_requests_unavailable") return;
+      if (!panel.parentNode) return;
+      panel.hidden = false;
+      panel.replaceChildren(text("h3", "Account requests"), text("p", "Account requests could not be loaded."),
+        action("Try again", () => {void load();}, "button", "platform-button-secondary"));
+    }
+  }
 }
 
 function invitePanel(state, feedback, refresh) {

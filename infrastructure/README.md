@@ -30,3 +30,8 @@ permissions, operating costs, backup, upgrades and acceptance.
 the original application's configurable stack assembly for maintainers working
 on its existing integrations. The community command selects the independent
 profile explicitly.
+
+The [provider sign-in branding assets](assets/auth/README.md) prepare
+client-specific adaptive light/dark managed-login styling. Apply them through
+the identity provider's supported branding controls; local Studio CSS cannot style
+the provider origin. These assets change no shared domain or feature plan.
