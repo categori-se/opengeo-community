@@ -6,10 +6,22 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
   const root = node("section", ""); root.className = "framework-publications";
   const feedback = node("p", ""); feedback.setAttribute("role", "status");
   const content = node("div", "");
+  const withdrawals = new Map();
   let busy = false, pendingReview = null, pendingDestination = null, savedBuilds = [];
   const reload = button(mode === 'addresses' ? 'Reload addresses' : "Reload publication reviews", () => load());
   root.append(node("h4", mode === 'addresses' ? 'Public addresses' : "Publish"), feedback, content, reload);
-  root.refreshStatus = status => {if (!busy) show(status, savedBuilds);};
+  root.refreshStatus = status => {if (!busy) {rememberWithdrawals(status); show(status, savedBuilds);}};
+  function rememberWithdrawals(status) {
+    for (const review of status.reviews) {
+      if (review.revocationState && withdrawals.get(review.id)?.state !== 'revoked') {
+        withdrawals.set(review.id, {id: review.id, state: review.revocationState, revoked: review.revocationState === 'revoked'});
+      }
+    }
+  }
+  function withdrawalFor(review) {
+    return withdrawals.get(review.id) ?? (review.revocationState
+      ? {id: review.id, state: review.revocationState, revoked: review.revocationState === 'revoked'} : null);
+  }
   async function load() {
     if (busy) return;
     busy = true; reload.disabled = true; content.replaceChildren();
@@ -19,6 +31,7 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
         mode === 'addresses' ? [] : adapter.listObservableBuildJobs(projectId, sourceProjectId, {limit: 25, offset: 0})
       ]);
       savedBuilds = builds;
+      rememberWithdrawals(status);
       show(status, builds);
     } catch {content.replaceChildren(); feedback.textContent = "Publication status is unavailable. No publication was requested.";}
     finally {busy = false; reload.disabled = false;}
@@ -37,11 +50,13 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
     destinations.append(node("h5", "Public addresses"));
     if (!mounts.length) destinations.append(node("p", "No address configured for this publication."));
     for (const mount of mounts) {
-      const latest = status.reviews.filter(review => review.mountId === mount.id && review.deployment?.stage === "deployed")
+      const released = status.reviews.filter(review => review.mountId === mount.id && review.deployment?.stage === "deployed");
+      const latest = released.filter(review => withdrawalFor(review)?.state !== 'revoked')
         .sort((a,b) => Date.parse(b.deployment.updatedAt) - Date.parse(a.deployment.updatedAt))[0];
       const row = node("div", ""); row.className = "publication-destination-row";
       const address = node("a", mount.url); address.href = mount.url; address.target = "_blank"; address.rel = "noopener noreferrer";
-      const state = node("small", latest ? `Last released ${new Date(latest.deployment.updatedAt).toLocaleString()}` : "Authorized address · no Studio release recorded");
+      const state = node("small", latest ? `Last released ${new Date(latest.deployment.updatedAt).toLocaleString()}`
+        : released.length ? "Recorded public editions withdrawn" : "Authorized address · no Studio release recorded");
       const copy = button("Copy URL", async () => {
         try {await globalThis.navigator.clipboard.writeText(mount.url); feedback.textContent = "Public address copied.";}
         catch {feedback.textContent = `Public address: ${mount.url}`;}
@@ -121,9 +136,13 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
     content.append(history);
     for (const [index, review] of status.reviews.entries()) {
       const card = node("details", "");
+      card.dataset.reviewId = review.id;
+      const withdrawal = withdrawalFor(review);
       const stage = review.deployment?.stage ?? (review.approvedAt ? "approved" : "review");
       card.open = index === 0 && stage !== "deployed";
-      card.append(node("summary", `${review.url} · ${stage.replaceAll("_", " ")}`));
+      const displayStage = withdrawal ? withdrawal.state === 'uncertain' ? 'withdrawal unconfirmed'
+        : withdrawal.state === 'revoked' ? 'withdrawn' : `withdrawal ${withdrawal.state.replaceAll('_', ' ')}` : stage.replaceAll("_", " ");
+      card.append(node("summary", `${review.url} · ${displayStage}`));
       const technical = node("details", "");
       technical.append(node("summary", "Release details"), node("p", `Build ${review.buildJobId} · review ${review.id}`),
         node("p", `Output SHA-256: ${review.outputTreeChecksumSha256}`),
@@ -132,7 +151,8 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
         node("p", review.approvedAt ? `Approved ${review.approvedAt}.${review.deployment?.stage === "deployed" ? "" : " Approval is not proof of deployment."}` : `Not approved. Review expires ${review.expiresAt}.`));
       if (review.deployment) {
         const job = review.deployment;
-        const message = job.stage === "deployed" ? `Published release: ${job.releasePrefix}`
+        const message = withdrawal?.state === 'revoked' ? `Edition withdrawal confirmed: ${job.releasePrefix}`
+          : job.stage === "deployed" ? `Published release: ${job.releasePrefix}`
           : job.stage === "activating" ? "Files verified. Waiting for public delivery activation and cache invalidation."
           : job.stage === "needs_attention" ? `Publication needs attention: ${job.errorCode ?? "unknown"}. The saved job can be resumed after resolution.`
           : `Publication ${job.stage}: ${job.completedFiles} of ${job.totalFiles ?? "pending inventory"} files retained.`;
@@ -177,8 +197,11 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
             ...(distributionApprovalId ? {distributionApprovalId} : {})
           }), builds);
         });
-        restore.disabled = !status.canPublish || !mounts.some(mount => mount.id === review.mountId);
-        card.append(link, node("p", "Rollback prepares a new review of this project's exact earlier build. Preview and approval are required again; other projects keep their current files."), restore);
+        restore.disabled = !status.canPublish || !!withdrawal || !mounts.some(mount => mount.id === review.mountId);
+        if (withdrawal?.state !== 'revoked') card.append(link, node("p", "Rollback prepares a new review of this project's exact earlier build. Preview and approval are required again; other projects keep their current files."), restore);
+        if (withdrawal || status.canPublish) {
+          card.append(withdrawalControl(review, status, builds));
+        }
         history.append(card);
         continue;
       }
@@ -200,6 +223,63 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
       approve.disabled = !status.canPublish || !status.dispatchConfigured || (!review.approvedAt && Date.parse(review.expiresAt) <= Date.now());
       card.append(preview, label, approve); history.append(card);
     }
+  }
+  function withdrawalControl(review, status, builds) {
+    const section = node('fieldset', ''); section.className = 'publication-edition-withdrawal';
+    section.append(node('legend', 'Withdraw this public edition'));
+    const result = withdrawalFor(review);
+    const message = node('p', result?.state === 'revoked'
+      ? 'Public delivery has confirmed withdrawal of this exact edition.'
+      : result?.state === 'pending'
+      ? 'Withdrawal requested. Public delivery has not yet confirmed completion; this edition may still be accessible.'
+      : result?.state === 'needs_attention'
+      ? 'Withdrawal needs attention. Public delivery has not confirmed completion. Refresh its status after the delivery issue is resolved.'
+      : result?.state === 'uncertain'
+      ? 'The withdrawal request could not be confirmed. Refresh the status of this same edition to recover the saved request.'
+      : status.withdrawalConfigured === true
+      ? 'Request withdrawal of this selected public edition.'
+      : 'Edition withdrawal is not available for this destination.');
+    message.setAttribute('role', 'status'); section.append(message);
+    section.append(node('p', 'Other editions and private source rights keep their existing access. Existing private preview access retains its stated expiry. Previously downloaded or printed copies cannot be recalled.'));
+    const statusOnly = !!result && status.withdrawalConfigured !== true;
+    if (result?.state === 'revoked' || !status.canPublish
+      || typeof adapter[statusOnly ? 'getFrameworkPublications' : 'revokeFrameworkPublication'] !== 'function'
+      || !result && status.withdrawalConfigured !== true) return section;
+    const acknowledgment = node('input', ''); acknowledgment.type = 'checkbox';
+    acknowledgment.name = `withdraw-publication-edition-${review.id}`;
+    const label = node('label', ' I confirm withdrawal of this exact public edition.'); label.prepend(acknowledgment);
+    const submit = button(result ? 'Refresh withdrawal status' : 'Request withdrawal', async () => {
+      if (busy || !status.canPublish || !result && (status.withdrawalConfigured !== true || !acknowledgment.checked)) return;
+      busy = true; reload.disabled = true;
+      for (const control of content.querySelectorAll('button,select,input')) control.disabled = true;
+      try {
+        if (statusOnly) {
+          const refreshed = await adapter.getFrameworkPublications(projectId, sourceProjectId);
+          if (refreshed?.sourceProjectId !== sourceProjectId || !refreshed.reviews?.some(record => record.id === review.id)) {
+            throw Error('withdrawal_status_scope_mismatch');
+          }
+          rememberWithdrawals(refreshed); show(refreshed, builds);
+          return;
+        }
+        const receipt = await adapter.revokeFrameworkPublication(projectId, sourceProjectId, review.id);
+        if (receipt?.id !== review.id || !['pending', 'needs_attention', 'revoked'].includes(receipt.state)
+          || receipt.revoked !== (receipt.state === 'revoked')) throw Error('withdrawal_receipt_mismatch');
+        withdrawals.set(review.id, receipt); show(status, builds);
+      } catch {
+        if (statusOnly) {
+          show(status, builds);
+          feedback.textContent = 'Withdrawal status could not be refreshed. The saved withdrawal state is unchanged.';
+        } else {
+          withdrawals.set(review.id, {id: review.id, state: 'uncertain', revoked: false}); show(status, builds);
+        }
+      } finally {busy = false; reload.disabled = false;}
+    });
+    if (!result) {
+      submit.disabled = true;
+      acknowledgment.addEventListener('change', () => {submit.disabled = !acknowledgment.checked;});
+      section.append(label);
+    }
+    section.append(submit); return section;
   }
   async function act(operation, builds) {
     busy = true; reload.disabled = true;

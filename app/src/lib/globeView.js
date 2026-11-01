@@ -36,7 +36,7 @@ export function normalizeMapView(value, fallback = DEFAULT_MAP_VIEW) {
   return {
     id: boundedIdentifier(source.id ?? source.viewId) ?? boundedIdentifier(safeFallback.id)
       ?? DEFAULT_MAP_VIEW.id,
-    title: boundedTitle(source.title) ?? boundedTitle(safeFallback.title)
+    title: boundedTitle(source.title) ?? boundedTitle(source.label) ?? boundedTitle(safeFallback.title)
       ?? DEFAULT_MAP_VIEW.title,
     center: [
       clamp(center[0], GLOBE_VIEW_LIMITS.minimumLongitude, GLOBE_VIEW_LIMITS.maximumLongitude),
@@ -64,7 +64,8 @@ export function normalizeMapView(value, fallback = DEFAULT_MAP_VIEW) {
       GLOBE_VIEW_LIMITS.minimumPitch,
       GLOBE_VIEW_LIMITS.maximumPitch
     ),
-    bearing: normalizeBearing(source.bearing, safeFallback.bearing)
+    bearing: normalizeBearing(source.bearing, safeFallback.bearing),
+    ...portableViewMetadata(source)
   };
 }
 
@@ -142,6 +143,25 @@ function validCenter(value) {
   return Array.isArray(value)
     && value.length === 2
     && value.every(Number.isFinite);
+}
+
+function portableViewMetadata(source) {
+  const metadata = {};
+  // These imported records describe the saved view; retaining them does not
+  // fit the live camera, switch renderers or activate Layer visibility overrides.
+  if (Array.isArray(source.bbox) && source.bbox.length === 4 && source.bbox.every(Number.isFinite)) {
+    metadata.bbox = [...source.bbox];
+  }
+  if (typeof source.label === "string" && source.label.length <= 160) metadata.label = source.label;
+  if (typeof source.viewKind === "string" && source.viewKind.length <= 100) metadata.viewKind = source.viewKind;
+  if (source.layerVisibility && typeof source.layerVisibility === "object" && !Array.isArray(source.layerVisibility)) {
+    const entries = Object.entries(source.layerVisibility);
+    if (entries.length <= 200 && entries.every(([key, value]) => key.length > 0 && key.length <= 200
+      && !["__proto__", "constructor", "prototype"].includes(key) && typeof value === "boolean")) {
+      metadata.layerVisibility = Object.fromEntries(entries);
+    }
+  }
+  return metadata;
 }
 
 function boundedIdentifier(value) {

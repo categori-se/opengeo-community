@@ -349,6 +349,7 @@ import {
   cameraTourForProject,
   cameraTourForSave,
   cameraTourFrameAt,
+  captureCameraTourLayerVisibility,
   captureCameraTourView,
   createCameraTour,
   exportCameraTour,
@@ -11089,6 +11090,8 @@ function cameraTourPanel(context) {
   ));
   panel.append(intro, cameraTourImportControl(context));
   if (!state.cameraTour) {
+    if (context.project?.extensions?.cameraTour) panel.append(textElement("p",
+      "The saved tour format is unavailable in this interface. Saving preserves its original data; starting a new tour deliberately replaces it."));
     const empty = editorSection(
       "Start with the current view",
       "The first view fixes the starting camera, projection, and spatial body. It does not copy or publish any map data."
@@ -11143,6 +11146,10 @@ function cameraTourPanel(context) {
   sequenceActions.children[4].disabled = tour.keyframes.length === 1;
   sequenceActions.children[4].classList.add("danger");
   sequence.append(list, sequenceActions, cameraTourKeyframeEditor(context, selected, selectedIndex));
+  const layerEvents = editorSection("Layer visibility", "Record already loaded governed vector Project Layers at a view. Start at the first view. Visibility changes on arrival; travel keeps the previous view’s visibility. Playback never loads missing Layers or changes their versions.");
+  layerEvents.append(actionButton("Record Layer visibility", () => recordCameraTourLayerVisibility(context, selected.id)),
+    textElement("p", selected.layerVisibility ? `${selected.layerVisibility.length} exact Layer versions recorded at this view.` : "No visibility snapshot at this view; the preceding recorded visibility continues."));
+  sequence.append(layerEvents);
   panel.append(sequence);
 
   const playback = editorSection("Playback", "Play, pause, stop, or scrub without changing the recorded keyframes.");
@@ -11324,12 +11331,35 @@ function removeCurrentCameraTourView(context, keyframeId) {
 }
 
 function selectCameraTourKeyframe(context, keyframeId) {
-  const keyframe = context.state.cameraTour?.keyframes.find(({id}) => id === keyframeId);
+  const tour = context.state.cameraTour;
+  const keyframe = tour?.keyframes.find(({id}) => id === keyframeId);
   if (!keyframe) return;
   stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
+  const frame = cameraTourKeyframeFrame(tour, tour.keyframes.indexOf(keyframe));
+  if (!applyCameraTourFrame(context, frame)) return;
   context.state.cameraTourSelectedId = keyframeId;
-  applyCameraTourCamera(context.state.map, keyframe.camera);
   context.render();
+}
+
+function recordCameraTourLayerVisibility(context, keyframeId) {
+  try {
+    const layers = context.layers.filter(layer => layer.sourceType === "governed-dataset" && !isTemporaryLayer(layer));
+    const snapshot = layers.map(layer => ({layerId: layer.layerId, datasetId: layer.datasetId,
+      datasetVersionId: layer.datasetVersionId, sourceVersion: layer.sourceVersion, visible: layer.visible !== false}));
+    const tour = captureCameraTourLayerVisibility(context.state.cameraTour, keyframeId, snapshot);
+    validateCameraTourLayers(context, tour.keyframes[0].layerVisibility);
+    stateSetCameraTour(context, tour, keyframeId);
+    setStatus(context, `${snapshot.length} exact resident Layer versions recorded. Save the Project to retain this tour.`);
+  } catch (error) {
+    setStatus(context, `Layer visibility was not recorded. Start at the first view and use exact, already loaded vector Project Layers (${error?.code ?? "camera_tour_layers_unavailable"}).`);
+    context.render();
+  }
+}
+
+function cameraTourKeyframeFrame(tour, index) {
+  const snapshot = tour.keyframes.slice(0, index + 1).findLast(view => view.layerVisibility)?.layerVisibility;
+  return {camera: tour.keyframes[index].camera, keyframeIndex: index,
+    ...(snapshot ? {layerVisibility: snapshot} : {})};
 }
 
 function updateCameraTour(context, value, selectedId) {
@@ -11362,6 +11392,8 @@ function playCameraTour(context) {
   const {state} = context;
   if (!state.cameraTour || state.cameraTourPlaybackTimer) return;
   const duration = cameraTourDurationMilliseconds(state.cameraTour);
+  if (!applyCameraTourFrame(context, cameraTourFrameAt(state.cameraTour,
+    state.cameraTourElapsedMilliseconds >= duration ? 0 : state.cameraTourElapsedMilliseconds))) return;
   if (state.cameraTourElapsedMilliseconds >= duration) state.cameraTourElapsedMilliseconds = 0;
   state.cameraTourPlaybackStartElapsedMilliseconds = state.cameraTourElapsedMilliseconds;
   state.cameraTourPlaybackStartedAt = monotonicNow();
@@ -11369,9 +11401,9 @@ function playCameraTour(context) {
     if (!state.cameraTourPlaybackTimer || !state.cameraTour) return;
     const elapsed = state.cameraTourPlaybackStartElapsedMilliseconds + monotonicNow() - state.cameraTourPlaybackStartedAt;
     const frame = cameraTourFrameAt(state.cameraTour, elapsed);
+    if (!applyCameraTourFrame(context, frame)) return;
     state.cameraTourElapsedMilliseconds = frame.elapsedMilliseconds;
     state.cameraTourSelectedId = state.cameraTour.keyframes[frame.keyframeIndex].id;
-    applyCameraTourCamera(state.map, frame.camera);
     updateCameraTourPlaybackPresentation(context, frame);
     if (frame.done) {
       clearTimeout(state.cameraTourPlaybackTimer);
@@ -11400,12 +11432,12 @@ function stopCameraTourPlayback(context, {reset = true, render = true, announce 
   state.cameraTourPlaybackStartedAt = null;
   state.cameraTourPlaybackStartElapsedMilliseconds = 0;
   if (reset) {
-    state.cameraTourElapsedMilliseconds = 0;
     if (state.cameraTour) {
-      const frame = cameraTourFrameAt(state.cameraTour, 0);
+      const frame = cameraTourKeyframeFrame(state.cameraTour, 0);
+      if (!applyCameraTourFrame(context, frame)) return;
       state.cameraTourSelectedId = state.cameraTour.keyframes[frame.keyframeIndex].id;
-      applyCameraTourCamera(state.map, frame.camera);
     }
+    state.cameraTourElapsedMilliseconds = 0;
   }
   if (announce) setStatus(context, reset ? "Camera tour stopped at its starting view." : "Camera tour paused.");
   if (render) context.render();
@@ -11416,10 +11448,85 @@ function seekCameraTour(context, elapsedMilliseconds) {
   if (!state.cameraTour) return;
   stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
   const frame = cameraTourFrameAt(state.cameraTour, elapsedMilliseconds);
+  if (!applyCameraTourFrame(context, frame)) return;
   state.cameraTourElapsedMilliseconds = frame.elapsedMilliseconds;
   state.cameraTourSelectedId = state.cameraTour.keyframes[frame.keyframeIndex].id;
-  applyCameraTourCamera(state.map, frame.camera);
   updateCameraTourPlaybackPresentation(context, frame);
+}
+
+function validateCameraTourLayers(context, snapshot) {
+  return snapshot.map(binding => {
+    const matches = context.layers.filter(layer => layer.layerId === binding.layerId);
+    const layer = matches[0];
+    const data = context.dataByLayerId.get(binding.layerId);
+    const handle = context.state.layerHandles.get(binding.layerId);
+    const map = context.state.map;
+    if (matches.length !== 1 || layer.sourceType !== "governed-dataset" || isTemporaryLayer(layer)
+      || layer.datasetId !== binding.datasetId || layer.datasetVersionId !== binding.datasetVersionId
+      || layer.sourceVersion !== binding.sourceVersion || isCogLayer(layer)
+      || data?.type !== "FeatureCollection" || !Array.isArray(data.features)
+      || context.loadingDatasetLayerIds.has(layer.layerId) || context.failedDatasetLayerIds.has(layer.layerId)
+      || (map && (context.rendererAdapter.id !== "maplibre" || !handle || !Array.isArray(handle.layerIds)
+        || !handle.layerIds.length || typeof map.setLayoutProperty !== "function"
+        || handle.layerIds.some(id => !map.getLayer?.(id))))) {
+      throw Object.assign(new Error("Exact resident Layer version unavailable"), {code: "camera_tour_layer_binding_unavailable"});
+    }
+    if (map && layer.labels?.enabled && layer.labels.field) {
+      const fonts = context.state.mapFontSession;
+      const pinned = isRegisteredMapFont(layer.labels.fontRef);
+      if (!handle.labelLayerId || !map.getLayer(handle.labelLayerId)
+        || (pinned ? !fonts?.usesPinnedGlyphRoot || !fonts.canRender(layer, data) : fonts?.usesPinnedGlyphRoot)) {
+        throw Object.assign(new Error("Resident labels unavailable"), {code: "camera_tour_layer_labels_unavailable"});
+      }
+    }
+    return {layer, handle, visible: binding.visible, previousVisible: layer.visible !== false};
+  });
+}
+
+function renderCameraTourLayerVisibility(context, entry, visible) {
+  entry.layer.visible = visible;
+  if (entry.handle) {
+    entry.handle.layerVisible = visible;
+    for (const id of entry.handle.layerIds) context.state.map.setLayoutProperty(id, "visibility",
+      visible && !(entry.handle.overviewFiltered && id === entry.handle.rasterOverviewId) ? "visible" : "none");
+  }
+  for (const row of context.shell.querySelectorAll(".gis-layer-row")) {
+    if (row.dataset.layerId === entry.layer.layerId) {
+      const checkbox = row.querySelector('input[type="checkbox"]');
+      if (checkbox) checkbox.checked = visible;
+    }
+  }
+}
+
+export function applyCameraTourFrame(context, frame) {
+  let changes = [], previousCamera = null, cameraAttempted = false, restorationFailed = false;
+  try {
+    // Resolve every binding and renderer handle before changing any Layer or camera.
+    const entries = frame.layerVisibility ? validateCameraTourLayers(context, frame.layerVisibility) : [];
+    changes = entries.filter(entry => entry.previousVisible !== entry.visible);
+    previousCamera = context.state.map ? captureCurrentCameraTourView(context) : null;
+    for (const entry of changes) renderCameraTourLayerVisibility(context, entry, entry.visible);
+    if (changes.length) syncFeatureHalo(context);
+    cameraAttempted = true;
+    applyCameraTourCamera(context.state.map, frame.camera);
+    return true;
+  } catch (error) {
+    for (const entry of changes) {
+      try { renderCameraTourLayerVisibility(context, entry, entry.previousVisible); }
+      catch { entry.layer.visible = entry.previousVisible; restorationFailed = true; }
+    }
+    if (changes.length) {
+      try { syncFeatureHalo(context); } catch { restorationFailed = true; }
+    }
+    if (cameraAttempted && previousCamera) {
+      try { applyCameraTourCamera(context.state.map, previousCamera); } catch { restorationFailed = true; }
+    }
+    stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
+    setStatus(context, restorationFailed ? "Tour stopped. The renderer could not fully restore the previous view; recorded Layers and versions are retained."
+      : `Tour stopped. Every recorded Layer must already be loaded at its exact version; no data was loaded (${error?.code ?? "camera_tour_renderer_failed"}).`);
+    context.render();
+    return false;
+  }
 }
 
 function applyCameraTourCamera(map, camera) {
@@ -14941,6 +15048,7 @@ function labelForLayer(layer, fonts = null, geojson = null) {
 }
 
 function setLayerVisible(context, layer, visible) {
+  stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
   layer.visible = visible;
   if(context.rendererAdapter.id === "cesium") {context.state.map.setLayerVisibility(layer.layerId,visible);return;}
   if (visible && ["governed-dataset", "geojson-archive"].includes(layer.sourceType)
@@ -17296,7 +17404,7 @@ function mapExtensionsForSave(context) {
     || context.project?.extensions?.historicalImagery) {
     extensions.historicalImagery = historicalImageryForSave(context.state.historicalImagery);
   }
-  if (context.state.cameraTour || context.project?.extensions?.cameraTour) {
+  if (context.state.cameraTour) {
     extensions.cameraTour = cameraTourForSave(context.state.cameraTour);
   }
   return extensions;

@@ -223,6 +223,61 @@ describe("GeoLibre 2.6 project interoperability", () => {
     assert.ok(result.report.fields.some((field) => field.path === "$.layers[4]" && field.outcome === "unsupported"));
   });
 
+  it("retains pinned 2.6 view cameras, identities and legend order through the Workbench snapshot", () => {
+    const fixture = JSON.parse(fixtureText), imported = importGeoLibreProject(fixtureText);
+    const before = structuredClone(imported.map.definition);
+    const definition = currentProjectDefinition({project: imported.map.definition,
+      layers: imported.map.definition.layers, state: {map: null}, dataByLayerId: new Map()});
+    const exported = exportGeoLibreProject({name: imported.map.name, definition}, {
+      embeddedDataByLayerId: new Map(imported.records.embeddedDatasets.map(item => [item.layerId, item.data]))
+    });
+    assert.deepEqual(exported.project.mapView, fixture.mapView);
+    assert.deepEqual(exported.project.secondaryMapViews, fixture.secondaryMapViews);
+    assert.deepEqual(exported.project.legend.order, ['field-sites', 'public-pmtiles']);
+    assert.deepEqual(exported.project.mapLayout, fixture.mapLayout);
+    assert.equal(exported.report.target.version, '2.6.0');
+    assert.equal(exported.project.version, '0.2.0');
+    assert.equal(importGeoLibreProject(exported.json).map.definition.mapViews[1].viewId, 'comparison');
+    assert.deepEqual(imported.map.definition, before);
+  });
+
+  it("exports edited secondary views in current identity order while preserving unknown native fields", () => {
+    const fixture = JSON.parse(fixtureText);
+    fixture.secondaryMapViews[0].nativeOptions = {retained: true};
+    fixture.secondaryMapViews[0].view.nativeCameraHint = 'retained';
+    const imported = importGeoLibreProject(fixture);
+    imported.map.definition.mapViews[1] = {...imported.map.definition.mapViews[1],
+      label: 'Updated regional context', center: [-76, 39], zoom: 8, bearing: 45, pitch: 10};
+    imported.map.definition.mapViews.push({viewId: 'detail', label: 'Detailed comparison',
+      center: [-75, 40], zoom: 12, bearing: 90, pitch: 30});
+    imported.map.definition.mapViews = [imported.map.definition.mapViews[0],
+      imported.map.definition.mapViews[2], imported.map.definition.mapViews[1]];
+    imported.map.definition.mapLayout = {rows: 1, cols: 3, syncView: false};
+    const before = structuredClone(imported.map.definition);
+    const exported = exportGeoLibreProject(imported.map);
+    assert.deepEqual(exported.project.secondaryMapViews.map(item => item.id), ['detail', 'comparison']);
+    assert.deepEqual(exported.project.secondaryMapViews[1].view,
+      {center: [-76, 39], zoom: 8, bearing: 45, pitch: 10, nativeCameraHint: 'retained'});
+    assert.equal(exported.project.secondaryMapViews[1].label, 'Updated regional context');
+    assert.deepEqual(exported.project.secondaryMapViews[1].nativeOptions, {retained: true});
+    assert.deepEqual(exported.project.mapLayout, {rows: 1, cols: 3, syncView: false});
+    const reopened = importGeoLibreProject(exported.json);
+    assert.deepEqual(reopened.map.definition.mapViews.slice(1).map(item => item.viewId), ['detail', 'comparison']);
+    assert.equal(reopened.map.definition.mapViews[2].zoom, 8);
+    assert.deepEqual(imported.map.definition, before);
+  });
+
+  it("preserves dangling native legend order and reports unavailable references explicitly", () => {
+    const fixture = JSON.parse(fixtureText); fixture.layers = [fixture.layers[0]];
+    const imported = importGeoLibreProject(fixture);
+    const exported = exportGeoLibreProject(imported.map);
+    assert.deepEqual(exported.project.legend.order, ['field-sites', 'public-pmtiles']);
+    assert.ok(imported.report.fields.some(item => item.path === '$.legend.order' && item.outcome === 'unsupported'));
+    assert.ok(exported.report.fields.some(item => item.path === '$.legend.order' && item.outcome === 'unsupported'));
+    assert.ok(imported.report.fields.some(item => item.path === '$.mapLayout' && item.outcome === 'preserved_extension'));
+    assert.deepEqual(exported.project.layers.map(item => item.id), ['field-sites']);
+  });
+
   it("restores GeoLibre-only layers and emits a current 0.2.0 project", () => {
     const imported = importGeoLibreProject(fixtureText);
     const data = new Map(imported.records.embeddedDatasets.map((record) => [record.layerId, record.data]));

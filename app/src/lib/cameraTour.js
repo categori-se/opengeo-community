@@ -1,9 +1,11 @@
 import {captureMapView, normalizeMapView, normalizeProjection} from "./globeView.js";
 
 export const CAMERA_TOUR_SCHEMA_VERSION = "opengeo.camera-tour.1.0.0";
+export const CAMERA_TOUR_LAYER_SCHEMA_VERSION = "opengeo.camera-tour.1.1.0";
 
 export const CAMERA_TOUR_LIMITS = Object.freeze({
   maximumKeyframes: 64,
+  maximumLayerVisibilityBindings: 64,
   maximumSerializedBytes: 256 * 1024,
   maximumTitleCharacters: 240,
   maximumKeyframeTitleCharacters: 160,
@@ -46,13 +48,25 @@ export function createCameraTour({
 
 export function normalizeCameraTour(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw tourError("camera_tour_invalid");
-  if (value.schemaVersion !== CAMERA_TOUR_SCHEMA_VERSION) throw tourError("camera_tour_version_unsupported");
+  if (![CAMERA_TOUR_SCHEMA_VERSION, CAMERA_TOUR_LAYER_SCHEMA_VERSION].includes(value.schemaVersion)) {
+    throw tourError("camera_tour_version_unsupported");
+  }
   if (!Array.isArray(value.keyframes) || !value.keyframes.length) throw tourError("camera_tour_keyframes_required");
   if (value.keyframes.length > CAMERA_TOUR_LIMITS.maximumKeyframes) throw tourError("camera_tour_keyframe_limit");
   const ids = new Set();
-  const keyframes = value.keyframes.map((keyframe, index) => normalizeKeyframe(keyframe, index, ids));
+  const layerEvents = value.schemaVersion === CAMERA_TOUR_LAYER_SCHEMA_VERSION;
+  const keyframes = value.keyframes.map((keyframe, index) => normalizeKeyframe(keyframe, index, ids, layerEvents));
+  if (layerEvents) {
+    if (!Object.hasOwn(keyframes[0], "layerVisibility")) throw tourError("camera_tour_layer_baseline_required");
+    const baseline = keyframes[0].layerVisibility;
+    for (const keyframe of keyframes) {
+      if (Object.hasOwn(keyframe, "layerVisibility")) {
+        keyframe.layerVisibility = alignLayerVisibility(keyframe.layerVisibility, baseline);
+      }
+    }
+  }
   const normalized = {
-    schemaVersion: CAMERA_TOUR_SCHEMA_VERSION,
+    schemaVersion: value.schemaVersion,
     id: identifier(value.id, "camera_tour_id_invalid"),
     title: boundedText(value.title, CAMERA_TOUR_LIMITS.maximumTitleCharacters, "camera_tour_title_invalid"),
     projection: normalizeProjection(value.projection),
@@ -85,6 +99,19 @@ export function cameraTourForSave(value) {
 export function captureCameraTourView(map, fallback) {
   const view = captureMapView(map, fallback);
   return normalizeTourCamera(view);
+}
+
+/** Record complete, exact-version visibility preferences without granting data access. */
+export function captureCameraTourLayerVisibility(tour, keyframeId, snapshot) {
+  const normalized = normalizeCameraTour(tour);
+  const index = normalized.keyframes.findIndex(({id}) => id === keyframeId);
+  if (index < 0) throw tourError("camera_tour_keyframe_not_found");
+  if (normalized.schemaVersion === CAMERA_TOUR_SCHEMA_VERSION && index !== 0) {
+    throw tourError("camera_tour_layer_baseline_required");
+  }
+  const keyframes = structuredClone(normalized.keyframes);
+  keyframes[index].layerVisibility = snapshot;
+  return normalizeCameraTour({...normalized, schemaVersion: CAMERA_TOUR_LAYER_SCHEMA_VERSION, keyframes});
 }
 
 export function addCameraTourKeyframe(tour, camera, {
@@ -177,6 +204,7 @@ export function cameraTourFrameAt(value, requestedElapsedMilliseconds) {
         const progress = current.easing === "smooth" ? smoothstep(rawProgress) : rawProgress;
         return {
           camera: interpolateCamera(previous.camera, current.camera, progress),
+          ...layerVisibilityFrame(tour, index - 1),
           elapsedMilliseconds,
           durationMilliseconds,
           keyframeIndex: index,
@@ -191,6 +219,7 @@ export function cameraTourFrameAt(value, requestedElapsedMilliseconds) {
     if (elapsedMilliseconds < holdEnd || (elapsedMilliseconds === durationMilliseconds && index === tour.keyframes.length - 1)) {
       return {
         camera: structuredClone(current.camera),
+        ...layerVisibilityFrame(tour, index),
         elapsedMilliseconds,
         durationMilliseconds,
         keyframeIndex: index,
@@ -204,6 +233,7 @@ export function cameraTourFrameAt(value, requestedElapsedMilliseconds) {
   const keyframeIndex = tour.keyframes.length - 1;
   return {
     camera: structuredClone(tour.keyframes[keyframeIndex].camera),
+    ...layerVisibilityFrame(tour, keyframeIndex),
     elapsedMilliseconds: durationMilliseconds,
     durationMilliseconds,
     keyframeIndex,
@@ -229,7 +259,7 @@ export function parseCameraTour(text) {
   return normalizeCameraTour(value);
 }
 
-function normalizeKeyframe(value, index, ids) {
+function normalizeKeyframe(value, index, ids, layerEvents) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw tourError("camera_tour_keyframe_invalid");
   const id = identifier(value.id, "camera_tour_keyframe_id_invalid");
   if (ids.has(id)) throw tourError("camera_tour_keyframe_id_duplicate");
@@ -237,7 +267,7 @@ function normalizeKeyframe(value, index, ids) {
   const transitionMilliseconds = index === 0
     ? 0
     : boundedDuration(value.transitionMilliseconds, CAMERA_TOUR_LIMITS.maximumTransitionMilliseconds, "camera_tour_transition_invalid");
-  return {
+  const keyframe = {
     id,
     title: boundedText(value.title, CAMERA_TOUR_LIMITS.maximumKeyframeTitleCharacters, "camera_tour_keyframe_title_invalid"),
     camera: normalizeTourCamera(value.camera),
@@ -245,6 +275,64 @@ function normalizeKeyframe(value, index, ids) {
     holdMilliseconds: boundedDuration(value.holdMilliseconds, CAMERA_TOUR_LIMITS.maximumHoldMilliseconds, "camera_tour_hold_invalid"),
     easing: EASINGS.has(value.easing) ? value.easing : "smooth"
   };
+  if (Object.hasOwn(value, "layerVisibility")) {
+    if (!layerEvents) throw tourError("camera_tour_layer_visibility_version_required");
+    keyframe.layerVisibility = normalizeLayerVisibility(value.layerVisibility);
+  }
+  return keyframe;
+}
+
+function normalizeLayerVisibility(value) {
+  if (!Array.isArray(value)) throw tourError("camera_tour_layer_visibility_invalid");
+  if (value.length > CAMERA_TOUR_LIMITS.maximumLayerVisibilityBindings) {
+    throw tourError("camera_tour_layer_visibility_limit");
+  }
+  const ids = new Set();
+  return value.map(entry => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)
+      || Object.keys(entry).some(key => !["layerId", "datasetId", "datasetVersionId", "sourceVersion", "visible"].includes(key))
+      || !Number.isSafeInteger(entry.sourceVersion) || entry.sourceVersion < 1
+      || typeof entry.visible !== "boolean") {
+      throw tourError("camera_tour_layer_binding_invalid");
+    }
+    const layerId = identifier(entry.layerId, "camera_tour_layer_binding_invalid");
+    if (ids.has(layerId)) throw tourError("camera_tour_layer_binding_duplicate");
+    ids.add(layerId);
+    return {
+      layerId,
+      datasetId: datasetIdentifier(entry.datasetId),
+      datasetVersionId: datasetIdentifier(entry.datasetVersionId),
+      sourceVersion: entry.sourceVersion,
+      visible: entry.visible
+    };
+  });
+}
+
+function datasetIdentifier(value) {
+  if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw tourError("camera_tour_layer_binding_invalid");
+  }
+  return value.toLowerCase();
+}
+
+function alignLayerVisibility(snapshot, baseline) {
+  const bindings = new Map(snapshot.map(entry => [entry.layerId, entry]));
+  if (snapshot.length !== baseline.length || baseline.some(entry => {
+    const current = bindings.get(entry.layerId);
+    return !current || current.datasetId !== entry.datasetId
+      || current.datasetVersionId !== entry.datasetVersionId || current.sourceVersion !== entry.sourceVersion;
+  })) throw tourError("camera_tour_layer_binding_mismatch");
+  return baseline.map(entry => bindings.get(entry.layerId));
+}
+
+function layerVisibilityFrame(tour, index) {
+  if (tour.schemaVersion !== CAMERA_TOUR_LAYER_SCHEMA_VERSION) return {};
+  for (let current = index; current >= 0; current -= 1) {
+    if (Object.hasOwn(tour.keyframes[current], "layerVisibility")) {
+      return {layerVisibility: structuredClone(tour.keyframes[current].layerVisibility)};
+    }
+  }
+  throw tourError("camera_tour_layer_baseline_required");
 }
 
 function normalizeTourCamera(value) {

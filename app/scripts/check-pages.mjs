@@ -28,6 +28,9 @@ const kmlNetworkLinkMode = process.argv.includes("--kml-network-link")
 const geomooseQueryMode = process.argv.includes("--geomoose-query");
 const shellOnly = process.argv.includes("--shell-only");
 const reviewControlsMode = process.argv.includes("--review-controls");
+const tourLayerMode = process.argv.includes("--camera-tour") && process.argv.includes("--layer-events");
+assert.ok(!process.argv.includes("--layer-events") || tourLayerMode, "--layer-events requires --camera-tour");
+const tourLayerStartedAt = Date.now();
 if (reviewControlsMode && (!process.argv.includes("--workbench-interactions") || shellOnly)) {
   throw new Error("--review-controls requires --workbench-interactions without --shell-only");
 }
@@ -54,9 +57,37 @@ if (!existsSync(distRoot) || !statSync(distRoot).isDirectory()) {
 }
 const artifactRoot = graphicsMode
   ? resolve(process.env.OPEN_GEO_GRAPHICS_ARTIFACT_ROOT ?? join(appRoot, "page-check-artifacts", graphicsFreshReopenMode ? "graphics-fresh-reopen" : "graphics-failure-recovery"))
-  : reviewControlsMode
-  ? resolve(process.env.OPEN_GEO_BROWSER_ARTIFACT_ROOT ?? (() => {throw new Error("--review-controls requires an owned OPEN_GEO_BROWSER_ARTIFACT_ROOT");})())
+  : reviewControlsMode || tourLayerMode
+  ? resolve(process.env.OPEN_GEO_BROWSER_ARTIFACT_ROOT ?? (() => {throw new Error("Scoped browser checks require an owned OPEN_GEO_BROWSER_ARTIFACT_ROOT");})())
   : resolve(appRoot, "page-check-artifacts");
+const tourLayerReceiptPath = join(artifactRoot, "camera-tour-layer-events.json");
+const tourLayerReceipt = tourLayerMode ? {schemaVersion: 1, case: "camera-tour-layer-events", attempt: 1, status: "running",
+  limits: {seconds: 90, workSeconds: 80, requests: 1000, decodedResponseBytes: 33554432, contexts: 2, apiWrites: 1, outboundNetwork: 0},
+  usage: {requests: 0, admittedRequests: 0, refusedRequests: 0, decodedResponseBytes: 0, contexts: 0, apiWrites: 0, datasetReads: 0, interceptedExternal: 0, outboundBlocked: 0, wallSeconds: 0},
+  proof: {}, cleanup: {contextsClosed: true, browserClosed: false, serverClosed: false},
+  limitsOfEvidence: ["Native MapLibre with synthetic local HTTP fixtures; no real account, database, provider, AWS or hosted persistence acceptance.",
+    "One dark desktop viewport; unchanged camera-only/responsive evidence is reused. Hidden Layers are loaded deliberately through normal Show controls before tour playback."]} : null;
+if (tourLayerMode) {
+  assert.ok(!existsSync(tourLayerReceiptPath), "Preserve prior tour receipt; use a new owned artifact directory");
+  if (process.env.OPEN_GEO_TOUR_PRIOR_RECEIPT) {
+    const bytes = await readFile(process.env.OPEN_GEO_TOUR_PRIOR_RECEIPT);
+    assert.equal(createHash("sha256").update(bytes).digest("hex"), process.env.OPEN_GEO_TOUR_PRIOR_SHA256);
+    const prior = JSON.parse(bytes);
+    assert.equal(prior.case, tourLayerReceipt.case);assert.equal(prior.attempt, 1);assert.equal(prior.status, "failed");
+    assert.ok(process.env.OPEN_GEO_TOUR_DIAGNOSIS?.trim() && Object.values(prior.cleanup).every(value => value === true));
+    assert.ok(prior.usage.contexts === 0 || prior.proof.saveAcknowledged,
+      "A spent context without acknowledged Save cannot fit a new Save plus fresh context; preserve checkpoint, do not replay");
+    tourLayerReceipt.attempt = 2;tourLayerReceipt.usage = {...prior.usage};tourLayerReceipt.proof = {...prior.proof};
+    tourLayerReceipt.prior = {path: process.env.OPEN_GEO_TOUR_PRIOR_RECEIPT, sha256: process.env.OPEN_GEO_TOUR_PRIOR_SHA256,
+      usage: prior.usage, error: prior.error, diagnosis: process.env.OPEN_GEO_TOUR_DIAGNOSIS};
+  }
+}
+const tourLayerPriorSeconds = tourLayerReceipt?.usage.wallSeconds ?? 0;
+const tourLayerPendingBodies = new Set();
+const saveTourLayerReceipt = async () => {
+  tourLayerReceipt.usage.wallSeconds = tourLayerPriorSeconds + (Date.now() - tourLayerStartedAt) / 1000;
+  await writeFile(tourLayerReceiptPath, JSON.stringify(tourLayerReceipt, null, 2) + "\n");
+};
 const reviewControlsReceiptPath = join(artifactRoot, "review-controls.json");
 const reviewControlsReceipt = reviewControlsMode ? {
   schemaVersion: 1, case: "review-controls", status: "running",
@@ -487,6 +518,7 @@ const browserProtectedCopyQueueRequests = [];
 const browserSourceDiscoveryRequests = [];
 
 mkdirSync(artifactRoot, {recursive: true});
+if (tourLayerMode) await saveTourLayerReceipt();
 
 const server = createServer(async (request, response) => {
   try {
@@ -523,7 +555,7 @@ const baseUrl = `http://127.0.0.1:${server.address().port}`;
 browserProgress(`Browser fixture server: ${baseUrl}`);
 const launchBrowser = () => chromium.launch({
   headless: true,
-  ...(reviewControlsMode ? {timeout: 10000} : {}),
+  ...(reviewControlsMode || tourLayerMode ? {timeout: 10000} : {}),
   ...chromiumExecutable(),
   ...(graphicsMode || process.argv.includes("--project-dataset-reuse")
     ? {
@@ -538,9 +570,15 @@ const launchBrowser = () => chromium.launch({
     : {})
 });
 let browser;
+let tourLayerTimer;
 try { browser = await launchBrowser(); }
 catch (error) {
   await close(server);
+  if (tourLayerMode) {
+    tourLayerReceipt.status = "failed";tourLayerReceipt.error = error.message;
+    tourLayerReceipt.cleanup = {contextsClosed: true, browserClosed: true, serverClosed: true};
+    await saveTourLayerReceipt();
+  }
   if (graphicsReceipt) {
     graphicsReceipt.status="failed";graphicsReceipt.error=error.message;
     graphicsReceipt.usage.wallSeconds+=(Date.now()-graphicsStartedAt)/1000;
@@ -558,6 +596,10 @@ catch (error) {
 const failures = [];
 
 try {
+  if (tourLayerMode) tourLayerTimer = setTimeout(() => {
+    tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Cumulative eighty-second work deadline reached; ten seconds reserved for cleanup";
+    void browser.close().catch(() => {});
+  }, Math.max(1, (80 - tourLayerPriorSeconds) * 1000 - (Date.now() - tourLayerStartedAt)));
   if (graphicsFreshReopenMode) {
     await assertGraphicsFreshReopen(browser, baseUrl);
   } else if (graphicsFailureMode) {
@@ -664,20 +706,37 @@ try {
     await assertBasemapResourceFeedback(browser, baseUrl);
   }
 } catch (error) {
+  if (tourLayerMode) {tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= error.message;}
   if (reviewControlsReceipt) {reviewControlsReceipt.status = "failed";reviewControlsReceipt.error ??= error.message;}
   if (graphicsReceipt) {graphicsReceipt.status="failed";graphicsReceipt.error ??= error.message;}
   throw error;
 } finally {
+  clearTimeout(tourLayerTimer);
   try {
     await browser.close();
+    if (tourLayerMode) tourLayerReceipt.cleanup.browserClosed = true;
     if (graphicsReceipt) graphicsReceipt.cleanup.browserClosed = true;
     if (reviewControlsReceipt) reviewControlsReceipt.cleanup.browserClosed = true;
   } finally {
     try {
       await close(server);
+      if (tourLayerMode) tourLayerReceipt.cleanup.serverClosed = true;
       if (graphicsReceipt) graphicsReceipt.cleanup.serverClosed = true;
       if (reviewControlsReceipt) reviewControlsReceipt.cleanup.serverClosed = true;
     } finally {
+      if (tourLayerMode) {
+        await Promise.allSettled([...tourLayerPendingBodies]);
+        if (tourLayerReceipt.usage.requests > tourLayerReceipt.limits.requests || tourLayerReceipt.usage.refusedRequests > 0) {
+          tourLayerReceipt.status = "failed";
+          tourLayerReceipt.error ??= "Cumulative raw request ceiling exceeded or request admission refused";
+        }
+        if (failures.length || tourLayerReceipt.status !== "passed") {
+          tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= failures[0] ?? "Tour journey incomplete";
+        }
+        await saveTourLayerReceipt();
+        if (tourLayerReceipt.usage.wallSeconds > 90) {tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Cumulative ninety-second deadline exceeded";await saveTourLayerReceipt();}
+        if (tourLayerReceipt.status === "failed") process.exitCode = 1;
+      }
       if (reviewControlsReceipt) {
         reviewControlsReceipt.usage.wallSeconds = (Date.now() - reviewControlsStartedAt) / 1000;
         if (failures.length || reviewControlsReceipt.usage.wallSeconds > reviewControlsReceipt.limits.seconds) {
@@ -4763,6 +4822,7 @@ async function assertGeoMooseTemporaryGeometryWorkflow(browser, baseUrl) {
 }
 
 async function assertCameraTourWorkflow(browser, baseUrl) {
+  if (tourLayerMode) return assertCameraTourLayerWorkflow(browser, baseUrl);
   const route = `/workspaces?project=${IDS.projects[0]}&map=${IDS.maps[0]}`;
   const viewports = [
     {label: "desktop 1440×950", width: 1440, height: 950, compact: false},
@@ -4855,6 +4915,117 @@ async function assertCameraTourWorkflow(browser, baseUrl) {
       }
     });
   }
+}
+
+async function assertCameraTourLayerWorkflow(browser, baseUrl) {
+  const receipt = tourLayerReceipt, proof = receipt.proof;
+  const key = `${IDS.projects[0]}:${IDS.maps[0]}`;
+  const route = `/workspaces?project=${IDS.projects[0]}&map=${IDS.maps[0]}`;
+  const layers = ["A", "B"].map((suffix, index) => ({layerId: `tour-roads-${suffix.toLowerCase()}`,
+    title: `Tour roads ${suffix}`, datasetId: IDS.dataset, datasetVersionId: IDS.version, sourceVersion: 1,
+    sourceType: "governed-dataset", geometryType: "LineString", visible: index === 0, order: index,
+    opacity: 1, style: {stroke: index ? "#ff7800" : "#2563eb", strokeWidth: 5}, labels: {enabled: false}}));
+  browserMapOverrides.set(key, proof.savedMap ?? {...mapPayloadForProject(IDS.projects[0]), definition: {
+    schemaVersion: "opengeo.map-definition.1.3.0", mapViews: [{id: "primary", title: "Tour roads", center: [85.32, 27.67], zoom: 11, pitch: 0, bearing: 0}],
+    basemaps: [], bookmarks: [], layers}});
+  const state = page => page.locator(".opengeo-workbench").evaluate(shell => {
+    const scene = shell.getPrintContext(), map = scene.map, center = map.getCenter();
+    return {camera: {center: [center.lng, center.lat], zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing()},
+      layers: scene.layers.map(layer => {const handle = scene.handles.get(layer.layerId);return {id: layer.layerId,
+        visible: layer.visible, rendered: map.queryRenderedFeatures(undefined, {layers: handle.layerIds}).length,
+        layout: handle.layerIds.map(id => map.getLayoutProperty(id, "visibility") ?? "visible")};})};
+  });
+  const expectScene = async (page, visibility, camera) => {
+    const actual = await state(page);
+    assert.deepEqual(actual.layers.map(layer => layer.visible), visibility);
+    actual.layers.forEach((layer, index) => {
+      assert.ok(layer.layout.every(value => value === (visibility[index] ? "visible" : "none")));
+      assert.ok(visibility[index] ? layer.rendered > 0 : layer.rendered === 0, "Actual rendered fixture roads must follow visibility");
+    });
+    if (camera) for (const property of ["zoom", "pitch", "bearing"]) assert.ok(Math.abs(actual.camera[property] - camera[property]) < 0.000001);
+    if (camera) actual.camera.center.forEach((value, index) => assert.ok(Math.abs(value - camera.center[index]) < 0.000001));
+    return actual;
+  };
+  const open = async (page, prepare = true) => {
+    page.setDefaultTimeout(7000);page.setDefaultNavigationTimeout(12000);
+    await visit(page, `${baseUrl}${route}`, "Layer-event tour local fixture");
+    await page.waitForFunction(() => document.querySelector(".opengeo-workbench")?.__opengeoMap?.isStyleLoaded?.());
+    if (prepare) {
+      // Normal Show deliberately resolves the initially hidden immutable Layer; the tour never performs this load.
+      await page.getByLabel("Show Tour roads B", {exact: true}).check();
+      await page.waitForFunction(() => {
+        const shell = document.querySelector(".opengeo-workbench"), scene = shell?.getPrintContext();
+        return scene?.ready && scene.layers.length === 2 && scene.layers.every(layer => shell.__opengeoData.has(layer.layerId) && scene.handles.has(layer.layerId));
+      });
+      await page.getByLabel("Show Tour roads B", {exact: true}).uncheck();
+    }
+    await page.locator('.gis-menubar [data-menu="controls"] > button').click();
+    await page.locator('.gis-menu-wrap[data-menu="controls"] .gis-menu-item', {hasText: "Camera tour"}).first().click();
+    return page.locator(".gis-camera-tour-panel");
+  };
+  const scrub = async (panel, elapsed) => panel.locator('[data-camera-tour-timeline="elapsed"]').evaluate((input, value) => {
+    input.value = String(value);input.dispatchEvent(new Event("input", {bubbles: true}));
+  }, elapsed);
+  if (!proof.saveAcknowledged) {
+    assert.ok(receipt.usage.contexts === 0, "Two contexts must remain for Save and fresh reopen");
+    await withPlatformPage(browser, baseUrl, {token: "browser.test.token", colorScheme: "dark", viewport: {width: 1440, height: 950}}, async page => {
+      const panel = await open(page);
+      const readsBefore = receipt.usage.datasetReads;
+      await panel.getByRole("button", {name: "Start camera tour", exact: true}).click();
+      await panel.getByRole("button", {name: "Record Layer visibility", exact: true}).click();
+      const first = await expectScene(page, [true, false]);
+      const editor = panel.locator('[data-camera-tour-editor="view-1"]');
+      await editor.getByLabel("Hold time (seconds)").fill("0");
+      await editor.getByRole("button", {name: "Apply timing", exact: true}).click();
+      const finalCamera = {...first.camera, center: [first.camera.center[0] + 0.001, first.camera.center[1]], zoom: first.camera.zoom + 0.1};
+      await page.locator(".opengeo-workbench").evaluate((shell, camera) => shell.__opengeoMap.jumpTo(camera), finalCamera);
+      await panel.getByRole("button", {name: "Add current view", exact: true}).click();
+      await page.getByLabel("Show Tour roads A", {exact: true}).uncheck();
+      await page.getByLabel("Show Tour roads B", {exact: true}).check();
+      await panel.getByRole("button", {name: "Record Layer visibility", exact: true}).click();
+      const finalEditor = panel.locator('[data-camera-tour-editor="view-2"]');
+      await finalEditor.getByLabel("Travel time (seconds)").fill("0.2");await finalEditor.getByLabel("Hold time (seconds)").fill("0.1");
+      await finalEditor.getByRole("button", {name: "Apply timing", exact: true}).click();
+      await scrub(panel, 100);
+      const midway = await expectScene(page, [true, false]);
+      assert.ok(midway.camera.center[0] > first.camera.center[0] && midway.camera.center[0] < finalCamera.center[0]);
+      await scrub(panel, 300);await expectScene(page, [false, true], finalCamera);
+      await panel.getByRole("button", {name: "Stop tour", exact: true}).click();await expectScene(page, [true, false], first.camera);
+      await panel.getByRole("button", {name: "Play tour", exact: true}).click();
+      await page.waitForFunction(() => document.querySelector(".opengeo-workbench")?.dataset.cameraTourPhase === "finished");
+      await expectScene(page, [false, true], finalCamera);
+      await panel.getByRole("button", {name: "Stop tour", exact: true}).click();await expectScene(page, [true, false], first.camera);
+      assert.equal(receipt.usage.datasetReads, readsBefore, "Recording/scrub/play/Stop must perform no dataset requests");
+      proof.nativeJourney = {firstCamera: first.camera, finalCamera, datasetReadsBefore: readsBefore, datasetReadsAfter: receipt.usage.datasetReads,
+        actualMapLibreVisibility: true, renderedRoads: true, scrub: true, playback: true, stop: true};
+      proof.saveAttempted = true;await saveTourLayerReceipt();
+      const response = page.waitForResponse(response => response.request().method() === "PATCH" && new URL(response.url()).pathname === `/api/projects/${IDS.projects[0]}/maps/${IDS.maps[0]}`);
+      await page.getByRole("button", {name: "Save", exact: true}).click();
+      const acknowledged = await response;assert.equal(acknowledged.status(), 200);
+      proof.savedMap = await acknowledged.json();assert.equal(proof.savedMap.version, 2);
+      assert.equal(proof.savedMap.definition.extensions.cameraTour.schemaVersion, "opengeo.camera-tour.1.1.0");
+      proof.saveAcknowledged = true;await saveTourLayerReceipt();
+    });
+  }
+  await withPlatformPage(browser, baseUrl, {token: "browser.test.token", colorScheme: "dark", viewport: {width: 1440, height: 950}}, async page => {
+    const panel = await open(page);
+    const restored = await page.locator(".opengeo-workbench").evaluate(shell => shell.getPrintContext().project.extensions.cameraTour);
+    assert.deepEqual(restored, proof.savedMap.definition.extensions.cameraTour);
+    const readsBefore = receipt.usage.datasetReads;
+    await panel.getByRole("button", {name: "Play tour", exact: true}).click();
+    await page.waitForFunction(() => document.querySelector(".opengeo-workbench")?.dataset.cameraTourPhase === "finished");
+    await expectScene(page, [false, true], proof.nativeJourney.finalCamera);
+    await panel.getByRole("button", {name: "Stop tour", exact: true}).click();
+    await expectScene(page, [true, false], proof.nativeJourney.firstCamera);
+    assert.equal(receipt.usage.datasetReads, readsBefore, "Fresh-context tour replay must perform no dataset requests");
+    proof.freshContextReopen = {mapVersion: proof.savedMap.version, tourEqual: true, replay: true, stop: true,
+      explicitResidentPreparation: true, datasetReadsBefore: readsBefore, datasetReadsAfter: receipt.usage.datasetReads};
+    await saveTourLayerReceipt();
+  });
+  assert.equal(receipt.usage.apiWrites, 1);assert.equal(receipt.usage.outboundBlocked, 0);
+  assert.ok(receipt.usage.requests <= receipt.limits.requests, "Raw observed request ceiling exceeded");
+  assert.equal(receipt.usage.refusedRequests, 0, "Native journey refused a request at its budget guard");
+  assert.equal(receipt.status, "running");receipt.status = "passed";await saveTourLayerReceipt();
 }
 
 async function cameraTourBrowserState(page) {
@@ -8519,19 +8690,43 @@ async function withPlatformPage(
   callback
 ) {
   const flightOnly = process.argv.includes("--flight-simulator");
+  const cameraTourOnly = process.argv.includes("--camera-tour");
   const offlineDirectory = process.argv.includes("--project-directory");
   const offlineWorkbench = process.argv.includes("--workbench-interactions");
+  if (tourLayerMode) assert.ok(tourLayerReceipt.usage.contexts < 2, "Two cumulative browser contexts exhausted");
   const context = await browser.newContext({
     colorScheme, viewport, hasTouch, isMobile,
-    ...(flightOnly || offlineDirectory || offlineWorkbench ? {serviceWorkers: "block"} : {})
+    ...(flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench ? {serviceWorkers: "block"} : {})
   });
-  if (flightOnly || offlineDirectory || offlineWorkbench) {
+  if (tourLayerMode) {
+    tourLayerReceipt.usage.contexts++;tourLayerReceipt.cleanup.contextsClosed = false;
+    context.on("close", () => {tourLayerReceipt.cleanup.contextsClosed = browser.contexts().length === 0;});
+    context.on("response", response => {
+      if ([204, 205, 304].includes(response.status()) || response.request().method() === "HEAD") return;
+      const pending = response.body().then(bytes => {
+        tourLayerReceipt.usage.decodedResponseBytes += bytes.length;
+        if (tourLayerReceipt.usage.decodedResponseBytes > 33554432) {
+          tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Decoded byte ceiling exceeded";void context.close().catch(() => {});
+        }
+      }).catch(error => {if (!tourLayerReceipt.cleanup.contextsClosed && tourLayerReceipt.status !== "failed") {
+        tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= `Response accounting failed: ${error.message}`;
+      }}).finally(() => tourLayerPendingBodies.delete(pending));
+      tourLayerPendingBodies.add(pending);
+    });
+    context.on("request", request => {
+      const url = new URL(request.url());tourLayerReceipt.usage.requests++;
+      if (url.origin !== baseUrl) tourLayerReceipt.usage.interceptedExternal++;
+      if (url.origin === baseUrl && /\/datasets\//.test(url.pathname) && request.method() === "GET") tourLayerReceipt.usage.datasetReads++;
+    });
+  }
+  if (flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench) {
     // Register first so the existing explicit local/provider fixture routes take
     // precedence. Every remaining remote request fails before network access.
     await context.route("**/*", async (route) => {
       if (new URL(route.request().url()).origin === baseUrl) return route.continue();
       flightBrowserRequests.blockedUnexpected += 1;
-      failures.push(`${offlineDirectory ? "project directory" : offlineWorkbench ? "workbench interactions" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
+      if (tourLayerMode) {tourLayerReceipt.usage.outboundBlocked++;tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Unexpected outbound request blocked";}
+      failures.push(`${cameraTourOnly ? "camera tour" : offlineDirectory ? "project directory" : offlineWorkbench ? "workbench interactions" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
       await route.abort("blockedbyclient");
     });
     context.on("request", (request) => {
@@ -8769,12 +8964,31 @@ async function withPlatformPage(
       }
     }, {token, organizationId: IDS.organization});
   }
+  if (tourLayerMode) await context.route("**/*", async route => {
+    const request = route.request(), url = new URL(request.url()), usage = tourLayerReceipt.usage;
+    if (usage.admittedRequests >= 1000 || tourLayerReceipt.status === "failed"
+      || tourLayerPriorSeconds + (Date.now() - tourLayerStartedAt) / 1000 >= 80) {
+      usage.refusedRequests++;tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Cumulative request/work ceiling exhausted";
+      return route.abort("blockedbyclient");
+    }
+    usage.admittedRequests++;
+    if (url.origin === baseUrl && url.pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      if (request.method() !== "PATCH" || url.pathname !== `/api/projects/${IDS.projects[0]}/maps/${IDS.maps[0]}`
+        || usage.apiWrites >= 1 || !tourLayerReceipt.proof.saveAttempted || tourLayerReceipt.proof.saveAcknowledged) {
+        tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Only the single deliberate fixture Map PATCH is admitted";
+        return route.abort("blockedbyclient");
+      }
+      usage.apiWrites++;await saveTourLayerReceipt();
+    }
+    return route.fallback();
+  });
   const page = await context.newPage();
   capturePageErrors(page, `platform state ${token ?? "anonymous"}`);
   try {
     await callback(page, baseUrl);
   } finally {
     await context.close();
+    if (tourLayerMode) tourLayerReceipt.cleanup.contextsClosed = true;
   }
 }
 

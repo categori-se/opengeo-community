@@ -90,6 +90,7 @@ export function importGeoLibreProject(input) {
     commit: reference.commit
   }, OPENGEO_RELEASE);
   const project = sanitizeProject(raw, report);
+  reportNativePresentation(project, report);
   const processingConversion = convertGeoLibreProcessing(project);
   const mapViews = [openGeoView("map_primary", project.mapView)];
   for (const [index, secondary] of array(project.secondaryMapViews).entries()) {
@@ -245,6 +246,23 @@ export function exportGeoLibreProject(openGeo, options = {}) {
   project.version = GEOLIBRE_PROJECT_VERSION;
   project.name = requiredName(openGeo.name ?? definition.name ?? project.name ?? "OpenGeo Studio project", "OpenGeo Studio project name");
   project.mapView = geoLibreView(primaryView ?? project.mapView);
+  if (Array.isArray(definition.mapViews) && definition.mapViews.length > 0) {
+    const previous = new Map(array(project.secondaryMapViews).filter(isRecord).map(view => [view.id, view]));
+    project.secondaryMapViews = definition.mapViews.slice(1).filter(isRecord).map((view, index) => {
+      const id = requiredId(view.id ?? view.viewId ?? `secondary-${index}`, "Secondary view id");
+      const original = previous.get(id) ?? {};
+      return {
+        ...cloneJson(original),
+        id,
+        view: {...cloneJson(isRecord(original.view) ? original.view : {}), ...geoLibreView(view)},
+        ...(typeof view.title === "string" ? {label: view.title}
+          : typeof view.label === "string" ? {label: view.label} : {}),
+        ...(typeof view.viewKind === "string" ? {viewKind: view.viewKind} : {}),
+        ...(isRecord(view.layerVisibility) ? {layerVisibility: cloneJson(view.layerVisibility)} : {})
+      };
+    });
+    addField(report, "$.definition.mapViews[1:]", "mapped", "Secondary view identities, cameras and ordering mapped to the current GeoLibre secondary view records.", "$.secondaryMapViews");
+  }
   project.basemapStyleUrl = typeof basemap?.url === "string" ? basemap.url : stringOr(project.basemapStyleUrl, "");
   project.basemapVisible = basemap ? basemap.visible !== false : project.basemapVisible !== false;
   project.basemapOpacity = basemap ? clamp(numberOr(basemap.opacity, 1), 0, 1) : clamp(numberOr(project.basemapOpacity, 1), 0, 1);
@@ -299,6 +317,7 @@ export function exportGeoLibreProject(openGeo, options = {}) {
       addField(report, `$.extensions.geolibre.project.layers.${id}`, "preserved_extension", "A GeoLibre-only layer remains a native GeoLibre layer on compatibility export.", `$.layers[${project.layers.length - 1}]`);
     }
   }
+  reportNativePresentation(project, report);
   addField(report, "$.definition.mapViews[0]", "mapped", "Primary OpenGeo Studio camera mapped to GeoLibre mapView.", "$.mapView");
   addField(report, "$.definition.basemaps", "mapped", "The active OpenGeo Studio basemap mapped to the GeoLibre style reference.", "$.basemapStyleUrl");
   if (definition.models !== undefined) {
@@ -314,6 +333,22 @@ export function exportGeoLibreProject(openGeo, options = {}) {
   const json = JSON.stringify(sanitized, null, 2);
   if (byteLength(json) > MAX_PROJECT_BYTES) throw new Error(`Exported GeoLibre project exceeds ${MAX_PROJECT_BYTES} bytes.`);
   return {schemaVersion: "1.0.0", project: sanitized, json, report};
+}
+
+function reportNativePresentation(project, report) {
+  if (project.legend !== undefined) {
+    addField(report, "$.legend", "preserved_extension", "Native legend configuration is retained for exchange, including explicit Layer order.");
+    if (Array.isArray(project.legend?.order)) {
+      const layerIds = new Set(array(project.layers).filter(isRecord).map(layer => layer.id));
+      const missing = project.legend.order.filter(id => typeof id === "string" && !layerIds.has(id));
+      if (missing.length) {
+        addField(report, "$.legend.order", "unsupported", `${missing.length} ordered legend entries refer to Layers absent from this file. Their identities and order are retained; missing Layers are not created.`);
+      }
+    }
+  }
+  if (project.mapLayout !== undefined) {
+    addField(report, "$.mapLayout", "preserved_extension", "Native pane layout is retained for exchange without activating an additional Studio map canvas.");
+  }
 }
 
 function importLayer(layer, index, report, externalSources, embeddedDatasets) {
