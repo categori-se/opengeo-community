@@ -424,6 +424,8 @@ def plan_publication(
     original_names: set[str] = set()
     for file in current_files:
         path = _path(file["path"], directory=True)
+        if path.split("/", 1)[0].lower() == "releases":
+            raise PublicationConflict("publication_reserved_delivery_path")
         if path.lower() in original_names:
             raise PublicationConflict("publication_duplicate_inventory_path")
         original_names.add(path.lower())
@@ -449,6 +451,8 @@ def plan_publication(
 
     def add(path: str, entry: dict[str, Any]) -> None:
         _path(path, directory=True)
+        if path.split("/", 1)[0].lower() == "releases":
+            raise PublicationConflict("publication_reserved_delivery_path")
         if _owner(path, reserved_mounts) != mount_path:
             raise PublicationConflict("publication_sibling_path_collision")
         if path in result and result[path] != entry:
@@ -626,6 +630,10 @@ def plan_publication(
     }
     if private_origin:
         plan["privateOrigin"] = True
+        if native_proof is not None:
+            # Only the compiler-sealed, self-contained HTML is prefix-portable.
+            # Do not expose the composed snapshot or its retained sibling mounts.
+            plan["editionPath"] = f"/{plan['targetPrefix']}/{mounted}index.html"
     if len(json.dumps(plan).encode()) > 750_000:
         raise PublicationConflict("publication_plan_limit")
     return plan
@@ -671,7 +679,9 @@ class PublicationStorage(Protocol):
 
 
 class PublicationEdge(Protocol):
-    async def prepare(self, origin: dict[str, Any], previous: str) -> dict[str, Any]: ...
+    async def prepare(
+        self, origin: dict[str, Any], previous: str, *, edition_path: str | None = None
+    ) -> dict[str, Any]: ...
     async def activate(
         self, origin: dict[str, Any], snapshot: dict[str, Any], target: str, review: UUID
     ) -> dict[str, Any] | None: ...
@@ -709,7 +719,6 @@ async def publish_step(
         plan = claim.get("plan")
         snapshot = claim.get("edge_snapshot")
         if plan is None:
-            snapshot = await edge.prepare(claim["origin"], claim["previous_release_prefix"])
             previous_plan = claim.get("previous_release_plan")
             current = await storage.inventory(
                 public_bucket,
@@ -735,6 +744,12 @@ async def publish_step(
                 input_distribution=claim.get("input_distribution"),
                 previous_release_plan=previous_plan,
             )
+            edition = plan.get("editionPath")
+            snapshot = await edge.prepare(
+                claim["origin"],
+                claim["previous_release_prefix"],
+                **({"edition_path": edition} if edition is not None else {}),
+            )
             await authorized()
             if not await repository.save_plan(review_id, token, plan, snapshot):
                 return "retry"
@@ -746,6 +761,22 @@ async def publish_step(
             or plan.get("privateOrigin", False) != getattr(storage, "private_origin", False)
         ):
             raise PublicationConflict("publication_plan_identity_invalid")
+        edition = plan.get("editionPath")
+        if edition is not None:
+            index_path = plan["mountPath"].lstrip("/") + "index.html"
+            if (
+                not plan.get("privateOrigin")
+                or edition != f"/{plan['targetPrefix']}/{index_path}"
+                or snapshot.get("editionPath") != edition
+            ):
+                raise PublicationConflict("publication_edition_plan_invalid")
+            index_file = next(
+                (entry for entry in plan["files"] if entry["path"] == index_path), None
+            )
+            if index_file is None or index_file.get("kind") != "copy":
+                raise PublicationConflict("publication_edition_plan_invalid")
+            source = index_file["source"]
+            localized_output_proof(source.get("localizedOutput"), source)
         start = claim.get("completed_files", 0)
         for index in range(start, min(start + maximum_files, len(plan["files"]))):
             await authorized()

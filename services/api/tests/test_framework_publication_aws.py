@@ -266,3 +266,205 @@ def test_edge_activation_recovers_lost_response_and_preserves_unrelated_configur
         assert aws.writes == 1
 
     asyncio.run(run())
+
+
+class NativeEditionAws:
+    """Distribution double retains accepted updates even when their response is lost."""
+
+    def __init__(self):
+        self.config = ET.fromstring(b"""<DistributionConfig xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/">
+          <CallerReference>retained</CallerReference>
+          <Aliases><Quantity>1</Quantity><Items><CNAME>pages.example.org</CNAME></Items></Aliases>
+          <Origins><Quantity>1</Quantity><Items><Origin><Id>pages</Id>
+            <DomainName>public.s3.us-east-1.amazonaws.com</DomainName>
+            <OriginPath>/releases/bootstrap</OriginPath><OriginAccessControlId>EOAC</OriginAccessControlId>
+            <S3OriginConfig><OriginAccessIdentity/></S3OriginConfig>
+          </Origin></Items></Origins>
+          <DefaultCacheBehavior><TargetOriginId>pages</TargetOriginId>
+            <ViewerProtocolPolicy>redirect-to-https</ViewerProtocolPolicy>
+            <CachePolicyId>retained-cache</CachePolicyId><ResponseHeadersPolicyId>retained-security</ResponseHeadersPolicyId>
+            <FunctionAssociations><Quantity>0</Quantity></FunctionAssociations>
+            <LambdaFunctionAssociations><Quantity>0</Quantity></LambdaFunctionAssociations>
+          </DefaultCacheBehavior>
+          <CacheBehaviors><Quantity>0</Quantity></CacheBehaviors>
+          <Enabled>true</Enabled></DistributionConfig>""")
+        self.writes = 0
+        self.lose_response = False
+        self.invalidation_mutation = None
+
+    async def request(self, service, method, path, **kwargs):
+        assert service == "cloudfront"
+        if method == "PUT":
+            assert kwargs["headers"]["if-match"] == str(self.writes)
+            self.config = ET.fromstring(kwargs["body"])
+            self.writes += 1
+            if self.lose_response:
+                self.lose_response = False
+                raise TimeoutError("accepted update; response lost")
+            return 200, {}, b""
+        if path.endswith("/config"):
+            return 200, {"etag": str(self.writes)}, ET.tostring(self.config)
+        if method == "POST":
+            if self.invalidation_mutation is not None:
+                self.invalidation_mutation(self.config)
+            return (
+                201,
+                {},
+                b"<Invalidation><Id>one-per-review</Id><Status>Completed</Status></Invalidation>",
+            )
+        return 200, {}, b"<Distribution><Status>Deployed</Status></Distribution>"
+
+
+def native_edge_fixture():
+    origin = {
+        "origin_id": "pages",
+        "bucket": "public",
+        "hostname": "pages.example.org",
+        "distribution_id": "EPAGES",
+    }
+    aws = NativeEditionAws()
+    return aws, origin, CloudFrontPublicationEdge(aws, "EPAGES", origin_access_control_id="EOAC")
+
+
+def test_native_edition_exact_route_survives_replacement_and_lost_activation_response():
+    async def run():
+        aws, origin, edge = native_edge_fixture()
+        previous = "releases/bootstrap"
+        paths = []
+        for number in (1, 2):
+            review = UUID(int=number)
+            target = f"releases/framework-{review}"
+            path = f"/{target}/analysis/noaa/index.html"
+            snapshot = await edge.prepare(origin, previous, edition_path=path)
+            aws.lose_response = True
+            with pytest.raises(TimeoutError):
+                await edge.activate(origin, snapshot, target, review)
+            receipt = await edge.activate(origin, snapshot, target, review)
+            assert receipt["editionPath"] == path
+            assert receipt["invalidationStatus"] == "Completed"
+            paths.append(path)
+            routes = edge._collection(aws.config, "CacheBehaviors", "CacheBehavior")
+            assert [item.findtext("{*}PathPattern") for item in routes] == [
+                p[1:] for p in reversed(paths)
+            ]
+            assert all(
+                item.findtext("{*}ResponseHeadersPolicyId") == "retained-security"
+                for item in routes
+            )
+            public = edge._collection(aws.config, "Origins", "Origin")
+            assert len(public) == 2  # One existing origin plus one shared edition origin.
+            assert public[1].findtext("{*}OriginPath") == ""
+            assert public[1].findtext("{*}OriginAccessControlId") == "EOAC"
+            assert all("*" not in p for p in paths)  # No sibling paths or staged releases exposed.
+            previous = target
+        assert aws.writes == 2
+        assert aws.config.findtext("{*}Origins/{*}Items/{*}Origin/{*}OriginPath") == "/" + previous
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "change", ["capacity", "quantity", "rewrite", "http", "origin", "path", "staging", "duplicate"]
+)
+def test_native_edition_preflight_rejects_unsafe_or_full_distribution_without_writes(change):
+    async def run():
+        aws, origin, edge = native_edge_fixture()
+        path = f"/releases/framework-{UUID(int=1)}/analysis/noaa/index.html"
+        ns = "{http://cloudfront.amazonaws.com/doc/2020-05-31/}"
+        if change == "capacity":
+            for index in range(25):
+                behavior = ET.Element(ns + "CacheBehavior")
+                ET.SubElement(behavior, ns + "PathPattern").text = f"retained-{index}/*"
+                ET.SubElement(behavior, ns + "TargetOriginId").text = "pages"
+                edge._append_configuration(aws.config, "CacheBehaviors", behavior)
+        elif change == "quantity":
+            aws.config.find("{*}Origins/{*}Quantity").text = "2"
+        elif change == "rewrite":
+            aws.config.find(
+                "{*}DefaultCacheBehavior/{*}FunctionAssociations/{*}Quantity"
+            ).text = "1"
+        elif change == "http":
+            aws.config.find("{*}DefaultCacheBehavior/{*}ViewerProtocolPolicy").text = "allow-all"
+        elif change == "origin":
+            duplicate = deepcopy(aws.config.find("{*}Origins/{*}Items/{*}Origin"))
+            duplicate.find("{*}Id").text = edge._edition_origin_id(origin)
+            duplicate.find("{*}DomainName").text = "private-source.s3.us-east-1.amazonaws.com"
+            edge._append_configuration(aws.config, "Origins", duplicate)
+        elif change in {"staging", "duplicate"}:
+            retained = deepcopy(aws.config.find("{*}DefaultCacheBehavior"))
+            retained.tag = ns + "CacheBehavior"
+            pattern = ET.Element(ns + "PathPattern")
+            pattern.text = "releases/*" if change == "staging" else "retained/*"
+            retained.insert(0, pattern)
+            if change == "staging":
+                public = deepcopy(aws.config.find("{*}Origins/{*}Items/{*}Origin"))
+                public.find("{*}Id").text = edge._edition_origin_id(origin)
+                public.find("{*}OriginPath").text = ""
+                retained.find("{*}TargetOriginId").text = edge._edition_origin_id(origin)
+                edge._append_configuration(aws.config, "Origins", public)
+            else:
+                duplicate = deepcopy(retained)
+                duplicate.find("{*}PathPattern").text = "/retained/*"
+                edge._append_configuration(aws.config, "CacheBehaviors", duplicate)
+            edge._append_configuration(aws.config, "CacheBehaviors", retained)
+        else:
+            path = path.replace("index.html", "*")
+        with pytest.raises(PublicationConflict):
+            await edge.prepare(origin, "releases/bootstrap", edition_path=path)
+        assert aws.writes == 0
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "change", ["route", "origin", "security", "missing", "final-missing", "shadow", "new-behavior"]
+)
+def test_native_edition_resume_and_final_readback_reject_configuration_drift(change):
+    async def run():
+        aws, origin, edge = native_edge_fixture()
+        review = UUID(int=1)
+        target = f"releases/framework-{review}"
+        path = f"/{target}/analysis/noaa/index.html"
+        if change == "shadow":
+            retained = deepcopy(aws.config.find("{*}DefaultCacheBehavior"))
+            retained.tag = "{http://cloudfront.amazonaws.com/doc/2020-05-31/}CacheBehavior"
+            pattern = ET.Element("{http://cloudfront.amazonaws.com/doc/2020-05-31/}PathPattern")
+            pattern.text = "releases/*"
+            retained.insert(0, pattern)
+            edge._append_configuration(aws.config, "CacheBehaviors", retained)
+        elif change == "new-behavior":
+            aws.config.remove(aws.config.find("{*}CacheBehaviors"))
+        snapshot = await edge.prepare(origin, "releases/bootstrap", edition_path=path)
+        assert await edge.activate(origin, snapshot, target, review) is None
+
+        def mutate(config):
+            routes = config.find("{*}CacheBehaviors/{*}Items")
+            if change == "route":
+                routes[0].find("{*}TargetOriginId").text = "pages"
+            elif change == "origin":
+                config.find("{*}Origins/{*}Items")[1].find("{*}DomainName").text = "other"
+            elif change == "security":
+                config.find("{*}DefaultCacheBehavior/{*}ResponseHeadersPolicyId").text = "changed"
+            elif change == "shadow":
+                retained = routes[0]
+                routes.remove(retained)
+                routes.append(retained)
+            elif change == "new-behavior":
+                retained = deepcopy(routes[0])
+                retained.find("{*}PathPattern").text = "unrelated/*"
+                retained.find("{*}TargetOriginId").text = "pages"
+                edge._append_configuration(config, "CacheBehaviors", retained)
+            else:
+                routes.remove(routes[0])
+                config.find("{*}CacheBehaviors/{*}Quantity").text = "0"
+                config.find("{*}CacheBehaviors").remove(routes)
+
+        if change == "final-missing":
+            aws.invalidation_mutation = mutate
+        else:
+            mutate(aws.config)
+        with pytest.raises(PublicationConflict):
+            await edge.activate(origin, snapshot, target, review)
+        assert aws.writes == 1
+
+    asyncio.run(run())

@@ -174,6 +174,8 @@ test("saved deployment progress reloads and rollback prepares a new review witho
     assert.match(root.textContent, /Published release:/);
     assert.equal(button(root, "Resume approved publication"), undefined);
     assert.equal(root.querySelector("a").href, "https://opengeo.tools/analysis/reading-beyond-visible/");
+    assert.ok([...root.querySelectorAll('a')].some(link => link.textContent === 'Open current address'
+      && link.href === 'https://opengeo.tools/analysis/reading-beyond-visible/'));
     assert.equal(reviews, 0);
     button(root, "Prepare rollback to this build").click(); await tick();
     assert.equal(reviews, 1);
@@ -190,6 +192,59 @@ function deployedFixture() {
     error_code: null, updated_at: '2026-09-10T01:01:00Z', release_prefix: `releases/framework-${ID}`};
   return raw;
 }
+
+test('immutable edition paths must match the deployed review and its exact mount', () => {
+  const raw = deployedFixture();
+  const expected = `/releases/framework-${ID}/analysis/reading-beyond-visible/index.html`;
+  raw.reviews[0].deployment.edition_path = expected;
+  const review = parseFrameworkPublications(raw, ID).reviews[0];
+  assert.equal(review.deployment.editionPath, expected);
+  assert.equal(review.deployment.editionUrl, `https://opengeo.tools${expected}`);
+  assert.equal(review.url, 'https://opengeo.tools/analysis/reading-beyond-visible/');
+  for (const path of [expected.replace(ID, '22222222-2222-4222-8222-222222222222'),
+    expected.replace('/analysis/reading-beyond-visible/', '/other/'),
+    expected + '?edition=other', expected + '#other', `https://evil.invalid${expected}`,
+    expected.replace('index.html', '../index.html'), expected.replace('/analysis/', '/%61nalysis/'), 1, {}]) {
+    raw.reviews[0].deployment.edition_path = path;
+    assert.throws(() => parseFrameworkPublications(raw, ID), /Invalid publication edition path/);
+  }
+  raw.reviews[0].deployment.edition_path = expected;
+  raw.reviews[0].deployment.stage = 'copying';
+  raw.reviews[0].deployment.release_prefix = null;
+  assert.throws(() => parseFrameworkPublications(raw, ID), /Invalid publication edition path/);
+  raw.reviews[0].deployment.stage = 'deployed';
+  raw.reviews[0].deployment.release_prefix = `releases/framework-${ID}`;
+  raw.reviews[0].mount_path = '/';
+  raw.reviews[0].deployment.edition_path = `/releases/framework-${ID}/index.html`;
+  assert.equal(parseFrameworkPublications(raw, ID).reviews[0].deployment.editionPath,
+    `/releases/framework-${ID}/index.html`);
+  delete raw.reviews[0].deployment.edition_path;
+  assert.equal(parseFrameworkPublications(raw, ID).reviews[0].deployment.editionUrl, null);
+});
+
+test('deployed links use the receipt edition entry and label older receipts as current addresses', async () => {
+  const dom = new JSDOM('<body></body>'); const previous = globalThis.document; globalThis.document = dom.window.document;
+  try {
+    const raw = deployedFixture();
+    const expected = `/releases/framework-${ID}/analysis/reading-beyond-visible/index.html`;
+    raw.reviews[0].deployment.edition_path = expected;
+    const adapter = {getFrameworkPublications: async () => parseFrameworkPublications(raw, ID),
+      listObservableBuildJobs: async () => []};
+    const root = FrameworkPublications({adapter, projectId: ID, sourceProjectId: ID});
+    const publishedLink = () => [...root.querySelectorAll('a')].find(link =>
+      ['Open this edition', 'Open current address'].includes(link.textContent));
+    await tick();
+    assert.equal(publishedLink().textContent, 'Open this edition');
+    assert.equal(publishedLink().href, `https://opengeo.tools${expected}`);
+    for (const olderValue of [undefined, null]) {
+      if (olderValue === undefined) delete raw.reviews[0].deployment.edition_path;
+      else raw.reviews[0].deployment.edition_path = olderValue;
+      button(root, 'Reload publication reviews').click(); await tick();
+      assert.equal(publishedLink().textContent, 'Open current address');
+      assert.equal(publishedLink().href, 'https://opengeo.tools/analysis/reading-beyond-visible/');
+    }
+  } finally {globalThis.document = previous; dom.window.close();}
+});
 
 test('withdrawal capability defaults safely for older APIs and rejects nonboolean configuration', () => {
   assert.equal(parseFrameworkPublications(fixture(), ID).withdrawalConfigured, false);

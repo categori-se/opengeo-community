@@ -43,6 +43,22 @@ typography. Independent installation and production delivery remain open.
 | Authorized private preview | Separate-origin signed previews display both builds; Build history reopens the earlier edition. Missing/cross-build cookies and capability replay are denied. The connected local viewer workflow verifies opening, revoked grants, real 60-second capability expiry and signed-cookie expiry with a qualified local verifier clock. Installation-specific origins are validated. | Independent installation, configured production identity/delivery and production activation. Immediate revocation of issued cookies is not implemented. |
 | Publication and earlier editions | Actual review, acknowledgment and approval controls dispatch the existing canonical publisher. Its restricted SQL role, separate public custody and atomic prefix activation publish both editions. Both public links open and permit anonymous reads; the previous public edition remains readable after replacement. | Independent HTTPS/DNS/CDN delivery and production release. |
 
+November 1: a local production-delivery candidate now gives newly published,
+compiler-sealed native HTML an exact retained link at
+`/releases/framework-<review>/<mount>/index.html`. The existing private bucket,
+OAC and distribution serve only that HTML key; the composed snapshot, sibling
+mounts and staged releases receive no general release-prefix route. Activation
+adds the route in the same conditional update as the current address, preserves
+older routes, and acknowledges the link only after deployment and the existing
+invalidation finish. Conservative application caps of 25 total cache behaviors
+and five origins fail before copying; they are not AWS quota claims. Existing
+unsupported routing or URI rewriting also fails closed.
+
+This candidate is not deployed. General Framework assets, aliases and older
+receipts retain their current-address behavior; Studio labels that fallback
+explicitly. Production withdrawal remains disabled. Focused local checks cover the edition link and delivery boundary. Full strict
+OpenAPI export and hosted acceptance remain pending.
+
 The [source repository](../../services/api/src/opengeo_api/observable_sources.py)
 issues a capability for 60 seconds. It can be exchanged once. Project and input
 authority are checked when issuing and exchanging it; the

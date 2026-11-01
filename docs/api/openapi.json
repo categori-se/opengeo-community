@@ -9066,6 +9066,17 @@
             "title": "Completed Files",
             "type": "integer"
           },
+          "edition_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edition Path"
+          },
           "error_code": {
             "anyOf": [
               {

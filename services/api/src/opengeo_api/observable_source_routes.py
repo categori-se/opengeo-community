@@ -405,6 +405,7 @@ class FrameworkDeploymentResponse(RequestModel):
     error_code: str | None = None
     updated_at: datetime
     release_prefix: str | None = None
+    edition_path: str | None = None
 
 
 class FrameworkPublicationReviewResponse(RequestModel):

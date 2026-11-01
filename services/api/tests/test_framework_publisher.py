@@ -987,3 +987,94 @@ def test_revoked_authority_stops_before_any_remote_write():
         assert edge.calls == 0
 
     asyncio.run(run())
+
+
+def test_only_private_native_localized_output_gets_exact_immutable_html_entry():
+    for native, private in ((False, True), (True, False), (True, True)):
+        args = native_fixture() if native else fixture()
+        plan = plan_publication(**args, private_origin=private)
+        expected = f"/{plan['targetPrefix']}/analysis/noaa/index.html"
+        assert plan.get("editionPath") == (expected if native and private else None)
+
+
+@pytest.mark.parametrize("where", ["retained", "mount"])
+def test_reserved_release_namespace_cannot_shadow_or_expose_edition_delivery(where):
+    args = fixture()
+    if where == "retained":
+        file = args["current_files"][0]
+        file.update(
+            path="releases/unsafe/index.html", objectKey="releases/old/releases/unsafe/index.html"
+        )
+    else:
+        args.update(mount_path="/releases/", reserved_mounts=("/", "/releases/", "/bhutan/"))
+    with pytest.raises(PublicationConflict, match="publication_reserved_delivery_path"):
+        plan_publication(**args, private_origin=True)
+
+
+def test_native_publisher_persists_and_resumes_exact_index_delivery_with_real_edge_adapter():
+    async def run():
+        from test_framework_publication_aws import native_edge_fixture
+
+        args = native_fixture()
+        aws, origin, edge = native_edge_fixture()
+        aws.config.find("{*}Origins/{*}Items/{*}Origin/{*}OriginPath").text = "/releases/old"
+        repository, storage = Repository(args), Storage(args)
+        repository.state.update(
+            origin=origin,
+            **{
+                key: args[key] for key in ("build_request", "source_manifest", "input_distribution")
+            },
+        )
+        storage.private_origin = True
+        storage.lose_response = False
+        for expected in ("retry", "deployed"):
+            assert (
+                await publish_step(
+                    args["review_id"],
+                    repository=repository,
+                    storage=storage,
+                    edge=edge,
+                    source_bucket="private",
+                    public_bucket="public",
+                )
+                == expected
+            )
+        receipt = repository.state["receipt"]
+        assert receipt["editionPath"] == (
+            f"/releases/framework-{args['review_id']}/analysis/noaa/index.html"
+        )
+        assert aws.writes == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("change", ["path", "snapshot", "proof"])
+def test_native_resume_rejects_unproven_immutable_entry_before_copy(change):
+    async def run():
+        args = native_fixture()
+        plan = plan_publication(**args, private_origin=True)
+        snapshot = {"editionPath": plan["editionPath"]}
+        if change == "path":
+            plan["editionPath"] = plan["editionPath"].replace("index.html", "other.html")
+        elif change == "snapshot":
+            snapshot["editionPath"] = None
+        else:
+            file = next(
+                item for item in plan["files"] if item["path"] == "analysis/noaa/index.html"
+            )
+            file["source"].pop("localizedOutput")
+        repository, storage = Repository(args), Storage(args)
+        repository.state.update(plan=plan, edge_snapshot=snapshot)
+        storage.private_origin = True
+        status = await publish_step(
+            args["review_id"],
+            repository=repository,
+            storage=storage,
+            edge=Edge(),
+            source_bucket="private",
+            public_bucket="public",
+        )
+        assert status == "needs_attention"
+        assert not storage.written
+
+    asyncio.run(run())
