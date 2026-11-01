@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from opengeo_api.account_request_routes import router as account_request_router
+from opengeo_api.account_requests import AccountRequestRepository, PostgresAccountRequestRepository
 from opengeo_api.analysis_jobs import (
     AnalysisConfiguration,
     AnalysisJobRepository,
@@ -259,6 +261,7 @@ def create_app(
     organization_repository: OrganizationRepository | None = None,
     workspace_repository: WorkspaceRepository | None = None,
     membership_repository: MembershipRepository | None = None,
+    account_request_repository: AccountRequestRepository | None = None,
     identity_provisioner: IdentityProvisioner | None = None,
     ingestion_repository: IngestionRepository | None = None,
     external_source_repository: ExternalSourceRepository | None = None,
@@ -383,6 +386,10 @@ def create_app(
         tenant_executor,
         user_executor,
         provisioner,
+    )
+    app.state.account_request_repository = (
+        account_request_repository
+        or PostgresAccountRequestRepository(tenant_executor, user_executor)
     )
     storage = upload_storage or (
         AwsS3UploadStorage(runtime_settings)
@@ -603,6 +610,7 @@ def create_app(
     configure_http_boundary(app)
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(account_request_router)
     app.include_router(mcp_auth_router)
     app.include_router(mcp_router)
     app.include_router(processing_router)

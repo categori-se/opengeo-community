@@ -2,6 +2,7 @@ import re
 from functools import lru_cache
 from typing import Any, Literal, Self
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from pydantic import Field, PositiveFloat, PositiveInt, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -87,6 +88,8 @@ class Settings(BaseSettings):
     cognito_client_id: str | None = None
     cognito_additional_client_ids: str | None = None
     cognito_provisioning_enabled: bool = True
+    account_request_organization_id: UUID | None = None
+    account_request_reviewer_user_id: UUID | None = None
     cognito_jwks_cache_seconds: PositiveInt = 3600
     cognito_jwks_min_refresh_seconds: PositiveInt = 30
     cognito_http_timeout_seconds: PositiveFloat = 5.0
@@ -184,6 +187,16 @@ class Settings(BaseSettings):
         return RenderRuntimeReference(
             self.saved_map_gl_runtime_sha256, self.saved_map_gl_runtime_architecture
         )
+
+    @model_validator(mode="after")
+    def validate_account_request_review(self) -> Self:
+        if (self.account_request_organization_id is None) != (
+            self.account_request_reviewer_user_id is None
+        ):
+            raise ValueError(
+                "account request reviewer and organization must be configured together"
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_portable_storage(self) -> Self:
@@ -381,10 +394,18 @@ class Settings(BaseSettings):
             and re.fullmatch(r"sha256:[0-9a-f]{64}", self.observable_builder_image_digest) is None
         ):
             raise ValueError("observable_builder_image_digest must be an exact sha256 digest")
-        for origin in (self.observable_preview_origin, self.observable_public_maps_preview_origin):
-            if origin is not None:
-                canonical_preview_origin(origin, allow_loopback_http=self.env in {"dev", "test"})
-                if origin in {"https://studio.opengeo.tools", "https://demo.studio.opengeo.tools"}:
+        for preview_origin in (
+            self.observable_preview_origin,
+            self.observable_public_maps_preview_origin,
+        ):
+            if preview_origin is not None:
+                canonical_preview_origin(
+                    preview_origin, allow_loopback_http=self.env in {"dev", "test"}
+                )
+                if preview_origin in {
+                    "https://studio.opengeo.tools",
+                    "https://demo.studio.opengeo.tools",
+                }:
                     raise ValueError("preview must use an origin separate from Studio")
         if self.observable_public_maps_preview_origin is not None:
             if self.observable_preview_origin is None:

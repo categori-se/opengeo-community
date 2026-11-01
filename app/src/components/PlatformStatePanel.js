@@ -66,12 +66,17 @@ export function platformStatePanel(
     return panel;
   }
 
-  if (state.status === "forbidden" && state.code === "organization_membership_required") {
+  if (state.status === "forbidden" && ["principal_not_provisioned", "organization_membership_required"].includes(state.code)) {
+    const noMembership = state.code === "organization_membership_required";
     panel.append(
       text("h2", "No workspace access yet"),
       text("p", "You're signed in, but you haven't been given access to a workspace on this site."),
-      text("p", "No pending invitations were found. Ask the workspace administrator to invite you using the email you signed in with.")
+      text("p", noMembership
+        ? "No pending invitations were found. Request OpenGeo access or ask the workspace administrator to invite you using the email you signed in with."
+        : "Creating a sign-in account does not grant Studio access. Request access for review, then accept your invitation once approved.")
     );
+    const signInHref = loginHrefForReturnTo(returnTo);
+    panel.append(link("Request OpenGeo access", `${signInHref}${signInHref.includes("?") ? "&" : "?"}request=account`, "platform-button"));
     appendInvitationRecovery(panel, state, retry, auth);
     return panel;
   }

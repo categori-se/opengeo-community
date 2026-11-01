@@ -8999,7 +8999,7 @@ async function assertAuthenticationStates(browser, baseUrl) {
     await expectText(page, "Studio status: Signed out", "signed-out login");
     await expectText(page, "Sign in to OpenGeo", "signed-out login");
     await page.getByText("Using a shared or different account?").click();
-    if (await page.getByRole("button", {name: "Sign out of auth.categori.se"}).count() !== 1) {
+    if (await page.getByRole("button", {name: "Clear OpenGeo sign-in session"}).count() !== 1) {
       failures.push("signed-out login: hosted account sign-out control is missing");
     }
     if (await page.locator('meta[name="referrer"][content="no-referrer"]').count() !== 1) {

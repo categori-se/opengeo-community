@@ -1,0 +1,163 @@
+/* Login follows the light/dark theme selected by the page and device. */
+#observablehq-main:has(.platform-signin-shell) {
+  max-width: 32rem;
+  margin-inline: auto;
+  font-family: var(--sans-serif, system-ui, sans-serif);
+}
+
+.platform-signin-shell {
+  --signin-accent: #245fc5;
+  --signin-accent-text: #fff;
+  --signin-shadow: #11182712;
+  box-sizing: border-box;
+  gap: 0;
+  width: min(100%, 32rem);
+  margin: 2rem auto;
+  border: 1px solid var(--opengeo-line);
+  border-radius: 1rem;
+  background: var(--theme-background);
+  color: var(--theme-foreground);
+  font-family: var(--sans-serif, system-ui, sans-serif);
+  box-shadow: 0 1.25rem 3.5rem var(--signin-shadow);
+  overflow: hidden;
+}
+
+@media (prefers-color-scheme: dark) {
+  .platform-signin-shell {
+    --signin-accent: #82b0ff;
+    --signin-accent-text: #111827;
+    --signin-shadow: #0004;
+  }
+}
+
+.platform-signin-brand {
+  padding: 1.5rem 1.75rem;
+  border-bottom: 1px solid var(--opengeo-line);
+  background: color-mix(in srgb, var(--signin-accent) 6%, var(--theme-background));
+}
+
+.platform-signin-home[href] {
+  display: inline-flex;
+  align-items: center;
+  gap: .65rem;
+  color: var(--theme-foreground);
+  text-decoration: none;
+  font: 700 1.15rem/1.3 var(--sans-serif, system-ui, sans-serif);
+}
+
+.platform-signin-home svg {
+  flex: 0 0 auto;
+  width: 2.6rem;
+  height: 2.6rem;
+  border: 1px solid var(--opengeo-line);
+  border-radius: .65rem;
+  fill: currentColor;
+  color: var(--signin-accent);
+  background: var(--theme-background);
+}
+
+.platform-signin-brand p {
+  margin: .65rem 0 0;
+  color: var(--opengeo-muted);
+  font-size: .9rem;
+  line-height: 1.5;
+}
+
+.platform-signin-shell > .platform-auth,
+.platform-signin-shell > .platform-session,
+.platform-signin-shell > .platform-state {
+  border: 0;
+  border-radius: 0;
+  padding: 1.75rem;
+  background: transparent;
+}
+
+.platform-signin-shell .platform-auth h2,
+.platform-signin-shell .platform-session h2 {
+  font-family: inherit;
+  font-size: 1.55rem;
+  line-height: 1.2;
+  letter-spacing: -.02em;
+  color: var(--theme-foreground);
+}
+
+.platform-signin-shell p { line-height: 1.55; }
+.platform-signin-shell .platform-note { font-size: .85rem; }
+.platform-signin-shell .platform-actions { margin-top: 1.25rem; }
+
+.platform-signin-shell .platform-button {
+  box-sizing: border-box;
+  justify-content: center;
+  min-height: 2.85rem;
+  border-color: var(--signin-accent);
+  border-radius: .5rem;
+  background: var(--signin-accent);
+  color: var(--signin-accent-text);
+  font-weight: 600;
+}
+
+.platform-signin-shell .platform-actions > .platform-button { width: 100%; }
+.platform-signin-shell .platform-button:disabled { opacity: .65; cursor: wait; }
+.platform-signin-shell .platform-button-secondary {
+  border-color: var(--opengeo-line);
+  background: var(--theme-background-alt);
+  color: var(--theme-foreground);
+}
+
+.platform-signin-shell :is(a, button, summary, input, textarea):focus-visible {
+  outline: 2px solid var(--signin-accent);
+  outline-offset: 3px;
+}
+
+.platform-signin-shell .platform-auth-status {
+  background: var(--theme-background-alt);
+  color: var(--theme-foreground);
+}
+
+.platform-signin-shell .platform-auth-callback_error .platform-auth-status,
+.platform-signin-shell .platform-auth-configuration_error h2,
+.platform-signin-shell [data-state="error"] {
+  color: var(--opengeo-red);
+}
+
+.platform-signin-shell .platform-auth-managed-account,
+.platform-auth-request {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--opengeo-line);
+}
+
+.platform-signin-shell summary {
+  min-height: 1.5rem;
+  color: var(--theme-foreground);
+  font-size: .9rem;
+  cursor: pointer;
+}
+
+.platform-auth-request-form { display: grid; gap: 1rem; margin-top: 1rem; }
+.platform-auth-request-form label { display: grid; gap: .4rem; color: var(--theme-foreground); font-size: .9rem; }
+.platform-auth-request-form [hidden] { display: none; }
+.platform-auth-request-form :is(input, textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: .65rem .75rem;
+  border: 1px solid var(--theme-foreground-fainter);
+  border-radius: .4rem;
+  background: var(--theme-background);
+  color: var(--theme-foreground);
+  font: inherit;
+}
+.platform-auth-request-form textarea { resize: vertical; }
+.platform-auth-request-status { margin: 0; font-size: .9rem; }
+.platform-auth-request-status:empty { display: none; }
+.platform-signin-shell .platform-auth-request-success { margin: 0; color: var(--theme-foreground); }
+
+@media (max-width: 480px) {
+  .platform-signin-shell { margin: 1rem auto; }
+  .platform-signin-brand,
+  .platform-signin-shell > .platform-auth,
+  .platform-signin-shell > .platform-session,
+  .platform-signin-shell > .platform-state { padding: 1.25rem; }
+}

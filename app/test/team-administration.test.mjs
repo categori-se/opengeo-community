@@ -34,6 +34,48 @@ function input(root, label) {
   return [...root.querySelectorAll("input, select")].find((element) => element.ariaLabel === label);
 }
 
+it("loads the designated reviewer queue and creates an invitation only after approval", async () => {
+  const root = document.createElement("section");
+  const state = readyState();
+  const calls = [];
+  const record = {id: "70000000-0000-4000-8000-000000000001", displayName: "Requested Person",
+    email: "person@example.test", purpose: "A regional geospatial analysis.", state: "pending"};
+  state.adapter.listAccountRequests = async () => [record];
+  state.adapter.reviewAccountRequest = async (id, decision) => {
+    calls.push([id, decision]); record.state = "approved"; return record;
+  };
+  renderTeamAdministrationState(root, state, async () => {});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const approve = root.querySelector('[data-action="approve-account-request"]');
+  assert.ok(approve);
+  assert.equal(calls.length, 0);
+  approve.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(calls, [[record.id, "approve"]]);
+  assert.match(root.textContent, /Status: approved/);
+  assert.equal(root.querySelector('[data-action="approve-account-request"]'), null);
+});
+
+it("hides requests from other admins and offers retry for a transient review-store failure", async () => {
+  const root = document.createElement("section");
+  const state = readyState();
+  let attempts = 0;
+  state.adapter.listAccountRequests = async () => {attempts++; throw {status: 403};};
+  renderTeamAdministrationState(root, state, async () => {});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal([...root.querySelectorAll("section")].find(panel => panel.textContent.includes("Account requests")).hidden, true);
+  state.adapter.listAccountRequests = async () => {attempts++; throw {status: 503, code: "membership_store_unavailable"};};
+  renderTeamAdministrationState(root, state, async () => {});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const retry = [...root.querySelectorAll("button")].find(button => button.textContent === "Try again");
+  assert.ok(retry);
+  state.adapter.listAccountRequests = async () => {attempts++; return [];};
+  retry.click();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(root.textContent, /No account requests/);
+  assert.equal(attempts, 3);
+});
+
 async function submit(root) {
   root.querySelector("form").dispatchEvent(new dom.window.Event("submit", {bubbles: true, cancelable: true}));
   await new Promise((resolve) => setTimeout(resolve, 0));

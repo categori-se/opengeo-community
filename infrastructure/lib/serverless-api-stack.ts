@@ -26,6 +26,8 @@ export interface ServerlessApiStackProps extends StackProps {
   readonly imageDigest: string;
   readonly observableBuilderImageDigest: string;
   readonly additionalCognitoClientIds?: string;
+  readonly accountRequestOrganizationId?: string;
+  readonly accountRequestReviewerUserId?: string;
   readonly observablePreviewPrivateKeySecretArn?: string;
   readonly connectionVerificationQueue?: sqs.IQueue;
   readonly connectionVerificationFunction?: lambda.IFunction;
@@ -194,6 +196,10 @@ export class ServerlessApiStack extends Stack {
         OPEN_GEO_COGNITO_USER_POOL_ID: foundation.userPool.userPoolId,
         OPEN_GEO_COGNITO_PROVISIONING_ENABLED:
           foundation.identityProvisioningEnabled ? "true" : "false",
+        ...(props.accountRequestOrganizationId && props.accountRequestReviewerUserId ? {
+          OPEN_GEO_ACCOUNT_REQUEST_ORGANIZATION_ID: props.accountRequestOrganizationId,
+          OPEN_GEO_ACCOUNT_REQUEST_REVIEWER_USER_ID: props.accountRequestReviewerUserId
+        } : {}),
         OPEN_GEO_AWS_REGION: this.region,
         OPEN_GEO_APPLICATION_BUCKET: applicationBucketName,
         OPEN_GEO_ARTIFACT_VIEW_ORIGIN: config.webOrigin,
