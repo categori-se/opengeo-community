@@ -159,7 +159,8 @@ export function FrameworkPublications({adapter, projectId, sourceProjectId, mode
         card.append(node("p", `${message} Last update: ${job.updatedAt}`));
       }
       if (review.deployment?.stage === "deployed") {
-        const link = node("a", "Open published project"); link.href = review.url;
+        const link = node("a", review.deployment.editionUrl ? "Open this edition" : "Open current address");
+        link.href = review.deployment.editionUrl ?? review.url;
         link.target = "_blank"; link.rel = "noopener noreferrer";
         let rollbackInputs = null, rollbackBuild = null;
         const restore = button("Prepare rollback to this build", async () => {

@@ -11558,6 +11558,7 @@ export function parseFrameworkPublications(value, sourceProjectId) {
         !Number.isSafeInteger(record.expected_generation) || record.expected_generation < 1 ||
         !Number.isFinite(Date.parse(record.reviewed_at)) || !Number.isFinite(Date.parse(record.expires_at)) ||
         (record.approved_at !== null && !Number.isFinite(Date.parse(record.approved_at)))) contract("Invalid publication review");
+    const address = destination(record);
     let deployment = null;
     if (record.deployment != null) {
       const job = record.deployment;
@@ -11567,13 +11568,19 @@ export function parseFrameworkPublications(value, sourceProjectId) {
           !Number.isFinite(Date.parse(job.updated_at)) ||
           (job.error_code !== null && !/^[a-z0-9_]{1,100}$/.test(job.error_code)) ||
           (job.stage === "deployed" ? job.release_prefix !== `releases/framework-${record.id}` : job.release_prefix !== null)) contract("Invalid publication deployment");
+      const editionPath = job.edition_path ?? null;
+      if (editionPath !== null && (job.stage !== "deployed" || typeof editionPath !== "string" ||
+          editionPath !== `/releases/framework-${record.id}/${address.mountPath.slice(1)}index.html`)) {
+        contract("Invalid publication edition path");
+      }
       deployment = {stage: job.stage, completedFiles: job.completed_files, totalFiles: job.total_files,
-        errorCode: job.error_code, updatedAt: job.updated_at, releasePrefix: job.release_prefix};
+        errorCode: job.error_code, updatedAt: job.updated_at, releasePrefix: job.release_prefix,
+        editionPath, editionUrl: editionPath === null ? null : `https://${record.hostname}${editionPath}`};
     }
     const revocationState = record.revocation_state == null ? null
       : oneOf(record.revocation_state, ["pending", "needs_attention", "revoked"], "Publication withdrawal state");
     if (revocationState !== null && deployment?.stage !== "deployed") contract("Invalid publication withdrawal deployment");
-    return {id: pathUuid(record.id, "review id"), ...destination(record), buildJobId: pathUuid(record.build_job_id, "build id"),
+    return {id: pathUuid(record.id, "review id"), ...address, buildJobId: pathUuid(record.build_job_id, "build id"),
       mountId: pathUuid(record.mount_id, "mount id"), resultChecksumSha256: record.result_checksum_sha256,
       outputTreeChecksumSha256: record.output_tree_checksum_sha256, expectedGeneration: record.expected_generation,
       previousReleasePrefix: record.previous_release_prefix, reviewedAt: record.reviewed_at,

@@ -876,7 +876,9 @@ class PostgresObservableSourceRepository:
                             'total_files', jsonb_array_length(job.plan->'files'),
                             'error_code', job.error_code, 'updated_at', job.updated_at,
                             'release_prefix', CASE WHEN job.stage = 'deployed'
-                              THEN job.receipt->>'targetPrefix' ELSE NULL END
+                              THEN job.receipt->>'targetPrefix' ELSE NULL END,
+                            'edition_path', CASE WHEN job.stage = 'deployed'
+                              THEN job.receipt->>'editionPath' ELSE NULL END
                           ) END AS deployment
                    FROM app.framework_publication_reviews review
                    LEFT JOIN app.framework_publication_approvals approval

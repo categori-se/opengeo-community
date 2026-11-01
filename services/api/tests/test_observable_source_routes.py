@@ -1022,6 +1022,20 @@ def test_publication_response_retains_deployment_progress():
         }
     )
     assert result.model_dump()["deployment"]["completed_files"] == 2
+    assert result.model_dump()["deployment"]["edition_path"] is None
+    edition_path = f"/releases/framework-{REVISION_ID}/analysis/reading-beyond-visible/index.html"
+    deployed = FrameworkPublicationReviewResponse.model_validate(
+        {
+            **result.model_dump(),
+            "deployment": {
+                **result.model_dump()["deployment"],
+                "stage": "deployed",
+                "release_prefix": f"releases/framework-{REVISION_ID}",
+                "edition_path": edition_path,
+            },
+        }
+    )
+    assert deployed.model_dump()["deployment"]["edition_path"] == edition_path
 
 
 @pytest.mark.parametrize("mode", ["v1", "v2", "unavailable", "oversize", "wrong-media"])

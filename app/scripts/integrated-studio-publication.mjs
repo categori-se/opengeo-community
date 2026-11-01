@@ -195,7 +195,7 @@ export async function exerciseNativePublication({page,browser,origin,organizatio
     const deployed=publish.locator('.publication-release-history > details').filter({hasText:`review ${review.id}`});
     await deployed.locator('summary').first().click();
     const publicPopup=page.waitForEvent('popup');
-    await deployed.getByRole('link',{name:'Open published project',exact:true}).click();
+    await deployed.getByRole('link',{name:/^Open (?:this edition|current address)$/}).click();
     const published=await publicPopup;await published.getByRole('heading',{name:title,exact:true}).waitFor();
     await published.getByText('Community Health Center',{exact:true}).waitFor();
     assert.equal(new URL(published.url()).origin,publicationProfile.publicationCanonicalOrigin);
