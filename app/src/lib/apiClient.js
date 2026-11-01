@@ -4097,6 +4097,20 @@ export class OpenGeoApiClient {
     }), source);
   }
 
+  async revokeFrameworkPublication(projectId, sourceProjectId, reviewId) {
+    const source = pathUuid(sourceProjectId, "source project id");
+    const id = pathUuid(reviewId, "review id");
+    const value = object(await this.request(`/projects/${pathUuid(projectId, "project id")}/source-projects/${source}/publications/reviews/${id}/revoke`, {
+      method: "POST", body: {acknowledgment: "revoke-exact-publication-edition"}
+    }), "Publication edition withdrawal");
+    exactKeys(value, ["id", "state", "revoked"], "Publication edition withdrawal");
+    const state = oneOf(value.state, ["pending", "needs_attention", "revoked"], "Publication withdrawal state");
+    if (uuid(value.id, "review id") !== id || typeof value.revoked !== "boolean" || value.revoked !== (state === "revoked")) {
+      contract("Publication withdrawal identity or state mismatch");
+    }
+    return {id, state, revoked: value.revoked};
+  }
+
   async listObservableGitHubDispatches(projectId, sourceProjectId, {limit = 25, offset = 0} = {}) {
     const source = pathUuid(sourceProjectId, "source project id");
     inputIntegerBetween(limit, 1, 100, "GitHub history limit");
@@ -11482,6 +11496,7 @@ export function parseFrameworkPublications(value, sourceProjectId) {
   if (!value || value.source_project_id !== sourceProjectId || typeof value.can_publish !== "boolean" ||
       typeof value.dispatch_configured !== "boolean" || !Array.isArray(value.mounts) ||
       !Array.isArray(value.reviews) || value.reviews.length > 25) contract("Invalid publication status");
+  if (Object.hasOwn(value, "withdrawal_configured") && typeof value.withdrawal_configured !== "boolean") contract("Invalid publication withdrawal configuration");
   const destination = record => {
     if (!/^[a-z0-9][a-z0-9.-]{1,251}[a-z0-9]$/.test(record.hostname ?? "") ||
         !(record.mount_path === "/" || /^\/[a-z0-9][a-z0-9-]{0,79}(\/[a-z0-9][a-z0-9-]{0,79}){0,7}\/$/.test(record.mount_path ?? ""))) contract("Invalid publication destination");
@@ -11520,14 +11535,18 @@ export function parseFrameworkPublications(value, sourceProjectId) {
       deployment = {stage: job.stage, completedFiles: job.completed_files, totalFiles: job.total_files,
         errorCode: job.error_code, updatedAt: job.updated_at, releasePrefix: job.release_prefix};
     }
+    const revocationState = record.revocation_state == null ? null
+      : oneOf(record.revocation_state, ["pending", "needs_attention", "revoked"], "Publication withdrawal state");
+    if (revocationState !== null && deployment?.stage !== "deployed") contract("Invalid publication withdrawal deployment");
     return {id: pathUuid(record.id, "review id"), ...destination(record), buildJobId: pathUuid(record.build_job_id, "build id"),
       mountId: pathUuid(record.mount_id, "mount id"), resultChecksumSha256: record.result_checksum_sha256,
       outputTreeChecksumSha256: record.output_tree_checksum_sha256, expectedGeneration: record.expected_generation,
       previousReleasePrefix: record.previous_release_prefix, reviewedAt: record.reviewed_at,
-      expiresAt: record.expires_at, approvedAt: record.approved_at, deployment};
+      expiresAt: record.expires_at, approvedAt: record.approved_at, deployment, revocationState};
   });
   if (new Set(mounts.map(record => record.id)).size !== mounts.length || new Set(reviews.map(record => record.id)).size !== reviews.length) contract("Duplicate publication identity");
-  return {sourceProjectId, canPublish: value.can_publish, dispatchConfigured: value.dispatch_configured, mounts, reviews,
+  return {sourceProjectId, canPublish: value.can_publish, dispatchConfigured: value.dispatch_configured,
+    withdrawalConfigured: value.withdrawal_configured === true, mounts, reviews,
     canConfigureDestinations: value.can_configure_destinations === true, origins};
 }
 

@@ -64,6 +64,22 @@ describe("GEP-002 globe view contract", () => {
     }))).length, 8);
   });
 
+  it("retains imported view extent and presentation metadata through capture and save", () => {
+    const view = {viewId: 'comparison', label: 'Regional context', viewKind: 'maplibre',
+      layerVisibility: {'public-wms': true, 'field-sites': false}, bbox: [-77.12, 38.84, -76.96, 38.98],
+      center: [-77.04, 38.91], zoom: 9, pitch: 0, bearing: 0};
+    const before = structuredClone(view);
+    const normalized = normalizeMapView(view);
+    assert.equal(normalized.id, 'comparison'); assert.equal(normalized.title, 'Regional context');
+    for (const key of ['bbox', 'label', 'viewKind', 'layerVisibility']) assert.deepEqual(normalized[key], view[key]);
+    const saved = mapViewsForSave(null, [view, {...view, viewId: 'detail'}]);
+    assert.deepEqual(saved[0], normalized); assert.deepEqual(saved[1].layerVisibility, view.layerVisibility);
+    const captured = captureMapView(fakeMap({center: {lng: -76, lat: 39}, zoom: 10}), view);
+    assert.deepEqual(captured.bbox, view.bbox); assert.deepEqual(captured.center, [-76, 39]);
+    normalized.bbox[0] = 0; normalized.layerVisibility['field-sites'] = true;
+    assert.deepEqual(view, before);
+  });
+
   it("applies a real globe projection and fails closed to the 2D fallback", () => {
     const supported = fakeMap({projection: "mercator"});
     assert.deepEqual(applyMapProjection(supported, "globe"), {
@@ -90,7 +106,11 @@ describe("GEP-002 globe view contract", () => {
         center: [Number.NaN, 0],
         zoom: Number.POSITIVE_INFINITY,
         pitch: "85",
-        bearing: null
+        bearing: null,
+        bbox: [0, 0, Number.NaN, 10],
+        label: {unsafe: true},
+        viewKind: {unsafe: true},
+        layerVisibility: JSON.parse('{"__proto__":true,"layer":"true"}')
       }),
       {
         id: "primary",

@@ -1050,7 +1050,7 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
       || captured.outputSignature !== undefined && captured.outputSignature !== printCaptureOutputSignature(frame, layout.dpi)))
       throw Error("Capture every map frame again after changing its view, styling, dimensions or DPI.");
   }
-  const page = layout.page, svg = svgNode("svg", {xmlns: "http://www.w3.org/2000/svg", width: `${page.widthMm}mm`, height: `${page.heightMm}mm`, viewBox: `0 0 ${page.widthMm} ${page.heightMm}`, role: "img", "aria-label": layout.title});
+  const page = layout.page, svg = svgNode("svg", {width: `${page.widthMm}mm`, height: `${page.heightMm}mm`, viewBox: `0 0 ${page.widthMm} ${page.heightMm}`, role: "img", "aria-label": layout.title});
   svg.style.cssText = "background:white;color:#17212b;max-width:none";
   const metadata = svgNode("metadata", {});metadata.textContent = JSON.stringify({layout,
     ...(mapRepresentation === "vector" ? {mapRepresentation: "vector", geographicRegistration: false} : {}),

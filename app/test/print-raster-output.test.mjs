@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {createHash} from "node:crypto";
+import {EventEmitter} from "node:events";
 import {JSDOM} from "jsdom";
 import {unzipSync, strFromU8} from "fflate";
 import {capturePrintRasterLegend} from "../src/lib/printRasterLegend.js";
-import {printPageSvg} from "../src/components/ProjectPrintEditor.js";
+import {capturePrintMap, printPageSvg} from "../src/components/ProjectPrintEditor.js";
 import {newProjectPrintLayout, definitionWithPrintLayouts, projectPrintLayouts, definitionForPrintFrame} from "../src/lib/printLayouts.js";
 import {templateFromLayout, layoutFromTemplate} from "../src/lib/printTemplates.js";
 import {compileFigurePrintPack} from "../src/lib/figurePrintPack.js";
@@ -27,8 +28,26 @@ function fixture() {
     sourceMetadata: [{...captured.descriptor.sourcePin, title: layer.title, license: "CC0-1.0"}], attribution: ["Local scalar source"],
     flat: true, lines: [], projectId: record.id, projectVersion: record.version};
   capture.signature = canonicalJson({view: capture.view, presentation: capture.presentation});
-  return {layer, record, layout, capture, captures: new Map([["layout:main", capture]]), png, jpeg};
+  return {layer, record, layout, capture, handle, captures: new Map([["layout:main", capture]]), png, jpeg};
 }
+
+test("mixed capture refuses a required visible vector source that has no installed paint without returning partial raster pixels", async () => {
+  const {layer, record, capture, handle} = fixture();
+  const vector = {layerId:"missing-vector",datasetId:"vector-source",datasetVersionId:"vector-v1",sourceVersion:1,
+    title:"Required vector overlay",visible:true,geometryType:"Polygon",sourceType:"geojson-object",style:{fill:"#3b82f6"},labels:{}};
+  record.definition.layers.push(vector);const before=JSON.stringify(record);
+  const map = new EventEmitter();let pixelReads=0;
+  const canvas = {width:800,height:400,clientWidth:400,clientHeight:200,toDataURL:()=>{pixelReads++;return capture.dataUrl;}};
+  Object.assign(map,{isStyleLoaded:()=>true,areTilesLoaded:()=>true,isMoving:()=>false,getCanvas:()=>canvas,
+    getCenter:()=>({lng:4,lat:4}),getZoom:()=>5,getPitch:()=>0,getBearing:()=>0,
+    getStyle:()=>({layers:[{id:"scalar-cog",type:"raster",paint:{"raster-opacity":0.8}}]}),
+    triggerRepaint:()=>queueMicrotask(()=>map.emit("render"))});
+  handle.layerIds=["scalar-cog"];
+  const context={map,renderer:"maplibre",ready:true,project:record.definition,layers:[layer,vector],handles:new Map([[layer.layerId,handle]])};
+  await assert.rejects(capturePrintMap(context,record),/Required vector overlay is not installed.*Resolve its loading or Style error/);
+  assert.equal(pixelReads,1,"The already rendered canvas is inspected but no partial capture is returned");
+  assert.equal(map.listenerCount("render"),0);assert.equal(JSON.stringify(record),before);
+});
 
 test("raster range survives saved layout reopening and templates bind the destination raster style", () => {
   const {record, layout, layer} = fixture();
@@ -57,7 +76,15 @@ test("raster paper and figure pack retain exact grayscale scale, transparency, s
     const metadata = JSON.parse(svg.querySelector("metadata").textContent);
     assert.deepEqual(metadata.captures[0].rasterLegends[0].sourcePin, value.capture.rasterLegends[0].sourcePin);
     assert.match(svg.textContent, /CC0-1.0/);assert.doesNotMatch(JSON.stringify(metadata), /private-source\.tif/);
-    const pack = await compileFigurePrintPack({...value, layoutId: "layout", svg: new dom.window.XMLSerializer().serializeToString(svg), html: "<!doctype html>",
+    const serialized = new dom.window.XMLSerializer().serializeToString(svg);
+    const parsed = new dom.window.DOMParser().parseFromString(serialized, "image/svg+xml");
+    assert.equal(parsed.querySelector("parsererror"), null, "Serialized paper must be valid standalone XML");
+    assert.equal(parsed.documentElement.namespaceURI, "http://www.w3.org/2000/svg");
+    assert.equal(parsed.documentElement.getAttribute("xmlns"), "http://www.w3.org/2000/svg");
+    assert.equal(parsed.querySelector("image").getAttribute("href"), value.capture.dataUrl);
+    assert.equal(parsed.querySelector('[data-raster-color-bar="scalar"]').textContent, bar.textContent);
+    assert.match(parsed.documentElement.textContent, /CC0-1.0/);
+    const pack = await compileFigurePrintPack({...value, layoutId: "layout", svg: serialized, html: "<!doctype html>",
       png: new Blob([value.png], {type: "image/png"}), jpeg: new Blob([value.jpeg], {type: "image/jpeg"}), width: 1123, height: 794});
     const files = unzipSync(new Uint8Array(await pack.blob.arrayBuffer())), context = JSON.parse(strFromU8(files["map-context.json"]));
     assert.equal(context.frames[0].rasterLegends[0].sourceNoDataValue, -9999);

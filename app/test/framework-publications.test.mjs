@@ -182,6 +182,225 @@ test("saved deployment progress reloads and rollback prepares a new review witho
   } finally {globalThis.document = previous; dom.window.close();}
 });
 
+function deployedFixture() {
+  const raw = fixture();
+  raw.withdrawal_configured = true;
+  raw.reviews[0].approved_at = '2026-09-10T01:00:00Z';
+  raw.reviews[0].deployment = {stage: 'deployed', completed_files: 8, total_files: 8,
+    error_code: null, updated_at: '2026-09-10T01:01:00Z', release_prefix: `releases/framework-${ID}`};
+  return raw;
+}
+
+test('withdrawal capability defaults safely for older APIs and rejects nonboolean configuration', () => {
+  assert.equal(parseFrameworkPublications(fixture(), ID).withdrawalConfigured, false);
+  for (const configured of [false, true]) {
+    assert.equal(parseFrameworkPublications({...fixture(), withdrawal_configured: configured}, ID).withdrawalConfigured, configured);
+  }
+  for (const configured of [null, undefined, 0, 1, 'true', 'false', {}, []]) {
+    assert.throws(() => parseFrameworkPublications({...fixture(), withdrawal_configured: configured}, ID),
+      /Invalid publication withdrawal configuration/);
+  }
+});
+
+test('unavailable or older destinations hide new withdrawal controls and retain ordinary publication actions', async () => {
+  for (const configured of [undefined, false]) {
+    const dom = new JSDOM('<body></body>'); const previous = globalThis.document; globalThis.document = dom.window.document;
+    try {
+      const raw = deployedFixture();
+      if (configured === undefined) delete raw.withdrawal_configured;
+      else raw.withdrawal_configured = configured;
+      raw.reviews.push({...fixture().reviews[0], id: '22222222-2222-4222-8222-222222222222'});
+      const adapter = {getFrameworkPublications: async () => parseFrameworkPublications(raw, ID),
+        listObservableBuildJobs: async () => [{id: ID, sourceProjectId: ID, sourceRevisionNumber: 1,
+          state: 'succeeded', resultChecksumSha256: 'a'.repeat(64)}],
+        createObservablePreviewCapability: async () => assert.fail('Preview requires an explicit action'),
+        revokeFrameworkPublication: async () => assert.fail('Unavailable withdrawal must not create a request')};
+      const root = FrameworkPublications({adapter, projectId: ID, sourceProjectId: ID});
+      await tick();
+      assert.match(root.textContent, /Edition withdrawal is not available for this destination\./);
+      assert.equal(root.querySelector('input[name^="withdraw-publication-edition-"]'), null);
+      assert.equal(button(root, 'Request withdrawal'), undefined);
+      assert.equal(button(root, 'Refresh withdrawal status'), undefined);
+      assert.equal(button(root, 'Prepare publication review').disabled, false);
+      assert.equal(button(root, 'Prepare rollback to this build').disabled, false);
+      assert.equal(button(root, 'Preview this exact build').disabled, false);
+      assert.equal(button(root, 'Approve and publish').disabled, false);
+      assert.ok(root.querySelector('a[href="https://opengeo.tools/analysis/reading-beyond-visible/"]'));
+    } finally {globalThis.document = previous; dom.window.close();}
+  }
+});
+
+test('saved withdrawal requests remain refreshable when capability is unavailable or absent', async () => {
+  for (const configured of [undefined, false]) for (const state of ['pending', 'needs_attention', 'revoked']) {
+    const dom = new JSDOM('<body></body>'); const previous = globalThis.document; globalThis.document = dom.window.document;
+    try {
+      const raw = deployedFixture(); raw.reviews[0].revocation_state = state;
+      if (configured === undefined) delete raw.withdrawal_configured;
+      else raw.withdrawal_configured = configured;
+      const reads = [], writes = [];
+      const adapter = {getFrameworkPublications: async (...scope) => {
+        reads.push(scope);
+        if (reads.length === 2) raw.reviews[0].revocation_state = 'revoked';
+        return parseFrameworkPublications(raw, ID);
+      },
+        listObservableBuildJobs: async () => [],
+        revokeFrameworkPublication: async (...scope) => {writes.push(scope); assert.fail('Unavailable withdrawal refresh must only read status');}};
+      const root = FrameworkPublications({adapter, projectId: ID, sourceProjectId: ID});
+      await tick();
+      assert.equal(root.querySelector('input[name^="withdraw-publication-edition-"]'), null);
+      assert.equal(button(root, 'Request withdrawal'), undefined);
+      assert.equal(reads.length, 1); assert.equal(writes.length, 0);
+      if (state !== 'revoked') {
+        assert.match(root.textContent, /not.*confirmed completion/);
+        button(root, 'Refresh withdrawal status').click(); await tick();
+        assert.deepEqual(reads, [[ID, ID], [ID, ID]]);
+      }
+      assert.equal(writes.length, 0);
+      assert.match(root.textContent, /withdrawal confirmed/);
+      assert.equal(button(root, 'Refresh withdrawal status'), undefined);
+    } finally {globalThis.document = previous; dom.window.close();}
+  }
+});
+
+test('unavailable withdrawal refresh preserves saved state after a failed read or mismatched identity', async () => {
+  for (const failure of ['unavailable', 'foreign-source', 'missing-review']) {
+    const dom = new JSDOM('<body></body>'); const previous = globalThis.document; globalThis.document = dom.window.document;
+    try {
+      const raw = deployedFixture(); raw.withdrawal_configured = false; raw.reviews[0].revocation_state = 'pending';
+      let reads = 0, writes = 0;
+      const adapter = {getFrameworkPublications: async () => {
+        reads++;
+        const status = parseFrameworkPublications(raw, ID);
+        if (reads === 1) return status;
+        if (failure === 'unavailable') throw Error('Status unavailable');
+        if (failure === 'foreign-source') return {...status, sourceProjectId: '22222222-2222-4222-8222-222222222222'};
+        return {...status, reviews: []};
+      }, listObservableBuildJobs: async () => [],
+      revokeFrameworkPublication: async () => {writes++; assert.fail('Unavailable refresh must not POST');}};
+      const root = FrameworkPublications({adapter, projectId: ID, sourceProjectId: ID});
+      await tick(); button(root, 'Refresh withdrawal status').click(); await tick();
+      assert.equal(reads, 2); assert.equal(writes, 0);
+      assert.match(root.querySelector('[data-review-id]').querySelector('summary').textContent, /withdrawal pending/);
+      assert.match(root.textContent, /saved withdrawal state is unchanged/);
+      assert.doesNotMatch(root.textContent, /withdrawal unconfirmed/);
+      assert.equal(button(root, 'Refresh withdrawal status').disabled, false);
+      assert.equal(button(root, 'Request withdrawal'), undefined);
+    } finally {globalThis.document = previous; dom.window.close();}
+  }
+});
+
+test('edition withdrawal confirms the selected release and refreshes explicitly through pending, attention and completion', async () => {
+  const dom = new JSDOM('<body></body>'); const previous = globalThis.document; globalThis.document = dom.window.document;
+  try {
+    const raw = deployedFixture(), other = '22222222-2222-4222-8222-222222222222';
+    raw.reviews.push({...structuredClone(raw.reviews[0]), id: other,
+      deployment: {...raw.reviews[0].deployment, release_prefix: `releases/framework-${other}`}});
+    const calls = []; let reads = 0, builds = 0;
+    const states = ['pending', 'needs_attention', 'revoked'];
+    const adapter = {getFrameworkPublications: async () => {reads++; return parseFrameworkPublications(raw, ID);},
+      listObservableBuildJobs: async () => {builds++; return [];},
+      createObservableBuildJob: async () => assert.fail('Withdrawal must not request a build'),
+      approveFrameworkPublication: async () => assert.fail('Withdrawal must not publish'),
+      revokeFrameworkPublication: async (...scope) => {
+        calls.push(scope); const state = states.shift(); return {id: scope[2], state, revoked: state === 'revoked'};
+      }};
+    const root = FrameworkPublications({adapter, projectId: ID, sourceProjectId: ID});
+    document.body.append(root); await tick();
+    const selected = () => root.querySelector(`[data-review-id="${ID}"]`);
+    const sibling = () => root.querySelector(`[data-review-id="${other}"]`);
+    assert.equal(calls.length, 0); assert.equal(button(selected(), 'Request withdrawal').disabled, true);
+    button(selected(), 'Request withdrawal').click(); await tick(); assert.equal(calls.length, 0);
+    const ack = selected().querySelector('input[name^="withdraw-publication-edition-"]');
+    ack.checked = true; ack.dispatchEvent(new dom.window.Event('change'));
+    button(selected(), 'Request withdrawal').click(); await tick();
+    assert.equal(calls.length, 1); assert.match(selected().textContent, /has not yet confirmed completion/);
+    assert.match(selected().textContent, /may still be accessible/);
+    assert.doesNotMatch(selected().textContent, /withdrawal confirmed/);
+    assert.equal(button(selected(), 'Prepare rollback to this build').disabled, true);
+    await tick(); assert.equal(calls.length, 1);
+    button(selected(), 'Refresh withdrawal status').click(); await tick();
+    assert.match(selected().textContent, /Withdrawal needs attention/);
+    assert.doesNotMatch(selected().textContent, /withdrawal confirmed/);
+    button(selected(), 'Refresh withdrawal status').click(); await tick();
+    assert.match(selected().textContent, /Edition withdrawal confirmed/);
+    assert.equal(button(selected(), 'Refresh withdrawal status'), undefined);
+    assert.equal(button(selected(), 'Prepare rollback to this build'), undefined);
+    assert.equal(selected().querySelector('a'), null);
+    assert.match(selected().textContent, /private source rights keep their existing access/);
+    assert.match(selected().textContent, /private preview access retains its stated expiry/);
+    assert.match(selected().textContent, /downloaded or printed copies cannot be recalled/);
+    assert.ok(button(sibling(), 'Request withdrawal'));
+    assert.ok(sibling().querySelector('a'));
+    assert.deepEqual(calls, [[ID, ID, ID], [ID, ID, ID], [ID, ID, ID]]);
+    assert.equal(reads, 1); assert.equal(builds, 1);
+    assert.equal(raw.reviews[1].revocation_state, undefined);
+  } finally {globalThis.document = previous; dom.window.close();}
+});
+
+test('saved withdrawal state survives reopening and viewers cannot request or resume it', async () => {
+  for (const state of ['pending', 'needs_attention', 'revoked']) {
+    const dom = new JSDOM('<body></body>'); const previous = globalThis.document; globalThis.document = dom.window.document;
+    try {
+      const raw = deployedFixture(); raw.can_publish = false; raw.reviews[0].revocation_state = state;
+      let writes = 0;
+      const adapter = {getFrameworkPublications: async () => parseFrameworkPublications(raw, ID),
+        listObservableBuildJobs: async () => [],
+        revokeFrameworkPublication: async () => {writes++; assert.fail('Viewer cannot withdraw an edition');}};
+      const root = FrameworkPublications({adapter, projectId: ID, sourceProjectId: ID});
+      document.body.append(root); await tick();
+      const card = root.querySelector(`[data-review-id="${ID}"]`);
+      assert.ok(card.querySelector('.publication-edition-withdrawal'));
+      assert.equal(card.querySelector('input[name^="withdraw-publication-edition-"]'), null);
+      assert.equal(button(card, 'Request withdrawal'), undefined);
+      assert.equal(button(card, 'Refresh withdrawal status'), undefined);
+      assert.equal(writes, 0);
+      if (state === 'revoked') {
+        assert.match(card.textContent, /withdrawal confirmed/);
+        assert.equal(card.querySelector('a'), null);
+      } else assert.match(card.textContent, /not.*confirmed completion/);
+    } finally {globalThis.document = previous; dom.window.close();}
+  }
+});
+
+test('an uncertain withdrawal recovers the same saved request without automatic polling or replacement builds', async () => {
+  const dom = new JSDOM('<body></body>'); const previous = globalThis.document; globalThis.document = dom.window.document;
+  try {
+    const raw = deployedFixture(); const calls = []; let reads = 0;
+    const adapter = {getFrameworkPublications: async () => {reads++; return parseFrameworkPublications(raw, ID);},
+      listObservableBuildJobs: async () => [],
+      revokeFrameworkPublication: async (...scope) => {
+        calls.push(scope);
+        if (calls.length === 1) {raw.reviews[0].revocation_state = 'pending'; throw Error('Response lost');}
+        return {id: ID, state: 'revoked', revoked: true};
+      }};
+    const root = FrameworkPublications({adapter, projectId: ID, sourceProjectId: ID});
+    document.body.append(root); await tick();
+    const ack = root.querySelector('input[name^="withdraw-publication-edition-"]');
+    ack.checked = true; ack.dispatchEvent(new dom.window.Event('change'));
+    button(root, 'Request withdrawal').click(); await tick();
+    assert.match(root.textContent, /withdrawal request could not be confirmed/);
+    assert.equal(calls.length, 1); assert.equal(reads, 1);
+    button(root, 'Reload publication reviews').click(); await tick();
+    assert.equal(calls.length, 1); assert.equal(reads, 2);
+    assert.match(root.textContent, /has not yet confirmed completion/);
+    button(root, 'Refresh withdrawal status').click(); await tick();
+    assert.deepEqual(calls, [[ID, ID, ID], [ID, ID, ID]]);
+    assert.match(root.textContent, /Edition withdrawal confirmed/);
+  } finally {globalThis.document = previous; dom.window.close();}
+});
+
+test('withdrawal status rejects unsupported values and retains compatibility with reviews without it', () => {
+  assert.equal(parseFrameworkPublications(deployedFixture(), ID).reviews[0].revocationState, null);
+  for (const state of ['pending', 'needs_attention', 'revoked']) {
+    const raw = deployedFixture(); raw.reviews[0].revocation_state = state;
+    assert.equal(parseFrameworkPublications(raw, ID).reviews[0].revocationState, state);
+  }
+  const raw = deployedFixture(); raw.reviews[0].revocation_state = 'queued';
+  assert.throws(() => parseFrameworkPublications(raw, ID));
+  raw.reviews[0].revocation_state = 'revoked'; raw.reviews[0].deployment.stage = 'copying'; raw.reviews[0].deployment.release_prefix = null;
+  assert.throws(() => parseFrameworkPublications(raw, ID));
+});
+
 const distributionMetadata = (change = {}) => ({sourceRevisionId: ID, sourceManifestChecksumSha256: 'a'.repeat(64),
   compilerImageDigest: 'sha256:' + 'b'.repeat(64), artifactInputId: null, artifactInputsChecksumSha256: null,
   outputProfile: 'default-32m', archiveFiles: [{path: 'data/original.tif', attachmentId: ID, datasetId: ID,
