@@ -562,6 +562,11 @@ function createWorkbenchView({
     dataByLayerId.set(initialKmlLayer.layerId, placesToGeojson(initialKmlPlaces));
   }
   replaceLayerOrder(workingLayers, normalizeProjectLayerOrder(workingLayers, project?.layerTree));
+  for (const layer of workingLayers) {
+    if (layer.sourceType === "kml-places" && layer.kmlDocument && !dataByLayerId.has(layer.layerId)) {
+      dataByLayerId.set(layer.layerId, placesToGeojson(layer.kmlDocument));
+    }
+  }
   const initialProjection = projectionForProject(project);
   const initialSpatialBody = spatialBodyForProject(project);
   const initialMeasurements = normalizeSavedMeasurements(project?.measurements, {
@@ -15352,9 +15357,9 @@ async function refreshCogWindow(context, layer, display = cogDisplayOptions(laye
 
 function addKmlImageOverlays(state, layer, geojson) {
   const map = state.map;
-  const document = layer.kmlDocument ?? (layer.layerId === "kml-places" ? state.kmlPlaces : null);
-  const resources = new Map((document?.resources ?? []).map((resource) => [resource.path, resource]));
-  const overlays = collectKmlOverlays(document);
+  const kmlDocument = layer.kmlDocument ?? (layer.layerId === "kml-places" ? state.kmlPlaces : null);
+  const resources = new Map((kmlDocument?.resources ?? []).map((resource) => [resource.path, resource]));
+  const overlays = collectKmlOverlays(kmlDocument);
   const layerIds = [];
   const sourceIds = [];
   const elements = [];
