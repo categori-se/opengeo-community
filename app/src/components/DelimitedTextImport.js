@@ -1,5 +1,6 @@
 import {readDelimitedFile, inspectDelimitedText, mapDelimitedText} from "../lib/delimitedTextImport.js";
 import {STYLE_PALETTES} from "../lib/workbenchConfig.js";
+import {DELIMITED_TEMPLATE_SCHEMA, DELIMITED_TEMPLATE_MAX_BYTES, normalizeDelimitedImportTemplate, readDelimitedImportTemplate, writeDelimitedImportTemplate} from "../lib/delimitedImportTemplate.js";
 
 export async function DelimitedTextImport({file, shell, isCurrent = () => true, maximumFeatures = 5_000, onReview}) {
   const source = await readDelimitedFile(file);
@@ -37,7 +38,8 @@ export async function DelimitedTextImport({file, shell, isCurrent = () => true, 
   const issues = document.createElement("ul");issues.setAttribute("aria-label", "Records that cannot be mapped");
   const submit = text("button", "Review Layer");submit.type = "submit";
   const cancel = text("button", "Cancel");cancel.type = "button";
-  const close = () => {dialog.close();dialog.remove();};cancel.onclick = close;
+  let closed = false;
+  const close = () => {closed = true;dialog.close();dialog.remove();};cancel.onclick = close;
   dialog.addEventListener("cancel", event => {event.preventDefault();close();});
   let table;
   const parse = () => {
@@ -54,6 +56,45 @@ export async function DelimitedTextImport({file, shell, isCurrent = () => true, 
     } catch (error) {table = null;status.textContent = error.message;preview.replaceChildren();submit.disabled = true;}
   };
   delimiter.input.onchange = parse;
+  const settings = () => normalizeDelimitedImportTemplate({schemaVersion: DELIMITED_TEMPLATE_SCHEMA,
+    delimiter: delimiter.input.value, sourceProjection: projection.input.value, xColumn: x.input.value, yColumn: y.input.value,
+    elevationColumn: elevation.input.value || null, elevationUnit: units.input.value, verticalDatum: datum.value,
+    labelColumn: name.input.value || null, color: color.value, categoryColumn: category.input.value || null,
+    paletteName: colors.input.value}, table?.columns);
+  const templates = document.createElement("details"), templateSummary = text("summary", "Reuse import settings");
+  const templateNote = text("p", "Download a template to reuse these columns, coordinates, labels and colors with another file. Templates contain no source records. Review each file before adding its Layer.");
+  const templateLabel = text("label", "Import coordinate template"), templateInput = document.createElement("input");
+  templateInput.type = "file";templateInput.accept = ".json,application/json";templateInput.setAttribute("aria-label", "Import coordinate template");templateLabel.append(templateInput);
+  let templateRead = 0;
+  templateInput.onchange = async () => {
+    const read = ++templateRead;
+    const file = templateInput.files?.[0];if (!file) return;
+    try {
+      if (file.size > DELIMITED_TEMPLATE_MAX_BYTES) throw new Error("Coordinate import templates must be at most 16 KiB.");
+      const value = readDelimitedImportTemplate(await file.text());
+      if (closed || read !== templateRead) return;
+      if (!isCurrent()) throw new Error("The Project has changed. Close this import and choose the file again.");
+      // Check the new separator and every binding before replacing any current choice.
+      const candidate = inspectDelimitedText(source, value.delimiter);normalizeDelimitedImportTemplate(value, candidate.columns);
+      delimiter.input.value = value.delimiter;parse();
+      for (const [field, selected] of [[projection, value.sourceProjection], [x, value.xColumn], [y, value.yColumn], [elevation, value.elevationColumn], [units, value.elevationUnit], [name, value.labelColumn], [category, value.categoryColumn], [colors, value.paletteName]]) field.input.value = selected ?? "";
+      datum.value = value.verticalDatum;color.value = value.color;skip.checked = false;updateColorChoice();
+      status.textContent = "Template applied. Check the source preview and review the Layer. Invalid records will be kept out only if you explicitly choose to omit them.";
+      projection.input.focus();
+    } catch (error) {if (!closed && read === templateRead) status.textContent = error.message;}
+    finally {if (read === templateRead) templateInput.value = "";}
+  };
+  const downloadTemplate = text("button", "Download coordinate template");downloadTemplate.type = "button";
+  downloadTemplate.onclick = () => {
+    try {
+      if (!isCurrent()) throw new Error("The Project has changed. Close this import and choose the file again.");
+      if (!table) throw new Error("Choose a valid source separator before saving a template.");
+      const content = writeDelimitedImportTemplate(settings(), table.columns), url = URL.createObjectURL(new Blob([content], {type: "application/json"}));
+      const link = document.createElement("a");link.href = url;link.download = "coordinate-import-template.json";link.click();setTimeout(() => URL.revokeObjectURL(url), 1000);
+      status.textContent = "Coordinate template downloaded. It contains settings and column names, with no source records.";
+    } catch (error) {status.textContent = error.message;}
+  };
+  templates.append(templateSummary, templateNote, templateLabel, downloadTemplate);
   form.onsubmit = event => {
     event.preventDefault();if (submit.disabled || !table) return;
     if (!isCurrent()) {status.textContent = "The Project has changed. Close this import and choose the file again.";submit.disabled = true;return;}
@@ -72,6 +113,6 @@ export async function DelimitedTextImport({file, shell, isCurrent = () => true, 
       status.textContent = error.message;issues.replaceChildren(...(error.report?.rejectedRecords ?? []).slice(0, 10).map(row => text("li", `Record ${row.record}: ${row.reason}`)));
     }
   };
-  form.append(text("h2", "Import delimited coordinates"), text("p", `${source.filename} · Choose columns and the source coordinate system. Preview changes nothing; the next step reviews the Layer. Local files stay in this browser.`), delimiter.wrapper, projection.wrapper, x.wrapper, y.wrapper, elevation.wrapper, units.wrapper, datumLabel, name.wrapper, colorLabel, category.wrapper, colors.wrapper, colorNote, skipLabel, preview, status, issues, submit, cancel);
+  form.append(text("h2", "Import delimited coordinates"), text("p", `${source.filename} · Choose columns and the source coordinate system. Preview changes nothing; the next step reviews the Layer. Local files stay in this browser.`), templates, delimiter.wrapper, projection.wrapper, x.wrapper, y.wrapper, elevation.wrapper, units.wrapper, datumLabel, name.wrapper, colorLabel, category.wrapper, colors.wrapper, colorNote, skipLabel, preview, status, issues, submit, cancel);
   dialog.append(form);document.body.append(dialog);parse();dialog.showModal();projection.input.focus();return dialog;
 }

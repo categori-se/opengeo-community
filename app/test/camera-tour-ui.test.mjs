@@ -19,6 +19,70 @@ afterEach(async () => {
 });
 
 describe("camera tour workbench experience", () => {
+  it("ignores late KML reads after newer KML, native JSON or cancellation and rejects detached Apply controls", async () => {
+    const shell = mountWorkbench({initialPanel: "tour"});clickButton(shell, "Start camera tour");
+    const source = name => `<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><gx:Tour><name>${name}</name><gx:Playlist><gx:FlyTo><LookAt><range>100000</range></LookAt></gx:FlyTo></gx:Playlist></gx:Tour></kml>`;
+    const open = (input, read) => {
+      Object.defineProperty(input, "files", {configurable: true, value: [{size: 1000, text: read}]});
+      input.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    };
+    const flush = async () => {await Promise.resolve();await Promise.resolve();};
+    let resolveOld;
+    open(shell.querySelector('[aria-label="Open KML tour"]'), () => new Promise(resolve => {resolveOld = resolve;}));
+    open(shell.querySelector('[aria-label="Open KML tour"]'), async () => source("Newest"));await flush();
+    const detachedApply = clickableButton(shell, "Use imported camera tour");
+    resolveOld(source("Old"));await flush();
+    detachedApply.click();assert.equal(shell.querySelector('input[aria-label="Tour name"]').value, "Newest");
+    open(shell.querySelector('[aria-label="Open KML tour"]'), async () => source("Staged"));await flush();
+    const staleApply = clickableButton(shell, "Use imported camera tour");
+    let rejectLate;
+    open(shell.querySelector('[aria-label="Open KML tour"]'), () => new Promise((_resolve, reject) => {rejectLate = reject;}));
+    const native = structuredClone(shell.getPrintContext().project.extensions.cameraTour);native.title = "Native wins";
+    open(shell.querySelector('input[accept*=".opengeo-tour.json"]'), async () => JSON.stringify(native));await flush();
+    staleApply.click();rejectLate(Error("late failure"));await flush();
+    assert.equal(shell.querySelector('input[aria-label="Tour name"]').value, "Native wins");
+    assert.equal(shell.querySelector('[data-camera-tour-exchange-report]'), null);
+    open(shell.querySelector('[aria-label="Open KML tour"]'), async () => source("Cancelable"));await flush();
+    let resolveCanceled;
+    open(shell.querySelector('[aria-label="Open KML tour"]'), () => new Promise(resolve => {resolveCanceled = resolve;}));
+    clickButton(shell, "Cancel KML tour import");resolveCanceled(source("Canceled read"));await flush();
+    assert.equal(shell.querySelector('[data-camera-tour-exchange-report]'), null);
+    assert.equal(shell.querySelector('input[aria-label="Tour name"]').value, "Native wins");
+  });
+
+  it("reviews KML losses before applying, exports through controls and saves/freshly reopens the converted tour", async () => {
+    const saved = [], downloads = [];
+    const mount = overrides => mountWorkbench({initialPanel: "tour", saveProject: async definition => {saved.push(structuredClone(definition));return {version: 2};}, ...overrides});
+    let shell = mount();clickButton(shell, "Start camera tour");
+    const original = structuredClone(shell.getPrintContext().project.extensions.cameraTour);
+    const source = '<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Document><gx:Tour><name>Imported route</name><gx:Playlist><gx:FlyTo><gx:duration>0</gx:duration><LookAt><longitude>12</longitude><latitude>40</latitude><range>100000</range></LookAt></gx:FlyTo><gx:Wait><gx:duration>2</gx:duration></gx:Wait><gx:SoundCue><href>https://example.invalid/audio.mp3</href></gx:SoundCue></gx:Playlist></gx:Tour></Document></kml>';
+    const input = shell.querySelector('[aria-label="Open KML tour"]');
+    Object.defineProperty(input, "files", {value: [{size: source.length, text: async () => source}]});
+    input.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    await waitFor(() => shell.querySelector('[data-camera-tour-exchange-report]'));
+    assert.match(shell.querySelector('[data-camera-tour-exchange-report]').textContent, /SoundCue/);
+    assert.deepEqual(shell.getPrintContext().project.extensions.cameraTour, original, "review does not replace the native tour");
+    clickButton(shell, "Use imported camera tour");
+    assert.equal(shell.querySelector('input[aria-label="Tour name"]').value, "Imported route");
+    clickButton(shell, "Save");await waitFor(() => saved.length === 1);
+    const retained = saved[0].extensions.cameraTour;
+    assert.deepEqual(retained.keyframes[0].camera.center, [12, 40]);assert.equal(retained.keyframes[0].holdMilliseconds, 2000);
+    shell.dispose();shell.remove();shell = mount({project: project(saved[0])});
+    assert.equal(shell.querySelector('input[aria-label="Tour name"]').value, "Imported route");
+    assert.deepEqual(shell.getPrintContext().project.extensions.cameraTour, retained);
+    clickButton(shell, "Prepare KML tour export");
+    assert.match(shell.querySelector('[data-camera-tour-exchange-report]').textContent, /framing|Framing/);
+    const oldCreate = URL.createObjectURL, oldRevoke = URL.revokeObjectURL, oldClick = harness.dom.window.HTMLAnchorElement.prototype.click;
+    URL.createObjectURL = blob => {downloads.push({blob});return "blob:tour-export";};URL.revokeObjectURL = () => {};
+    harness.dom.window.HTMLAnchorElement.prototype.click = function () {downloads.at(-1).name = this.download;};
+    try {
+      clickButton(shell, "Download KML tour");clickButton(shell, "Download KML conversion report");clickButton(shell, "Download tour JSON");
+      assert.match(await downloads[0].blob.text(), /<gx:Tour>/);
+      assert.ok(JSON.parse(await downloads[1].blob.text()).entries.some(entry => entry.code === "native_metadata_omitted"));
+      assert.deepEqual(JSON.parse(await downloads[2].blob.text()), retained);
+    } finally {URL.createObjectURL = oldCreate;URL.revokeObjectURL = oldRevoke;harness.dom.window.HTMLAnchorElement.prototype.click = oldClick;}
+  });
+
   it("creates, times, and saves a bounded tour without changing the map-definition schema", async () => {
     const saved = [];
     const shell = mountWorkbench({
@@ -30,7 +94,7 @@ describe("camera tour workbench experience", () => {
     });
     assert.match(shell.textContent, /Camera tour/);
     assert.match(shell.textContent, /silent visual tour/);
-    assert.match(shell.textContent, /Narration, movie encoding, and KML gx:Tour exchange remain/);
+    assert.match(shell.textContent, /KML gx:Tour exchanges camera views and waits/);
 
     clickButton(shell, "Start camera tour");
     clickButton(shell, "Add current view");
