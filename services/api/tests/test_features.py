@@ -678,7 +678,10 @@ def test_repository_feature_lock_acquire_list_release_and_conflict_are_explicit(
     )
 
 
-def test_repository_separates_multipolygon_parts_with_one_locked_generation_advance() -> None:
+@pytest.mark.parametrize("source_format", ["geojson", "mapinfo"])
+def test_mapinfo_repository_separates_multipolygon_parts_with_one_locked_generation_advance(
+    source_format: str,
+) -> None:
     schema = {
         "schemaVersion": "1.0.0",
         "fields": [{"name": "name", "type": "string", "required": True}],
@@ -700,7 +703,7 @@ def test_repository_separates_multipolygon_parts_with_one_locked_generation_adva
     }
     transaction = QueryTransaction(
         one=[
-            ("member", "editor", None, False, "active", "geojson"),
+            ("member", "editor", None, False, "active", source_format),
             (DATASET_ID, "MultiPolygon", schema, 1, 1, USER_ID, NOW, USER_ID, NOW),
             feature_row(FEATURE_ID, 1, source_geometry, (0, 0, 4, 1)),
             None,

@@ -899,7 +899,7 @@ class PostgresCatalogRepository:
             WHERE dataset.organization_id = %s
               AND dataset.id = %s
               AND dataset.format::text IN
-                ('geojson', 'csv', 'shapefile', 'geopackage', 'geoparquet')
+                ('geojson', 'csv', 'shapefile', 'mapinfo', 'geopackage', 'geoparquet')
               AND version.state = 'active'
               AND version.geometry_type IS NOT NULL
               AND version.geometry_type NOT IN ('document', 'image', 'raster')

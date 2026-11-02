@@ -54,10 +54,13 @@ _SOURCE_FILENAMES = {
     "geojson": "source.geojson",
     "csv": "source.csv",
     "shapefile": "source.zip",
+    "mapinfo": "source.zip",
     "geopackage": "source.gpkg",
     "geoparquet": "source.parquet",
     "cog": "source.tif",
     "geotiff": "source.tif",
+    "nitf": "source.ntf",
+    "img": "source.img",
     "pmtiles": "source.pmtiles",
     "png": "source.png",
     "jpeg": "source.jpg",
@@ -472,9 +475,10 @@ class WorkerProcessor:
                             artifact_id=uuid5(claim.dataset_version_id, artifact.relative_key),
                         )
                     )
-                if claim.dataset_format == "geotiff":
-                    inspection = _bind_geotiff_working_cog(
-                        inspection, artifacts, output_prefix=claim.output_prefix
+                if claim.dataset_format in {"geotiff", "nitf", "img"}:
+                    inspection = _bind_raster_working_cog(
+                        inspection, artifacts, output_prefix=claim.output_prefix,
+                        dataset_format=claim.dataset_format,
                     )
                 lease.renew_now()
                 if not self._repository.complete(claim.job_id, worker_token, inspection, artifacts):
@@ -992,29 +996,38 @@ class WorkerProcessor:
         root.chmod(0o700)
 
 
-def _bind_geotiff_working_cog(
+def _bind_raster_working_cog(
     inspection: InspectionResult,
     artifacts: Sequence[StoredArtifact],
     *,
     output_prefix: str,
+    dataset_format: str,
 ) -> InspectionResult:
     raster = inspection.schema_definition.get("raster")
     working = raster.get("working_cog") if isinstance(raster, dict) else None
     checks = inspection.quality_results.get("checks")
+    quality_code = (
+        "geotiff_working_cog_verified" if dataset_format == "geotiff" else "working_cog_verified"
+    )
     if (
         not isinstance(raster, dict)
-        or raster.get("source_format") != "geotiff"
+        or dataset_format not in {"geotiff", "nitf", "img"}
+        or raster.get("source_format") != dataset_format
         or not isinstance(working, dict)
         or working.get("relative_key") != "working/raster.cog.tif"
         or working.get("filename") != "raster.cog.tif"
         or inspection.quality_results.get("valid") is not True
         or not isinstance(checks, list)
-        or {"code": "geotiff_working_cog_verified", "status": "passed"} not in checks
+        or checks.count({"code": quality_code, "status": "passed"}) != 1
+        or any(
+            isinstance(check, dict) and check.get("code") == quality_code
+            and check.get("status") != "passed" for check in checks
+        )
     ):
-        raise ValidationFailure("geotiff_working_cog_unverified")
+        raise ValidationFailure(f"{dataset_format}_working_cog_unverified")
     candidates = [artifact for artifact in artifacts if artifact.role == "working"]
     if len(candidates) != 1:
-        raise ValidationFailure("geotiff_working_cog_ambiguous")
+        raise ValidationFailure(f"{dataset_format}_working_cog_ambiguous")
     stored = candidates[0]
     if (
         stored.object_key != output_prefix + "working/raster.cog.tif"
@@ -1024,7 +1037,7 @@ def _bind_geotiff_working_cog(
         or stored.s3_version_id == "null"
         or re.fullmatch(r"[0-9a-f]{64}", stored.checksum_sha256) is None
     ):
-        raise ValidationFailure("geotiff_working_cog_unverified")
+        raise ValidationFailure(f"{dataset_format}_working_cog_unverified")
     bound = {
         **working,
         "object_id": str(stored.artifact_id),

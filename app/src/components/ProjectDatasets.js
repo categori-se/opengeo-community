@@ -41,9 +41,9 @@ const FORMAT_LABELS = Object.freeze({
   imageserver: "ArcGIS ImageServer"
 });
 
-const EDITABLE_VECTOR_FORMATS = new Set(["geojson", "shapefile", "geopackage", "geoparquet"]);
+const EDITABLE_VECTOR_FORMATS = new Set(["geojson", "shapefile", "mapinfo", "geopackage", "geoparquet"]);
 const SPATIAL_PREVIEW_FORMATS = new Set([
-  "geojson", "csv", "shapefile", "geopackage", "geoparquet"
+  "geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet"
 ]);
 const FEATURE_GEOMETRY_TYPES = [
   "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"
@@ -60,7 +60,8 @@ const PROCESSING_MESSAGES = Object.freeze({
   dataset_format_mismatch: "The GIS driver identified a different format. Check the export format and upload the source again.",
   cog_layout_required: "This TIFF is not cloud optimized. Convert it to a COG, then upload the converted file.",
   shapefile_components_invalid: "The ZIP must contain exactly one matching .shp, .shx, and .dbf set.",
-  archive_entry_unsafe: "The ZIP contains an unsupported or unsafe entry. Rebuild a flat archive from the source shapefile.",
+  mapinfo_components_invalid: "The ZIP must contain exactly one matching TAB companion set or MIF/MID pair.",
+  archive_entry_unsafe: "The ZIP contains an unsupported or unsafe entry. Rebuild a flat archive from the required source companions.",
   archive_entry_count_invalid: "The ZIP has an unsupported number of entries. Remove unrelated files and upload it again.",
   archive_expanded_size_exceeded: "The expanded ZIP exceeds the processing limit. Split or simplify the dataset.",
   archive_compression_ratio_exceeded: "The ZIP compression ratio exceeds the safety limit. Rebuild the archive with normal compression.",
@@ -4473,6 +4474,7 @@ function uploadForm(state, refresh, section) {
   );
   const purpose = select("Upload purpose", [["ingest", "Import and inspect"], ["pmtiles_original", "Preserve GeoJSON for PMTiles"]]);
   const purposeNote = text("p", "Import and inspect queues validation and spatial preparation.", "note");
+  const formatNote = text("p", "For TAB or MIF/MID archives, choose MapInfo ZIP. ZIP files default to Shapefile. Include one matching companion set; validation runs after upload.", "note");
   const tags = input("text", "Dataset tags");
   tags.placeholder = "transport, planning";
   const file = input("file", "Dataset, image, or document file");
@@ -4482,7 +4484,8 @@ function uploadForm(state, refresh, section) {
     const selectedFile = file.files?.[0];
     if (!selectedFile) return;
     const inferred = inferManagedFormat(selectedFile.name);
-    if (inferred && purpose.value === "ingest") format.value = inferred;
+    if (inferred && purpose.value === "ingest"
+      && !(inferred === "shapefile" && format.value === "mapinfo")) format.value = inferred;
     if (!name.value.trim()) name.value = selectedFile.name.replace(/\.[^.]+$/, "");
   });
   purpose.addEventListener("change", () => {
@@ -4503,6 +4506,7 @@ function uploadForm(state, refresh, section) {
     field("Upload purpose", purpose),
     purposeNote,
     field("Format", format),
+    formatNote,
     field("Tags (comma-separated)", tags),
     field("Source file", file)
   );
@@ -4585,7 +4589,7 @@ function managedCogMapAllowed(state, dataset, externalSource) {
     && dataset.status === "active"
     && dataset.currentVersionState === "active"
     && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(dataset.currentVersionId ?? "")
-    && ["cog", "geotiff"].includes(dataset.format)
+    && ["cog", "geotiff", "nitf", "img"].includes(dataset.format)
     && String(dataset.geometryType).toLowerCase() === "raster"
     && Array.isArray(dataset.extent) && dataset.extent.length === 4
     && dataset.extent.every(Number.isFinite)

@@ -2032,7 +2032,7 @@ class PostgresSpatialServiceRepository:
                 WHERE collection.organization_id = %s
                   AND collection.dataset_id = %s
                   AND dataset.status = 'active'
-                  AND dataset.format IN ('geojson', 'shapefile', 'geopackage', 'geoparquet')
+                  AND dataset.format IN ('geojson', 'shapefile', 'mapinfo', 'geopackage', 'geoparquet')
                   AND resource.kind IN ('dataset', 'service')
                   AND resource.state = 'published'
                 """,

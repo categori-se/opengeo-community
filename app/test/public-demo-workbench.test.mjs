@@ -5,6 +5,9 @@ import {emptyMapDefinition} from "../src/lib/mapDefinition.js";
 import {spatialBodyDefinition} from "../src/lib/spatialBody.js";
 import {savedProjectVersionFile} from "../src/lib/projectFileFormat.js";
 import {readBrowserProjectFile} from "../src/lib/browserProjectFile.js";
+import {originalNmeaFile} from "../src/lib/nmeaImport.js";
+import {originalOziFile} from "../src/lib/oziImport.js";
+import {originalDelimitedFile} from "../src/lib/delimitedTextImport.js";
 import {describe, it} from "node:test";
 import {JSDOM} from "jsdom";
 
@@ -975,6 +978,26 @@ describe("public workbench demo source boundary", () => {
         await waitFor(()=>map.__opengeoLayers.length===before+1);
         const layer=map.__opengeoLayers.find(l=>l.title==='Reviewed GPS');assert.equal(layer.sourceType,'geojson-object');assert.equal(layer.metadata.source.format,'gpx');assert.equal(layer.metadata.source.report.counts.positions,8);
         assert.equal(map.__opengeoData.get(layer.layerId).features.length,5);assert.equal(layer.metadata.curated.title,'Reviewed GPS');assert.equal(document.querySelector('dialog'),null);
+        const originalData=structuredClone(map.__opengeoData.get(layer.layerId));
+        const clickLabel=(scope,label)=>{const found=[...scope.querySelectorAll('button')].find(b=>b.textContent.trim()===label);assert(found,label);found.click();};
+        clickLabel(map,'Edit');clickLabel(map,'Temporary annotations and uploads…');clickLabel(map,'Edit a copy · Reviewed GPS');
+        const copy=map.__opengeoLayers.find(l=>l.temporaryWork&&l.metadata?.source?.format==='gpx');assert(copy);assert.deepEqual(copy.metadata,layer.metadata);
+        const item=()=>map.querySelector(`[data-temporary-layer-id="${copy.layerId}"]`);
+        clickLabel(item(),'Edit geometry');
+        map.querySelector('[data-temporary-coordinate="longitude"]').value='85.301';map.querySelector('[data-temporary-coordinate="latitude"]').value='27.701';
+        clickLabel(map.querySelector('.gis-temporary-geometry-editor'),'Apply coordinate');clickLabel(map.querySelector('.gis-temporary-geometry-editor'),'Save geometry changes');
+        assert.deepEqual(map.__opengeoData.get(copy.layerId).features[0].geometry.coordinates,[85.301,27.701,1450.25]);assert.deepEqual(map.__opengeoData.get(layer.layerId),originalData);
+        const exports=[],create=URL.createObjectURL,revoke=URL.revokeObjectURL,serializer=Object.getOwnPropertyDescriptor(globalThis,'XMLSerializer'),anchorClick=dom.window.HTMLAnchorElement.prototype.click;
+        URL.createObjectURL=blob=>{exports.push(blob);return 'blob:gpx-working-test';};URL.revokeObjectURL=()=>{};globalThis.XMLSerializer=dom.window.XMLSerializer;dom.window.HTMLAnchorElement.prototype.click=()=>{};
+        try {
+          clickLabel(item(),'Download working GPX');await waitFor(()=>exports.length===1);
+          const {readGpxFile,originalGpxFile}=await import('../src/lib/gpxImport.js');
+          const reopened=await readGpxFile(new File([await exports[0].arrayBuffer()],'working.gpx'),{Parser:dom.window.DOMParser});
+          assert.deepEqual(reopened.geojson.features.map(f=>f.geometry),map.__opengeoData.get(copy.layerId).features.map(f=>f.geometry));
+          assert.deepEqual(reopened.geojson.features.map(f=>f.properties.gpx.points),originalData.features.map(f=>f.properties.gpx.points));
+          assert.equal(reopened.report.counts.segments,4);assert.deepEqual((await originalGpxFile(copy.metadata.source)).bytes,new Uint8Array(bytes));
+          await new Promise(resolve=>setTimeout(resolve,0));
+        } finally {URL.createObjectURL=create;URL.revokeObjectURL=revoke;dom.window.HTMLAnchorElement.prototype.click=anchorClick;if(serializer)Object.defineProperty(globalThis,'XMLSerializer',serializer);else delete globalThis.XMLSerializer;}
       }finally{root?.querySelector('.opengeo-workbench')?.dispose();root?.remove();restore();dom.window.close();}
     }
   });
@@ -1040,16 +1063,18 @@ describe("public workbench demo source boundary", () => {
       mapping.querySelector('[aria-label="Omit records that cannot be mapped"]').checked = true;
       mapping.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
       review = await waitFor(() => document.querySelector(".browser-layer-registration:not(.delimited-text-import)"));
-      review.querySelector('[aria-label="Layer title"]').value = "Reviewed coordinate survey";
+      const reviewedTitle = demo ? `Reviewed coordinate survey ${"long ".repeat(40)}retained` : "Reviewed coordinate survey";
+      review.querySelector('[aria-label="Layer title"]').value = reviewedTitle;
       review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
       await waitFor(() => map.__opengeoLayers.length === before + 1);
-      const layer = map.__opengeoLayers.find(layer => layer.title === "Reviewed coordinate survey"), data = map.__opengeoData.get(layer.layerId);
+      const layer = map.__opengeoLayers.find(layer => layer.title === reviewedTitle), data = map.__opengeoData.get(layer.layerId);
       assert.equal(layer.sourceType, "geojson-object");assert.deepEqual(layer.labels, {enabled: true, field: "site"});
       assert.deepEqual(data.features.map(feature => feature.geometry.coordinates), [[85.3, 27.7, 30.48], [85.31, 27.71]]);
       assert.equal(data.features[0].properties.identifier, "00123");assert.equal(data.features[1].properties.identifier, "9007199254740993");
       assert.equal(data.features[0].properties.notes, 'first line\nsecond "quoted" line');assert.equal(data.features[1].properties.notes, "=not a formula");
       assert.equal(layer.metadata.source.report.mapping.skipInvalid, true);assert.equal(layer.metadata.curated.title, layer.title);
       assert.deepEqual(Buffer.from(layer.metadata.source.originalFile.content, "base64"), bytes);assert.equal(document.querySelector("dialog"), null);
+      await assertEditableImportedCopy(map, layer, bytes, "csv", originalDelimitedFile);
     } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
   });
 
@@ -1060,9 +1085,11 @@ describe("public workbench demo source boundary", () => {
       root = demo ? PublicDemoWorkbench({catalog: CATALOG, geojson: COMMUNITY_GEOJSON, massgis: MASSGIS, fetchImpl: () => {throw Error("No provider");}}) : StartPage({catalog: {workspaces: []}});
       document.body.append(root);root.querySelector(".start-empty-map")?.click();
       const map = await waitFor(() => root.querySelector(".opengeo-workbench")), before = map.__opengeoLayers.length;
-      chooseWorkbenchFile(map, dom, new File(["e\tn\tz\tname\tid\r\n1113194.9079327357\t0\t100\tProjected point\t0007\r\n"], "projected-survey.tsv", {type: "text/tab-separated-values"}));
+      const raw = "e\tn\tz\tname\tid\r\n1113194.9079327357\t0\t100\tProjected point\t0007\r\n", filename = demo ? "projected-survey.tsv" : "projected-survey.txt";
+      chooseWorkbenchFile(map, dom, new File([raw], filename, {type: "text/tab-separated-values"}));
       const mapping = await waitFor(() => document.querySelector(".delimited-text-import"));
-      assert.equal(mapping.querySelector('[aria-label="Separator"]').value, "\t");
+      const separator = mapping.querySelector('[aria-label="Separator"]');assert.equal(separator.value, demo ? "\t" : ",");
+      if (!demo) {separator.value = "\t";separator.dispatchEvent(new dom.window.Event("change"));}
       assert.equal(mapping.querySelector('[aria-label="Source values preview"] thead').rows[0].cells.length, 5);
       for (const [label, value] of Object.entries({"Source coordinate system": "EPSG:3857", "Longitude / easting column": "e", "Latitude / northing column": "n", "Elevation column": "z", "Elevation unit": "us-survey-foot", "Label column": "name"})) mapping.querySelector(`[aria-label="${label}"]`).value = value;
       mapping.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
@@ -1070,12 +1097,13 @@ describe("public workbench demo source boundary", () => {
       assert(review.textContent.includes("e / n · EPSG:3857 → WGS 84"));assert(review.textContent.includes("1 of 1 mapped · 0 omitted"));
       assert.equal(map.__opengeoLayers.length, before);review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
       await waitFor(() => map.__opengeoLayers.length === before + 1);
-      const layer = map.__opengeoLayers.find(layer => layer.metadata?.source?.filename === "projected-survey.tsv"), feature = map.__opengeoData.get(layer.layerId).features[0];
+      const layer = map.__opengeoLayers.find(layer => layer.metadata?.source?.filename === filename), feature = map.__opengeoData.get(layer.layerId).features[0];
       assert(Math.abs(feature.geometry.coordinates[0] - 10) < 1e-10);assert(Math.abs(feature.geometry.coordinates[1]) < 1e-10);
       assert(Math.abs(feature.geometry.coordinates[2] - 100 * (1200 / 3937)) < 1e-10);
       assert.equal(feature.properties.e, "1113194.9079327357");assert.equal(feature.properties.id, "0007");
       assert.deepEqual(layer.labels, {enabled: true, field: "name"});assert.equal(layer.metadata.source.delimiter, "\t");
       assert.equal(layer.metadata.source.report.mapping.verticalDatum, null);assert.equal(layer.metadata.source.report.mapping.skipInvalid, false);
+      await assertEditableImportedCopy(map, layer, Buffer.from(raw), demo ? "tsv" : "txt", originalDelimitedFile);
     } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
   });
 
@@ -1234,6 +1262,7 @@ describe("public workbench demo source boundary", () => {
       assert.deepEqual(Buffer.from(layer.metadata.source.originalFile.content, "base64"), bytes);assert.equal(document.querySelector("dialog"), null);
       [...map.querySelectorAll("button")].find(button => button.textContent.trim() === "Catalog").click();
       assert.equal(map.querySelectorAll("[data-browser-catalog-layer]").length, catalogBefore + 1);
+      await assertEditableImportedCopy(map, layer, bytes, "nmea", originalNmeaFile);
     } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
   });
 
@@ -1303,6 +1332,7 @@ describe("public workbench demo source boundary", () => {
       assert.equal(layer.metadata.normalized.crs, "OGC:CRS84");assert.equal(layer.metadata.curated.description, "Reviewed locally");assert.equal(document.querySelector("dialog"), null);
       const reopened = readBrowserProjectFile(JSON.stringify({...map.getPrintContext().project, persistence: {mode: "browser-draft"}})).layers.find(value => value.layerId === layer.layerId);
       assert.deepEqual(reopened.metadata, layer.metadata);assert.deepEqual(reopened.geojson, data);assert.deepEqual(reopened.style, layer.style);
+      await assertEditableImportedCopy(map, layer, bytes, "wpt", originalOziFile);
     } finally {root?.querySelector(".opengeo-workbench")?.dispose();root?.remove();restore();dom.window.close();}
   });
 
@@ -1349,7 +1379,7 @@ describe("public workbench demo source boundary", () => {
           assert.equal(entry.layer.geometryType, "GeometryCollection");assert.deepEqual(entry.layer.metadata, layer.metadata);assert.deepEqual(entry.geojson, data);
           [...map.querySelectorAll("button")].find(button => button.textContent.trim() === "Save").click();await waitFor(() => saved);
           assert.deepEqual(saved.layers, []);assert.doesNotMatch(JSON.stringify(saved), /source-track|originalFile|"ozi"/);assert.equal(uploads, 0);assert.equal(map.__opengeoLayers.length, 1);
-        }
+        } else await assertEditableImportedCopy(map, layer, bytes, "plt", originalOziFile);
       } finally {map?.dispose();root?.remove();restore();dom.window.close();}
     }
   });
@@ -1504,6 +1534,40 @@ function chooseWorkbenchFile(map, dom, file) {
   [...map.querySelectorAll("button")].find(button => button.textContent.trim() === "Open file").click();
   const input = document.querySelector(".opengeo-project-file-input");assert(input.accept.split(",").includes(file.name.slice(file.name.lastIndexOf("."))));
   Object.defineProperty(input, "files", {value: [file]});input.dispatchEvent(new dom.window.Event("change"));
+}
+
+async function assertEditableImportedCopy(map, layer, bytes, extension, originalFile) {
+  const originalLayer = structuredClone(layer), originalData = structuredClone(map.__opengeoData.get(layer.layerId));
+  const before = new Set(map.__opengeoLayers.map(value => value.layerId));
+  const click = (scope, label) => {const button = [...scope.querySelectorAll("button")].find(value => value.textContent.trim() === label);assert(button, label);assert(!button.disabled, label);button.click();};
+  click(map, "Edit");click(map, "Temporary annotations and uploads…");click(map, `Edit a copy · ${layer.title}`);
+  const copy = map.__opengeoLayers.find(value => !before.has(value.layerId));assert(copy);
+  assert.equal(copy.sourceType, "geojson-object");assert.equal(copy.temporaryWork.format, layer.metadata.source.format);
+  assert.equal(copy.temporaryWork.authority, "none");assert.equal(copy.temporaryWork.persistence, "browser-only");
+  assert.equal(copy.temporaryWork.promotion, "governed-ingest-required");assert.notEqual(copy.datasetId, layer.datasetId);
+  const suffix = ` — editable copy.${extension}`;
+  assert.equal(copy.temporaryWork.fileName, `${layer.title.slice(0, 240 - suffix.length)}${suffix}`);
+  assert(copy.temporaryWork.fileName.length <= 240);assert.deepEqual(copy.metadata, originalLayer.metadata);
+  assert.notStrictEqual(copy.metadata, layer.metadata);assert.notStrictEqual(copy.metadata.source, layer.metadata.source);
+  assert.deepEqual(map.__opengeoData.get(copy.layerId), originalData);
+  assert.deepEqual((await originalFile(copy.metadata.source)).bytes, new Uint8Array(bytes));
+  const item = () => map.querySelector(`[data-temporary-layer-id="${copy.layerId}"]`);
+  assert.match(item().textContent, /Download original/);click(item(), "Edit geometry");
+  const firstVertex = map.querySelector(".gis-temporary-geometry-editor .gis-temporary-vertex-list button");
+  assert(firstVertex);if (firstVertex.getAttribute("aria-pressed") !== "true") firstVertex.click();
+  map.querySelector('[data-temporary-coordinate="longitude"]').value = "85.301";
+  map.querySelector('[data-temporary-coordinate="latitude"]').value = "27.701";
+  click(map.querySelector(".gis-temporary-geometry-editor"), "Apply coordinate");
+  click(map.querySelector(".gis-temporary-geometry-editor"), "Save geometry changes");
+  const edited = map.__opengeoData.get(copy.layerId).features[0].geometry, original = originalData.features[0].geometry;
+  const position = edited.type === "Point" ? edited.coordinates : edited.coordinates[0];
+  const originalPosition = original.type === "Point" ? original.coordinates : original.coordinates[0];
+  assert.deepEqual(position, [85.301, 27.701, ...originalPosition.slice(2)]);
+  assert.notDeepEqual(map.__opengeoData.get(copy.layerId), originalData);
+  assert.deepEqual(copy.metadata, originalLayer.metadata);assert.deepEqual((await originalFile(copy.metadata.source)).bytes, new Uint8Array(bytes));
+  // Adding a Layer renumbers display order; source, identity and access remain unchanged.
+  assert.deepEqual({...map.__opengeoLayers.find(value => value.layerId === layer.layerId), order: originalLayer.order}, originalLayer);
+  assert.deepEqual(map.__opengeoData.get(layer.layerId), originalData);
 }
 
 async function checkGpxBrowser() {

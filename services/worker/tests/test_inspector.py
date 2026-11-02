@@ -4,6 +4,7 @@ import shutil
 import struct
 import zipfile
 import zlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -147,6 +148,18 @@ class GeoTiffRunner:
         return CommandResult("", "")
 
 
+@pytest.fixture
+def native_raster_crs_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+    class SpatialReference:
+        def IsSame(self, other: object) -> bool:
+            return isinstance(other, SpatialReference)
+
+    monkeypatch.setattr(
+        DatasetInspector, "_native_raster_crs",
+        staticmethod(lambda document, dataset_format: ("EPSG:3857", SpatialReference())),
+    )
+
+
 def test_geotiff_normalizes_once_without_resizing_or_changing_original(tmp_path: Path) -> None:
     source = tmp_path / "source.tif"
     original = b"II*\x00ordinary-source-tiff"
@@ -178,6 +191,108 @@ def test_geotiff_normalizes_once_without_resizing_or_changing_original(tmp_path:
     assert len(normalizations) == 1
     assert "COMPRESS=DEFLATE" in normalizations[0]
     assert "-outsize" not in normalizations[0] and "-tr" not in normalizations[0]
+
+
+@pytest.mark.parametrize("dataset_format,driver,magic", [
+    ("nitf", "NITF", b"NITF02.10original"),
+    ("img", "HFA", b"EHFA_HEADER_TAG\x00original"),
+])
+def test_raster_formats_preserve_original_native_grid_and_bind_working_declaration(
+    tmp_path: Path, dataset_format: str, driver: str, magic: bytes, native_raster_crs_stub: None,
+) -> None:
+    source = tmp_path / ("source.ntf" if dataset_format == "nitf" else "source.img")
+    source.write_bytes(magic)
+    runner = GeoTiffRunner()
+    runner.source_document["driverShortName"] = driver
+    result = DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+        source, dataset_format, tmp_path
+    )
+    assert source.read_bytes() == magic
+    assert result.extent == (1000.0, 1840.0, 1160.0, 2000.0)
+    assert result.crs == "EPSG:3857"
+    raster = result.schema_definition["raster"]
+    assert raster["source_format"] == dataset_format
+    assert raster["width"] == 16 and raster["height"] == 16 and raster["band_count"] == 1
+    assert raster["display_bounds_crs84"] == [0.0089, 0.0165, 0.0104, 0.0180]
+    assert raster["working_cog"] == {
+        "relative_key": "working/raster.cog.tif", "filename": "raster.cog.tif",
+    }
+    checks = result.quality_results["checks"]
+    assert {"code": "working_cog_verified", "status": "passed"} in checks
+    assert not any(check["code"] == "geotiff_working_cog_verified" for check in checks)
+    working = [artifact for artifact in result.artifacts if artifact.role == "working"]
+    assert len(working) == 1 and working[0].relative_key == "working/raster.cog.tif"
+    normalizations = [
+        args for program, args, _ in runner.calls
+        if program == "gdal_translate" and Path(args[-1]).name == "raster.cog.tif"
+    ]
+    assert len(normalizations) == 1 and "COMPRESS=DEFLATE" in normalizations[0]
+    assert "-outsize" not in normalizations[0] and "-tr" not in normalizations[0]
+
+
+@pytest.mark.parametrize("dataset_format,driver,magic", [
+    ("nitf", "NITF", b"NITF02.10original"),
+    ("img", "HFA", b"EHFA_HEADER_TAG\x00original"),
+])
+@pytest.mark.parametrize("failure", ["driver", "georeferencing", "subdatasets", "working_dtype"])
+def test_raster_formats_fail_closed_before_activating_incomplete_output(
+    tmp_path: Path, dataset_format: str, driver: str, magic: bytes, failure: str,
+    native_raster_crs_stub: None,
+) -> None:
+    source = tmp_path / ("source.ntf" if dataset_format == "nitf" else "source.img")
+    source.write_bytes(magic)
+    runner = GeoTiffRunner()
+    runner.source_document["driverShortName"] = driver
+    if failure == "driver":
+        runner.source_document["driverShortName"] = "GTiff"
+        code = "dataset_format_mismatch"
+    elif failure == "georeferencing":
+        del runner.source_document["geoTransform"]
+        code = f"{dataset_format}_georeferencing_unsupported"
+    elif failure == "subdatasets":
+        runner.source_document["metadata"]["SUBDATASETS"] = {"SUBDATASET_1_NAME": "first"}
+        code = "raster_subdatasets_unsupported"
+    else:
+        runner.working_document["bands"][0]["type"] = "UInt16"
+        code = f"{dataset_format}_working_cog_mismatch"
+    with pytest.raises(ValidationFailure, match=code):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, dataset_format, tmp_path
+        )
+    assert source.read_bytes() == magic
+    if failure != "working_dtype":
+        assert [program for program, _, _ in runner.calls] == ["gdalinfo"]
+
+
+@pytest.mark.parametrize("dataset_format", ["nitf", "img"])
+def test_raster_formats_reject_axis_mapping_change_with_unchanged_crs_and_grid(
+    tmp_path: Path, dataset_format: str, native_raster_crs_stub: None,
+) -> None:
+    source = tmp_path / ("source.ntf" if dataset_format == "nitf" else "source.img")
+    source.write_bytes(
+        b"NITF02.10source" if dataset_format == "nitf" else b"EHFA_HEADER_TAG\x00source"
+    )
+    runner = GeoTiffRunner()
+    runner.source_document["driverShortName"] = "NITF" if dataset_format == "nitf" else "HFA"
+    runner.working_document["coordinateSystem"]["dataAxisToSRSAxisMapping"] = [2, 1]
+    with pytest.raises(ValidationFailure, match=f"{dataset_format}_working_cog_mismatch"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, dataset_format, tmp_path
+        )
+
+
+@pytest.mark.parametrize("dataset_format", ["nitf", "img"])
+def test_raster_formats_require_native_magic_before_gdal(
+    tmp_path: Path, dataset_format: str,
+) -> None:
+    source = tmp_path / "source.dat"
+    source.write_bytes(b"II*\x00renamed-tiff")
+    runner = GeoTiffRunner()
+    with pytest.raises(ValidationFailure, match="dataset_magic_mismatch"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, dataset_format, tmp_path
+        )
+    assert runner.calls == []
 
 
 @pytest.mark.parametrize("field", ["geoTransform", "coordinateSystem"])
@@ -312,6 +427,64 @@ def test_geotiff_real_gdal_preserves_pixels_grid_crs_nodata_and_original(tmp_pat
     assert working_metadata["coordinateSystem"] == source_metadata["coordinateSystem"]
     assert working_metadata["bands"][0]["type"] == source_metadata["bands"][0]["type"]
     assert working_metadata["bands"][0]["noDataValue"] == 255
+    for name, path in [("original", source), ("working", working.path)]:
+        runner.run(
+            "gdal_translate", ["-of", "XYZ", str(path), str(tmp_path / f"{name}.xyz")],
+            cwd=tmp_path,
+        )
+    assert (tmp_path / "original.xyz").read_bytes() == (tmp_path / "working.xyz").read_bytes()
+
+
+@pytest.mark.skipif(
+    shutil.which("gdalinfo") is None or shutil.which("gdal_translate") is None,
+    reason="GDAL is not installed",
+)
+@pytest.mark.parametrize("dataset_format,driver,filename,options", [
+    ("nitf", "NITF", "source.ntf", ["-co", "ICORDS=N", "-co", "IC=NC"]),
+    ("img", "HFA", "source.img", []),
+])
+def test_raster_formats_real_gdal_preserve_original_grid_crs_and_all_pixels(
+    tmp_path: Path, dataset_format: str, driver: str, filename: str, options: list[str],
+) -> None:
+    runner = CommandRunner(tmp_path, timeout_seconds=30, output_bytes=1_048_576)
+    seed = tmp_path / "seed.pgm"
+    seed.write_bytes(b"P5\n16 16\n255\n" + bytes(range(256)))
+    template = tmp_path / "template.tif"
+    runner.run("gdal_translate", [
+        "-of", "GTiff", "-a_srs", "EPSG:32618", "-a_ullr",
+        "500000", "4500000", "500160", "4499840", str(seed), str(template),
+    ], cwd=tmp_path)
+    source = tmp_path / filename
+    runner.run("gdal_translate", [
+        "-of", driver, *options, str(template), str(source),
+    ], cwd=tmp_path)
+    original = source.read_bytes()
+    source_metadata = json.loads(
+        runner.run("gdalinfo", ["-json", str(source)], cwd=tmp_path).stdout
+    )
+    assert source_metadata["driverShortName"] == driver
+    result = DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+        source, dataset_format, tmp_path
+    )
+    working = next(artifact for artifact in result.artifacts if artifact.role == "working")
+    output_metadata = json.loads(
+        runner.run("gdalinfo", ["-json", str(working.path)], cwd=tmp_path).stdout
+    )
+    assert hashlib.sha256(source.read_bytes()).digest() == hashlib.sha256(original).digest()
+    assert output_metadata["metadata"]["IMAGE_STRUCTURE"]["LAYOUT"] == "COG"
+    assert output_metadata["size"] == source_metadata["size"] == [16, 16]
+    assert output_metadata["geoTransform"] == source_metadata["geoTransform"]
+    source_crs, source_srs = DatasetInspector._native_raster_crs(source_metadata, dataset_format)
+    working_crs, working_srs = DatasetInspector._native_raster_crs(output_metadata, dataset_format)
+    assert source_crs == working_crs and source_srs.IsSame(working_srs)
+    assert output_metadata["bands"][0]["type"] == source_metadata["bands"][0]["type"]
+    assert output_metadata["bands"][0].get("noDataValue") == (
+        source_metadata["bands"][0].get("noDataValue")
+    )
+    raster = result.schema_definition["raster"]
+    assert raster["source_format"] == dataset_format
+    assert len(raster["display_bounds_crs84"]) == 4
+    assert result.crs == "EPSG:32618"
     for name, path in [("original", source), ("working", working.path)]:
         runner.run(
             "gdal_translate", ["-of", "XYZ", str(path), str(tmp_path / f"{name}.xyz")],
@@ -481,6 +654,124 @@ def test_shapefile_archive_requires_one_matching_component_set(tmp_path: Path) -
     with pytest.raises(ValidationFailure, match="shapefile_components_invalid"):
         DatasetInspector(settings(tmp_path), scanner=CleanScanner()).inspect(
             source, "shapefile", tmp_path
+        )
+
+
+def mapinfo_components(kind: str = "tab") -> dict[str, bytes]:
+    if kind == "mif":
+        return {"ROADS.MiF": b"Version 300\nData\nPoint 1 2\n", "roads.mID": b'"Main",2\n'}
+    return {
+        "ROADS.TaB": (
+            b'!table\n!version 300\n!charset Neutral\nDefinition Table\n'
+            b' File "roads.DAT"\n Type NATIVE Charset "Neutral"\n Fields 1\n name Char (20);\n'
+        ),
+        "roads.dAt": b"attributes", "Roads.MAP": b"geometry", "roads.iD": b"index",
+    }
+
+
+@pytest.mark.parametrize("kind", ["tab", "tab_implicit", "mif"])
+def test_mapinfo_archive_preserves_original_and_case_insensitive_component_bytes(
+    tmp_path: Path, kind: str,
+) -> None:
+    source = tmp_path / "source.zip"
+    primary_kind = "tab" if kind == "tab_implicit" else kind
+    parts = mapinfo_components(primary_kind)
+    if kind == "tab_implicit":
+        parts["ROADS.TaB"] = parts["ROADS.TaB"].replace(b' File "roads.DAT"\n', b"")
+    if primary_kind == "tab":
+        parts["roads.IND"] = b"optional-attribute-index"
+    parts["README.txt"] = b"source metadata"
+    with zipfile.ZipFile(source, "w") as archive:
+        for name, content in parts.items():
+            archive.writestr("data/" + name, content)
+    original = source.read_bytes()
+    datasource = DatasetInspector(settings(tmp_path))._vector_datasource(source, "mapinfo")
+    assert Path(datasource).name == "ROADS." + primary_kind
+    primary_name = "ROADS." + ("TaB" if primary_kind == "tab" else "MiF")
+    assert Path(datasource).read_bytes() == parts[primary_name]
+    expected = sorted(content for name, content in parts.items() if name != "README.txt")
+    assert sorted(path.read_bytes() for path in Path(datasource).parent.iterdir()) == expected
+    assert source.read_bytes() == original
+
+
+@pytest.mark.parametrize("mode,code", [
+    ("missing", "mapinfo_components_invalid"),
+    ("multiple", "mapinfo_components_invalid"),
+    ("mixed", "mapinfo_components_invalid"),
+    ("orphan", "mapinfo_components_invalid"),
+    ("external", "mapinfo_reference_unsafe"),
+    ("linked", "mapinfo_definition_invalid"),
+    ("second_file", "mapinfo_definition_invalid"),
+    ("duplicate", "archive_entry_unsafe"),
+    ("traversal", "archive_entry_unsafe"),
+    ("symlink", "archive_entry_unsafe"),
+    ("ratio", "archive_compression_ratio_exceeded"),
+    ("expanded", "archive_expanded_size_exceeded"),
+    ("count", "archive_entry_count_invalid"),
+])
+def test_mapinfo_archive_rejects_unsafe_ambiguous_and_incomplete_sources_before_gdal(
+    tmp_path: Path, mode: str, code: str,
+) -> None:
+    parts = mapinfo_components()
+    configuration = settings(tmp_path)
+    if mode == "missing":
+        del parts["roads.iD"]
+    elif mode == "multiple":
+        parts.update({"other." + name.split(".")[-1]: data for name, data in list(parts.items())})
+    elif mode == "mixed":
+        parts.update(mapinfo_components("mif"))
+    elif mode == "orphan":
+        parts["other.MID"] = b"unmatched attributes"
+    elif mode == "external":
+        parts["ROADS.TaB"] = parts["ROADS.TaB"].replace(b"roads.DAT", b"../roads.DAT")
+    elif mode == "linked":
+        parts["ROADS.TaB"] = parts["ROADS.TaB"].replace(b"NATIVE", b"LINKED")
+    elif mode == "second_file":
+        parts["ROADS.TaB"] += b"File /vsicurl/https://example.invalid/roads.dat\n"
+    elif mode == "duplicate":
+        parts["roads.tab"] = parts["ROADS.TaB"]
+    elif mode == "traversal":
+        parts["../README.txt"] = b"unsafe"
+    elif mode == "ratio":
+        parts["README.txt"] = b"x" * 50_000
+    elif mode == "expanded":
+        configuration = replace(configuration, max_archive_expanded_bytes=10)
+    elif mode == "count":
+        configuration = replace(configuration, max_archive_entries=3)
+    source = tmp_path / "source.zip"
+    with zipfile.ZipFile(source, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, content in parts.items():
+            archive.writestr(name, content)
+        if mode == "symlink":
+            entry = zipfile.ZipInfo("README.txt")
+            entry.create_system = 3
+            entry.external_attr = 0o120777 << 16
+            archive.writestr(entry, "outside")
+    class NoGisRunner:
+        def run(self, *args: object, **kwargs: object) -> CommandResult:
+            pytest.fail("unsafe archive reached GDAL")
+    with pytest.raises(ValidationFailure, match=code):
+        DatasetInspector(configuration, NoGisRunner(), CleanScanner()).inspect(
+            source, "mapinfo", tmp_path
+        )
+
+
+def test_mapinfo_requires_zip_magic_and_exact_driver(tmp_path: Path) -> None:
+    source = tmp_path / "source.zip"
+    source.write_bytes(b"!table\n")
+    with pytest.raises(ValidationFailure, match="dataset_magic_mismatch"):
+        DatasetInspector(settings(tmp_path), scanner=CleanScanner()).inspect(
+            source, "mapinfo", tmp_path
+        )
+    with zipfile.ZipFile(source, "w") as archive:
+        for name, content in mapinfo_components("mif").items():
+            archive.writestr(name, content)
+    class WrongDriverRunner:
+        def run(self, *args: object, **kwargs: object) -> CommandResult:
+            return CommandResult('{"driverShortName":"GeoJSON","layers":[]}', "")
+    with pytest.raises(ValidationFailure, match="dataset_format_mismatch"):
+        DatasetInspector(settings(tmp_path), WrongDriverRunner(), CleanScanner()).inspect(
+            source, "mapinfo", tmp_path
         )
 
 

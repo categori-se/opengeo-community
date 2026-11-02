@@ -99,6 +99,10 @@ _UPLOAD_FORMATS: dict[UploadDatasetFormat, tuple[frozenset[str], frozenset[str]]
         frozenset({".zip"}),
         frozenset({"application/zip", "application/x-zip-compressed"}),
     ),
+    "mapinfo": (
+        frozenset({".zip"}),
+        frozenset({"application/zip", "application/x-zip-compressed"}),
+    ),
     "geopackage": (
         frozenset({".gpkg"}),
         frozenset(
@@ -123,6 +127,11 @@ _UPLOAD_FORMATS: dict[UploadDatasetFormat, tuple[frozenset[str], frozenset[str]]
         frozenset({".tif", ".tiff"}),
         frozenset({"image/tiff", "image/geotiff", "application/geotiff"}),
     ),
+    "nitf": (
+        frozenset({".ntf", ".nitf"}),
+        frozenset({"image/nitf", "application/octet-stream"}),
+    ),
+    "img": (frozenset({".img"}), frozenset({"application/octet-stream"})),
     "cog": (
         frozenset({".tif", ".tiff"}),
         frozenset({"image/tiff", "image/geotiff", "application/geotiff"}),

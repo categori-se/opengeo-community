@@ -13,6 +13,12 @@ import {
 } from "../src/lib/sourceCapabilityCatalog.js";
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
+it("describes bounded MapInfo ZIP import without claiming MapInfo editing or write-back", () => {
+  const vector = SOURCE_CAPABILITY_CATALOG.find(record => record.id === "vector");
+  assert.match(vector.summary, /MapInfo ZIP \(TAB or MIF\/MID\)/);
+  assert.match(vector.losses.join(" "), /one matching TAB companion set or MIF\/MID pair/);
+  assert.match(vector.operations.edit.scope, /limited to governed GeoJSON/);
+});
 const expectedIds = [
   "vector", "raster", "delimited-text", "cad", "gdb", "photos", "gpx", "nmea", "mbtiles",
   "osm-pbf", "xyz", "wms", "imageserver", "mapserver", "wfs", "wmts", "ogc-features", "ogc-vector-tiles",
@@ -82,11 +88,19 @@ describe("source capability catalog", () => {
     const raster = SOURCE_CAPABILITY_CATALOG.find(({id}) => id === "raster");
     assert.equal(raster.disposition, "bounded-current");
     assert.match(raster.summary, /GeoTIFF.*original.*working COG/);
-    assert.match(raster.operations.register.scope, /normalizes once/);
+    assert.match(raster.operations.register.scope, /normalize once/);
     assert.match(raster.operations.register.scope, /strict original COG validation/);
     assert.match(raster.operations.read.scope, /WCS reads require validated COG originals/);
     assert.match(raster.operations.stream.scope, /verified working COG or original COG/);
     assert.match(raster.losses.join(" "), /missing CRS is not guessed/);
     assert.match(raster.losses.join(" "), /working COGs do not grant WCS access/);
+  });
+
+  it("declares NITF and ERDAS Imagine normalization with strict native driver checks", () => {
+    const raster = SOURCE_CAPABILITY_CATALOG.find(({id}) => id === "raster");
+    assert.match(raster.summary, /NITF and ERDAS Imagine/);
+    assert.match(raster.operations.write.scope, /GeoTIFF, NITF or ERDAS Imagine/);
+    assert.match(raster.losses.join(" "), /Native NITF and HFA drivers must match/);
+    assert.match(raster.operations.read.scope, /WCS reads require validated COG originals/);
   });
 });

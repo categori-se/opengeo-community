@@ -53,13 +53,14 @@ function safeRejection(error) {
   assert.equal(error.code, "managed_cog_unavailable"); return true;
 }
 
-function workingFixture() {
+function workingFixture(format = "geotiff") {
   const f = fixture(), workingId = "41105e48-0df2-4ba3-a217-e81cab3894bb";
   const checksum = createHash("sha256").update(bytes).digest("hex");
-  f.version.schemaDefinition = {raster: {source_format: "geotiff", display_bounds_crs84: [...bounds], working_cog: {
+  f.version.format = format;
+  f.version.schemaDefinition = {raster: {source_format: format, display_bounds_crs84: [...bounds], working_cog: {
     relative_key: "working/raster.cog.tif", filename: "raster.cog.tif", object_id: workingId,
     checksum_sha256: checksum, size_bytes: bytes.length}}};
-  f.version.qualityResults.checks = [{code: "geotiff_working_cog_verified", status: "passed"}];
+  f.version.qualityResults.checks = [{code: format === "geotiff" ? "geotiff_working_cog_verified" : "working_cog_verified", status: "passed"}];
   f.version.objects.push({id: workingId, role: "working", filename: "raster.cog.tif",
     contentType: "image/tiff", sizeBytes: bytes.length, checksumSha256: checksum});
   f.options.adapter.requestDatasetDownload = async (p, d, v, o) => {
@@ -72,8 +73,9 @@ function workingFixture() {
   return {...f, workingId};
 }
 
-test("normalized GeoTIFF selects the declared working COG and reads only its pinned private object", async () => {
-  const f = workingFixture(), binding = await loadManagedCogData(f.options);
+for (const format of ["geotiff", "nitf", "img"]) for (const includesVersionFormat of [true, false]) test(`normalized ${format} selects the declared working COG and reads only its pinned private object (${includesVersionFormat ? "version format" : "version DTO without format"})`, async () => {
+  const f = workingFixture(format);if (!includesVersionFormat) delete f.version.format;
+  const binding = await loadManagedCogData(f.options);
   assert.equal(binding.objectId, f.workingId);
   assert.equal(binding.source.sourceUrl, `urn:opengeo:dataset:${datasetId}:version:${versionId}:working:${f.workingId}`);
   const result = await binding.read(binding.source), grid = cogGridView(result);
@@ -90,13 +92,16 @@ test("normalized GeoTIFF uses geographic display bounds while retaining the nati
   assert.deepEqual(f.version.extent, nativeExtent); assert.equal(f.calls.ranges, 0);
 });
 
-for (const kind of ["missing-marker", "missing-declaration", "missing-check", "failed-check", "duplicate-check",
+for (const format of ["geotiff", "nitf", "img"]) for (const kind of ["missing-marker", "mismatched-source-format", "wrong-check", "mixed-checks", "missing-declaration", "missing-check", "failed-check", "duplicate-check",
   "missing-working", "two-working", "object-mismatch", "hash-mismatch", "size-mismatch", "filename-mismatch", "wrong-format", "missing-display-bounds", "native-display-bounds"]) {
-  test(`normalized GeoTIFF fails before a ticket rather than reading its original: ${kind}`, async () => {
-    const f = workingFixture(), raster = f.version.schemaDefinition.raster, working = f.version.objects[1];
+  test(`normalized ${format} fails before a ticket rather than reading its original: ${kind}`, async () => {
+    const f = workingFixture(format), raster = f.version.schemaDefinition.raster, working = f.version.objects[1];
     // Even a legacy COG check cannot authorize a partial normalized declaration.
     f.version.qualityResults.checks.push({code: "cog_layout_verified", status: "passed"});
     if (kind === "missing-marker") delete raster.source_format;
+    if (kind === "mismatched-source-format") raster.source_format = format === "geotiff" ? "nitf" : "geotiff";
+    if (kind === "wrong-check") f.version.qualityResults.checks[0].code = format === "geotiff" ? "working_cog_verified" : "geotiff_working_cog_verified";
+    if (kind === "mixed-checks") f.version.qualityResults.checks.push({code: format === "geotiff" ? "working_cog_verified" : "geotiff_working_cog_verified", status: "passed"});
     if (kind === "missing-declaration") delete raster.working_cog;
     if (kind === "missing-check") f.version.qualityResults.checks.shift();
     if (kind === "failed-check") f.version.qualityResults.checks[0].status = "failed";

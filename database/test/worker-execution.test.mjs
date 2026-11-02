@@ -12,6 +12,9 @@ const IDS = {
   datasetRetry: "80000000-0000-4000-8000-000000000003",
   datasetKml: "80000000-0000-4000-8000-000000000005",
   datasetGeotiff: "80000000-0000-4000-8000-000000000006",
+  datasetNitf: "80000000-0000-4000-8000-000000000007",
+  datasetImg: "80000000-0000-4000-8000-000000000008",
+  datasetMapinfo: "80000000-0000-4000-8000-000000000009",
   datasetInvalid: "80000000-0000-4000-8000-000000000004",
   tokenA: "a0000000-0000-4000-8000-000000000001",
   tokenB: "a0000000-0000-4000-8000-000000000002",
@@ -24,7 +27,10 @@ let db;
 function idsFor(datasetId) {
   const suffix = datasetId.at(-1);
   const filename = datasetId === IDS.datasetKml ? "survey.kml"
-    : datasetId === IDS.datasetGeotiff ? "elevation.tif" : "roads.geojson";
+    : datasetId === IDS.datasetGeotiff ? "elevation.tif"
+    : datasetId === IDS.datasetNitf ? "imagery.ntf"
+    : datasetId === IDS.datasetImg ? "elevation.img"
+    : datasetId === IDS.datasetMapinfo ? "survey.zip" : "roads.geojson";
   return {
     upload: `81000000-0000-4000-8000-00000000000${suffix}`,
     object: `82000000-0000-4000-8000-00000000000${suffix}`,
@@ -51,7 +57,9 @@ describe("0004 worker execution boundary migration", () => {
       "0003_managed_ingestion_foundation.sql",
       "0004_worker_execution_boundary.sql",
       "0128_kml_source_ingestion.sql",
-      "0183_geotiff_upload_format.sql"
+      "0183_geotiff_upload_format.sql",
+      "0184_nitf_img_upload_formats.sql",
+      "0185_mapinfo_upload_format.sql"
     ]) {
       const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       await db.exec(sql.replace(/^CREATE EXTENSION IF NOT EXISTS (?:pgcrypto|postgis);\n/gm, ""));
@@ -73,15 +81,27 @@ describe("0004 worker execution boundary migration", () => {
       IDS.datasetRetry,
       IDS.datasetInvalid,
       IDS.datasetKml,
-      IDS.datasetGeotiff
+      IDS.datasetGeotiff,
+      IDS.datasetNitf,
+      IDS.datasetImg,
+      IDS.datasetMapinfo
     ]) {
       const ids = idsFor(datasetId);
       const format = datasetId === IDS.datasetKml ? "kml"
-        : datasetId === IDS.datasetGeotiff ? "geotiff" : "geojson";
+        : datasetId === IDS.datasetGeotiff ? "geotiff"
+        : datasetId === IDS.datasetNitf ? "nitf"
+        : datasetId === IDS.datasetImg ? "img"
+        : datasetId === IDS.datasetMapinfo ? "mapinfo" : "geojson";
       const mime = format === "kml" ? "application/vnd.google-earth.kml+xml"
-        : format === "geotiff" ? "image/tiff" : "application/geo+json";
+        : format === "geotiff" ? "image/tiff"
+        : format === "nitf" ? "image/nitf"
+        : format === "img" ? "application/octet-stream"
+        : format === "mapinfo" ? "application/zip" : "application/geo+json";
       const filename = format === "kml" ? "survey.kml"
-        : format === "geotiff" ? "elevation.tif" : "roads.geojson";
+        : format === "geotiff" ? "elevation.tif"
+        : format === "nitf" ? "imagery.ntf"
+        : format === "img" ? "elevation.img"
+        : format === "mapinfo" ? "survey.zip" : "roads.geojson";
       await db.query(
         `INSERT INTO app.datasets
            (id, organization_id, name, classification, format, status,
@@ -326,6 +346,31 @@ describe("0004 worker execution boundary migration", () => {
       working_storage_version: "working-cog-version-1"
     }]);
     await db.exec("SET ROLE opengeo_worker");
+  });
+
+  it("claims NITF and ERDAS Imagine with exact native source format and original identity", async () => {
+    for (const [datasetId, format, filename, contentType] of [
+      [IDS.datasetNitf, "nitf", "imagery.ntf", "image/nitf"],
+      [IDS.datasetImg, "img", "elevation.img", "application/octet-stream"]
+    ]) {
+      const claimed = (await claim(datasetId)).rows[0];
+      assert.equal(claimed.claim_status, "claimed");
+      assert.equal(claimed.dataset_format, format);
+      assert.equal(claimed.original_filename, filename);
+      assert.equal(claimed.content_type, contentType);
+      assert.equal(claimed.original_object_id, idsFor(datasetId).object);
+      assert.equal(claimed.checksum_sha256, SHA256);
+    }
+  });
+
+  it("claims MapInfo archives with the admitted format and exact original identity", async () => {
+    const claimed = (await claim(IDS.datasetMapinfo)).rows[0];
+    assert.equal(claimed.claim_status, "claimed");
+    assert.equal(claimed.dataset_format, "mapinfo");
+    assert.equal(claimed.original_filename, "survey.zip");
+    assert.equal(claimed.content_type, "application/zip");
+    assert.equal(claimed.original_object_id, idsFor(IDS.datasetMapinfo).object);
+    assert.equal(claimed.checksum_sha256, SHA256);
   });
 
   it("rejects derivative paths outside the exact version prefix without partial writes", async () => {

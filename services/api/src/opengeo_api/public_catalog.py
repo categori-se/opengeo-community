@@ -1082,7 +1082,7 @@ class PostgresPublicCatalogRepository:
               AND resource.kind IN ('dataset', 'service')
               AND dataset.status = 'active'
               AND dataset.format::text IN
-                ('geojson', 'csv', 'shapefile', 'geopackage', 'geoparquet')
+                ('geojson', 'csv', 'shapefile', 'mapinfo', 'geopackage', 'geoparquet')
               AND dataset_version.state = 'active'
               AND dataset_version.geometry_type IS NOT NULL
               AND dataset_version.geometry_type NOT IN ('document', 'image', 'raster')

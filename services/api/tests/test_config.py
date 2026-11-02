@@ -6,6 +6,16 @@ from opengeo_api.cognito_provisioning import UnavailableIdentityProvisioner
 from opengeo_api.config import Settings
 
 
+def test_mapinfo_pmtiles_input_is_opt_in_with_existing_vector_formats() -> None:
+    assert Settings(env="test").pmtiles_input_formats == "geojson"
+    assert Settings(
+        env="test", pmtiles_input_formats="geojson,mapinfo"
+    ).pmtiles_input_formats == "geojson,mapinfo"
+    for formats in ("mapinfo,mapinfo", "mapinfo,unverified"):
+        with pytest.raises(ValidationError, match="distinct supported vector formats"):
+            Settings(env="test", pmtiles_input_formats=formats)
+
+
 def test_publication_withdrawal_requires_explicit_enablement_and_its_queue() -> None:
     assert Settings(env="test").framework_publication_withdrawal_enabled is False
     configured = {

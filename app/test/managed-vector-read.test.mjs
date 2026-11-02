@@ -15,6 +15,18 @@ function fixture() {
   const options={adapter,projectId:'project',datasetId,versionId,geometryType:'Point',authorize:async()=>{calls.authorize++;},fetchImpl:async(_url,request)=>{calls.reads++;assert.equal(request.credentials,'omit');assert.equal(request.cache,'no-store');assert.equal(request.redirect,'error');return new Response(bytes);}};
   return {geojson,bytes,version,calls,options};
 }
+test('MapInfo maps use the exact normalized preview without reading or reinterpreting the ZIP original',async()=>{
+ const f=fixture();Object.assign(f.version,{format:'mapinfo',featureCount:1});
+ Object.assign(f.version.objects[0],{filename:'survey.zip',contentType:'application/zip'});
+ const original=structuredClone(f.version.objects[0]);
+ const normalized={datasetVersionId:versionId,numberReturned:1,mayBeTruncated:false,geojson:{type:'FeatureCollection',features:f.geojson.features.slice(0,1)}};
+ f.options.adapter.getDatasetSpatialPreview=async(p,d,v)=>{
+  assert.equal(p,'project');assert.equal(d,datasetId);assert.equal(v,versionId);f.calls.previews++;return normalized;
+ };
+ assert.deepEqual(await loadManagedVectorData(f.options),normalized);
+ assert.deepEqual(f.calls,{tickets:0,reads:0,previews:1,authorize:0});
+ assert.deepEqual(f.version.objects[0],original);
+});
 test('explicit map read verifies every feature of the exact private original above the preview limit',async()=>{
  const f=fixture(),result=await loadManagedVectorData(f.options);
  assert.equal(result.numberReturned,5001);assert.equal(result.mayBeTruncated,false);assert.deepEqual(result.geojson,f.geojson);

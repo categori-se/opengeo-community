@@ -81,11 +81,11 @@ const managedVectorOperations = operations({
 }, "No unbounded or credential-bearing vector operation is available.");
 
 const managedRasterOperations = operations({
-  register: bounded("Managed GeoTIFF upload preserves the original and normalizes once to a verified working COG. Declared COG uploads require strict original COG validation."),
+  register: bounded("Managed GeoTIFF, NITF and ERDAS Imagine uploads preserve the original and normalize once to a verified working COG. Declared COG uploads require strict original COG validation."),
   read: bounded("Authorized exact original and version-pinned working COG downloads. WCS reads require validated COG originals."),
   stream: bounded("Exact verified working COG or original COG bytes support bounded range-aware clients."),
   preview: bounded("Isolated GDAL inspection emits a bounded PNG thumbnail; interactive maps use the verified COG."),
-  write: bounded("Lossless full-resolution working COG from GeoTIFF; explicit subset, band, scale, or reprojection derivatives require a validated COG original."),
+  write: bounded("Lossless full-resolution working COG from GeoTIFF, NITF or ERDAS Imagine; explicit subset, band, scale, or reprojection derivatives require a validated COG original."),
   preserve: available("The exact versioned source object and checksums are retained.")
 }, "Raster pixel editing is not available; processing creates a new immutable derivative.");
 
@@ -112,9 +112,9 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
     section: "files",
     tier: "basic",
     disposition: "bounded-current",
-    summary: "Managed GeoJSON, zipped Shapefile, GeoPackage, and GeoParquet inputs.",
+    summary: "Managed GeoJSON, zipped Shapefile, MapInfo ZIP (TAB or MIF/MID), GeoPackage, and GeoParquet inputs.",
     operations: managedVectorOperations,
-    losses: ["Other OGR drivers are not implied; GeoJSON is the only durable feature-editing format."],
+    losses: ["MapInfo ZIP requires one matching TAB companion set or MIF/MID pair; original bytes are preserved while map previews use normalized derivatives. Other OGR drivers are not implied; GeoJSON is the only durable feature-editing format."],
     evidence: ["services/worker/src/opengeo_worker/inspector.py", "services/api/src/opengeo_api/features.py"]
   }),
   source({
@@ -123,9 +123,9 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
     section: "files",
     tier: "basic",
     disposition: "bounded-current",
-    summary: "Managed GeoTIFF preserves the original and creates a full-resolution working COG for maps; verified COG originals retain their coverage services.",
+    summary: "Managed GeoTIFF, NITF and ERDAS Imagine preserve the original and create a full-resolution working COG for maps; verified COG originals retain their coverage services.",
     operations: managedRasterOperations,
-    losses: ["GeoTIFF requires valid georeferencing and a declared CRS; missing CRS is not guessed. Normalized working COGs do not grant WCS access. Other raster drivers and raster pixel editing are not advertised."],
+    losses: ["GeoTIFF, NITF and ERDAS Imagine require valid georeferencing and a declared CRS; missing CRS is not guessed. Native NITF and HFA drivers must match the declared source format. Normalized working COGs do not grant WCS access. Other raster drivers and raster pixel editing are not advertised."],
     evidence: ["services/worker/src/opengeo_worker/inspector.py", "services/worker/src/opengeo_worker/coverage_derivatives.py"]
   }),
   source({
@@ -182,11 +182,11 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
       register: bounded("A reviewed browser Catalog Layer; account maps use scoped temporary data without a server upload."),
       read: bounded("GPX1.0/1.1 UTF-8,256KiB/5000positions/1000workingfeatures; WGS84 and supplied elevations, times and source fields."),
       preview: bounded("Point and path display in the ordinary map; track segment gaps are never joined."),
-      write: bounded("Original checksum-verified GPX, working GeoJSON, browser Project and personal device saves."),
+      write: bounded("Original checksum-verified GPX, working GPX coordinate edits with unchanged feature/vertex identities, working GeoJSON, browser Project and personal device saves."),
       preserve: bounded("Exact original file bytes/checksum, source metadata, per-point fields and explicit omitted-empty-record report.")
-    }, "No live device connection, remote GPX streaming, managed GPX conversion or edited GPX writer."),
-    losses: ["GeoLibre GPX URL definitions remain inert until a local file is selected.", "Working geometry edits do not rewrite the original GPX; timestamps retain their original text without timezone inference.", "Device transfer, Garmin/Ozi, hosted conversion and edited GPX writing remain unavailable. NMEA has a separate bounded local-file reader."],
-    evidence: ["app/src/lib/gpxImport.js", "app/src/components/WorkbenchView.js", "app/test/gpx-import.test.mjs"]
+    }, "No live device connection, remote GPX streaming or managed GPX conversion. Working GPX requires unchanged feature/vertex identities."),
+    losses: ["GeoLibre GPX URL definitions remain inert until a local file is selected.", "Working geometry edits do not rewrite the original GPX; timestamps retain their original text without timezone inference.", "Device transfer and hosted conversion remain unavailable. Working GPX preserves source metadata and refuses changed feature/vertex identities; NMEA and Ozi use separate local readers."],
+    evidence: ["app/src/lib/gpxImport.js", "app/src/lib/gpxExport.js", "app/src/components/WorkbenchView.js", "app/test/gpx-import.test.mjs", "app/test/gpx-export.test.mjs"]
   }),
   source({
     id: "nmea", label: "NMEA observations", section: "files", tier: "intermediate",

@@ -47,6 +47,40 @@ afterEach(() => {
 });
 
 describe("dataset governance handoff", () => {
+  it("uploads MapInfo ZIP through the actual format selector and exposes its exact Catalog map handoff", async () => {
+    let metadata, uploaded, completed = 0, refreshed = 0;
+    const current = state({kind: "api", getDatasetSpatialPreview() {},
+      async requestUpload(projectId, request) {
+        assert.equal(projectId, IDS.project); metadata = request;
+        return {uploadId: "mapinfo-upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};
+      },
+      async uploadFile(_ticket, source) {uploaded = source;},
+      async completeUpload() {completed++; return {dataset: {id: IDS.dataset, name: "Survey"}, versionNumber: 3};}
+    });
+    current.datasets[0].format = "mapinfo";
+    current.maps = [{id: IDS.map, name: "Survey map", status: "active", definition: {layers: []}}];
+    const root = ProjectDatasets({state: current, refresh: async () => {refreshed++;}});
+    document.body.append(root);
+    const form = root.querySelector(".upload-panel"), format = form.querySelector('[aria-label="Dataset, image, or document format"]');
+    assert.equal(format.querySelector('[value="mapinfo"]').textContent, "MapInfo ZIP (TAB or MIF/MID)");
+    assert.match(form.textContent, /For TAB or MIF\/MID archives, choose MapInfo ZIP/);
+    const source = new Blob(["MapInfo ZIP original"], {type: "application/zip"});
+    Object.defineProperty(source, "name", {value: "survey.zip"});
+    const file = form.querySelector('[type="file"]');
+    Object.defineProperty(file, "files", {value: [source]});
+    file.dispatchEvent(new harness.dom.window.Event("change"));
+    assert.equal(format.value, "shapefile", "ZIP files retain their default inference");
+    format.value = "mapinfo"; format.dispatchEvent(new harness.dom.window.Event("change"));
+    file.dispatchEvent(new harness.dom.window.Event("change"));
+    assert.equal(format.value, "mapinfo", "An explicit MapInfo choice survives selecting a ZIP");
+    form.dispatchEvent(new harness.dom.window.Event("submit", {bubbles: true, cancelable: true}));
+    await waitFor(() => refreshed === 1);
+    assert.equal(metadata.format, "mapinfo"); assert.equal(metadata.contentType, "application/zip");
+    assert.equal(metadata.filename, "survey.zip"); assert.equal(uploaded, source); assert.equal(completed, 1);
+    const add = root.querySelector(`.project-dataset-map-handoff [data-map-id="${IDS.map}"]`);
+    assert.ok(add); assert.equal(add.dataset.handoff, "add");
+    assert.match(add.href, new RegExp(IDS.version));
+  });
   it('opens shared PMTiles controls without a Map and retains an unconfirmed submission key',async()=>{
     const calls=[],serverJobs=[];let reads=0,formats=['geojson'],admissionReady=true;
     const adapter={kind:'api',createMap:async()=>assert.fail('Conversion must not create a Map'),
@@ -356,7 +390,7 @@ describe("dataset governance handoff", () => {
     );
   });
 
-  for (const format of ["cog", "geotiff"]) it(`offers an exact ${format} handoff without reading versions, tickets, or vector previews`, () => {
+  for (const format of ["cog", "geotiff", "nitf", "img"]) it(`offers an exact ${format} handoff without reading versions, tickets, or vector previews`, () => {
     const noRead = () => assert.fail("Catalog handoff admission uses loaded metadata only");
     const current = state({kind: "api", listDatasetVersions: noRead,
       requestDatasetDownload: noRead, getDatasetSpatialPreview: noRead});

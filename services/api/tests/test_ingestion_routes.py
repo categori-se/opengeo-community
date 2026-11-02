@@ -442,6 +442,141 @@ def test_geotiff_upload_rejects_mismatched_files_and_preservation_purpose(change
     assert repository.calls == []
 
 
+@pytest.mark.parametrize(
+    ("format_name", "filename", "content_type"),
+    [
+        ("nitf", "imagery.ntf", "image/nitf"),
+        ("nitf", "imagery.NITF", "IMAGE/NITF"),
+        ("nitf", "imagery.ntf", "application/octet-stream"),
+        ("img", "elevation.IMG", "application/octet-stream"),
+    ],
+)
+def test_nitf_img_upload_admission_preserves_the_native_source_identity(
+    format_name: str, filename: str, content_type: str
+) -> None:
+    repository = FakeIngestionRepository()
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/uploads/request",
+        headers=headers(),
+        json=upload_payload(format=format_name, filename=filename, content_type=content_type),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["dataset"]["format"] == format_name
+    assert response.json()["dataset"]["source_type"] == "upload"
+    draft = repository.calls[0][3]
+    assert draft.format == format_name
+    assert draft.original_filename == filename
+    assert draft.content_type == content_type.lower()
+
+
+@pytest.mark.parametrize(
+    ("format_name", "filename", "content_type", "purpose"),
+    [
+        ("nitf", "imagery.tif", "image/nitf", "ingest"),
+        ("nitf", "imagery.ntf", "image/tiff", "ingest"),
+        ("img", "elevation.tif", "application/octet-stream", "ingest"),
+        ("img", "elevation.img", "image/tiff", "ingest"),
+        ("nitf", "imagery.ntf", "image/nitf", "pmtiles_original"),
+        ("img", "elevation.img", "application/octet-stream", "pmtiles_original"),
+    ],
+)
+def test_nitf_img_reject_mismatched_files_and_preservation_purpose(
+    format_name: str, filename: str, content_type: str, purpose: str
+) -> None:
+    repository = FakeIngestionRepository()
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/uploads/request",
+        headers=headers(),
+        json=upload_payload(
+            format=format_name, filename=filename, content_type=content_type, purpose=purpose
+        ),
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("survey.zip", "application/zip"),
+        ("survey.ZIP", "APPLICATION/ZIP"),
+        ("survey.zip", "application/x-zip-compressed"),
+    ],
+)
+def test_mapinfo_upload_admission_preserves_archive_identity(
+    filename: str, content_type: str
+) -> None:
+    repository = FakeIngestionRepository()
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/uploads/request",
+        headers=headers(),
+        json=upload_payload(format="mapinfo", filename=filename, content_type=content_type),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["dataset"]["format"] == "mapinfo"
+    assert response.json()["dataset"]["source_type"] == "upload"
+    draft = repository.calls[0][3]
+    assert draft.format == "mapinfo"
+    assert draft.original_filename == filename
+    assert draft.content_type == content_type.lower()
+    assert draft.checksum_sha256 == SHA256
+    assert repository.calls[0][1] == TenantContext(USER_ID, ORG_ID)
+    assert response.json()["upload"] == {
+        "url": "https://geodata-test.s3.us-east-1.amazonaws.com/",
+        "method": "POST",
+        "fields": {"key": "exact-key", "policy": "opaque-signature"},
+    }
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"filename": "survey.tab"},
+        {"filename": "survey.mif"},
+        {"filename": "survey.mid"},
+        {"content_type": "application/octet-stream"},
+        {"content_type": "text/plain"},
+        {"purpose": "pmtiles_original"},
+        {"checksum_sha256": "not-a-checksum"},
+    ],
+)
+def test_mapinfo_rejects_nonarchive_uploads_and_invalid_shared_contract(changes) -> None:
+    repository = FakeIngestionRepository()
+    payload = upload_payload(
+        format="mapinfo", filename="survey.zip", content_type="application/zip"
+    )
+    payload.update(changes)
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/uploads/request", headers=headers(), json=payload
+    )
+
+    assert response.status_code == 422
+    assert repository.calls == []
+
+
+@pytest.mark.parametrize(
+    ("request_headers", "expected_status"),
+    [({}, 401), (headers(OTHER_ORG_ID), 403)],
+)
+def test_mapinfo_upload_retains_authentication_and_account_boundary(
+    request_headers: dict[str, str], expected_status: int
+) -> None:
+    repository = FakeIngestionRepository()
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/uploads/request",
+        headers=request_headers,
+        json=upload_payload(
+            format="mapinfo", filename="survey.zip", content_type="application/zip"
+        ),
+    )
+
+    assert response.status_code == expected_status
+    assert repository.calls == []
+
+
 def test_media_and_documents_use_the_same_shared_auth_and_private_upload_contract() -> None:
     for format_name, filename, content_type in (
         ("png", "field-photo.png", "image/png"),

@@ -31,6 +31,7 @@ _EXPECTED_VECTOR_DRIVER: dict[DatasetFormat, str] = {
     "geojson": "GeoJSON",
     "csv": "CSV",
     "shapefile": "ESRI Shapefile",
+    "mapinfo": "MapInfo File",
     "geopackage": "GPKG",
     "geoparquet": "Parquet",
     "pmtiles": "PMTiles",
@@ -38,6 +39,9 @@ _EXPECTED_VECTOR_DRIVER: dict[DatasetFormat, str] = {
 
 _MEDIA_FORMATS: frozenset[DatasetFormat] = frozenset({"png", "jpeg"})
 _EXPECTED_MEDIA_DRIVER: dict[DatasetFormat, str] = {"png": "PNG", "jpeg": "JPEG"}
+_NORMALIZED_RASTER_DRIVERS: dict[DatasetFormat, str] = {
+    "geotiff": "GTiff", "nitf": "NITF", "img": "HFA",
+}
 _MAX_MEDIA_SOURCE_BYTES = 16 * 1024 * 1024
 _MAX_MEDIA_DIMENSION = 20_000
 _MAX_MEDIA_PIXELS = 40_000_000
@@ -117,8 +121,10 @@ class DatasetInspector:
         self._verify_magic(source, dataset_format)
         if dataset_format == "cog":
             return self._with_malware_scan(self._inspect_cog(source, workdir), scan)
-        if dataset_format == "geotiff":
-            return self._with_malware_scan(self._inspect_geotiff(source, workdir), scan)
+        if dataset_format in _NORMALIZED_RASTER_DRIVERS:
+            return self._with_malware_scan(
+                self._inspect_normalized_raster(source, dataset_format, workdir), scan
+            )
         datasource = self._vector_datasource(source, dataset_format)
         return self._with_malware_scan(
             self._inspect_vector(datasource, dataset_format, workdir), scan
@@ -883,9 +889,25 @@ class DatasetInspector:
             artifacts=tuple(artifacts),
         )
 
-    def _inspect_geotiff(self, source: Path, workdir: Path) -> InspectionResult:
-        source_document = self._geotiff_document(source, workdir)
-        source_signature = self._geotiff_preservation_signature(source_document)
+    def _inspect_normalized_raster(
+        self, source: Path, dataset_format: DatasetFormat, workdir: Path
+    ) -> InspectionResult:
+        source_document = self._raster_document(
+            source, workdir, expected_driver=_NORMALIZED_RASTER_DRIVERS[dataset_format]
+        )
+        native_crs = None
+        source_srs = None
+        uninterpreted_bands: frozenset[int] = frozenset()
+        if dataset_format != "geotiff":
+            native_crs, source_srs = self._native_raster_crs(source_document, dataset_format)
+            uninterpreted_bands = frozenset(
+                band.get("band") for band in source_document.get("bands", [])
+                if isinstance(band, dict) and band.get("colorInterpretation") == "Undefined"
+            )
+        source_signature = self._raster_preservation_signature(
+            source_document, error_prefix=dataset_format, canonical_crs=native_crs,
+            uninterpreted_bands=uninterpreted_bands,
+        )
         working = workdir / "raster.cog.tif"
         self._runner.run(
             "gdal_translate",
@@ -896,33 +918,65 @@ class DatasetInspector:
             cwd=workdir,
         )
         self._require_artifact(working)
-        working_document = self._geotiff_document(working, workdir)
+        working_document = self._raster_document(working, workdir)
         metadata = working_document.get("metadata", {})
         image_structure = metadata.get("IMAGE_STRUCTURE", {}) if isinstance(metadata, dict) else {}
         if not isinstance(image_structure, dict) or image_structure.get("LAYOUT") != "COG":
-            raise ValidationFailure("geotiff_working_cog_invalid")
-        if self._geotiff_preservation_signature(working_document) != source_signature:
-            raise ValidationFailure("geotiff_working_cog_mismatch")
-        display_bounds = self._geotiff_display_bounds(working_document)
+            raise ValidationFailure(f"{dataset_format}_working_cog_invalid")
+        if source_srs is not None:
+            working_crs, working_srs = self._native_raster_crs(working_document, dataset_format)
+            if working_crs != native_crs or not source_srs.IsSame(working_srs):
+                raise ValidationFailure(f"{dataset_format}_working_cog_mismatch")
+            for band in working_document.get("bands", []):
+                if (
+                    band.get("band") in uninterpreted_bands
+                    and band.get("colorInterpretation") not in {"Undefined", "Gray"}
+                ):
+                    raise ValidationFailure(f"{dataset_format}_working_cog_mismatch")
+        if self._raster_preservation_signature(
+            working_document, error_prefix=dataset_format, canonical_crs=native_crs,
+            uninterpreted_bands=uninterpreted_bands,
+        ) != source_signature:
+            raise ValidationFailure(f"{dataset_format}_working_cog_mismatch")
+        display_bounds = self._raster_display_bounds(working_document, error_prefix=dataset_format)
 
         # Reuse the strict COG inspection and its existing preview/thumbnail path.
         inspected = self._inspect_cog(working, workdir)
         raster = dict(cast(dict[str, object], inspected.schema_definition["raster"]))
-        raster["source_format"] = "geotiff"
+        raster["source_format"] = dataset_format
+        if dataset_format != "geotiff":
+            raster["source_coordinate_system"] = source_document.get("coordinateSystem")
+            raster["working_coordinate_system"] = working_document.get("coordinateSystem")
+            raster["source_band_interpretations"] = [
+                {"index": band.get("band"), "color_interpretation": band.get("colorInterpretation")}
+                for band in source_document["bands"]
+            ]
         raster["display_bounds_crs84"] = display_bounds
         raster["working_cog"] = {
             "relative_key": "working/raster.cog.tif",
             "filename": "raster.cog.tif",
         }
         quality = dict(inspected.quality_results)
+        if uninterpreted_bands:
+            quality["warnings"] = [
+                *cast(list[object], quality["warnings"]),
+                "Source band color interpretation is undefined; the working TIFF may use "
+                "GDAL's default grayscale display tag. Source interpretations are retained.",
+            ]
         quality["checks"] = [
             *cast(list[object], quality["checks"]),
-            {"code": "geotiff_working_cog_verified", "status": "passed"},
+            {
+                "code": (
+                    "geotiff_working_cog_verified"
+                    if dataset_format == "geotiff" else "working_cog_verified"
+                ),
+                "status": "passed",
+            },
         ]
         return InspectionResult(
             feature_count=inspected.feature_count,
             extent=inspected.extent,
-            crs=inspected.crs,
+            crs=native_crs or inspected.crs,
             geometry_type=inspected.geometry_type,
             schema_definition={"raster": raster},
             quality_results=quality,
@@ -933,7 +987,39 @@ class DatasetInspector:
         )
 
     @staticmethod
-    def _geotiff_display_bounds(document: dict[str, Any]) -> list[float]:
+    def _native_raster_crs(
+        document: dict[str, Any], dataset_format: str
+    ) -> tuple[str, Any]:
+        # The maintained GDAL image already supplies its matching OSR bindings.
+        from osgeo import osr  # type: ignore[import-untyped]
+
+        coordinate_system = document.get("coordinateSystem")
+        wkt = coordinate_system.get("wkt") if isinstance(coordinate_system, dict) else None
+        if not isinstance(wkt, str) or not wkt or len(wkt) > 65_536:
+            raise ValidationFailure(f"{dataset_format}_georeferencing_unsupported")
+        osr.UseExceptions()
+        osr.SetPROJEnableNetwork(False)
+        try:
+            source = osr.SpatialReference()
+            source.ImportFromWkt(wkt)
+            if source.Validate() or source.GetAxesCount() != 2:
+                raise ValueError("unsupported CRS")
+            source.AutoIdentifyEPSG()
+            authority, code = source.GetAuthorityName(None), source.GetAuthorityCode(None)
+            if authority != "EPSG" or not isinstance(code, str) or not code.isdecimal():
+                raise ValueError("unsupported display projection")
+            reference = osr.SpatialReference()
+            reference.ImportFromEPSG(int(code))
+            if not source.IsSame(reference):
+                raise ValueError("CRS identity is not semantically equal")
+        except (RuntimeError, ValueError) as error:
+            raise ValidationFailure(f"{dataset_format}_georeferencing_unsupported") from error
+        return f"EPSG:{code}", source
+
+    @staticmethod
+    def _raster_display_bounds(
+        document: dict[str, Any], *, error_prefix: str
+    ) -> list[float]:
         footprint = document.get("wgs84Extent")
         coordinates = footprint.get("coordinates") if isinstance(footprint, dict) else None
         if (
@@ -944,7 +1030,7 @@ class DatasetInspector:
             or not isinstance(coordinates[0], list)
             or len(coordinates[0]) < 4
         ):
-            raise ValidationFailure("geotiff_display_bounds_invalid")
+            raise ValidationFailure(f"{error_prefix}_display_bounds_invalid")
         ring = coordinates[0]
         for point in ring:
             if (
@@ -957,29 +1043,42 @@ class DatasetInspector:
                 or not -180 <= point[0] <= 180
                 or not -90 <= point[1] <= 90
             ):
-                raise ValidationFailure("geotiff_display_bounds_invalid")
+                raise ValidationFailure(f"{error_prefix}_display_bounds_invalid")
         if ring[0] != ring[-1]:
-            raise ValidationFailure("geotiff_display_bounds_invalid")
+            raise ValidationFailure(f"{error_prefix}_display_bounds_invalid")
         bounds = [
             min(point[0] for point in ring), min(point[1] for point in ring),
             max(point[0] for point in ring), max(point[1] for point in ring),
         ]
         if bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
-            raise ValidationFailure("geotiff_display_bounds_invalid")
+            raise ValidationFailure(f"{error_prefix}_display_bounds_invalid")
         return bounds
 
-    def _geotiff_document(self, source: Path, workdir: Path) -> dict[str, Any]:
+    def _raster_document(
+        self, source: Path, workdir: Path, *, expected_driver: str = "GTiff"
+    ) -> dict[str, Any]:
         result = self._runner.run("gdalinfo", ["-json", str(source)], cwd=workdir)
         try:
             document = json.loads(result.stdout)
         except ValueError as error:
             raise ValidationFailure("gis_metadata_invalid") from error
-        if not isinstance(document, dict) or document.get("driverShortName") != "GTiff":
+        if not isinstance(document, dict) or document.get("driverShortName") != expected_driver:
             raise ValidationFailure("dataset_format_mismatch")
+        metadata = document.get("metadata")
+        if (
+            expected_driver in {"NITF", "HFA"}
+            and isinstance(metadata, dict)
+            and metadata.get("SUBDATASETS")
+        ):
+            raise ValidationFailure("raster_subdatasets_unsupported")
         return document
 
     @classmethod
-    def _geotiff_preservation_signature(cls, document: dict[str, Any]) -> str:
+    def _raster_preservation_signature(
+        cls, document: dict[str, Any], *, error_prefix: str,
+        canonical_crs: str | None = None,
+        uninterpreted_bands: frozenset[int] = frozenset(),
+    ) -> str:
         size = document.get("size")
         bands = document.get("bands")
         if (
@@ -992,7 +1091,7 @@ class DatasetInspector:
             raise ValidationFailure("gis_metadata_invalid")
         transform = document.get("geoTransform")
         corners = document.get("cornerCoordinates")
-        crs = cls._coordinate_system(document.get("coordinateSystem"))
+        crs = canonical_crs or cls._coordinate_system(document.get("coordinateSystem"))
         if (
             not isinstance(transform, list)
             or len(transform) != 6
@@ -1005,7 +1104,7 @@ class DatasetInspector:
             or re.fullmatch(r"EPSG:[1-9][0-9]{0,7}", crs) is None
             or not isinstance(corners, dict)
         ):
-            raise ValidationFailure("geotiff_georeferencing_unsupported")
+            raise ValidationFailure(f"{error_prefix}_georeferencing_unsupported")
         determinant = transform[1] * transform[5] - transform[2] * transform[4]
         for name in ("lowerLeft", "lowerRight", "upperLeft", "upperRight"):
             point = corners.get(name)
@@ -1017,9 +1116,28 @@ class DatasetInspector:
                     for v in point[:2]
                 )
             ):
-                raise ValidationFailure("geotiff_georeferencing_unsupported")
+                raise ValidationFailure(f"{error_prefix}_georeferencing_unsupported")
         if not math.isfinite(determinant):
-            raise ValidationFailure("geotiff_georeferencing_unsupported")
+            raise ValidationFailure(f"{error_prefix}_georeferencing_unsupported")
+        coordinate_system = document.get("coordinateSystem")
+        if canonical_crs is not None:
+            axis_mapping = (
+                coordinate_system.get("dataAxisToSRSAxisMapping")
+                if isinstance(coordinate_system, dict) else None
+            )
+            if (
+                not isinstance(axis_mapping, list)
+                or len(axis_mapping) != 2
+                or not all(
+                    isinstance(axis, int) and not isinstance(axis, bool) for axis in axis_mapping
+                )
+                or {abs(axis) for axis in axis_mapping} != {1, 2}
+            ):
+                raise ValidationFailure(f"{error_prefix}_georeferencing_unsupported")
+            coordinate_system = {
+                "crs": canonical_crs,
+                "dataAxisToSRSAxisMapping": axis_mapping,
+            }
         preserved_bands = []
         for index, band in enumerate(bands, start=1):
             if (
@@ -1036,13 +1154,14 @@ class DatasetInspector:
                     "colorInterpretation", "colorTable",
                 )
                 if key in band
+                and not (key == "colorInterpretation" and index in uninterpreted_bands)
             })
         # Canonical JSON also compares NaN nodata values consistently. Block sizes
         # and overviews deliberately change when producing a COG.
         return json.dumps({
             "size": size,
             "geoTransform": transform,
-            "coordinateSystem": document.get("coordinateSystem"),
+            "coordinateSystem": coordinate_system,
             "bands": preserved_bands,
         }, sort_keys=True)
 
@@ -1128,27 +1247,32 @@ class DatasetInspector:
             "geojson": head.lstrip().startswith(b"{"),
             "csv": b"\x00" not in head and (b"," in head or b";" in head or b"\t" in head),
             "shapefile": head.startswith(b"PK\x03\x04"),
+            "mapinfo": head.startswith(b"PK\x03\x04"),
             "geopackage": head.startswith(b"SQLite format 3\x00"),
             "geoparquet": head.startswith(b"PAR1") and tail == b"PAR1",
             "cog": head.startswith((b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")),
             "geotiff": head.startswith((b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")),
+            "nitf": head.startswith((b"NITF02.10", b"NITF02.00", b"NSIF01.00")),
+            "img": head.startswith(b"EHFA_HEADER_TAG\x00"),
             "pmtiles": head.startswith(b"PMTiles\x03"),
         }[dataset_format]
         if not valid:
             raise ValidationFailure("dataset_magic_mismatch")
 
     def _vector_datasource(self, source: Path, dataset_format: DatasetFormat) -> str:
-        if dataset_format != "shapefile":
+        if dataset_format not in {"shapefile", "mapinfo"}:
             return str(source)
         shapefile_stem: str | None = None
         total_expanded = 0
         try:
             with zipfile.ZipFile(source) as archive:
                 entries = archive.infolist()
-                if not 3 <= len(entries) <= self._settings.max_archive_entries:
+                minimum_entries = 2 if dataset_format == "mapinfo" else 3
+                if not minimum_entries <= len(entries) <= self._settings.max_archive_entries:
                     raise ValidationFailure("archive_entry_count_invalid")
                 suffixes: dict[str, set[str]] = {}
                 shapefile_paths: dict[str, str] = {}
+                normalized_paths: set[str] = set()
                 for entry in entries:
                     path = PurePosixPath(entry.filename)
                     unix_mode = entry.external_attr >> 16
@@ -1160,10 +1284,12 @@ class DatasetInspector:
                         or ":" in entry.filename
                         or any(part in {"", ".", ".."} for part in path.parts)
                         or stat.S_ISLNK(unix_mode)
+                        or entry.filename.casefold() in normalized_paths
                         or entry.file_size < 0
                         or entry.compress_size < 0
                     ):
                         raise ValidationFailure("archive_entry_unsafe")
+                    normalized_paths.add(entry.filename.casefold())
                     total_expanded += entry.file_size
                     if total_expanded > self._settings.max_archive_expanded_bytes:
                         raise ValidationFailure("archive_expanded_size_exceeded")
@@ -1172,12 +1298,16 @@ class DatasetInspector:
                         > max(1, entry.compress_size) * self._settings.max_archive_ratio
                     ):
                         raise ValidationFailure("archive_compression_ratio_exceeded")
+                    if dataset_format == "mapinfo":
+                        continue
                     suffix = path.suffix.lower()
                     if suffix in {".shp", ".shx", ".dbf"}:
                         normalized_stem = str(path.with_suffix("")).lower()
                         suffixes.setdefault(normalized_stem, set()).add(suffix)
                         if suffix == ".shp":
                             shapefile_paths[normalized_stem] = entry.filename
+                if dataset_format == "mapinfo":
+                    return self._mapinfo_datasource(source, archive, entries)
                 candidates = [
                     stem for stem, parts in suffixes.items() if parts == {".shp", ".shx", ".dbf"}
                 ]
@@ -1188,6 +1318,77 @@ class DatasetInspector:
             raise ValidationFailure("archive_invalid") from error
         assert shapefile_stem is not None
         return f"/vsizip/{source}/{shapefile_stem}"
+
+    @staticmethod
+    def _mapinfo_datasource(
+        source: Path, archive: zipfile.ZipFile, entries: list[zipfile.ZipInfo]
+    ) -> str:
+        # Select one complete logical table. Other metadata stays in the original
+        # archive and is never opened by GDAL. Do not admit linked/raster/view TABs.
+        components = {
+            entry.filename.casefold(): entry for entry in entries
+            if PurePosixPath(entry.filename).suffix.casefold()
+            in {".tab", ".dat", ".map", ".id", ".ind", ".mif", ".mid"}
+        }
+        primary = [
+            entry for name, entry in components.items()
+            if PurePosixPath(name).suffix in {".tab", ".mif"}
+        ]
+        if len(primary) != 1:
+            raise ValidationFailure("mapinfo_components_invalid")
+        entry = primary[0]
+        path = PurePosixPath(entry.filename)
+        stem = str(path.with_suffix("")).casefold()
+        native = path.suffix.casefold() == ".tab"
+        required = {".tab", ".dat", ".map", ".id"} if native else {".mif", ".mid"}
+        allowed = required | ({".ind"} if native else set())
+        if (
+            not all(stem + suffix in components for suffix in required)
+            or any(name not in {stem + suffix for suffix in allowed} for name in components)
+        ):
+            raise ValidationFailure("mapinfo_components_invalid")
+        dat_name: str | None = None
+        if native:
+            with archive.open(entry) as stream:
+                header = stream.read(1024 * 1024 + 1)
+            if len(header) > 1024 * 1024:
+                raise ValidationFailure("mapinfo_definition_invalid")
+            # Keywords/filenames are ASCII in native TAB definitions; attribute
+            # values live in DAT and are left byte-for-byte unchanged.
+            files = re.findall(rb'^\s*File\s+"([^"\r\n]+)"\s*$', header, re.I | re.M)
+            types = re.findall(rb"^\s*Type\s+([^\r\n]+)", header, re.I | re.M)
+            if (
+                not re.match(rb"\s*!table\b", header, re.I)
+                or re.search(rb"^\s*Definition\s+Table\s*$", header, re.I | re.M) is None
+                or len(types) != 1
+                or re.fullmatch(rb'NATIVE(?:\s+Charset\s+"[^"\r\n]+")?\s*', types[0], re.I)
+                is None
+                or len(files) > 1
+                or len(re.findall(rb"^\s*File\b", header, re.I | re.M)) != len(files)
+            ):
+                raise ValidationFailure("mapinfo_definition_invalid")
+            try:
+                dat_name = files[0].decode("ascii") if files else path.stem + ".dat"
+            except UnicodeDecodeError as error:
+                raise ValidationFailure("mapinfo_reference_unsafe") from error
+            if (
+                any(character in dat_name for character in "/\\:\x00")
+                or dat_name.casefold() != path.stem.casefold() + ".dat"
+            ):
+                raise ValidationFailure("mapinfo_reference_unsafe")
+        # Normalize only scratch filenames so mixed-case companions work on
+        # case-sensitive hosts. Retain the TAB's exact local DAT reference and
+        # every component's bytes; the uploaded original ZIP remains untouched.
+        directory = source.parent / "mapinfo-source"
+        directory.mkdir()
+        for name, component in components.items():
+            suffix = PurePosixPath(name).suffix
+            filename = dat_name if suffix == ".dat" else path.stem + suffix
+            assert filename is not None
+            with archive.open(component) as stream, (directory / filename).open("xb") as target:
+                while chunk := stream.read(1024 * 1024):
+                    target.write(chunk)
+        return str(directory / (path.stem + path.suffix.casefold()))
 
     @staticmethod
     def _field_schema(fields: list[object]) -> list[dict[str, object]]:
