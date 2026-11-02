@@ -40,6 +40,19 @@ function safeReference(href, base) {
   return url.href;
 }
 
+function hasCredentialUrl(value) {
+  // Start at the authority delimiter so a long non-URL cannot retry a scheme at
+  // every character. Scan back only through the adjacent scheme characters.
+  for (const match of value.matchAll(/:\/\/[^\s/]*@/g)) {
+    for (let index = match.index - 1; index >= 0; index--) {
+      const character = value[index];
+      if (/[a-z]/i.test(character)) return true;
+      if (!/[0-9+.-]/.test(character)) break;
+    }
+  }
+  return false;
+}
+
 function assertJson(value, limits, nodeLimit = limits.nodes, checkCredentials = true) {
   const stack = [[value, 0]]; let nodes = 0;
   while (stack.length) {
@@ -48,7 +61,7 @@ function assertJson(value, limits, nodeLimit = limits.nodes, checkCredentials = 
     if (current === null || typeof current === "boolean") continue;
     if (typeof current === "number") {if (!Number.isFinite(current)) throw error("STAC metadata contains a nonfinite value."); continue;}
     if (typeof current === "string") {
-      if (checkCredentials && (secretQuery.test(current) || /[a-z][a-z0-9+.-]*:\/\/[^\s/]*@/i.test(current))) throw error("Credential-bearing source metadata is unavailable.");
+      if (checkCredentials && (secretQuery.test(current) || hasCredentialUrl(current))) throw error("Credential-bearing source metadata is unavailable.");
       continue;
     }
     if (!Array.isArray(current) && !plain(current)) throw error("STAC metadata must be plain JSON.");
