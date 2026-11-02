@@ -502,7 +502,7 @@ def test_authorized_document_preview_is_exactly_read_reauthorized_and_strictly_p
     assert len(reauthorize.calls) == 2
 
 
-def test_authorized_spatial_preview_reads_one_exact_validated_derivative() -> None:
+def test_mapinfo_authorized_spatial_preview_reads_one_exact_validated_derivative() -> None:
     prepare = FakeTransaction(one=[access("viewer")], all_rows=[[spatial_preview_target_row()]])
     reauthorize = FakeTransaction(one=[access("viewer")], all_rows=[[spatial_preview_target_row()]])
     storage = FakeStorage(spatial_preview_bytes())
@@ -524,6 +524,7 @@ def test_authorized_spatial_preview_reads_one_exact_validated_derivative() -> No
     assert storage.specs[0].version_id == "s3-version-spatial-preview"
     query = next(call for call in prepare.calls if call[0] == "all")
     assert "version.state = 'active'" in query[1]
+    assert "'mapinfo'" in query[1]
     assert "object.role = 'derived'" in query[1]
     assert "preview/preview.geojson" in query[1]
     assert len(reauthorize.calls) == 2

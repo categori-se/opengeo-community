@@ -62,7 +62,7 @@ FeatureQueryOperator = Literal[
     "is_null",
 ]
 FeatureSpatialRelation = Literal["intersects", "within"]
-_VECTOR_FORMATS = frozenset({"geojson", "shapefile", "geopackage", "geoparquet"})
+_VECTOR_FORMATS = frozenset({"geojson", "shapefile", "mapinfo", "geopackage", "geoparquet"})
 _FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:-]{0,99}$")
 _RESERVED_FIELD_NAMES = frozenset(
     {

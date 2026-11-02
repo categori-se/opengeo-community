@@ -455,7 +455,7 @@ class Settings(BaseSettings):
             not pmtiles_formats
             or len(set(pmtiles_formats)) != len(pmtiles_formats)
             or not set(pmtiles_formats)
-            <= {"geojson", "csv", "shapefile", "geopackage", "geoparquet"}
+            <= {"geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet"}
         ):
             raise ValueError("pmtiles_input_formats must list distinct supported vector formats")
 

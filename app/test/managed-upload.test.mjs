@@ -14,6 +14,31 @@ import {
 } from "../src/lib/managedUpload.js";
 
 describe("governed local-file ingestion", () => {
+  it("admits MapInfo ZIP explicitly while ZIP inference remains Shapefile and preserves original bytes", async () => {
+    const file = namedBlob("MapInfo original archive bytes", "survey.ZIP", "application/zip");
+    assert.equal(inferManagedFormat(file.name), "shapefile");
+    assert.equal(validateManagedUpload({file, name: "Survey", format: "mapinfo"}).contentType, "application/zip");
+    let request, original, completions = 0;
+    const result = await ingestManagedFile({projectId: "project", file, name: "Survey", format: "mapinfo", adapter: {
+      async requestUpload(project, metadata) {
+        assert.equal(project, "project"); request = metadata;
+        return {uploadId: "mapinfo-upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};
+      },
+      async uploadFile(_ticket, source) {original = source;},
+      async completeUpload(project, uploadId) {
+        assert.equal(project, "project"); assert.equal(uploadId, "mapinfo-upload"); completions++;
+        return {dataset: {id: "mapinfo-dataset", name: "Survey"}, versionNumber: 1};
+      }
+    }});
+    assert.equal(request.format, "mapinfo"); assert.equal(request.filename, "survey.ZIP");
+    assert.equal(request.contentType, "application/zip"); assert.equal(request.sizeBytes, file.size);
+    assert.equal(request.checksumSha256, createHash("sha256").update(await file.text()).digest("hex"));
+    assert.equal(original, file); assert.equal(completions, 1); assert.equal(result.dataset.id, "mapinfo-dataset");
+    for (const filename of ["survey.tab", "survey.mif", "survey.mid", "survey.gpkg"]) {
+      assert.throws(() => validateManagedUpload({file: namedBlob("bytes", filename), name: "Survey", format: "mapinfo"}), /http_422/);
+    }
+    assert.throws(() => validateManagedUpload({file, name: "Survey", format: "mapinfo", purpose: "pmtiles_original"}), /http_422/);
+  });
   it("checkpoints the upload identity before bytes and reuses the ticket after a checkpoint failure", async () => {
     let requests=0,uploads=0,checkpointFails=true;
     const file=namedBlob('bytes','notes.pdf','application/pdf');
@@ -102,6 +127,35 @@ describe("governed local-file ingestion", () => {
     }
     assert.throws(() => validateManagedUpload({file: namedBlob("bytes", "elevation.png", "image/png"),
       name: "Elevation", format: "geotiff"}), /http_422/);
+  });
+
+  it("admits NITF and ERDAS Imagine originals without relabeling them as COG", async () => {
+    for (const [filename, format, contentType] of [
+      ["imagery.NTF", "nitf", "image/nitf"],
+      ["imagery.nitf", "nitf", "image/nitf"],
+      ["elevation.IMG", "img", "application/octet-stream"]
+    ]) {
+      assert.equal(inferManagedFormat(filename), format);
+      const file = namedBlob("exact native source bytes", filename, contentType), calls = [];
+      await ingestManagedFile({projectId: "project", file, adapter: {
+        async requestUpload(_project, metadata) {
+          calls.push("request");
+          assert.equal(metadata.format, format);
+          assert.equal(metadata.filename, filename);
+          assert.equal(metadata.contentType, contentType);
+          assert.equal(metadata.checksumSha256, createHash("sha256")
+            .update(Buffer.from(await file.arrayBuffer())).digest("hex"));
+          return {uploadId: "upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};
+        },
+        async uploadFile(_ticket, original) {calls.push("upload"); assert.equal(original, file);},
+        async completeUpload() {calls.push("complete"); return {dataset: {name: "Native raster"}, versionNumber: 1};}
+      }});
+      assert.deepEqual(calls, ["request", "upload", "complete"]);
+      assert.throws(() => validateManagedUpload({file, name: "Native raster", format: "cog"}), /http_422/);
+      assert.throws(() => validateManagedUpload({file, name: "Native raster", format,
+        purpose: "pmtiles_original"}), /http_422/);
+    }
+    for (const extension of [".ntf", ".nitf", ".img"]) assert.ok(MANAGED_FILE_ACCEPT.includes(extension));
   });
 
   it("preserves a GeoJSON original without reporting an inspection job", async () => {

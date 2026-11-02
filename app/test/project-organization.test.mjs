@@ -474,3 +474,67 @@ function installDom() {
   for (const [key, value] of Object.entries(values)) {previous.set(key, Object.getOwnPropertyDescriptor(globalThis, key)); Object.defineProperty(globalThis, key, {configurable: true, writable: true, value});}
   return {dom, shells: [], restore() {for (const [key, descriptor] of previous) {if (descriptor) Object.defineProperty(globalThis, key, descriptor); else delete globalThis[key];}}};
 }
+
+it("authors mixed geometry controls and a time range without losing unedited settings through Save/reopen/KML", async t => {
+  const originalFetch=globalThis.fetch;t.after(()=>globalThis.fetch=originalFetch);
+  globalThis.fetch=()=>assert.fail("Place properties must not request a provider or API");
+  const original=kmlDocument(),source=original.children.find(place=>place.id==="zulu"),saved=[];
+  source.geometry={type:"GeometryCollection",geometries:[
+    {type:"Point",coordinates:[0,0,0],kmlControls:{altitudeMode:"absolute",extrude:true,tessellate:false}},
+    {type:"LineString",coordinates:[[0,0,5],[1,1,10]],kmlControls:{altitudeMode:"relativeToGround",extrude:false,tessellate:true}}
+  ]};source.altitudeMode="absolute";source.extrude=true;source.tessellate=false;
+  const current=root=>root.getPrintContext().project.layers.find(layer=>layer.sourceType==="kml-places").kmlDocument;
+  const field=(root,kind,key)=>root.querySelector(`[data-kml-${kind}-field="${key}"]`);
+  const change=(root,kind,key,value)=>{const input=field(root,kind,key);assert.ok(input,key);input.value=value;input.dispatchEvent(new harness.dom.window.Event("change",{bubbles:true}));return input;};
+  const shell=mount({project:project({kmlPlaces:original}),saveProject:async value=>{saved.push(structuredClone(value));return {version:2};}});
+  button(shell,"Edit Zulu").click();const stale=button(shell,"Apply place edits");
+  assert.equal(field(shell,"geometry","altitudeMode").value,"mixed");assert.equal(field(shell,"geometry","extrude").value,"mixed");
+  shell.querySelector('[data-kml-editing-field="name"]').value="Survey geometry";button(shell,"Apply place edits").click();
+  let retained=current(shell).children.find(place=>place.id==="zulu");assert.deepEqual(retained.geometry,source.geometry);
+  stale.click();assert.equal(current(shell).children.find(place=>place.id==="zulu").name,"Survey geometry");
+  change(shell,"geometry","altitudeMode","absolute");change(shell,"geometry","tessellate","false");
+  change(shell,"time","type","TimeSpan");change(shell,"time","begin","2024-02-29");change(shell,"time","end","2024-02-28");
+  const unchanged=structuredClone(current(shell));button(shell,"Apply place edits").click();assert.deepEqual(current(shell),unchanged);
+  assert.equal(field(shell,"time","end").getAttribute("aria-invalid"),"true");assert.equal(document.activeElement,field(shell,"time","end"));
+  assert.match(shell.textContent,/End must not be earlier than Begin/);
+  button(shell,"Edit Survey geometry").click();assert.equal(field(shell,"time","begin").value,"2024-02-29");assert.equal(field(shell,"geometry","altitudeMode").value,"absolute");
+  change(shell,"time","end","2024-03-01T00:00:00Z");button(shell,"Apply place edits").click();
+  retained=current(shell).children.find(place=>place.id==="zulu");
+  assert.deepEqual(retained.time,{type:"TimeSpan",begin:"2024-02-29",end:"2024-03-01T00:00:00Z"});
+  assert.deepEqual(retained.geometry.geometries.map(geometry=>geometry.kmlControls),[
+    {altitudeMode:"absolute",extrude:true,tessellate:false},{altitudeMode:"absolute",extrude:false,tessellate:false}
+  ]);assert.deepEqual(retained.geometry.geometries.map(geometry=>geometry.coordinates),source.geometry.geometries.map(geometry=>geometry.coordinates));
+  button(shell,"Save").click();await waitFor(()=>saved.length===1);
+  assert.equal(saved[0].schemaVersion,"opengeo.map-definition.1.7.0");assert.equal(saved[0].kmlPlaces,null);
+  const reopened=mount({project:project(saved[0]),layers:saved[0].layers});assert.equal(reopened.__opengeoLayers.length,1);
+  assert.deepEqual(current(reopened),current(shell));
+  assert.deepEqual(parseKml(exportKml(current(reopened)),{DOMParser:harness.dom.window.DOMParser}).document,current(reopened));
+});
+
+it("edits explicit Point altitude and timestamp, recovers invalid drafts and enforces viewer controls", async () => {
+  const original=kmlDocument(),saved=[],current=root=>root.getPrintContext().project.layers.find(layer=>layer.sourceType==="kml-places").kmlDocument;
+  const field=(root,kind,key)=>root.querySelector(`[data-kml-${kind}-field="${key}"]`);
+  const change=(root,kind,key,value)=>{const input=field(root,kind,key);input.value=value;input.dispatchEvent(new harness.dom.window.Event("change",{bubbles:true}));};
+  const shell=mount({project:project({kmlPlaces:original}),saveProject:async value=>{saved.push(structuredClone(value));return {version:2};}});
+  button(shell,"Edit Zulu").click();assert.equal(field(shell,"geometry","pointAltitude").value,"");assert.equal(field(shell,"geometry","tessellate"),null);
+  const name=shell.querySelector('[data-kml-editing-field="name"]');name.value="x".repeat(8193);button(shell,"Apply place edits").click();
+  assert.deepEqual(current(shell),original);assert.equal(field(shell,"time","end").getAttribute("aria-invalid"),null);
+  assert.match(shell.querySelector('[data-status-field="message"]').textContent,/kml_text_too_long/);name.value="Zulu";
+  change(shell,"time","type","TimeStamp");change(shell,"time","when","2023-02-29");button(shell,"Apply place edits").click();
+  assert.deepEqual(current(shell),original);assert.equal(field(shell,"time","when").getAttribute("aria-invalid"),"true");
+  change(shell,"time","when","2024-02-29T24:00:00Z");change(shell,"geometry","pointAltitude","not a number");button(shell,"Apply place edits").click();
+  assert.deepEqual(current(shell),original);assert.equal(document.activeElement,field(shell,"geometry","pointAltitude"));
+  button(shell,"Edit Zulu").click();assert.equal(field(shell,"geometry","pointAltitude").value,"not a number");
+  change(shell,"geometry","pointAltitude","0");change(shell,"geometry","altitudeMode","relativeToGround");change(shell,"geometry","extrude","true");button(shell,"Apply place edits").click();
+  let place=current(shell).children.find(place=>place.id==="zulu");
+  assert.equal(place.geometry.coordinates.length,3);assert.equal(place.geometry.coordinates[2],0);assert.equal(place.altitudeMode,"relativeToGround");assert.equal(place.extrude,true);
+  assert.deepEqual(place.time,{type:"TimeStamp",when:"2024-02-29T24:00:00Z"});
+  button(shell,"Save").click();await waitFor(()=>saved.length===1);
+  const reopened=mount({project:project(saved[0]),layers:saved[0].layers});button(reopened,"Edit Zulu").click();assert.equal(field(reopened,"geometry","pointAltitude").value,"0");
+  assert.deepEqual(parseKml(exportKml(current(reopened)),{DOMParser:harness.dom.window.DOMParser}).document,current(reopened));
+  change(reopened,"geometry","pointAltitude","");change(reopened,"time","type","none");button(reopened,"Apply place edits").click();
+  place=current(reopened).children.find(place=>place.id==="zulu");assert.equal(place.geometry.coordinates.length,2);assert.equal(place.time,null);
+  const viewer=mount({role:"viewer",project:project(saved[0]),layers:saved[0].layers});button(viewer,"Edit Zulu").click();
+  for(const input of viewer.querySelectorAll('[data-kml-time-field],[data-kml-geometry-field]'))assert.equal(input.disabled,true);
+  assert.equal(button(viewer,"Apply place edits").disabled,true);
+});

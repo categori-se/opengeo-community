@@ -922,8 +922,8 @@ describe("project durable-job hydration", () => {
     page.dispose(); page.remove();
   });
 
-  it("adds, saves and reopens the exact normalized GeoTIFF working object without a vector fallback or ticket", async () => {
-    const {adapter, reads, saved} = managedCogAdapter({normalized: true});
+  for (const format of ["geotiff", "nitf", "img"]) it(`adds, saves and reopens the exact normalized ${format} working object without a vector fallback or ticket`, async () => {
+    const {adapter, reads, saved} = managedCogAdapter({normalized: true, format});
     const originalMap = (await adapter.listMaps())[0];
     const page = mountPage(adapter, {mapDatasetTarget: {mapId: IDS.map,
       datasetId: IDS.dataset, datasetVersionId: IDS.version}});
@@ -1158,11 +1158,11 @@ describe("project durable-job hydration", () => {
 
 });
 
-function managedCogAdapter({normalized = false} = {}) {
+function managedCogAdapter({normalized = false, format = normalized ? "geotiff" : "cog"} = {}) {
   const adapter = projectAdapter({kind: "managed", format: "cog"});
   const reads = {versions: 0, tickets: 0, previews: 0}, saved = [];
   const datasetPromise = adapter.listDatasets().then(([dataset]) => ({...dataset,
-    name: "Native land cover", format: normalized ? "geotiff" : "cog", geometryType: "raster", featureCount: null,
+    name: "Native land cover", format, geometryType: "raster", featureCount: null,
     capabilities: {read: true, edit: true, download: true}}));
   const mapPromise = adapter.listMaps().then(([map]) => ({...map,
     definition: {...map.definition, activeLayerId: null, layers: []}}));
@@ -1172,12 +1172,12 @@ function managedCogAdapter({normalized = false} = {}) {
   adapter.listDatasetVersions = async (project, dataset, options) => {
     assert.deepEqual([project, dataset, options.limit, options.offset], [IDS.project, IDS.dataset, 100, 0]);
     reads.versions++;
-    return [{id: IDS.version, versionNumber: 4, state: "active", format: normalized ? "geotiff" : "cog", geometryType: "raster",
+    return [{id: IDS.version, versionNumber: 4, state: "active", geometryType: "raster",
       extent: [-73.5, 41.2, -69.8, 43.1],
-      ...(normalized ? {schemaDefinition: {raster: {source_format: "geotiff", display_bounds_crs84: [-73.5, 41.2, -69.8, 43.1], working_cog: {
+      ...(normalized ? {schemaDefinition: {raster: {source_format: format, display_bounds_crs84: [-73.5, 41.2, -69.8, 43.1], working_cog: {
         relative_key: "working/raster.cog.tif", filename: "raster.cog.tif", object_id: IDS.job,
         checksum_sha256: "a".repeat(64), size_bytes: 4096}}}} : {}),
-      qualityResults: {checks: [{code: normalized ? "geotiff_working_cog_verified" : "cog_layout_verified", status: "passed"}]},
+      qualityResults: {checks: [{code: normalized ? format === "geotiff" ? "geotiff_working_cog_verified" : "working_cog_verified" : "cog_layout_verified", status: "passed"}]},
       objects: [{id: IDS.job, role: normalized ? "working" : "original", filename: normalized ? "raster.cog.tif" : "native-land-cover.tif",
         contentType: "image/tiff", checksumSha256: "a".repeat(64), sizeBytes: 4096}]}];
   };

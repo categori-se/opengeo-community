@@ -660,13 +660,40 @@ class Inspector:
         )
 
 
+def test_mapinfo_processor_uses_zip_without_replacing_original_or_working_identity(
+    tmp_path: Path,
+) -> None:
+    class MapInfoInspector(Inspector):
+        def inspect(self, source: Path, dataset_format: str, workdir: Path) -> InspectionResult:
+            assert source.name == "source.zip" and dataset_format == "mapinfo"
+            # Reuse the same working artifact contract as existing vector imports.
+            return super().inspect(source, "geojson", workdir)
+
+    repository = Repository(replace(
+        claim(), dataset_format="mapinfo", original_filename="roads.zip",
+        content_type="application/zip",
+    ))
+    storage = Storage()
+    queue = Queue(body().replace("source.geojson", "roads.zip"))
+    worker = WorkerProcessor(settings(tmp_path), queue, repository, storage, MapInfoInspector())
+    assert worker.process_once() == "completed" and repository.failed == []
+    assert queue.deleted == ["receipt-1"]
+    assert repository.job_claim.checksum_sha256 == hashlib.sha256(SOURCE).hexdigest()
+    inspection, artifacts = repository.completed[0][2:]
+    assert inspection.quality_results["valid"] is True
+    assert artifacts[0].artifact_id == uuid5(VERSION_ID, "working/data.parquet")
+    assert artifacts[0].checksum_sha256 == hashlib.sha256(b"parquet").hexdigest()
+
+
 class GeoTiffInspector:
-    def __init__(self, mode: str = "verified") -> None:
+    def __init__(self, mode: str = "verified", dataset_format: str = "geotiff") -> None:
         self.mode = mode
+        self.dataset_format = dataset_format
 
     def inspect(self, source: Path, dataset_format: str, workdir: Path) -> InspectionResult:
-        assert source.name == "source.tif" and source.read_bytes() == SOURCE
-        assert dataset_format == "geotiff"
+        filenames = {"geotiff": "source.tif", "nitf": "source.ntf", "img": "source.img"}
+        assert source.name == filenames[self.dataset_format] and source.read_bytes() == SOURCE
+        assert dataset_format == self.dataset_format
         working = workdir / "raster.cog.tif"
         working.write_bytes(b"II*\x00verified-working")
         artifact = ArtifactFile("working", "working/raster.cog.tif", "image/tiff", working)
@@ -678,13 +705,16 @@ class GeoTiffInspector:
         return InspectionResult(
             None, (1000.0, 1840.0, 1160.0, 2000.0), "EPSG:3857", "raster",
             {"raster": {
-                "source_format": "geotiff",
+                "source_format": self.dataset_format,
                 "working_cog": {
                     "relative_key": "working/raster.cog.tif", "filename": "raster.cog.tif",
                 },
             }},
             {"valid": True, "checks": [] if self.mode == "unverified" else [
-                {"code": "geotiff_working_cog_verified", "status": "passed"},
+                {"code": (
+                    "geotiff_working_cog_verified" if dataset_format == "geotiff"
+                    else "working_cog_verified"
+                ), "status": "passed"},
             ]},
             artifacts,
         )
@@ -885,6 +915,59 @@ def test_geotiff_processor_rejects_invalid_uploaded_working_facts(
     )
     assert worker.process_once() == "completed"
     assert repository.failed == ["geotiff_working_cog_unverified"]
+    assert repository.completed == []
+
+
+@pytest.mark.parametrize("dataset_format,filename", [("nitf", "source.ntf"), ("img", "source.img")])
+def test_raster_formats_processor_binds_actual_uploaded_working_object(
+    tmp_path: Path, dataset_format: str, filename: str,
+) -> None:
+    repository = Repository(replace(
+        claim(), dataset_format=dataset_format, original_filename=filename,
+    ))
+    worker = WorkerProcessor(
+        settings(tmp_path), Queue(body().replace("source.geojson", filename)), repository,
+        Storage(), GeoTiffInspector(dataset_format=dataset_format),
+    )
+    assert worker.process_once() == "completed" and repository.failed == []
+    inspection, artifacts = repository.completed[0][2:]
+    stored = artifacts[0]
+    raster = inspection.schema_definition["raster"]
+    assert raster["source_format"] == dataset_format
+    assert raster["working_cog"]["object_id"] == str(stored.artifact_id)
+    assert raster["working_cog"]["checksum_sha256"] == stored.checksum_sha256
+    assert raster["working_cog"]["size_bytes"] == stored.size_bytes
+    assert stored.artifact_id == uuid5(VERSION_ID, "working/raster.cog.tif")
+
+
+@pytest.mark.parametrize("dataset_format", ["nitf", "img"])
+@pytest.mark.parametrize("failure", ["source_format", "legacy_marker", "duplicate_marker"])
+def test_raster_formats_processor_requires_matching_format_and_unique_generic_marker(
+    tmp_path: Path, dataset_format: str, failure: str,
+) -> None:
+    class InvalidRasterInspector(GeoTiffInspector):
+        def inspect(self, source: Path, dataset_format: str, workdir: Path) -> InspectionResult:
+            result = super().inspect(source, dataset_format, workdir)
+            if failure == "source_format":
+                result.schema_definition["raster"]["source_format"] = "geotiff"
+            elif failure == "legacy_marker":
+                result.quality_results["checks"] = [
+                    {"code": "geotiff_working_cog_verified", "status": "passed"},
+                ]
+            else:
+                result.quality_results["checks"] *= 2
+            return result
+
+    filename = "source.ntf" if dataset_format == "nitf" else "source.img"
+    repository = Repository(replace(
+        claim(), dataset_format=dataset_format, original_filename=filename,
+    ))
+    worker = WorkerProcessor(
+        settings(tmp_path), Queue(body().replace("source.geojson", filename)), repository,
+        Storage(), InvalidRasterInspector(dataset_format=dataset_format),
+    )
+    assert worker.process_once() == "completed"
+    assert repository.failed == [f"{dataset_format}_working_cog_unverified"]
     assert repository.completed == []
 
 

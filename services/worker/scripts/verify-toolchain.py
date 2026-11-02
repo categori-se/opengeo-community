@@ -37,7 +37,7 @@ BINARIES = (
     "tesseract",
     "tippecanoe",
 )
-VECTOR_DRIVERS = ("CSV", "ESRI Shapefile", "GeoJSON", "GPKG", "Parquet", "PMTiles")
+VECTOR_DRIVERS = ("CSV", "ESRI Shapefile", "GeoJSON", "GPKG", "MapInfo File", "Parquet", "PMTiles")
 
 
 def minimal_pdf() -> bytes:
@@ -117,9 +117,19 @@ def main() -> None:
         if driver not in vector_formats:
             raise RuntimeError(f"missing required OGR driver: {driver}")
     raster_formats = output(["gdalinfo", "--formats"])
-    for driver in ("COG", "GTiff", "JPEG", "PNG"):
+    for driver in ("COG", "GTiff", "NITF", "HFA", "JPEG", "PNG"):
         if driver not in raster_formats:
             raise RuntimeError(f"missing required raster driver: {driver}")
+    from osgeo import osr
+
+    osr.UseExceptions()
+    osr.SetPROJEnableNetwork(False)
+    reference = osr.SpatialReference()
+    reference.ImportFromEPSG(32618)
+    reopened = osr.SpatialReference()
+    reopened.ImportFromWkt(reference.ExportToWkt())
+    if not reference.IsSame(reopened):
+        raise RuntimeError("GDAL OSR semantic CRS comparison is unavailable")
     output(["tippecanoe", "--version"])
     tesseract_version = output(["tesseract", "--version"])
     if re.match(r"tesseract 5\.[0-9]+\.[0-9]+", tesseract_version) is None:

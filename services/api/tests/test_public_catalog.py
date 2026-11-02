@@ -505,7 +505,7 @@ def test_repository_detail_uses_the_same_non_leaking_public_predicate() -> None:
     assert parameters == (ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID)
 
 
-def test_public_spatial_preview_reads_one_exact_derivative_and_rechecks_public_policy() -> None:
+def test_mapinfo_public_spatial_preview_reads_one_exact_derivative_and_rechecks_public_policy() -> None:
     transaction = ScriptedTransaction(
         all_rows=[[spatial_preview_target_row()], [spatial_preview_target_row()]]
     )
@@ -531,6 +531,7 @@ def test_public_spatial_preview_reads_one_exact_derivative_and_rechecks_public_p
     assert len(transaction.fetch_all_calls) == 2
     for statement, parameters in transaction.fetch_all_calls:
         assert "resource.current_version_id" in statement
+        assert "'mapinfo'" in statement
         assert "dataset.current_version_id" in statement
         assert "resource.state = 'published'" in statement
         assert "resource.visibility = 'public'" in statement

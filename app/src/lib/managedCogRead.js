@@ -47,9 +47,10 @@ function exactTicket(ticket, datasetId, filename) {
 function rasterObject(version) {
   const raster = version.schemaDefinition?.raster;
   const checks = version.qualityResults?.checks ?? [];
-  const workingChecks = checks.filter(check => check.code === "geotiff_working_cog_verified");
+  const normalizedFormats = ["geotiff", "nitf", "img"];
+  const workingChecks = checks.filter(check => ["geotiff_working_cog_verified", "working_cog_verified"].includes(check.code));
   // A partial normalization marker must never fall back to reading the original.
-  const normalized = version.format === "geotiff" || raster?.source_format === "geotiff"
+  const normalized = normalizedFormats.includes(version.format) || normalizedFormats.includes(raster?.source_format)
     || raster && Object.hasOwn(raster, "working_cog") || workingChecks.length > 0;
   const role = normalized ? "working" : "original";
   const objects = version.objects?.filter(object => object.role === role) ?? [];
@@ -57,8 +58,9 @@ function rasterObject(version) {
   const object = objects[0];
   if (normalized) {
     const declared = raster?.working_cog;
-    if (version.format != null && version.format !== "geotiff" || raster?.source_format !== "geotiff"
-      || workingChecks.length !== 1 || workingChecks[0].status !== "passed"
+    const expectedCheck = raster?.source_format === "geotiff" ? "geotiff_working_cog_verified" : "working_cog_verified";
+    if (!normalizedFormats.includes(raster?.source_format) || version.format != null && version.format !== raster.source_format
+      || workingChecks.length !== 1 || workingChecks[0].code !== expectedCheck || workingChecks[0].status !== "passed"
       || declared?.relative_key !== "working/raster.cog.tif" || declared.filename !== "raster.cog.tif"
       || !UUID.test(declared.object_id ?? "") || declared.object_id !== object.id
       || !/^[0-9a-f]{64}$/.test(declared.checksum_sha256 ?? "") || declared.checksum_sha256 !== object.checksumSha256

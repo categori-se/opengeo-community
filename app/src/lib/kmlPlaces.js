@@ -1,5 +1,6 @@
 import {strFromU8, strToU8, unzipSync, zipSync} from "fflate";
 import {normalizeKmlNetworkLink} from "./kmlNetworkLink.js";
+import {isKmlTimeSpanReversed, isValidKmlTimeValue} from "./kmlTime.js";
 
 export const KML_PLACES_LIMITS = Object.freeze({
   maximumKmlBytes: 256 * 1024,
@@ -1990,13 +1991,18 @@ function normalizeStyle(value) {
 }
 
 function normalizeTime(value) {
+  return normalizeKmlTime(value);
+}
+
+export function normalizeKmlTime(value) {
   if (!value) return null;
   if (value.type === "TimeStamp") return {type: "TimeStamp", when: normalizeKmlDate(value.when, true)};
-  if (value.type === "TimeSpan") return {
-    type: "TimeSpan",
-    begin: normalizeKmlDate(value.begin, false),
-    end: normalizeKmlDate(value.end, false)
-  };
+  if (value.type === "TimeSpan") {
+    const begin = normalizeKmlDate(value.begin, false);
+    const end = normalizeKmlDate(value.end, false);
+    if (begin !== null && end !== null && isKmlTimeSpanReversed(begin, end)) throw kmlError("places_time_order_invalid");
+    return {type: "TimeSpan", begin, end};
+  }
   throw kmlError("places_time_invalid");
 }
 
@@ -2006,12 +2012,7 @@ function normalizeKmlDate(value, required) {
     if (required) throw kmlError("places_time_value_required");
     return null;
   }
-  const zone = "(?:Z|[+-]\\d{2}:\\d{2})?";
-  const valid = new RegExp(`^-?\\d{4,}${zone}$`).test(text)
-    || new RegExp(`^-?\\d{4,}-\\d{2}${zone}$`).test(text)
-    || new RegExp(`^-?\\d{4,}-\\d{2}-\\d{2}${zone}$`).test(text)
-    || new RegExp(`^-?\\d{4,}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?${zone}$`).test(text);
-  if (!valid) throw kmlError("places_time_value_invalid");
+  if (!isValidKmlTimeValue(text)) throw kmlError("places_time_value_invalid");
   return text;
 }
 

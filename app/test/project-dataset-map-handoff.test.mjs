@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {afterEach, beforeEach, describe, it} from "node:test";
 import {JSDOM} from "jsdom";
 
-import {WorkbenchView, managedLayerCreditPanel, reviewManagedLayerCredit} from "../src/components/WorkbenchView.js";
+import {WorkbenchView, managedLayerCreditPanel, reviewManagedLayerCredit, isPmtilesDerivativeSourceEligible} from "../src/components/WorkbenchView.js";
 import {readSavedProjectVersionFile, savedProjectVersionFile} from "../src/lib/projectFileFormat.js";
 
 const IDS = Object.freeze({
@@ -36,6 +36,36 @@ afterEach(() => {
 });
 
 describe("exact dataset-to-map handoff", () => {
+  it("adds MapInfo normalized geometry, saves the exact version, and reloads the same pin after reopening", async () => {
+    const reads = [], saves = [];
+    const dataset = {datasetId: IDS.dataset, workspaceId: IDS.project, title: "MapInfo survey", sourceType: "upload",
+      format: "mapinfo", geometryType: "Polygon", status: "active", currentVersionState: "active",
+      currentVersionId: IDS.version, currentVersionNumber: 3, featureCount: 1, capabilities: {read: true, edit: true}};
+    const options = {datasets: [dataset], initialDatasetTarget: target(IDS.version),
+      async loadDatasetVersionPreview(datasetId, versionId) {
+        reads.push([datasetId, versionId]);
+        return {datasetVersionId: versionId, numberReturned: 1, mayBeTruncated: false, geojson: featureCollection()};
+      },
+      async saveProject(definition) {saves.push(structuredClone(definition)); return {id: IDS.map, version: 3, definition};}
+    };
+    const shell = createWorkbench(options);
+    assert.deepEqual(reads, []);
+    clickButton(shell, "Add exact v3"); await waitFor(() => shell.__opengeoLayers.length === 1);
+    const added = shell.__opengeoLayers[0];
+    assert.equal(added.datasetId, IDS.dataset); assert.equal(added.datasetVersionId, IDS.version); assert.equal(added.sourceVersion, 3);
+    assert.equal(isPmtilesDerivativeSourceEligible(dataset, added), true);
+    clickButton(shell, "Save"); await waitFor(() => saves.length === 1);
+    const savedLayer = saves[0].layers[0];
+    assert.equal(savedLayer.datasetVersionId, IDS.version); assert.equal(savedLayer.layerId, added.layerId);
+    shell.dispose(); shell.remove();
+    dataset.currentVersionId = IDS.staleVersion; dataset.currentVersionNumber = 4;
+    const reopened = createWorkbench({...options, initialDatasetTarget: null, project: saves[0], layers: [savedLayer]});
+    await waitFor(() => reads.length === 2);
+    assert.deepEqual(reads, [[IDS.dataset, IDS.version], [IDS.dataset, IDS.version]]);
+    assert.equal(reopened.__opengeoLayers[0].layerId, savedLayer.layerId);
+    assert.equal(reopened.__opengeoLayers[0].datasetVersionId, IDS.version);
+    assert.equal(isPmtilesDerivativeSourceEligible(dataset, savedLayer), false, "A changed head cannot silently change the conversion input");
+  });
   for (const routed of [false, true]) it(`adds a preserved original only through an explicitly chosen admitted display (${routed ? "routed" : "ordinary"})`, async () => {
     let lists = 0, reads = 0, raw = 0;
     const saves = [];

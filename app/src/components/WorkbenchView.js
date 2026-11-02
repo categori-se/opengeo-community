@@ -259,6 +259,7 @@ import {
   KML_PLACES_LIMITS,
   addKmlPlace,
   createPlacesDocument,
+  normalizeKmlTime,
   exportKml,
   exportKmz,
   kmlRegionLodPresentation,
@@ -275,6 +276,7 @@ import {
   sortKmlPlaceSiblings,
   updateKmlPlace
 } from "../lib/kmlPlaces.js";
+import {applyKmlGeometrySettings, summarizeKmlGeometrySettings} from "../lib/kmlGeometrySettings.js";
 import {
   KML_NETWORK_LINK_LIMITS,
   acceptKmlNetworkLinkReceipt,
@@ -3636,6 +3638,7 @@ function kmlPlaceEditor(context, selected) {
   const draft = drafts.get(selected.id);
   const editable = canOrganizeProject(context);
   const editingLayerId = editingKmlLayerId(context);
+  const editingDocument = context.state.kmlPlaces;
   const details = document.createElement("details");
   details.className = "gis-places-authoring gis-places-editor";
   details.open = true;
@@ -3676,12 +3679,15 @@ function kmlPlaceEditor(context, selected) {
   const parent = selectInput("Parent", draft?.parent ?? currentParent, kmlContainerOptions(context.state.kmlPlaces, selected.kind === "folder" ? selected.id : null));
   parent.input.dataset.kmlEditingField = "parent";
   const view = kmlPlaceViewEditor(draft?.view ?? selected.view, editable);
+  const time = kmlPlaceTimeEditor(draft?.time ?? selected.time, editable);
+  const geometry = selected.kind === "placemark" && selected.geometry
+    ? kmlPlaceGeometryEditor(selected, draft?.geometrySettings, editable) : null;
   for (const input of [name.input, description.input, visible.querySelector("input"), parent.input]) input.disabled = !editable;
-  const remember = () => drafts.set(selected.id, {name: name.input.value, description: description.input.value, visibility: visible.querySelector("input").checked, parent: parent.input.value, view: view.capture()});
+  const remember = () => drafts.set(selected.id, {name: name.input.value, description: description.input.value, visibility: visible.querySelector("input").checked, parent: parent.input.value, view: view.capture(), time: time.capture(), ...(geometry ? {geometrySettings: geometry.capture()} : {})});
   form.addEventListener("input", remember);
   form.addEventListener("change", remember);
   const canApply = () => canOrganizeProject(context) && form.isConnected
-    && editingKmlLayerId(context) === editingLayerId && context.state.selectedKmlPlaceId === selected.id;
+    && context.state.kmlPlaces === editingDocument && editingKmlLayerId(context) === editingLayerId && context.state.selectedKmlPlaceId === selected.id;
   const save = actionButton("Apply place edits", () => {
     if (!canApply()) return;
     remember();
@@ -3690,14 +3696,16 @@ function kmlPlaceEditor(context, selected) {
         name: name.input.value,
         description: description.input.value,
         visibility: visible.querySelector("input").checked,
-        view: view.read()
+        view: view.read(),
+        time: time.read(),
+        ...(geometry ? geometry.read() : {})
       });
       const nextParent = parent.input.value;
       if (nextParent !== currentParent) next = moveKmlPlace(next, selected.id, nextParent);
       drafts.delete(selected.id);
       applyKmlPlacesDocument(context, next, `Updated ${name.input.value || selected.name}.`);
     } catch (error) {
-      const message = view.reportError(error);
+      const message = view.reportError(error) ?? time.reportError(error) ?? geometry?.reportError(error);
       setStatus(context, message ?? `Place edit failed safely (${error?.code ?? "invalid_place"}).`);
     }
   });
@@ -3742,9 +3750,172 @@ function kmlPlaceEditor(context, selected) {
     move.disabled = !canOrganizeProject(context) || index < 0 || index + direction < 0 || index + direction >= siblings.length;
     order.append(move);
   }
-  form.append(name.wrapper, description.wrapper, visible, parent.wrapper, view.element, order, save, remove);
+  form.append(name.wrapper, description.wrapper, visible, parent.wrapper, ...(geometry ? [geometry.element] : []), time.element, view.element, order, save, remove);
   details.append(form);
   return details;
+}
+
+function kmlPlaceTimeEditor(value, editable) {
+  const element = document.createElement("details");
+  element.className = "gis-kml-time-editor";
+  element.open = Boolean(value && value.type !== "none");
+  element.append(textElement("summary", "Time"), textElement("p",
+    "Save a year, year-month, date, or date/time with seconds. A time zone is optional. Leave one range boundary blank for an open range. These values are retained in Project files and KML export."));
+  const type = selectInput("Time type", value?.type ?? "none", [["none", "None (remove saved time)"], ["TimeStamp", "Single time"], ["TimeSpan", "Time range"]]);
+  type.input.dataset.kmlTimeField = "type";
+  type.input.disabled = !editable;
+  const grid = document.createElement("div");
+  grid.className = "gis-form-grid";
+  grid.append(type.wrapper);
+  const fields = new Map();
+  for (const [key, label] of [["when", "When"], ["begin", "Begin"], ["end", "End"]]) {
+    const field = textInput(label, value?.[key] ?? "");
+    field.input.dataset.kmlTimeField = key;
+    field.input.maxLength = KML_PLACES_LIMITS.maximumTextCharacters;
+    field.input.placeholder = "2026-11-01 or 2026-11-01T14:30:00Z";
+    fields.set(key, field);
+    grid.append(field.wrapper);
+  }
+  const error = textElement("p", "");
+  error.id = `kml-time-error-${crypto.randomUUID()}`;
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  const clearError = () => {
+    error.hidden = true;
+    error.textContent = "";
+    for (const field of fields.values()) field.input.removeAttribute("aria-invalid");
+  };
+  const sync = () => {
+    for (const [key, field] of fields) {
+      const applicable = type.input.value === "TimeStamp" ? key === "when" : type.input.value === "TimeSpan" && key !== "when";
+      field.wrapper.hidden = !applicable;
+      field.wrapper.style.display = applicable ? "" : "none";
+      field.input.disabled = !editable || !applicable;
+    }
+    clearError();
+  };
+  type.input.addEventListener("change", sync);
+  element.addEventListener("input", clearError);
+  sync();
+  element.append(grid, error);
+  return {
+    element,
+    capture: () => ({type: type.input.value, ...Object.fromEntries([...fields].map(([key, field]) => [key, field.input.value]))}),
+    read() {
+      clearError();
+      try {
+        return normalizeKmlTime(type.input.value === "none" ? null : type.input.value === "TimeStamp"
+          ? {type: "TimeStamp", when: fields.get("when").input.value}
+          : {type: "TimeSpan", begin: fields.get("begin").input.value, end: fields.get("end").input.value});
+      } catch (cause) {
+        cause.kmlTimeInput = true;
+        throw cause;
+      }
+    },
+    reportError(cause) {
+      if (!String(cause?.code ?? "").startsWith("places_time_") && !(cause?.code === "kml_text_too_long" && cause.kmlTimeInput)) return null;
+      let key = type.input.value === "TimeStamp" ? "when" : "end";
+      if (cause.code !== "places_time_order_invalid") {
+        for (const candidate of type.input.value === "TimeStamp" ? ["when"] : ["begin", "end"]) {
+          const raw = fields.get(candidate).input.value;
+          if (!raw.trim() && type.input.value !== "TimeStamp") continue;
+          try {normalizeKmlTime({type: "TimeStamp", when: raw});}
+          catch {key = candidate; break;}
+        }
+      }
+      const message = cause.code === "places_time_order_invalid"
+        ? "End must not be earlier than Begin. Correct the range and apply again."
+        : "Enter a valid calendar year, month, date, or date/time with seconds and an optional time zone.";
+      element.open = true;
+      error.hidden = false;
+      error.textContent = message;
+      const input = fields.get(key).input;
+      input.setAttribute("aria-invalid", "true");
+      input.setAttribute("aria-describedby", error.id);
+      input.focus();
+      return message;
+    }
+  };
+}
+
+function kmlPlaceGeometryEditor(place, draft, editable) {
+  const settings = summarizeKmlGeometrySettings(place);
+  const element = document.createElement("details");
+  element.className = "gis-kml-geometry-editor";
+  element.append(textElement("summary", "Altitude and geometry"), textElement("p",
+    "Changing a setting applies it to this Place's geometries. Mixed settings stay unchanged until you choose a value. Edge following applies to paths and polygons. These are KML source settings; this map shows the geometry in 2D."));
+  const grid = document.createElement("div");
+  grid.className = "gis-form-grid";
+  const fields = new Map(), initial = new Map();
+  const mixedOption = value => value === "mixed" ? [["mixed", "Mixed (keep current settings)"]] : [];
+  const addSelect = (key, label, source, options) => {
+    const original = source === null ? "" : String(source);
+    initial.set(key, original);
+    const field = selectInput(label, draft?.[key] ?? original, [...mixedOption(source), ...options]);
+    field.input.disabled = !editable;
+    field.input.dataset.kmlGeometryField = key;
+    fields.set(key, field);
+    grid.append(field.wrapper);
+  };
+  addSelect("altitudeMode", "Geometry altitude mode", settings.altitudeMode, [
+    ["", "Unspecified"], ["clampToGround", "Clamp to ground"], ["relativeToGround", "Relative to ground"],
+    ["absolute", "Absolute"], ["gx:clampToSeaFloor", "Clamp to sea floor (gx)"], ["gx:relativeToSeaFloor", "Relative to sea floor (gx)"]
+  ]);
+  addSelect("extrude", "Extrude geometry", settings.extrude, [["false", "Off"], ["true", "On"]]);
+  if (settings.edgeCount) addSelect("tessellate", "Follow terrain along edges", settings.tessellate, [["false", "Off"], ["true", "On"]]);
+  if (Object.hasOwn(settings, "pointAltitude")) {
+    const original = settings.pointAltitude === null ? "" : String(settings.pointAltitude);
+    initial.set("pointAltitude", original);
+    const field = textInput("Point altitude (metres)", draft?.pointAltitude ?? original);
+    field.input.dataset.kmlGeometryField = "pointAltitude";
+    field.input.inputMode = "decimal";
+    field.input.maxLength = 64;
+    field.input.disabled = !editable;
+    fields.set("pointAltitude", field);
+    grid.append(field.wrapper, textElement("p", "Leave point altitude blank to omit its height. Zero is retained as an explicit height."));
+  }
+  const error = textElement("p", "");
+  error.id = `kml-geometry-error-${crypto.randomUUID()}`;
+  error.setAttribute("role", "alert");
+  error.hidden = true;
+  const clearError = () => {error.hidden = true; error.textContent = ""; for (const field of fields.values()) field.input.removeAttribute("aria-invalid");};
+  element.addEventListener("input", clearError);
+  element.addEventListener("change", clearError);
+  element.append(grid, error);
+  return {
+    element,
+    capture: () => Object.fromEntries([...fields].map(([key, field]) => [key, field.input.value])),
+    read() {
+      clearError();
+      const changes = {};
+      for (const [key, field] of fields) {
+        const value = field.input.value;
+        if (value === initial.get(key) || value === "mixed") continue;
+        if (key === "pointAltitude") {
+          const raw = value.trim();
+          if (raw && (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw) || !Number.isFinite(Number(raw)))) {
+            throw Object.assign(Error("Invalid point altitude"), {code: "kml_point_altitude_invalid"});
+          }
+          changes.pointAltitude = raw ? Number(raw) : null;
+        } else changes[key] = key === "altitudeMode" ? value || null : value === "true";
+      }
+      return applyKmlGeometrySettings(place, changes);
+    },
+    reportError(cause) {
+      if (!["kml_point_altitude_invalid", "kml_geometry_settings_invalid"].includes(cause?.code)) return null;
+      const key = cause.code === "kml_point_altitude_invalid" ? "pointAltitude" : "altitudeMode";
+      const message = key === "pointAltitude" ? "Point altitude must be a finite number from -10,000,000 to 10,000,000 metres, or blank."
+        : "Choose a valid geometry setting and apply again.";
+      element.open = true;
+      error.hidden = false;
+      error.textContent = message;
+      const input = fields.get(key)?.input;
+      input?.setAttribute("aria-invalid", "true");
+      input?.setAttribute("aria-describedby", error.id);
+      input?.focus();
+      return message;
+    }
+  };
 }
 
 function kmlPlaceViewEditor(value, editable) {
@@ -6793,7 +6964,30 @@ function layerActionEditor(context, layer, geojson) {
   );
   buttons.lastElementChild?.classList.add("danger");
   section.append(buttons, spatialInterchangeExportControls(context, layer, geojson));
+  if (layer.metadata?.source?.format === "gpx") section.append(workingGpxDownloadButton(context, layer));
   return section;
+}
+
+function workingGpxDownloadButton(context, layer) {
+  const button = actionButton("Download working GPX", async () => {
+    if (context.disposed || !button.isConnected || !context.layers.includes(layer)) return;
+    const geojson = context.dataByLayerId.get(layer.layerId);
+    if (!geojson) {setStatus(context, "Wait for the GPX Layer to load before downloading it.");return;}
+    button.disabled = true;
+    try {
+      const snapshot = structuredClone({source: layer.metadata.source, geojson});
+      const {downloadWorkingGpx} = await import("../lib/gpxExport.js");
+      if (context.disposed || !button.isConnected || !context.layers.includes(layer)) return;
+      await downloadWorkingGpx(snapshot);
+      if (!context.disposed) setStatus(context, "Working GPX downloaded with its source metadata. The original file is unchanged.");
+    } catch (error) {
+      if (!context.disposed) setStatus(context, error.message || "The working GPX could not be downloaded.");
+    } finally {
+      button.disabled = false;
+    }
+  });
+  button.title = "Download current coordinates with original GPX metadata. Feature and vertex identities must remain unchanged.";
+  return button;
 }
 
 function spatialInterchangeExportControls(context, layer, geojson) {
@@ -8115,20 +8309,28 @@ function temporaryWorkPanel(context) {
   panel.append(introduction);
 
   if (context.publicDemo) {
-    const copies = editorSection("Edit sample data", "Make an independent browser copy. The original sample stays unchanged. Copies are limited to 1 MiB, 1,000 features and 10,000 coordinates.");
+    const copies = editorSection("Edit a browser copy", "Make an independent browser copy. The original Layer stays unchanged. Copies are limited to 1 MiB, 1,000 features and 10,000 coordinates.");
     for (const layer of context.layers.filter(layer => !isTemporaryLayer(layer))) {
       const data = context.dataByLayerId.get(layer.layerId);
       if (!data?.features?.length) continue;
       const copy = actionButton(`Edit a copy · ${layer.title}`, () => {
         try {
           if (context.layers.filter(isTemporaryLayer).length >= TEMPORARY_WORK_LIMITS.maximumLayers) throw new Error("Remove a temporary layer first.");
+          const source = layer.metadata?.source;
+          const format = ["gpx", "nmea", "ozi", "delimited-text"].includes(source?.format) ? source.format : "geojson";
+          const extension = format === "ozi" ? (source.variant === "plt" ? "plt" : "wpt")
+            : format === "delimited-text" ? (String(source.filename ?? "").match(/\.(csv|tsv|txt)$/i)?.[1].toLowerCase() ?? "csv")
+            : format;
+          const suffix = ` — editable copy.${extension}`;
           const entry = createTemporaryUpload({
-            fileName: `${layer.title} — editable copy.geojson`, format: "geojson", geojson: data,
+            fileName: `${String(layer.title).slice(0, 240 - suffix.length)}${suffix}`,
+            format, geojson: data,
+            ...(format !== "geojson" ? {metadata: layer.metadata} : {}),
             byteLength: new TextEncoder().encode(JSON.stringify(data)).byteLength
           });
           context.addLayer(entry.layer, entry.geojson, {panelAfterAdd: "temporary"});
           persistTemporaryWork(context);
-          setStatus(context, "Editable browser copy added. The original sample is unchanged.");
+          setStatus(context, "Editable browser copy added. The original Layer is unchanged.");
         } catch (error) {
           setStatus(context, `Copy not created: ${error.code ?? error.message}. Large samples can still be styled without copying.`);
         }
@@ -8213,6 +8415,7 @@ function temporaryWorkPanel(context) {
     const remove = actionButton("Remove", () => removeLayer(context, layer));
     remove.classList.add("danger");
     actions.append(edit, promote, remove);
+    if (layer.metadata?.source?.format === "gpx") actions.append(workingGpxDownloadButton(context, layer));
     if (layer.metadata?.source?.format === "gpx") actions.append(actionButton("Download original GPX", async () => {
       try {const {downloadOriginalGpx} = await import("../lib/gpxImport.js");await downloadOriginalGpx(layer.metadata.source);}
       catch (error) {setStatus(context, error.message);}
@@ -9065,7 +9268,7 @@ async function addProjectDatasetToMap(
     setStatus(context, `${dataset.title} added from its governed source revision. Save the map to persist its independent presentation.`);
     return;
   }
-  const managedRaster = expectedVersionId && String(dataset.geometryType).toLowerCase() === "raster" && ["cog", "geotiff"].includes(dataset.format);
+  const managedRaster = expectedVersionId && String(dataset.geometryType).toLowerCase() === "raster" && ["cog", "geotiff", "nitf", "img"].includes(dataset.format);
   const exactPreviewUnavailable = expectedVersionId
     && typeof (managedRaster ? context.loadManagedCog : context.loadDatasetVersionPreview) !== "function";
   const currentFeaturesUnavailable = !expectedVersionId
@@ -11262,7 +11465,7 @@ function workbenchPmtilesAvailability(context,dataset){
 }
 
 const PMTILES_DERIVATIVE_SOURCE_FORMATS = new Set([
-  "geojson", "csv", "shapefile", "geopackage", "geoparquet"
+  "geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet"
 ]);
 
 function pmtilesDerivativeEligibility(context, dataset, layer) {

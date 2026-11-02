@@ -3729,6 +3729,65 @@ describe("OpenGeo API client", () => {
     assert.throws(() => parseDataset(datasetPayload({source_type: "geotiff", format: "geotiff"})), ApiContractError);
   });
 
+  it("retains NITF and ERDAS Imagine identities through upload, completion and catalog filters", async () => {
+    for (const [format, filename, contentType] of [
+      ["nitf", "imagery.ntf", "image/nitf"],
+      ["img", "elevation.img", "application/octet-stream"]
+    ]) {
+      const calls = [], ticket = uploadTicketPayload(), completion = uploadCompletionPayload();
+      ticket.dataset.format = format;
+      completion.dataset.format = format;
+      const client = new OpenGeoApiClient({tokenProvider: () => "test-token",
+        organizationProvider: () => IDS.organization, fetchImplementation: async (url, options) => {
+          calls.push({url, options});
+          if (url.endsWith("/uploads/request")) return jsonResponse(ticket);
+          if (url.endsWith("/complete")) return jsonResponse(completion);
+          return jsonResponse([datasetPayload({format, geometry_type: "raster"})]);
+        }});
+      const uploaded = await client.requestUpload(IDS.project, {name: "Native raster", classification: "internal",
+        format, filename, contentType, sizeBytes: 100, checksumSha256: "a".repeat(64)});
+      assert.equal(uploaded.dataset.format, format);
+      assert.equal(JSON.parse(calls[0].options.body).format, format);
+      assert.equal(JSON.parse(calls[0].options.body).content_type, contentType);
+      assert.equal((await client.completeUpload(IDS.project, uploaded.uploadId)).dataset.format, format);
+      const [dataset] = await client.listDatasets(IDS.project, {format});
+      assert.equal(dataset.format, format);
+      assert.equal(dataset.sourceType, "upload");
+      assert.equal(new URL(calls.at(-1).url, "https://example.test").searchParams.get("format"), format);
+      assert.throws(() => parseDataset(datasetPayload({source_type: format, format})), ApiContractError);
+    }
+  });
+
+  it("retains MapInfo ZIP identity through upload, completion and catalog filters", async () => {
+    const calls = [], ticket = uploadTicketPayload(), completion = uploadCompletionPayload();
+    ticket.dataset.format = "mapinfo";
+    completion.dataset.format = "mapinfo";
+    const client = new OpenGeoApiClient({tokenProvider: () => "test-token",
+      organizationProvider: () => IDS.organization, fetchImplementation: async (url, options) => {
+        calls.push({url, options});
+        if (url.endsWith("/uploads/request")) return jsonResponse(ticket);
+        if (url.endsWith("/complete")) return jsonResponse(completion);
+        return jsonResponse([datasetPayload({format: "mapinfo", geometry_type: "Point"})]);
+      }});
+    const metadata = {name: "MapInfo survey", classification: "internal", format: "mapinfo",
+      filename: "survey.zip", contentType: "application/zip", sizeBytes: 100,
+      checksumSha256: "a".repeat(64)};
+    const uploaded = await client.requestUpload(IDS.project, metadata);
+    assert.equal(uploaded.dataset.format, "mapinfo");
+    assert.equal(JSON.parse(calls[0].options.body).format, "mapinfo");
+    assert.equal(JSON.parse(calls[0].options.body).filename, "survey.zip");
+    assert.equal(JSON.parse(calls[0].options.body).content_type, "application/zip");
+    assert.equal(JSON.parse(calls[0].options.body).checksum_sha256, metadata.checksumSha256);
+    assert.equal((await client.completeUpload(IDS.project, uploaded.uploadId)).dataset.format, "mapinfo");
+    const [dataset] = await client.listDatasets(IDS.project, {format: "mapinfo"});
+    assert.equal(dataset.format, "mapinfo");
+    assert.equal(dataset.sourceType, "upload");
+    assert.equal(new URL(calls.at(-1).url, "https://example.test").searchParams.get("format"), "mapinfo");
+    assert.throws(() => parseDataset(datasetPayload({source_type: "mapinfo", format: "mapinfo"})), ApiContractError);
+    await assert.rejects(client.requestUpload(IDS.project, {...metadata, purpose: "pmtiles_original"}), ApiContractError);
+    assert.equal(calls.length, 3);
+  });
+
   it("retains nested working COG metadata and original object identity in version parsing", () => {
     const original = versionPayload(), workingId = "82000000-0000-4000-8000-000000000002";
     const working = {relative_key: "working/raster.cog.tif", filename: "raster.cog.tif", object_id: workingId,
@@ -4818,12 +4877,13 @@ describe("OpenGeo API client", () => {
     });
   });
 
-  it('reads server-probed PMTiles input formats with nullable unused software',async()=>{
+  it('reads server-probed MapInfo PMTiles input formats with nullable unused software',async()=>{
     let formats='geojson',admissionReady=true,admissionReason='ready',url;
     const client=new OpenGeoApiClient({tokenProvider:()=> 'test-token',organizationProvider:()=>IDS.organization,fetchImplementation:async request=>{
       url=request;return jsonResponse({schema_version:'opengeo.server-processing-registry.1.0.0',tools:[{id:'vector-to-pmtiles',version:'1.1.0',request_schema_version:'opengeo.pmtiles-derivative-request.1.1.0',limits:{recipe:'gdal-pmtiles-v2',adaptiveGeneralization:true,inputFormats:formats,admissionReady,admissionReason},software:{gdal:'3.13.1',tippecanoe:null}}]});
     }});
     assert.deepEqual(await client.getPmtilesConversionCapabilities(),{inputFormats:['geojson'],recipe:'gdal-pmtiles-v2',adaptiveGeneralization:true,admissionReady:true,admissionReason:'ready'});assert.equal(url,'/api/processing/tools');
+    formats='geojson,mapinfo';assert.deepEqual((await client.getPmtilesConversionCapabilities()).inputFormats,['geojson','mapinfo']);
     admissionReady=false;admissionReason='runtime_budget_exhausted';assert.equal((await client.getPmtilesConversionCapabilities()).admissionReady,false);
     admissionReason='unreviewed';await assert.rejects(client.getPmtilesConversionCapabilities(),/admission status/);admissionReady=true;admissionReason='ready';
     formats='geopackage,unverified';await assert.rejects(client.getPmtilesConversionCapabilities(),/input formats/);

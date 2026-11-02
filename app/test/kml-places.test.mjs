@@ -12,6 +12,7 @@ import {
   kmlReportForSave,
   kmlRegionLodPresentation,
   moveKmlPlace,
+  normalizeKmlTime,
   normalizePlacesDocument,
   parseAuthoringGeometry,
   parseKml,
@@ -145,6 +146,53 @@ describe("bounded KML/KMZ Places interchange", () => {
     assert.equal(roundTrip.report.result, "pass");
     assert.ok(first.indexOf("<visibility>") < first.indexOf("<open>"));
     assert.ok(first.indexOf("<open>") < first.indexOf("<LookAt>"));
+  });
+
+  it("preserves exact valid time strings and open spans through normalization and KML", () => {
+    const times = [
+      {type: "TimeStamp", when: "-0004-02-29"},
+      {type: "TimeStamp", when: "2026-08-24T12:00:00.123456789012345678901234567890+05:45"},
+      {type: "TimeStamp", when: "2026-12-31T24:00:00.0000Z"},
+      {type: "TimeStamp", when: "2016-12-31T23:59:60.5Z"},
+      {type: "TimeStamp", when: "123456789012345678901234567890+14:00"},
+      {type: "TimeStamp", when: "2026-08-14:00"},
+      {type: "TimeSpan", begin: "2026-12", end: "2026"},
+      {type: "TimeSpan", begin: "2026-08-24T12:00:00", end: "2026-08-24T11:00:00Z"},
+      {type: "TimeSpan", begin: "2016-12-31T23:59:60.9Z", end: "2017-01-01T00:00:00.1Z"},
+      {type: "TimeSpan", begin: "2026-08", end: null},
+      {type: "TimeSpan", begin: null, end: "2026-08-24Z"},
+      {type: "TimeSpan", begin: null, end: null}
+    ];
+    for (const time of times) {
+      assert.deepEqual(normalizeKmlTime(time), time);
+      assert.notEqual(normalizeKmlTime(time), time);
+      const document = normalizePlacesDocument({...createPlacesDocument(), time});
+      assert.deepEqual(parseKml(exportKml(document), {DOMParser}).document.time, time);
+    }
+    assert.equal(normalizeKmlTime(null), null);
+    assert.deepEqual(normalizeKmlTime({type: "TimeSpan", begin: "", end: undefined}), {type: "TimeSpan", begin: null, end: null});
+  });
+
+  it("rejects invalid authored/imported time values and definitely reversed spans", () => {
+    for (const [time, code] of [
+      [{type: "unknown"}, "places_time_invalid"],
+      [{type: "TimeStamp", when: ""}, "places_time_value_required"],
+      [{type: "TimeStamp", when: "2026-02-29"}, "places_time_value_invalid"],
+      [{type: "TimeSpan", begin: "2026-04-31", end: null}, "places_time_value_invalid"],
+      [{type: "TimeSpan", begin: "2026-08-25", end: "2026-08-24"}, "places_time_order_invalid"],
+      [{type: "TimeSpan", begin: "2026-08-24T10:00:00-02:00", end: "2026-08-24T11:00:00Z"}, "places_time_order_invalid"],
+      [{type: "TimeSpan", begin: "2017-01-01T00:00:02Z", end: "2016-12-31T23:59:60Z"}, "places_time_order_invalid"],
+      [{type: "TimeStamp", when: "1".repeat(KML_PLACES_LIMITS.maximumTextCharacters + 1)}, "kml_text_too_long"]
+    ]) {
+      assert.throws(() => normalizeKmlTime(time), error => error.code === code);
+      assert.throws(() => updateKmlPlace(createPlacesDocument(), "opengeo-places", {time}), error => error.code === code);
+    }
+    for (const timeXml of [
+      "<TimeStamp><when>1900-02-29</when></TimeStamp>",
+      "<TimeStamp><when>2026-08-24T24:00:00.01Z</when></TimeStamp>",
+      "<TimeStamp><when>2026-08-24+14:01</when></TimeStamp>"
+    ]) assert.throws(() => parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document>${timeXml}</Document></kml>`, {DOMParser}), error => error.code === "places_time_value_invalid");
+    assert.throws(() => parseKml('<kml xmlns="http://www.opengis.net/kml/2.2"><Document><TimeSpan><begin>2027</begin><end>2026</end></TimeSpan></Document></kml>', {DOMParser}), error => error.code === "places_time_order_invalid");
   });
 
   it("round-trips uniform controls on nested MultiGeometry leaves with zero altitudes and metadata", () => {
