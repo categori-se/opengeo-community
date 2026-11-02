@@ -447,8 +447,11 @@ def test_framework_publication_adapter_uses_only_its_configured_queue_and_review
         AwsSqsFrameworkPublicationDispatcher(configuration)
     unavailable = UnavailableFrameworkPublicationDispatcher()
     assert unavailable.available is False
+    assert unavailable.withdrawal_available is False
     with pytest.raises(ProcessingDispatchUnavailable):
         asyncio.run(unavailable.dispatch_framework_publication(JOB_ID))
+    with pytest.raises(ProcessingDispatchUnavailable):
+        asyncio.run(unavailable.dispatch_framework_publication_withdrawal(JOB_ID))
     queue = "https://sqs.us-east-1.amazonaws.com/111111111111/opengeo-publications"
     configuration.framework_publication_queue_url = queue
     transport = Transport()
@@ -459,6 +462,10 @@ def test_framework_publication_adapter_uses_only_its_configured_queue_and_review
         now=lambda: datetime(2026, 10, 17, tzinfo=UTC),
     )
     assert dispatcher.available is True
+    assert dispatcher.withdrawal_available is False
+    with pytest.raises(ProcessingDispatchUnavailable):
+        asyncio.run(dispatcher.dispatch_framework_publication_withdrawal(JOB_ID))
+    assert transport.calls == []
     asyncio.run(dispatcher.dispatch_framework_publication(JOB_ID))
     assert len(transport.calls) == 1
     url, _, body, _ = transport.calls[0]
@@ -466,5 +473,30 @@ def test_framework_publication_adapter_uses_only_its_configured_queue_and_review
     payload = parse_qs(body.decode())
     assert json.loads(payload["MessageBody"][0]) == {
         "schema": "opengeo.framework-publication.command.1.0.0",
+        "review_id": str(JOB_ID),
+    }
+
+
+def test_publication_withdrawal_sends_only_exact_review_to_existing_queue_when_enabled():
+    import json
+
+    configuration = settings()
+    queue = "https://sqs.us-east-1.amazonaws.com/111111111111/opengeo-publications"
+    configuration.framework_publication_queue_url = queue
+    configuration.framework_publication_withdrawal_enabled = True
+    transport = Transport()
+    dispatcher = AwsSqsFrameworkPublicationDispatcher(
+        configuration,
+        credentials=Credentials(),
+        transport=transport,
+        now=lambda: datetime(2026, 11, 1, tzinfo=UTC),
+    )
+    assert dispatcher.withdrawal_available is True
+    asyncio.run(dispatcher.dispatch_framework_publication_withdrawal(JOB_ID))
+    assert len(transport.calls) == 1
+    url, _, body, _ = transport.calls[0]
+    assert url == queue
+    assert json.loads(parse_qs(body.decode())["MessageBody"][0]) == {
+        "schema": "opengeo.framework-publication-withdrawal.command.1.0.0",
         "review_id": str(JOB_ID),
     }

@@ -87,6 +87,37 @@ test("PMTiles build refuses missing or changed notice text and an unreviewed pac
   await assert.rejects(writeThirdPartyNotices(options), /Review version-pinned upstream notice before changing dependency: pmtiles/);
 });
 
+test("included Plus Code helper ships exact indexed upstream terms and refuses a missing or truncated notice", async t => {
+  const options = await fixture(t);
+  await put(options.appRoot, "src/lib/plusCode.js", await readFile(new URL("../src/lib/plusCode.js", import.meta.url)));
+  const files = [];
+  for (const [filename, sha256] of [
+    ["open-location-code.LICENSE.txt", "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"],
+    ["open-location-code.NOTICE.txt", "8a6dbae2c1d09b688fddcd8d9e3cff8f03c22bb012808d2862907a9ecaaf8b7d"]
+  ]) {
+    const bytes = await readFile(new URL(`../src/assets/licenses/${filename}`, import.meta.url));
+    await put(options.appRoot, `src/assets/licenses/${filename}`, bytes);
+    files.push({filename, bytes, sha256});
+  }
+  const inventory = await writeThirdPartyNotices(options);
+  const serialized = JSON.parse(await readFile(join(options.outputRoot, "third-party-inventory.json"), "utf8"));
+  const notice = await readFile(join(options.outputRoot, "third-party-notices.txt"), "utf8");
+  assert.equal(inventory.documents.length, 8);
+  for (const {filename, bytes, sha256} of files) {
+    const path = `notices/${filename}`;
+    assert.deepEqual(await readFile(join(options.outputRoot, path)), bytes);
+    const expected = {path, bytes: bytes.length, sha256};
+    assert.deepEqual(inventory.documents.find(document => document.path === path), expected);
+    assert.deepEqual(serialized.documents.find(document => document.path === path), expected);
+    assert.ok(notice.includes(`  ${path}\n`));
+  }
+  const path = "src/assets/licenses/open-location-code.NOTICE.txt";
+  await rm(join(options.appRoot, path));
+  await assert.rejects(writeThirdPartyNotices(options), {code: "ENOENT"});
+  await put(options.appRoot, path, "Truncated upstream notice\n");
+  await assert.rejects(writeThirdPartyNotices(options), /Open Location Code notice checksum differs: open-location-code\.NOTICE\.txt/);
+});
+
 test("browser notices preserve direct and supplemental terms, expose gaps and ship local source documents", async t => {
   const options = await fixture(t);
   const inventory = await writeThirdPartyNotices(options);

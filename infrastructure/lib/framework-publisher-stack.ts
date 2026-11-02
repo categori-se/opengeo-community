@@ -14,6 +14,42 @@ export interface PublicationDestination {
   readonly origin_access_control_id?: string;
 }
 
+/** Merge these statements into the bucket's existing policy through its owning stack. */
+export function publicationWithdrawalPolicyStatements(props: {
+  bucketArn: string;
+  distributionArn: string;
+  publisherRoleArn: string;
+}): Record<string, unknown>[] {
+  const resource = `${props.bucketArn}/releases/framework-*/*`;
+  const tagWrites = ["s3:PutObjectTagging", "s3:PutObjectVersionTagging"];
+  return [
+    {
+      Sid: "DenyWithdrawnFrameworkPublicationDelivery", Effect: "Deny",
+      Principal: {Service: "cloudfront.amazonaws.com"},
+      Action: ["s3:GetObject", "s3:GetObjectVersion"], Resource: resource,
+      Condition: {StringEquals: {
+        "AWS:SourceArn": props.distributionArn,
+        "s3:ExistingObjectTag/opengeo-withdrawn": "true"
+      }}
+    },
+    {
+      Sid: "DenyFrameworkPublicationTaggingOutsidePublisher", Effect: "Deny",
+      Principal: "*", Action: tagWrites, Resource: resource,
+      Condition: {ArnNotEquals: {"aws:PrincipalArn": props.publisherRoleArn}}
+    },
+    {
+      Sid: "DenyFrameworkPublicationTaggingWithoutWithdrawal", Effect: "Deny",
+      Principal: "*", Action: tagWrites, Resource: resource,
+      Condition: {StringNotEquals: {"s3:RequestObjectTag/opengeo-withdrawn": "true"}}
+    },
+    {
+      Sid: "DenyFrameworkPublicationTagDeletion", Effect: "Deny",
+      Principal: "*", Action: ["s3:DeleteObjectTagging", "s3:DeleteObjectVersionTagging"],
+      Resource: resource
+    }
+  ];
+}
+
 export interface FrameworkPublisherStackProps extends StackProps {
   readonly config: EnvironmentConfig;
   readonly foundation: FrameworkRuntimeFoundation;
@@ -28,6 +64,8 @@ export interface FrameworkPublisherStackProps extends StackProps {
   /** Explicit reviewed targets; omitted retains the legacy single-host worker. */
   readonly destinations?: readonly PublicationDestination[];
   readonly protectedHosts?: readonly string[];
+  /** Grant withdrawal tag access and emit policy fragments; install them separately before enabling delivery. */
+  readonly withdrawalTaggingEnabled?: boolean;
 }
 
 /** Separate on-demand deployment job. No build execution, VPC, or provisioned concurrency. */
@@ -76,6 +114,11 @@ export class FrameworkPublisherStack extends Stack {
     }
     const buckets = [...new Set(targets?.map(target => target.bucket) ?? [props.publicBucket])];
     const distributions = targets?.map(target => target.distribution_id) ?? [props.distributionId];
+    if (props.withdrawalTaggingEnabled === true &&
+        (targets === undefined || targets.some(target => !target.origin_access_control_id) ||
+          buckets.length !== targets.length)) {
+      throw new Error("Withdrawal tagging requires explicit private OAC publication destinations with unique buckets");
+    }
     if (!/^sha256:[0-9a-f]{64}$/.test(props.imageDigest)) throw new Error("Pin the publisher image digest");
     if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(props.publicBucket) ||
         props.publicBucket === config.storageBuckets.application ||
@@ -158,6 +201,42 @@ export class FrameworkPublisherStack extends Stack {
       actions: ["s3:PutObject"], resources: destinations.map(arn => `${arn}/releases/framework-*/*`),
       conditions: {StringEquals: {"s3:if-none-match": "*"}}
     }));
+    if (props.withdrawalTaggingEnabled === true) {
+      const withdrawalObjects = destinations.map(arn => `${arn}/releases/framework-*/*`);
+      this.publisher.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["s3:GetBucketPolicy", "s3:GetBucketPublicAccessBlock"], resources: destinations
+      }));
+      // Managed policies may be AWS-owned. The guard reads only policy IDs from an exact allowed distribution.
+      this.publisher.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["cloudfront:GetCachePolicy", "cloudfront:GetOriginRequestPolicy"], resources: ["*"]
+      }));
+      this.publisher.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["s3:GetObjectTagging", "s3:GetObjectVersionTagging"], resources: withdrawalObjects
+      }));
+      this.publisher.addToRolePolicy(new iam.PolicyStatement({
+        actions: ["s3:PutObjectTagging", "s3:PutObjectVersionTagging"], resources: withdrawalObjects,
+        conditions: {
+          StringEquals: {"s3:RequestObjectTag/opengeo-withdrawn": "true"},
+          "ForAllValues:StringEquals": {"s3:RequestObjectTagKeys": ["opengeo-withdrawn"]}
+        }
+      }));
+      const publisherRoleArn = this.publisher.role!.roleArn;
+      targets!.forEach((target, index) => {
+        const statements = publicationWithdrawalPolicyStatements({
+          bucketArn: `arn:${this.partition}:s3:::${target.bucket}`,
+          distributionArn: `arn:${this.partition}:cloudfront::${this.account}:distribution/${target.distribution_id}`,
+          publisherRoleArn
+        });
+        new CfnOutput(this, `WithdrawalPolicyFragment${index + 1}`, {
+          description: `Merge into the existing policy owner for ${target.bucket}; retain on rollback`,
+          value: this.toJsonString({Version: "2012-10-17", Statement: statements})
+        });
+        new CfnOutput(this, `WithdrawalPublisherRoleArn${index + 1}`, {
+          description: `Sole withdrawal tag writer for ${target.bucket}`,
+          value: publisherRoleArn
+        });
+      });
+    }
     this.publisher.addToRolePolicy(new iam.PolicyStatement({
       actions: ["cloudfront:GetDistribution", "cloudfront:GetDistributionConfig",
         "cloudfront:UpdateDistribution", "cloudfront:CreateInvalidation", "cloudfront:GetInvalidation"],

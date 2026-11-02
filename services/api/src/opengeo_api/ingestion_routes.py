@@ -119,6 +119,10 @@ _UPLOAD_FORMATS: dict[UploadDatasetFormat, tuple[frozenset[str], frozenset[str]]
             }
         ),
     ),
+    "geotiff": (
+        frozenset({".tif", ".tiff"}),
+        frozenset({"image/tiff", "image/geotiff", "application/geotiff"}),
+    ),
     "cog": (
         frozenset({".tif", ".tiff"}),
         frozenset({"image/tiff", "image/geotiff", "application/geotiff"}),

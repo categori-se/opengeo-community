@@ -1,3 +1,4 @@
+import hashlib
 import json
 import shutil
 import struct
@@ -101,6 +102,222 @@ class MediaRunner:
         assert program == "gdal_translate"
         Path(arguments[-1]).write_bytes(png_bytes(text=b"author\x00private-source-metadata"))
         return CommandResult("", "")
+
+
+def geotiff_document(*, cog: bool = False) -> dict:
+    return {
+        "driverShortName": "GTiff",
+        "size": [16, 16],
+        "geoTransform": [1000.0, 10.0, 0.0, 2000.0, 0.0, -10.0],
+        "coordinateSystem": {
+            "wkt": 'PROJCRS["WGS 84 / Pseudo-Mercator",CS[Cartesian,2],ID["EPSG",3857]]',
+            "dataAxisToSRSAxisMapping": [1, 2],
+        },
+        "cornerCoordinates": {
+            "upperLeft": [1000.0, 2000.0], "upperRight": [1160.0, 2000.0],
+            "lowerLeft": [1000.0, 1840.0], "lowerRight": [1160.0, 1840.0],
+        },
+        "wgs84Extent": {"type": "Polygon", "coordinates": [[
+            [0.0089, 0.0180], [0.0089, 0.0165], [0.0104, 0.0165],
+            [0.0104, 0.0180], [0.0089, 0.0180],
+        ]]},
+        "bands": [{"band": 1, "type": "Byte", "noDataValue": 255, "colorInterpretation": "Gray"}],
+        "metadata": {"IMAGE_STRUCTURE": {"LAYOUT": "COG"} if cog else {}},
+    }
+
+
+class GeoTiffRunner:
+    def __init__(self) -> None:
+        self.source_document = geotiff_document()
+        self.working_document = geotiff_document(cog=True)
+        self.calls: list[tuple[str, list[str], Path]] = []
+
+    def run(self, program: str, arguments: list[str], *, cwd: Path) -> CommandResult:
+        self.calls.append((program, arguments, cwd))
+        if program == "gdalinfo":
+            document = (
+                self.working_document
+                if Path(arguments[-1]).name == "raster.cog.tif"
+                else self.source_document
+            )
+            return CommandResult(json.dumps(document), "")
+        assert program == "gdal_translate"
+        target = Path(arguments[-1])
+        target.write_bytes(png_bytes() if target.suffix == ".png" else b"II*\x00normalized")
+        return CommandResult("", "")
+
+
+def test_geotiff_normalizes_once_without_resizing_or_changing_original(tmp_path: Path) -> None:
+    source = tmp_path / "source.tif"
+    original = b"II*\x00ordinary-source-tiff"
+    source.write_bytes(original)
+    runner = GeoTiffRunner()
+    result = DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+        source, "geotiff", tmp_path
+    )
+
+    assert source.read_bytes() == original
+    assert result.crs == "EPSG:3857"
+    assert result.extent == (1000.0, 1840.0, 1160.0, 2000.0)
+    raster = result.schema_definition["raster"]
+    assert raster["width"] == 16 and raster["height"] == 16
+    assert raster["source_format"] == "geotiff"
+    assert raster["display_bounds_crs84"] == [0.0089, 0.0165, 0.0104, 0.0180]
+    assert raster["working_cog"] == {
+        "relative_key": "working/raster.cog.tif", "filename": "raster.cog.tif",
+    }
+    assert result.artifacts[0].role == "working"
+    assert result.artifacts[0].relative_key == "working/raster.cog.tif"
+    assert {"code": "geotiff_working_cog_verified", "status": "passed"} in (
+        result.quality_results["checks"]
+    )
+    normalizations = [
+        args for program, args, _ in runner.calls
+        if program == "gdal_translate" and Path(args[-1]).name == "raster.cog.tif"
+    ]
+    assert len(normalizations) == 1
+    assert "COMPRESS=DEFLATE" in normalizations[0]
+    assert "-outsize" not in normalizations[0] and "-tr" not in normalizations[0]
+
+
+@pytest.mark.parametrize("field", ["geoTransform", "coordinateSystem"])
+def test_geotiff_requires_georeferencing_before_conversion(tmp_path: Path, field: str) -> None:
+    source = tmp_path / "source.tif"
+    source.write_bytes(b"II*\x00source")
+    runner = GeoTiffRunner()
+    del runner.source_document[field]
+    with pytest.raises(ValidationFailure, match="geotiff_georeferencing_unsupported"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, "geotiff", tmp_path
+        )
+    assert [program for program, _, _ in runner.calls] == ["gdalinfo"]
+
+
+@pytest.mark.parametrize("change", ["size", "grid", "crs", "bands", "dtype", "nodata"])
+def test_geotiff_rejects_changed_working_raster(tmp_path: Path, change: str) -> None:
+    source = tmp_path / "source.tif"
+    source.write_bytes(b"II*\x00source")
+    runner = GeoTiffRunner()
+    document = runner.working_document
+    if change == "size":
+        document["size"] = [8, 16]
+    elif change == "grid":
+        document["geoTransform"][0] = 1001.0
+    elif change == "crs":
+        document["coordinateSystem"]["wkt"] = 'PROJCRS["changed",ID["EPSG",32618]]'
+    elif change == "bands":
+        document["bands"].append({"band": 2, "type": "Byte"})
+    elif change == "dtype":
+        document["bands"][0]["type"] = "UInt16"
+    else:
+        document["bands"][0]["noDataValue"] = 0
+    with pytest.raises(ValidationFailure, match="geotiff_working_cog_mismatch"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, "geotiff", tmp_path
+        )
+
+
+@pytest.mark.parametrize("change", ["singular_grid", "nonfinite_grid", "unknown_crs"])
+def test_geotiff_rejects_unsupported_georeferencing(tmp_path: Path, change: str) -> None:
+    source = tmp_path / "source.tif"
+    source.write_bytes(b"II*\x00source")
+    runner = GeoTiffRunner()
+    if change == "unknown_crs":
+        runner.source_document["coordinateSystem"] = {"wkt": 'PROJCRS["unknown"]'}
+    else:
+        runner.source_document["geoTransform"][1] = (
+            0.0 if change == "singular_grid" else float("nan")
+        )
+    with pytest.raises(ValidationFailure, match="geotiff_georeferencing_unsupported"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, "geotiff", tmp_path
+        )
+    assert [program for program, _, _ in runner.calls] == ["gdalinfo"]
+
+
+def test_geotiff_requires_actual_cog_layout_and_original_cog_remains_strict(tmp_path: Path) -> None:
+    source = tmp_path / "source.tif"
+    source.write_bytes(b"II*\x00source")
+    runner = GeoTiffRunner()
+    runner.working_document["metadata"] = {}
+    with pytest.raises(ValidationFailure, match="geotiff_working_cog_invalid"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, "geotiff", tmp_path
+        )
+    with pytest.raises(ValidationFailure, match="cog_layout_required"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, "cog", tmp_path
+        )
+
+
+@pytest.mark.parametrize("change", [
+    "missing", "not_polygon", "empty", "nonfinite", "outside", "degenerate", "open_ring",
+])
+def test_geotiff_requires_verified_geographic_display_bounds(tmp_path: Path, change: str) -> None:
+    source = tmp_path / "source.tif"
+    source.write_bytes(b"II*\x00source")
+    runner = GeoTiffRunner()
+    footprint = runner.working_document["wgs84Extent"]
+    if change == "missing":
+        del runner.working_document["wgs84Extent"]
+    elif change == "not_polygon":
+        footprint["type"] = "Point"
+    elif change == "empty":
+        footprint["coordinates"] = []
+    elif change == "nonfinite":
+        footprint["coordinates"][0][0][0] = float("nan")
+    elif change == "outside":
+        footprint["coordinates"][0][0][0] = 181.0
+    elif change == "degenerate":
+        footprint["coordinates"] = [[[1.0, 2.0]] * 5]
+    else:
+        footprint["coordinates"][0][-1] = [0.0, 0.0]
+    with pytest.raises(ValidationFailure, match="geotiff_display_bounds_invalid"):
+        DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+            source, "geotiff", tmp_path
+        )
+
+
+@pytest.mark.skipif(
+    shutil.which("gdalinfo") is None or shutil.which("gdal_translate") is None,
+    reason="GDAL is not installed",
+)
+def test_geotiff_real_gdal_preserves_pixels_grid_crs_nodata_and_original(tmp_path: Path) -> None:
+    runner = CommandRunner(tmp_path, timeout_seconds=30, output_bytes=1_048_576)
+    seed = tmp_path / "seed.pgm"
+    seed.write_bytes(b"P5\n16 16\n255\n" + bytes(range(256)))
+    source = tmp_path / "source.tif"
+    runner.run("gdal_translate", [
+        "-of", "GTiff", "-a_srs", "EPSG:3857", "-a_ullr", "1000", "2000",
+        "1160", "1840", "-a_nodata", "255", str(seed), str(source),
+    ], cwd=tmp_path)
+    original = source.read_bytes()
+    source_metadata = json.loads(
+        runner.run("gdalinfo", ["-json", str(source)], cwd=tmp_path).stdout
+    )
+    assert source_metadata.get("metadata", {}).get("IMAGE_STRUCTURE", {}).get("LAYOUT") != "COG"
+
+    result = DatasetInspector(settings(tmp_path), runner, CleanScanner()).inspect(
+        source, "geotiff", tmp_path
+    )
+
+    working = next(artifact for artifact in result.artifacts if artifact.role == "working")
+    working_metadata = json.loads(
+        runner.run("gdalinfo", ["-json", str(working.path)], cwd=tmp_path).stdout
+    )
+    assert hashlib.sha256(source.read_bytes()).digest() == hashlib.sha256(original).digest()
+    assert working_metadata["metadata"]["IMAGE_STRUCTURE"]["LAYOUT"] == "COG"
+    assert working_metadata["size"] == [16, 16]
+    assert working_metadata["geoTransform"] == source_metadata["geoTransform"]
+    assert working_metadata["coordinateSystem"] == source_metadata["coordinateSystem"]
+    assert working_metadata["bands"][0]["type"] == source_metadata["bands"][0]["type"]
+    assert working_metadata["bands"][0]["noDataValue"] == 255
+    for name, path in [("original", source), ("working", working.path)]:
+        runner.run(
+            "gdal_translate", ["-of", "XYZ", str(path), str(tmp_path / f"{name}.xyz")],
+            cwd=tmp_path,
+        )
+    assert (tmp_path / "original.xyz").read_bytes() == (tmp_path / "working.xyz").read_bytes()
 
 
 class DocumentRunner:

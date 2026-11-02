@@ -1,6 +1,7 @@
 """Bounded AWS adapters for immutable Framework releases, with no compiler authority."""
 
 import asyncio
+import base64
 import copy
 import hashlib
 import hmac
@@ -19,6 +20,9 @@ from xml.etree import ElementTree as ET
 from opengeo_api.cognito_provisioning import AwsCredentialProvider
 from opengeo_api.framework_publisher import (
     PublicationConflict,
+    _owner,
+    _path,
+    _withdrawn_mounts,
     checksum,
     localized_output_proof,
     retained_localized_files,
@@ -26,6 +30,10 @@ from opengeo_api.framework_publisher import (
 
 
 class PublicationDependencyUnavailable(RuntimeError):
+    pass
+
+
+class _WithdrawalPending(Exception):
     pass
 
 
@@ -148,6 +156,186 @@ def _ok(status: int) -> None:
         raise PublicationDependencyUnavailable("publication_aws_unavailable")
 
 
+def withdrawal_policy_statements(
+    bucket: str, distribution_arn: str, publisher_role_arn: str
+) -> list[dict[str, Any]]:
+    """Static, operator-installed fence; withdrawal never edits bucket policies."""
+    resource = f"arn:aws:s3:::{bucket}/releases/framework-*/*"
+    writes = ["s3:PutObjectTagging", "s3:PutObjectVersionTagging"]
+    return [
+        {
+            "Sid": "DenyWithdrawnFrameworkPublicationDelivery",
+            "Effect": "Deny",
+            "Principal": {"Service": "cloudfront.amazonaws.com"},
+            "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+            "Resource": resource,
+            "Condition": {
+                "StringEquals": {
+                    "AWS:SourceArn": distribution_arn,
+                    "s3:ExistingObjectTag/opengeo-withdrawn": "true",
+                }
+            },
+        },
+        {
+            "Sid": "DenyFrameworkPublicationTaggingOutsidePublisher",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": writes,
+            "Resource": resource,
+            "Condition": {"ArnNotEquals": {"aws:PrincipalArn": publisher_role_arn}},
+        },
+        {
+            "Sid": "DenyFrameworkPublicationTaggingWithoutWithdrawal",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Action": writes,
+            "Resource": resource,
+            "Condition": {
+                "StringNotEquals": {
+                    "s3:RequestObjectTag/opengeo-withdrawn": "true",
+                }
+            },
+        },
+        {
+            "Sid": "DenyFrameworkPublicationTagDeletion",
+            "Effect": "Deny",
+            "Principal": "*",
+            "Resource": resource,
+            "Action": ["s3:DeleteObjectTagging", "s3:DeleteObjectVersionTagging"],
+        },
+    ]
+
+
+def _private_redirect_body(location: str) -> bytes:
+    if not location.startswith("/") or location.startswith("//") or "\\" in location:
+        raise PublicationConflict("publication_redirect_invalid")
+    target = json.dumps(location).replace("<", "\\u003c").replace(">", "\\u003e")
+    escaped = html.escape(location, quote=True)
+    return (
+        f'<!doctype html><meta charset="utf-8"><title>Redirect</title>'
+        f"<script>location.replace({target}+location.search+location.hash)</script>"
+        f'<noscript><meta http-equiv="refresh" content="0;url={escaped}"></noscript>'
+        f'<a href="{escaped}">Continue</a>'
+    ).encode()
+
+
+def _withdrawal_objects(claim: dict[str, Any]) -> list[dict[str, Any]]:
+    """Exact sealed native objects, including directory HTML and redirect aliases."""
+    invalid = "publication_withdrawal_plan_invalid"
+    review, target, mount = (
+        claim.get("review_id"),
+        claim.get("target_prefix"),
+        claim.get("mount_path"),
+    )
+    origin, mounts = claim.get("origin"), claim.get("reserved_mounts")
+    if (
+        not isinstance(review, str)
+        or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", review)
+        or target != f"releases/framework-{review}"
+        or not isinstance(origin, dict)
+        or not isinstance(mount, str)
+        or not re.fullmatch(r"/(?:[a-z0-9][a-z0-9-]{0,79}/){0,8}", mount)
+        or not isinstance(mounts, list)
+        or not 1 <= len(mounts) <= 2048
+        or any(
+            not isinstance(m, str) or not re.fullmatch(r"/(?:[a-z0-9][a-z0-9-]{0,79}/){0,8}", m)
+            for m in mounts
+        )
+        or len(set(mounts)) != len(mounts)
+        or mount not in mounts
+        or type(claim.get("is_current_mount_edition")) is not bool
+        or claim["is_current_mount_edition"] != (claim.get("current_mount_review_id") == review)
+    ):
+        raise PublicationConflict(invalid)
+    bucket = origin.get("bucket")
+    if not isinstance(bucket, str) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", bucket):
+        raise PublicationConflict(invalid)
+    mounted, stem = mount.lstrip("/"), mount.strip("/")
+    index = mounted + "index.html"
+    expected = {index, mounted, stem, stem + ".html"} if stem else {index}
+    plan = claim.get("target_plan")
+    if (
+        not isinstance(plan, dict)
+        or plan.get("reviewId") != review
+        or plan.get("targetPrefix") != target
+        or plan.get("mountPath") != mount
+        or plan.get("editionPath") != f"/{target}/{index}"
+    ):
+        raise PublicationConflict(invalid)
+    entries = plan.get("files")
+    if not isinstance(entries, list):
+        raise PublicationConflict(invalid)
+    first = next((f for f in entries if isinstance(f, dict) and f.get("path") == index), {})
+    source = first.get("source", {})
+    if not isinstance(source, dict):
+        raise PublicationConflict(invalid)
+    localized_output_proof(source.get("localizedOutput"), source)
+    seal = (source.get("checksumSha256"), source.get("sizeBytes"), source.get("contentType"))
+    objects = []
+    plans = [plan]
+    if claim["is_current_mount_edition"]:
+        current_plan = claim.get("current_release_plan")
+        if not isinstance(current_plan, dict):
+            raise PublicationConflict(invalid)
+        plans.append(current_plan)
+    for position, candidate in enumerate(plans):
+        if (
+            not isinstance(candidate, dict)
+            or candidate.get("bucket") != bucket
+            or candidate.get("schema") != "opengeo.framework-publication-plan.1.0.0"
+            or candidate.get("privateOrigin") is not True
+            or not isinstance(candidate.get("files"), list)
+            or len(candidate["files"]) > 8
+        ):
+            raise PublicationConflict(invalid)
+        prefix = candidate.get("targetPrefix")
+        if (
+            not isinstance(prefix, str)
+            or not re.fullmatch(
+                r"releases/framework-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", prefix
+            )
+            or (position and prefix != origin.get("active_release_prefix"))
+        ):
+            raise PublicationConflict(invalid)
+        names = set()
+        for entry in candidate["files"]:
+            if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                raise PublicationConflict(invalid)
+            path = _path(entry["path"], directory=True)
+            if path not in expected or path in names or _owner(path, tuple(mounts)) != mount:
+                raise PublicationConflict(invalid)
+            names.add(path)
+            if entry.get("kind") == "copy":
+                pin = entry.get("source")
+                if (
+                    not isinstance(pin, dict)
+                    or (pin.get("checksumSha256"), pin.get("sizeBytes"), pin.get("contentType"))
+                    != seal
+                    or path not in {index, mounted}
+                ):
+                    raise PublicationConflict(invalid)
+                digest, size = seal[:2]
+            elif entry.get("kind") == "redirect" and entry.get("location") == mount:
+                body = _private_redirect_body(mount)
+                digest, size = hashlib.sha256(body).hexdigest(), len(body)
+            else:
+                raise PublicationConflict(invalid)
+            objects.append(
+                {
+                    "bucket": bucket,
+                    "key": f"{prefix}/{path}",
+                    "checksumSha256": digest,
+                    "sizeBytes": size,
+                    "release": prefix.rsplit("/", 1)[1],
+                }
+            )
+        # An intervening sibling release may already have omitted the pending
+        # withdrawal. Partial/foreign mount projections are never accepted.
+        if names != expected and not (position and not names):
+            raise PublicationConflict(invalid)
+    return list({item["key"]: item for item in objects}.values())
+
+
 class S3PublicationStorage:
     def __init__(
         self,
@@ -163,16 +351,7 @@ class S3PublicationStorage:
     def _redirect_body(self, location: str) -> bytes:
         if not self.private_origin:
             return b""
-        if not location.startswith("/") or location.startswith("//") or "\\" in location:
-            raise PublicationConflict("publication_redirect_invalid")
-        target = json.dumps(location).replace("<", "\\u003c").replace(">", "\\u003e")
-        escaped = html.escape(location, quote=True)
-        return (
-            f'<!doctype html><meta charset="utf-8"><title>Redirect</title>'
-            f"<script>location.replace({target}+location.search+location.hash)</script>"
-            f'<noscript><meta http-equiv="refresh" content="0;url={escaped}"></noscript>'
-            f'<a href="{escaped}">Continue</a>'
-        ).encode()
+        return _private_redirect_body(location)
 
     async def _listing(self, bucket: str, prefix: str) -> list[dict[str, Any]]:
         if bucket != self.public_bucket or not prefix.startswith("releases/") or ".." in prefix:
@@ -249,14 +428,27 @@ class S3PublicationStorage:
         return metadata, body
 
     async def inventory(
-        self, bucket: str, prefix: str, *, previous_release_plan: Mapping[str, Any] | None = None
+        self,
+        bucket: str,
+        prefix: str,
+        *,
+        previous_release_plan: Mapping[str, Any] | None = None,
+        excluded_mounts: tuple[str, ...] = (),
+        reserved_mounts: tuple[str, ...] = (),
     ) -> list[dict[str, Any]]:
+        excluded = _withdrawn_mounts(excluded_mounts, reserved_mounts)
         retained = retained_localized_files(previous_release_plan, prefix, bucket)
         files = await self._listing(bucket, prefix)
         # A newly provisioned, explicitly paired OAC host has no prior objects.
         # Never relax this check for an established release or website origin.
         if not files and not (self.private_origin and prefix == "releases/bootstrap"):
             raise PublicationConflict("publication_previous_release_empty")
+        if excluded:
+            # Listing is metadata-only. Never decrypt/download bytes that the
+            # next composition must omit, including their redirect aliases.
+            files = [
+                file for file in files if _owner(file["path"], reserved_mounts) not in excluded
+            ]
         for file in files:
             proof = retained.get(file["path"])
             if proof is not None:
@@ -730,3 +922,322 @@ class CloudFrontPublicationEdge:
         if edition_path is not None:
             receipt["editionPath"] = edition_path
         return receipt
+
+    async def withdraw(self, claim: dict[str, Any]) -> dict[str, Any] | None:
+        """Monotonic origin denial; preserve bytes and resume one cache invalidation.
+
+        Tag sets are exclusively owned by the publisher under the origin lease.
+        Unknown existing tags stop the operation instead of erasing metadata.
+        No object content, policy or distribution configuration is written here.
+        """
+        if not self.origin_access_control_id:
+            raise PublicationConflict("publication_withdrawal_requires_private_origin")
+        objects = _withdrawal_objects(claim)
+        origin = claim["origin"]
+        deadline = asyncio.get_running_loop().time() + 180
+        attempts = 0
+
+        def budget() -> None:
+            nonlocal attempts
+            if attempts >= 80 or asyncio.get_running_loop().time() >= deadline:
+                raise _WithdrawalPending()
+            attempts += 1
+
+        async def request(service: str, method: str, path: str, **kwargs: Any) -> Any:
+            budget()
+            return await self.aws.request(service, method, path, **kwargs)
+
+        async def configuration() -> tuple[ET.Element, str]:
+            budget()
+            _, config, selected = await self._config(origin)
+            if selected.findtext("{*}OriginPath") != "/" + origin["active_release_prefix"]:
+                raise PublicationConflict("publication_withdrawal_pointer_changed")
+            if config.findtext("{*}CustomErrorResponses/{*}Quantity", "0") != "0":
+                raise PublicationConflict("publication_withdrawal_error_rewrite_unsupported")
+            if config.findtext("{*}OriginGroups/{*}Quantity", "0") != "0":
+                raise PublicationConflict("publication_withdrawal_failover_unsupported")
+            origins = self._collection(config, "Origins", "Origin")
+            ids = [item.findtext("{*}Id") for item in origins]
+            edition_id = self._edition_origin_id(origin)
+            if len(ids) != len(set(ids)):
+                raise PublicationConflict("publication_distribution_collection_invalid")
+            for item in origins:
+                if item.findtext("{*}Id") == edition_id:
+                    expected = copy.deepcopy(selected)
+                    self._required(expected, "Id").text = edition_id
+                    self._required(expected, "OriginPath").text = ""
+                    if self._fingerprint(item, "") != self._fingerprint(expected, ""):
+                        raise PublicationConflict("publication_edition_origin_conflict")
+            behaviors = [
+                self._required(config, "DefaultCacheBehavior"),
+                *self._collection(config, "CacheBehaviors", "CacheBehavior"),
+            ]
+            for behavior in behaviors:
+                if behavior.findtext("{*}TargetOriginId") not in {origin["origin_id"], edition_id}:
+                    raise PublicationConflict("publication_withdrawal_route_unsupported")
+                for name in ("FunctionAssociations", "LambdaFunctionAssociations"):
+                    attached = behavior.find("{*}" + name)
+                    if attached is not None and (
+                        attached.findtext("{*}Quantity") != "0"
+                        or attached.find("{*}Items") is not None
+                    ):
+                        raise PublicationConflict("publication_withdrawal_rewrite_unsupported")
+            return config, self._fingerprint(config, "")
+
+        async def forwarding(config: ET.Element) -> None:
+            # Reject versionId/presigned-query forwarding, including policies
+            # inherited by exact immutable edition behaviors.
+            policies: set[tuple[str, str]] = set()
+            for behavior in [
+                self._required(config, "DefaultCacheBehavior"),
+                *self._collection(config, "CacheBehaviors", "CacheBehavior"),
+            ]:
+                cache = behavior.findtext("{*}CachePolicyId")
+                legacy = behavior.find("{*}ForwardedValues")
+                if cache:
+                    policies.add(("cache-policy", cache))
+                elif legacy is None or legacy.findtext("{*}QueryString") != "false":
+                    raise PublicationConflict("publication_withdrawal_query_forwarding")
+                origin_policy = behavior.findtext("{*}OriginRequestPolicyId")
+                if origin_policy:
+                    policies.add(("origin-request-policy", origin_policy))
+            if len(policies) > 8:
+                raise PublicationConflict("publication_withdrawal_policy_limit")
+            for kind, identity in sorted(policies):
+                if not re.fullmatch(r"[A-Za-z0-9-]{1,128}", identity):
+                    raise PublicationConflict("publication_withdrawal_policy_invalid")
+                status, _, body = await request(
+                    "cloudfront", "GET", f"/2020-05-31/{kind}/{identity}"
+                )
+                _ok(status)
+                if _xml(body).findtext(".//{*}QueryStringsConfig/{*}QueryStringBehavior") != "none":
+                    raise PublicationConflict("publication_withdrawal_query_forwarding")
+
+        async def fence(account: str, distribution_arn: str) -> str:
+            headers = {"x-amz-expected-bucket-owner": account}
+            status, _, body = await request(
+                "s3",
+                "GET",
+                f"/{origin['bucket']}",
+                query={"publicAccessBlock": ""},
+                headers=headers,
+            )
+            _ok(status)
+            block = _xml(body)
+            if any(
+                block.findtext("{*}" + key) != "true"
+                for key in (
+                    "BlockPublicAcls",
+                    "IgnorePublicAcls",
+                    "BlockPublicPolicy",
+                    "RestrictPublicBuckets",
+                )
+            ):
+                raise PublicationConflict("publication_withdrawal_public_bucket")
+            status, _, body = await request(
+                "s3",
+                "GET",
+                f"/{origin['bucket']}",
+                query={"policy": ""},
+                headers=headers,
+                maximum=20_480,
+            )
+            _ok(status)
+            try:
+                policy = json.loads(body)
+                statements = policy["Statement"]
+                if not isinstance(statements, list) or any(
+                    not isinstance(s, dict) for s in statements
+                ):
+                    raise ValueError()
+                tagged = {s["Sid"]: s for s in statements if "Sid" in s}
+                if len(tagged) != sum("Sid" in s for s in statements):
+                    raise ValueError()
+                role = tagged["DenyFrameworkPublicationTaggingOutsidePublisher"]["Condition"][
+                    "ArnNotEquals"
+                ]["aws:PrincipalArn"]
+                if not isinstance(role, str) or not re.fullmatch(
+                    rf"arn:aws:iam::{account}:role/[A-Za-z0-9+=,.@_/-]{{1,512}}", role
+                ):
+                    raise ValueError()
+                for expected in withdrawal_policy_statements(
+                    origin["bucket"], distribution_arn, role
+                ):
+                    if tagged.get(expected["Sid"]) != expected:
+                        raise ValueError()
+                # The OAC fence must not be bypassable through a direct public
+                # S3 URL. Public ACLs are ignored; anonymous policies fail closed.
+                for statement in statements:
+                    if statement.get("Effect") != "Allow":
+                        continue
+                    principal = statement.get("Principal")
+                    if (
+                        "NotPrincipal" in statement
+                        or principal == "*"
+                        or not isinstance(principal, dict)
+                    ):
+                        raise ValueError()
+                    if any("*" in str(value) for value in principal.values()):
+                        raise ValueError()
+            except (ValueError, TypeError, KeyError) as error:
+                raise PublicationConflict("publication_withdrawal_fence_invalid") from error
+            return checksum(policy)
+
+        async def head(item: dict[str, Any], account: str) -> str:
+            status, metadata, _ = await request(
+                "s3",
+                "HEAD",
+                f"/{item['bucket']}/{item['key']}",
+                headers={"x-amz-expected-bucket-owner": account},
+            )
+            _ok(status)
+            version = metadata.get("x-amz-version-id", "null")
+            if (
+                not isinstance(version, str)
+                or metadata.get("x-amz-meta-opengeo-sha256") != item["checksumSha256"]
+                or metadata.get("x-amz-meta-opengeo-release") != item["release"]
+                or metadata.get("content-length") != str(item["sizeBytes"])
+                or metadata.get("content-type") != "text/html"
+                or not metadata.get("etag")
+                or not re.fullmatch(r"[A-Za-z0-9+/_=.-]{1,1024}", version)
+            ):
+                raise PublicationConflict("publication_withdrawal_object_changed")
+            return version
+
+        async def tags(item: dict[str, Any], version: str, account: str) -> bool:
+            status, metadata, body = await request(
+                "s3",
+                "GET",
+                f"/{item['bucket']}/{item['key']}",
+                query={"tagging": "", "versionId": version},
+                headers={"x-amz-expected-bucket-owner": account},
+                maximum=8192,
+            )
+            _ok(status)
+            if metadata.get("x-amz-version-id", version) != version:
+                raise PublicationConflict("publication_withdrawal_object_changed")
+            document = _xml(body)
+            entries = document.findall("{*}TagSet/{*}Tag")
+            if document.find("{*}TagSet") is None or len(entries) > 1:
+                raise PublicationConflict("publication_withdrawal_unknown_tags")
+            if not entries:
+                return False
+            if (
+                entries[0].findtext("{*}Key") != "opengeo-withdrawn"
+                or entries[0].findtext("{*}Value") != "true"
+            ):
+                raise PublicationConflict("publication_withdrawal_unknown_tags")
+            return True
+
+        try:
+            config, fingerprint = await configuration()
+            await forwarding(config)
+            status, _, body = await request(
+                "cloudfront", "GET", f"/2020-05-31/distribution/{self.distribution_id}"
+            )
+            _ok(status)
+            distribution = _xml(body)
+            distribution_arn = distribution.findtext("{*}ARN", "")
+            identity = re.fullmatch(
+                rf"arn:aws:cloudfront::([0-9]{{12}}):distribution/{re.escape(self.distribution_id)}",
+                distribution_arn,
+            )
+            if identity is None:
+                raise PublicationConflict("publication_distribution_identity_invalid")
+            if distribution.findtext("{*}Status") != "Deployed":
+                return None
+            account = identity[1]
+            policy_hash = await fence(account, distribution_arn)
+            pinned = []
+            # Preflight every tag set before the first monotonic write.
+            for item in objects:
+                version = await head(item, account)
+                pinned.append((item, version, await tags(item, version, account)))
+            for item, version, withdrawn in pinned:
+                if not withdrawn:
+                    document = ET.Element(
+                        "Tagging", xmlns="http://s3.amazonaws.com/doc/2006-03-01/"
+                    )
+                    tag = ET.SubElement(ET.SubElement(document, "TagSet"), "Tag")
+                    ET.SubElement(tag, "Key").text = "opengeo-withdrawn"
+                    ET.SubElement(tag, "Value").text = "true"
+                    encoded = ET.tostring(document, encoding="utf-8")
+                    status, _, _ = await request(
+                        "s3",
+                        "PUT",
+                        f"/{item['bucket']}/{item['key']}",
+                        query={"tagging": "", "versionId": version},
+                        headers={
+                            "x-amz-expected-bucket-owner": account,
+                            "content-type": "application/xml",
+                            "content-md5": base64.b64encode(
+                                hashlib.md5(encoded, usedforsecurity=False).digest()
+                            ).decode(),
+                        },
+                        body=encoded,
+                    )
+                    _ok(status)
+                    if not await tags(item, version, account):
+                        raise PublicationConflict("publication_withdrawal_tag_unconfirmed")
+            invalidation = ET.Element(
+                "InvalidationBatch", xmlns="http://cloudfront.amazonaws.com/doc/2020-05-31/"
+            )
+            paths = ET.SubElement(invalidation, "Paths")
+            ET.SubElement(paths, "Quantity").text = "1"
+            ET.SubElement(ET.SubElement(paths, "Items"), "Path").text = "/*"
+            ET.SubElement(
+                invalidation, "CallerReference"
+            ).text = f"studio-framework-withdraw-{claim['review_id']}"
+            status, _, body = await request(
+                "cloudfront",
+                "POST",
+                f"/2020-05-31/distribution/{self.distribution_id}/invalidation",
+                headers={"content-type": "application/xml"},
+                body=ET.tostring(invalidation, encoding="utf-8"),
+            )
+            _ok(status)
+            result = _xml(body)
+            if result.findtext("{*}Status") != "Completed":
+                return None
+            invalidation_id = result.findtext("{*}Id", "")
+            if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", invalidation_id):
+                raise PublicationConflict("publication_withdrawal_invalidation_invalid")
+            final_config, final = await configuration()
+            if final != fingerprint or await fence(account, distribution_arn) != policy_hash:
+                raise PublicationConflict("publication_withdrawal_fence_changed")
+            await forwarding(final_config)
+            status, _, body = await request(
+                "cloudfront", "GET", f"/2020-05-31/distribution/{self.distribution_id}"
+            )
+            _ok(status)
+            observed = _xml(body)
+            if (
+                observed.findtext("{*}Status") != "Deployed"
+                or observed.findtext("{*}ARN") != distribution_arn
+            ):
+                return None
+            for item, version, _ in pinned:
+                if await head(item, account) != version or not await tags(item, version, account):
+                    raise PublicationConflict("publication_withdrawal_object_changed")
+            if asyncio.get_running_loop().time() >= deadline:
+                return None
+            return {
+                "schema": "opengeo.framework-publication-revocation-receipt.1.0.0",
+                "reviewId": claim["review_id"],
+                "targetPrefix": claim["target_prefix"],
+                "originId": origin["id"],
+                "confirmed": True,
+                "delivery": "s3-withdrawal-tag-and-cloudfront-invalidation",
+                "distributionId": self.distribution_id,
+                "policySHA256": policy_hash,
+                "invalidationId": invalidation_id,
+                "invalidationStatus": "Completed",
+                "objects": [
+                    {"key": item["key"], "versionId": version} for item, version, _ in pinned
+                ],
+                "cacheContract": (
+                    "Previously downloaded browser or proxy copies remain outside server control"
+                ),
+            }
+        except _WithdrawalPending:
+            return None

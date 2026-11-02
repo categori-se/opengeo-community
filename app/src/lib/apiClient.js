@@ -106,7 +106,7 @@ import {
  * @typedef {{code: string, status: string | null}} QualityFinding
  * @typedef {{valid: boolean | null, checks: QualityFinding[], warnings: QualityFinding[], errors: QualityFinding[]}} QualityResults
  * @typedef {{read: boolean, edit: boolean, download: boolean, managePermissions: boolean}} DatasetCapabilities
- * @typedef {{id: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", sourceType: "upload" | "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", format: "geojson" | "csv" | "shapefile" | "geopackage" | "geoparquet" | "cog" | "pmtiles" | "png" | "jpeg" | "pdf" | "odt" | "kml" | "xyz" | "wms" | "arcgis" | "wfs", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, currentVersionId: string | null, currentVersionNumber: number | null, currentVersionState: "queued" | "processing" | "active" | "failed" | "preserved" | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, qualityResults: QualityResults, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled" | null, processingErrorCode: string | null, tags: string[], createdAt: string, updatedAt: string, capabilities: DatasetCapabilities}} Dataset
+ * @typedef {{id: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", sourceType: "upload" | "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", format: "geojson" | "csv" | "shapefile" | "geopackage" | "geoparquet" | "geotiff" | "cog" | "pmtiles" | "png" | "jpeg" | "pdf" | "odt" | "kml" | "xyz" | "wms" | "arcgis" | "wfs", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, currentVersionId: string | null, currentVersionNumber: number | null, currentVersionState: "queued" | "processing" | "active" | "failed" | "preserved" | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, qualityResults: QualityResults, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled" | null, processingErrorCode: string | null, tags: string[], createdAt: string, updatedAt: string, capabilities: DatasetCapabilities}} Dataset
  * @typedef {{datasetId: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, sourceType: "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", accessMode: "direct_browser", credentialMode: "none", versionNumber: number, sourceUrl: string, configuration: Record<string, unknown>, verificationState: "syntax_only", createdAt: string, updatedAt: string, capabilities: {read: boolean, edit: boolean}}} ExternalSource
  * @typedef {{estimateId: string, projectId: string, sourceDatasetId: string, sourceRevisionNumber: number, sourceType: "wms" | "pmtiles" | "arcgis" | "wfs", copyMethod: "bounded_map_capture" | "exact_object_copy" | "bounded_feature_capture", captureScope: Record<string, unknown>, outputFormat: "png" | "pmtiles" | "geojson", outputContentType: "image/png" | "application/vnd.pmtiles" | "application/geo+json", maximumRequests: number, maximumOutputBytes: number, estimatedCostUsd: number, estimateChecksumSha256: string, createdAt: string, expiresAt: string}} ExternalSourceCopyEstimate
  * @typedef {{jobId: string, projectId: string, estimateId: string, sourceDatasetId: string, sourceRevisionNumber: number, destinationDatasetId: string, destinationName: string, destinationClassification: "public" | "internal" | "confidential" | "restricted", copyMethod: "bounded_map_capture" | "exact_object_copy" | "bounded_feature_capture", captureScope: Record<string, unknown>, outputFormat: "png" | "pmtiles" | "geojson", outputContentType: "image/png" | "application/vnd.pmtiles" | "application/geo+json", maximumRequests: number, maximumOutputBytes: number, estimatedCostUsd: number, estimateChecksumSha256: string, estimateExpiresAt: string, rightsBasis: string, attribution: string, requestChecksumSha256: string, idempotencyKey: string, state: "queued" | "running" | "completed" | "failed" | "cancelled", outputObjectId: string | null, outputDatasetVersionId: string | null, errorCode: string | null, attemptCount: number, createdBy: string, createdAt: string, startedAt: string | null, finishedAt: string | null, cancellable: boolean}} ProtectedCopyJob
@@ -961,7 +961,7 @@ export class OpenGeoApiClient {
     );
     const format = oneOf(
       draft?.format,
-      ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "cog", "pmtiles", "png", "jpeg", "pdf", "odt"],
+      ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "geotiff", "cog", "pmtiles", "png", "jpeg", "pdf", "odt"],
       "repository object registration.format"
     );
     if (
@@ -6871,7 +6871,7 @@ export function parseRepositoryObjectRegistration(value) {
     ),
     format: oneOf(
       record.format,
-      ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "cog", "pmtiles", "png", "jpeg", "pdf", "odt"],
+      ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "geotiff", "cog", "pmtiles", "png", "jpeg", "pdf", "odt"],
       "repository object registration.format"
     ),
     created: boolean(record.created, "repository object registration.created"),
@@ -7292,7 +7292,7 @@ export function parseDataset(value) {
     description: nullableString(record.description, "dataset.description"),
     classification: oneOf(record.classification, ["public", "internal", "confidential", "restricted"], "dataset.classification"),
     sourceType: oneOf(record.source_type, ["upload", "repository", "xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog", "postgis"], "dataset.source_type"),
-    format: oneOf(record.format, ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver", "postgis"], "dataset.format"),
+    format: oneOf(record.format, ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "geotiff", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver", "postgis"], "dataset.format"),
     status: oneOf(record.status, ["draft", "processing", "active", "failed", "archived"], "dataset.status"),
     ownerUserId: uuid(record.owner_user_id, "dataset.owner_user_id"),
     currentVersionId: nullableUuid(record.current_version_id, "dataset.current_version_id"),
@@ -14700,7 +14700,7 @@ function datasetQuery({
     owner_user_id: ownerUserId === null ? null : assertUuid(ownerUserId, "owner user id"),
     tag: boundedQuery(tag, 64, "tag")?.toLowerCase() ?? null,
     geometry_type: boundedQuery(geometryType, 100, "geometry type"),
-    format: optionalOneOf(format, ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver"], "format"),
+    format: optionalOneOf(format, ["geojson", "csv", "shapefile", "geopackage", "geoparquet", "geotiff", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver"], "format"),
     classification: optionalOneOf(classification, ["public", "internal", "confidential", "restricted"], "classification"),
     source_type: optionalOneOf(
       sourceType,

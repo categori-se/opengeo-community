@@ -12,8 +12,12 @@ import stat
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from opengeo_api.framework_publication_controller import DataApiPublicationRepository
-from opengeo_api.framework_publisher import PublicationConflict, publish_step
+from opengeo_api.framework_publication_controller import (
+    PUBLICATION_CLAIM_SQL,
+    PUBLICATION_REVOCATION_CLAIM_SQL,
+    DataApiPublicationRepository,
+)
+from opengeo_api.framework_publisher import PublicationConflict, _owner, _withdrawn_mounts, publish_step
 from opengeo_api.rds_data import DataApiResult
 
 PUBLIC_BUCKET = "local-publication.invalid"
@@ -28,6 +32,11 @@ _FUNCTIONS = {
     "activate_framework_publication",
     "complete_framework_publication",
     "release_framework_publication",
+    "claim_framework_publication_revocation",
+    "complete_framework_publication_revocation",
+    "fail_framework_publication_revocation",
+    "pending_framework_publication_revocation",
+    "pending_framework_publication_revocations",
 }
 
 
@@ -116,7 +125,10 @@ class LocalPublicationSqlClient:
 
         calls = re.findall(r"app\.([a-z_]+)\(", sql)
         _require(
-            sql.startswith("SELECT ")
+            (
+                sql.startswith("SELECT ")
+                or sql in {PUBLICATION_CLAIM_SQL, PUBLICATION_REVOCATION_CLAIM_SQL}
+            )
             and ";" not in sql
             and len(calls) == 1
             and calls[0] in _FUNCTIONS
@@ -137,11 +149,14 @@ class LocalPublicationStorage:
         _require(pilot.BUCKET != PUBLIC_BUCKET)
         self.pilot = pilot
 
-    async def inventory(self, bucket, prefix, *, previous_release_plan=None):
+    async def inventory(
+        self, bucket, prefix, *, previous_release_plan=None, excluded_mounts=(), reserved_mounts=()
+    ):
         del (
             previous_release_plan
         )  # Plain Markdown/asset-tree scope; no localized HTML proofs.
         _require(bucket == PUBLIC_BUCKET)
+        excluded_mounts = _withdrawn_mounts(excluded_mounts, reserved_mounts)
         records = _public_records(self.pilot, prefix)
         _require(
             records or prefix == "releases/bootstrap",
@@ -149,10 +164,13 @@ class LocalPublicationStorage:
         )
         result = []
         for record in records:
+            path = record["key"][len(prefix) + 1 :]
+            if excluded_mounts and _owner(path, reserved_mounts) in excluded_mounts:
+                continue
             _read_public(self.pilot, record)
             result.append(
                 {
-                    "path": record["key"][len(prefix) + 1 :],
+                    "path": path,
                     "bucket": PUBLIC_BUCKET,
                     "objectKey": record["key"],
                     "s3VersionId": record["version_id"],
@@ -288,6 +306,36 @@ class LocalPublicationEdge:
     def __init__(self, pilot):
         self.pilot = pilot
 
+    async def withdraw(self, claim):
+        """Fence exact public delivery; preserve immutable releases and source bytes."""
+        review = str(UUID(str(claim["review_id"])))
+        prefix = _prefix(claim["target_prefix"])
+        _require(prefix == f"releases/framework-{review}")
+        identity = _origin_identity(claim["origin"])
+        receipt = {
+            "schema": "opengeo.framework-publication-revocation-receipt.1.0.0",
+            "reviewId": review,
+            "targetPrefix": prefix,
+            "originId": str(UUID(str(claim["origin"]["id"]))),
+            "confirmed": True,
+            "delivery": "local-no-store",
+        }
+        with self.pilot.local_state_lock("publication-active"):
+            active = self.pilot.read_json("publication-active.json")
+            _require(active is not None and active["origin"] == identity,
+                     "local_publication_origin_changed")
+            _require(review in active.get("releases", {}),
+                     "local_publication_edition_unavailable")
+            withdrawals = active.get("withdrawals", {})
+            if review in withdrawals:
+                _require(withdrawals[review] == receipt, "local_publication_withdrawal_changed")
+                return receipt
+            # The active alias must deny this edition too; never select a sibling.
+            self.pilot.save_json("publication-active.json", {
+                **active, "withdrawals": {**withdrawals, review: receipt},
+            })
+        return receipt
+
     async def prepare(self, origin, previous):
         identity = _origin_identity(origin)
         _prefix(previous)
@@ -354,6 +402,7 @@ class LocalPublicationEdge:
                     "generation": active["generation"] + 1,
                     "receipt": receipt,
                     "releases": {**active.get("releases", {}), str(review): receipt},
+                    "withdrawals": active.get("withdrawals", {}),
                 },
             )
             return receipt
@@ -369,6 +418,16 @@ async def publish_local_review(pilot, review_id, maximum_files=64):
         source_bucket=pilot.BUCKET,
         public_bucket=PUBLIC_BUCKET,
         maximum_files=maximum_files,
+    )
+
+
+async def revoke_local_review(pilot, review_id):
+    """Resume one requested withdrawal through the same publisher authority."""
+    from opengeo_api.framework_publisher import revoke_step
+    return await revoke_step(
+        UUID(str(review_id)),
+        repository=DataApiPublicationRepository(LocalPublicationSqlClient()),
+        edge=LocalPublicationEdge(pilot),
     )
 
 
@@ -391,6 +450,9 @@ def read_publication(pilot, path, review_id=None):
         if review not in active.get("releases", {}):
             return None
         prefix = f"releases/framework-{review}"
+    selected_review = prefix.removeprefix("releases/framework-")
+    if selected_review in active.get("withdrawals", {}):
+        return None
     key = prefix + "/" + relative
     record = next(
         (item for item in _public_records(pilot, prefix) if item["key"] == key), None

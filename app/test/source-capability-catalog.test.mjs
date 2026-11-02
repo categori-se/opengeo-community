@@ -77,4 +77,16 @@ describe("source capability catalog", () => {
       ["preserve-only", "preserve-only", "preserve-only", "preserve-only"]
     );
   });
+
+  it("distinguishes ordinary GeoTIFF normalization from verified original COG coverage access", () => {
+    const raster = SOURCE_CAPABILITY_CATALOG.find(({id}) => id === "raster");
+    assert.equal(raster.disposition, "bounded-current");
+    assert.match(raster.summary, /GeoTIFF.*original.*working COG/);
+    assert.match(raster.operations.register.scope, /normalizes once/);
+    assert.match(raster.operations.register.scope, /strict original COG validation/);
+    assert.match(raster.operations.read.scope, /WCS reads require validated COG originals/);
+    assert.match(raster.operations.stream.scope, /verified working COG or original COG/);
+    assert.match(raster.losses.join(" "), /missing CRS is not guessed/);
+    assert.match(raster.losses.join(" "), /working COGs do not grant WCS access/);
+  });
 });

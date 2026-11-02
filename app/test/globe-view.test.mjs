@@ -8,7 +8,8 @@ import {
   mapViewsForSave,
   normalizeMapView,
   normalizeProjection,
-  projectionForProject
+  projectionForProject,
+  restoreMapView
 } from "../src/lib/globeView.js";
 
 describe("GEP-002 globe view contract", () => {
@@ -62,6 +63,38 @@ describe("GEP-002 globe view contract", () => {
       center: [index, index],
       zoom: index
     }))).length, 8);
+  });
+
+  it("retains native roll, target elevation and ground-clamping through camera capture and named-view save", () => {
+    const map = {...fakeMap({center: {lng: 13.4, lat: 52.5}, zoom: 12, pitch: 45, bearing: 30}),
+      getRoll: () => 25, getCenterElevation: () => 350, getCenterClampedToGround: () => false};
+    const camera = captureMapView(map, {id: "primary", title: "KML view"});
+    assert.equal(camera.roll, 25);
+    assert.equal(camera.elevation, 350);
+    assert.equal(camera.centerClampedToGround, false);
+    const saved = mapViewsForSave(null, [camera, {...camera, id: "inspection", title: "Inspection"}]);
+    assert.deepEqual(saved[0], camera);
+    assert.deepEqual(saved[1], {...camera, id: "inspection", title: "Inspection"});
+    const reset = captureMapView({...map, getRoll: () => 0, getCenterElevation: () => 0, getCenterClampedToGround: () => true}, camera);
+    assert.equal(reset.roll, 0); assert.equal(reset.elevation, 0); assert.equal(reset.centerClampedToGround, true);
+    const invalid = normalizeMapView({...camera, roll: NaN, elevation: Infinity, centerClampedToGround: "false"});
+    for (const key of ["roll", "elevation", "centerClampedToGround"]) assert.equal(Object.hasOwn(invalid, key), false);
+  });
+
+  it("refuses extended saved-view recall on incompatible engines while retaining the record and current camera", () => {
+    const view = {center: [13, 52], zoom: 12, pitch: 45, bearing: 30, roll: 25, elevation: 350, centerClampedToGround: false};
+    const before = structuredClone(view), moves = [], flags = [];
+    const map = {jumpTo: camera => moves.push(camera), setCenterClampedToGround: value => flags.push(value)};
+    for (const engineId of ["mapbox", "cesium"]) {
+      const result = restoreMapView({map, view, engineId});
+      assert.equal(result.applied, false); assert.match(result.message, /requires MapLibre/);
+    }
+    assert.deepEqual(moves, []); assert.deepEqual(flags, []); assert.deepEqual(view, before);
+    assert.equal(restoreMapView({map, view, engineId: "maplibre"}).applied, true);
+    assert.equal(moves[0].roll, 25); assert.equal(moves[0].elevation, 350); assert.deepEqual(flags, [false]);
+    const ordinary = {center: [0, 0], zoom: 2, pitch: 0, bearing: 0};
+    assert.equal(restoreMapView({map, view: ordinary, engineId: "cesium"}).applied, true);
+    assert.equal(moves[1].roll, 0); assert.equal(moves[1].elevation, 0); assert.deepEqual(flags, [false, true]);
   });
 
   it("retains imported view extent and presentation metadata through capture and save", () => {

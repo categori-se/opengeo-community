@@ -1,4 +1,5 @@
 import {publicItemUrl, itemBounds} from "./staticItemSearch.js";
+import {isManagedCogIdentity} from "./managedCogIdentity.js";
 
 export const COG_PREVIEW_LIMITS = Object.freeze({requests: 16, bytes: 4 * 1024 * 1024,
   milliseconds: 30_000, width: 512, images: 16, sourcePixels: 1024 * 1024, sampleBytes: 8 * 1024 * 1024});
@@ -32,7 +33,7 @@ export async function readCogPreview(source, options = {}) {
  * belong to the caller; the decoder only sees the stable logical identity.
  */
 export async function readAuthorizedCogPreview(source, options = {}) {
-  if (!/^urn:opengeo:dataset:[0-9a-f-]{36}:version:[0-9a-f-]{36}:original$/i.test(source?.sourceUrl ?? "")
+  if (!isManagedCogIdentity(source?.sourceUrl)
     || !Number.isSafeInteger(source.configuration?.sizeBytes) || source.configuration.sizeBytes < 1
     || typeof options.fetchImplementation !== "function" || typeof options.assertCurrent !== "function") {
     throw failure("An authorized exact-version COG transport is required.");

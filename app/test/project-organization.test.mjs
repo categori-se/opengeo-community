@@ -130,6 +130,121 @@ it("KML controls save/reopen folder expansion, visibility and place order withou
   assert.deepEqual(reopened.getPrintContext().project.kmlPlaces, retained);
 });
 
+it("KML tree dragging inserts before and after siblings and ordinary Save/reopen/export retain the exact Places", async () => {
+  const saved = [], original = kmlDocument();
+  const shell = mount({project: project({kmlPlaces: original}), saveProject: async value => {saved.push(structuredClone(value)); return {version: 2};}});
+  const handle = kmlDragHandle(shell, "apple-2");
+  assert.equal(handle.tagName, "BUTTON");
+  assert.equal(handle.draggable, true);
+  assert.equal(handle.getAttribute("aria-label"), "Drag Apple to move");
+  dragKmlPlace(shell, "apple-2", "zulu", 5, "before");
+  assert.deepEqual(shell.getPrintContext().project.kmlPlaces.children.map(place => place.id), ["survey", "apple-2", "zulu", "apple"]);
+  dragKmlPlace(shell, "apple-2", "apple", 95, "after");
+  assert.deepEqual(shell.getPrintContext().project.kmlPlaces.children.map(place => place.id), ["survey", "zulu", "apple", "apple-2"], "moving down must adjust the destination index after removing the dragged sibling");
+  dragKmlPlace(shell, "zulu", "apple", 95, "after");
+  const expected = {...original, children: [original.children[0], original.children[2], original.children[1], original.children[3]]};
+  assert.deepEqual(shell.getPrintContext().project.kmlPlaces, expected);
+  button(shell, "Save").click(); await waitFor(() => saved.length === 1);
+  assert.deepEqual(saved[0].kmlPlaces, expected);
+  const reopened = mount({project: project(saved[0]), layers: saved[0].layers});
+  const retained = reopened.getPrintContext().project.kmlPlaces;
+  assert.deepEqual(retained, expected);
+  assert.deepEqual(parseKml(exportKml(retained), {DOMParser: harness.dom.window.DOMParser}).document, expected);
+});
+
+it("KML tree dragging reparents Places and whole folders at the document root without losing content or allowing cycles", () => {
+  let original = kmlDocument();
+  original = addKmlPlace(original, "survey", {kind: "folder", name: "Field"});
+  original = addKmlPlace(original, "field", {kind: "placemark", name: "Observation", description: "Keep this survey record", geometry: {type: "Point", coordinates: [-72, 43, 12]}});
+  original.children[0].open = false;
+  const shell = mount({project: project({kmlPlaces: original})});
+  const current = () => shell.getPrintContext().project.kmlPlaces;
+  const content = document => {
+    const places = [];
+    const visit = place => {const {children, ...fields} = place; places.push(fields); for (const child of children ?? []) visit(child);};
+    visit(document); return places.sort((a, b) => a.id.localeCompare(b.id));
+  };
+  dragKmlPlace(shell, "zulu", "survey", 5, "before");
+  assert.deepEqual(current().children.map(place => place.id), ["zulu", "survey", "apple", "apple-2"]);
+  dragKmlPlace(shell, "zulu", "survey", 95, "after");
+  assert.deepEqual(current().children.map(place => place.id), ["survey", "zulu", "apple", "apple-2"]);
+  dragKmlPlace(shell, "zulu", "survey", 50, "inside");
+  assert.deepEqual(current().children[0].children.map(place => place.id), ["nested", "field", "zulu"]);
+  assert.deepEqual(current().children.map(place => place.id), ["survey", "apple", "apple-2"]);
+  const collapsedFolder = shell.querySelector('[data-place-id="survey"] > details');
+  assert.equal(collapsedFolder.open, false, "dropping into a folder must preserve its collapsed state");
+  assert.equal(document.activeElement, collapsedFolder.querySelector(":scope > summary"), "drop focus must stay visible on the collapsed destination folder");
+  const beforeCycle = structuredClone(current());
+  dragKmlPlace(shell, "survey", "field", 50);
+  assert.deepEqual(current(), beforeCycle, "a folder cannot be inserted inside its descendant");
+  dragKmlPlace(shell, "field", "field", 50);
+  assert.deepEqual(current(), beforeCycle, "a folder cannot contain itself");
+  dragKmlPlace(shell, "field", original.id, 50, "inside");
+  assert.deepEqual(current().children.map(place => place.id), ["survey", "apple", "apple-2", "field"]);
+  assert.deepEqual(current().children.at(-1), original.children[0].children[1], "moving a folder keeps its full descendant subtree");
+  assert.deepEqual(current().children[0].children.map(place => place.id), ["nested", "zulu"]);
+  assert.deepEqual(content(current()), content(original), "every Place keeps its ID, metadata and geometry");
+});
+
+it("KML tree dragging rejects foreign payloads, viewers, detached handlers, Layer switches and lost account authority", () => {
+  const original = kmlDocument();
+  const shell = mount({project: project({kmlPlaces: original})});
+  const foreign = mount({project: project({kmlPlaces: original})});
+  const viewer = mount({role: "viewer", project: project({kmlPlaces: original})});
+  const unchanged = root => assert.deepEqual(root.getPrintContext().project.kmlPlaces, original);
+  const external = kmlDataTransfer({"application/x-opengeo-kml-place": "zulu", "text/plain": "zulu"});
+  dispatchKmlDrag("dragover", kmlDropTarget(shell, "apple"), external, 5);
+  dispatchKmlDrag("drop", kmlDropTarget(shell, "apple"), external, 5);
+  unchanged(shell);
+
+  const mismatched = kmlDataTransfer();
+  dispatchKmlDrag("dragstart", kmlDragHandle(shell, "zulu"), mismatched);
+  mismatched.setData("application/x-opengeo-kml-place", "apple");
+  dispatchKmlDrag("drop", kmlDropTarget(shell, "apple"), mismatched, 95);
+  unchanged(shell);
+  dispatchKmlDrag("dragend", kmlDragHandle(shell, "zulu"), mismatched);
+
+  const crossShell = kmlDataTransfer();
+  dispatchKmlDrag("dragstart", kmlDragHandle(shell, "zulu"), crossShell);
+  dispatchKmlDrag("drop", kmlDropTarget(foreign, "apple"), crossShell, 95);
+  unchanged(shell); unchanged(foreign);
+  dispatchKmlDrag("dragend", kmlDragHandle(shell, "zulu"), crossShell);
+
+  const viewerHandle = kmlDragHandle(viewer, "zulu");
+  assert.equal(viewerHandle.disabled, true);
+  assert.equal(viewerHandle.draggable, false);
+  viewerHandle.disabled = false; viewerHandle.draggable = true;
+  const denied = kmlDataTransfer();
+  dispatchKmlDrag("dragstart", viewerHandle, denied);
+  dispatchKmlDrag("drop", kmlDropTarget(viewer, "apple"), denied, 95);
+  unchanged(viewer);
+
+  const staleHandle = kmlDragHandle(shell, "zulu"), staleTarget = kmlDropTarget(shell, "apple"), staleTransfer = kmlDataTransfer();
+  dispatchKmlDrag("dragstart", staleHandle, staleTransfer);
+  button(shell, "Edit Zulu").click();
+  assert.equal(staleHandle.isConnected, false);
+  dispatchKmlDrag("drop", kmlDropTarget(shell, "apple"), staleTransfer, 95);
+  unchanged(shell);
+  dispatchKmlDrag("dragstart", staleHandle, staleTransfer);
+  dispatchKmlDrag("drop", staleTarget, staleTransfer, 95);
+  unchanged(shell);
+
+  const documents = [original, {...structuredClone(original), name: "Second document"}];
+  const layers = documents.map((document, index) => ({...layer(`kml-${index}`, `Places ${index + 1}`, index), sourceType: "kml-places", kmlDocument: document}));
+  const browser = mount({publicDemo: true, project: project({kmlLayerDocuments: true, kmlPlaces: original, activeLayerId: "kml-0", layers}), layers});
+  const contextTransfer = kmlDataTransfer();
+  dispatchKmlDrag("dragstart", kmlDragHandle(browser, "zulu"), contextTransfer);
+  button(browser, "Select layer Places 2").click();
+  dispatchKmlDrag("drop", kmlDropTarget(browser, "apple"), contextTransfer, 95);
+  assert.deepEqual(browser.getPrintContext().project.layers.map(layer => layer.kmlDocument), documents, "colliding Place IDs do not authorize a move across KML Layers");
+
+  const revokedTransfer = kmlDataTransfer();
+  dispatchKmlDrag("dragstart", kmlDragHandle(shell, "zulu"), revokedTransfer);
+  harness.dom.window.dispatchEvent(new harness.dom.window.Event("opengeo:account-navigation"));
+  dispatchKmlDrag("drop", kmlDropTarget(shell, "apple"), revokedTransfer, 95);
+  unchanged(shell);
+});
+
 it("renames/removes saved views through project controls and Save/fresh mount preserves the named camera", async () => {
   const saved = [];
   const shell = mount({project: project({mapViews: [primary, savedView]}), saveProject: async value => {saved.push(structuredClone(value)); return {version: 2};}});
@@ -143,6 +258,127 @@ it("renames/removes saved views through project controls and Save/fresh mount pr
   button(reopened, "Remove Port").click();
   assert.deepEqual(reopened.getPrintContext().project.mapViews, [primary]);
   assert.equal(button(reopened, "Save current view").disabled, true, "unavailable map must not save a fallback camera");
+});
+
+it("browser Project reopen keeps one per-Layer KML document when its top-level compatibility alias is present", () => {
+  const document = kmlDocument();
+  document.children.find(place => place.id === "zulu").view = {
+    type: "Camera", longitude: -71, latitude: 42, altitude: 1500, heading: 30, tilt: 45, roll: 45, altitudeMode: "absolute"
+  };
+  const importedLayer = {...layer("kml-camera", "Camera places", 0), sourceType: "kml-places", kmlDocument: document};
+  const saved = project({kmlLayerDocuments: true, kmlPlaces: document, layers: [importedLayer], activeLayerId: importedLayer.layerId});
+  const shell = mount({publicDemo: true, project: saved, layers: saved.layers});
+  const retained = shell.getPrintContext().project;
+  const reopened = mount({publicDemo: true, project: retained, layers: retained.layers});
+  for (const mounted of [shell, reopened]) {
+    assert.deepEqual(mounted.__opengeoLayers.map(item => item.layerId), ["kml-camera"]);
+    const current = mounted.getPrintContext().project;
+    assert.equal(current.kmlLayerDocuments, true);
+    assert.deepEqual(current.layers.map(item => item.layerId), ["kml-camera"]);
+    assert.deepEqual(current.layers[0].kmlDocument, document);
+    assert.deepEqual(current.kmlPlaces, document);
+    assert.deepEqual(current.layers[0].kmlDocument.children.find(place => place.id === "zulu").view,
+      document.children.find(place => place.id === "zulu").view);
+  }
+});
+
+it("KML view editing retains optional camera fields through Save/reopen/export and recovers invalid drafts without changing the Place", async t => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => globalThis.fetch = originalFetch);
+  globalThis.fetch = () => assert.fail("KML view editing must not request providers or APIs");
+  const saved = [], original = kmlDocument();
+  const place = original.children.find(item => item.id === "zulu");
+  place.view = {type: "Camera", longitude: 0, latitude: 42, altitude: 0, heading: 0, tilt: 120, roll: 0, altitudeMode: "gx:relativeToSeaFloor"};
+  place.geometry.coordinates.push(120);
+  place.altitudeMode = "absolute";
+  place.extendedData = {survey: "retained"};
+  const shell = mount({project: project({kmlPlaces: original}), saveProject: async value => {saved.push(structuredClone(value)); return {version: 2};}});
+  const viewField = (root, key) => root.querySelector(`[data-kml-view-field="${key}"]`);
+  const change = (root, key, value) => {
+    const input = viewField(root, key); assert.ok(input, `expected KML view field ${key}`);
+    input.value = value;
+    input.dispatchEvent(new harness.dom.window.Event(input.tagName === "SELECT" ? "change" : "input", {bubbles: true}));
+  };
+  const retainedPlace = root => root.getPrintContext().project.kmlPlaces.children.find(item => item.id === "zulu");
+  button(shell, "Edit Zulu").click();
+  assert.match(shell.querySelector('.gis-kml-view-editor').textContent, /Project Save and KML export retain this view.*Fly to opens supported Camera and LookAt views/);
+  assert.equal(viewField(shell, "longitude").value, "0");
+  assert.equal(viewField(shell, "altitude").value, "0");
+  assert.equal(viewField(shell, "altitudeMode").value, "gx:relativeToSeaFloor");
+  assert.equal(viewField(shell, "range").disabled, true);
+  const staleApply = button(shell, "Apply place edits");
+  staleApply.click();
+  assert.deepEqual(retainedPlace(shell), place, "Metadata-only Apply must retain the imported camera and other Place fields");
+  change(shell, "type", "LookAt");
+  assert.equal(viewField(shell, "roll").disabled, true);
+  assert.equal(viewField(shell, "range").disabled, false);
+  change(shell, "longitude", " ");
+  change(shell, "altitude", "");
+  change(shell, "tilt", "45");
+  change(shell, "range", "0");
+  change(shell, "altitudeMode", "gx:clampToSeaFloor");
+  change(shell, "latitude", "not a number");
+  button(shell, "Apply place edits").click();
+  assert.deepEqual(retainedPlace(shell), place);
+  assert.equal(viewField(shell, "latitude").value, "not a number");
+  assert.equal(viewField(shell, "latitude").getAttribute("aria-invalid"), "true");
+  assert.equal(document.activeElement, viewField(shell, "latitude"));
+  assert.match(shell.querySelector('[data-status-field="message"]').textContent, /Enter a finite number.*latitude/);
+  button(shell, "Edit Zulu").click();
+  assert.equal(viewField(shell, "latitude").value, "not a number", "A rerender must keep the recoverable raw draft");
+  assert.equal(viewField(shell, "type").value, "LookAt");
+  change(shell, "latitude", "91");
+  button(shell, "Apply place edits").click();
+  assert.deepEqual(retainedPlace(shell), place, "Model validation must leave the existing Place intact");
+  assert.match(shell.querySelector('[data-status-field="message"]').textContent, /latitude must be -90 to 90 degrees/);
+  assert.equal(document.activeElement, viewField(shell, "latitude"));
+  change(shell, "latitude", "0");
+  button(shell, "Apply place edits").click();
+  const expected = {...place, view: {type: "LookAt", latitude: 0, heading: 0, tilt: 45, range: 0, altitudeMode: "gx:clampToSeaFloor"}};
+  assert.deepEqual(retainedPlace(shell), expected, "Blank fields stay absent, zero remains explicit, and Camera roll is omitted");
+  staleApply.click();
+  assert.deepEqual(retainedPlace(shell), expected, "A detached editor handler must not overwrite the new view");
+  button(shell, "Save").click(); await waitFor(() => saved.length === 1);
+  assert.deepEqual(saved[0].kmlPlaces.children.find(item => item.id === "zulu"), expected);
+  const reopened = mount({project: project(saved[0]), layers: saved[0].layers});
+  button(reopened, "Edit Zulu").click();
+  assert.equal(viewField(reopened, "type").value, "LookAt");
+  assert.equal(viewField(reopened, "longitude").value, "");
+  assert.equal(viewField(reopened, "latitude").value, "0");
+  const persisted = reopened.getPrintContext().project.kmlPlaces;
+  assert.deepEqual(parseKml(exportKml(persisted), {DOMParser: harness.dom.window.DOMParser}).document, persisted);
+  change(reopened, "type", "Camera");
+  change(reopened, "roll", "0");
+  button(reopened, "Apply place edits").click();
+  assert.deepEqual(retainedPlace(reopened), {...expected, view: {type: "Camera", latitude: 0, heading: 0, tilt: 45, roll: 0, altitudeMode: "gx:clampToSeaFloor"}});
+  change(reopened, "type", "none");
+  button(reopened, "Apply place edits").click();
+  assert.deepEqual(retainedPlace(reopened), {...expected, view: null}, "Removing a saved KML view is explicit and preserves the rest of the Place");
+  assert.equal(parseKml(exportKml(reopened.getPrintContext().project.kmlPlaces), {DOMParser: harness.dom.window.DOMParser}).document.children.find(item => item.id === "zulu").view, null);
+});
+
+it("KML navigation exposes document, folder and view-only viewpoints without silently framing unsupported cameras", () => {
+  const places = kmlDocument();
+  const view = {type: "LookAt", longitude: -71, latitude: 42, altitude: 300, heading: 30, tilt: 45, range: 1200, altitudeMode: "absolute"};
+  places.view = structuredClone(view);
+  places.children[0].view = structuredClone(view);
+  places.children.find(place => place.id === "zulu").view = {...view, altitudeMode: "gx:relativeToSeaFloor"};
+  const viewOnly = places.children.find(place => place.id === "apple");
+  viewOnly.view = structuredClone(view);viewOnly.geometry = null;
+  const shell = mount({project: project({kmlPlaces: places})});
+  const before = structuredClone(shell.getPrintContext().project.kmlPlaces);
+  for (const label of [`Fly to ${places.name}`, "Fly to Survey", "Fly to Apple", "Fly to Zulu"]) {
+    assert.equal(button(shell, label).disabled, false);
+  }
+  assert.ok(button(shell, "Frame geometry of Zulu"));
+  const stale = button(shell, "Fly to Zulu");
+  button(shell, "Fly to Apple").click();
+  assert.match(shell.querySelector('[data-status-field="message"]').textContent, /map is not ready/);
+  assert.deepEqual(shell.getPrintContext().project.kmlPlaces, before);
+  button(shell, "Edit Zulu").click();
+  const message = shell.querySelector('[data-status-field="message"]').textContent;
+  stale.click();
+  assert.equal(shell.querySelector('[data-status-field="message"]').textContent, message, "detached navigation must not act on a current map");
 });
 
 it("view-only project controls reject mutations while allowing hierarchy inspection", () => {
@@ -159,6 +395,13 @@ it("view-only project controls reject mutations while allowing hierarchy inspect
   button(shell, "Edit Zulu").click();
   assert.equal(button(shell, "Move Zulu up").disabled, true);
   assert.equal(button(shell, "Move Zulu down").disabled, true);
+  const apply = button(shell, "Apply place edits");
+  const viewType = shell.querySelector('[data-kml-view-field="type"]');
+  assert.equal(apply.disabled, true);
+  assert.equal(viewType.disabled, true);
+  apply.disabled = false; viewType.disabled = false; viewType.value = "Camera";
+  apply.click();
+  assert.deepEqual(shell.getPrintContext().project.kmlPlaces, before, "The handler must enforce current edit authority independently of disabled controls");
   let changed = false;
   const standalone = LayerFolders({tree: [], layers: [layer("a", "Apple", 0)], readOnly: true, onApply: () => changed = true});
   standalone.querySelector("form").dispatchEvent(new harness.dom.window.Event("submit", {cancelable: true}));
@@ -184,6 +427,39 @@ function mount(overrides = {}) {
 function button(root, label) {
   const item = [...root.querySelectorAll("button")].find(item => item.getAttribute("aria-label") === label || item.textContent.trim() === label);
   assert.ok(item, `expected button ${label}`); return item;
+}
+function kmlDragHandle(root, id) {
+  const item = root.querySelector(`[data-kml-drag-handle="${id}"]`);
+  assert.ok(item, `expected KML drag handle ${id}`); return item;
+}
+function kmlDropTarget(root, id) {
+  const item = root.querySelector(`[data-kml-drop-target="${id}"]`);
+  assert.ok(item, `expected KML drop target ${id}`);
+  item.getBoundingClientRect = () => ({top: 0, bottom: 100, height: 100, left: 0, right: 100, width: 100});
+  return item;
+}
+function kmlDataTransfer(initial = {}) {
+  const data = new Map(Object.entries(initial));
+  return {effectAllowed: "uninitialized", dropEffect: "none", get types() {return [...data.keys()];},
+    setData(type, value) {data.set(type, String(value));}, getData(type) {return data.get(type) ?? "";}, clearData() {data.clear();}};
+}
+function dispatchKmlDrag(type, target, dataTransfer, clientY = 50) {
+  const event = new harness.dom.window.Event(type, {bubbles: true, cancelable: true});
+  Object.defineProperties(event, {dataTransfer: {value: dataTransfer}, clientY: {value: clientY}});
+  target.dispatchEvent(event); return event;
+}
+function dragKmlPlace(root, sourceId, targetId, clientY, position) {
+  const handle = kmlDragHandle(root, sourceId), target = kmlDropTarget(root, targetId), transfer = kmlDataTransfer();
+  dispatchKmlDrag("dragstart", handle, transfer);
+  assert.ok(transfer.types.includes("application/x-opengeo-kml-place"), "drag must identify its native KML Place payload");
+  const over = dispatchKmlDrag("dragover", target, transfer, clientY);
+  if (position) {
+    assert.equal(over.defaultPrevented, true, "an accepted native drop must allow dropping");
+    assert.equal(target.dataset.kmlDropPosition, position);
+  }
+  dispatchKmlDrag("drop", target, transfer, clientY);
+  dispatchKmlDrag("dragend", handle, transfer);
+  assert.equal(root.querySelector("[data-kml-drop-position]"), null, "drop feedback must clear at the end of a drag");
 }
 function fakeMap({center = [-70.5, 41.5]} = {}) {return {getCenter: () => ({lng: center[0], lat: center[1]}), getZoom: () => 11, getPitch: () => 30, getBearing: () => 15};}
 async function waitFor(check) {for (let i = 0; i < 30; i++) {if (check()) return; await new Promise(resolve => setTimeout(resolve, 0));} assert.fail("UI callback did not settle");}

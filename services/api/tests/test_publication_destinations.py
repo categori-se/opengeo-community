@@ -3,6 +3,7 @@ import json
 from dataclasses import asdict, replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import UUID
 
 import pytest
 
@@ -20,6 +21,56 @@ TARGETS = (
     PublicationDestination("example.org", "external-pages", "EOTHER", "external"),
 )
 PROTECTED = PROTECTED_STUDIO_HOSTS
+
+
+@pytest.mark.parametrize("method", ["claim", "claim_revocation"])
+def test_claim_transport_reassembles_unicode_chunks_with_one_database_execution(method):
+    from opengeo_api import framework_publication_controller as controller
+
+    expected = {"status": "claimed", "retainedProof": "🗺" * 26000}
+    encoded = json.dumps(expected, ensure_ascii=False)
+    rows = tuple((encoded[start : start + 12000],) for start in range(0, len(encoded), 12000))
+    assert len(rows) >= 3
+    assert max(len(row[0].encode()) for row in rows) <= 48000
+    client = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(records=rows)))
+    repository = controller.DataApiPublicationRepository(client)
+    review, token = UUID(int=1), UUID(int=2)
+    assert asyncio.run(getattr(repository, method)(review, token)) == expected
+    statement = (
+        controller.PUBLICATION_CLAIM_SQL
+        if method == "claim"
+        else controller.PUBLICATION_REVOCATION_CLAIM_SQL
+    )
+    client.execute.assert_awaited_once_with(statement, (review, token))
+    assert statement.count("app.") == 1
+    assert "AS MATERIALIZED" in statement
+    assert "ORDER BY chunks.chunk_start" in statement
+
+
+@pytest.mark.parametrize("method", ["claim", "claim_revocation"])
+def test_claim_transport_rejects_malformed_or_truncated_results(method):
+    from opengeo_api import framework_publication_controller as controller
+
+    complete = json.dumps({"status": "claimed", "retainedProof": "x" * 26000})
+    truncated = complete[:-1]
+    truncated_rows = tuple(
+        (truncated[start : start + 12000],) for start in range(0, len(truncated), 12000)
+    )
+    for rows in [
+        (),
+        ((None,),),
+        (("{",),),
+        (("[]",),),
+        (("x" * 12001,),),
+        (("{}",), ("{}",)),
+        (("{}", "extra"),),
+        truncated_rows,
+    ]:
+        client = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(records=rows)))
+        repository = controller.DataApiPublicationRepository(client)
+        with pytest.raises(PublicationConflict, match="publication_database_response_invalid"):
+            asyncio.run(getattr(repository, method)(UUID(int=1), UUID(int=2)))
+        assert client.execute.await_count == 1
 
 
 def router(targets=TARGETS):
@@ -176,6 +227,101 @@ def test_queue_passes_only_configured_router_not_message_destination(monkeypatch
         "batchItemFailures": [{"itemIdentifier": "one"}],
     }
     publish.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "status,delay",
+    [("revoked", None), ("pending", 300), ("busy", 300), ("needs_attention", 300), ("retry", 60)],
+)
+def test_withdrawal_queue_uses_existing_lifecycle_router_and_bounded_redelivery(
+    monkeypatch, status, delay
+):
+    from opengeo_api import framework_publication_controller as controller
+
+    publish = AsyncMock()
+    revoke = AsyncMock(return_value=status)
+    monkeypatch.setattr(controller, "publish_step", publish)
+    monkeypatch.setattr(controller, "revoke_step", revoke)
+    configured, repository, edge = object(), object(), object()
+    queue = SimpleNamespace(change_visibility=AsyncMock())
+    review = UUID(int=1)
+    result = asyncio.run(
+        controller.process_publication_queue(
+            {
+                "Records": [
+                    {
+                        "messageId": "one",
+                        "receiptHandle": "receipt",
+                        "body": json.dumps(
+                            {
+                                "schema": "opengeo.framework-publication-withdrawal.command.1.0.0",
+                                "review_id": str(review),
+                            }
+                        ),
+                    }
+                ]
+            },
+            settings=settings(),
+            repository=repository,
+            storage=object(),
+            edge=edge,
+            queue=queue,
+            destination_router=configured,
+        )
+    )
+    revoke.assert_awaited_once_with(
+        review, repository=repository, edge=edge, destination_router=configured
+    )
+    publish.assert_not_awaited()
+    if delay is None:
+        assert result == {"batchItemFailures": []}
+        queue.change_visibility.assert_not_awaited()
+    else:
+        assert result == {"batchItemFailures": [{"itemIdentifier": "one"}]}
+        queue.change_visibility.assert_awaited_once_with("receipt", delay)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"destination": asdict(TARGETS[1])},
+        {"target_prefix": "releases/another"},
+        {"schema": "opengeo.framework-publication-withdrawal.command.2.0.0"},
+        {"review_id": "https://unapproved.test"},
+        {"review_id": 1},
+    ],
+)
+def test_withdrawal_command_cannot_supply_delivery_authority(monkeypatch, change):
+    from opengeo_api import framework_publication_controller as controller
+
+    publish, revoke = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(controller, "publish_step", publish)
+    monkeypatch.setattr(controller, "revoke_step", revoke)
+    queue = SimpleNamespace(change_visibility=AsyncMock())
+    command = {
+        "schema": "opengeo.framework-publication-withdrawal.command.1.0.0",
+        "review_id": str(UUID(int=1)),
+        **change,
+    }
+    result = asyncio.run(
+        controller.process_publication_queue(
+            {
+                "Records": [
+                    {"messageId": "one", "receiptHandle": "receipt", "body": json.dumps(command)}
+                ]
+            },
+            settings=settings(),
+            repository=object(),
+            storage=object(),
+            edge=object(),
+            queue=queue,
+            destination_router=object(),
+        )
+    )
+    assert result == {"batchItemFailures": [{"itemIdentifier": "one"}]}
+    publish.assert_not_awaited()
+    revoke.assert_not_awaited()
+    queue.change_visibility.assert_awaited_once_with("receipt", 60)
 
 
 def test_production_constructs_router_from_settings_before_processing(monkeypatch):

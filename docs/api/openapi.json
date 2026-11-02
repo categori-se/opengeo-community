@@ -6801,6 +6801,7 @@
               "shapefile",
               "geopackage",
               "geoparquet",
+              "geotiff",
               "cog",
               "pmtiles",
               "png",
@@ -9272,6 +9273,22 @@
             "format": "date-time",
             "title": "Reviewed At",
             "type": "string"
+          },
+          "revocation_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "needs_attention",
+                  "revoked"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revocation State"
           }
         },
         "required": [
@@ -9289,6 +9306,36 @@
           "approved_at"
         ],
         "title": "FrameworkPublicationReviewResponse",
+        "type": "object"
+      },
+      "FrameworkPublicationRevocationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "revoked",
+              "needs_attention"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "revoked"
+        ],
+        "title": "FrameworkPublicationRevocationResponse",
         "type": "object"
       },
       "FrameworkPublicationStatusResponse": {
@@ -9333,6 +9380,11 @@
             "format": "uuid",
             "title": "Source Project Id",
             "type": "string"
+          },
+          "withdrawal_configured": {
+            "default": false,
+            "title": "Withdrawal Configured",
+            "type": "boolean"
           }
         },
         "required": [
@@ -20536,6 +20588,7 @@
               "shapefile",
               "geopackage",
               "geoparquet",
+              "geotiff",
               "cog",
               "pmtiles",
               "png",
@@ -21865,6 +21918,21 @@
           "acknowledgment"
         ],
         "title": "RevokeDistributionApprovalRequest",
+        "type": "object"
+      },
+      "RevokeFrameworkPublicationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "acknowledgment": {
+            "const": "revoke-exact-publication-edition",
+            "title": "Acknowledgment",
+            "type": "string"
+          }
+        },
+        "required": [
+          "acknowledgment"
+        ],
+        "title": "RevokeFrameworkPublicationRequest",
         "type": "object"
       },
       "RightsConfirmationRequest": {
@@ -30757,6 +30825,7 @@
                     "shapefile",
                     "geopackage",
                     "geoparquet",
+                    "geotiff",
                     "cog",
                     "pmtiles",
                     "png",
@@ -39589,6 +39658,7 @@
                     "shapefile",
                     "geopackage",
                     "geoparquet",
+                    "geotiff",
                     "cog",
                     "pmtiles",
                     "png",
@@ -60998,6 +61068,113 @@
           }
         ],
         "summary": "Approve Framework Publication",
+        "tags": [
+          "Observable source authoring"
+        ]
+      }
+    },
+    "/projects/{project_id}/source-projects/{source_project_id}/publications/reviews/{review_id}/revoke": {
+      "post": {
+        "operationId": "revoke_framework_publication_projects__project_id__source_projects__source_project_id__publications_reviews__review_id__revoke_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Source Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "review_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Review Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenGeo-Organization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opengeo-Organization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeFrameworkPublicationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameworkPublicationRevocationResponse"
+                }
+              }
+            },
+            "description": "Exact-edition withdrawal confirmed"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameworkPublicationRevocationResponse"
+                }
+              }
+            },
+            "description": "Withdrawal saved; delivery acknowledgment remains pending"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "description": "Withdrawal is unavailable or dispatch is unconfirmed; retry this edition"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Revoke Framework Publication",
         "tags": [
           "Observable source authoring"
         ]

@@ -332,7 +332,7 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
     assert.match(shell.querySelector('.gis-search').textContent, /WGS84 latitude, longitude in decimal degrees/);
     type("42.36, -71.06");
     assert.equal(flights.length, 0); assert.equal(fits.length, 0);
-    assert.equal([...shell.querySelectorAll('.gis-search button')].some(button => button.textContent === "River trail"), true);
+    assert.equal([...shell.querySelectorAll('.gis-search-result-title')].some(title => title.textContent === "River trail"), true);
     go().click();
     assert.deepEqual(flights, [{center: [-71.06, 42.36], zoom: 12, duration: 350}]);
     assert.deepEqual(shell.getPrintContext().project.mapViews[0].center, [-71.06, 42.36]);
@@ -354,9 +354,175 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
     type("-85.05112878, -180"); go().click();
     assert.deepEqual(flights.at(-1), {center: [-180, -85.05112878], zoom: 15, duration: 350});
     type("River trail"); assert.equal(fits.length, 0);
-    [...shell.querySelectorAll('.gis-search button')].find(button => button.textContent === "River trail").click();
+    [...shell.querySelectorAll('.gis-search-result-title')].find(title => title.textContent === "River trail").closest('button').click();
     assert.deepEqual(fits, [[[[-71.2, 42.1], [-71, 42.4]], {padding: 80, maxZoom: 15, duration: 350}]]);
     assert.equal(flights.length, 4); assert.deepEqual(shell.__opengeoData.get(layer.layerId), geojson);
+  } finally {shell?.dispose?.(); shell?.remove(); globalThis.fetch = originalFetch; restore(); dom.window.close();}
+});
+
+it("Workbench feature search ranks resident matches, shows provenance, and navigates the exact result without crossing Workbenches", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), originalFetch = globalThis.fetch, shells = [];
+  const makeMap = () => {
+    const listeners = new Map(), fits = [];
+    const map = {
+      on(type, callback) {listeners.set(type, callback);}, off(type) {listeners.delete(type);}, resize() {},
+      isStyleLoaded: () => false, getZoom: () => 2, getBearing: () => 0, getPitch: () => 0,
+      getCenter: () => ({lng: -71, lat: 42}), getLayer: () => null,
+      getStyle: () => ({version: 8, sources: {}, layers: []}), queryRenderedFeatures: () => [],
+      fitBounds: (...args) => fits.push(args)
+    };
+    return {map, listeners, fits};
+  };
+  const layer = (layerId, title, provenance = {}) => ({layerId, title, ...provenance,
+    sourceType: "geojson-object", geometryType: "LineString", visible: true, opacity: 1, style: {}, labels: {enabled: false}});
+  const feature = (name, index, properties = {}) => ({type: "Feature", properties: {name, ...properties},
+    geometry: {type: "LineString", coordinates: [[-72 + index / 100, 41], [-72 + index / 100, 42]]}});
+  const firstLayer = layer("survey-a", "Survey A", {datasetId: "dataset-a", datasetVersionId: "version-a", sourceVersion: 3});
+  const unrecordedTitle = '<img src=x onerror="throw 1">Survey B';
+  const secondLayer = layer("survey-b", unrecordedTitle);
+  const firstData = {type: "FeatureCollection", features: [
+    ...Array.from({length: 6}, (_, index) => feature(`Observation ${index}`, index, {description: "River catchment"})),
+    feature("River branch", 6), feature("Upper River", 7), feature("River", 8)
+  ]};
+  const secondData = {type: "FeatureCollection", features: [feature("River", 20)]};
+  const privateLayer = layer("private-survey", "Neighbor private Layer", {datasetId: "neighbor-dataset"});
+  const privateData = {type: "FeatureCollection", features: [feature("River restricted", 30, {description: "Neighbor secret"})]};
+  const main = makeMap(), neighbor = makeMap();
+  const mount = (workspaceId, layers, geojsonByLayerId, renderer) => {
+    const shell = WorkbenchView({workspace: {workspaceId, title: workspaceId}, role: "owner",
+      project: emptyMapDefinition(), layers, geojsonByLayerId, persistenceMode: "fixture", restoreBrowserDraft: false,
+      rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: () => renderer.map, disposeMap() {}}});
+    document.body.append(shell); shells.push(shell); return shell;
+  };
+  const type = (shell, value) => {
+    const input = shell.querySelector('.gis-search input');
+    input.focus(); input.value = value; input.dispatchEvent(new dom.window.Event("input"));
+    assert.equal(document.activeElement, shell.querySelector('.gis-search input'));
+  };
+  const results = shell => [...shell.querySelectorAll('.gis-search-result')];
+  try {
+    globalThis.fetch = () => assert.fail("Resident feature search must not request providers or APIs");
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    const shell = mount("search-main", [firstLayer, secondLayer], new Map([
+      [firstLayer.layerId, firstData], [secondLayer.layerId, secondData]
+    ]), main);
+    const other = mount("search-neighbor", [privateLayer], new Map([[privateLayer.layerId, privateData]]), neighbor);
+    await waitFor(() => main.listeners.has("click") && neighbor.listeners.has("click"));
+    type(other, "River");
+    type(shell, "River");
+    const hits = results(shell);
+    assert.equal(hits.length, 6);
+    assert.deepEqual(hits.map(hit => hit.querySelector('.gis-search-result-title').textContent),
+      ["River", "River", "River branch", "Upper River", "Observation 0", "Observation 1"]);
+    const provenance = hits.map(hit => hit.querySelector('.gis-search-result-provenance').textContent);
+    assert.match(provenance[0], /Survey A/);
+    for (const retained of ["dataset-a", "version-a", "3"]) assert.ok(provenance[0].includes(retained));
+    assert.ok(provenance[1].includes(unrecordedTitle));
+    assert.match(provenance[1], /Dataset identity not recorded/);
+    assert.match(provenance[1], /Version not recorded\./);
+    assert.equal(hits[1].querySelector('img'), null, "Source labels must be rendered as text");
+    assert.deepEqual(hits.map(hit => hit.querySelector('.gis-search-result-match').textContent),
+      ["Exact name", "Exact name", "Name starts with", "Name contains", "Attribute contains", "Attribute contains"]);
+    const disclosure = shell.querySelector('.gis-search').textContent;
+    const summary = shell.querySelector('.gis-search-summary').textContent;
+    assert.match(summary, /^Showing 6 of 10 matching loaded Project features\./);
+    assert.match(summary, /Ranked by exact name, name prefix, name substring, then other attributes; ties follow Layer and feature order\./);
+    assert.equal(results(other).length, 1);
+    assert.match(results(other)[0].textContent, /River restricted.*Neighbor private Layer/);
+    assert.doesNotMatch(disclosure, /Neighbor secret|Neighbor private Layer|neighbor-dataset/);
+    assert.deepEqual(main.fits, [], "Typing and ranking must not navigate");
+    hits[1].click();
+    assert.deepEqual(main.fits, [[[[-71.8, 41], [-71.8, 42]], {padding: 80, maxZoom: 15, duration: 350}]]);
+    assert.equal(shell.getPrintContext().project.activeLayerId, secondLayer.layerId);
+    assert.equal(shell.querySelector('.gis-layer-row.active').dataset.layerId, secondLayer.layerId);
+    assert.equal(document.activeElement, results(shell)[1], "Selection refresh keeps keyboard focus on the chosen result");
+    assert.deepEqual(neighbor.fits, []);
+    type(shell, "Neighbor secret");
+    assert.equal(results(shell).length, 0, "Another mounted Workbench is not a search source");
+    assert.equal(results(other).length, 1, "Searching one Workbench keeps the other's query and results");
+    assert.equal(other.querySelector('.gis-search input').value, "River");
+    assert.deepEqual(shell.__opengeoData.get(secondLayer.layerId), secondData);
+  } finally {
+    for (const shell of shells) {shell.dispose(); shell.remove();}
+    globalThis.fetch = originalFetch; restore(); dom.window.close();
+  }
+});
+
+it("Workbench Plus Code search fits the decoded cell offline and exports the resulting camera", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), listeners = new Map(), fits = [];
+  const originalFetch = globalThis.fetch;
+  let shell, camera = {center: [-71, 42], zoom: 2};
+  const map = {
+    on(type, callback) {listeners.set(type, callback);}, off(type) {listeners.delete(type);}, resize() {},
+    isStyleLoaded: () => false, getZoom: () => camera.zoom, getBearing: () => 0, getPitch: () => 0,
+    getCenter: () => ({lng: camera.center[0], lat: camera.center[1]}), getLayer: () => null,
+    getStyle: () => ({version: 8, sources: {}, layers: []}), queryRenderedFeatures: () => [],
+    fitBounds(bounds, options) {
+      fits.push({bounds, options});
+      camera = {center: [(bounds[0][0] + bounds[1][0]) / 2, (bounds[0][1] + bounds[1][1]) / 2], zoom: 18};
+    },
+    flyTo() {assert.fail("A Plus Code denotes a cell, whose extent must determine navigation");}
+  };
+  try {
+    globalThis.fetch = () => assert.fail("Plus Codes must not request a provider or geocoder");
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    shell = WorkbenchView({workspace: {workspaceId: "plus-code-navigation", title: "Plus Code navigation"},
+      role: "owner", project: emptyMapDefinition(), layers: [], persistenceMode: "fixture", restoreBrowserDraft: false,
+      rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: () => map, disposeMap() {}}});
+    document.body.append(shell);
+    await waitFor(() => listeners.has("click"));
+    const input = () => shell.querySelector('.gis-search input');
+    const go = () => [...shell.querySelectorAll('.gis-search button')].find(button => button.textContent === "Go to coordinate");
+    const type = value => {input().focus(); input().value = value; input().dispatchEvent(new dom.window.Event("input"));};
+    const status = () => shell.querySelector('.gis-search [role="status"]').textContent;
+    type(" 8fvc9g8f+6w ");
+    assert.equal(fits.length, 0);
+    go().click();
+    assert.deepEqual(fits[0], {bounds: [[8.52475, 47.3655], [8.524875, 47.365625]],
+      options: {padding: 80, maxZoom: 18, duration: 350}});
+    assert.match(status(), /Plus Code 8FVC9G8F\+6W.*Open Location Code, WGS84 cell: 0\.000125° latitude/);
+    assert.deepEqual(shell.getPrintContext().project.mapViews[0].center, camera.center);
+    const backup = JSON.stringify({...shell.getPrintContext().project, persistence: {mode: "browser-draft"}});
+    const reopened = readBrowserProjectFile(backup);
+    assert.deepEqual(reopened.mapViews[0].center, camera.center);
+    for (const invalid of ["9G8F+6W", "8FVC9G8F+6", "CFX3X2X2+X2", "not+a+code"]) {
+      type(invalid);
+      input().dispatchEvent(new dom.window.KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+      assert.equal(fits.length, 1, invalid);
+      assert.equal(input().getAttribute("aria-invalid"), "true", invalid);
+      assert.equal(document.activeElement, input(), invalid);
+      assert.match(status(), /(?:full|short) Plus Code|reference location|This map supports latitude/, invalid);
+    }
+    type("8FVC9G8F+6W");
+    input().dispatchEvent(new dom.window.KeyboardEvent("keydown", {key: "Enter", bubbles: true, cancelable: true}));
+    assert.equal(fits.length, 2);
+    assert.equal(input().getAttribute("aria-invalid"), "false");
+    type("C2000000+"); go().click();
+    assert.equal(fits.length, 3);
+    assert.deepEqual(fits.at(-1).bounds, [[-180, 70], [-160, 85.05112878]]);
+    assert.match(status(), /cell is clipped to this map's latitude range/);
+    type("8FVC9G8F+6W"); go().click();
+    const referenceCenter = [...camera.center];
+    type("9G8F+6W");
+    const captureReference = () => [...shell.querySelectorAll('.gis-plus-code-reference button')]
+      .find(button => button.textContent === "Use map center as reference");
+    captureReference().click();
+    assert.equal(fits.length, 4, "Capturing a reference must not navigate");
+    assert.match(shell.querySelector('.gis-plus-code-reference').textContent, /Captured WGS84 reference/);
+    camera = {center: [-71, 42], zoom: 12};
+    go().click();
+    assert.equal(fits.length, 5);
+    assert.deepEqual(camera.center, referenceCenter, "Recovery keeps the captured point after the map moves");
+    assert.match(status(), /Recovered 9G8F\+6W near captured WGS84 reference/);
+    assert.equal(JSON.stringify(shell.getPrintContext().project).includes('plusCodeReference'), false);
+    [...shell.querySelectorAll('.gis-plus-code-reference button')]
+      .find(button => button.textContent === "Clear reference").click();
+    go().click();
+    assert.equal(fits.length, 5);
+    assert.equal(input().getAttribute("aria-invalid"), "true");
+    assert.match(status(), /reference location/);
   } finally {shell?.dispose?.(); shell?.remove(); globalThis.fetch = originalFetch; restore(); dom.window.close();}
 });
 
@@ -371,8 +537,14 @@ it("coordinate navigation is discoverable on an empty map and waits for Earth ma
         project: definition, layers: [], persistenceMode: "fixture", restoreBrowserDraft: false});
       document.body.append(shell); shells.push(shell);
       const search = shell.querySelector('.gis-search'); assert(search);
-      assert.equal(search.querySelector("button").disabled, true);
-      if (body === "earth") assert.match(search.querySelector("button").title, /Wait for the map/);
+      const go = [...search.querySelectorAll("button")].find(button => button.textContent === "Go to coordinate");
+      assert.equal(go.disabled, true);
+      if (body === "earth") {
+        assert.match(go.title, /Wait for the map/);
+        const capture = search.querySelector('.gis-plus-code-reference button');
+        assert.equal(capture.disabled, true);
+        assert.match(capture.title, /Wait for the map/);
+      }
       else assert.match(search.textContent, /available for Earth maps/);
     }
   } finally {for (const shell of shells) {shell.dispose(); shell.remove();} restore(); dom.window.close();}

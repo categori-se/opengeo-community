@@ -12,6 +12,21 @@ test('native camera round-off is stationary but real motion still prevents stale
  for(const update of [{center:[1.001,2]},{zoom:5.01},{pitch:16},{bearing:13},{zoom:NaN}])assert.equal(sameRendererCamera(view,{...view,...update}),false);
 });
 
+test('extended native cameras cannot be silently lost during renderer replacement',()=>{
+ const base={center:[1,2],zoom:5,pitch:15,bearing:12};
+ assert.equal(sameRendererCamera(base,{...base,roll:0,elevation:0,centerClampedToGround:true}),true);
+ for(const update of [{roll:20},{elevation:150},{centerClampedToGround:false}])assert.equal(sameRendererCamera(base,{...base,...update}),false);
+ const style={version:8,projection:{type:'mercator'},sources:{},layers:[]};
+ const map={getStyle:()=>style,getCenter:()=>({lng:1,lat:2}),getZoom:()=>5,getPitch:()=>15,getBearing:()=>12,
+   getRoll:()=>20,getCenterElevation:()=>150,getCenterClampedToGround:()=>false};
+ const state={map,layerHandles:new Map()};
+ const report=mapboxCompatibility({state});
+ assert.ok(report.issues.some(issue=>issue.code==='extended-camera'));
+ const context={state,layers:[],dataByLayerId:new Map(),loadingDatasetLayerIds:new Set(),liveFeatureRequests:new Map()};
+ assert.ok(cesiumWorkbenchContent(context).issues.some(issue=>issue.code==='extended-camera'));
+ assert.equal(mapboxCompatibility({state:{map:{...map,getRoll:()=>0,getCenterElevation:()=>0,getCenterClampedToGround:()=>true}}}).ready,true);
+});
+
 function fixture() {
   const map = new EventEmitter();
   map.isStyleLoaded = () => true;

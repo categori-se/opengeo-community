@@ -1,4 +1,5 @@
 import {cogDisplayOptions, isCogLayer} from "./cogDisplay.js";
+import {isManagedCogIdentity} from "./managedCogIdentity.js";
 
 const DESCRIPTOR_KEYS = ["layerId", "title", "band", "displayRange", "noDataValue", "sourceNoDataValue", "opacity", "sourcePin", "note"];
 const PIN_KEYS = ["layerId", "datasetId", "datasetVersionId", "sourceVersion"];
@@ -45,9 +46,11 @@ export function capturePrintRasterLegend(layer, handle, paints) {
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (managed && (!uuid.test(layer.datasetId ?? "") || !uuid.test(layer.datasetVersionId ?? "")
     || layer.sourceUrl != null)) throw failure();
-  const sourceIdentity = managed
-    ? `urn:opengeo:dataset:${layer.datasetId}:version:${layer.datasetVersionId}:original` : layer.sourceUrl;
   const cog = handle?.cog, grid = cog?.grid, result = cog?.result;
+  const sourceIdentity = managed ? grid?.metadata?.source?.url : layer.sourceUrl;
+  if (managed && (!isManagedCogIdentity(sourceIdentity, {datasetId: layer.datasetId,
+    datasetVersionId: layer.datasetVersionId, objectId: layer.objectId})
+    || sourceIdentity.includes(":working:") && !uuid.test(layer.objectId ?? ""))) throw failure();
   const bands = layer.sourceConfiguration?.bands;
   if (!cog || cog.loading !== false || !result || !grid || typeof grid.active !== "function" || !grid.active()
     || !Array.isArray(bands) || ![1, 3].includes(bands.length)

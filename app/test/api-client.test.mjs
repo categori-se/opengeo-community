@@ -9,6 +9,7 @@ import {
   observablePublicFileCandidates,
   parsePublicationInputDistributions,
   parseDownloadTicket,
+  parseDataset,
   parseDatasetVersionLineage,
   parseDatasetRepositoryObject,
   parseDatasetRepositoryObjectVersionsPage,
@@ -3698,6 +3699,51 @@ describe("OpenGeo API client", () => {
     assert.equal(upload.dataset.format, "kml");
     const [dataset] = await client.listDatasets(IDS.project);
     assert.equal(dataset.format, "kml"); assert.equal(dataset.featureCount, null);
+  });
+
+  it("retains ordinary GeoTIFF format through upload, completion and catalog filters", async () => {
+    const calls = [], ticket = uploadTicketPayload(), completion = uploadCompletionPayload();
+    ticket.dataset.format = "geotiff";
+    completion.dataset.format = "geotiff";
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async (url, options) => {
+        calls.push({url, options});
+        if (url.endsWith("/uploads/request")) return jsonResponse(ticket);
+        if (url.endsWith("/complete")) return jsonResponse(completion);
+        return jsonResponse([datasetPayload({format: "geotiff", geometry_type: "raster"})]);
+      }
+    });
+    const uploaded = await client.requestUpload(IDS.project, {name: "Elevation", classification: "internal",
+      format: "geotiff", filename: "elevation.tif", contentType: "image/tiff", sizeBytes: 100,
+      checksumSha256: "a".repeat(64)});
+    assert.equal(uploaded.dataset.format, "geotiff");
+    assert.equal(JSON.parse(calls[0].options.body).format, "geotiff");
+    assert.equal(JSON.parse(calls[0].options.body).content_type, "image/tiff");
+    assert.equal((await client.completeUpload(IDS.project, uploaded.uploadId)).dataset.format, "geotiff");
+    const [dataset] = await client.listDatasets(IDS.project, {format: "geotiff"});
+    assert.equal(dataset.format, "geotiff");
+    assert.equal(dataset.sourceType, "upload");
+    assert.equal(new URL(calls.at(-1).url, "https://example.test").searchParams.get("format"), "geotiff");
+    assert.equal(parseDataset(datasetPayload({format: "cog"})).format, "cog");
+    assert.throws(() => parseDataset(datasetPayload({source_type: "geotiff", format: "geotiff"})), ApiContractError);
+  });
+
+  it("retains nested working COG metadata and original object identity in version parsing", () => {
+    const original = versionPayload(), workingId = "82000000-0000-4000-8000-000000000002";
+    const working = {relative_key: "working/raster.cog.tif", filename: "raster.cog.tif", object_id: workingId,
+      checksum_sha256: "b".repeat(64), size_bytes: 512};
+    const schema = {raster: {source_format: "geotiff", working_cog: working}};
+    const parsed = parseDatasetVersion({...original, geometry_type: "raster", schema_definition: schema,
+      objects: [{...original.objects[0], role: "original", filename: "elevation.tif", content_type: "image/tiff"},
+        {...original.objects[0], id: workingId, role: "working", filename: working.filename,
+          content_type: "image/tiff", size_bytes: working.size_bytes, checksum_sha256: working.checksum_sha256}]});
+    assert.deepEqual(parsed.schemaDefinition, schema);
+    assert.equal(parsed.objects[0].id, original.objects[0].id);
+    assert.equal(parsed.objects[0].role, "original");
+    assert.equal(parsed.objects[1].id, workingId);
+    assert.equal(parsed.objects[1].role, "working");
+    assert.equal(parsed.objects[1].checksumSha256, working.checksum_sha256);
   });
 
   it("performs a signed upload without leaking API authority to S3", async () => {

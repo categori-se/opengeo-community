@@ -8,6 +8,8 @@ import {ProjectWorkspacePage} from "../src/components/ProjectWorkspacePage.js";
 import {StudioAccountControls} from "../src/components/StudioAccountControls.js";
 import {definitionWithPrintLayouts, newProjectPrintLayout} from "../src/lib/printLayouts.js";
 import {parseMap} from "../src/lib/apiClient.js";
+import {emptyMapDefinition, KML_MAP_DEFINITION_SCHEMA_VERSION} from "../src/lib/mapDefinition.js";
+import {addKmlPlace, createPlacesDocument} from "../src/lib/kmlPlaces.js";
 
 const IDS = Object.freeze({
   organization: "10000000-0000-4000-8000-000000000001",
@@ -30,6 +32,56 @@ afterEach(async () => {
   harness.restore();
   harness.dom.window.close();
   harness = null;
+});
+
+it("reopens and saves native1.7 leaf controls through the account adapter without changing their settings", async () => {
+  const adapter=projectAdapter({kind:"managed"}), original=(await adapter.listMaps())[0];
+  const document=addKmlPlace(createPlacesDocument(),null,{kind:"placemark",id:"survey",name:"Survey",
+    geometry:{type:"Point",coordinates:[12,45,0],kmlControls:{altitudeMode:"absolute",extrude:true,tessellate:false}}});
+  let saved={...original,definition:emptyMapDefinition({schemaVersion:KML_MAP_DEFINITION_SCHEMA_VERSION,
+    layers:[{layerId:"places",datasetId:"kml-places",title:"Survey",sourceType:"kml-places",kmlDocument:document}],kmlLayerDocuments:true})},writes=0;
+  adapter.listMaps=async()=>[saved];
+  adapter.updateMap=async(_project,_map,update)=>{writes++;saved={...saved,version:4,definition:structuredClone(update.changes.definition)};return saved;};
+  let page=mountPage(adapter);
+  try {
+    const editor=await waitFor(()=>page.querySelector(".opengeo-workbench"));
+    assert.deepEqual(editor.getPrintContext().project.layers[0].kmlDocument,document);
+    clickButton(editor,"Save");await waitFor(()=>editor.dataset.saveState==="saved");
+    assert.equal(writes,1);assert.equal(saved.definition.schemaVersion,KML_MAP_DEFINITION_SCHEMA_VERSION);
+    assert.deepEqual(saved.definition.layers[0].kmlDocument,document);
+    page.dispose?.();page.remove();page=mountPage(adapter);
+    const reopened=await waitFor(()=>page.querySelector(".opengeo-workbench"));
+    const layers=reopened.getPrintContext().project.layers;
+    assert.deepEqual(layers.map(layer=>layer.layerId),["places"]);
+    assert.deepEqual(layers[0].kmlDocument,document);assert.equal(writes,1);
+    page.dispose?.();page.remove();
+    const draft=structuredClone(saved.definition);
+    draft.layers[0].kmlDocument.children[0].name="Draft survey";
+    draft.layers[0].kmlDocument.children[0].geometry.kmlControls.tessellate=true;
+    localStorage.setItem(`opengeo.project.${IDS.project}.${IDS.organization}:${IDS.user}:${IDS.map}`,JSON.stringify(draft));
+    page=mountPage(adapter);
+    const restored=await waitFor(()=>page.querySelector(".opengeo-workbench"));
+    clickButton(restored,"Edit Draft survey");
+    restored.querySelector('[data-kml-editing-field="name"]').value="Reviewed draft survey";
+    clickButton(restored,"Apply place edits");
+    clickButton(restored,"Save");await waitFor(()=>writes===2&&restored.dataset.saveState==="saved");
+    assert.equal(saved.definition.layers.length,1);
+    assert.equal(saved.definition.layers[0].kmlDocument.children[0].name,"Reviewed draft survey");
+    assert.deepEqual(saved.definition.layers[0].kmlDocument.children[0].geometry.kmlControls,
+      {altitudeMode:"absolute",extrude:true,tessellate:true});
+  } finally {page.dispose?.();page.remove();}
+});
+
+it("refuses unsupported managed definitions before constructing an editable workbench", async () => {
+  const adapter=projectAdapter({kind:"managed"}), original=(await adapter.listMaps())[0];let writes=0;
+  adapter.listMaps=async()=>[{...original,definition:{...original.definition,schemaVersion:"opengeo.map-definition.9.0.0"}}];
+  adapter.updateMap=async()=>{writes++;assert.fail("Unsupported Projects must not be overwritten");};
+  const page=mountPage(adapter);
+  try {
+    await waitFor(()=>page.querySelector('[role="alert"]'));
+    assert.match(page.textContent,/needs a newer version.*saved content has been kept unchanged/s);
+    assert.equal(page.querySelector(".opengeo-workbench"),null);assert.equal(writes,0);
+  } finally {page.dispose?.();page.remove();}
 });
 
 it("keeps the save indicator honest across pending edits, conflict, failure and Help recovery", async () => {
@@ -870,6 +922,33 @@ describe("project durable-job hydration", () => {
     page.dispose(); page.remove();
   });
 
+  it("adds, saves and reopens the exact normalized GeoTIFF working object without a vector fallback or ticket", async () => {
+    const {adapter, reads, saved} = managedCogAdapter({normalized: true});
+    const originalMap = (await adapter.listMaps())[0];
+    const page = mountPage(adapter, {mapDatasetTarget: {mapId: IDS.map,
+      datasetId: IDS.dataset, datasetVersionId: IDS.version}});
+    await waitFor(() => findButton(page, "Add exact v4"));
+    clickButton(page, "Add exact v4");
+    const editor = await waitFor(() => {
+      const view = page.querySelector(".opengeo-workbench");
+      return view?.__opengeoLayers.length === 1 && view;
+    });
+    assert.equal(editor.__opengeoLayers[0].objectId, IDS.job);
+    clickButton(page, "Save"); await waitFor(() => saved.length === 1);
+    const retained = structuredClone(saved[0]);
+    assert.equal(retained.layers[0].objectId, IDS.job);
+    assert.equal(retained.layers[0].sourceUrl, undefined);
+    assert.doesNotMatch(JSON.stringify(retained), /X-Amz|working:/);
+    assert.doesNotMatch(JSON.stringify(retained.layers), /https:\/\//);
+    page.dispose(); page.remove();
+    adapter.listMaps = async () => [{...originalMap, definition: retained}];
+    const reopened = mountPage(adapter);
+    await waitFor(() => reads.versions === 2);
+    assert.equal(reopened.querySelector(".opengeo-workbench").__opengeoLayers[0].objectId, IDS.job);
+    assert.deepEqual(reads, {versions: 2, tickets: 0, previews: 0});
+    reopened.dispose(); reopened.remove();
+  });
+
   it("reuses an exact COG descriptor within one editor after removal and a deliberate second Add", async () => {
     const {adapter, reads} = managedCogAdapter();
     const page = mountPage(adapter, {mapDatasetTarget: {mapId: IDS.map,
@@ -1079,11 +1158,11 @@ describe("project durable-job hydration", () => {
 
 });
 
-function managedCogAdapter() {
+function managedCogAdapter({normalized = false} = {}) {
   const adapter = projectAdapter({kind: "managed", format: "cog"});
   const reads = {versions: 0, tickets: 0, previews: 0}, saved = [];
   const datasetPromise = adapter.listDatasets().then(([dataset]) => ({...dataset,
-    name: "Native land cover", geometryType: "raster", featureCount: null,
+    name: "Native land cover", format: normalized ? "geotiff" : "cog", geometryType: "raster", featureCount: null,
     capabilities: {read: true, edit: true, download: true}}));
   const mapPromise = adapter.listMaps().then(([map]) => ({...map,
     definition: {...map.definition, activeLayerId: null, layers: []}}));
@@ -1093,10 +1172,14 @@ function managedCogAdapter() {
   adapter.listDatasetVersions = async (project, dataset, options) => {
     assert.deepEqual([project, dataset, options.limit, options.offset], [IDS.project, IDS.dataset, 100, 0]);
     reads.versions++;
-    return [{id: IDS.version, versionNumber: 4, state: "active", format: "cog", geometryType: "raster",
+    return [{id: IDS.version, versionNumber: 4, state: "active", format: normalized ? "geotiff" : "cog", geometryType: "raster",
       extent: [-73.5, 41.2, -69.8, 43.1],
-      qualityResults: {checks: [{code: "cog_layout_verified", status: "passed"}]},
-      objects: [{id: IDS.job, role: "original", filename: "native-land-cover.tif", contentType: "image/tiff", sizeBytes: 4096}]}];
+      ...(normalized ? {schemaDefinition: {raster: {source_format: "geotiff", display_bounds_crs84: [-73.5, 41.2, -69.8, 43.1], working_cog: {
+        relative_key: "working/raster.cog.tif", filename: "raster.cog.tif", object_id: IDS.job,
+        checksum_sha256: "a".repeat(64), size_bytes: 4096}}}} : {}),
+      qualityResults: {checks: [{code: normalized ? "geotiff_working_cog_verified" : "cog_layout_verified", status: "passed"}]},
+      objects: [{id: IDS.job, role: normalized ? "working" : "original", filename: normalized ? "raster.cog.tif" : "native-land-cover.tif",
+        contentType: "image/tiff", checksumSha256: "a".repeat(64), sizeBytes: 4096}]}];
   };
   adapter.requestDatasetDownload = async () => {reads.tickets++; assert.fail("No raster read was requested");};
   adapter.getDatasetSpatialPreview = async () => {reads.previews++; assert.fail("COGs cannot use vector previews");};

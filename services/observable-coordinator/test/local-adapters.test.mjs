@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
 import {LocalExactVersionStorage, localDependencies, localPublicationBridge, processLocalBuildQueue,
-  processLocalPublicationQueue, boundedLocalPublicationReader}
+  processLocalPublicationQueue, processLocalPublicationRevocations, boundedLocalPublicationReader}
   from "../src/local-adapters.mjs";
 import {RdsDataBuildRepository} from "../src/production-adapters.mjs";
 import {sha256,verifyRead,verifyWrite} from "../src/contracts.mjs";
@@ -113,6 +113,46 @@ test("busy SQL lease stops the batch and preserves queued work", async () => {
 
 const reviewId = "10000000-0000-4000-8000-000000000002";
 const publicationCommand = JSON.stringify({schema: "opengeo.framework-publication.command.1.0.0", review_id: reviewId});
+
+test("local withdrawal discovers bounded exact requests without publishing or queue replay", async () => {
+  const second = "10000000-0000-4000-8000-000000000003";
+  const calls = [];
+  const bridge = async request => {
+    calls.push(request);
+    if (request.operation === "pending-publication-withdrawals") return [reviewId, second];
+    assert.equal(request.operation, "revoke-publication");
+    return request.reviewId === reviewId ? "revoked" : "needs_attention";
+  };
+  assert.deepEqual(await processLocalPublicationRevocations({bridge, maximumJobs: 2}), [
+    {reviewId, status: "revoked"}, {reviewId: second, status: "needs_attention"}
+  ]);
+  assert.deepEqual(calls, [
+    {operation: "pending-publication-withdrawals", maximumJobs: 2},
+    {operation: "revoke-publication", reviewId},
+    {operation: "revoke-publication", reviewId: second}
+  ]);
+});
+
+test("local withdrawal stops after a retry and rejects malformed discovery before delivery", async () => {
+  const second = "10000000-0000-4000-8000-000000000003";
+  const calls = [];
+  assert.deepEqual(await processLocalPublicationRevocations({bridge: async request => {
+    calls.push(request);
+    return request.operation === "pending-publication-withdrawals" ? [reviewId, second] : "retry";
+  }}), [{reviewId, status: "retry"}]);
+  assert.equal(calls.length, 2);
+  for (const records of [null, {}, [reviewId, reviewId], ["invalid"], [reviewId, second]]) {
+    await assert.rejects(processLocalPublicationRevocations({maximumJobs: 1, bridge: async request => {
+      assert.equal(request.operation, "pending-publication-withdrawals");
+      return records;
+    }}), /local_publication_result_invalid/);
+  }
+  for (const maximumJobs of [0, 5, 1.5]) {
+    await assert.rejects(processLocalPublicationRevocations({maximumJobs, bridge: async () => {
+      assert.fail("Invalid budget must fail before discovery");
+    }}), /local_job_limit_invalid/);
+  }
+});
 
 test("local publication acknowledges only the deployed approved review in its own queue", async () => {
   const calls = [];

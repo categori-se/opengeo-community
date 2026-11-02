@@ -3,6 +3,7 @@ import {afterEach, beforeEach, describe, it} from "node:test";
 import {JSDOM} from "jsdom";
 
 import {WorkbenchView, managedLayerCreditPanel, reviewManagedLayerCredit} from "../src/components/WorkbenchView.js";
+import {readSavedProjectVersionFile, savedProjectVersionFile} from "../src/lib/projectFileFormat.js";
 
 const IDS = Object.freeze({
   project: "50000000-0000-4000-8000-000000000083",
@@ -707,6 +708,36 @@ describe("managed COG reopening", () => {
     assert.equal(shell.__opengeoLayers[0].objectId, objectId);
     assert.equal(shell.getPrintContext().handles.size, 0);
     assert.equal(shell.__opengeoData.size, 0);
+  });
+
+  it("retains a normalized working-object pin through native file export and exact reopening", async () => {
+    const working = binding();
+    working.source.sourceUrl = `urn:opengeo:dataset:${IDS.dataset}:version:${IDS.version}:working:${objectId}`;
+    let saved;
+    const shell = createWorkbench({layers: [layer(true)], loadManagedCog: async () => working,
+      async saveProject(definition) {saved = definition; return {id: IDS.map, version: 3, definition};}});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    clickButton(shell, "Save"); await waitFor(() => saved);
+    const reopened = readSavedProjectVersionFile(savedProjectVersionFile(IDS.map, {version: 3, definition: saved}));
+    assert.equal(reopened.definition.layers[0].objectId, objectId);
+    assert.equal(reopened.definition.layers[0].datasetVersionId, IDS.version);
+    assert.doesNotMatch(JSON.stringify(reopened), /X-Amz|working:/);
+    assert.doesNotMatch(JSON.stringify(reopened.definition.layers), /https:\/\//);
+    shell.dispose(); shell.remove();
+    const next = createWorkbench({layers: reopened.definition.layers, loadManagedCog: async () => working});
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.equal(next.__opengeoLayers[0].objectId, objectId);
+    assert.doesNotMatch(next.textContent, /could not open its exact raster/);
+    next.dispose(); next.remove();
+  });
+
+  it("refuses a different normalized object on reopening before any pixel read", async () => {
+    const wrong = binding(); wrong.objectId = IDS.staleVersion;
+    wrong.source.sourceUrl = `urn:opengeo:dataset:${IDS.dataset}:version:${IDS.version}:working:${wrong.objectId}`;
+    const shell = createWorkbench({layers: [layer(true)], loadManagedCog: async () => wrong});
+    await waitFor(() => /could not open its exact raster object/.test(shell.textContent));
+    assert.equal(shell.__opengeoLayers[0].objectId, objectId);
+    assert.equal(shell.getPrintContext().handles.size, 0);
   });
 });
 

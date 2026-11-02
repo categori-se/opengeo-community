@@ -53,6 +53,68 @@ function safeRejection(error) {
   assert.equal(error.code, "managed_cog_unavailable"); return true;
 }
 
+function workingFixture() {
+  const f = fixture(), workingId = "41105e48-0df2-4ba3-a217-e81cab3894bb";
+  const checksum = createHash("sha256").update(bytes).digest("hex");
+  f.version.schemaDefinition = {raster: {source_format: "geotiff", display_bounds_crs84: [...bounds], working_cog: {
+    relative_key: "working/raster.cog.tif", filename: "raster.cog.tif", object_id: workingId,
+    checksum_sha256: checksum, size_bytes: bytes.length}}};
+  f.version.qualityResults.checks = [{code: "geotiff_working_cog_verified", status: "passed"}];
+  f.version.objects.push({id: workingId, role: "working", filename: "raster.cog.tif",
+    contentType: "image/tiff", sizeBytes: bytes.length, checksumSha256: checksum});
+  f.options.adapter.requestDatasetDownload = async (p, d, v, o) => {
+    assert.deepEqual([p, d, v, o], [projectId, datasetId, versionId, workingId]); f.calls.tickets++;
+    const value = ticket(), url = new URL(value.url);
+    url.pathname = url.pathname.replace("original/nearby-subset.tif", "working/raster.cog.tif");
+    url.searchParams.set("response-content-disposition", 'attachment; filename="raster.cog.tif"');
+    return {...value, url: url.href};
+  };
+  return {...f, workingId};
+}
+
+test("normalized GeoTIFF selects the declared working COG and reads only its pinned private object", async () => {
+  const f = workingFixture(), binding = await loadManagedCogData(f.options);
+  assert.equal(binding.objectId, f.workingId);
+  assert.equal(binding.source.sourceUrl, `urn:opengeo:dataset:${datasetId}:version:${versionId}:working:${f.workingId}`);
+  const result = await binding.read(binding.source), grid = cogGridView(result);
+  assert.equal(grid.value(0, 0, 1), 40); assert.equal(grid.metadata.source.url, binding.source.sourceUrl);
+  assert.equal(f.calls.tickets, 1); assert.equal(f.calls.authorize, 2);
+  assert.doesNotMatch(JSON.stringify({binding, result}), /X-Amz|private\//);
+  releaseCogPreview(result);
+});
+
+test("normalized GeoTIFF uses geographic display bounds while retaining the native version extent", async () => {
+  const f = workingFixture(); f.version.extent = [1000, 1840, 1160, 2000]; f.version.crs = "EPSG:3857";
+  const nativeExtent = [...f.version.extent], binding = await loadManagedCogData(f.options);
+  assert.deepEqual(binding.source.configuration.bounds, bounds);
+  assert.deepEqual(f.version.extent, nativeExtent); assert.equal(f.calls.ranges, 0);
+});
+
+for (const kind of ["missing-marker", "missing-declaration", "missing-check", "failed-check", "duplicate-check",
+  "missing-working", "two-working", "object-mismatch", "hash-mismatch", "size-mismatch", "filename-mismatch", "wrong-format", "missing-display-bounds", "native-display-bounds"]) {
+  test(`normalized GeoTIFF fails before a ticket rather than reading its original: ${kind}`, async () => {
+    const f = workingFixture(), raster = f.version.schemaDefinition.raster, working = f.version.objects[1];
+    // Even a legacy COG check cannot authorize a partial normalized declaration.
+    f.version.qualityResults.checks.push({code: "cog_layout_verified", status: "passed"});
+    if (kind === "missing-marker") delete raster.source_format;
+    if (kind === "missing-declaration") delete raster.working_cog;
+    if (kind === "missing-check") f.version.qualityResults.checks.shift();
+    if (kind === "failed-check") f.version.qualityResults.checks[0].status = "failed";
+    if (kind === "duplicate-check") f.version.qualityResults.checks.push({...f.version.qualityResults.checks[0]});
+    if (kind === "missing-working") f.version.objects.pop();
+    if (kind === "two-working") f.version.objects.push({...working});
+    if (kind === "object-mismatch") raster.working_cog.object_id = objectId;
+    if (kind === "hash-mismatch") working.checksumSha256 = "b".repeat(64);
+    if (kind === "size-mismatch") working.sizeBytes++;
+    if (kind === "filename-mismatch") working.filename = "preview.tif";
+    if (kind === "wrong-format") f.version.format = "cog";
+    if (kind === "missing-display-bounds") delete raster.display_bounds_crs84;
+    if (kind === "native-display-bounds") raster.display_bounds_crs84 = [1000, 1840, 1160, 2000];
+    await assert.rejects(loadManagedCogData(f.options), safeRejection);
+    assert.equal(f.calls.tickets, 0); assert.equal(f.calls.ranges, 0);
+  });
+}
+
 test("exact native retained COG uses private ranges and publishes only logical provenance", async () => {
   assert.equal(bytes.length, 810);
   assert.equal(createHash("sha256").update(bytes).digest("hex"), "aba504f019cba40c9ee2846d13b4658986164996732364626a0a916306e8e6a6");

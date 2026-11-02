@@ -359,12 +359,17 @@ class LocalObservableDispatcher:
 
 class LocalFrameworkPublicationDispatcher:
     available = True
+    withdrawal_available = True
 
     async def dispatch_framework_publication(self, review_id):
         LocalQueue("framework-publications").push({
             "schema": "opengeo.framework-publication.command.1.0.0",
             "review_id": str(review_id),
         })
+
+    async def dispatch_framework_publication_withdrawal(self, review_id):
+        # Explicit local processing discovers the already persisted request first.
+        del review_id
 
 
 def configure_local_publication(project_id, source_project_id):

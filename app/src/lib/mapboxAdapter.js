@@ -1,6 +1,7 @@
 import {createGlRendererAdapter} from "./glRendererAdapter.js";
 import {isRegisteredMapFont} from "./mapFonts.js";
 import {MAPBOX_RUNTIME} from "./mapboxRuntime.js";
+import {captureMapView, requiresExtendedMapCamera} from "./globeView.js";
 
 export const MAPBOX_VERSION = MAPBOX_RUNTIME.version;
 
@@ -39,6 +40,9 @@ export function mapboxCompatibility({layers = [], style = null, state = {}, allo
   const issues = [];
   const add = (code, message, layer = null) => issues.push({code, message,
     ...(layer ? {layerId: layer.layerId, title: layer.title ?? layer.layerId} : {})});
+  if (requiresExtendedMapCamera(captureMapView(state.map, state.restoredMapViews?.[0]))) {
+    add("extended-camera", "This camera's roll or target elevation currently requires MapLibre. Choose a compatible saved view before switching engines.");
+  }
   for (const layer of layers) {
     if (layer.pointClustering?.enabled) add("point-clustering", "Point clustering currently uses MapLibre. Disable clustering before switching engines.", layer);
     if (["pmtiles-vector", "pmtiles-raster"].includes(layer.sourceType)

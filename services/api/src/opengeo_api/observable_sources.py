@@ -421,6 +421,14 @@ class ObservableSourceRepository(Protocol):
         review_id: UUID,
     ) -> None: ...
 
+    async def revoke_publication(
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        source_project_id: UUID,
+        review_id: UUID,
+    ) -> Literal["pending", "revoked", "needs_attention"]: ...
+
     async def github_status(
         self, context: TenantContext, project_id: UUID, source_project_id: UUID
     ) -> dict[str, Any]: ...
@@ -879,7 +887,8 @@ class PostgresObservableSourceRepository:
                               THEN job.receipt->>'targetPrefix' ELSE NULL END,
                             'edition_path', CASE WHEN job.stage = 'deployed'
                               THEN job.receipt->>'editionPath' ELSE NULL END
-                          ) END AS deployment
+                          ) END AS deployment,
+                          revocation.state AS revocation_state
                    FROM app.framework_publication_reviews review
                    LEFT JOIN app.framework_publication_approvals approval
                      ON approval.review_id = review.id
@@ -887,6 +896,10 @@ class PostgresObservableSourceRepository:
                    LEFT JOIN app.framework_publication_jobs job ON job.review_id = review.id
                      AND job.organization_id = review.organization_id
                      AND job.project_id = review.project_id
+                   LEFT JOIN app.framework_publication_revocation_jobs revocation
+                     ON revocation.review_id = review.id
+                     AND revocation.organization_id = review.organization_id
+                     AND revocation.project_id = review.project_id
                    WHERE review.organization_id = %s AND review.project_id = %s
                      AND review.source_project_id = %s
                    ORDER BY review.reviewed_at DESC, review.id DESC LIMIT 25""",
@@ -944,6 +957,7 @@ class PostgresObservableSourceRepository:
                                 "expires_at",
                                 "approved_at",
                                 "deployment",
+                                "revocation_state",
                             ),
                             row,
                             strict=True,
@@ -1060,6 +1074,36 @@ class PostgresObservableSourceRepository:
             )
 
         await self._run(context, operation)
+
+    async def revoke_publication(
+        self,
+        context: TenantContext,
+        project_id: UUID,
+        source_project_id: UUID,
+        review_id: UUID,
+    ) -> Literal["pending", "revoked", "needs_attention"]:
+        async def operation(
+            transaction: TenantTransaction,
+        ) -> Literal["pending", "revoked", "needs_attention"]:
+            self._require(
+                Action.SITE_PUBLISH, await self._project_roles(transaction, context, project_id)
+            )
+            row = await transaction.fetch_one(
+                "SELECT id FROM app.framework_publication_reviews WHERE organization_id = %s "
+                "AND project_id = %s AND source_project_id = %s AND id = %s",
+                (context.organization_id, project_id, source_project_id, review_id),
+            )
+            if row is None:
+                raise ObservableSourceNotFound("publication_review")
+            state = await transaction.fetch_one(
+                "SELECT app.request_framework_publication_revocation(%s, %s, %s)",
+                (review_id, project_id, source_project_id),
+            )
+            if state is None or state[0] not in {"pending", "revoked", "needs_attention"}:
+                raise ObservableSourceStoreUnavailable("publication_revocation_unavailable")
+            return cast(Literal["pending", "revoked", "needs_attention"], state[0])
+
+        return await self._run(context, operation)
 
     async def request_github_sync(
         self, context: TenantContext, project_id: UUID, source_project_id: UUID, revision_id: UUID

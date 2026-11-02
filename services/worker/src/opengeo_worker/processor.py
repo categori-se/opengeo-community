@@ -3,6 +3,7 @@ import re
 import tempfile
 import threading
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from pathlib import Path, PurePosixPath
 from types import TracebackType
 from typing import Literal, Protocol, Self
@@ -56,6 +57,7 @@ _SOURCE_FILENAMES = {
     "geopackage": "source.gpkg",
     "geoparquet": "source.parquet",
     "cog": "source.tif",
+    "geotiff": "source.tif",
     "pmtiles": "source.pmtiles",
     "png": "source.png",
     "jpeg": "source.jpg",
@@ -469,6 +471,10 @@ class WorkerProcessor:
                             output_prefix=claim.output_prefix,
                             artifact_id=uuid5(claim.dataset_version_id, artifact.relative_key),
                         )
+                    )
+                if claim.dataset_format == "geotiff":
+                    inspection = _bind_geotiff_working_cog(
+                        inspection, artifacts, output_prefix=claim.output_prefix
                     )
                 lease.renew_now()
                 if not self._repository.complete(claim.job_id, worker_token, inspection, artifacts):
@@ -984,6 +990,54 @@ class WorkerProcessor:
         if root.is_symlink() or not root.is_dir():
             raise TransientFailure("workspace_unavailable")
         root.chmod(0o700)
+
+
+def _bind_geotiff_working_cog(
+    inspection: InspectionResult,
+    artifacts: Sequence[StoredArtifact],
+    *,
+    output_prefix: str,
+) -> InspectionResult:
+    raster = inspection.schema_definition.get("raster")
+    working = raster.get("working_cog") if isinstance(raster, dict) else None
+    checks = inspection.quality_results.get("checks")
+    if (
+        not isinstance(raster, dict)
+        or raster.get("source_format") != "geotiff"
+        or not isinstance(working, dict)
+        or working.get("relative_key") != "working/raster.cog.tif"
+        or working.get("filename") != "raster.cog.tif"
+        or inspection.quality_results.get("valid") is not True
+        or not isinstance(checks, list)
+        or {"code": "geotiff_working_cog_verified", "status": "passed"} not in checks
+    ):
+        raise ValidationFailure("geotiff_working_cog_unverified")
+    candidates = [artifact for artifact in artifacts if artifact.role == "working"]
+    if len(candidates) != 1:
+        raise ValidationFailure("geotiff_working_cog_ambiguous")
+    stored = candidates[0]
+    if (
+        stored.object_key != output_prefix + "working/raster.cog.tif"
+        or stored.content_type != "image/tiff"
+        or stored.size_bytes < 1
+        or not stored.s3_version_id
+        or stored.s3_version_id == "null"
+        or re.fullmatch(r"[0-9a-f]{64}", stored.checksum_sha256) is None
+    ):
+        raise ValidationFailure("geotiff_working_cog_unverified")
+    bound = {
+        **working,
+        "object_id": str(stored.artifact_id),
+        "checksum_sha256": stored.checksum_sha256,
+        "size_bytes": stored.size_bytes,
+    }
+    return replace(
+        inspection,
+        schema_definition={
+            **inspection.schema_definition,
+            "raster": {**raster, "working_cog": bound},
+        },
+    )
 
 
 def _pmtiles_source_filename(reference: ObjectReference) -> str | None:

@@ -70,13 +70,27 @@ def operate(request):
         return asyncio.run(repository.resolve_artifact_lease(context, job, token))
     if operation == "configure-publication":
         return pilot.configure_local_publication(request["projectId"], request["sourceProjectId"])
-    if operation in {"publish", "public-read", "public-read-batch"}:
+    if operation in {"publish", "pending-publication-withdrawals", "revoke-publication", "public-read", "public-read-batch"}:
         from local_framework_publication import (
-            publish_local_review, read_publication, read_publications,
+            LocalPublicationSqlClient, publish_local_review, revoke_local_review, read_publication, read_publications,
         )
 
         if operation == "publish":
             return asyncio.run(publish_local_review(pilot, UUID(request["reviewId"]), maximum_files=64))
+        if operation == "revoke-publication":
+            if set(request) != {"operation", "reviewId"}:
+                raise ValueError("Invalid local publication withdrawal request")
+            return asyncio.run(revoke_local_review(pilot, UUID(request["reviewId"])))
+        if operation == "pending-publication-withdrawals":
+            if (set(request) != {"operation", "maximumJobs"}
+                    or type(request["maximumJobs"]) is not int
+                    or not 1 <= request["maximumJobs"] <= 4):
+                raise ValueError("Invalid local publication withdrawal limit")
+            result = asyncio.run(LocalPublicationSqlClient().execute(
+                "SELECT app.pending_framework_publication_revocations(%s)",
+                (request["maximumJobs"],),
+            ))
+            return result.records[0][0]
         if operation == "public-read-batch":
             if set(request) != {"operation", "requests"}:
                 raise ValueError("Invalid local public batch request")
@@ -86,7 +100,9 @@ def operate(request):
                 }
                 for record in read_publications(pilot, request["requests"])
             ]
-        record = read_publication(pilot, request["path"], review_id=request.get("reviewId"))
+        # Exact reads and withdrawal acknowledgment share the activation fence.
+        with pilot.local_state_lock("publication-active"):
+            record = read_publication(pilot, request["path"], review_id=request.get("reviewId"))
         return None if record is None else {**record, "body": base64.b64encode(record["body"]).decode()}
     store = pilot.LocalObjects()
     if operation == "read":

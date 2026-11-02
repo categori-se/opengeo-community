@@ -16,6 +16,7 @@ from opengeo_api.catalog import (
     PermissionGrant,
     PostgresCatalogRepository,
 )
+from opengeo_api.catalog_routes import version_response
 from opengeo_api.document_previews import document_visual_page
 from opengeo_api.s3_downloads import DownloadTicket, ExactObject
 from opengeo_api.tenant_database import TenantContext
@@ -353,6 +354,40 @@ def test_version_history_returns_safe_logical_versions_and_objects() -> None:
     query = next(call for call in transaction.calls if call[0] == "all")
     assert "dataset_version_objects" in query[1]
     assert "object.bucket" not in query[1]
+
+
+def test_geotiff_version_read_retains_bound_working_cog_metadata_and_original() -> None:
+    working_id = UUID("82000000-0000-4000-8000-000000000002")
+    working_cog = {
+        "relative_key": "working/raster.cog.tif",
+        "filename": "raster.cog.tif",
+        "object_id": str(working_id),
+        "checksum_sha256": "b" * 64,
+        "size_bytes": 456,
+    }
+    schema = {
+        "raster": {"source_format": "geotiff", "working_cog": working_cog},
+    }
+    quality = {"checks": [{"code": "geotiff_working_cog_verified", "status": "passed"}]}
+    original = list(version_row())
+    original[5:11] = [None, [-1, -2, 3, 4], "EPSG:32618", "raster", schema, quality]
+    original[15:20] = ["original", "elevation.tif", "image/tiff", 789, "a" * 64]
+    working = list(original)
+    working[14:20] = [working_id, "working", "raster.cog.tif", "image/tiff", 456, "b" * 64]
+    transaction = FakeTransaction(one=[access()], all_rows=[[tuple(original), tuple(working)]])
+    repository = PostgresCatalogRepository(FakeExecutor([transaction]), FakeStorage())
+
+    versions = asyncio.run(repository.list_versions(context(), PROJECT_ID, DATASET_ID, 50, 0))
+    response = version_response(versions[0]).model_dump(mode="json")
+
+    assert response["schema_definition"] == schema
+    assert response["quality_results"] == quality
+    assert [(item["id"], item["role"]) for item in response["objects"]] == [
+        (str(OBJECT_ID), "original"),
+        (str(working_id), "working"),
+    ]
+    assert response["objects"][0]["checksum_sha256"] == "a" * 64
+    assert response["objects"][1]["checksum_sha256"] == working_cog["checksum_sha256"]
 
 
 def test_version_lineage_returns_safe_authorized_origins_and_derivatives() -> None:

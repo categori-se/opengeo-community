@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opengeo.tools/schemas/opengeo-map-definition-1.7.0.schema.json",
+  "title": "OpenGeo map definition 1.7.0",
+  "description": "Preserves typed KML altitude, extrusion and tessellation settings on each supported geometry leaf. Older native-file readers must reject this version before editing. Includes the existing 1.6 measurement, display and Style capabilities.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "mapViews",
+    "basemaps",
+    "bookmarks",
+    "activeLayerId",
+    "activeProcessingModelId",
+    "models",
+    "processingHistory",
+    "measurements",
+    "projection",
+    "colorMode",
+    "layers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "opengeo.map-definition.1.7.0"
+    },
+    "mapViews": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/mapViews"
+    },
+    "basemaps": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/basemaps"
+    },
+    "bookmarks": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/bookmarks"
+    },
+    "activeLayerId": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/activeLayerId"
+    },
+    "activeProcessingModelId": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/activeProcessingModelId"
+    },
+    "models": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/models"
+    },
+    "processingHistory": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/processingHistory"
+    },
+    "measurements": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/measurements"
+    },
+    "spatialBody": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/spatialBody"
+    },
+    "projection": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/projection"
+    },
+    "colorMode": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/colorMode"
+    },
+    "layers": {
+      "allOf": [
+        {
+          "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/layers"
+        },
+        {
+          "items": {
+            "type": "object",
+            "properties": {
+              "kmlDocument": {
+                "$ref": "#/$defs/kmlPlace"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "portal": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/portal"
+    },
+    "extensions": {
+      "$ref": "opengeo-map-definition-1.6.0.schema.json#/properties/extensions"
+    },
+    "kmlPlaces": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/kmlPlace"
+        }
+      ]
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "kmlControls": {
+      "type": "object",
+      "required": [
+        "altitudeMode",
+        "extrude",
+        "tessellate"
+      ],
+      "properties": {
+        "altitudeMode": {
+          "enum": [
+            null,
+            "clampToGround",
+            "relativeToGround",
+            "absolute",
+            "gx:clampToSeaFloor",
+            "gx:relativeToSeaFloor"
+          ]
+        },
+        "extrude": {
+          "type": "boolean"
+        },
+        "tessellate": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "kmlPlace": {
+      "type": "object",
+      "properties": {
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/kmlPlace"
+          }
+        },
+        "geometry": {
+          "$ref": "#/$defs/kmlGeometry"
+        }
+      },
+      "additionalProperties": true
+    },
+    "kmlGeometry": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "coordinates"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "Point",
+                "LineString",
+                "Polygon"
+              ]
+            },
+            "coordinates": {
+              "type": "array"
+            },
+            "kmlControls": {
+              "$ref": "#/$defs/kmlControls"
+            }
+          },
+          "additionalProperties": true
+        },
+        {
+          "type": "object",
+          "required": [
+            "type",
+            "geometries"
+          ],
+          "properties": {
+            "type": {
+              "const": "GeometryCollection"
+            },
+            "geometries": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/kmlGeometry"
+              }
+            }
+          },
+          "not": {
+            "required": [
+              "kmlControls"
+            ]
+          },
+          "additionalProperties": true
+        }
+      ]
+    }
+  }
+}
