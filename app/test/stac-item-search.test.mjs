@@ -108,6 +108,23 @@ it("does not create partial references for unsafe, oversized or out-of-scope Ite
   assert.equal(result.complete, false); assert.doesNotMatch(JSON.stringify(result), /do-not-retain/);
 });
 
+it("preserves long noncredential metadata while rejecting credential URLs with valid schemes", async () => {
+  const descriptions = ["x".repeat(120 * 1024), `${"x".repeat(120 * 1024)}://catalog.example/item`];
+  const safe = descriptions.map((description, index) => {
+    const source = item(`long-${index}`); source.properties.description = description; return source;
+  });
+  const credentials = ["https://alice:do-not-retain@catalog.example/item", "S3://do-not-retain@originals/scene.jp2",
+    "custom+v1.-scheme://do-not-retain@catalog.example/item", "prefix 123https://do-not-retain@catalog.example/item suffix"];
+  const unsafe = credentials.map((description, index) => {
+    const source = item(`unsafe-${index}`); source.properties.description = description; return source;
+  });
+  const f = fixture([collection([...safe, ...unsafe])]), result = await f.client.search({...draft, limit: safe.length + unsafe.length});
+  assert.deepEqual(result.items.map(reference => reference.original.properties.description), descriptions);
+  assert.equal(result.issues.length, credentials.length); assert.equal(result.complete, false); assert.equal(f.calls.length, 1);
+  assert.doesNotMatch(JSON.stringify(result), /do-not-retain/);
+  assert.equal(STAC_ITEM_LIMITS.milliseconds, 30_000);
+});
+
 it("requires known observation coverage and retains interval time without fabricating an instant", async () => {
   const interval = item(); interval.properties.datetime = null;
   interval.properties.start_datetime = "2021-10-01T00:00:00Z"; interval.properties.end_datetime = "2021-10-02T00:00:00Z";
