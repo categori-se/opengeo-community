@@ -365,6 +365,7 @@ import {
   removeCameraTourKeyframe,
   updateCameraTourKeyframe
 } from "../lib/cameraTour.js";
+import {parseGxTour, exportGxTour} from "../lib/gxTour.js";
 import {
   AIRCRAFT_PROFILES,
   FLIGHT_LIMITS,
@@ -11613,9 +11614,9 @@ function cameraTourPanel(context) {
   );
   intro.append(textElement(
     "p",
-    "This increment is a silent visual tour. Narration, movie encoding, and KML gx:Tour exchange remain explicit follow-up work."
+    "This is a silent visual tour. KML gx:Tour exchanges camera views and waits with a visible conversion report. Narration and movie encoding remain follow-up work."
   ));
-  panel.append(intro, cameraTourImportControl(context));
+  panel.append(intro, cameraTourImportControl(context), cameraTourKmlControl(context));
   if (!state.cameraTour) {
     if (context.project?.extensions?.cameraTour) panel.append(textElement("p",
       "The saved tour format is unavailable in this interface. Saving preserves its original data; starting a new tour deliberately replaces it."));
@@ -11722,19 +11723,92 @@ function cameraTourImportControl(context) {
   input.addEventListener("change", async () => {
     const file = input.files?.[0];
     if (!file) return;
+    const operation = beginCameraTourExchange(context);
     try {
       if (file.size > CAMERA_TOUR_LIMITS.maximumSerializedBytes) throw Object.assign(new Error("camera_tour_serialized_limit"), {code: "camera_tour_serialized_limit"});
       const tour = parseCameraTour(await file.text());
+      if (!operation.current()) return;
+      context.state.cameraTourExchange = null;
       stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
       stateSetCameraTour(context, tour, tour.keyframes[0].id);
       setStatus(context, `${tour.title} opened locally with ${tour.keyframes.length} camera views.`);
     } catch (error) {
+      if (!operation.current()) return;
       setStatus(context, `Camera tour file rejected safely (${error?.code ?? "camera_tour_json_invalid"}).`);
       context.render();
     }
   });
   label.append(input, textElement("strong", "Open tour JSON"));
   section.append(label);
+  return section;
+}
+
+function beginCameraTourExchange(context) {
+  const generation = (context.cameraTourExchangeGeneration ?? 0) + 1;
+  context.cameraTourExchangeGeneration = generation;
+  const project = context.project, workspace = context.workspace, origin = context.savedProjectOrigin, tour = context.state.cameraTour;
+  return {generation, current: () => !context.disposed && context.shell.isConnected
+    && context.cameraTourExchangeGeneration === generation && context.project === project
+    && context.workspace === workspace && context.savedProjectOrigin === origin && context.state.cameraTour === tour};
+}
+
+function cameraTourKmlControl(context) {
+  const section = editorSection("KML camera tour exchange",
+    "Open one .kml gx:Tour up to 256 KiB. FlyTo views and Wait timing become an editable tour. Review conversions before replacing the current tour. No resources or Layer data are fetched.");
+  const label = document.createElement("label");label.className = "gis-file-drop";
+  const input = document.createElement("input");input.type = "file";input.accept = ".kml,application/vnd.google-earth.kml+xml";
+  input.setAttribute("aria-label", "Open KML tour");
+  input.addEventListener("change", async () => {
+    const file = input.files?.[0];if (!file) return;
+    const operation = beginCameraTourExchange(context);
+    try {
+      if (file.size > CAMERA_TOUR_LIMITS.maximumSerializedBytes) throw Error("Use a KML file of at most 256 KiB.");
+      const source = await file.text(), parsed = parseGxTour(source);
+      if (!operation.current()) return;
+      context.state.cameraTourExchange = {...parsed, source, pending: true, operation};
+      setStatus(context, "KML tour read locally. Review its conversion report, then choose Use imported camera tour.");
+    } catch (error) {
+      if (!operation.current()) return;
+      context.state.cameraTourExchange = null;
+      setStatus(context, `KML tour rejected: ${error.message}`);
+    }
+    if (operation.current()) context.render();
+  });
+  label.append(input, textElement("strong", "Open KML tour"));section.append(label);
+  if (context.state.cameraTour) section.append(actionButton("Prepare KML tour export", () => {
+    const operation = beginCameraTourExchange(context);
+    try {
+      const exported = exportGxTour(context.state.cameraTour);
+      context.state.cameraTourExchange = {...exported, pending: false, operation};
+      setStatus(context, "KML tour prepared. Review its conversion report before downloading.");
+    } catch (error) {setStatus(context, `KML tour export refused: ${error.message}`);}
+    context.render();
+  }));
+  const candidate = context.state.cameraTourExchange;
+  const exchange = candidate?.operation?.current() ? candidate : null;
+  if (exchange) {
+    const report = document.createElement("div");report.setAttribute("role", "status");report.dataset.cameraTourExchangeReport = "";
+    report.append(textElement("h4", "KML tour conversion report"), textElement("p", "KML range and renderer zoom use different camera models. Framing and flight interpolation are approximate. Keep native tour JSON for exact Studio data. Download this report and the original KML before leaving; exchange files are not stored with the Project."));
+    const list = document.createElement("ul");
+    for (const entry of exchange.report.entries) list.append(textElement("li", `${entry.path}: ${entry.message}`));
+    report.append(list);section.append(report);
+    section.append(actionButton("Download KML conversion report", () => downloadBlob("camera-tour-conversion-report.json", JSON.stringify(exchange.report, null, 2), "application/json")));
+    if (exchange.source) section.append(actionButton("Download original tour KML", () => downloadBlob("original-camera-tour.kml", exchange.source, "application/vnd.google-earth.kml+xml")));
+    if (exchange.pending) section.append(actionButton("Use imported camera tour", () => {
+      if (context.state.cameraTourExchange !== exchange || !exchange.operation.current()) return;
+      beginCameraTourExchange(context);
+      stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
+      exchange.pending = false;
+      stateSetCameraTour(context, exchange.tour, exchange.tour.keyframes[0].id);
+      exchange.operation = beginCameraTourExchange(context);
+      context.render();
+      setStatus(context, `${exchange.tour.title} imported with ${exchange.tour.keyframes.length} views. Save the Project to retain the converted tour.`);
+    }), actionButton("Cancel KML tour import", () => {
+      if (context.disposed || context.state.cameraTourExchange !== exchange) return;
+      beginCameraTourExchange(context);context.state.cameraTourExchange = null;context.render();
+    }));
+    if (exchange.kml) section.append(actionButton("Download KML tour", () => downloadBlob("camera-tour.kml", exchange.kml, "application/vnd.google-earth.kml+xml")));
+  }
   return section;
 }
 

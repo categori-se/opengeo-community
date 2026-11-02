@@ -1,6 +1,7 @@
 import {strFromU8, strToU8, unzipSync, zipSync} from "fflate";
 import {normalizeKmlNetworkLink} from "./kmlNetworkLink.js";
 import {isKmlTimeSpanReversed, isValidKmlTimeValue} from "./kmlTime.js";
+import {kmlColorPresentation, normalizeKmlHotSpot} from "./kmlStyle.js";
 
 export const KML_PLACES_LIMITS = Object.freeze({
   maximumKmlBytes: 256 * 1024,
@@ -1024,10 +1025,10 @@ function parseStyle(element, path, report) {
   if (!element) return null;
   const style = {};
   const components = [
-    ["IconStyle", "icon", ["color", "scale", "heading"], ["Icon"]],
-    ["LabelStyle", "label", ["color", "scale"], []],
-    ["LineStyle", "line", ["color", "width"], []],
-    ["PolyStyle", "polygon", ["color", "fill", "outline"], []],
+    ["IconStyle", "icon", ["color", "colorMode", "scale", "heading"], ["Icon", "hotSpot"]],
+    ["LabelStyle", "label", ["color", "colorMode", "scale"], []],
+    ["LineStyle", "line", ["color", "colorMode", "width"], []],
+    ["PolyStyle", "polygon", ["color", "colorMode", "fill", "outline"], []],
     ["BalloonStyle", "balloon", ["bgColor", "textColor", "text", "displayMode"], []]
   ];
   reportUnsupportedChildren(element, new Set(components.map(([elementName]) => elementName)), path, report);
@@ -1040,7 +1041,28 @@ function parseStyle(element, path, report) {
       const value = boundedOptionalText(directText(source, field));
       if (value !== null) style[key][field] = value;
     }
+    if (style[key].colorMode && !["normal", "random"].includes(style[key].colorMode)) {
+      report.push({path: `${path}.${key}.colorMode`, status: "normalized", detail: "Unknown colorMode is preserved for export; the preview uses the source color."});
+    }
+    if (key === "label" && style[key].colorMode) {
+      report.push({path: `${path}.label.colorMode`, status: "normalized", detail: "Label colorMode is preserved for export; KML label styling is not applied by the map preview."});
+    }
     if (key === "icon") {
+      const hotSpot = directChild(source, "hotSpot");
+      if (hotSpot) {
+        const attributes = {};
+        for (const name of ["x", "y", "xunits", "yunits"]) {
+          if (hotSpot.hasAttribute(name)) attributes[name] = hotSpot.getAttribute(name);
+        }
+        style.icon.hotSpot = normalizeKmlHotSpot(attributes);
+        reportUnsupportedChildren(hotSpot, new Set(), `${path}.icon.hotSpot`, report);
+        for (const attribute of hotSpot.attributes) {
+          if (!["x", "y", "xunits", "yunits"].includes(attribute.name)) {
+            report.push({path: `${path}.icon.hotSpot.${attribute.name}`, status: "omitted", detail: "Unknown hotSpot attribute is outside the bounded KML subset."});
+          }
+        }
+        report.push({path: `${path}.icon.hotSpot`, status: "normalized", detail: "Icon hotSpot attributes are preserved for export. The map preview uses circle symbols and does not apply icon anchoring."});
+      }
       const icon = directChild(source, "Icon");
       reportUnsupportedChildren(icon, new Set(["href"]), `${path}.icon.Icon`, report);
       const href = boundedOptionalText(directText(icon, "href"));
@@ -1729,10 +1751,10 @@ function writeStyle(style, depth, id = null) {
   const lines = [`${indent}<Style${idAttribute(id)}>`];
   const value = style ?? {};
   for (const [key, tag, fields] of [
-    ["icon", "IconStyle", ["color", "scale", "heading"]],
-    ["label", "LabelStyle", ["color", "scale"]],
-    ["line", "LineStyle", ["color", "width"]],
-    ["polygon", "PolyStyle", ["color", "fill", "outline"]],
+    ["icon", "IconStyle", ["color", "colorMode", "scale", "heading"]],
+    ["label", "LabelStyle", ["color", "colorMode", "scale"]],
+    ["line", "LineStyle", ["color", "colorMode", "width"]],
+    ["polygon", "PolyStyle", ["color", "colorMode", "fill", "outline"]],
     ["balloon", "BalloonStyle", ["bgColor", "textColor", "text", "displayMode"]]
   ]) {
     if (!value[key]) continue;
@@ -1741,6 +1763,13 @@ function writeStyle(style, depth, id = null) {
       lines.push(`${indent}    <${field}>${escapeXml(value[key][field])}</${field}>`);
     }
     if (key === "icon" && value.icon.href) lines.push(`${indent}    <Icon><href>${escapeXml(value.icon.href)}</href></Icon>`);
+    if (key === "icon" && value.icon.hotSpot) {
+      const attributes = Object.entries(value.icon.hotSpot).map(([name, raw]) => {
+        const escaped = escapeXml(raw).replace(/\t/g, "&#9;").replace(/\n/g, "&#10;").replace(/\r/g, "&#13;");
+        return ` ${name}="${escaped}"`;
+      }).join("");
+      lines.push(`${indent}    <hotSpot${attributes}/>`);
+    }
     lines.push(`${indent}  </${tag}>`);
   }
   lines.push(`${indent}</Style>`);
@@ -1950,10 +1979,10 @@ function normalizeStyle(value) {
   if (typeof value !== "object" || Array.isArray(value)) throw kmlError("places_style_invalid");
   const output = {};
   const definitions = {
-    icon: {text: ["color"], numbers: ["scale", "heading"]},
-    label: {text: ["color"], numbers: ["scale"]},
-    line: {text: ["color"], numbers: ["width"]},
-    polygon: {text: ["color"], booleans: ["fill", "outline"]},
+    icon: {text: ["color", "colorMode"], numbers: ["scale", "heading"]},
+    label: {text: ["color", "colorMode"], numbers: ["scale"]},
+    line: {text: ["color", "colorMode"], numbers: ["width"]},
+    polygon: {text: ["color", "colorMode"], booleans: ["fill", "outline"]},
     balloon: {text: ["bgColor", "textColor", "text", "displayMode"]}
   };
   for (const [key, definition] of Object.entries(definitions)) {
@@ -1977,6 +2006,7 @@ function normalizeStyle(value) {
       target[field] = source[field] === true || source[field] === 1 || source[field] === "1" || source[field] === "true";
     }
     if (key === "icon" && source.href !== undefined) target.href = boundedOptionalText(source.href);
+    if (key === "icon" && source.hotSpot !== undefined) target.hotSpot = normalizeKmlHotSpot(source.hotSpot);
     if (Object.keys(target).length) output[key] = target;
   }
   for (const [key, style] of Object.entries(output)) {
@@ -2085,12 +2115,8 @@ function kmlStylePresentation(place, effectiveStyle = place.style) {
     : geometryType === "Polygon"
       ? effectiveStyle?.polygon
       : effectiveStyle?.line;
-  const color = source?.color;
-  if (!/^[0-9a-fA-F]{8}$/.test(color ?? "")) return {};
-  const alpha = Number.parseInt(color.slice(0, 2), 16) / 255;
   return {
-    kmlColor: `#${color.slice(6, 8)}${color.slice(4, 6)}${color.slice(2, 4)}`,
-    kmlOpacity: Math.round(alpha * 1_000_000) / 1_000_000,
+    ...kmlColorPresentation(source?.color, source?.colorMode, place.id),
     ...(Number.isFinite(source?.width) ? {kmlWidth: source.width} : {}),
     ...(Number.isFinite(source?.scale) ? {kmlScale: source.scale} : {})
   };
