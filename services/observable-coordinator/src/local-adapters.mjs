@@ -162,6 +162,26 @@ function publicationReview(message) {
   return command.review_id;
 }
 
+export async function processLocalPublicationRevocations({bridge, maximumJobs = 4} = {}) {
+  if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 4) {
+    throw new CoordinatorContractError("local_job_limit_invalid");
+  }
+  if (typeof bridge !== "function") throw new CoordinatorContractError("local_configuration_invalid");
+  const reviews = await bridge({operation: "pending-publication-withdrawals", maximumJobs});
+  if (!Array.isArray(reviews) || reviews.length > maximumJobs || new Set(reviews).size !== reviews.length ||
+      reviews.some(id => typeof id !== "string" || !UUID.test(id))) {
+    throw new CoordinatorContractError("local_publication_result_invalid");
+  }
+  const outcomes = [];
+  for (const reviewId of reviews) {
+    const status = await bridge({operation: "revoke-publication", reviewId});
+    if (typeof status !== "string") throw new CoordinatorContractError("local_publication_result_invalid");
+    outcomes.push({reviewId, status});
+    if (status !== "revoked") break;
+  }
+  return outcomes;
+}
+
 export async function processLocalPublicationQueue({bridge, maximumJobs = 4} = {}) {
   if (!Number.isSafeInteger(maximumJobs) || maximumJobs < 1 || maximumJobs > 4) {
     throw new CoordinatorContractError("local_job_limit_invalid");

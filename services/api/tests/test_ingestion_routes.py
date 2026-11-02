@@ -163,7 +163,7 @@ class FakeIngestionRepository:
         self.allowed_purposes.append(allowed_purposes)
         return UploadTicket(
             upload_id=UPLOAD_ID,
-            dataset=dataset(),
+            dataset=replace(dataset(), format=draft.format),
             upload=UploadForm(
                 url="https://geodata-test.s3.us-east-1.amazonaws.com/",
                 method="POST",
@@ -389,6 +389,56 @@ def test_format_extension_media_type_size_tags_and_unknown_fields_fail_before_re
         )
         assert response.status_code == 422
 
+    assert repository.calls == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("elevation.tif", "image/tiff"),
+        ("elevation.TIFF", "IMAGE/GEOTIFF"),
+        ("elevation.tiff", "application/geotiff"),
+    ],
+)
+def test_geotiff_upload_admission_keeps_the_declared_source_format(
+    filename: str, content_type: str
+) -> None:
+    repository = FakeIngestionRepository()
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/uploads/request",
+        headers=headers(),
+        json=upload_payload(format="geotiff", filename=filename, content_type=content_type),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["dataset"]["format"] == "geotiff"
+    assert response.json()["dataset"]["source_type"] == "upload"
+    draft = repository.calls[0][3]
+    assert draft.format == "geotiff"
+    assert draft.original_filename == filename
+    assert draft.content_type == content_type.lower()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"filename": "elevation.png"},
+        {"content_type": "image/png"},
+        {"content_type": "application/octet-stream"},
+        {"purpose": "pmtiles_original"},
+    ],
+)
+def test_geotiff_upload_rejects_mismatched_files_and_preservation_purpose(changes) -> None:
+    repository = FakeIngestionRepository()
+    payload = upload_payload(
+        format="geotiff", filename="elevation.tif", content_type="image/tiff"
+    )
+    payload.update(changes)
+    response = api_client(repository).post(
+        f"/projects/{PROJECT_ID}/uploads/request", headers=headers(), json=payload
+    )
+
+    assert response.status_code == 422
     assert repository.calls == []
 
 

@@ -78,7 +78,11 @@ export function captureMapView(map, fallback = DEFAULT_MAP_VIEW) {
       center: [center.lng, center.lat],
       zoom: map.getZoom(),
       pitch: map.getPitch(),
-      bearing: map.getBearing()
+      bearing: map.getBearing(),
+      ...(typeof map.getRoll === "function" ? {roll: map.getRoll()} : {}),
+      ...(typeof map.getCenterElevation === "function" ? {elevation: map.getCenterElevation()} : {}),
+      ...(typeof map.getCenterClampedToGround === "function"
+        ? {centerClampedToGround: map.getCenterClampedToGround()} : {})
     }, fallback);
   } catch {
     return normalizeMapView(fallback);
@@ -139,6 +143,29 @@ export function applyMapProjection(map, requested) {
   }
 }
 
+// Optional native camera fields remain in the canonical Project even when the
+// chosen renderer cannot reproduce them. Admission must disclose that mismatch.
+export function requiresExtendedMapCamera(view) {
+  return (Number.isFinite(view?.roll) && view.roll !== 0)
+    || (Number.isFinite(view?.elevation) && view.elevation !== 0)
+    || view?.centerClampedToGround === false;
+}
+
+export function restoreMapView({map, view, engineId}) {
+  const camera = normalizeMapView(view);
+  if (requiresExtendedMapCamera(camera) && engineId !== "maplibre") {
+    return {applied: false, message: "This saved view's roll or target elevation requires MapLibre. Its camera is retained; switch to MapLibre to open it."};
+  }
+  if (typeof map?.jumpTo !== "function") return {applied: false, message: "The map is not ready to open this saved view."};
+  try {
+    map.setCenterClampedToGround?.(camera.centerClampedToGround ?? true);
+    map.jumpTo({...camera, roll: camera.roll ?? 0, elevation: camera.elevation ?? 0});
+    return {applied: true};
+  } catch {
+    return {applied: false, message: "This map could not open the saved view. Its saved camera is unchanged."};
+  }
+}
+
 function validCenter(value) {
   return Array.isArray(value)
     && value.length === 2
@@ -147,6 +174,9 @@ function validCenter(value) {
 
 function portableViewMetadata(source) {
   const metadata = {};
+  if (Number.isFinite(source.roll) && Math.abs(source.roll) <= 180) metadata.roll = source.roll;
+  if (Number.isFinite(source.elevation)) metadata.elevation = source.elevation;
+  if (typeof source.centerClampedToGround === "boolean") metadata.centerClampedToGround = source.centerClampedToGround;
   // These imported records describe the saved view; retaining them does not
   // fit the live camera, switch renderers or activate Layer visibility overrides.
   if (Array.isArray(source.bbox) && source.bbox.length === 4 && source.bbox.every(Number.isFinite)) {

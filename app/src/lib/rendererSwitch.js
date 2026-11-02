@@ -1,10 +1,11 @@
 // Prepare in a separate surface. The caller alone commits a ready candidate;
 // errors, cancellation and timeouts never dispose or mutate the current map.
 export function sameRendererCamera(before,after) {
-  const values=view=>[...(view?.center??[]),view?.zoom,view?.pitch,view?.bearing];
+  const values=view=>[...(view?.center??[]),view?.zoom,view?.pitch,view?.bearing,view?.roll??0,view?.elevation??0];
   const a=values(before),b=values(after);
-  return a.length===5 && b.length===5 && a.every((value,index)=>Number.isFinite(value)
-    && Number.isFinite(b[index]) && Math.abs(value-b[index])<=1e-7);
+  return a.length===7 && b.length===7 && a.every((value,index)=>Number.isFinite(value)
+    && Number.isFinite(b[index]) && Math.abs(value-b[index])<=1e-7)
+    && (before?.centerClampedToGround??true)===(after?.centerClampedToGround??true);
 }
 
 export function prepareRendererMap({adapter, container, style, camera, images = [],

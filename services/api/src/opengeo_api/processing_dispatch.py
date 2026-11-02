@@ -87,7 +87,12 @@ class FrameworkPublicationDispatcher(Protocol):
     @property
     def available(self) -> bool: ...
 
+    @property
+    def withdrawal_available(self) -> bool: ...
+
     async def dispatch_framework_publication(self, review_id: UUID) -> None: ...
+
+    async def dispatch_framework_publication_withdrawal(self, review_id: UUID) -> None: ...
 
 
 class UnavailableFrameworkPublicationDispatcher:
@@ -95,9 +100,17 @@ class UnavailableFrameworkPublicationDispatcher:
     def available(self) -> bool:
         return False
 
+    @property
+    def withdrawal_available(self) -> bool:
+        return False
+
     async def dispatch_framework_publication(self, review_id: UUID) -> None:
         del review_id
         raise ProcessingDispatchUnavailable("Framework publication dispatch is not configured")
+
+    async def dispatch_framework_publication_withdrawal(self, review_id: UUID) -> None:
+        del review_id
+        raise ProcessingDispatchUnavailable("Framework publication withdrawal is not configured")
 
 
 class ExternalSourceSnapshotDispatcher(Protocol):
@@ -679,13 +692,31 @@ class AwsSqsFrameworkPublicationDispatcher:
             now=now,
             queue_url=settings.framework_publication_queue_url,
         )
+        self._withdrawal_enabled = settings.framework_publication_withdrawal_enabled
 
     @property
     def available(self) -> bool:
         return True
 
+    @property
+    def withdrawal_available(self) -> bool:
+        # Enable deliberately only with a publisher that enforces exact-edition denial.
+        return self._withdrawal_enabled
+
     async def dispatch_framework_publication(self, review_id: UUID) -> None:
         await self._delegate.dispatch_framework_publication(review_id)
+
+    async def dispatch_framework_publication_withdrawal(self, review_id: UUID) -> None:
+        if not self.withdrawal_available:
+            raise ProcessingDispatchUnavailable(
+                "Framework publication withdrawal is not configured"
+            )
+        await asyncio.to_thread(
+            self._delegate._dispatch,
+            "opengeo.framework-publication-withdrawal.command.1.0.0",
+            "review_id",
+            review_id,
+        )
 
 
 class AwsSqsExternalSourceSnapshotDispatcher:

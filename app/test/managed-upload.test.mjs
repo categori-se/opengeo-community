@@ -77,6 +77,33 @@ describe("governed local-file ingestion", () => {
     assert.throws(() => normalizeManagedTags(Array.from({length: 13}, (_, index) => `tag-${index}`)), /http_422/);
   });
 
+  it("admits ordinary GeoTIFF without inferring that a TIFF original is already a COG", async () => {
+    assert.equal(inferManagedFormat("elevation.TIF"), "geotiff");
+    assert.equal(inferManagedFormat("elevation.TIFF"), "geotiff");
+    assert.equal(inferManagedFormat("elevation.cog.tif"), "geotiff");
+    assert.match(MANAGED_FILE_ACCEPT, /\.tiff/);
+    for (const format of [undefined, "cog"]) {
+      const file = namedBlob("exact original TIFF bytes", "elevation.tif", "image/tiff");
+      const calls = [];
+      await ingestManagedFile({projectId: "project", file, format, adapter: {
+        async requestUpload(_project, metadata) {
+          calls.push("request");
+          assert.equal(metadata.format, format ?? "geotiff");
+          assert.equal(metadata.filename, file.name);
+          assert.equal(metadata.contentType, "image/tiff");
+          assert.equal(metadata.checksumSha256, createHash("sha256")
+            .update(Buffer.from(await file.arrayBuffer())).digest("hex"));
+          return {uploadId: "upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};
+        },
+        async uploadFile(_ticket, original) {calls.push("upload"); assert.equal(original, file);},
+        async completeUpload() {calls.push("complete"); return {dataset: {name: "Elevation"}, versionNumber: 1};}
+      }});
+      assert.deepEqual(calls, ["request", "upload", "complete"]);
+    }
+    assert.throws(() => validateManagedUpload({file: namedBlob("bytes", "elevation.png", "image/png"),
+      name: "Elevation", format: "geotiff"}), /http_422/);
+  });
+
   it("preserves a GeoJSON original without reporting an inspection job", async () => {
     const calls = [], stages = [];
     const file = namedBlob('{"type":"FeatureCollection","features":[]}', "original.geojson", "application/geo+json");

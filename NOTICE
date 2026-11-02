@@ -38,3 +38,14 @@ evidence are explicit. These notices are not a
 complete transitive or container SBOM and do not replace upstream terms or the
 exact binary-distribution review. Operators may add their own credits while
 retaining this attribution and the upstream notices.
+
+Open Location Code attribution:
+  app/src/assets/licenses/open-location-code.LICENSE.txt
+  app/src/assets/licenses/open-location-code.NOTICE.txt
+Google Open Location Code reference recovery and numeric test vectors are
+credited to their upstream authors under Apache-2.0.
+Copyright 2014 Google Inc. All rights reserved.
+Reviewed upstream commit: 83986da0156bbf51fba33d0327d8ca4b7f955c89
+OpenGeo supplies an independent integer-cell implementation with adapted
+reference recovery, strict validation and explicit reference-location behavior;
+the upstream JavaScript package is not included as a dependency.

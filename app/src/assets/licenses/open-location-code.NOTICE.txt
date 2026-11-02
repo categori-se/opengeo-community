@@ -1,0 +1,48 @@
+Open Location Code attribution
+
+Upstream project: Google Open Location Code
+Repository: https://github.com/google/open-location-code
+Reviewed upstream commit: 83986da0156bbf51fba33d0327d8ca4b7f955c89
+License: Apache License 2.0; exact upstream LICENSE text is retained in
+open-location-code.LICENSE.txt beside this file.
+
+Upstream JavaScript copyright and license notice:
+Copyright 2014 Google Inc. All rights reserved.
+
+Licensed under the Apache License, Version 2.0 (the 'License');
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an 'AS IS' BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+OpenGeo source and modifications:
+app/src/lib/plusCode.js is an independently written integer-cell implementation
+of the published Open Location Code standard. Its short-code recovery adapts the
+reference recoverNearest algorithm, including strict half-cell comparisons,
+latitude pole guards, longitude normalization, and recovery re-encoding.
+OpenGeo adds bounded strict input validation and an explicit reference-location
+contract. The upstream JavaScript implementation is not packaged as a dependency.
+
+app/test/plus-code.test.mjs includes numeric subsets from the upstream decoding
+and short-code recovery fixtures: 13 decoding rows and 17 recovery rows. All
+embedded fields match the pinned official fixtures exactly; the remaining local
+boundary and invalid-input cases are OpenGeo additions. The upstream CSV files
+have no separate copyright or license header; the retained repository LICENSE
+applies to this source record.
+
+Pinned source references:
+https://github.com/google/open-location-code/blob/83986da0156bbf51fba33d0327d8ca4b7f955c89/js/src/openlocationcode.js
+https://github.com/google/open-location-code/blob/83986da0156bbf51fba33d0327d8ca4b7f955c89/test_data/decoding.csv
+https://github.com/google/open-location-code/blob/83986da0156bbf51fba33d0327d8ca4b7f955c89/test_data/shortCodeTests.csv
+https://github.com/google/open-location-code/blob/83986da0156bbf51fba33d0327d8ca4b7f955c89/LICENSE
+
+The helper also references the published specification:
+https://github.com/google/open-location-code/blob/83986da0156bbf51fba33d0327d8ca4b7f955c89/Documentation/Specification/specification.md
+The specification path is a reference within the pinned repository; its text was
+not separately retrieved in this attribution review.

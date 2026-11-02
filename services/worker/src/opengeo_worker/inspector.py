@@ -1,4 +1,5 @@
 import json
+import math
 import re
 import stat
 import zipfile
@@ -116,6 +117,8 @@ class DatasetInspector:
         self._verify_magic(source, dataset_format)
         if dataset_format == "cog":
             return self._with_malware_scan(self._inspect_cog(source, workdir), scan)
+        if dataset_format == "geotiff":
+            return self._with_malware_scan(self._inspect_geotiff(source, workdir), scan)
         datasource = self._vector_datasource(source, dataset_format)
         return self._with_malware_scan(
             self._inspect_vector(datasource, dataset_format, workdir), scan
@@ -880,6 +883,169 @@ class DatasetInspector:
             artifacts=tuple(artifacts),
         )
 
+    def _inspect_geotiff(self, source: Path, workdir: Path) -> InspectionResult:
+        source_document = self._geotiff_document(source, workdir)
+        source_signature = self._geotiff_preservation_signature(source_document)
+        working = workdir / "raster.cog.tif"
+        self._runner.run(
+            "gdal_translate",
+            [
+                "-of", "COG", "-co", "COMPRESS=DEFLATE", "-co", "BIGTIFF=IF_SAFER",
+                str(source), str(working),
+            ],
+            cwd=workdir,
+        )
+        self._require_artifact(working)
+        working_document = self._geotiff_document(working, workdir)
+        metadata = working_document.get("metadata", {})
+        image_structure = metadata.get("IMAGE_STRUCTURE", {}) if isinstance(metadata, dict) else {}
+        if not isinstance(image_structure, dict) or image_structure.get("LAYOUT") != "COG":
+            raise ValidationFailure("geotiff_working_cog_invalid")
+        if self._geotiff_preservation_signature(working_document) != source_signature:
+            raise ValidationFailure("geotiff_working_cog_mismatch")
+        display_bounds = self._geotiff_display_bounds(working_document)
+
+        # Reuse the strict COG inspection and its existing preview/thumbnail path.
+        inspected = self._inspect_cog(working, workdir)
+        raster = dict(cast(dict[str, object], inspected.schema_definition["raster"]))
+        raster["source_format"] = "geotiff"
+        raster["display_bounds_crs84"] = display_bounds
+        raster["working_cog"] = {
+            "relative_key": "working/raster.cog.tif",
+            "filename": "raster.cog.tif",
+        }
+        quality = dict(inspected.quality_results)
+        quality["checks"] = [
+            *cast(list[object], quality["checks"]),
+            {"code": "geotiff_working_cog_verified", "status": "passed"},
+        ]
+        return InspectionResult(
+            feature_count=inspected.feature_count,
+            extent=inspected.extent,
+            crs=inspected.crs,
+            geometry_type=inspected.geometry_type,
+            schema_definition={"raster": raster},
+            quality_results=quality,
+            artifacts=(
+                ArtifactFile("working", "working/raster.cog.tif", "image/tiff", working),
+                *inspected.artifacts,
+            ),
+        )
+
+    @staticmethod
+    def _geotiff_display_bounds(document: dict[str, Any]) -> list[float]:
+        footprint = document.get("wgs84Extent")
+        coordinates = footprint.get("coordinates") if isinstance(footprint, dict) else None
+        if (
+            not isinstance(footprint, dict)
+            or footprint.get("type") != "Polygon"
+            or not isinstance(coordinates, list)
+            or len(coordinates) != 1
+            or not isinstance(coordinates[0], list)
+            or len(coordinates[0]) < 4
+        ):
+            raise ValidationFailure("geotiff_display_bounds_invalid")
+        ring = coordinates[0]
+        for point in ring:
+            if (
+                not isinstance(point, list)
+                or len(point) != 2
+                or not all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                    for v in point
+                )
+                or not -180 <= point[0] <= 180
+                or not -90 <= point[1] <= 90
+            ):
+                raise ValidationFailure("geotiff_display_bounds_invalid")
+        if ring[0] != ring[-1]:
+            raise ValidationFailure("geotiff_display_bounds_invalid")
+        bounds = [
+            min(point[0] for point in ring), min(point[1] for point in ring),
+            max(point[0] for point in ring), max(point[1] for point in ring),
+        ]
+        if bounds[0] >= bounds[2] or bounds[1] >= bounds[3]:
+            raise ValidationFailure("geotiff_display_bounds_invalid")
+        return bounds
+
+    def _geotiff_document(self, source: Path, workdir: Path) -> dict[str, Any]:
+        result = self._runner.run("gdalinfo", ["-json", str(source)], cwd=workdir)
+        try:
+            document = json.loads(result.stdout)
+        except ValueError as error:
+            raise ValidationFailure("gis_metadata_invalid") from error
+        if not isinstance(document, dict) or document.get("driverShortName") != "GTiff":
+            raise ValidationFailure("dataset_format_mismatch")
+        return document
+
+    @classmethod
+    def _geotiff_preservation_signature(cls, document: dict[str, Any]) -> str:
+        size = document.get("size")
+        bands = document.get("bands")
+        if (
+            not isinstance(size, list)
+            or len(size) != 2
+            or not all(isinstance(v, int) and not isinstance(v, bool) and v > 0 for v in size)
+            or not isinstance(bands, list)
+            or not 1 <= len(bands) <= 64
+        ):
+            raise ValidationFailure("gis_metadata_invalid")
+        transform = document.get("geoTransform")
+        corners = document.get("cornerCoordinates")
+        crs = cls._coordinate_system(document.get("coordinateSystem"))
+        if (
+            not isinstance(transform, list)
+            or len(transform) != 6
+            or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                for v in transform
+            )
+            or transform[1] * transform[5] - transform[2] * transform[4] == 0
+            or crs is None
+            or re.fullmatch(r"EPSG:[1-9][0-9]{0,7}", crs) is None
+            or not isinstance(corners, dict)
+        ):
+            raise ValidationFailure("geotiff_georeferencing_unsupported")
+        determinant = transform[1] * transform[5] - transform[2] * transform[4]
+        for name in ("lowerLeft", "lowerRight", "upperLeft", "upperRight"):
+            point = corners.get(name)
+            if (
+                not isinstance(point, list)
+                or len(point) < 2
+                or not all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                    for v in point[:2]
+                )
+            ):
+                raise ValidationFailure("geotiff_georeferencing_unsupported")
+        if not math.isfinite(determinant):
+            raise ValidationFailure("geotiff_georeferencing_unsupported")
+        preserved_bands = []
+        for index, band in enumerate(bands, start=1):
+            if (
+                not isinstance(band, dict)
+                or band.get("band") != index
+                or not isinstance(band.get("type"), str)
+                or not band["type"]
+            ):
+                raise ValidationFailure("gis_metadata_invalid")
+            preserved_bands.append({
+                key: band[key]
+                for key in (
+                    "band", "type", "noDataValue", "scale", "offset", "unit",
+                    "colorInterpretation", "colorTable",
+                )
+                if key in band
+            })
+        # Canonical JSON also compares NaN nodata values consistently. Block sizes
+        # and overviews deliberately change when producing a COG.
+        return json.dumps({
+            "size": size,
+            "geoTransform": transform,
+            "coordinateSystem": document.get("coordinateSystem"),
+            "bands": preserved_bands,
+        }, sort_keys=True)
+
     def _inspect_cog(self, source: Path, workdir: Path) -> InspectionResult:
         result = self._runner.run("gdalinfo", ["-json", str(source)], cwd=workdir)
         try:
@@ -965,6 +1131,7 @@ class DatasetInspector:
             "geopackage": head.startswith(b"SQLite format 3\x00"),
             "geoparquet": head.startswith(b"PAR1") and tail == b"PAR1",
             "cog": head.startswith((b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")),
+            "geotiff": head.startswith((b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")),
             "pmtiles": head.startswith(b"PMTiles\x03"),
         }[dataset_format]
         if not valid:

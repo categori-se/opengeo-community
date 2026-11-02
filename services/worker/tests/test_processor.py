@@ -660,6 +660,36 @@ class Inspector:
         )
 
 
+class GeoTiffInspector:
+    def __init__(self, mode: str = "verified") -> None:
+        self.mode = mode
+
+    def inspect(self, source: Path, dataset_format: str, workdir: Path) -> InspectionResult:
+        assert source.name == "source.tif" and source.read_bytes() == SOURCE
+        assert dataset_format == "geotiff"
+        working = workdir / "raster.cog.tif"
+        working.write_bytes(b"II*\x00verified-working")
+        artifact = ArtifactFile("working", "working/raster.cog.tif", "image/tiff", working)
+        artifacts = (artifact,)
+        if self.mode == "missing":
+            artifacts = ()
+        elif self.mode == "ambiguous":
+            artifacts = (artifact, replace(artifact, relative_key="working/extra.tif"))
+        return InspectionResult(
+            None, (1000.0, 1840.0, 1160.0, 2000.0), "EPSG:3857", "raster",
+            {"raster": {
+                "source_format": "geotiff",
+                "working_cog": {
+                    "relative_key": "working/raster.cog.tif", "filename": "raster.cog.tif",
+                },
+            }},
+            {"valid": True, "checks": [] if self.mode == "unverified" else [
+                {"code": "geotiff_working_cog_verified", "status": "passed"},
+            ]},
+            artifacts,
+        )
+
+
 class Renderer:
     def __init__(self) -> None:
         self.failure: ValidationFailure | None = None
@@ -774,6 +804,88 @@ def test_success_uploads_deterministic_artifacts_completes_and_acknowledges(tmp_
     worker, _, _, second_storage, _ = processor(tmp_path)
     assert worker.process_once() == "completed"
     assert second_storage.artifact_ids == [first_artifact_id]
+
+
+def test_geotiff_processor_binds_uploaded_working_object_without_rereading(tmp_path: Path) -> None:
+    class RemoveUploadedFileStorage(Storage):
+        def upload(
+            self, artifact: ArtifactFile, *, output_prefix: str, artifact_id: UUID
+        ) -> StoredArtifact:
+            stored = super().upload(artifact, output_prefix=output_prefix, artifact_id=artifact_id)
+            artifact.path.unlink()
+            return stored
+
+    repository = Repository(
+        replace(claim(), dataset_format="geotiff", original_filename="source.tif")
+    )
+    storage = RemoveUploadedFileStorage()
+    queue = Queue(body().replace("source.geojson", "source.tif"))
+    worker = WorkerProcessor(settings(tmp_path), queue, repository, storage, GeoTiffInspector())
+
+    assert worker.process_once() == "completed"
+    assert repository.failed == [] and queue.deleted == ["receipt-1"]
+    inspection, artifacts = repository.completed[0][2:]
+    stored = artifacts[0]
+    working = inspection.schema_definition["raster"]["working_cog"]
+    assert working == {
+        "relative_key": "working/raster.cog.tif",
+        "filename": "raster.cog.tif",
+        "object_id": str(stored.artifact_id),
+        "checksum_sha256": stored.checksum_sha256,
+        "size_bytes": stored.size_bytes,
+    }
+    assert stored.artifact_id == uuid5(VERSION_ID, "working/raster.cog.tif")
+    assert stored.checksum_sha256 == hashlib.sha256(b"II*\x00verified-working").hexdigest()
+    assert stored.s3_version_id == "artifact-version"
+
+
+@pytest.mark.parametrize("mode,code", [
+    ("missing", "geotiff_working_cog_ambiguous"),
+    ("ambiguous", "geotiff_working_cog_ambiguous"),
+    ("unverified", "geotiff_working_cog_unverified"),
+])
+def test_geotiff_processor_rejects_unverified_or_ambiguous_working_object(
+    tmp_path: Path, mode: str, code: str,
+) -> None:
+    repository = Repository(
+        replace(claim(), dataset_format="geotiff", original_filename="source.tif")
+    )
+    queue = Queue(body().replace("source.geojson", "source.tif"))
+    worker = WorkerProcessor(
+        settings(tmp_path), queue, repository, Storage(), GeoTiffInspector(mode)
+    )
+    assert worker.process_once() == "completed"
+    assert repository.failed == [code] and repository.completed == []
+
+
+@pytest.mark.parametrize("changes", [
+    {"object_key": "different/working/raster.cog.tif"},
+    {"checksum_sha256": "not-a-checksum"},
+    {"s3_version_id": "null"},
+    {"size_bytes": 0},
+])
+def test_geotiff_processor_rejects_invalid_uploaded_working_facts(
+    tmp_path: Path, changes: dict,
+) -> None:
+    class InvalidStorage(Storage):
+        def upload(
+            self, artifact: ArtifactFile, *, output_prefix: str, artifact_id: UUID
+        ) -> StoredArtifact:
+            return replace(
+                super().upload(artifact, output_prefix=output_prefix, artifact_id=artifact_id),
+                **changes,
+            )
+
+    repository = Repository(
+        replace(claim(), dataset_format="geotiff", original_filename="source.tif")
+    )
+    worker = WorkerProcessor(
+        settings(tmp_path), Queue(body().replace("source.geojson", "source.tif")),
+        repository, InvalidStorage(), GeoTiffInspector(),
+    )
+    assert worker.process_once() == "completed"
+    assert repository.failed == ["geotiff_working_cog_unverified"]
+    assert repository.completed == []
 
 
 def test_early_event_is_deferred_without_acknowledgement(tmp_path: Path) -> None:

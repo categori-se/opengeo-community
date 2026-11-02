@@ -8,7 +8,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
 from uuid import UUID, uuid4
 
 
@@ -378,6 +378,7 @@ def plan_publication(
     source_manifest: Mapping[str, Any] | None = None,
     input_distribution: Mapping[str, Any] | None = None,
     previous_release_plan: Mapping[str, Any] | None = None,
+    withdrawn_mounts: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Replace only this mount, retaining all root/sibling files in a fresh release.
 
@@ -399,6 +400,11 @@ def plan_publication(
             r"/[a-z0-9][a-z0-9-]{0,79}(?:/[a-z0-9][a-z0-9-]{0,79}){0,7}/", mount
         ):
             raise PublicationConflict("publication_mount_registry_invalid")
+    omitted_mounts = tuple(
+        mount
+        for mount in _withdrawn_mounts(withdrawn_mounts, reserved_mounts)
+        if mount != mount_path
+    )
     prefix = (
         f"organizations/{organization_id}/projects/{project_id}/"
         f"source-projects/{source_project_id}/builds/{build_id}/output/"
@@ -442,7 +448,8 @@ def plan_publication(
             raise PublicationConflict("publication_retained_plan_required")
         _pin(file, maximum_bytes=100_663_296 if path in retained else 67_108_864)
         current[path] = file
-        if _owner(path, reserved_mounts) != mount_path:
+        owner = _owner(path, reserved_mounts)
+        if owner != mount_path and owner not in omitted_mounts:
             result[path] = {"path": path, "kind": "copy", "source": dict(file)}
             if file["sizeBytes"] > 33_554_432:
                 result[path]["maximumBytes"] = 100_663_296 if path in retained else 67_108_864
@@ -628,6 +635,8 @@ def plan_publication(
         "bucket": public_bucket,
         "files": entries,
     }
+    if omitted_mounts:
+        plan["withdrawnMounts"] = list(omitted_mounts)
     if private_origin:
         plan["privateOrigin"] = True
         if native_proof is not None:
@@ -672,7 +681,13 @@ class PublicationRepository(Protocol):
 
 class PublicationStorage(Protocol):
     async def inventory(
-        self, bucket: str, prefix: str, *, previous_release_plan: Mapping[str, Any] | None = None
+        self,
+        bucket: str,
+        prefix: str,
+        *,
+        previous_release_plan: Mapping[str, Any] | None = None,
+        excluded_mounts: tuple[str, ...] = (),
+        reserved_mounts: tuple[str, ...] = (),
     ) -> list[dict[str, Any]]: ...
     async def apply(self, bucket: str, prefix: str, file: dict[str, Any]) -> None: ...
     async def verify(self, plan: dict[str, Any]) -> None: ...
@@ -716,14 +731,23 @@ async def publish_step(
             public_bucket, storage, edge = destination_router.resolve(claim["origin"])
         if claim["origin"]["bucket"] != public_bucket:
             raise PublicationConflict("publication_destination_scope_invalid")
+        reserved_mounts = tuple(claim["reserved_mounts"])
+        withdrawn_mounts = _withdrawn_mounts(claim.get("withdrawn_mounts", []), reserved_mounts)
+        excluded_mounts = tuple(mount for mount in withdrawn_mounts if mount != claim["mount_path"])
         plan = claim.get("plan")
         snapshot = claim.get("edge_snapshot")
         if plan is None:
             previous_plan = claim.get("previous_release_plan")
+            inventory_options: _InventoryOptions = {}
+            if previous_plan is not None:
+                inventory_options["previous_release_plan"] = previous_plan
+            if excluded_mounts:
+                inventory_options["excluded_mounts"] = excluded_mounts
+                inventory_options["reserved_mounts"] = reserved_mounts
             current = await storage.inventory(
                 public_bucket,
                 claim["previous_release_prefix"],
-                **({"previous_release_plan": previous_plan} if previous_plan is not None else {}),
+                **inventory_options,
             )
             plan = plan_publication(
                 review_id=review_id,
@@ -735,7 +759,7 @@ async def publish_step(
                 public_bucket=public_bucket,
                 previous_prefix=claim["previous_release_prefix"],
                 mount_path=claim["mount_path"],
-                reserved_mounts=tuple(claim["reserved_mounts"]),
+                reserved_mounts=reserved_mounts,
                 build_result=claim["build_result"],
                 current_files=current,
                 private_origin=getattr(storage, "private_origin", False),
@@ -743,6 +767,7 @@ async def publish_step(
                 source_manifest=claim.get("source_manifest"),
                 input_distribution=claim.get("input_distribution"),
                 previous_release_plan=previous_plan,
+                withdrawn_mounts=withdrawn_mounts,
             )
             edition = plan.get("editionPath")
             snapshot = await edge.prepare(
@@ -758,9 +783,15 @@ async def publish_step(
             or plan["reviewId"] != str(review_id)
             or plan["bucket"] != public_bucket
             or plan["targetPrefix"] != f"releases/framework-{review_id}"
+            or plan.get("mountPath") != claim["mount_path"]
             or plan.get("privateOrigin", False) != getattr(storage, "private_origin", False)
         ):
             raise PublicationConflict("publication_plan_identity_invalid")
+        omitted_mounts = _withdrawn_mounts(plan.get("withdrawnMounts", []), reserved_mounts)
+        if plan["mountPath"] in omitted_mounts or any(
+            _owner(entry["path"], reserved_mounts) in omitted_mounts for entry in plan["files"]
+        ):
+            raise PublicationConflict("publication_withdrawn_mount_plan_invalid")
         edition = plan.get("editionPath")
         if edition is not None:
             index_path = plan["mountPath"].lstrip("/") + "index.html"
@@ -799,3 +830,113 @@ async def publish_step(
         return "needs_attention"
     finally:
         await repository.release(review_id, token)
+
+
+def _withdrawn_mounts(value: Any, reserved_mounts: tuple[str, ...]) -> tuple[str, ...]:
+    if (
+        not isinstance(value, (list, tuple))
+        or len(value) > 2048
+        or any(type(mount) is not str or mount not in reserved_mounts for mount in value)
+        or len(set(value)) != len(value)
+    ):
+        raise PublicationConflict("publication_withdrawn_mounts_invalid")
+    return tuple(sorted(value))
+
+
+class _InventoryOptions(TypedDict, total=False):
+    previous_release_plan: Mapping[str, Any]
+    excluded_mounts: tuple[str, ...]
+    reserved_mounts: tuple[str, ...]
+
+
+class PublicationRevocationRepository(Protocol):
+    async def claim_revocation(self, review: UUID, token: UUID) -> dict[str, Any]: ...
+    async def complete_revocation(
+        self, review: UUID, token: UUID, receipt: dict[str, Any]
+    ) -> bool: ...
+    async def fail_revocation(self, review: UUID, token: UUID, code: str) -> bool: ...
+    async def pending_revocation(self, review: UUID, token: UUID) -> bool: ...
+
+
+class PublicationWithdrawalEdge(Protocol):
+    async def withdraw(self, claim: dict[str, Any]) -> dict[str, Any] | None: ...
+
+
+async def revoke_step(
+    review_id: UUID,
+    *,
+    repository: PublicationRevocationRepository,
+    edge: PublicationWithdrawalEdge,
+    destination_router: Any = None,
+) -> str:
+    """Withdraw one exact edition; ambiguous delivery resumes under its origin lease."""
+    token = uuid4()
+    claim = await repository.claim_revocation(review_id, token)
+    if not isinstance(claim, dict) or claim.get("status") not in {
+        "claimed",
+        "busy",
+        "unavailable",
+        "revoked",
+    }:
+        raise PublicationConflict("publication_revocation_claim_invalid")
+    if claim["status"] != "claimed":
+        return str(claim["status"])
+    try:
+        origin = claim.get("origin")
+        if (
+            claim.get("review_id") != str(review_id)
+            or claim.get("target_prefix") != f"releases/framework-{review_id}"
+            or not isinstance(origin, dict)
+            or not isinstance(origin.get("id"), str)
+            or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", origin["id"])
+        ):
+            raise PublicationConflict("publication_revocation_claim_identity_invalid")
+        if destination_router is not None:
+            _, _, edge = destination_router.resolve(origin)
+        # The adapter must resume its existing exact withdrawal after a lost
+        # response. Revocation never plans, copies or republishes output.
+        receipt = await edge.withdraw(claim)
+        if receipt is None:
+            if await repository.pending_revocation(review_id, token):
+                return "pending"
+            await repository.fail_revocation(
+                review_id, token, "publication_revocation_pending_acknowledgement_lost"
+            )
+            return "retry"
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("schema") != "opengeo.framework-publication-revocation-receipt.1.0.0"
+            or receipt.get("reviewId") != str(review_id)
+            or receipt.get("targetPrefix") != claim["target_prefix"]
+            or receipt.get("originId") != origin["id"]
+            or receipt.get("confirmed") is not True
+            or not isinstance(receipt.get("delivery"), str)
+            or not 1 <= len(receipt["delivery"]) <= 100
+        ):
+            raise PublicationConflict("publication_revocation_receipt_invalid")
+        try:
+            encoded = json.dumps(receipt, ensure_ascii=False, allow_nan=False).encode()
+        except (TypeError, ValueError, OverflowError) as error:
+            raise PublicationConflict("publication_revocation_receipt_invalid") from error
+        if len(encoded) > 100_000:
+            raise PublicationConflict("publication_revocation_receipt_invalid")
+        acknowledged = await repository.complete_revocation(review_id, token, receipt)
+    except PublicationConflict as error:
+        code = str(error)
+        if not re.fullmatch(r"[a-z0-9_]{1,100}", code):
+            code = "publication_revocation_failed"
+        await repository.fail_revocation(review_id, token, code)
+        return "needs_attention"
+    except Exception:
+        # Keep the origin reserved for this edition while releasing this attempt's
+        # lease. The caller retains the transport failure and may resume explicitly.
+        await repository.fail_revocation(
+            review_id, token, "publication_revocation_transport_failed"
+        )
+        raise
+    if acknowledged is True:
+        return "revoked"
+    await repository.fail_revocation(
+        review_id, token, "publication_revocation_acknowledgement_lost"
+    )
+    return "retry"

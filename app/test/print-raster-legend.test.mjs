@@ -33,6 +33,17 @@ test("captures the explicit negative-to-positive band scale and transparency fro
   assert.equal(JSON.stringify({layer: data.layer, result: data.handle.cog.result, paints: data.paints}), before);
 });
 
+test("captures a normalized working COG only for its exact saved object pin", () => {
+  const data = fixture();
+  Object.assign(data.layer, {sourceType: "governed-dataset", geometryType: "Raster", sourceUrl: undefined,
+    datasetId: "10000000-0000-4000-8000-000000000001", datasetVersionId: "10000000-0000-4000-8000-000000000002",
+    objectId: "10000000-0000-4000-8000-000000000003"});
+  data.handle.cog.grid.metadata.source.url = `urn:opengeo:dataset:${data.layer.datasetId}:version:${data.layer.datasetVersionId}:working:${data.layer.objectId}`;
+  assert.equal(data.captured().descriptor.band, 2);
+  data.layer.objectId = "10000000-0000-4000-8000-000000000004";
+  assert.throws(data.captured, /raster display changed/);
+});
+
 test("returns ordinary non-raster control and honest unavailable rows for implicit, RGB and transformed displays", () => {
   assert.equal(capturePrintRasterLegend({sourceType: "geojson-object"}), null);
   const implicit = fixture();implicit.layer.style = {};implicit.handle.cog.result.displayRange = null;implicit.handle.cog.result.noDataValue = null;

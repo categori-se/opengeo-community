@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
 import {describe, it} from "node:test";
 
 import {currentProjectDefinition} from "../src/components/WorkbenchView.js";
@@ -8,6 +9,8 @@ import {
   PATH_MAP_DEFINITION_SCHEMA_VERSION,
   emptyMapDefinition,
   DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
+  KML_MAP_DEFINITION_SCHEMA_VERSION,
+  mapDefinitionVersionForLayers,
   validateManagedDisplayReference,
   upgradeMapDefinition
 } from "../src/lib/mapDefinition.js";
@@ -16,6 +19,7 @@ import {createPathMeasurement} from "../src/lib/pathMeasurement.js";
 import {definitionForPrintFrame, definitionWithPrintLayouts, newProjectPrintLayout, printLayerPresentation, projectPrintLayouts} from "../src/lib/printLayouts.js";
 import {mapboxCompatibility} from "../src/lib/mapboxAdapter.js";
 import {PINNED_MAP_FONT} from "../src/lib/mapFonts.js";
+import {addKmlPlace, createPlacesDocument} from "../src/lib/kmlPlaces.js";
 
 describe("versioned map definition", () => {
   it("retains renderer preference and foreign extensions while rejecting SDK options", () => {
@@ -387,4 +391,32 @@ it("binds tiled display identity to Print frames and retains the existing render
   assert.throws(()=>projectPrintLayouts({...map,definition:{...saved,layers:[changed]}}),/saved print Layer source changed/);
   assert.ok(mapboxCompatibility({layers:[layer],state:{}}).issues.some(issue=>issue.code==="archive-protocol"));
   assert.equal(structuredClone(layer).managedDisplayId,layer.managedDisplayId);
+});
+
+it("versions leaf controls without downgrading inherited capabilities or changing legacy files", () => {
+  const controls = {altitudeMode: "absolute", extrude: true, tessellate: false};
+  const document = addKmlPlace(createPlacesDocument(), "opengeo-places", {
+    kind: "placemark", id: "mixed", name: "Mixed", geometry: {type: "Point", coordinates: [12, 45, 0], kmlControls: controls}
+  });
+  const layer = {layerId: "places", title: "Mixed places", sourceType: "kml-places", kmlDocument: document};
+  assert.equal(mapDefinitionVersionForLayers([layer]), KML_MAP_DEFINITION_SCHEMA_VERSION);
+  assert.equal(mapDefinitionVersionForLayers([], [], document), KML_MAP_DEFINITION_SCHEMA_VERSION);
+  assert.equal(mapDefinitionVersionForLayers([]), MAP_DEFINITION_SCHEMA_VERSION);
+  assert.equal(mapDefinitionVersionForLayers([], [{kind: "polygon-3d"}]), "opengeo.map-definition.1.6.0");
+  const definition = emptyMapDefinition({schemaVersion: KML_MAP_DEFINITION_SCHEMA_VERSION, layers: [layer]});
+  assert.deepEqual(upgradeMapDefinition(definition), definition);
+  assert.throws(() => upgradeMapDefinition({...definition, schemaVersion: MAP_DEFINITION_SCHEMA_VERSION}), /map_kml_geometry_controls_version_required/);
+  assert.throws(() => upgradeMapDefinition({...emptyMapDefinition(), kmlPlaces: document}), /map_kml_geometry_controls_version_required/);
+  const bad = structuredClone(definition);bad.layers[0].kmlDocument.children[0].geometry.kmlControls.extrude = 1;
+  assert.throws(() => upgradeMapDefinition(bad), /places_geometry_controls_invalid/);
+  const display = {layerId: "display", sourceType: "governed-dataset", sourceVersion: 1,
+    datasetId: "70000000-0000-4000-8000-000000000001", datasetVersionId: "70000000-0000-4000-8000-000000000002",
+    managedDisplayId: "70000000-0000-4000-8000-000000000003"};
+  assert.doesNotThrow(() => upgradeMapDefinition({...definition, layers: [layer, display]}));
+  assert.throws(() => upgradeMapDefinition({...definition, layers: [layer, {...display, sourceVersion: 0}]}), /map_managed_display_reference_invalid/);
+  const faces = JSON.parse(readFileSync(new URL("../../fixtures/map-measurements/polygon-3d.json", import.meta.url))).records;
+  assert.equal(upgradeMapDefinition({...definition, measurements: faces}).measurements.length, faces.length);
+  const forged = structuredClone(faces);forged[0].summary.areaSquareMeters += 100;
+  assert.throws(() => upgradeMapDefinition({...definition, measurements: forged}), /map_measurements_invalid/);
+
 });

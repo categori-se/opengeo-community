@@ -126,6 +126,7 @@ class Settings(BaseSettings):
     user_dataset_repository_browser_function_name: str | None = None
     observable_build_queue_url: str | None = None
     framework_publication_queue_url: str | None = None
+    framework_publication_withdrawal_enabled: bool = False
     framework_publication_public_bucket: str | None = Field(
         default=None, pattern=r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
     )
@@ -457,6 +458,14 @@ class Settings(BaseSettings):
             <= {"geojson", "csv", "shapefile", "geopackage", "geoparquet"}
         ):
             raise ValueError("pmtiles_input_formats must list distinct supported vector formats")
+
+        if (
+            self.framework_publication_withdrawal_enabled
+            and self.framework_publication_queue_url is None
+        ):
+            raise ValueError(
+                "framework_publication_withdrawal_enabled requires its publication queue"
+            )
 
         for queue_name, queue_url in (
             ("processing_queue_url", self.processing_queue_url),

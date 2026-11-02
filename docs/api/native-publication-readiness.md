@@ -42,6 +42,17 @@ typography. Independent installation and production delivery remain open.
 | Native build and retained output | The existing coordinator, real SQL leases and exact-version object store execute the isolated native compiler twice. Completed output survives reopening and is reused without replaying builds. | The current default compiler image builds and passes its isolated compilation fixture. Independent installation and deployment remain open. |
 | Authorized private preview | Separate-origin signed previews display both builds; Build history reopens the earlier edition. Missing/cross-build cookies and capability replay are denied. The connected local viewer workflow verifies opening, revoked grants, real 60-second capability expiry and signed-cookie expiry with a qualified local verifier clock. Installation-specific origins are validated. | Independent installation, configured production identity/delivery and production activation. Immediate revocation of issued cookies is not implemented. |
 | Publication and earlier editions | Actual review, acknowledgment and approval controls dispatch the existing canonical publisher. Its restricted SQL role, separate public custody and atomic prefix activation publish both editions. Both public links open and permit anonymous reads; the previous public edition remains readable after replacement. | Independent HTTPS/DNS/CDN delivery and production release. |
+| Exact edition withdrawal | Local delivery supports immutable review-scoped requests, publisher acknowledgment, explicit status refresh and denial of the exact edition. Other editions, source rights and independent private preview expiry are preserved. | Configured static/CDN transport, hosted acceptance and fresh independent installation remain unfinished. |
+
+In Publish, **Withdraw this public edition** requires confirmation of the selected
+edition. **Request withdrawal** records an immutable request for that exact native
+publication review. It remains `pending`, with `revoked: false`, until the publisher
+acknowledges withdrawal of the exact review, release prefix and destination. Failed
+transport reports `needs_attention` and preserves the origin reservation for recovery
+of the same request. **Refresh withdrawal status** and **Reload publication reviews**
+recover durable state; they do not poll automatically, rebuild source or republish
+the original review. Reopening reviews reads withdrawal state in the existing joined
+status query.
 
 November 1: a local production-delivery candidate now gives newly published,
 compiler-sealed native HTML an exact retained link at
@@ -56,8 +67,37 @@ unsupported routing or URI rewriting also fails closed.
 
 This candidate is not deployed. General Framework assets, aliases and older
 receipts retain their current-address behavior; Studio labels that fallback
-explicitly. Production withdrawal remains disabled. Focused local checks cover the edition link and delivery boundary. Full strict
-OpenAPI export and hosted acceptance remain pending.
+explicitly. Production withdrawal remains disabled by default. Focused local
+checks cover the edition link and delivery boundary. Full strict OpenAPI export,
+configured withdrawal transport and hosted acceptance remain pending.
+
+The [forward migration](../../database/migrations/0179_framework_publication_revocation.sql)
+keeps requests immutable and tenant-scoped. Runtime callers cannot mutate withdrawal
+records or acknowledge delivery. Publisher-only functions discover at most four
+eligible review IDs per explicit processing action, exclude live leases and competing
+origin reservations, and fence completion with the exact lease and receipt identity.
+**Process queued local jobs** handles these requests through the existing publisher
+before processing queued publications. Failed work remains available for deliberate
+continuation.
+
+The [local delivery adapter](../../scripts/local_framework_publication.py) records
+withdrawal under the same activation lock used by public reads. It denies the exact
+edition while preserving its retained bytes, other editions, source rights, builds
+and approvals. If the withdrawn edition is current, its current alias also denies
+delivery without substituting another edition. The local HTTP surface uses
+`Cache-Control: no-store` and returns 404 for withdrawn content. Previously downloaded
+or printed copies cannot be recalled.
+
+The static delivery candidate uses monotonic `opengeo-withdrawn=true` tags on exact
+retained S3 object versions and acknowledges only after CloudFront invalidation
+completes. The operator installs its withdrawal denies within the existing bucket
+policy: tagged objects deny delivery through the configured distribution, only the
+publisher role may write tags, tag writes must retain the withdrawal marker, and tag
+deletion is denied. The publisher is the sole tag writer for these publication
+objects; unknown tags or an unexpected policy fail closed. Policy ownership remains
+with the existing operator. Withdrawal validates that policy and never replaces or
+edits it. This source candidate remains default off; hosted transport and independent
+installation acceptance are pending, with no production or full-parity claim.
 
 The [source repository](../../services/api/src/opengeo_api/observable_sources.py)
 issues a capability for 60 seconds. It can be exchanged once. Project and input
@@ -78,6 +118,11 @@ removal, and refusal of a capability after its real 60-second expiry. The cookie
 expiry check sends the unchanged issued cookies while advancing only the local
 verifier clock; it does not claim a real 15-minute wait or CloudFront acceptance.
 
+Public edition withdrawal preserves private source authority. Fresh private preview
+requests and unused capabilities retain their existing access checks; already issued
+private cookies retain their signed expiry. Withdrawing an edition does not revoke
+those independent private grants.
+
 Offboarding preserves capability audit records, invitation history, retained
 editions and unrelated grants. Production activation, identity and delivery
 acceptance remain open.
@@ -85,10 +130,12 @@ acceptance remain open.
 This check uses cached images, synthetic sign-in and three separate loopback
 origins. The canonical local hostname is explicitly mapped to an anonymous HTTP
 server by the browser check. It does not prove DNS, TLS or CloudFront delivery.
-The publisher uses the same seven existing security-definer functions; its local
-bootstrap enables login only for the isolated development role. Production role
-grants and migrations are unchanged. Private objects are never used as an
-anonymous fallback, and staged public objects are unavailable until activation.
+The accepted compilation/publication journey uses the existing seven publisher
+security-definer functions; its local bootstrap enables login only for the isolated
+development role. Edition withdrawal adds the separately scoped functions and grants
+in migration 0179; production application and acceptance remain unfinished. Private
+objects are never used as an anonymous fallback, and staged public objects are
+unavailable until activation.
 
 Activation is explicit through the existing
 [development runner](../../scripts/run-integrated-studio-local.py): use

@@ -4585,7 +4585,7 @@ function managedCogMapAllowed(state, dataset, externalSource) {
     && dataset.status === "active"
     && dataset.currentVersionState === "active"
     && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(dataset.currentVersionId ?? "")
-    && dataset.format === "cog"
+    && ["cog", "geotiff"].includes(dataset.format)
     && String(dataset.geometryType).toLowerCase() === "raster"
     && Array.isArray(dataset.extent) && dataset.extent.length === 4
     && dataset.extent.every(Number.isFinite)

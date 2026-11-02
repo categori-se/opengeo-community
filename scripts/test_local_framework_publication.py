@@ -10,7 +10,7 @@ import unittest
 from collections import namedtuple
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 SCRIPT = Path(__file__).with_name("local_framework_publication.py")
@@ -124,6 +124,130 @@ class LocalArtifactProfileTests(unittest.TestCase):
 
 
 class LocalArtifactLeaseBridgeTests(unittest.TestCase):
+    def test_withdrawal_availability_reaches_http_and_fences_unconfigured_writes(self):
+        import json
+
+        from fastapi import FastAPI
+        from opengeo_api import observable_source_routes as routes
+
+        project, source, review, user, organization = (uuid4() for _ in range(5))
+        repository = SimpleNamespace(
+            publication_status=AsyncMock(return_value={
+                "source_project_id": str(source), "can_publish": True,
+                "mounts": [], "reviews": [],
+            }),
+            revoke_publication=AsyncMock(return_value="pending"),
+        )
+        dispatcher = SimpleNamespace(
+            available=True, dispatch_framework_publication_withdrawal=AsyncMock()
+        )
+        app = FastAPI()
+        app.include_router(routes.router)
+        app.state.observable_source_repository = repository
+        app.state.framework_publication_dispatcher = dispatcher
+
+        async def session():
+            return SimpleNamespace(
+                principal=SimpleNamespace(user_id=user),
+                selected_membership=SimpleNamespace(organization_id=organization),
+            )
+
+        app.dependency_overrides[routes.current_session] = session
+        base = f"/projects/{project}/source-projects/{source}/publications"
+
+        async def request(method, path, payload=None):
+            body = b"" if payload is None else json.dumps(payload).encode()
+            messages, received, finished = [], False, asyncio.Event()
+
+            async def receive():
+                nonlocal received
+                if not received:
+                    received = True
+                    return {"type": "http.request", "body": body, "more_body": False}
+                await finished.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                messages.append(message)
+                if message["type"] == "http.response.body" and not message.get("more_body"):
+                    finished.set()
+
+            await asyncio.wait_for(app({
+                "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                "method": method, "scheme": "http", "path": path, "raw_path": path.encode(),
+                "query_string": b"", "root_path": "", "server": ("local.test", 80),
+                "client": ("127.0.0.1", 1),
+                "headers": [(b"content-type", b"application/json")],
+            }, receive, send), timeout=5)
+            start = next(item for item in messages if item["type"] == "http.response.start")
+            data = b"".join(item.get("body", b"") for item in messages
+                            if item["type"] == "http.response.body")
+            headers = {key.decode(): value.decode() for key, value in start["headers"]}
+            return start["status"], headers, json.loads(data)
+
+        async def exercise():
+            payload = {"acknowledgment": "revoke-exact-publication-edition"}
+            for capability in (None, False, 1):
+                if capability is None:
+                    dispatcher.__dict__.pop("withdrawal_available", None)
+                else:
+                    dispatcher.withdrawal_available = capability
+                status, headers, body = await request("GET", base)
+                self.assertEqual(status, 200)
+                self.assertTrue(body["dispatch_configured"])
+                self.assertFalse(body["withdrawal_configured"])
+                self.assertEqual(headers["cache-control"], "no-store")
+                status, headers, body = await request("POST", f"{base}/reviews/{review}/revoke", payload)
+                self.assertEqual(status, 503)
+                self.assertEqual(body["detail"], "framework_publication_withdrawal_not_configured")
+                self.assertEqual(headers["cache-control"], "no-store")
+                repository.revoke_publication.assert_not_awaited()
+            dispatcher.withdrawal_available = True
+            status, _, body = await request("GET", base)
+            self.assertEqual(status, 200)
+            self.assertTrue(body["withdrawal_configured"])
+            status, _, body = await request("POST", f"{base}/reviews/{review}/revoke", payload)
+            self.assertEqual((status, body), (202, {"id": str(review), "state": "pending", "revoked": False}))
+            self.assertEqual(repository.revoke_publication.await_count, 1)
+            dispatcher.available = False
+            status, _, _ = await request("POST", f"{base}/reviews/{review}/revoke", payload)
+            self.assertEqual(status, 503)
+            self.assertEqual(repository.revoke_publication.await_count, 1)
+            self.assertTrue(pilot.LocalFrameworkPublicationDispatcher.withdrawal_available)
+
+        asyncio.run(exercise())
+
+    def test_pending_withdrawals_reads_actual_data_api_records_and_validates_batch_limit(self):
+        from opengeo_api.rds_data import DataApiResult
+
+        reviews = [str(uuid4()) for _ in range(4)]
+        execute = AsyncMock()
+        with (
+            patch.dict(sys.modules, {"local_framework_publication": publication}),
+            patch.object(publication.LocalPublicationSqlClient, "execute", execute),
+        ):
+            for maximum in (1, 4):
+                expected = reviews[:maximum]
+                execute.return_value = DataApiResult(records=((expected,),), updated=0)
+                self.assertEqual(bridge.operate({
+                    "operation": "pending-publication-withdrawals", "maximumJobs": maximum,
+                }), expected)
+                execute.assert_awaited_once_with(
+                    "SELECT app.pending_framework_publication_revocations(%s)", (maximum,)
+                )
+                execute.reset_mock()
+            for invalid in (
+                *({"operation": "pending-publication-withdrawals", "maximumJobs": maximum}
+                  for maximum in (0, 5, True, False, 1.0, "1", None)),
+                {"operation": "pending-publication-withdrawals"},
+                {"operation": "pending-publication-withdrawals", "maximumJobs": 1,
+                 "reviewId": reviews[0]},
+            ):
+                with self.subTest(request=invalid):
+                    with self.assertRaisesRegex(ValueError, "Invalid local publication withdrawal limit"):
+                        bridge.operate(invalid)
+                    execute.assert_not_awaited()
+
     def test_resolution_calls_canonical_repository_with_exact_actor_job_and_token(self):
         organization, user, job, token = (uuid4() for _ in range(4))
         context_type = namedtuple("TenantContext", "user_id organization_id")
@@ -233,6 +357,38 @@ class LocalPublicationTests(unittest.TestCase):
         )
         self.assertNotIn(first_file["source"]["s3VersionId"], objects)
 
+    def test_exact_edition_withdrawal_preserves_other_editions_bytes_and_future_cutovers(self):
+        first, second, third = uuid4(), uuid4(), uuid4()
+        first_prefix, _ = self.write(first, b"first edition")
+        snapshot = asyncio.run(self.edge.prepare(self.origin, "releases/bootstrap"))
+        asyncio.run(self.edge.activate(self.origin, snapshot, first_prefix, first))
+        second_prefix, _ = self.write(second, b"second edition")
+        snapshot = asyncio.run(self.edge.prepare(self.origin, first_prefix))
+        asyncio.run(self.edge.activate(self.origin, snapshot, second_prefix, second))
+        active_before = pilot.read_json("publication-active.json")
+        inventory_before = pilot.read_json("publication-objects.json")
+        origin = {**self.origin, "id": str(uuid4())}
+        claim = {"review_id": str(first), "target_prefix": first_prefix, "origin": origin}
+        receipt = asyncio.run(self.edge.withdraw(claim))
+        self.assertTrue(receipt["confirmed"])
+        self.assertEqual(receipt["originId"], origin["id"])
+        self.assertIsNone(publication.read_publication(pilot, "/", first))
+        self.assertEqual(publication.read_publication(pilot, "/", second)["body"], b"second edition")
+        self.assertEqual(publication.read_publication(pilot, "/")["body"], b"second edition")
+        self.assertEqual(pilot.read_json("publication-active.json")["releases"], active_before["releases"])
+        self.assertEqual(pilot.read_json("publication-objects.json"), inventory_before)
+        self.assertEqual(asyncio.run(self.edge.withdraw(claim)), receipt)
+        asyncio.run(self.edge.withdraw({**claim, "review_id": str(second), "target_prefix": second_prefix}))
+        self.assertIsNone(publication.read_publication(pilot, "/"))
+        self.assertIsNone(publication.read_publication(pilot, "/", second))
+        third_prefix, _ = self.write(third, b"third edition")
+        snapshot = asyncio.run(self.edge.prepare(self.origin, second_prefix))
+        asyncio.run(self.edge.activate(self.origin, snapshot, third_prefix, third))
+        self.assertEqual(publication.read_publication(pilot, "/")["body"], b"third edition")
+        self.assertIsNone(publication.read_publication(pilot, "/", first))
+        self.assertIsNone(publication.read_publication(pilot, "/", second))
+        self.assertEqual(len(pilot.read_json("publication-active.json")["releases"]), 3)
+
     def test_exact_write_reuse_preserves_version_and_rejects_conflicting_bytes(self):
         review = uuid4()
         prefix, file = self.write(review, b"first")
@@ -340,9 +496,23 @@ class LocalPublicationTests(unittest.TestCase):
             "DELETE FROM app.framework_publication_jobs",
             "SELECT app.other_function()",
             "SELECT app.claim_framework_publication(%s,%s); SELECT 1",
+            "WITH claimed AS (SELECT app.claim_framework_publication(%s,%s)) SELECT * FROM claimed",
+            publication.PUBLICATION_CLAIM_SQL + " ",
         ):
             with self.assertRaises(publication.PublicationConflict):
                 asyncio.run(client.execute(statement, ()))
+        for statement in (
+            publication.PUBLICATION_CLAIM_SQL, publication.PUBLICATION_REVOCATION_CLAIM_SQL
+        ):
+            connection = MagicMock()
+            connection.execute.return_value.fetchall.return_value = [("{}",)]
+            connection.execute.return_value.rowcount = 1
+            parameters = (uuid4(), uuid4())
+            with patch("psycopg.connect") as connect:
+                connect.return_value.__enter__.return_value = connection
+                result = asyncio.run(client.execute(statement, parameters))
+            connection.execute.assert_called_once_with(statement, parameters)
+            self.assertEqual(result.records, (("{}",),))
 
     def test_public_batch_reads_active_retained_and_missing_without_private_fallback(self):
         first, second, unapproved = uuid4(), uuid4(), uuid4()

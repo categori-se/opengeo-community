@@ -8,6 +8,8 @@ import {
   createPlacesDocument,
   exportKml,
   exportKmz,
+  hasKmlGeometryControls,
+  kmlReportForSave,
   kmlRegionLodPresentation,
   moveKmlPlace,
   normalizePlacesDocument,
@@ -109,13 +111,21 @@ describe("bounded KML/KMZ Places interchange", () => {
     const [tower, route, area, mixed] = parsed.document.children[0].children;
     assert.deepEqual(tower.geometry.coordinates, [13.405, 52.52, 120]);
     assert.equal(tower.altitudeMode, "gx:relativeToSeaFloor");
+    assert.equal(tower.extrude, true);
+    assert.equal(tower.tessellate, false);
     assert.equal(tower.view.pitch, undefined);
     assert.equal(tower.view.tilt, 55);
     assert.equal(tower.style.icon.href, "icons/tower.png");
     assert.equal(tower.style.balloon.text, "$[name]");
     assert.deepEqual(tower.extendedData, {status: "verified", height: "120"});
     assert.deepEqual(route.time, {type: "TimeSpan", begin: "2026-08-24", end: "2026-08-25"});
+    assert.equal(route.altitudeMode, "clampToGround");
+    assert.equal(route.extrude, false);
+    assert.equal(route.tessellate, true);
     assert.equal(area.geometry.type, "Polygon");
+    assert.equal(area.altitudeMode, null);
+    assert.equal(area.extrude, false);
+    assert.equal(area.tessellate, false);
     assert.equal(mixed.geometry.type, "GeometryCollection");
     assert.equal(parsed.geojson.features.length, 4);
     assert.deepEqual(parsed.geojson.features[0].properties.folderPath, ["Sites"]);
@@ -135,6 +145,213 @@ describe("bounded KML/KMZ Places interchange", () => {
     assert.equal(roundTrip.report.result, "pass");
     assert.ok(first.indexOf("<visibility>") < first.indexOf("<open>"));
     assert.ok(first.indexOf("<open>") < first.indexOf("<LookAt>"));
+  });
+
+  it("round-trips uniform controls on nested MultiGeometry leaves with zero altitudes and metadata", () => {
+    let document = parseKml(RICH_KML, {DOMParser}).document;
+    const tower = document.children[0].children[0];
+    const geometry = {
+      type: "GeometryCollection",
+      geometries: [
+        {type: "LineString", coordinates: [[0, 0, 0], [1, 0, 0]]},
+        {type: "GeometryCollection", geometries: [
+          {type: "LineString", coordinates: [[1, 0, 0], [1, 1, -2]]},
+          {type: "LineString", coordinates: [[1, 1, -2], [2, 1, 0]]}
+        ]}
+      ]
+    };
+    document = updateKmlPlace(document, "mixed", {
+      geometry,
+      altitudeMode: "gx:relativeToSeaFloor",
+      extrude: true,
+      tessellate: true,
+      view: tower.view,
+      style: tower.style,
+      time: {type: "TimeSpan", begin: "2026-08", end: null},
+      extendedData: {source: "nested survey"}
+    });
+    const parsed = parseKml(exportKml(document), {DOMParser});
+    const mixed = parsed.document.children[0].children.find(place => place.id === "mixed");
+    assert.equal(mixed.altitudeMode, "gx:relativeToSeaFloor");
+    assert.equal(mixed.extrude, true);
+    assert.equal(mixed.tessellate, true);
+    assert.deepEqual(mixed.geometry, geometry);
+    assert.deepEqual(parsed.document, document);
+    assert.equal(parsed.report.result, "pass");
+    assert.equal(hasKmlGeometryControls(parsed.document), false);
+    assert.deepEqual(kmlReportForSave(parsed.report), parsed.report);
+    assert.deepEqual(parseKml(exportKml(parsed.document), {DOMParser}).document, document);
+  });
+
+  it("recovers uniform leaf controls across multiple direct geometries", () => {
+    const controls = "<extrude>1</extrude><tessellate>0</tessellate><altitudeMode>absolute</altitudeMode>";
+    const parsed = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document id="direct-geometries">
+      <Placemark id="survey"><name>Survey</name>
+        <Point>${controls}<coordinates>0,0,0</coordinates></Point>
+        <MultiGeometry><LineString>${controls}<coordinates>0,0,0 1,1,0</coordinates></LineString>
+          <MultiGeometry><LineString>${controls}<coordinates>1,1,0 2,2,0</coordinates></LineString></MultiGeometry>
+        </MultiGeometry>
+      </Placemark>
+    </Document></kml>`, {DOMParser});
+    const place = parsed.document.children[0];
+    assert.equal(place.id, "survey");
+    assert.equal(place.altitudeMode, "absolute");
+    assert.equal(place.extrude, true);
+    assert.equal(place.tessellate, false);
+    assert.deepEqual(place.geometry, {
+      type: "GeometryCollection",
+      geometries: [
+        {type: "Point", coordinates: [0, 0, 0]},
+        {type: "GeometryCollection", geometries: [
+          {type: "LineString", coordinates: [[0, 0, 0], [1, 1, 0]]},
+          {type: "GeometryCollection", geometries: [
+            {type: "LineString", coordinates: [[1, 1, 0], [2, 2, 0]]}
+          ]}
+        ]}
+      ]
+    });
+    assert.deepEqual(parsed.report.entries, [{
+      path: "$.children[0].geometry", status: "normalized",
+      detail: "Multiple direct geometries normalized to a GeometryCollection."
+    }]);
+    assert.equal(parsed.report.result, "pass");
+    assert.deepEqual(parseKml(exportKml(parsed.document), {DOMParser}).document, parsed.document);
+  });
+
+  it("preserves every heterogeneous leaf control with one summary and keeps Model losses explicit", () => {
+    const parsed = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><Document id="mixed-controls">
+      <Placemark id="survey"><name>Survey</name><MultiGeometry>
+        <Model><altitudeMode>absolute</altitudeMode></Model>
+        <Point><extrude>1</extrude><tessellate>0</tessellate><gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode><coordinates>0,0,0</coordinates></Point>
+        <MultiGeometry>
+          <LineString><extrude>0</extrude><tessellate>1</tessellate><altitudeMode>absolute</altitudeMode><coordinates>0,0,0 1,1,0</coordinates></LineString>
+          <LineString><coordinates>1,1,0 2,2,0</coordinates></LineString>
+          <Polygon><extrude>1</extrude><tessellate>1</tessellate><gx:altitudeMode>clampToSeaFloor</gx:altitudeMode><outerBoundaryIs><LinearRing><coordinates>0,0,0 1,0,0 1,1,0 0,0,0</coordinates></LinearRing></outerBoundaryIs></Polygon>
+        </MultiGeometry>
+      </MultiGeometry></Placemark>
+    </Document></kml>`, {DOMParser});
+    const place = parsed.document.children[0];
+    assert.equal(place.altitudeMode, "gx:relativeToSeaFloor");
+    assert.equal(place.extrude, true);
+    assert.equal(place.tessellate, false);
+    assert.deepEqual(place.geometry, {
+      type: "GeometryCollection",
+      geometries: [
+        {type: "Point", coordinates: [0, 0, 0], kmlControls: {altitudeMode: "gx:relativeToSeaFloor", extrude: true, tessellate: false}},
+        {type: "GeometryCollection", geometries: [
+          {type: "LineString", coordinates: [[0, 0, 0], [1, 1, 0]], kmlControls: {altitudeMode: "absolute", extrude: false, tessellate: true}},
+          {type: "LineString", coordinates: [[1, 1, 0], [2, 2, 0]], kmlControls: {altitudeMode: null, extrude: false, tessellate: false}},
+          {type: "Polygon", coordinates: [[[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 0, 0]]], kmlControls: {altitudeMode: "gx:clampToSeaFloor", extrude: true, tessellate: true}}
+        ]}
+      ]
+    });
+    assert.equal(hasKmlGeometryControls(parsed.document), true);
+    assert.equal(parsed.report.result, "pass_with_declared_losses");
+    assert.equal(parsed.report.counts.omitted, 1);
+    assert.ok(parsed.report.entries.some(entry => entry.path === "$.children[0].geometry.geometries[0]" && entry.status === "omitted" && entry.detail.includes("Model")));
+    assert.deepEqual(parsed.report.entries.filter(entry => entry.status === "preserved"), [{
+      path: "$.children[0].geometry", status: "preserved",
+      detail: "Preserved individual altitudeMode, extrude, and tessellate controls on 4 supported geometry leaves; Placemark defaults retain the first supported leaf."
+    }]);
+    assert.equal(parsed.report.entries.length, 2);
+    assert.deepEqual(kmlReportForSave(parsed.report), parsed.report);
+    const roundTrip = parseKml(exportKml(parsed.document), {DOMParser});
+    assert.deepEqual(roundTrip.document, parsed.document);
+    assert.equal(roundTrip.report.result, "pass");
+    assert.equal(roundTrip.report.counts.preserved, 1);
+  });
+
+  it("keeps heterogeneous controls attached through leaf reorder, vertex edits, and place updates", () => {
+    const parsed = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document id="reorder-controls"><Folder id="survey-folder"><Placemark id="survey"><name>Survey</name><MultiGeometry>
+      <Point><extrude>1</extrude><altitudeMode>absolute</altitudeMode><coordinates>0,0,0</coordinates></Point>
+      <MultiGeometry><LineString><tessellate>1</tessellate><coordinates>0,0,0 1,1,0</coordinates></LineString></MultiGeometry>
+    </MultiGeometry></Placemark></Folder></Document></kml>`, {DOMParser});
+    const geometry = structuredClone(parsed.document.children[0].children[0].geometry);
+    geometry.geometries.reverse();
+    geometry.geometries[0].geometries[0].coordinates.splice(1, 0, [0.5, 0.25, 0]);
+    geometry.geometries[1].coordinates = [2, 3, 0];
+    const updated = updateKmlPlace(parsed.document, "survey", {
+      name: "Verified survey", description: "Reordered and edited", geometry,
+      altitudeMode: "relativeToGround", extrude: false, tessellate: false
+    });
+    const place = updated.children[0].children[0];
+    assert.deepEqual(place.geometry, geometry);
+    assert.equal(hasKmlGeometryControls(updated), true);
+    const reopened = parseKml(exportKml(updated), {DOMParser}).document.children[0].children[0];
+    assert.deepEqual(reopened.geometry, geometry);
+    assert.equal(reopened.name, "Verified survey");
+    assert.equal(reopened.description, "Reordered and edited");
+    assert.equal(reopened.altitudeMode, null);
+    assert.equal(reopened.extrude, false);
+    assert.equal(reopened.tessellate, true);
+    assert.deepEqual(reopened.geometry.geometries[1].kmlControls, {altitudeMode: "absolute", extrude: true, tessellate: false});
+  });
+
+  it("validates complete leaf controls and rejects malformed metadata or collection controls", () => {
+    const document = addKmlPlace(createPlacesDocument(), null, {kind: "placemark", id: "point", geometry: {type: "Point", coordinates: [0, 0, 0]}});
+    const controls = {altitudeMode: null, extrude: false, tessellate: false};
+    for (const altitudeMode of [null, "clampToGround", "relativeToGround", "absolute", "gx:clampToSeaFloor", "gx:relativeToSeaFloor"]) {
+      const updated = updateKmlPlace(document, "point", {geometry: {type: "Point", coordinates: [0, 0, 0], kmlControls: {...controls, altitudeMode}}});
+      assert.deepEqual(normalizePlacesDocument(updated), updated);
+    }
+    for (const kmlControls of [
+      null, undefined, false, "absolute", [], {},
+      {altitudeMode: null, extrude: false},
+      {altitudeMode: null, tessellate: false},
+      {extrude: false, tessellate: false},
+      {...controls, altitudeMode: undefined}, {...controls, altitudeMode: "relativeToSeaFloor"},
+      {...controls, altitudeMode: "gx:absolute"}, {...controls, altitudeMode: 0},
+      {...controls, extrude: 0}, {...controls, tessellate: "false"},
+      {...controls, unexpected: true}
+    ]) {
+      assert.throws(() => updateKmlPlace(document, "point", {geometry: {type: "Point", coordinates: [0, 0, 0], kmlControls}}), (error) => error.code === "places_geometry_controls_invalid");
+    }
+    const invalid = structuredClone(document);
+    invalid.children[0].geometry = {type: "GeometryCollection", kmlControls: controls, geometries: [document.children[0].geometry]};
+    assert.equal(hasKmlGeometryControls(invalid), true);
+    assert.throws(() => normalizePlacesDocument(invalid), (error) => error.code === "places_geometry_controls_invalid");
+    const unrelated = {children: [{kind: "network-link", geometry: {kmlControls: controls}}, {kind: "folder", extendedData: {kmlControls: controls}, children: []}], geometry: {kmlControls: controls}};
+    assert.equal(hasKmlGeometryControls(unrelated), false);
+  });
+
+  it("writes explicit leaf controls and falls back to Placemark controls for legacy leaves", () => {
+    const explicit = {altitudeMode: null, extrude: false, tessellate: false};
+    const fallback = {altitudeMode: "absolute", extrude: true, tessellate: true};
+    const document = addKmlPlace(createPlacesDocument(), null, {
+      kind: "placemark", id: "mixed-defaults", ...fallback,
+      geometry: {type: "GeometryCollection", geometries: [
+        {type: "Point", coordinates: [0, 0, 0], kmlControls: explicit},
+        {type: "LineString", coordinates: [[0, 0, 0], [1, 1, 0]]}
+      ]}
+    });
+    const geometries = parseKml(exportKml(document), {DOMParser}).document.children[0].geometry.geometries;
+    assert.deepEqual(geometries[0].kmlControls, explicit);
+    assert.deepEqual(geometries[1].kmlControls, fallback);
+  });
+
+  it("keeps more than a thousand mixed leaves and their saved report within existing byte limits", () => {
+    const leaves = Array.from({length: 1100}, (_, index) => {
+      const alternate = index % 2 === 1;
+      return `<Point><extrude>${alternate ? 1 : 0}</extrude><tessellate>${alternate ? 0 : 1}</tessellate><altitudeMode>${alternate ? "absolute" : "clampToGround"}</altitudeMode><coordinates>${index % 180},0,0</coordinates></Point>`;
+    }).join("");
+    const parsed = parseKml(`<kml xmlns="http://www.opengis.net/kml/2.2"><Document id="many-controls"><Placemark id="survey"><MultiGeometry>${leaves}</MultiGeometry></Placemark></Document></kml>`, {DOMParser});
+    const geometries = parsed.document.children[0].geometry.geometries;
+    assert.equal(geometries.length, 1100);
+    for (const [index, geometry] of geometries.entries()) {
+      const alternate = index % 2 === 1;
+      assert.deepEqual(geometry.kmlControls, {altitudeMode: alternate ? "absolute" : "clampToGround", extrude: alternate, tessellate: !alternate});
+    }
+    const report = kmlReportForSave(parsed.report);
+    assert.deepEqual(report, parsed.report);
+    assert.equal(report.entries.length, 1);
+    assert.equal(report.counts.omitted, 0);
+    assert.ok(report.entries[0].detail.includes("1100 supported geometry leaves"));
+    assert.ok(Buffer.byteLength(JSON.stringify(report)) < 1024);
+    assert.ok(Buffer.byteLength(JSON.stringify(parsed.document)) <= KML_PLACES_LIMITS.maximumProjectPlacesBytes);
+    assert.ok(Buffer.byteLength(JSON.stringify({kmlPlaces: parsed.document, kmlInterchangeReport: report})) < 256 * 1024);
+    const roundTrip = parseKml(exportKml(parsed.document), {DOMParser});
+    assert.deepEqual(roundTrip.document, parsed.document);
+    assert.deepEqual(kmlReportForSave(roundTrip.report), report);
   });
 
   it("creates, edits, groups, moves, styles, and removes bounded Places without unstable ids", () => {
@@ -413,6 +630,7 @@ describe("bounded KML/KMZ Places interchange", () => {
       ['<!DOCTYPE kml [<!ENTITY x SYSTEM "file:///etc/passwd">]><kml xmlns="http://www.opengis.net/kml/2.2"><Document/></kml>', "active_xml_rejected"],
       ["<kml><Document/></kml>", "kml_2_2_namespace_required"],
       ['<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><Point><coordinates>181,0</coordinates></Point></Placemark></Document></kml>', "kml_coordinate_out_of_bounds"],
+      ['<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><MultiGeometry><Point><coordinates>0,0,0</coordinates></Point><MultiGeometry><LineString><coordinates>0,0,0 181,0,0</coordinates></LineString></MultiGeometry></MultiGeometry></Placemark></Document></kml>', "kml_coordinate_out_of_bounds"],
       ['<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><Polygon><outerBoundaryIs><LinearRing><coordinates>0,0 1,0 1,1 0,1</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark></Document></kml>', "kml_polygon_ring_invalid"],
       ['<kml xmlns="http://www.opengis.net/kml/2.2"><Document id="same"><Placemark id="same"><Point><coordinates>0,0</coordinates></Point></Placemark></Document></kml>', "kml_duplicate_id"],
       ['<kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><TimeStamp><when>tomorrow</when></TimeStamp><Point><coordinates>0,0</coordinates></Point></Placemark></Document></kml>', "places_time_value_invalid"],

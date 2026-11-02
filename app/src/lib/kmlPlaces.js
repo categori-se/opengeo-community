@@ -138,6 +138,20 @@ export function normalizePlacesDocument(value) {
   return document;
 }
 
+export function hasKmlGeometryControls(document) {
+  const geometryHasControls = (geometry) => {
+    if (!geometry || typeof geometry !== "object") return false;
+    if (Object.hasOwn(geometry, "kmlControls")) return true;
+    return geometry.type === "GeometryCollection" && Array.isArray(geometry.geometries)
+      && geometry.geometries.some(geometryHasControls);
+  };
+  const childrenHaveControls = (children) => Array.isArray(children) && children.some((place) => (
+    place?.kind === "placemark" ? geometryHasControls(place.geometry)
+      : place?.kind === "folder" && childrenHaveControls(place.children)
+  ));
+  return childrenHaveControls(document?.children);
+}
+
 export function createPlacesDocument({name = "My Places", description = null} = {}) {
   return normalizePlacesDocument({
     kind: "document",
@@ -675,22 +689,22 @@ function parsePlacemark(element, path, counters, report, definitions) {
   const geometryElements = directChildren(element).filter((child) => (
     child.namespaceURI === KML_NAMESPACE && ["Point", "LineString", "Polygon", "MultiGeometry", "Model"].includes(child.localName)
   ));
+  const geometryControls = [];
   let geometry = null;
-  let altitudeMode = null;
   if (geometryElements.length) {
     if (geometryElements.length > 1) {
       report.push({path: `${path}.geometry`, status: "normalized", detail: "Multiple direct geometries normalized to a GeometryCollection."});
       geometry = {
         type: "GeometryCollection",
-        geometries: geometryElements.map((item, index) => parseGeometry(item, `${path}.geometry[${index}]`, counters, report)).filter(Boolean)
+        geometries: geometryElements.map((item, index) => parseGeometry(item, `${path}.geometry[${index}]`, counters, report, geometryControls)).filter(Boolean)
       };
     } else {
-      geometry = parseGeometry(geometryElements[0], `${path}.geometry`, counters, report);
+      geometry = parseGeometry(geometryElements[0], `${path}.geometry`, counters, report, geometryControls);
     }
-    altitudeMode = geometryAltitudeMode(geometryElements[0], `${path}.altitudeMode`, report);
   } else {
     report.push({path: `${path}.geometry`, status: "omitted", detail: "Placemark without a supported geometry retained in the Places tree without a map feature."});
   }
+  const controls = placemarkGeometryControls(geometryControls, path, report);
   const styleUrl = boundedOptionalText(directText(element, "styleUrl"));
   if (styleUrl) {
     const resolved = resolveSharedStyle(definitions.styles, styleUrl);
@@ -714,9 +728,9 @@ function parsePlacemark(element, path, counters, report, definitions) {
     visibility: directBoolean(element, "visibility", true),
     view: parseView(element, `${path}.view`, report),
     geometry,
-    altitudeMode,
-    extrude: directBoolean(geometryElements[0], "extrude", false),
-    tessellate: directBoolean(geometryElements[0], "tessellate", false),
+    altitudeMode: controls.altitudeMode,
+    extrude: controls.extrude,
+    tessellate: controls.tessellate,
     style: parseStyle(directChild(element, "Style"), `${path}.style`, report),
     styleUrl,
     extendedData: extended.data,
@@ -896,38 +910,64 @@ function finiteOptionalNumber(value, fallback, path) {
   return number;
 }
 
-function parseGeometry(element, path, counters, report) {
+function placemarkGeometryControls(leaves, path, report) {
+  const first = leaves[0] ?? {altitudeMode: null, extrude: false, tessellate: false};
+  const heterogeneous = leaves.some((leaf) => (
+    leaf.altitudeMode !== first.altitudeMode || leaf.extrude !== first.extrude || leaf.tessellate !== first.tessellate
+  ));
+  if (heterogeneous) {
+    // Bind controls to the geometry itself so reordering and vertex edits retain
+    // each leaf's source settings. Uniform imports keep their legacy shape.
+    for (const leaf of leaves) {
+      leaf.geometry.kmlControls = {altitudeMode: leaf.altitudeMode, extrude: leaf.extrude, tessellate: leaf.tessellate};
+    }
+    report.push({
+      path: `${path}.geometry`,
+      status: "preserved",
+      detail: `Preserved individual altitudeMode, extrude, and tessellate controls on ${leaves.length} supported geometry leaves; Placemark defaults retain the first supported leaf.`
+    });
+  }
+  return first;
+}
+
+function parseGeometry(element, path, counters, report, controls) {
   if (element.localName === "Model") {
     report.push({path, status: "omitted", detail: "Model geometry is retained only as an explicit loss in this increment."});
     return null;
   }
+  let geometry;
   if (element.localName === "Point") {
     const coordinates = parseCoordinates(directText(element, "coordinates"), counters);
     if (coordinates.length !== 1) throw kmlError("kml_point_coordinate_required");
-    return {type: "Point", coordinates: coordinates[0]};
-  }
-  if (element.localName === "LineString") {
+    geometry = {type: "Point", coordinates: coordinates[0]};
+  } else if (element.localName === "LineString") {
     const coordinates = parseCoordinates(directText(element, "coordinates"), counters);
     if (coordinates.length < 2) throw kmlError("kml_line_requires_two_positions");
-    return {type: "LineString", coordinates};
-  }
-  if (element.localName === "Polygon") {
+    geometry = {type: "LineString", coordinates};
+  } else if (element.localName === "Polygon") {
     const outer = directChild(directChild(element, "outerBoundaryIs"), "LinearRing");
     const shell = parseRing(outer, counters);
     const holes = directChildren(element, "innerBoundaryIs").map((boundary) => (
       parseRing(directChild(boundary, "LinearRing"), counters)
     ));
-    return {type: "Polygon", coordinates: [shell, ...holes]};
-  }
-  if (element.localName === "MultiGeometry") {
+    geometry = {type: "Polygon", coordinates: [shell, ...holes]};
+  } else if (element.localName === "MultiGeometry") {
     const geometries = directChildren(element)
       .filter((child) => ["Point", "LineString", "Polygon", "MultiGeometry", "Model"].includes(child.localName))
-      .map((child, index) => parseGeometry(child, `${path}.geometries[${index}]`, counters, report))
+      .map((child, index) => parseGeometry(child, `${path}.geometries[${index}]`, counters, report, controls))
       .filter(Boolean);
     if (!geometries.length) throw kmlError("kml_multigeometry_empty");
     return {type: "GeometryCollection", geometries};
+  } else {
+    throw kmlError("kml_geometry_unsupported");
   }
-  throw kmlError("kml_geometry_unsupported");
+  controls.push({
+    geometry,
+    altitudeMode: geometryAltitudeMode(element, `${path}.altitudeMode`, report),
+    extrude: directBoolean(element, "extrude", false),
+    tessellate: directBoolean(element, "tessellate", false)
+  });
+  return geometry;
 }
 
 function parseRing(element, counters) {
@@ -1255,11 +1295,11 @@ function normalizeOverlay(value, counters) {
 function normalizeGeometry(geometry, counters) {
   if (geometry === null || geometry === undefined) return null;
   if (!geometry || typeof geometry !== "object") throw kmlError("places_geometry_invalid");
-  if (geometry.type === "Point") return {type: "Point", coordinates: normalizePosition(geometry.coordinates, counters)};
+  if (geometry.type === "Point") return geometryWithKmlControls(geometry, {type: "Point", coordinates: normalizePosition(geometry.coordinates, counters)});
   if (geometry.type === "LineString") {
     const coordinates = geometry.coordinates.map((position) => normalizePosition(position, counters));
     if (coordinates.length < 2) throw kmlError("kml_line_requires_two_positions");
-    return {type: "LineString", coordinates};
+    return geometryWithKmlControls(geometry, {type: "LineString", coordinates});
   }
   if (geometry.type === "Polygon") {
     const coordinates = geometry.coordinates.map((ring) => {
@@ -1268,14 +1308,30 @@ function normalizeGeometry(geometry, counters) {
       return positions;
     });
     if (!coordinates.length) throw kmlError("kml_polygon_ring_required");
-    return {type: "Polygon", coordinates};
+    return geometryWithKmlControls(geometry, {type: "Polygon", coordinates});
   }
   if (geometry.type === "GeometryCollection") {
+    if (Object.hasOwn(geometry, "kmlControls")) throw kmlError("places_geometry_controls_invalid");
     const geometries = geometry.geometries.map((item) => normalizeGeometry(item, counters)).filter(Boolean);
     if (!geometries.length) throw kmlError("kml_multigeometry_empty");
     return {type: "GeometryCollection", geometries};
   }
   throw kmlError("places_geometry_unsupported");
+}
+
+function geometryWithKmlControls(source, geometry) {
+  if (!Object.hasOwn(source, "kmlControls")) return geometry;
+  const controls = source.kmlControls;
+  if (!controls || typeof controls !== "object" || Array.isArray(controls)
+    || Object.keys(controls).length !== 3
+    || !["altitudeMode", "extrude", "tessellate"].every((field) => Object.hasOwn(controls, field))
+    || (controls.altitudeMode !== null && !STANDARD_ALTITUDE_MODES.has(controls.altitudeMode)
+      && !(typeof controls.altitudeMode === "string" && controls.altitudeMode.startsWith("gx:") && GX_ALTITUDE_MODES.has(controls.altitudeMode.slice(3))))
+    || typeof controls.extrude !== "boolean" || typeof controls.tessellate !== "boolean") {
+    throw kmlError("places_geometry_controls_invalid");
+  }
+  geometry.kmlControls = {altitudeMode: controls.altitudeMode, extrude: controls.extrude, tessellate: controls.tessellate};
+  return geometry;
 }
 
 function normalizePosition(position, counters) {
@@ -1611,10 +1667,11 @@ function writeImagePyramid(value, depth) {
 
 function writeGeometry(geometry, place, depth) {
   const indent = "  ".repeat(depth);
+  const settings = geometry.kmlControls ?? place;
   const controls = [
-    place.extrude ? `${indent}  <extrude>1</extrude>` : null,
-    place.tessellate ? `${indent}  <tessellate>1</tessellate>` : null,
-    altitudeModeXml(place.altitudeMode, depth + 1)
+    settings.extrude ? `${indent}  <extrude>1</extrude>` : null,
+    settings.tessellate ? `${indent}  <tessellate>1</tessellate>` : null,
+    altitudeModeXml(settings.altitudeMode, depth + 1)
   ].filter(Boolean);
   if (geometry.type === "Point") return [
     `${indent}<Point>`, ...controls,

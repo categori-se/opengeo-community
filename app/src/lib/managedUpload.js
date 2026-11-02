@@ -5,6 +5,7 @@ export const MANAGED_FORMATS = Object.freeze({
   shapefile: Object.freeze({label: "Shapefile ZIP", extensions: [".zip"], contentType: "application/zip"}),
   geopackage: Object.freeze({label: "GeoPackage", extensions: [".gpkg"], contentType: "application/geopackage+sqlite3"}),
   geoparquet: Object.freeze({label: "GeoParquet", extensions: [".parquet", ".geoparquet"], contentType: "application/vnd.apache.parquet"}),
+  geotiff: Object.freeze({label: "GeoTIFF", extensions: [".tif", ".tiff"], contentType: "image/tiff"}),
   cog: Object.freeze({label: "Cloud-optimized GeoTIFF", extensions: [".tif", ".tiff"], contentType: "image/tiff"}),
   pmtiles: Object.freeze({label: "PMTiles", extensions: [".pmtiles"], contentType: "application/vnd.pmtiles"}),
   png: Object.freeze({label: "PNG image", extensions: [".png"], contentType: "image/png"}),

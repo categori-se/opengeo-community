@@ -12,6 +12,7 @@ DatasetFormat = Literal[
     "geopackage",
     "geoparquet",
     "cog",
+    "geotiff",
     "pmtiles",
     "png",
     "jpeg",

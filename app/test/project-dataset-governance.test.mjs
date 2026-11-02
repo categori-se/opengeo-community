@@ -356,11 +356,11 @@ describe("dataset governance handoff", () => {
     );
   });
 
-  it("offers an exact native COG handoff without reading versions, tickets, or vector previews", () => {
+  for (const format of ["cog", "geotiff"]) it(`offers an exact ${format} handoff without reading versions, tickets, or vector previews`, () => {
     const noRead = () => assert.fail("Catalog handoff admission uses loaded metadata only");
     const current = state({kind: "api", listDatasetVersions: noRead,
       requestDatasetDownload: noRead, getDatasetSpatialPreview: noRead});
-    Object.assign(current.datasets[0], {format: "cog", geometryType: "raster", featureCount: null});
+    Object.assign(current.datasets[0], {format, geometryType: "raster", featureCount: null});
     current.maps = [{id: IDS.map, name: "Land cover", status: "active", definition: {layers: []}}];
     const root = ProjectDatasets({state: current, refresh: noRead});
     const target = root.querySelector(`.project-dataset-map-handoff [data-map-id="${IDS.map}"]`);
@@ -376,7 +376,7 @@ describe("dataset governance handoff", () => {
       requestDatasetDownload() {assert.fail("No ticket on inspection");}};
     const changes = [
       {currentVersionState: "preserved"}, {status: "draft"}, {currentVersionId: "latest"},
-      {format: "geotiff"}, {geometryType: "Polygon"}, {sourceType: "repository"},
+      {format: "png"}, {geometryType: "Polygon"}, {sourceType: "repository"},
       {extent: [0, 0, 0, 1]}, {capabilities: {read: true, download: false}},
       {capabilities: {read: false, download: true}}
     ];

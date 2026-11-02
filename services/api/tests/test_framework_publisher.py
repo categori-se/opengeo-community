@@ -11,8 +11,10 @@ from opengeo_api.framework_publication_aws import S3PublicationStorage
 from opengeo_api.framework_publisher import (
     PublicationConflict,
     _jsonb_checksum,
+    _owner,
     plan_publication,
     publish_step,
+    revoke_step,
 )
 
 
@@ -748,12 +750,16 @@ class Repository:
         )
         self.released = 0
         self.allowed = True
+        self.confirmed_withdrawn_mounts = set()
 
     async def claim(self, review, token):
         return deepcopy(self.state)
 
     async def authorize(self, review, token):
-        return self.allowed
+        plan = self.state.get("plan")
+        omitted = set(plan.get("withdrawnMounts", [])) if plan else set()
+        revoked_siblings = self.confirmed_withdrawn_mounts - {self.state["mount_path"]}
+        return self.allowed and (plan is None or revoked_siblings <= omitted)
 
     async def save_plan(self, review, token, plan, edge):
         self.state.update(plan=plan, edge_snapshot=edge)
@@ -782,9 +788,18 @@ class Storage:
         self.current = args["current_files"]
         self.written = {}
         self.lose_response = True
+        self.inventory_options = []
+        self.inventory_reads = []
 
-    async def inventory(self, bucket, prefix):
-        return self.current
+    async def inventory(self, bucket, prefix, *, excluded_mounts=(), reserved_mounts=()):
+        self.inventory_options.append((excluded_mounts, reserved_mounts))
+        files = [
+            file
+            for file in self.current
+            if not excluded_mounts or _owner(file["path"], reserved_mounts) not in excluded_mounts
+        ]
+        self.inventory_reads.extend(file["path"] for file in files)
+        return files
 
     async def apply(self, bucket, prefix, file):
         key = (prefix, file["path"])
@@ -1076,5 +1091,440 @@ def test_native_resume_rejects_unproven_immutable_entry_before_copy(change):
         )
         assert status == "needs_attention"
         assert not storage.written
+
+    asyncio.run(run())
+
+
+def test_plan_omits_withdrawn_current_siblings_and_preserves_nested_owner_and_new_edition():
+    args = fixture()
+    args["reserved_mounts"] += ("/bhutan/nested/",)
+    template = args["current_files"][-1]
+    for path in ("bhutan", "bhutan.html", "bhutan/", "bhutan/nested/index.html"):
+        args["current_files"].append(
+            {**template, "path": path, "objectKey": args["previous_prefix"] + "/" + path}
+        )
+    plan = plan_publication(**args, withdrawn_mounts=("/bhutan/", args["mount_path"]))
+    paths = {entry["path"] for entry in plan["files"]}
+    assert not {"bhutan", "bhutan.html", "bhutan/", "bhutan/index.html"} & paths
+    assert "bhutan/nested/index.html" in paths
+    assert "index.html" in paths
+    assert "analysis/noaa/index.html" in paths
+    assert plan["withdrawnMounts"] == ["/bhutan/"]
+
+
+@pytest.mark.parametrize(
+    "withdrawn",
+    ["/bhutan/", ("/unknown/",), ("/bhutan/",) * 2, ("/bhutan/",) * 2049, (None,)],
+)
+def test_plan_rejects_unbounded_or_unregistered_withdrawal_identity(withdrawn):
+    with pytest.raises(PublicationConflict, match="publication_withdrawn_mounts_invalid"):
+        plan_publication(**fixture(), withdrawn_mounts=withdrawn)
+
+
+def test_publisher_omits_requested_current_siblings_without_replanning_or_copying_them():
+    async def run():
+        args = fixture()
+        repository, storage, edge = Repository(args), Storage(args), Edge()
+        repository.state["withdrawn_mounts"] = ["/bhutan/", args["mount_path"]]
+        storage.lose_response = False
+        edge.target = f"releases/framework-{args['review_id']}"
+        assert (
+            await publish_step(
+                args["review_id"],
+                repository=repository,
+                storage=storage,
+                edge=edge,
+                source_bucket="private",
+                public_bucket="public",
+            )
+            == "deployed"
+        )
+        assert repository.state["plan"]["withdrawnMounts"] == ["/bhutan/"]
+        assert storage.inventory_options == [(("/bhutan/",), args["reserved_mounts"])]
+        assert "bhutan/index.html" not in storage.inventory_reads
+        assert "analysis/noaa/index.html" in storage.inventory_reads
+        assert not any(path.startswith("bhutan/") for _, path in storage.written)
+
+    asyncio.run(run())
+
+
+def test_sealed_publisher_serializes_pending_request_then_refuses_confirmed_withdrawal():
+    async def run():
+        args = fixture()
+        repository, storage, edge = Repository(args), Storage(args), Edge()
+        storage.lose_response = False
+        edge.target = f"releases/framework-{args['review_id']}"
+        options = dict(
+            repository=repository,
+            storage=storage,
+            edge=edge,
+            source_bucket="private",
+            public_bucket="public",
+            maximum_files=1,
+        )
+        assert await publish_step(args["review_id"], **options) == "retry"
+        sealed = deepcopy(repository.state["plan"])
+        repository.state["withdrawn_mounts"] = ["/bhutan/"]
+        # A new request waits for this existing origin reservation, so the
+        # in-flight publisher can progress without claiming withdrawal success.
+        assert await publish_step(args["review_id"], **options) == "retry"
+        assert repository.state["plan"] == sealed
+        written = deepcopy(storage.written)
+        repository.confirmed_withdrawn_mounts.add("/bhutan/")
+        assert await publish_step(args["review_id"], **options) == "needs_attention"
+        assert storage.written == written
+        assert repository.state["plan"] == sealed
+        assert edge.calls == 0
+
+    asyncio.run(run())
+
+
+def test_resumed_plan_cannot_claim_omissions_but_include_withdrawn_owned_files():
+    async def run():
+        args = fixture()
+        repository, storage, edge = Repository(args), Storage(args), Edge()
+        plan = plan_publication(**args)
+        plan["withdrawnMounts"] = ["/bhutan/"]
+        repository.state.update(plan=plan, edge_snapshot={"etag": "old"})
+        assert (
+            await publish_step(
+                args["review_id"],
+                repository=repository,
+                storage=storage,
+                edge=edge,
+                source_bucket="private",
+                public_bucket="public",
+            )
+            == "needs_attention"
+        )
+        assert repository.state["error"] == "publication_withdrawn_mount_plan_invalid"
+        assert not storage.written
+        assert edge.calls == 0
+
+    asyncio.run(run())
+
+
+class RevocationRepository:
+    def __init__(self):
+        self.review = UUID(int=1)
+        self.origin = UUID(int=9)
+        self.state = "pending"
+        self.claim_status = None
+        self.token = None
+        self.origin_reserved = None
+        self.receipt = None
+        self.errors = []
+        self.complete_calls = 0
+        self.pending_calls = 0
+        self.reject_pending = False
+        self.reject_acknowledgement = False
+        self.lose_acknowledgement = False
+
+    async def claim_revocation(self, review, token):
+        assert review == self.review
+        if self.claim_status is not None:
+            return {"status": self.claim_status}
+        if self.state == "revoked":
+            return {"status": "revoked"}
+        assert self.token is None
+        self.token = token
+        self.origin_reserved = review
+        return {
+            "status": "claimed",
+            "review_id": str(review),
+            "target_prefix": f"releases/framework-{review}",
+            "origin": {"id": str(self.origin)},
+        }
+
+    async def complete_revocation(self, review, token, receipt):
+        assert review == self.origin_reserved and token == self.token
+        self.complete_calls += 1
+        if self.reject_acknowledgement:
+            self.reject_acknowledgement = False
+            return False
+        self.state = "revoked"
+        self.receipt = deepcopy(receipt)
+        self.token = None
+        self.origin_reserved = None
+        if self.lose_acknowledgement:
+            self.lose_acknowledgement = False
+            raise TimeoutError("Revocation committed; acknowledgement lost")
+        return True
+
+    async def fail_revocation(self, review, token, code):
+        self.errors.append(code)
+        if self.state == "revoked":
+            return False
+        assert review == self.origin_reserved and token == self.token
+        self.state = "needs_attention"
+        self.token = None
+        return True
+
+    async def pending_revocation(self, review, token):
+        assert review == self.origin_reserved and token == self.token
+        self.pending_calls += 1
+        if self.reject_pending:
+            return False
+        self.state = "pending"
+        self.token = None
+        return True
+
+
+class WithdrawalEdge:
+    def __init__(self, repository):
+        self.calls = 0
+        self.withdrawals = 0
+        self.receipt = {
+            "schema": "opengeo.framework-publication-revocation-receipt.1.0.0",
+            "reviewId": str(repository.review),
+            "originId": str(repository.origin),
+            "targetPrefix": f"releases/framework-{repository.review}",
+            "confirmed": True,
+            "delivery": "local-completed-denial-fence",
+            "cacheContract": "Previously downloaded bytes remain outside server control",
+        }
+        self.denied = set()
+        self.lose_response = False
+        self.failure = None
+        self.pending_steps = 0
+
+    async def withdraw(self, claim):
+        self.calls += 1
+        if self.failure is not None:
+            raise self.failure
+        if self.pending_steps:
+            self.pending_steps -= 1
+            return None
+        assert claim["review_id"] == self.receipt["reviewId"]
+        if claim["target_prefix"] not in self.denied:
+            self.denied.add(claim["target_prefix"])
+            self.withdrawals += 1
+        if self.lose_response:
+            self.lose_response = False
+            raise TimeoutError("Delivery withdrawn; response lost")
+        return deepcopy(self.receipt)
+
+
+@pytest.mark.parametrize("status", ["busy", "unavailable", "revoked"])
+def test_revocation_unclaimed_status_never_calls_delivery(status):
+    async def run():
+        repository = RevocationRepository()
+        repository.claim_status = status
+        edge = WithdrawalEdge(repository)
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == status
+        assert edge.calls == repository.complete_calls == 0
+        assert repository.errors == []
+
+    asyncio.run(run())
+
+
+def test_revocation_acknowledges_exact_withdrawal_and_completed_replay_skips_edge():
+    async def run():
+        repository = RevocationRepository()
+        edge = WithdrawalEdge(repository)
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "revoked"
+        assert repository.receipt == edge.receipt
+        assert edge.denied == {f"releases/framework-{repository.review}"}
+        assert repository.origin_reserved is repository.token is None
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "revoked"
+        assert edge.calls == edge.withdrawals == repository.complete_calls == 1
+
+    asyncio.run(run())
+
+
+def test_revocation_pending_releases_only_lease_and_resumes_exact_withdrawal():
+    async def run():
+        repository = RevocationRepository()
+        edge = WithdrawalEdge(repository)
+        edge.pending_steps = 1
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "pending"
+        assert repository.state == "pending"
+        assert repository.token is None
+        assert repository.origin_reserved == repository.review
+        assert repository.receipt is None
+        assert repository.pending_calls == 1
+        assert repository.complete_calls == 0
+        assert repository.errors == []
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "revoked"
+        assert edge.calls == 2
+        assert repository.complete_calls == 1
+        assert repository.receipt == edge.receipt
+
+    asyncio.run(run())
+
+
+def test_revocation_pending_lost_acknowledgment_keeps_origin_for_same_review_retry():
+    async def run():
+        repository = RevocationRepository()
+        repository.reject_pending = True
+        edge = WithdrawalEdge(repository)
+        edge.pending_steps = 1
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "retry"
+        assert repository.state == "needs_attention"
+        assert repository.origin_reserved == repository.review
+        assert repository.token is None
+        assert repository.complete_calls == 0
+        assert repository.errors == ["publication_revocation_pending_acknowledgement_lost"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("denied", [False, True])
+def test_revocation_resolves_only_the_claimed_operator_destination(denied):
+    async def run():
+        repository = RevocationRepository()
+        configured_edge = WithdrawalEdge(repository)
+        fallback = WithdrawalEdge(repository)
+        origins = []
+
+        class Router:
+            def resolve(self, origin):
+                origins.append(origin)
+                if denied:
+                    raise PublicationConflict("publication_destination_scope_invalid")
+                return "configured-public-bucket", object(), configured_edge
+
+        status = await revoke_step(
+            repository.review, repository=repository, edge=fallback, destination_router=Router()
+        )
+        assert origins == [{"id": str(repository.origin)}]
+        assert fallback.calls == 0
+        if denied:
+            assert status == "needs_attention"
+            assert configured_edge.calls == repository.complete_calls == 0
+            assert repository.errors == ["publication_destination_scope_invalid"]
+            assert repository.origin_reserved == repository.review
+        else:
+            assert status == "revoked"
+            assert configured_edge.calls == repository.complete_calls == 1
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("review_id", str(UUID(int=99))),
+        ("target_prefix", "releases/framework-other-edition"),
+        ("origin", {"id": "invalid"}),
+    ],
+)
+def test_revocation_rejects_misbound_claim_before_delivery(field, value):
+    async def run():
+        repository = RevocationRepository()
+        claim = repository.claim_revocation
+
+        async def misbound(review, token):
+            result = await claim(review, token)
+            result[field] = value
+            return result
+
+        repository.claim_revocation = misbound
+        edge = WithdrawalEdge(repository)
+        assert (
+            await revoke_step(repository.review, repository=repository, edge=edge)
+            == "needs_attention"
+        )
+        assert edge.calls == repository.complete_calls == 0
+        assert repository.errors == ["publication_revocation_claim_identity_invalid"]
+        assert repository.origin_reserved == repository.review and repository.token is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("schema", "other-receipt"),
+        ("reviewId", str(UUID(int=99))),
+        ("targetPrefix", "releases/framework-other-edition"),
+        ("originId", str(UUID(int=99))),
+        ("confirmed", 1),
+        ("delivery", ""),
+        ("delivery", "x" * 101),
+        ("delivery", None),
+        ("extra", "x" * 100_000),
+    ],
+)
+def test_revocation_rejects_unconfirmed_or_misbound_delivery_receipt(field, value):
+    async def run():
+        repository = RevocationRepository()
+        edge = WithdrawalEdge(repository)
+        withdraw = edge.withdraw
+
+        async def invalid_receipt(claim):
+            receipt = await withdraw(claim)
+            receipt[field] = value
+            return receipt
+
+        edge.withdraw = invalid_receipt
+        assert (
+            await revoke_step(repository.review, repository=repository, edge=edge)
+            == "needs_attention"
+        )
+        assert repository.complete_calls == 0 and repository.receipt is None
+        assert repository.errors == ["publication_revocation_receipt_invalid"]
+        assert (
+            repository.state == "needs_attention"
+            and repository.origin_reserved == repository.review
+        )
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("lost_at", ["withdrawal", "acknowledgement"])
+def test_revocation_recovers_lost_delivery_and_database_responses_without_replaying_publication(
+    lost_at,
+):
+    async def run():
+        repository = RevocationRepository()
+        edge = WithdrawalEdge(repository)
+        edge.lose_response = lost_at == "withdrawal"
+        repository.lose_acknowledgement = lost_at == "acknowledgement"
+        with pytest.raises(TimeoutError):
+            await revoke_step(repository.review, repository=repository, edge=edge)
+        assert repository.errors == ["publication_revocation_transport_failed"]
+        assert repository.token is None
+        if lost_at == "withdrawal":
+            assert (
+                repository.state == "needs_attention"
+                and repository.origin_reserved == repository.review
+            )
+        else:
+            assert repository.state == "revoked" and repository.origin_reserved is None
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "revoked"
+        assert edge.withdrawals == repository.complete_calls == 1
+        assert edge.calls == (2 if lost_at == "withdrawal" else 1)
+
+    asyncio.run(run())
+
+
+def test_revocation_unacknowledged_completion_releases_attempt_but_reserves_origin_for_retry():
+    async def run():
+        repository = RevocationRepository()
+        repository.reject_acknowledgement = True
+        edge = WithdrawalEdge(repository)
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "retry"
+        assert repository.errors == ["publication_revocation_acknowledgement_lost"]
+        assert repository.state == "needs_attention" and repository.token is None
+        assert repository.origin_reserved == repository.review
+        assert await revoke_step(repository.review, repository=repository, edge=edge) == "revoked"
+        assert edge.calls == repository.complete_calls == 2 and edge.withdrawals == 1
+
+    asyncio.run(run())
+
+
+def test_revocation_retains_structured_adapter_failure_without_unbounded_error_text():
+    async def run():
+        repository = RevocationRepository()
+        edge = WithdrawalEdge(repository)
+        edge.failure = PublicationConflict("Adapter error contains private details / unsupported")
+        assert (
+            await revoke_step(repository.review, repository=repository, edge=edge)
+            == "needs_attention"
+        )
+        assert repository.errors == ["publication_revocation_failed"]
+        assert repository.complete_calls == edge.withdrawals == 0
+        assert repository.origin_reserved == repository.review
 
     asyncio.run(run())

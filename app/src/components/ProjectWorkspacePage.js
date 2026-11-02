@@ -13,7 +13,7 @@ import {ingestManagedFile} from "../lib/managedUpload.js";
 import {createManagedAnalysisRegistration} from "../lib/managedAnalysisRegistration.js";
 import {createManagedAnalysisRuntime} from "../lib/analysisManagedRuntime.js";
 import {reviewedDatasetCredit} from "../lib/managedDatasetCredit.js";
-import {emptyMapDefinition} from "../lib/mapDefinition.js";
+import {emptyMapDefinition, upgradeMapDefinition} from "../lib/mapDefinition.js";
 import {definitionForPrintFrame, projectPrintLayouts} from "../lib/printLayouts.js";
 import {
   loadWithWakeRetry,
@@ -208,6 +208,24 @@ export function ProjectWorkspacePage({
         platformStatePanel(state, refresh, {auth, autoSignIn: true, resourceKind: publicationId ? "publication" : "project"})
       );
       return;
+    }
+    if (state.selectedMap && ["maps", "print"].includes(activeProjectSurface ?? "maps")) {
+      try {
+        upgradeMapDefinition(state.selectedMap.definition ?? {});
+      } catch (error) {
+        workbench?.dispose?.();
+        readyState = null;
+        workbench = null;
+        workbenchKey = null;
+        const panel = platformStatePanel({status: "error", code: error.message, retryable: false, adapter}, refresh, {auth});
+        const message = text("p", error.message === "map_definition_version_unsupported"
+          ? "This Project needs a newer version of OpenGeo Studio. Its saved content has been kept unchanged."
+          : "This Project could not be opened safely. Its saved content has been kept unchanged.");
+        message.setAttribute("role", "alert");
+        panel.prepend(message);
+        root.replaceChildren(projectRouteBar(adapter?.kind, "projects"), panel);
+        return;
+      }
     }
     if (publicationId || compositionId) {
       publicationIdentity = await retainedPublicationIdentity(adapter);

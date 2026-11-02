@@ -680,6 +680,7 @@ def test_framework_publication_routes_keep_review_separate_from_unconfigured_dis
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"
     assert response.json()["dispatch_configured"] is False
+    assert response.json()["withdrawal_configured"] is False
     response = api.post(
         url + "/reviews",
         headers=headers(),
@@ -809,6 +810,182 @@ def test_destination_reservation_route_requires_an_explicit_scoped_request_and_d
     assert response.json()["origins"][0]["path_prefix"] == "/publications/"
     assert response.json()["dispatch_configured"] is False
     assert repository.reservations == [REVISION_ID]
+
+
+def test_publication_revocation_keeps_delivery_pending_until_publisher_acknowledgment():
+    class Repository(MemoryObservableSourceRepository):
+        state = "pending"
+        denied = False
+        missing = False
+
+        async def revoke_publication(self, context, project, source, review):
+            assert (context.organization_id, context.user_id, project, source, review) == (
+                ORG_ID,
+                USER_ID,
+                PROJECT_ID,
+                SOURCE_PROJECT_ID,
+                REVISION_ID,
+            )
+            if self.denied:
+                raise ObservableSourceAccessDenied()
+            if self.missing:
+                raise ObservableSourceNotFound("publication_review")
+            self.calls.append(("revoke", review))
+            return self.state
+
+    repository = Repository()
+    dispatcher = SimpleNamespace(
+        available=True,
+        withdrawal_available=True,
+        dispatch_framework_publication=AsyncMock(),
+        dispatch_framework_publication_withdrawal=AsyncMock(),
+    )
+    api = client(repository, publication_dispatcher=dispatcher)
+    url = (
+        f"/projects/{PROJECT_ID}/source-projects/{SOURCE_PROJECT_ID}"
+        f"/publications/reviews/{REVISION_ID}/revoke"
+    )
+    payload = {"acknowledgment": "revoke-exact-publication-edition"}
+    assert api.post(url, json=payload).status_code == 401
+    assert api.post(url, headers=headers(), json={"acknowledgment": "revoke"}).status_code == 422
+    assert (
+        api.post(
+            url, headers=headers(), json={**payload, "build_job_id": str(BUILD_ID)}
+        ).status_code
+        == 422
+    )
+    repository.denied = True
+    assert api.post(url, headers=headers(), json=payload).status_code == 403
+    repository.denied = False
+    repository.missing = True
+    assert api.post(url, headers=headers(), json=payload).status_code == 404
+    repository.missing = False
+    for state, expected_status, revoked in [
+        ("pending", 202, False),
+        ("needs_attention", 202, False),
+        ("revoked", 200, True),
+    ]:
+        repository.state = state
+        response = api.post(url, headers=headers(), json=payload)
+        assert response.status_code == expected_status
+        assert response.headers["cache-control"] == "no-store"
+        assert response.json() == {"id": str(REVISION_ID), "state": state, "revoked": revoked}
+    assert repository.calls == [("revoke", REVISION_ID)] * 3
+    # Withdrawing an edition must never dispatch its original publication again.
+    dispatcher.dispatch_framework_publication.assert_not_awaited()
+    assert [
+        call.args for call in dispatcher.dispatch_framework_publication_withdrawal.await_args_list
+    ] == [(REVISION_ID,), (REVISION_ID,)]
+
+
+def test_publication_withdrawal_dispatch_failure_preserves_request_for_exact_retry():
+    repository = MemoryObservableSourceRepository()
+    saved = set()
+    events = []
+
+    async def persist(context, project, source, review):
+        assert (project, source, review) == (PROJECT_ID, SOURCE_PROJECT_ID, REVISION_ID)
+        saved.add(review)
+        events.append(("persist", review))
+        return "pending"
+
+    async def dispatch(review):
+        assert review in saved
+        events.append(("dispatch", review))
+        if len(events) == 2:
+            raise ProcessingDispatchUnavailable("offline")
+
+    repository.revoke_publication = AsyncMock(side_effect=persist)
+    dispatcher = SimpleNamespace(
+        available=True,
+        withdrawal_available=True,
+        dispatch_framework_publication=AsyncMock(),
+        dispatch_framework_publication_withdrawal=AsyncMock(side_effect=dispatch),
+    )
+    api = client(repository, publication_dispatcher=dispatcher)
+    url = (
+        f"/projects/{PROJECT_ID}/source-projects/{SOURCE_PROJECT_ID}"
+        f"/publications/reviews/{REVISION_ID}/revoke"
+    )
+    payload = {"acknowledgment": "revoke-exact-publication-edition"}
+    first = api.post(url, headers=headers(), json=payload)
+    assert first.status_code == 503
+    assert first.headers["cache-control"] == "no-store"
+    assert first.json()["detail"] == "framework_publication_withdrawal_dispatch_unconfirmed"
+    assert saved == {REVISION_ID}
+    second = api.post(url, headers=headers(), json=payload)
+    assert second.status_code == 202
+    assert second.json() == {"id": str(REVISION_ID), "state": "pending", "revoked": False}
+    assert events == [("persist", REVISION_ID), ("dispatch", REVISION_ID)] * 2
+    dispatcher.dispatch_framework_publication.assert_not_awaited()
+
+
+def test_unconfigured_publication_withdrawal_does_not_create_an_unprocessable_request():
+    repository = MemoryObservableSourceRepository()
+    repository.revoke_publication = AsyncMock()
+    dispatcher = SimpleNamespace(available=True, dispatch_framework_publication=AsyncMock())
+    api = client(repository, publication_dispatcher=dispatcher)
+    base = f"/projects/{PROJECT_ID}/source-projects/{SOURCE_PROJECT_ID}/publications"
+    url = f"{base}/reviews/{REVISION_ID}/revoke"
+    response = api.post(
+        url, headers=headers(), json={"acknowledgment": "revoke-exact-publication-edition"}
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "framework_publication_withdrawal_not_configured"
+    assert response.headers["cache-control"] == "no-store"
+    repository.revoke_publication.assert_not_awaited()
+    dispatcher.dispatch_framework_publication.assert_not_awaited()
+
+
+@pytest.mark.parametrize("state", ["pending", "needs_attention", "revoked"])
+def test_publication_revocation_repository_checks_publisher_authority_and_exact_scope(state):
+    transaction = SimpleNamespace(fetch_one=AsyncMock(side_effect=[(REVISION_ID,), (state,)]))
+
+    async def run(context, operation):
+        assert context == TenantContext(USER_ID, ORG_ID)
+        return await operation(transaction)
+
+    repository = PostgresObservableSourceRepository(executor=SimpleNamespace(run=run))
+    repository._project_roles = AsyncMock(
+        return_value=Roles(organization="member", project="editor")
+    )
+    context = TenantContext(USER_ID, ORG_ID)
+    with pytest.raises(ObservableSourceAccessDenied):
+        asyncio.run(
+            repository.revoke_publication(context, PROJECT_ID, SOURCE_PROJECT_ID, REVISION_ID)
+        )
+    transaction.fetch_one.assert_not_awaited()
+    repository._project_roles.return_value = Roles(organization="member", project="owner")
+    result = asyncio.run(
+        repository.revoke_publication(context, PROJECT_ID, SOURCE_PROJECT_ID, REVISION_ID)
+    )
+    assert result == state
+    lookup, request = transaction.fetch_one.await_args_list
+    assert "organization_id = %s" in lookup.args[0] and "source_project_id = %s" in lookup.args[0]
+    assert lookup.args[1] == (ORG_ID, PROJECT_ID, SOURCE_PROJECT_ID, REVISION_ID)
+    assert request.args == (
+        "SELECT app.request_framework_publication_revocation(%s, %s, %s)",
+        (REVISION_ID, PROJECT_ID, SOURCE_PROJECT_ID),
+    )
+
+
+def test_publication_revocation_repository_cannot_withdraw_a_different_source_review():
+    transaction = SimpleNamespace(fetch_one=AsyncMock(return_value=None))
+
+    async def run(context, operation):
+        return await operation(transaction)
+
+    repository = PostgresObservableSourceRepository(executor=SimpleNamespace(run=run))
+    repository._project_roles = AsyncMock(
+        return_value=Roles(organization="member", project="owner")
+    )
+    with pytest.raises(ObservableSourceNotFound, match="publication_review"):
+        asyncio.run(
+            repository.revoke_publication(
+                TenantContext(USER_ID, ORG_ID), PROJECT_ID, SOURCE_PROJECT_ID, REVISION_ID
+            )
+        )
+    transaction.fetch_one.assert_awaited_once()
 
 
 def test_destination_repository_requires_publication_authority_before_any_mutation():

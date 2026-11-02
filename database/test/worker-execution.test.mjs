@@ -11,6 +11,7 @@ const IDS = {
   datasetFailure: "80000000-0000-4000-8000-000000000002",
   datasetRetry: "80000000-0000-4000-8000-000000000003",
   datasetKml: "80000000-0000-4000-8000-000000000005",
+  datasetGeotiff: "80000000-0000-4000-8000-000000000006",
   datasetInvalid: "80000000-0000-4000-8000-000000000004",
   tokenA: "a0000000-0000-4000-8000-000000000001",
   tokenB: "a0000000-0000-4000-8000-000000000002",
@@ -22,12 +23,14 @@ let db;
 
 function idsFor(datasetId) {
   const suffix = datasetId.at(-1);
+  const filename = datasetId === IDS.datasetKml ? "survey.kml"
+    : datasetId === IDS.datasetGeotiff ? "elevation.tif" : "roads.geojson";
   return {
     upload: `81000000-0000-4000-8000-00000000000${suffix}`,
     object: `82000000-0000-4000-8000-00000000000${suffix}`,
     version: `83000000-0000-4000-8000-00000000000${suffix}`,
     job: `84000000-0000-4000-8000-00000000000${suffix}`,
-    key: `organizations/${IDS.organization}/projects/${IDS.project}/datasets/${datasetId}/uploads/81000000-0000-4000-8000-00000000000${suffix}/original/${datasetId === IDS.datasetKml ? "survey.kml" : "roads.geojson"}`
+    key: `organizations/${IDS.organization}/projects/${IDS.project}/datasets/${datasetId}/uploads/81000000-0000-4000-8000-00000000000${suffix}/original/${filename}`
   };
 }
 
@@ -47,7 +50,8 @@ describe("0004 worker execution boundary migration", () => {
       "0002_membership_invitations.sql",
       "0003_managed_ingestion_foundation.sql",
       "0004_worker_execution_boundary.sql",
-      "0128_kml_source_ingestion.sql"
+      "0128_kml_source_ingestion.sql",
+      "0183_geotiff_upload_format.sql"
     ]) {
       const sql = await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8");
       await db.exec(sql.replace(/^CREATE EXTENSION IF NOT EXISTS (?:pgcrypto|postgis);\n/gm, ""));
@@ -68,12 +72,16 @@ describe("0004 worker execution boundary migration", () => {
       IDS.datasetFailure,
       IDS.datasetRetry,
       IDS.datasetInvalid,
-      IDS.datasetKml
+      IDS.datasetKml,
+      IDS.datasetGeotiff
     ]) {
       const ids = idsFor(datasetId);
-      const format = datasetId === IDS.datasetKml ? "kml" : "geojson";
-      const mime = format === "kml" ? "application/vnd.google-earth.kml+xml" : "application/geo+json";
-      const filename = format === "kml" ? "survey.kml" : "roads.geojson";
+      const format = datasetId === IDS.datasetKml ? "kml"
+        : datasetId === IDS.datasetGeotiff ? "geotiff" : "geojson";
+      const mime = format === "kml" ? "application/vnd.google-earth.kml+xml"
+        : format === "geotiff" ? "image/tiff" : "application/geo+json";
+      const filename = format === "kml" ? "survey.kml"
+        : format === "geotiff" ? "elevation.tif" : "roads.geojson";
       await db.query(
         `INSERT INTO app.datasets
            (id, organization_id, name, classification, format, status,
@@ -257,6 +265,65 @@ describe("0004 worker execution boundary migration", () => {
       worker_token: null,
       derivatives: 1,
       activities: 1
+    }]);
+    await db.exec("SET ROLE opengeo_worker");
+  });
+
+  it("claims an ordinary GeoTIFF and retains the original beside its bound working COG", async () => {
+    const ids = idsFor(IDS.datasetGeotiff);
+    const claimed = (await claim(IDS.datasetGeotiff)).rows[0];
+    assert.equal(claimed.claim_status, "claimed");
+    assert.equal(claimed.dataset_format, "geotiff");
+    assert.equal(claimed.original_object_id, ids.object);
+    assert.equal(claimed.original_filename, "elevation.tif");
+    const working = {
+      relative_key: "working/raster.cog.tif",
+      filename: "raster.cog.tif",
+      object_id: "b0000000-0000-4000-8000-000000000006",
+      checksum_sha256: "c".repeat(64),
+      size_bytes: 512
+    };
+    const schema = {raster: {source_format: "geotiff", working_cog: working}};
+    const quality = {checks: [{code: "geotiff_working_cog_verified", status: "passed"}]};
+    const artifacts = [{
+      id: working.object_id,
+      role: "working",
+      bucket: "geodata-test",
+      object_key: `${claimed.output_prefix}${working.relative_key}`,
+      s3_version_id: "working-cog-version-1",
+      etag: "working-cog-etag",
+      content_type: "image/tiff",
+      size_bytes: working.size_bytes,
+      checksum_sha256: working.checksum_sha256
+    }];
+    const completed = await db.query(
+      "SELECT app.complete_dataset_ingest($1, $2, $3, $4) AS completed",
+      [ids.job, IDS.tokenA, JSON.stringify({schema_definition: schema, quality_results: quality}),
+        JSON.stringify(artifacts)]
+    );
+    assert.deepEqual(completed.rows, [{completed: true}]);
+
+    await db.exec("RESET ROLE");
+    const retained = (await db.query(`
+      SELECT dataset.format::text, dataset.status::text, version.original_object_id,
+             version.schema_definition, version.quality_results,
+             original.checksum_sha256 AS original_sha256,
+             original.s3_version_id AS original_storage_version,
+             working.id AS working_object_id, working.role::text AS working_role,
+             working.checksum_sha256 AS working_sha256,
+             working.s3_version_id AS working_storage_version
+      FROM app.datasets dataset
+      JOIN app.dataset_versions version ON version.id = dataset.current_version_id
+      JOIN app.data_objects original ON original.id = version.original_object_id
+      JOIN app.data_objects working ON working.id = $2
+      WHERE dataset.id = $1
+    `, [IDS.datasetGeotiff, working.object_id])).rows;
+    assert.deepEqual(retained, [{
+      format: "geotiff", status: "active", original_object_id: ids.object,
+      schema_definition: schema, quality_results: quality, original_sha256: SHA256,
+      original_storage_version: "s3-version-1", working_object_id: working.object_id,
+      working_role: "working", working_sha256: working.checksum_sha256,
+      working_storage_version: "working-cog-version-1"
     }]);
     await db.exec("SET ROLE opengeo_worker");
   });

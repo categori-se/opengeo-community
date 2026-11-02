@@ -316,6 +316,23 @@ export async function writeThirdPartyNotices({appRoot, outputRoot}) {
     await writeFile(resolve(outputRoot, path), bytes);
     documents.push({path, ...digest(bytes)});
   }
+  const includesPlusCode = await readFile(resolve(appRoot, "src/lib/plusCode.js")).then(() => true, error => {
+    if (error.code === "ENOENT") return false;
+    throw error;
+  });
+  if (includesPlusCode) {
+    for (const [filename, sha256] of [
+      ["open-location-code.LICENSE.txt", "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"],
+      ["open-location-code.NOTICE.txt", "8a6dbae2c1d09b688fddcd8d9e3cff8f03c22bb012808d2862907a9ecaaf8b7d"]
+    ]) {
+      const bytes = await readFile(resolve(appRoot, "src/assets/licenses", filename));
+      const record = digest(bytes);
+      if (record.sha256 !== sha256) throw Error(`Version-pinned Open Location Code notice checksum differs: ${filename}`);
+      const path = `notices/${filename}`;
+      await writeFile(resolve(outputRoot, path), bytes);
+      documents.push({path, ...record});
+    }
+  }
   // Index files actually retained by the existing asset builders. Never replace
   // their notices with a package's top-level license or the application license.
   const supplementalNotices = [];

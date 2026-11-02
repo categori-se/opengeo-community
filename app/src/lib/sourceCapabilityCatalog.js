@@ -81,11 +81,11 @@ const managedVectorOperations = operations({
 }, "No unbounded or credential-bearing vector operation is available.");
 
 const managedRasterOperations = operations({
-  register: bounded("Managed COG upload with exact immutable object identity."),
-  read: bounded("Authorized exact COG download and whole-coverage WCS read."),
-  stream: bounded("Exact immutable COG bytes support bounded range-aware clients."),
-  preview: bounded("Isolated GDAL inspection emits a bounded PNG thumbnail."),
-  write: bounded("Explicit COG subset, band, scale, or reprojection derivatives."),
+  register: bounded("Managed GeoTIFF upload preserves the original and normalizes once to a verified working COG. Declared COG uploads require strict original COG validation."),
+  read: bounded("Authorized exact original and version-pinned working COG downloads. WCS reads require validated COG originals."),
+  stream: bounded("Exact verified working COG or original COG bytes support bounded range-aware clients."),
+  preview: bounded("Isolated GDAL inspection emits a bounded PNG thumbnail; interactive maps use the verified COG."),
+  write: bounded("Lossless full-resolution working COG from GeoTIFF; explicit subset, band, scale, or reprojection derivatives require a validated COG original."),
   preserve: available("The exact versioned source object and checksums are retained.")
 }, "Raster pixel editing is not available; processing creates a new immutable derivative.");
 
@@ -123,9 +123,9 @@ export const SOURCE_CAPABILITY_CATALOG = Object.freeze([
     section: "files",
     tier: "basic",
     disposition: "bounded-current",
-    summary: "Managed cloud-optimized GeoTIFF inspection, preview, exact reads, and derivatives.",
+    summary: "Managed GeoTIFF preserves the original and creates a full-resolution working COG for maps; verified COG originals retain their coverage services.",
     operations: managedRasterOperations,
-    losses: ["The managed geospatial raster profile is COG; generic TIFF and other raster drivers are not advertised."],
+    losses: ["GeoTIFF requires valid georeferencing and a declared CRS; missing CRS is not guessed. Normalized working COGs do not grant WCS access. Other raster drivers and raster pixel editing are not advertised."],
     evidence: ["services/worker/src/opengeo_worker/inspector.py", "services/worker/src/opengeo_worker/coverage_derivatives.py"]
   }),
   source({

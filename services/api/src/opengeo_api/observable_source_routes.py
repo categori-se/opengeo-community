@@ -318,6 +318,16 @@ class RevokeDistributionApprovalRequest(RequestModel):
     acknowledgment: Literal["revoke-input-distribution-approval"]
 
 
+class RevokeFrameworkPublicationRequest(RequestModel):
+    acknowledgment: Literal["revoke-exact-publication-edition"]
+
+
+class FrameworkPublicationRevocationResponse(RequestModel):
+    id: UUID
+    state: Literal["pending", "revoked", "needs_attention"]
+    revoked: bool
+
+
 class ConnectGitHubRequest(RequestModel):
     connection_id: UUID
 
@@ -422,12 +432,14 @@ class FrameworkPublicationReviewResponse(RequestModel):
     expires_at: datetime
     approved_at: datetime | None
     deployment: FrameworkDeploymentResponse | None = None
+    revocation_state: Literal["pending", "needs_attention", "revoked"] | None = None
 
 
 class FrameworkPublicationStatusResponse(RequestModel):
     source_project_id: UUID
     can_publish: bool
     dispatch_configured: bool = False
+    withdrawal_configured: bool = False
     mounts: list[FrameworkPublicationMountResponse]
     reviews: list[FrameworkPublicationReviewResponse]
     can_configure_destinations: bool = False
@@ -781,6 +793,13 @@ async def framework_publication_status(
         repository.publication_status(tenant_context(session), project_id, source_project_id)
     )
     result["dispatch_configured"] = request.app.state.framework_publication_dispatcher.available
+    result["withdrawal_configured"] = (
+        request.app.state.framework_publication_dispatcher.available
+        and getattr(
+            request.app.state.framework_publication_dispatcher, "withdrawal_available", False
+        )
+        is True
+    )
     response.headers["Cache-Control"] = "no-store"
     return FrameworkPublicationStatusResponse.model_validate(result)
 
@@ -884,6 +903,62 @@ async def approve_framework_publication(
         ) from error
     return await framework_publication_status(
         project_id, source_project_id, request, response, session, repository
+    )
+
+
+@router.post(
+    "/projects/{project_id}/source-projects/{source_project_id}/publications/reviews/{review_id}/revoke",
+    response_model=FrameworkPublicationRevocationResponse,
+    response_description="Exact-edition withdrawal confirmed",
+    responses={
+        202: {
+            "model": FrameworkPublicationRevocationResponse,
+            "description": "Withdrawal saved; delivery acknowledgment remains pending",
+        },
+        503: {
+            "description": (
+                "Withdrawal is unavailable or dispatch is unconfirmed; retry this edition"
+            ),
+        },
+    },
+)
+async def revoke_framework_publication(
+    project_id: UUID,
+    source_project_id: UUID,
+    review_id: UUID,
+    body: RevokeFrameworkPublicationRequest,
+    request: Request,
+    response: Response,
+    session: Annotated[AuthSession, Depends(current_session)],
+    repository: Annotated[ObservableSourceRepository, Depends(repository_from_request)],
+) -> FrameworkPublicationRevocationResponse:
+    del body
+    dispatcher = request.app.state.framework_publication_dispatcher
+    if not dispatcher.available or getattr(dispatcher, "withdrawal_available", False) is not True:
+        raise HTTPException(
+            status_code=503,
+            detail="framework_publication_withdrawal_not_configured",
+            headers={"Cache-Control": "no-store"},
+        )
+    state = await execute_observable(
+        repository.revoke_publication(
+            tenant_context(session), project_id, source_project_id, review_id
+        )
+    )
+    if state != "revoked":
+        try:
+            await dispatcher.dispatch_framework_publication_withdrawal(review_id)
+        except ProcessingDispatchUnavailable as error:
+            # The immutable request persists; explicit retry dispatches this same review only.
+            raise HTTPException(
+                status_code=503,
+                detail="framework_publication_withdrawal_dispatch_unconfirmed",
+                headers={"Cache-Control": "no-store"},
+            ) from error
+    response.headers["Cache-Control"] = "no-store"
+    response.status_code = 200 if state == "revoked" else 202
+    return FrameworkPublicationRevocationResponse(
+        id=review_id, state=state, revoked=state == "revoked"
     )
 
 

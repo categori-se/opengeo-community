@@ -44,7 +44,31 @@ function exactTicket(ticket, datasetId, filename) {
   return {url: url.href, expiry};
 }
 
-/** Resolve one exact active managed original. A binding retains no credentials or
+function rasterObject(version) {
+  const raster = version.schemaDefinition?.raster;
+  const checks = version.qualityResults?.checks ?? [];
+  const workingChecks = checks.filter(check => check.code === "geotiff_working_cog_verified");
+  // A partial normalization marker must never fall back to reading the original.
+  const normalized = version.format === "geotiff" || raster?.source_format === "geotiff"
+    || raster && Object.hasOwn(raster, "working_cog") || workingChecks.length > 0;
+  const role = normalized ? "working" : "original";
+  const objects = version.objects?.filter(object => object.role === role) ?? [];
+  if (objects.length !== 1) throw unavailable();
+  const object = objects[0];
+  if (normalized) {
+    const declared = raster?.working_cog;
+    if (version.format != null && version.format !== "geotiff" || raster?.source_format !== "geotiff"
+      || workingChecks.length !== 1 || workingChecks[0].status !== "passed"
+      || declared?.relative_key !== "working/raster.cog.tif" || declared.filename !== "raster.cog.tif"
+      || !UUID.test(declared.object_id ?? "") || declared.object_id !== object.id
+      || !/^[0-9a-f]{64}$/.test(declared.checksum_sha256 ?? "") || declared.checksum_sha256 !== object.checksumSha256
+      || declared.size_bytes !== object.sizeBytes || declared.filename !== object.filename) throw unavailable();
+  } else if (version.format != null && version.format !== "cog"
+    || !checks.some(check => check.code === "cog_layout_verified" && check.status === "passed")) throw unavailable();
+  return {object, role, bounds: itemBounds(normalized ? raster.display_bounds_crs84 : version.extent)};
+}
+
+/** Resolve one exact active managed original or verified normalized working COG. A binding retains no credentials or
  * ticket. Each explicit read reauthorizes and obtains one immutable S3-version
  * ticket. Only the bounded range decoder sees bytes; no whole-file fallback or
  * checksum verification is implied by a partial read.
@@ -66,19 +90,16 @@ export async function loadManagedCogData({adapter, projectId, datasetId, version
       version = versions.find(candidate => candidate.id === versionId);
       if (version || versions.length < 100) break;
     }
-    const originals = version?.objects?.filter(object => object.role === "original") ?? [];
     if (version?.state !== "active" || !Number.isSafeInteger(version.versionNumber) || version.versionNumber < 1
-      || String(version.geometryType).toLowerCase() !== "raster" || originals.length !== 1
-      || version.format != null && version.format !== "cog"
-      || !version.qualityResults?.checks?.some(check => check.code === "cog_layout_verified" && check.status === "passed")) {
+      || String(version.geometryType).toLowerCase() !== "raster") {
       throw unavailable();
     }
-    const object = originals[0];
+    const {object, role, bounds} = rasterObject(version);
     if (!UUID.test(object.id ?? "") || typeof object.filename !== "string" || object.filename.length > 180
       || !/^[a-z0-9_][a-z0-9._ -]*\.tiff?$/i.test(object.filename)
       || object.contentType !== "image/tiff" || !Number.isSafeInteger(object.sizeBytes) || object.sizeBytes < 1) throw unavailable();
-    const bounds = itemBounds(version.extent), configuredBands = displayBands(bands);
-    const sourceUrl = `urn:opengeo:dataset:${datasetId}:version:${versionId}:original`;
+    const configuredBands = displayBands(bands);
+    const sourceUrl = `urn:opengeo:dataset:${datasetId}:version:${versionId}:${role === "working" ? `working:${object.id}` : "original"}`;
     const configuration = {bounds: [...bounds], bands: [...configuredBands], sizeBytes: object.sizeBytes,
       ...(text(attribution) !== null ? {attribution: text(attribution)} : {}),
       ...(text(license) !== null ? {license: text(license)} : {})};

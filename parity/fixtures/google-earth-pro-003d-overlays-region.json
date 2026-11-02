@@ -33,7 +33,7 @@
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/test/kml-places.test.mjs",
-      "sha256": "7ce84d8f069bda7ee8132d2b0029c96331c4b122a4b005eba97350181b5a6c24"
+      "sha256": "414c8f691c8c1e7d3d97eccdcaa46cbfca50b330be125708703df1bee01cb7c6"
     },
     {
       "name": "WorkbenchView.js",

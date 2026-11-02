@@ -6,6 +6,25 @@ from opengeo_api.cognito_provisioning import UnavailableIdentityProvisioner
 from opengeo_api.config import Settings
 
 
+def test_publication_withdrawal_requires_explicit_enablement_and_its_queue() -> None:
+    assert Settings(env="test").framework_publication_withdrawal_enabled is False
+    configured = {
+        "env": "test",
+        "aws_region": "us-east-1",
+        "geodata_bucket": "opengeo-withdrawal-test",
+        "geodata_kms_key_arn": "arn:aws:kms:us-east-1:111111111111:key/test-key",
+        "framework_publication_queue_url": (
+            "https://sqs.us-east-1.amazonaws.com/111111111111/publications"
+        ),
+    }
+    assert Settings(**configured).framework_publication_withdrawal_enabled is False
+    assert Settings(
+        **configured, framework_publication_withdrawal_enabled=True
+    ).framework_publication_withdrawal_enabled
+    with pytest.raises(ValidationError, match="withdrawal_enabled requires its publication queue"):
+        Settings(env="test", framework_publication_withdrawal_enabled=True)
+
+
 def test_pmtiles_v2_requires_separate_queue_mode_and_final_image_pin() -> None:
     shared = "https://sqs.us-east-1.amazonaws.com/111111111111/shared"
     configured = dict(

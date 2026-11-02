@@ -6004,15 +6004,80 @@ body:has(.opengeo-workbench) #observablehq-center {
 
 .gis-place-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  align-items: start;
   gap: 0.3rem;
 }
 
-.gis-place-row .gis-button:last-child,
+.gis-places-tree input[type="checkbox"] {
+  box-sizing: border-box;
+  width: 1rem;
+  min-width: 1rem;
+  height: 1rem;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 1rem;
+}
+
+.gis-place-row > .gis-button {
+  grid-column: 2;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.gis-place-actions {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+  gap: 0.3rem;
+}
+
+.gis-place-actions > .gis-button,
 .gis-places-tree details > .gis-button {
   width: auto;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
   color: var(--gis-muted);
   font-size: 0.7rem;
+}
+
+.gis-places-tree .gis-kml-drag-handle {
+  width: auto;
+  margin-left: 0.25rem;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.7rem;
+  cursor: grab;
+}
+
+.gis-places-tree .gis-kml-drag-handle:disabled {
+  cursor: default;
+}
+
+.gis-kml-root-drop {
+  margin: 0.4rem 0;
+  padding: 0.45rem;
+  border: 1px dashed var(--gis-line);
+  border-radius: 5px;
+  color: var(--gis-muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+[data-kml-drop-position="before"] {
+  box-shadow: 0 -3px 0 var(--opengeo-blue);
+}
+
+[data-kml-drop-position="after"] {
+  box-shadow: 0 3px 0 var(--opengeo-blue);
+}
+
+[data-kml-drop-position="inside"] {
+  outline: 2px solid var(--opengeo-blue);
+  background: color-mix(in srgb, var(--opengeo-blue) 12%, var(--gis-panel-bg));
 }
 
 .gis-places-tree li.selected > .gis-place-row,
@@ -11692,6 +11757,21 @@ a.platform-site-switcher-item:focus-visible {
   display: block;
   padding: 0;
 }
+
+.gis-search-result {
+  display: grid;
+  gap: 0.15rem;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.gis-search-result-provenance,
+.gis-search-result-match {
+  color: var(--gis-muted);
+  font-weight: 400;
+}
+
 
 .gis-layer-support {
   min-height: 0;

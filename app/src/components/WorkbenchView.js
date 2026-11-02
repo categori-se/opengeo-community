@@ -1,5 +1,7 @@
+import {resolvePlusCode} from "../lib/plusCode.js";
 import {cesiumWorkbenchContent, prepareCesiumWorkbench, cesiumWorkbenchAdapter, rendererTitle} from "../lib/cesiumWorkbench.js";
 import {cogDisplayOptions, isCogLayer} from "../lib/cogDisplay.js";
+import {isManagedCogIdentity} from "../lib/managedCogIdentity.js";
 import {AnalysisConsole} from "./AnalysisConsole.js";
 import {WorkbenchHelp} from "./WorkbenchHelp.js";
 import {createLocalAnalysisRuntime} from "../lib/analysisLocalRuntime.js";
@@ -62,6 +64,7 @@ import {ProjectSocialBaseline} from "./ProjectSocialBaseline.js";
 import {validateProjectSocialBaselineSelection} from "../lib/projectSocialBaseline.js";
 import {polygon3DGeojson} from "../lib/polygon3dMeasurement.js";
 import {geojsonBounds} from "../lib/mapLayers.js";
+import {applyKmlView} from "../lib/kmlView.js";
 import {mapGraticule} from "../lib/mapGraticule.js";
 import {installLoadedMapLayers, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../lib/loadedLayerInstallation.js";
 import {PINNED_MAP_FONT, createMapFontSession, isRegisteredMapFont, validateMapFontRef} from "../lib/mapFonts.js";
@@ -171,6 +174,7 @@ import {
 } from "../lib/temporaryAnnotations.js";
 import {
   mapDefinitionVersionForLayers,
+  KML_MAP_DEFINITION_SCHEMA_VERSION,
   validateManagedDisplayReference,
   upgradeMapDefinition,
   validateRendererPreference
@@ -212,7 +216,8 @@ import {
   normalizeProjection,
   projectionForProject,
   removeNamedMapView,
-  renameNamedMapView
+  renameNamedMapView,
+  restoreMapView
 } from "../lib/globeView.js";
 import {
   applyOpenTerrain,
@@ -544,7 +549,7 @@ function createWorkbenchView({
   const dataByLayerId = new Map(geojsonByLayerId);
   for (const layer of workingLayers) if (layer.managedDisplayId) dataByLayerId.delete(layer.layerId);
   const initialKmlPlaces = placesForProject(project);
-  if (initialKmlPlaces) {
+  if (initialKmlPlaces && project?.kmlLayerDocuments !== true) {
     const initialKmlLayer = workingLayers.find(({layerId}) => layerId === "kml-places")
       ?? kmlPlacesLayer(initialKmlPlaces.name);
     if (!workingLayers.includes(initialKmlLayer)) workingLayers.push(initialKmlLayer);
@@ -3333,6 +3338,7 @@ function kmlLayerEditor(context) {
     ))
   );
   dock.append(actions);
+  if (state.kmlPlaces.view) dock.append(kmlNavigationButton(context, state.kmlPlaces));
   dock.append(kmlPlaceCreator(context));
   dock.append(kmlOverlayCreator(context));
 
@@ -3357,6 +3363,13 @@ function kmlLayerEditor(context) {
   tree.className = "gis-places-tree";
   tree.role = "tree";
   tree.setAttribute("aria-label", "KML layer hierarchy");
+  if (canOrganizeProject(context)) {
+    dock.append(textElement("p", "Drag Move to reorder places. Drop in the middle of a folder to move inside it. Select Move for Parent and up/down controls."));
+    const rootDrop = textElement("div", `Drop into ${state.kmlPlaces.name}`);
+    rootDrop.className = "gis-kml-root-drop";
+    bindKmlPlaceDrop(rootDrop, context, state.kmlPlaces.id, true);
+    dock.append(rootDrop);
+  }
   appendPlaceNodes(tree, state.kmlPlaces.children, context);
   dock.append(tree);
   const selected = findKmlPlaceForUi(state.kmlPlaces, state.selectedKmlPlaceId);
@@ -3402,7 +3415,10 @@ function appendPlaceNodes(parent, children, context) {
       const summary = document.createElement("summary");
       summary.tabIndex = 0;
       summary.append(visible, document.createTextNode(child.name));
+      summary.append(kmlPlaceDragHandle(context, child));
+      bindKmlPlaceDrop(summary, context, child.id);
       details.append(summary);
+      if (child.view) details.append(kmlNavigationButton(context, child));
       details.append(actionButton(`Edit ${child.name}`, () => {
         context.state.selectedKmlPlaceId = child.id;
         context.render();
@@ -3415,9 +3431,9 @@ function appendPlaceNodes(parent, children, context) {
       const row = document.createElement("div");
       row.className = "gis-place-row";
       const hasMapFeature = child.geometry || ["ground-overlay", "photo-overlay"].includes(child.kind);
-      const fly = actionButton(child.name, () => zoomToKmlPlace(context, child));
-      fly.disabled = !hasMapFeature;
-      fly.setAttribute("aria-label", hasMapFeature
+      const fly = kmlNavigationButton(context, child, {label: child.name});
+      fly.disabled = !hasMapFeature && !child.view;
+      fly.setAttribute("aria-label", hasMapFeature || child.view
         ? `Fly to ${child.name}`
         : child.kind === "network-link"
           ? `${child.name} is a governed NetworkLink; use its connection panel to refresh`
@@ -3426,11 +3442,125 @@ function appendPlaceNodes(parent, children, context) {
         context.state.selectedKmlPlaceId = child.id;
         context.render();
       });
-      row.append(visible, fly, edit);
+      const actions = document.createElement("div");
+      actions.className = "gis-place-actions";
+      actions.append(edit, kmlPlaceDragHandle(context, child));
+      if (child.view && hasMapFeature) actions.append(kmlNavigationButton(context, child, {geometryOnly: true}));
+      row.append(visible, fly, actions);
+      bindKmlPlaceDrop(row, context, child.id);
       item.append(row);
     }
     parent.append(item);
   }
+}
+
+const KML_PLACE_DRAG_TYPE = "application/x-opengeo-kml-place";
+
+function clearKmlPlaceDrag(context) {
+  context.kmlPlaceDrag = null;
+  for (const target of context.shell.querySelectorAll("[data-kml-drop-position]")) delete target.dataset.kmlDropPosition;
+}
+
+function kmlPlaceDragHandle(context, place) {
+  const originalDocument = context.state.kmlPlaces;
+  const originalLayerId = editingKmlLayerId(context);
+  const current = () => !context.disposed && !context.queryLocationScopeInvalid && canOrganizeProject(context)
+    && context.state.kmlPlaces === originalDocument && editingKmlLayerId(context) === originalLayerId && handle.isConnected;
+  const handle = actionButton("Move", event => {
+    event?.stopPropagation();
+    if (!current()) return;
+    context.state.selectedKmlPlaceId = place.id;
+    context.render();
+    context.shell.querySelector('[data-kml-editing-field="parent"]')?.focus();
+  });
+  handle.classList.add("gis-kml-drag-handle");
+  handle.dataset.kmlDragHandle = place.id;
+  handle.setAttribute("aria-label", `Drag ${place.name} to move`);
+  handle.title = `Drag ${place.name} to move, or select for Parent and up/down controls`;
+  handle.disabled = !canOrganizeProject(context) || context.queryLocationScopeInvalid;
+  handle.draggable = !handle.disabled;
+  handle.addEventListener("dragstart", event => {
+    event.stopPropagation();
+    clearKmlPlaceDrag(context);
+    if (!current() || !event.dataTransfer) {event.preventDefault();return;}
+    try {
+      event.dataTransfer.setData(KML_PLACE_DRAG_TYPE, place.id);
+      event.dataTransfer.effectAllowed = "move";
+      context.kmlPlaceDrag = {placeId: place.id, document: originalDocument, layerId: originalLayerId, source: handle};
+      setStatus(context, `Moving ${place.name}. Drop before or after a place, or inside a folder.`);
+    } catch {event.preventDefault();clearKmlPlaceDrag(context);}
+  });
+  handle.addEventListener("dragend", event => {
+    event.stopPropagation();
+    if (context.kmlPlaceDrag?.source === handle) clearKmlPlaceDrag(context);
+  });
+  return handle;
+}
+
+function bindKmlPlaceDrop(target, context, targetId, root = false) {
+  target.dataset.kmlDropTarget = targetId;
+  const originalDocument = context.state.kmlPlaces;
+  const originalLayerId = editingKmlLayerId(context);
+  const destination = event => {
+    const drag = context.kmlPlaceDrag;
+    if (!drag || context.disposed || context.queryLocationScopeInvalid || !canOrganizeProject(context)
+      || !target.isConnected || !drag.source.isConnected || drag.document !== originalDocument
+      || context.state.kmlPlaces !== originalDocument || drag.layerId !== originalLayerId
+      || editingKmlLayerId(context) !== originalLayerId) return null;
+    const place = findKmlPlaceForUi(originalDocument, targetId);
+    if (!place) return null;
+    const rect = target.getBoundingClientRect();
+    const ratio = rect.height > 0 ? (event.clientY - rect.top) / rect.height : 0.5;
+    const position = root || place.kind === "folder" && ratio >= 0.25 && ratio <= 0.75
+      ? "inside" : ratio < 0.5 ? "before" : "after";
+    const parent = position === "inside" ? place : findKmlParentForUi(originalDocument, targetId);
+    if (!parent || !["document", "folder"].includes(parent.kind)) return null;
+    for (let ancestor = parent; ancestor; ancestor = findKmlParentForUi(originalDocument, ancestor.id)) {
+      if (ancestor.id === drag.placeId) return null;
+    }
+    let index = position === "inside" ? parent.children.length
+      : parent.children.findIndex(place => place.id === targetId) + (position === "after" ? 1 : 0);
+    const sourceParent = findKmlParentForUi(originalDocument, drag.placeId);
+    const sourceIndex = sourceParent?.children.findIndex(place => place.id === drag.placeId) ?? -1;
+    if (sourceIndex < 0) return null;
+    if (sourceParent.id === parent.id && sourceIndex < index) index--;
+    return {drag, parentId: parent.id, index, position, name: place.name, unchanged: sourceParent.id === parent.id && sourceIndex === index};
+  };
+  target.addEventListener("dragover", event => {
+    const move = destination(event);
+    if (!move) {delete target.dataset.kmlDropPosition;return;}
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    if (target.dataset.kmlDropPosition !== move.position) {
+      for (const previous of context.shell.querySelectorAll("[data-kml-drop-position]")) delete previous.dataset.kmlDropPosition;
+      target.dataset.kmlDropPosition = move.position;
+      setStatus(context, `${move.position === "inside" ? "Move into" : move.position === "before" ? "Move before" : "Move after"} ${move.name}.`);
+    }
+  });
+  target.addEventListener("dragleave", event => {
+    if (!target.contains(event.relatedTarget)) delete target.dataset.kmlDropPosition;
+  });
+  target.addEventListener("drop", event => {
+    const move = destination(event);
+    if (!move) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer?.getData(KML_PLACE_DRAG_TYPE) !== move.drag.placeId) {clearKmlPlaceDrag(context);return;}
+    clearKmlPlaceDrag(context);
+    if (move.unchanged) {setStatus(context, "Place order is unchanged.");return;}
+    try {
+      const next = moveKmlPlace(originalDocument, move.drag.placeId, move.parentId, move.index);
+      context.state.selectedKmlPlaceId = move.drag.placeId;
+      applyKmlPlacesDocument(context, next, `Moved place ${move.position === "inside" ? "into" : move.position} ${move.name}. Save the Project to retain its position.`);
+      const handle = [...context.shell.querySelectorAll("[data-kml-drag-handle]")].find(handle => handle.dataset.kmlDragHandle === move.drag.placeId);
+      let focus = handle;
+      for (let ancestor = handle?.parentElement; ancestor && ancestor !== context.shell; ancestor = ancestor.parentElement) {
+        if (ancestor.tagName === "DETAILS" && !ancestor.open) focus = ancestor.querySelector(":scope > summary") ?? focus;
+      }
+      focus?.focus();
+    } catch (error) {setStatus(context, `Place move failed safely (${error?.code ?? "invalid_place"}).`);}
+  });
 }
 
 function kmlPlaceCreator(context) {
@@ -3504,6 +3634,8 @@ function kmlPlaceCreator(context) {
 function kmlPlaceEditor(context, selected) {
   const drafts = context.state.kmlMetadataDrafts ??= new Map();
   const draft = drafts.get(selected.id);
+  const editable = canOrganizeProject(context);
+  const editingLayerId = editingKmlLayerId(context);
   const details = document.createElement("details");
   details.className = "gis-places-authoring gis-places-editor";
   details.open = true;
@@ -3543,26 +3675,36 @@ function kmlPlaceEditor(context, selected) {
   const currentParent = findKmlParentForUi(context.state.kmlPlaces, selected.id)?.id ?? context.state.kmlPlaces.id;
   const parent = selectInput("Parent", draft?.parent ?? currentParent, kmlContainerOptions(context.state.kmlPlaces, selected.kind === "folder" ? selected.id : null));
   parent.input.dataset.kmlEditingField = "parent";
-  const remember = () => drafts.set(selected.id, {name: name.input.value, description: description.input.value, visibility: visible.querySelector("input").checked, parent: parent.input.value});
+  const view = kmlPlaceViewEditor(draft?.view ?? selected.view, editable);
+  for (const input of [name.input, description.input, visible.querySelector("input"), parent.input]) input.disabled = !editable;
+  const remember = () => drafts.set(selected.id, {name: name.input.value, description: description.input.value, visibility: visible.querySelector("input").checked, parent: parent.input.value, view: view.capture()});
   form.addEventListener("input", remember);
   form.addEventListener("change", remember);
+  const canApply = () => canOrganizeProject(context) && form.isConnected
+    && editingKmlLayerId(context) === editingLayerId && context.state.selectedKmlPlaceId === selected.id;
   const save = actionButton("Apply place edits", () => {
+    if (!canApply()) return;
+    remember();
     try {
       let next = updateKmlPlace(context.state.kmlPlaces, selected.id, {
         name: name.input.value,
         description: description.input.value,
-        visibility: visible.querySelector("input").checked
+        visibility: visible.querySelector("input").checked,
+        view: view.read()
       });
       const nextParent = parent.input.value;
       if (nextParent !== currentParent) next = moveKmlPlace(next, selected.id, nextParent);
       drafts.delete(selected.id);
       applyKmlPlacesDocument(context, next, `Updated ${name.input.value || selected.name}.`);
     } catch (error) {
-      setStatus(context, `Place edit failed safely (${error?.code ?? "invalid_place"}).`);
+      const message = view.reportError(error);
+      setStatus(context, message ?? `Place edit failed safely (${error?.code ?? "invalid_place"}).`);
     }
   });
+  save.disabled = !editable;
   save.dataset.kmlAuthoringAction = "update";
   const remove = actionButton("Delete selected place", () => {
+    if (!canApply()) return;
     if (typeof confirm === "function" && !confirm(`Delete ${selected.name} and any nested places?`)) return;
     try {
       const next = removeKmlPlace(context.state.kmlPlaces, selected.id);
@@ -3575,6 +3717,7 @@ function kmlPlaceEditor(context, selected) {
       setStatus(context, `Place deletion failed safely (${error?.code ?? "invalid_place"}).`);
     }
   });
+  remove.disabled = !editable;
   remove.dataset.kmlAuthoringAction = "delete";
   const siblings = findKmlParentForUi(context.state.kmlPlaces, selected.id)?.children ?? [];
   const index = siblings.findIndex(place => place.id === selected.id);
@@ -3599,9 +3742,86 @@ function kmlPlaceEditor(context, selected) {
     move.disabled = !canOrganizeProject(context) || index < 0 || index + direction < 0 || index + direction >= siblings.length;
     order.append(move);
   }
-  form.append(name.wrapper, description.wrapper, visible, parent.wrapper, order, save, remove);
+  form.append(name.wrapper, description.wrapper, visible, parent.wrapper, view.element, order, save, remove);
   details.append(form);
   return details;
+}
+
+function kmlPlaceViewEditor(value, editable) {
+  const element = document.createElement("details");
+  element.className = "gis-kml-view-editor";
+  element.open = Boolean(value && value.type !== "none");
+  element.append(textElement("summary", "KML view"), textElement("p",
+    "Project Save and KML export retain this view. Fly to opens supported Camera and LookAt views on the Earth Mercator map. Unsupported views stay saved and report their limits; Frame geometry is a separate choice. Leave optional fields blank to keep them unspecified."));
+  const type = selectInput("KML view type", value?.type ?? "none", [["none", "None (remove saved KML view)"], ["Camera", "Camera"], ["LookAt", "LookAt"]]);
+  type.input.disabled = !editable;
+  type.input.dataset.kmlViewField = "type";
+  const fields = new Map();
+  const grid = document.createElement("div");
+  grid.className = "gis-form-grid";
+  grid.append(type.wrapper);
+  for (const [key, label] of [["longitude", "Longitude (degrees)"], ["latitude", "Latitude (degrees)"],
+    ["altitude", "Altitude (metres)"], ["heading", "Heading (degrees)"], ["tilt", "Tilt (degrees)"],
+    ["roll", "Roll (degrees)"], ["range", "Range (metres)"]]) {
+    const field = textInput(`KML view ${label}`, value?.[key] ?? "");
+    // Text inputs preserve an invalid number as a recoverable draft rather than
+    // letting a browser number input silently turn it into an unspecified value.
+    field.input.inputMode = "decimal";
+    field.input.maxLength = 64;
+    field.input.dataset.kmlViewField = key;
+    fields.set(key, field);
+    grid.append(field.wrapper);
+  }
+  const altitudeMode = selectInput("KML view altitude mode", value?.altitudeMode ?? "", [
+    ["", "Unspecified"], ["clampToGround", "Clamp to ground"], ["relativeToGround", "Relative to ground"],
+    ["absolute", "Absolute"], ["gx:clampToSeaFloor", "Clamp to sea floor (gx)"], ["gx:relativeToSeaFloor", "Relative to sea floor (gx)"]
+  ]);
+  altitudeMode.input.dataset.kmlViewField = "altitudeMode";
+  grid.append(altitudeMode.wrapper);
+  const applicable = key => type.input.value !== "none"
+    && (key !== "roll" || type.input.value === "Camera") && (key !== "range" || type.input.value === "LookAt");
+  const sync = () => {
+    for (const [key, field] of fields) {
+      field.wrapper.hidden = !applicable(key);
+      field.input.disabled = !editable || !applicable(key);
+    }
+    altitudeMode.wrapper.hidden = type.input.value === "none";
+    altitudeMode.input.disabled = !editable || type.input.value === "none";
+  };
+  type.input.addEventListener("change", sync);
+  sync();
+  element.append(grid);
+  return {
+    element,
+    capture: () => ({type: type.input.value, altitudeMode: altitudeMode.input.value,
+      ...Object.fromEntries([...fields].map(([key, field]) => [key, field.input.value]))}),
+    read() {
+      for (const field of fields.values()) field.input.removeAttribute("aria-invalid");
+      if (type.input.value === "none") return null;
+      const view = {type: type.input.value, altitudeMode: altitudeMode.input.value || null};
+      for (const [key, field] of fields) {
+        if (!applicable(key)) continue;
+        const raw = field.input.value.trim();
+        if (!raw) continue;
+        if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(raw) || !Number.isFinite(Number(raw))) {
+          throw Object.assign(new Error(`Enter a finite number for KML view ${key}, or leave it blank.`), {code: "places_view_number_invalid", viewField: key});
+        }
+        view[key] = Number(raw);
+      }
+      return view;
+    },
+    reportError(error) {
+      const key = error?.viewField ?? /^places_view_(longitude|latitude|heading|roll|tilt|range)_invalid$/.exec(error?.code ?? "")?.[1];
+      const field = fields.get(key);
+      if (!field) return null;
+      element.open = true;
+      field.input.setAttribute("aria-invalid", "true");
+      field.input.focus();
+      const ranges = {longitude: "-180 to 180 degrees", latitude: "-90 to 90 degrees", heading: "-360 to 360 degrees",
+        roll: "-180 to 180 degrees", tilt: `0 to ${type.input.value === "LookAt" ? 90 : 180} degrees`, range: "0 metres or greater"};
+      return error.viewField ? error.message : `KML view ${key} must be ${ranges[key]}. Correct it and apply again.`;
+    }
+  };
 }
 
 function closeShapeEditor(context) {
@@ -4530,7 +4750,7 @@ function layerDock(context) {
     support.append(kmlLayerContentsDisclosure(context));
   }
   const bookmarks = context.project?.bookmarks ?? [];
-  if (bookmarks.length) support.append(bookmarkPanel(bookmarks, state));
+  if (bookmarks.length) support.append(bookmarkPanel(bookmarks, context));
   support.append(savedViewsPanel(context));
   if (context.rendererAdapter.id !== "cesium") support.append(searchPanel(context));
   if (state.portalConfiguration) support.append(portalConfigurationDisclosure(context));
@@ -4617,7 +4837,8 @@ function portalConfigurationDisclosure(context) {
   return disclosure;
 }
 
-function bookmarkPanel(bookmarks, state) {
+function bookmarkPanel(bookmarks, context) {
+  const {state} = context;
   const disclosure = document.createElement("details");
   disclosure.className = "gis-bookmark-strip";
   disclosure.open = state.bookmarkPanelOpen === true;
@@ -4625,16 +4846,12 @@ function bookmarkPanel(bookmarks, state) {
   disclosure.append(textElement("summary", `Bookmarks (${bookmarks.length})`));
   const actions = document.createElement("div");
   for (const bookmark of bookmarks) {
-    actions.append(actionButton(bookmark.title, () => {
-      const view = normalizeMapView(bookmark);
-      state.map?.easeTo({
-        center: view.center,
-        zoom: view.zoom,
-        pitch: view.pitch,
-        bearing: view.bearing,
-        duration: 350
-      });
-    }));
+    const recall = actionButton(bookmark.title, () => {
+      if (!recall.isConnected || context.disposed || !state.map) return;
+      const result = restoreMapView({map: state.map, view: bookmark, engineId: context.rendererAdapter.id});
+      setStatus(context, result.applied ? `Opened bookmark ${bookmark.title}.` : result.message);
+    });
+    actions.append(recall);
   }
   disclosure.append(actions);
   return disclosure;
@@ -4685,9 +4902,9 @@ function savedViewsPanel(context) {
     title.input.disabled = !editable;
     title.input.addEventListener("input", () => (state.savedViewTitleDrafts ??= new Map()).set(view.id, title.input.value));
     const go = actionButton(`Go to ${view.title}`, () => {
-      const camera = normalizeMapView(view);
-      state.map?.easeTo({center: camera.center, zoom: camera.zoom, pitch: camera.pitch, bearing: camera.bearing, duration: 350});
-      setStatus(context, `Opened saved view ${view.title}.`);
+      if (!go.isConnected || context.disposed || !context.shell.isConnected || !state.map) return;
+      const result = restoreMapView({map: state.map, view, engineId: context.rendererAdapter.id});
+      setStatus(context, result.applied ? `Opened saved view ${view.title}.` : result.message);
     });
     go.disabled = !state.map;
     const rename = actionButton(`Rename ${view.title}`, () => {
@@ -5280,13 +5497,13 @@ function searchPanel(context) {
   section.className = "gis-search";
   section.open = state.placeSearchOpen === true || Boolean((state.placeSearch ?? "").trim());
   section.addEventListener("toggle", () => state.placeSearchOpen = section.open);
-  section.append(textElement("summary", "Search features or coordinates"));
+  section.append(textElement("summary", "Search features, coordinates or Plus Codes"));
   const body = document.createElement("div");
   body.className = "gis-search-body";
   const input = document.createElement("input");
   input.type = "search";
-  input.placeholder = "Layer attributes or latitude, longitude";
-  input.setAttribute("aria-label", "Search layer features or WGS84 coordinates");
+  input.placeholder = "Layer attributes, latitude/longitude or Plus Code";
+  input.setAttribute("aria-label", "Search layer features, WGS84 coordinates or Plus Codes");
   input.value = state.placeSearch ?? "";
   input.setAttribute("aria-invalid", String(state.coordinateSearchInvalid === true));
   input.addEventListener("input", () => {
@@ -5306,7 +5523,7 @@ function searchPanel(context) {
 
   const earth = state.spatialBody.id === "earth";
   body.append(textElement("small", earth
-    ? "Coordinates: WGS84 latitude, longitude in decimal degrees, for example 42.36, -71.06. Layer search uses loaded attributes."
+    ? "Coordinates: WGS84 latitude, longitude in decimal degrees, for example 42.36, -71.06, or a full Plus Code such as 8FVC9G8F+6W. Plus Codes decode offline; layer search uses loaded attributes."
     : "WGS84 coordinate navigation is available for Earth maps. Layer search uses loaded attributes."));
   const feedback = textElement("small", state.coordinateSearchMessage ?? "");
   feedback.setAttribute("role", "status");
@@ -5319,15 +5536,67 @@ function searchPanel(context) {
     input.setAttribute("aria-invalid", String(invalid));
     setStatus(context, message);
   };
+  if (earth) {
+    const reference = document.createElement("details");
+    reference.className = "gis-plus-code-reference";
+    const separator = input.value.trim().indexOf("+");
+    reference.open = state.plusCodeReferenceOpen === true || (separator >= 0 && separator < 8);
+    reference.addEventListener("toggle", () => state.plusCodeReferenceOpen = reference.open);
+    reference.append(textElement("summary", "Reference for short Plus Codes"));
+    const referenceBody = document.createElement("div");
+    referenceBody.className = "gis-search-body";
+    referenceBody.append(textElement("small", "Move the map near the intended place, then capture its center. Later map movements keep this reference."));
+    const saved = state.plusCodeReference;
+    if (saved) referenceBody.append(textElement("small", `Captured WGS84 reference: ${saved.latitude}, ${saved.longitude}.`));
+    const capture = actionButton("Use map center as reference", () => {
+      if (context.disposed || !state.map) return;
+      const center = state.map.getCenter();
+      const latitude = center?.lat, rawLongitude = center?.lng;
+      if (!Number.isFinite(latitude) || !Number.isFinite(rawLongitude) || latitude < -90 || latitude > 90) {
+        reportCoordinate("Wait for a valid Earth map location before capturing a reference.", true);
+        return;
+      }
+      const longitude = rawLongitude >= -180 && rawLongitude <= 180 ? rawLongitude
+        : ((rawLongitude + 180) % 360 + 360) % 360 - 180;
+      state.plusCodeReference = {latitude, longitude};
+      state.plusCodeReferenceOpen = true;
+      reportCoordinate(`Reference captured at WGS84 ${latitude}, ${longitude}. Choose Go to resolve the short code near this point.`);
+      context.render();
+      context.shell.querySelector('.gis-search input')?.focus();
+    });
+    capture.disabled = !state.map;
+    if (!state.map) capture.title = "Wait for the map to load before capturing a reference.";
+    const clear = actionButton("Clear reference", () => {
+      state.plusCodeReference = null;
+      reportCoordinate("Reference cleared. Enter a full Plus Code or capture a reference for a short code.");
+      context.render();
+      context.shell.querySelector('.gis-search input')?.focus();
+    });
+    clear.disabled = !saved;
+    referenceBody.append(capture, clear);
+    reference.append(referenceBody);
+    body.append(reference);
+  }
   const go = actionButton("Go to coordinate", () => {
     if (context.disposed || !earth || !state.map) return;
     const parts = input.value.trim().split(",").map(value => value.trim());
     const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
-    const [latitude, longitude] = parts.map(Number);
-    if (parts.length !== 2 || !parts.every(value => decimal.test(value))
-      || !Number.isFinite(latitude) || !Number.isFinite(longitude)
+    let [latitude, longitude] = parts.map(Number);
+    let plusCode = null;
+    const decimalPair = parts.length === 2 && parts.every(value => decimal.test(value));
+    if (!decimalPair && input.value.includes("+")) {
+      try {
+        plusCode = resolvePlusCode(input.value, state.plusCodeReference);
+        ({latitude, longitude} = plusCode);
+      } catch (error) {
+        reportCoordinate(error.message, true);
+        input.focus();
+        return;
+      }
+    }
+    if ((!decimalPair && !plusCode) || !Number.isFinite(latitude) || !Number.isFinite(longitude)
       || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      reportCoordinate("Enter WGS84 latitude (-90 to 90), then longitude (-180 to 180), separated by a comma.", true);
+      reportCoordinate("Enter WGS84 latitude (-90 to 90), then longitude (-180 to 180), separated by a comma, or enter a full Plus Code.", true);
       input.focus();
       return;
     }
@@ -5337,8 +5606,18 @@ function searchPanel(context) {
       input.focus();
       return;
     }
-    state.map.flyTo({center: [longitude, latitude], zoom: Math.max(state.map.getZoom(), 12), duration: 350});
-    reportCoordinate(`Going to WGS84 ${latitude}, ${longitude}.`);
+    if (plusCode) {
+      const {bounds, latitudeResolution, longitudeResolution} = plusCode;
+      state.map.fitBounds([[bounds.west, Math.max(south, bounds.south)],
+        [bounds.east, Math.min(north, bounds.north)]], {padding: 80, maxZoom: 18, duration: 350});
+      const clipped = bounds.south < south || bounds.north > north;
+      const reference = plusCode.reference
+        ? ` Recovered ${plusCode.shortCode} near captured WGS84 reference ${plusCode.reference.latitude}, ${plusCode.reference.longitude}.` : "";
+      reportCoordinate(`Showing Plus Code ${plusCode.code}. Open Location Code, WGS84 cell: ${latitudeResolution}° latitude × ${longitudeResolution}° longitude.${reference}${clipped ? " The cell is clipped to this map's latitude range." : ""}`);
+    } else {
+      state.map.flyTo({center: [longitude, latitude], zoom: Math.max(state.map.getZoom(), 12), duration: 350});
+      reportCoordinate(`Going to WGS84 ${latitude}, ${longitude}.`);
+    }
   });
   go.disabled = !earth || !state.map;
   if (earth && !state.map) go.title = "Wait for the map to load before going to coordinates.";
@@ -5350,27 +5629,56 @@ function searchPanel(context) {
   });
   body.append(go, feedback);
 
-  const hits = [];
+  const rankedHits = [[], [], [], []];
+  const matchLabels = ["Exact name", "Name starts with", "Name contains", "Attribute contains"];
+  let matchCount = 0;
   const needle = (state.placeSearch ?? "").trim().toLowerCase();
   if (needle.length >= 2) {
     for (const layer of context.layers) {
       const geojson = dataByLayerId.get(layer.layerId);
       for (const [index, feature] of (geojson?.features ?? []).entries()) {
-        const haystack = Object.values(feature.properties ?? {}).join(" ").toLowerCase();
-        if (haystack.includes(needle)) hits.push({layer, feature, index});
-        if (hits.length >= 6) break;
+        const title = String(featureTitle(feature, layer) ?? "Feature");
+        const name = title.trim().toLowerCase();
+        const rank = name === needle ? 0 : name.startsWith(needle) ? 1 : name.includes(needle) ? 2
+          : Object.values(feature.properties ?? {}).join(" ").toLowerCase().includes(needle) ? 3 : -1;
+        if (rank < 0) continue;
+        matchCount++;
+        // Retain only the visible candidates in each rank, while counting every
+        // loaded match so a later exact name cannot be hidden by early weak hits.
+        if (rankedHits[rank].length < 6) rankedHits[rank].push({layer, feature, index, title, rank});
       }
-      if (hits.length >= 6) break;
     }
+    const summary = textElement("small", matchCount
+      ? `Showing ${Math.min(6, matchCount)} of ${matchCount} matching loaded Project ${matchCount === 1 ? "feature" : "features"}. Ranked by exact name, name prefix, name substring, then other attributes; ties follow Layer and feature order.`
+      : "No matching loaded Project features. Search covers this Project's loaded features only.");
+    summary.className = "gis-search-summary";
+    summary.setAttribute("aria-live", "polite");
+    body.append(summary);
   }
 
-  for (const hit of hits) {
-    const button = actionButton(featureTitle(hit.feature, hit.layer), () => {
+  for (const [resultIndex, hit] of rankedHits.flat().slice(0, 6).entries()) {
+    const button = actionButton("", () => {
+      if (context.disposed) return;
       state.activeLayerId = hit.layer.layerId;
       state.selectedFeatureIndex = hit.index;
       zoomToFeature(context, hit.layer, hit.feature);
-      setStatus(context, `Found ${featureTitle(hit.feature, hit.layer)}.`);
+      setStatus(context, `Found ${hit.title} in Layer ${hit.layer.title}.`);
+      context.render();
+      context.shell.querySelectorAll(".gis-search-result")[resultIndex]?.focus();
     });
+    button.classList.add("gis-search-result");
+    const title = textElement("span", hit.title);
+    title.className = "gis-search-result-title";
+    const provenance = textElement("small", [
+      `Layer: ${hit.layer.title || "Untitled Layer"}. Loaded Project feature.`,
+      hit.layer.datasetId ? `Dataset: ${hit.layer.datasetId}.` : "Dataset identity not recorded.",
+      hit.layer.datasetVersionId ? `Version: ${hit.layer.datasetVersionId}.` : "Version not recorded.",
+      hit.layer.sourceVersion != null ? `Source revision: ${hit.layer.sourceVersion}.` : ""
+    ].filter(Boolean).join(" "));
+    provenance.className = "gis-search-result-provenance";
+    const match = textElement("small", matchLabels[hit.rank]);
+    match.className = "gis-search-result-match";
+    button.append(title, provenance, match);
     body.append(button);
   }
 
@@ -8518,11 +8826,12 @@ function isManagedCogLayer(layer) {
 function managedCogBinding(context, layer, binding) {
   const config = binding?.source?.configuration;
   if (binding?.datasetId !== layer.datasetId || binding.datasetVersionId !== layer.datasetVersionId
-    || binding.source?.sourceUrl !== `urn:opengeo:dataset:${layer.datasetId}:version:${layer.datasetVersionId}:original`
+    || !isManagedCogIdentity(binding.source?.sourceUrl, {datasetId: layer.datasetId,
+      datasetVersionId: layer.datasetVersionId, objectId: binding.objectId})
     || typeof binding.read !== "function" || !/^[a-f0-9-]{36}$/i.test(binding.objectId ?? "")
     || binding.versionNumber !== layer.sourceVersion || layer.objectId && layer.objectId !== binding.objectId
     || !Array.isArray(config?.bounds) || config.bounds.length !== 4 || !config.bounds.every(Number.isFinite)
-    || !Number.isSafeInteger(config.sizeBytes) || config.sizeBytes < 1) throw Error("The exact raster original is unavailable.");
+    || !Number.isSafeInteger(config.sizeBytes) || config.sizeBytes < 1) throw Error("The exact raster object is unavailable.");
   const bands = layer.sourceConfiguration?.bands ?? config.bands;
   if (!Array.isArray(bands) || ![1, 3].includes(bands.length) || bands.some(value => !Number.isInteger(value) || value < 1 || value > 64))
     throw Error("Choose one or three raster bands.");
@@ -8756,7 +9065,7 @@ async function addProjectDatasetToMap(
     setStatus(context, `${dataset.title} added from its governed source revision. Save the map to persist its independent presentation.`);
     return;
   }
-  const managedRaster = expectedVersionId && String(dataset.geometryType).toLowerCase() === "raster" && dataset.format === "cog";
+  const managedRaster = expectedVersionId && String(dataset.geometryType).toLowerCase() === "raster" && ["cog", "geotiff"].includes(dataset.format);
   const exactPreviewUnavailable = expectedVersionId
     && typeof (managedRaster ? context.loadManagedCog : context.loadDatasetVersionPreview) !== "function";
   const currentFeaturesUnavailable = !expectedVersionId
@@ -8934,7 +9243,7 @@ async function loadPersistedDatasetLayers(context) {
       } catch {
         if (isCurrentPersistedLayer(context, layer, sourceIdentity)) {
           context.failedDatasetLayerIds.add(layer.layerId);
-          setStatus(context, `${layer.title} could not open its exact raster original. Turn it off and on to retry, or review its Catalog record.`);
+          setStatus(context, `${layer.title} could not open its exact raster object. Turn it off and on to retry, or review its Catalog record.`);
         }
       } finally {
         context.loadingDatasetLayerIds.delete(layer.layerId);
@@ -13515,6 +13824,10 @@ function createMap(adapter, container, savedView, projection, basemap = null, tr
     zoom: view?.zoom ?? 2,
     pitch: view?.pitch ?? 0,
     bearing: view?.bearing ?? 0,
+    roll: view?.roll ?? 0,
+    elevation: view?.elevation ?? 0,
+    centerClampedToGround: view?.centerClampedToGround ?? true,
+    maxPitch: 85,
     interactive: true,
     dragPan: true,
     dragRotate: true,
@@ -16535,7 +16848,6 @@ function editingKmlLayerId(context) {
 }
 
 function syncKmlLayerContext(context) {
-  if (!context.publicDemo) return;
   const {state, layers} = context;
   const selected = layers.find(layer => layer.layerId === state.activeLayerId && layer.sourceType === "kml-places");
   const target = selected ?? layers.find(layer => layer.layerId === state.kmlEditingLayerId && layer.sourceType === "kml-places")
@@ -16543,7 +16855,8 @@ function syncKmlLayerContext(context) {
   for (const id of state.kmlLayerRuntimes?.keys() ?? []) {
     if (!layers.some(layer => layer.layerId === id)) state.kmlLayerRuntimes.delete(id);
   }
-  if ((target?.layerId ?? null) === (state.kmlEditingLayerId ?? null)) return;
+  const sameLayer = (target?.layerId ?? null) === (state.kmlEditingLayerId ?? null);
+  if (sameLayer && state.kmlPlaces === (target?.kmlDocument ?? null)) return;
   closeShapeEditor(context);
   closeImageOverlayEditor(context);
   for (const controller of state.kmlNetworkLinkInFlight.values()) controller.abort();
@@ -16551,13 +16864,13 @@ function syncKmlLayerContext(context) {
   state.kmlNetworkLinkInFlight.clear();
   state.kmlNetworkLinkTimers.clear();
   const runtimes = state.kmlLayerRuntimes ??= new Map();
-  if (state.kmlEditingLayerId) runtimes.set(state.kmlEditingLayerId,
+  if (state.kmlEditingLayerId && !sameLayer) runtimes.set(state.kmlEditingLayerId,
     Object.fromEntries(KML_CONTEXT_FIELDS.map(key => [key, state[key]])));
   for (const id of runtimes.keys()) if (!layers.some(layer => layer.layerId === id)) runtimes.delete(id);
   state.kmlContextEpoch = (state.kmlContextEpoch ?? 0) + 1;
   state.kmlEditingLayerId = target?.layerId ?? null;
   state.kmlPlaces = target?.kmlDocument ?? null;
-  const runtime = target && runtimes.get(target.layerId);
+  const runtime = !sameLayer && target && runtimes.get(target.layerId);
   Object.assign(state, runtime ?? {
     kmlInterchangeReport: target?.kmlInterchangeReport ?? emptyKmlReport(),
     kmlNetworkLinkState: target?.kmlNetworkLinkState ?? {schemaVersion: "1.0.0", receipts: []},
@@ -16793,16 +17106,35 @@ function updateKmlPresentation(shell, state) {
   shell.dataset.kmlResourceBytes = String(kmlResourceBytes(state.kmlPlaces));
 }
 
-function zoomToKmlPlace(context, place) {
+function kmlNavigationButton(context, place, {geometryOnly = false, label} = {}) {
+  const layerId = editingKmlLayerId(context);
+  const button = actionButton(label ?? `${geometryOnly ? "Frame geometry of" : "Fly to"} ${place.name}`, () => {
+    if (!button.isConnected || context.disposed || !context.shell.isConnected || !context.state.kmlPlaces || editingKmlLayerId(context) !== layerId) return;
+    const current = findKmlPlaceForUi(context.state.kmlPlaces, place.id);
+    if (current) zoomToKmlPlace(context, current, {geometryOnly});
+  });
+  return button;
+}
+
+function zoomToKmlPlace(context, place, {geometryOnly = false} = {}) {
+  if (context.disposed || !context.shell.isConnected) return;
+  const map = context.state.map;
+  if (!geometryOnly && place.view) {
+    const result = applyKmlView({map, view: place.view, engineId: context.rendererAdapter.id, spatialBody: context.state.spatialBody});
+    setStatus(context, `${place.name}: ${result.message}${result.applied ? "" : " Use Frame geometry if available to inspect its shape."}`);
+    return;
+  }
   const geojson = context.dataByLayerId.get(editingKmlLayerId(context));
   const feature = geojson?.features?.find(({id}) => id === place.id);
-  if (!feature) return;
+  if (!feature || !map) {setStatus(context, "The place geometry is not available on the map yet.");return;}
   const bounds = geojsonBounds(feature);
-  if (bounds) context.state.map?.fitBounds(bounds, {padding: 90, maxZoom: 16, duration: 350});
+  map.setCenterClampedToGround?.(true);
+  map.jumpTo?.({roll: 0, elevation: 0, pitch: 0});
+  if (bounds) map.fitBounds(bounds, {padding: 90, maxZoom: 16, duration: 350});
   if (feature.geometry?.type === "Point") {
-    context.state.map?.easeTo({center: feature.geometry.coordinates.slice(0, 2), zoom: 15, duration: 350});
+    map.easeTo({center: feature.geometry.coordinates.slice(0, 2), zoom: 15, duration: 350});
   }
-  setStatus(context, `Flying to ${place.name}.`);
+  setStatus(context, `${geometryOnly ? "Framing geometry of" : "Flying to"} ${place.name}.${geometryOnly && place.view ? " Its saved KML view is unchanged." : ""}`);
 }
 
 function showFeaturePopup(map, event, dataset, {focus = true} = {}) {
@@ -16899,7 +17231,7 @@ function applyLocalDraft({
         || (saved.datasetVersionId ?? null) !== (layer.datasetVersionId ?? null)
         || (saved.sourceVersion ?? null) !== (layer.sourceVersion ?? null))) continue;
       if (publicDemo && saved.metadata) layer.metadata = structuredClone(saved.metadata);
-      if (publicDemo && saved.kmlDocument) Object.assign(layer, {kmlDocument: placesForProject({kmlPlaces: saved.kmlDocument}), kmlInterchangeReport: kmlReportForProject(saved), kmlNetworkLinkState: kmlNetworkLinkStateForProject(saved)});
+      if (layer.sourceType === "kml-places" && saved.kmlDocument) Object.assign(layer, {kmlDocument: placesForProject({kmlPlaces: saved.kmlDocument}), kmlInterchangeReport: kmlReportForProject(saved), kmlNetworkLinkState: kmlNetworkLinkStateForProject(saved)});
       layer.visible = saved.visible;
       layer.opacity = saved.opacity;
       const mergedStyle = {...layer.style, ...saved.style};
@@ -17095,6 +17427,7 @@ function createLocalDraft(context) {
     validateManagedDisplayReference(layer);
   }
   const savedAt = new Date().toISOString();
+  const schemaVersion = mapDefinitionVersionForLayers(persistentLayers, state.measurements ?? [], state.kmlPlaces);
   const persistence = context.localProjectRecord
     ? {mode: "browser-personal", uploaded: false, published: false}
     : context.landingMode
@@ -17107,7 +17440,7 @@ function createLocalDraft(context) {
         key: projectObjectKey(context)
       };
   const draft = {
-    schemaVersion: mapDefinitionVersionForLayers(persistentLayers, state.measurements ?? []),
+    schemaVersion,
     ...(context.publicDemo ? {title: context.project?.title ?? "Browser Project"} : {}),
     styleBindingsRecorded: true,
     workspaceId: workspace.workspaceId,
@@ -17118,8 +17451,8 @@ function createLocalDraft(context) {
     projection: state.globe ? "globe" : "mercator",
     terrain: terrainForSave(state.terrainEnabled, context.project?.terrain),
     openScene3d: openScene3dForSave(state.openScene3dEnabled),
-    ...(context.publicDemo ? {kmlLayerDocuments: true} : {}),
-    kmlPlaces: placesForSave(state.kmlPlaces),
+    kmlLayerDocuments: true,
+    kmlPlaces: schemaVersion === KML_MAP_DEFINITION_SCHEMA_VERSION ? null : placesForSave(state.kmlPlaces),
     kmlInterchangeReport: kmlReportForSave(state.kmlInterchangeReport),
     kmlNetworkLinkState: kmlNetworkLinkStateForSave(state.kmlNetworkLinkState),
     ...(state.portalConfiguration ? {portal: normalizePortalConfiguration(state.portalConfiguration)} : {}),
@@ -17151,7 +17484,7 @@ function createLocalDraft(context) {
       sourceConfiguration: layer.sourceConfiguration,
       ...(context.publicDemo ? {browserCatalogId: layer.browserCatalogId, browserDraftData: layer.browserDraftData} : {}),
       ...(context.publicDemo && layer.metadata ? {metadata: structuredClone(layer.metadata)} : {}),
-      ...(context.publicDemo && layer.sourceType === "kml-places" ? kmlLayerForSave(context, layer) : {}),
+      ...(layer.sourceType === "kml-places" ? kmlLayerForSave(context, layer) : {}),
       sourceLayer: layer.sourceLayer,
       sharedSourceId: layer.sharedSourceId,
       portalCatalogSource: layer.portalCatalogSource,
@@ -17312,9 +17645,10 @@ export function currentProjectDefinition(context) {
     validateManagedDisplayReference(layer);
   }
   for (const layer of persistentLayers) cogDisplayOptions(layer);
+  const schemaVersion = mapDefinitionVersionForLayers(persistentLayers, state.measurements ?? [], state.kmlPlaces);
   return {
     ...(context.publicDemo ? {title: context.project?.title ?? "Browser Project"} : {}),
-    schemaVersion: mapDefinitionVersionForLayers(persistentLayers, state.measurements ?? []),
+    schemaVersion,
     mapViews: mapViewsForSave(state.map, state.restoredMapViews ?? context.project?.mapViews),
     basemaps: basemapsForSave(context),
     bookmarks: context.project?.bookmarks ?? [],
@@ -17332,8 +17666,8 @@ export function currentProjectDefinition(context) {
     projection: state.globe ? "globe" : "mercator",
     terrain: terrainForSave(state.terrainEnabled, context.project?.terrain),
     openScene3d: openScene3dForSave(state.openScene3dEnabled),
-    ...(context.publicDemo ? {kmlLayerDocuments: true} : {}),
-    kmlPlaces: placesForSave(state.kmlPlaces),
+    kmlLayerDocuments: true,
+    kmlPlaces: schemaVersion === KML_MAP_DEFINITION_SCHEMA_VERSION ? null : placesForSave(state.kmlPlaces),
     kmlInterchangeReport: kmlReportForSave(state.kmlInterchangeReport),
     kmlNetworkLinkState: kmlNetworkLinkStateForSave(state.kmlNetworkLinkState),
     ...(state.portalConfiguration ? {portal: normalizePortalConfiguration(state.portalConfiguration)} : {}),
@@ -17350,12 +17684,12 @@ export function currentProjectDefinition(context) {
       objectId: layer.objectId,
       sourceUrl: layer.sourceUrl ?? layer.tileUrl,
       sourceConfiguration: layer.sourceConfiguration,
+      ...(layer.sourceType === "kml-places" ? kmlLayerForSave(context, layer) : {}),
       ...(context.publicDemo ? {
         browserCatalogId: layer.browserCatalogId, browserDraftData: layer.browserDraftData,
         ...(layer.tileUrl ? {tileUrl: layer.tileUrl} : {}),
         ...(layer.metadata ? {metadata: structuredClone(layer.metadata)} : {}),
-        ...(layer.browserDraftData !== false && context.dataByLayerId.has(layer.layerId) && layer.sourceType !== "kml-places" ? {geojson: context.dataByLayerId.get(layer.layerId)} : {}),
-        ...(layer.sourceType === "kml-places" ? kmlLayerForSave(context, layer) : {})
+        ...(layer.browserDraftData !== false && context.dataByLayerId.has(layer.layerId) && layer.sourceType !== "kml-places" ? {geojson: context.dataByLayerId.get(layer.layerId)} : {})
       } : {}),
       sourceLayer: layer.sourceLayer,
       sharedSourceId: layer.sharedSourceId,
@@ -18678,8 +19012,8 @@ function openProjectFile(context) {
           return;
         }
         const snapshot = readSavedProjectVersionFile(sourceText);
-        if (snapshot.definition.schemaVersion === "opengeo.map-definition.1.6.0") upgradeMapDefinition(snapshot.definition);
-        const supported = ["opengeo.map-definition.1.3.0", "opengeo.map-definition.1.4.0", "opengeo.map-definition.1.6.0"].includes(snapshot.definition.schemaVersion);
+        if (["opengeo.map-definition.1.6.0", KML_MAP_DEFINITION_SCHEMA_VERSION].includes(snapshot.definition.schemaVersion)) upgradeMapDefinition(snapshot.definition);
+        const supported = ["opengeo.map-definition.1.3.0", "opengeo.map-definition.1.4.0", "opengeo.map-definition.1.6.0", KML_MAP_DEFINITION_SCHEMA_VERSION].includes(snapshot.definition.schemaVersion);
         showProjectFileReview(context, {
           file, format: "OpenGeo Studio managed Project snapshot",
           inspected: `Saved version ${snapshot.version} · ${Array.isArray(snapshot.definition.layers) ? snapshot.definition.layers.length : 0} Layer references`,

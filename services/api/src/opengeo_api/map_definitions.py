@@ -15,6 +15,7 @@ MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.3.0"
 STYLE_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.4.0"
 DISPLAY_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.5.0"
 SURFACE_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.6.0"
+KML_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.7.0"
 PATH_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.2.0"
 PROCESSING_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.1.0"
 LEGACY_MAP_DEFINITION_SCHEMA_VERSION = "opengeo.map-definition.1.0.0"
@@ -157,6 +158,7 @@ def validate_map_definition(
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
         DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
         SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+        KML_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         raise ValueError(
             "map definition schemaVersion must be "
@@ -170,12 +172,14 @@ def validate_map_definition(
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
         DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
         SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+        KML_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         raise ValueError(
             f"map definition schemaVersion must be {MAP_DEFINITION_SCHEMA_VERSION} "
             f"or {STYLE_MAP_DEFINITION_SCHEMA_VERSION} or "
             f"{DISPLAY_MAP_DEFINITION_SCHEMA_VERSION} or "
-            f"{SURFACE_MAP_DEFINITION_SCHEMA_VERSION} for writes"
+            f"{SURFACE_MAP_DEFINITION_SCHEMA_VERSION} or "
+            f"{KML_MAP_DEFINITION_SCHEMA_VERSION} for writes"
         )
 
     layers = definition.get("layers", [])
@@ -183,12 +187,14 @@ def validate_map_definition(
         raise ValueError("map definition layers must be an array")
     if len(layers) > MAX_MAP_LAYERS:
         raise ValueError(f"map definition exceeds {MAX_MAP_LAYERS} layers")
+    _validate_kml_geometry_controls(definition, schema_version)
 
     for layer in layers:
         if isinstance(layer, dict) and "managedDisplayId" in layer:
             if schema_version not in {
                 DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
                 SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+                KML_MAP_DEFINITION_SCHEMA_VERSION,
             }:
                 raise ValueError("managedDisplayId requires native map definition 1.5.0 or later")
             if layer.get("sourceType") != "governed-dataset" or not layer.get("datasetVersionId"):
@@ -206,6 +212,7 @@ def validate_map_definition(
                 STYLE_MAP_DEFINITION_SCHEMA_VERSION,
                 DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
                 SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+                KML_MAP_DEFINITION_SCHEMA_VERSION,
             } or (
                 allow_import_references
                 and ("importRef" in layer or str(layer.get("datasetId", "")).startswith("import:"))
@@ -240,6 +247,7 @@ def validate_map_definition(
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
         DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
         SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+        KML_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         processing_fields = ("activeProcessingModelId", "models", "processingHistory")
         missing_processing_fields = [
@@ -270,19 +278,22 @@ def validate_map_definition(
         STYLE_MAP_DEFINITION_SCHEMA_VERSION,
         DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
         SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+        KML_MAP_DEFINITION_SCHEMA_VERSION,
     }:
         if "measurements" not in definition:
             raise ValueError("map definition is missing required field measurements")
         _validate_path_measurements(
             definition.get("measurements"),
             spatial_body,
-            allow_surface=schema_version == SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+            allow_surface=schema_version
+            in {SURFACE_MAP_DEFINITION_SCHEMA_VERSION, KML_MAP_DEFINITION_SCHEMA_VERSION},
             allow_area=schema_version
             in {
                 MAP_DEFINITION_SCHEMA_VERSION,
                 STYLE_MAP_DEFINITION_SCHEMA_VERSION,
                 DISPLAY_MAP_DEFINITION_SCHEMA_VERSION,
                 SURFACE_MAP_DEFINITION_SCHEMA_VERSION,
+                KML_MAP_DEFINITION_SCHEMA_VERSION,
             },
         )
     _validate_basemaps(definition.get("basemaps", []), spatial_body)
@@ -299,6 +310,63 @@ def validate_map_definition(
     if color_mode is not None and color_mode not in {"light", "dark"}:
         raise ValueError("colorMode must be light or dark")
     return definition
+
+
+def _validate_kml_geometry_controls(
+    definition: dict[str, Any], schema_version: Any
+) -> None:
+    documents = [definition.get("kmlPlaces")]
+    documents.extend(
+        layer.get("kmlDocument")
+        for layer in definition.get("layers", [])
+        if isinstance(layer, dict)
+    )
+    altitude_modes = {
+        "clampToGround",
+        "relativeToGround",
+        "absolute",
+        "gx:clampToSeaFloor",
+        "gx:relativeToSeaFloor",
+    }
+    for document in documents:
+        if not isinstance(document, dict) or not isinstance(document.get("children"), list):
+            continue
+        places = list(document["children"])
+        while places:
+            place = places.pop()
+            if not isinstance(place, dict):
+                continue
+            if place.get("kind") == "folder" and isinstance(place.get("children"), list):
+                places.extend(place["children"])
+            elif place.get("kind") == "placemark":
+                geometries = [place.get("geometry")]
+                while geometries:
+                    geometry = geometries.pop()
+                    if not isinstance(geometry, dict):
+                        continue
+                    if "kmlControls" in geometry:
+                        if schema_version != KML_MAP_DEFINITION_SCHEMA_VERSION:
+                            raise ValueError("geometry.kmlControls requires map definition 1.7.0")
+                        controls = geometry["kmlControls"]
+                        if (
+                            geometry.get("type") not in ("Point", "LineString", "Polygon")
+                            or not isinstance(controls, dict)
+                            or set(controls) != {"altitudeMode", "extrude", "tessellate"}
+                            or not (
+                                controls["altitudeMode"] is None
+                                or (
+                                    isinstance(controls["altitudeMode"], str)
+                                    and controls["altitudeMode"] in altitude_modes
+                                )
+                            )
+                            or not isinstance(controls["extrude"], bool)
+                            or not isinstance(controls["tessellate"], bool)
+                        ):
+                            raise ValueError("geometry.kmlControls is invalid on a KML geometry leaf")
+                    if geometry.get("type") == "GeometryCollection" and isinstance(
+                        geometry.get("geometries"), list
+                    ):
+                        geometries.extend(geometry["geometries"])
 
 
 def map_basemap_connection_references(definition: dict[str, Any]) -> tuple[UUID, ...]:

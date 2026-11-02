@@ -1,9 +1,12 @@
+import json
 from copy import deepcopy
+from pathlib import Path
 from uuid import UUID
 
 import pytest
 
 from opengeo_api.map_definitions import (
+    KML_MAP_DEFINITION_SCHEMA_VERSION,
     LEGACY_MAP_DEFINITION_SCHEMA_VERSION,
     MAP_DEFINITION_SCHEMA_VERSION,
     external_map_configuration,
@@ -868,8 +871,12 @@ def managed_display_definition():
     return document
 
 
-def test_native15_preserves_exact_managed_display_reference_and_prior_style_contract():
+@pytest.mark.parametrize(
+    "schema_version", ["opengeo.map-definition.1.5.0", KML_MAP_DEFINITION_SCHEMA_VERSION]
+)
+def test_native15_preserves_exact_managed_display_reference_and_prior_style_contract(schema_version):
     document = managed_display_definition()
+    document["schemaVersion"] = schema_version
     document["layers"][0]["styleReference"] = {
         "projectId": "50000000-0000-4000-8000-000000000002",
         "resourceId": "a0000000-0000-4000-8000-000000000002",
@@ -925,3 +932,174 @@ def test_managed_display_is_native15_layer_only_and_not_unresolved_import():
     document.pop("models")
     with pytest.raises(ValueError, match="models"):
         validate_map_definition(document, require_current=True)
+
+
+def kml_controls_definition(storage: str = "alias") -> dict:
+    document = definition()
+    document["schemaVersion"] = KML_MAP_DEFINITION_SCHEMA_VERSION
+    places = {
+        "kind": "document",
+        "children": [
+            {
+                "kind": "folder",
+                "children": [
+                    {
+                        "kind": "placemark",
+                        "geometry": {
+                            "type": "GeometryCollection",
+                            "geometries": [
+                                {
+                                    "type": "GeometryCollection",
+                                    "geometries": [
+                                        {
+                                            "type": "Point",
+                                            "coordinates": [85, 27, 100],
+                                            "kmlControls": {
+                                                "altitudeMode": "absolute",
+                                                "extrude": True,
+                                                "tessellate": False,
+                                            },
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                ],
+            }
+        ],
+    }
+    if storage == "alias":
+        document["kmlPlaces"] = places
+    else:
+        document["layers"][1]["kmlDocument"] = places
+    return document
+
+
+def kml_control_geometry(document: dict, storage: str = "alias") -> dict:
+    places = (
+        document["kmlPlaces"]
+        if storage == "alias"
+        else document["layers"][1]["kmlDocument"]
+    )
+    return places["children"][0]["children"][0]["geometry"]["geometries"][0]["geometries"][0]
+
+
+@pytest.mark.parametrize("storage", ["alias", "layer"])
+def test_native17_preserves_nested_kml_geometry_controls_after_json_roundtrip(storage: str):
+    document = kml_controls_definition(storage)
+    leaf = kml_control_geometry(document, storage)
+    for altitude_mode in [
+        None,
+        "clampToGround",
+        "relativeToGround",
+        "absolute",
+        "gx:clampToSeaFloor",
+        "gx:relativeToSeaFloor",
+    ]:
+        leaf["kmlControls"]["altitudeMode"] = altitude_mode
+        before = deepcopy(document)
+        assert validate_map_definition(document, require_current=True) is document
+        assert document == before
+        assert validate_map_definition(json.loads(json.dumps(document)), require_current=True) == before
+
+
+def test_native17_accepts_controls_on_each_supported_geometry_leaf():
+    document = kml_controls_definition()
+    leaf = kml_control_geometry(document)
+    for geometry_type, coordinates in [
+        ("Point", [85, 27, 100]),
+        ("LineString", [[85, 27, 100], [86, 28, 200]]),
+        ("Polygon", [[[85, 27, 100], [86, 27, 100], [86, 28, 100], [85, 27, 100]]]),
+    ]:
+        leaf.update(type=geometry_type, coordinates=coordinates)
+        assert validate_map_definition(document, require_current=True) is document
+
+
+@pytest.mark.parametrize("storage", ["alias", "layer"])
+def test_older_native_versions_reject_kml_geometry_controls(storage: str):
+    for schema_version in [None, *(f"opengeo.map-definition.1.{minor}.0" for minor in range(7))]:
+        document = kml_controls_definition(storage)
+        if schema_version is None:
+            document.pop("schemaVersion")
+        else:
+            document["schemaVersion"] = schema_version
+        with pytest.raises(ValueError, match=r"kmlControls requires map definition 1\.7\.0"):
+            validate_map_definition(document)
+
+
+@pytest.mark.parametrize(
+    "controls",
+    [
+        None,
+        [],
+        {},
+        {"altitudeMode": None, "extrude": False},
+        {"altitudeMode": None, "extrude": False, "tessellate": False, "extra": True},
+        {"altitudeMode": None, "extrude": 1, "tessellate": False},
+        {"altitudeMode": None, "extrude": False, "tessellate": "true"},
+        {"altitudeMode": "clampToSeaFloor", "extrude": False, "tessellate": False},
+        {"altitudeMode": "unknown", "extrude": False, "tessellate": False},
+        {"altitudeMode": {}, "extrude": False, "tessellate": False},
+        {"altitudeMode": False, "extrude": False, "tessellate": False},
+    ],
+)
+def test_native17_rejects_malformed_kml_geometry_controls(controls):
+    document = kml_controls_definition()
+    kml_control_geometry(document)["kmlControls"] = controls
+    with pytest.raises(ValueError, match=r"geometry\.kmlControls is invalid"):
+        validate_map_definition(document, require_current=True)
+
+
+def test_native17_rejects_kml_controls_on_geometry_collection():
+    document = kml_controls_definition()
+    geometry = document["kmlPlaces"]["children"][0]["children"][0]["geometry"]
+    geometry["kmlControls"] = kml_control_geometry(document)["kmlControls"]
+    with pytest.raises(ValueError, match=r"geometry\.kmlControls is invalid"):
+        validate_map_definition(document, require_current=True)
+
+
+def test_native17_kml_control_validation_does_not_scan_foreign_extensions():
+    document = definition()
+    document["extensions"]["other"] = {
+        "geometry": {"type": "Point", "kmlControls": {"provider": "opaque"}}
+    }
+    assert validate_map_definition(document, require_current=True) is document
+
+
+def test_native17_inherits_surface_measurements_without_modifying_their_records():
+    document = kml_controls_definition()
+    fixture_path = Path(__file__).resolve().parents[3] / "fixtures/map-measurements/polygon-3d.json"
+    document["measurements"] = json.loads(fixture_path.read_text())["records"]
+    before = deepcopy(document)
+    assert validate_map_definition(document, require_current=True) == before
+    document["measurements"][0]["summary"]["areaSquareMeters"] += 100
+    with pytest.raises(ValueError):
+        validate_map_definition(document, require_current=True)
+
+
+def test_native17_schema_preserves_inherited_contract_and_types_leaf_controls():
+    from jsonschema import Draft202012Validator, FormatChecker
+    from referencing import Registry, Resource
+
+    root = Path(__file__).resolve().parents[3]
+    schemas = [json.loads(path.read_text()) for path in (root / "schemas").glob("*.schema.json")]
+    registry = Registry().with_resources(
+        (schema["$id"], Resource.from_contents(schema)) for schema in schemas if "$id" in schema
+    )
+    schema = json.loads((root / "schemas/opengeo-map-definition-1.7.0.schema.json").read_text())
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema, registry=registry, format_checker=FormatChecker())
+    for storage in ["alias", "layer"]:
+        document = kml_controls_definition(storage)
+        validator.validate(document)
+        leaf = kml_control_geometry(document, storage)
+        for invalid in [None, {}, {"altitudeMode": None, "extrude": 0, "tessellate": False},
+                        {"altitudeMode": None, "extrude": False, "tessellate": False, "extra": True}]:
+            leaf["kmlControls"] = invalid
+            assert list(validator.iter_errors(document))
+    document = kml_controls_definition()
+    document["measurements"] = json.loads((root / "fixtures/map-measurements/polygon-3d.json").read_text())["records"]
+    validator.validate(document)
+    document["schemaVersion"] = "opengeo.map-definition.1.6.0"
+    assert list(validator.iter_errors(document))
