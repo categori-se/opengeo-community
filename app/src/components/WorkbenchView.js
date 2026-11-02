@@ -17222,6 +17222,7 @@ async function importKmlPlaces(context, file, parsed = null, reviewedLayer = nul
   updateKmlPresentation(context.shell, context.state);
   const layer = reviewedLayer ?? kmlPlacesLayer(parsed.document.name);
   layer.kmlDocument = parsed.document;
+  layer.kmlInterchangeReport = parsed.report;
   context.addLayer(layer, parsed.geojson);
   if (context.publicDemo) rememberBrowserLayer(context, {layer, geojson: parsed.geojson, kml: parsed});
   fitLayer(context.state.map, layer, context.dataByLayerId);
