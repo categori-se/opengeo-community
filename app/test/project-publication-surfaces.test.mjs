@@ -87,6 +87,66 @@ describe("publication project surfaces", () => {
     }
   });
 
+  it("retains legacy four-field Print frames without adding camera or projection fields", () => {
+    const map = printProjectFixture(), layout = newProjectPrintLayout(map, "legacy-camera");
+    delete layout.frames[0].projection;
+    const value = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
+    const before = structuredClone({map, value});
+    const saved = definitionWithPrintLayouts(map, value);
+    const reopened = projectPrintLayouts({...map, definition: JSON.parse(JSON.stringify(saved))});
+    assert.deepEqual(reopened, value);
+    assert.deepEqual(Object.keys(reopened.layouts[0].frames[0].view), ["center", "zoom", "pitch", "bearing"]);
+    assert.equal(Object.hasOwn(reopened.layouts[0].frames[0], "projection"), false);
+    const edited = definitionForPrintFrame({...map, definition: {...map.definition, projection: "globe"}}, reopened.layouts[0].frames[0]);
+    assert.equal(edited.projection, "globe", "legacy frames retain existing Project projection inheritance");
+    assert.deepEqual({map, value}, before);
+  });
+
+  it("preserves exact Print 3D camera and per-frame projection through save reopen and frame editing", () => {
+    for (const camera of [
+      {center: [12, 45], zoom: 5, pitch: 42, bearing: 23, roll: 17, elevation: 456.25, centerClampedToGround: false},
+      {center: [12, 45], zoom: 5, pitch: 0, bearing: 0, roll: 0, elevation: 0, centerClampedToGround: true}
+    ]) {
+      const map = printProjectFixture();map.definition.mapViews = [structuredClone(camera)];map.definition.projection = "globe";
+      const original = structuredClone(map);
+      const layout = newProjectPrintLayout(map, "extended-camera"), frame = layout.frames[0];
+      assert.deepEqual(frame.view, camera);assert.equal(frame.projection, "globe");
+      const value = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
+      const saved = definitionWithPrintLayouts(map, value);
+      const fresh = {...map, definition: JSON.parse(JSON.stringify(saved))};fresh.definition.projection = "mercator";
+      const reopened = projectPrintLayouts(fresh), reopenedFrame = reopened.layouts[0].frames[0];
+      assert.deepEqual(reopenedFrame, frame);
+      const edited = definitionForPrintFrame(fresh, reopenedFrame);
+      assert.equal(edited.projection, "globe");
+      assert.deepEqual(edited.mapViews, [{id: "print-view", title: frame.title, ...camera}]);
+      assert.equal(Object.hasOwn(edited.mapViews[0], "projection"), false);
+      edited.mapViews[0].center[0] = 99;
+      assert.deepEqual(reopenedFrame.view, camera);assert.deepEqual(frame.view, camera);
+      assert.deepEqual(map, original);assert.equal(fresh.definition.projection, "mercator");
+    }
+  });
+
+  it("rejects invalid Print extended camera and projection fields without normalizing them", () => {
+    const map = printProjectFixture(), layout = newProjectPrintLayout(map, "camera-validation");
+    const value = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
+    const invalid = [
+      ...[-180.01, 180.01, NaN, Infinity, "0", null, undefined].map(roll => frame => {frame.view.roll = roll;}),
+      ...[NaN, Infinity, -Infinity, "0", null, undefined].map(elevation => frame => {frame.view.elevation = elevation;}),
+      ...[0, 1, "false", null, undefined].map(clamping => frame => {frame.view.centerClampedToGround = clamping;}),
+      ...["", "orthographic", "GLOBE", null, undefined, {}].map(projection => frame => {frame.projection = projection;}),
+      frame => {frame.view.projection = "globe";}
+    ];
+    for (const mutate of invalid) {
+      const rejected = structuredClone(value);mutate(rejected.layouts[0].frames[0]);
+      const before = structuredClone(rejected);
+      assert.throws(() => validateProjectPrintLayouts(rejected, map));assert.deepEqual(rejected, before);
+    }
+    for (const roll of [-180, 180]) {
+      const accepted = structuredClone(value);Object.assign(accepted.layouts[0].frames[0].view, {roll, elevation: -123.5, centerClampedToGround: false});
+      assert.deepEqual(validateProjectPrintLayouts(accepted, map), accepted);
+    }
+  });
+
   it("retains source-bound print table and chart frames through exact layout save/reopen without copied data", () => {
     const map = printProjectFixture(), layout = newProjectPrintLayout(map, "data-layout");
     const legacy = {schemaVersion: "opengeo.project-print-layouts.1", projectId: map.id, layouts: [layout]};
@@ -233,6 +293,63 @@ describe("publication project surfaces", () => {
     assert.equal(reopened.querySelector('[aria-label="Layout title"]').value, saved.layouts[0].title);
     await [...reopened.querySelectorAll("button")].find(node => node.textContent === "Edit selected map frame").onclick();
     assert.deepEqual(opened, saved.layouts[0].frames[0]);root.dispose();reopened.dispose();
+  });
+
+  it("captures exact 3D camera and projection with honest raster furniture and metadata", async () => {
+    const record = printProjectFixture(), before = structuredClone(record);let render;
+    const camera = {center: [12, 45], zoom: 5, pitch: 35, bearing: 20, roll: 12, elevation: 120, centerClampedToGround: false};
+    const map = {isStyleLoaded: () => true, areTilesLoaded: () => true, isMoving: () => false,
+      getCanvas: () => ({width: 512, height: 256, clientWidth: 512, clientHeight: 256, toDataURL: () => "data:image/png;base64,aW1hZ2U="}),
+      getCenter: () => ({lng: camera.center[0], lat: camera.center[1]}), getZoom: () => camera.zoom,
+      getPitch: () => camera.pitch, getBearing: () => camera.bearing, getRoll: () => camera.roll,
+      getCenterElevation: () => camera.elevation, getCenterClampedToGround: () => camera.centerClampedToGround,
+      getProjection: () => ({type: "globe"}), getStyle: () => ({layers: [{id: "paint", type: "circle", paint: {"circle-color": "#06b6d4"}}]}),
+      once: (_event, callback) => {render = callback;}, triggerRepaint: () => render()};
+    const capture = () => capturePrintMap({map, renderer: "maplibre", ready: true, project: record.definition,
+      layers: record.definition.layers, handles: new Map([["wetlands", {layerIds: ["paint"]}]]), basemap: {attribution: "Globe source credit"}}, record);
+    const captured = await capture();
+    assert.deepEqual(captured.view, camera);assert.equal(captured.projection, "globe");assert.equal(captured.flat, false);
+    assert.equal(captured.metresPerPixel, null);assert.deepEqual(captured.lines, []);
+    assert.equal(captured.vectorScene, undefined);assert.match(captured.vectorUnavailable, /raster output/);
+    const layout = newProjectPrintLayout(record, "three-d");layout.sourceNotes = false;layout.graticule = true;
+    Object.assign(layout.frames[0], {view: captured.view, projection: captured.projection, presentation: captured.presentation});
+    const captures = new Map([["three-d:main", captured]]), svg = printPageSvg(layout, captures, layout.id);
+    assert.equal(svg.querySelectorAll("image").length, 1);
+    assert.equal(svg.querySelector("[data-print-north-label], [data-print-scale-bar], [data-print-grid-value]"), null);
+    assert.match(svg.textContent, /3D view; compass, measured scale and grid omitted/);
+    assert.match(svg.textContent, /Globe source credit/);
+    const metadata = JSON.parse(svg.querySelector("metadata").textContent);
+    assert.deepEqual(metadata.captures[0].view, camera);assert.equal(metadata.captures[0].projection, "globe");
+    assert.equal(metadata.captures[0].renderer, "maplibre");assert.equal(metadata.captures[0].flat, false);
+    layout.frames[0].projection = "mercator";
+    assert.throws(() => printPageSvg(layout, captures, layout.id), /Capture every map frame/);
+    assert.deepEqual(record, before);
+  });
+
+  it("refuses invalid camera captures and classifies rolled elevated unclamped and terrain views as nonflat", async () => {
+    const record = printProjectFixture();let render;
+    let roll = 0, elevation = 0, clamped = true, projection = "mercator", terrain = null, extrusion = false;
+    const map = {isStyleLoaded: () => true, areTilesLoaded: () => true, isMoving: () => false,
+      getCanvas: () => ({width: 10, height: 10, toDataURL: () => "data:image/png;base64,aW1hZ2U="}),
+      getCenter: () => ({lng: 0, lat: 0}), getZoom: () => 3, getPitch: () => 0, getBearing: () => 0,
+      getRoll: () => roll, getCenterElevation: () => elevation, getCenterClampedToGround: () => clamped,
+      getProjection: () => ({type: projection}), getTerrain: () => terrain,
+      getStyle: () => ({layers: [{id: "paint", type: extrusion ? "fill-extrusion" : "circle", paint: {"circle-color": "#06b6d4"}}]}),
+      once: (_event, callback) => {render = callback;}, triggerRepaint: () => render()};
+    const capture = () => capturePrintMap({map, renderer: "maplibre", ready: true, project: record.definition,
+      layers: record.definition.layers, handles: new Map([["wetlands", {layerIds: ["paint"]}]])}, record);
+    for (const kind of ["roll", "elevation", "clamping", "terrain", "extrusion"]) {
+      roll = kind === "roll" ? 10 : 0;elevation = kind === "elevation" ? 120 : 0;clamped = kind !== "clamping";
+      terrain = kind === "terrain" ? {source: "cached-elevation"} : null;extrusion = kind === "extrusion";
+      const value = await capture();assert.equal(value.flat, false, kind);assert.equal(value.metresPerPixel, null);assert.equal(value.vectorScene, undefined);
+    }
+    extrusion = false;terrain = null;clamped = false;
+    for (const invalid of ["roll-nonfinite", "roll-range", "elevation", "clamping", "projection"]) {
+      roll = invalid === "roll-nonfinite" ? Infinity : invalid === "roll-range" ? 181 : 0;
+      elevation = invalid === "elevation" ? NaN : 0;clamped = invalid === "clamping" ? "false" : false;
+      projection = invalid === "projection" ? "unrecognized" : "mercator";
+      await assert.rejects(capture(), /cannot be preserved/);
+    }
   });
 
   it("uses one rendered state for pixels/camera and a local scale sample at world zoom", async () => {

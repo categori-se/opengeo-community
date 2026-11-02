@@ -16,6 +16,7 @@ import {capturePrintVectorScene, assertPrintVectorScene} from "../lib/printVecto
 import {printMapPlacement, printGeoPdfRegistrations} from "../lib/printGeoPdf.js";
 import {appendPrintTextFrames} from "../lib/printTextSvg.js";
 import {hasPrintMath, preparePrintMath, printMathReady} from "../lib/printMathSvg.js";
+import {selectedFeaturePrintText} from "../lib/printTextFrames.js";
 
 // Layout metadata is saved explicitly. Map images remain an authorized browser capture.
 export function ProjectPrintEditor({state, workbench: initialWorkbench, editFrame, canSave = false, onSaved = () => {}, captureMap = capturePrintMap, persistence = "account"}) {
@@ -86,10 +87,11 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         onPhase: message => {if (!disposed) status.textContent = ({rendering: "Rendering the map at Print resolution…", capturing: "Reading rendered map pixels…", restoring: "Restoring the map display…"})[message] ?? message;}});
       if (!await current() || key(mapFrame()) !== selectedKey) return;
       selected.view = captured.view;selected.presentation = captured.presentation;
+      if (captured.projection !== undefined) selected.projection = captured.projection;
       validateProjectPrintLayouts(collection, mapRecord);
       captured.outputSignature = printCaptureOutputSignature(selected, layout().dpi);
       remember(previous);captures.set(selectedKey, captured);
-      status.textContent = `Captured ${selected.title}: ${captured.width} × ${captured.height} map pixels at ${layout().dpi} DPI within its frame. Capture again after changing its view, styling, dimensions or DPI.`;
+      status.textContent = `Captured ${selected.title}: ${captured.width} × ${captured.height} map pixels at ${layout().dpi} DPI within its frame. ${captured.flat === false ? "3D view: compass, measured scale and grid are omitted. " : ""}Capture again after changing its view, styling, dimensions or DPI.`;
     } catch (error) {collection = previous;status.textContent = error.message;}
     finally {captureController = null;busy = false;if (!disposed) render();}
   }
@@ -119,6 +121,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     for (const [id, captured] of captures) {
       const saved = retained.get(id), savedFrame = saved?.frame;
       if (!savedFrame || captured.signature !== canonicalJson({view: savedFrame.view, presentation: savedFrame.presentation})
+        || (captured.projection ?? "mercator") !== (savedFrame.projection ?? "mercator")
         || captured.outputSignature !== printCaptureOutputSignature(savedFrame, saved.dpi)) captures.delete(id);
     }
     const selected = layout(), selectedFrame = frame();
@@ -150,6 +153,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     controls.append(selectField("Main map legend display", selected.legendFormat ?? "swatches", [["swatches", "Swatches"], ["classed-bars", "Classed color bars"], ["color-bars", "Classed and continuous color bars"]], value => change(() => {
       if (value === "swatches") delete layout().legendFormat;else layout().legendFormat = value;
     })), el("small", "Classed bars use equal-height bands. Continuous bars follow a linear saved Style or an explicit one-band raster display range. Source credits and recorded license status remain in every output."));
+    controls.append(el("small", "Tilted, rolled, globe and terrain views export as captured images. Their compass, measured scale and grid are omitted with a visible note; vector and geospatial PDF need a flat Earth Mercator view."));
     controls.append(inputField("Caption", selected.caption, "text", value => change(() => {layout().caption = value;})),
       selectField("Map frame", mapFrame().id, selected.frames.map(item => [item.id, item.title]), id => {frameId = id;render();}));
     if (selected.dataFrames?.length || selected.textFrames?.length) controls.append(selectField("Arrange item", selectedFrame.id,
@@ -177,6 +181,17 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         yMm: Math.max(0, Math.min(main.yMm + 5, page.heightMm - height)), widthMm: width, heightMm: height, fontSizePt: 10, color: "#17212b", background: "#ffffff", alignment: "left"};
       (layout().textFrames ??= []).push(item);frameId = item.id;
     })));
+    controls.append(button("Add selected feature description", () => change(() => {
+      if ((layout().textFrames?.length ?? 0) >= 8) throw Error("A layout supports at most eight text blocks.");
+      const description = selectedFeaturePrintText(workbench.getPrintContext?.()?.getSelectedPrintFeature?.());
+      const page = layout().page, main = layout().frames[0];
+      const widthMm = Math.min(110, page.widthMm - 2 * page.marginMm), heightMm = Math.min(70, page.heightMm - 2 * page.marginMm);
+      const item = {id: crypto.randomUUID(), type: "text", ...description,
+        xMm: Math.max(0, Math.min(main.xMm + 5, page.widthMm - widthMm)),
+        yMm: Math.max(0, Math.min(main.yMm + 5, page.heightMm - heightMm)), widthMm, heightMm,
+        fontSizePt: 10, color: "#17212b", background: "#ffffff", alignment: "left"};
+      (layout().textFrames ??= []).push(item);frameId = item.id;
+    })), el("small", "Select a feature in the map's Table or Search, then add its description. This copies its name, description and Layer identities into editable literal text. Later feature changes do not rewrite the text."));
     if (selectedFrame.type === "table" || selectedFrame.type === "chart") renderDataFrameControls(selectedFrame);
     if (["text", "math"].includes(selectedFrame.type)) {
       const math = selectedFrame.type === "math", contentLabel = math ? "Equation (LaTeX)" : "Text content";
@@ -302,6 +317,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       const capture = captures.get(key(item));
       if (!capture) return `Capture every map frame before exporting this layout. ${item.title} still needs a capture.`;
       if (capture.signature !== canonicalJson({view: item.view, presentation: item.presentation})
+        || (capture.projection ?? "mercator") !== (item.projection ?? "mercator")
         || capture.outputSignature !== undefined && capture.outputSignature !== printCaptureOutputSignature(item, layout().dpi)) {
         return `${item.title}: capture again after changing its view, styling, dimensions or DPI.`;
       }
@@ -665,14 +681,26 @@ async function capturePrintCanvas(context, mapRecord, dataFrames, signal) {
 function collectPrintSnapshot(context, mapRecord, canvas, requestedDataFrames) {
   const map = context.map, width = canvas.width, height = canvas.height;
   const center = map.getCenter(), view = {center: [center.lng, center.lat], zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing()};
+  const extended = {roll: map.getRoll?.() ?? 0, elevation: map.getCenterElevation?.() ?? 0,
+    centerClampedToGround: map.getCenterClampedToGround?.() ?? true};
+  if (!Number.isFinite(extended.roll) || Math.abs(extended.roll) > 180 || !Number.isFinite(extended.elevation)
+    || typeof extended.centerClampedToGround !== "boolean") throw Error("The map camera cannot be preserved in this Print frame.");
+  // Default flat cameras retain their established four-field representation.
+  // Extended cameras include all three values, including explicit zero/false.
+  if (extended.roll !== 0 || extended.elevation !== 0 || extended.centerClampedToGround === false) Object.assign(view, extended);
   const cssWidth = canvas.clientWidth || width, cssHeight = canvas.clientHeight || height;
   const projection = map.getProjection?.()?.type ?? context.project?.projection ?? "mercator";
-  const flat = view.pitch === 0 && projection === "mercator" && (context.project?.spatialBody?.id ?? "earth") === "earth";
+  if (!["mercator", "globe"].includes(projection)) throw Error("This map projection cannot be preserved in a Print frame.");
+  const style = map.getStyle();
+  const flat = view.pitch === 0 && extended.roll === 0 && extended.elevation === 0 && extended.centerClampedToGround
+    && projection === "mercator" && (context.project?.spatialBody?.id ?? "earth") === "earth"
+    && !map.getTerrain?.() && !style.terrain
+    && !style.layers.some(layer => layer.type === "fill-extrusion" && layer.layout?.visibility !== "none");
   let dataUrl;
   try {dataUrl = canvas.toDataURL("image/png");} catch {throw Error("This map contains imagery that the browser cannot export. Its sources and access remain unchanged.");}
   if (!/^data:image\/png;base64,/.test(dataUrl) || dataUrl.length > 11_184_836) throw Error("The map image exceeds its 8 MiB capture allowance.");
   const presentation = context.layers.map(printLayerPresentation);
-  const style = map.getStyle(), legend = [], displayNotes = [], numericLegends = [], continuousLegends = [], rasterLegends = [];
+  const legend = [], displayNotes = [], numericLegends = [], continuousLegends = [], rasterLegends = [];
   for (const layer of context.layers.filter(item => item.visible !== false)) {
     const handle = context.handles.get(layer.layerId);
     const paints = style.layers.filter(item => handle?.layerIds?.includes(item.id) && !handle?.clusterLayerIds?.includes(item.id));
@@ -747,8 +775,9 @@ function collectPrintSnapshot(context, mapRecord, canvas, requestedDataFrames) {
     curatedAttribution: typeof layer.metadata?.curated?.attribution === "string" ? plainText(layer.metadata.curated.attribution) : null}));
   const dataFrames = capturePrintDataFrames(context, mapRecord, requestedDataFrames, presentation);
   let vectorScene, vectorUnavailable;
-  try {vectorScene = capturePrintVectorScene(context, mapRecord);} catch (error) {vectorUnavailable = error.message;}
-  return {dataUrl, width, height, cssWidth, cssHeight, view, presentation, signature: canonicalJson({view, presentation}), legend, numericLegends, continuousLegends, dataFrames, attribution, displayNotes, sourceMetadata, lines, metresPerPixel, flat,
+  if (!flat) vectorUnavailable = "3D, globe and terrain views require a raster output; vector and geospatial PDF need a flat Earth Mercator view";
+  else try {vectorScene = capturePrintVectorScene(context, mapRecord);} catch (error) {vectorUnavailable = error.message;}
+  return {dataUrl, width, height, cssWidth, cssHeight, view, projection, presentation, signature: canonicalJson({view, presentation}), legend, numericLegends, continuousLegends, dataFrames, attribution, displayNotes, sourceMetadata, lines, metresPerPixel, flat,
     ...(rasterLegends.length ? {rasterLegends} : {}),
     ...(vectorScene ? {vectorScene} : {vectorUnavailable}),
     projectId: mapRecord.id, projectVersion: mapRecord.version};
@@ -1047,6 +1076,7 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   if (!preview) for (const frame of layout.frames) {
     const captured = captures.get(`${layoutId}:${frame.id}`);
     if (captured && (captured.signature !== canonicalJson({view: frame.view, presentation: frame.presentation})
+      || (captured.projection ?? "mercator") !== (frame.projection ?? "mercator")
       || captured.outputSignature !== undefined && captured.outputSignature !== printCaptureOutputSignature(frame, layout.dpi)))
       throw Error("Capture every map frame again after changing its view, styling, dimensions or DPI.");
   }
@@ -1055,6 +1085,7 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   const metadata = svgNode("metadata", {});metadata.textContent = JSON.stringify({layout,
     ...(mapRepresentation === "vector" ? {mapRepresentation: "vector", geographicRegistration: false} : {}),
     captures: layout.frames.map(frame => {const captured = captures.get(`${layoutId}:${frame.id}`);return captured ? {frameId: frame.id, projectId: captured.projectId, projectVersion: captured.projectVersion, imageSha256: captured.imageSha256, width: captured.width, height: captured.height,
+      ...(captured.projection !== undefined ? {renderer: "maplibre", projection: captured.projection, view: captured.view, flat: captured.flat} : {}),
       ...(captured.outputSignature !== undefined ? {outputSignature: captured.outputSignature} : {}),
       ...(mapRepresentation === "vector" ? {vectorMap: vectorSceneMetadata(captured)} : {}),
       continuousLegends: [...continuousLegendGroups(captured).values()],
@@ -1085,8 +1116,7 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
     if (mapRepresentation === "vector") mapContent.append(vectorSceneSvg(captured, {x, y, width: w, height: h}));
     else mapContent.append(svgNode("image", {href: captured.dataUrl, x, y, width: w, height: h}));
     const occupied = [], furniture = [];
-    if (layout.northArrow) {
-      if (!captured.flat) throw Error("This north arrow requires an unpitched Earth Mercator frame. Adjust the map and capture again.");
+    if (layout.northArrow && captured.flat) {
       const px = x + w - 9, py = y + 11, angle = -captured.view.bearing * Math.PI / 180;
       const corners = [[-3.5, -11.5], [3.5, -11.5], [-3.5, 4.5], [3.5, 4.5]]
         .map(([dx, dy]) => [px + dx * Math.cos(angle) - dy * Math.sin(angle), py + dx * Math.sin(angle) + dy * Math.cos(angle)]);
@@ -1095,8 +1125,8 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
       arrow.append(svgNode("path", {d: "M0 -6 L3 4 L0 2 L-3 4 Z", fill: "#17212b", stroke: "white", "stroke-width": 0.4}),
         annotationText("N", -1.5, -8, 3, {"data-print-north-label": ""}));furniture.push(arrow);
     }
-    if (layout.scaleBar) {
-      if (!captured.flat || !(captured.metresPerPixel > 0)) throw Error("A measured scale bar requires an unpitched Earth Mercator frame. Adjust the map and capture again.");
+    if (layout.scaleBar && captured.flat) {
+      if (!(captured.metresPerPixel > 0)) throw Error("A measured scale bar requires an unpitched Earth Mercator frame. Adjust the map and capture again.");
       const target = captured.metresPerPixel * captured.cssWidth / 4, magnitude = 10 ** Math.floor(Math.log10(target));
       const metres = [1, 2, 5, 10].map(value => value * magnitude).filter(value => value <= target).at(-1);
       const length = metres / (captured.metresPerPixel * captured.cssWidth) * w, start = x + 4, end = start + length;
@@ -1113,9 +1143,8 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
         annotationText(distance, end, y + h - 9, distanceSize, {"data-print-scale-label": "end"}),
         annotationText(note, noteX, y + h - 2.5, noteSize, {"data-print-scale-label": "note"}));
     }
-    if (layout.graticule && !captured.flat) throw Error("Latitude/longitude grids require an unpitched Earth Mercator frame. Adjust the map and capture again.");
     const grid = [];
-    if (layout.graticule) for (const line of captured.lines) {
+    if (layout.graticule && captured.flat) for (const line of captured.lines) {
       const points = line.points.map(point => [x + point[0] * w, y + point[1] * h]);
       const path = svgNode("polyline", {points: points.map(point => point.join(",")).join(" "), fill: "none", stroke: "#475569", "stroke-width": 0.15, "stroke-dasharray": "1 1", "data-print-grid-value": line.label});
       const title = svgNode("title", {});title.textContent = line.label;path.append(title);mapContent.append(path);
@@ -1223,6 +1252,8 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   const licenses = [...new Set(layout.frames.flatMap(frame => captures.get(`${layoutId}:${frame.id}`)?.sourceMetadata ?? [])
     .map(source => `${plainText(source.title ?? "Layer")} · License: ${typeof source.license === "string" && source.license.trim() ? plainText(source.license).trim() : "not recorded"}`))];
   const notes = [...new Set(layout.frames.flatMap(frame => captures.get(`${layoutId}:${frame.id}`)?.attribution ?? [])), ...licenses,
+    ...layout.frames.filter(frame => captures.get(`${layoutId}:${frame.id}`)?.flat === false)
+      .map(frame => `${frame.title}: 3D view; compass, measured scale and grid omitted.`),
     ...(layout.sourceNotes ? [...new Set(layout.frames.flatMap(frame => captures.get(`${layoutId}:${frame.id}`)?.displayNotes ?? []))] : []),
     ...(layout.sourceNotes && mainCapture ? [`Project ${mainCapture.projectId} · revision ${mainCapture.projectVersion}`] : []), layout.caption].filter(Boolean).join(" · ");
   const maximum = Math.floor((page.widthMm - 2 * page.marginMm) / 1.1);

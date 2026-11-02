@@ -45,6 +45,53 @@ async function uploadTemplate(text) {
   Object.defineProperty(input, "files", {value: [{size: new TextEncoder().encode(text).length, text: async () => text}]});await input.onchange();
 }
 
+test("selected feature descriptions create editable literal frames with undo and exact save/reopen", async () => {
+  const {map} = fixture(), original = structuredClone(map);
+  let selection = {feature: {type: "Feature", id: 0, properties: {name: "Survey station", description: 'Water level <reviewed> & stable\nObservation: 12 m'}},
+    layer: {layerId: "water", title: "Watersheds", datasetId: "dataset", datasetVersionId: "version", sourceVersion: 0, featureGeneration: 7}};
+  const workbench = document.createElement("div");workbench.getPrintContext = () => ({getSelectedPrintFeature: () => structuredClone(selection)});
+  let saved, writes = 0;
+  editor(map, {workbench, adapter: {updateMap: async (projectId, mapId, request) => {
+    assert.equal(projectId, "account");assert.equal(mapId, "map");assert.equal(request.expectedVersion, 3);writes++;
+    saved = {...map, version: 4, definition: request.changes.definition};return saved;
+  }}});
+  await click("Add selected feature description");
+  const content = root.querySelector('[aria-label="Text content"]').value;
+  assert.match(content, /Survey station\n\nWater level <reviewed> & stable/);
+  assert.match(content, /Source revision: 0\nFeature generation: 7\nFeature ID: 0$/);
+  assert.equal(root.querySelector("reviewed"), null, "feature markup remains literal");
+  selection.feature.properties.description = "Changed source";
+  await click("Undo layout change");assert.equal(root.querySelector('[aria-label="Text content"]'), null);
+  await click("Redo layout change");
+  field("Arrange item", [...root.querySelector('[aria-label="Arrange item"]').options].find(option => option.textContent === "Text · Survey station").value);
+  assert.equal(root.querySelector('[aria-label="Text content"]').value, content);
+  field("Text content", `${content}\nChecked by editor`);
+  await click("Save layout");assert.equal(writes, 1);assert.equal(root.hasUnsavedChanges(), false);
+  assert.deepEqual(map, original, "Print does not mutate the source map or feature");
+  const stored = projectPrintLayouts(saved).layouts[0].textFrames[0];
+  assert.equal(stored.type, "text");assert.equal(stored.title, "Survey station");assert.equal(stored.text, `${content}\nChecked by editor`);
+  assert.equal(Object.hasOwn(stored, "source"), false, "description is a deliberate editable snapshot");
+  root.dispose();root.remove();editor(JSON.parse(JSON.stringify(saved)), {workbench});
+  field("Arrange item", stored.id);
+  assert.equal(root.querySelector('[aria-label="Text content"]').value, stored.text);
+  assert.match(root.querySelector(".print-stage").textContent, /Survey station/);
+  assert.equal(root.querySelector("reviewed"), null);assert.equal(root.hasUnsavedChanges(), false);
+});
+
+test("unavailable and oversized selected descriptions preserve the layout and its undo history", async () => {
+  const {map} = fixture();let selection = null, writes = 0;
+  const workbench = document.createElement("div");workbench.getPrintContext = () => ({getSelectedPrintFeature: () => selection});
+  editor(map, {workbench, adapter: {updateMap: async () => {writes++;}}});
+  await click("Add selected feature description");assert.match(status(), /Select.*feature/i);assert.equal(root.hasUnsavedChanges(), false);
+  selection = {feature: {type: "Feature", properties: {name: "Station"}}, layer: {title: "Survey", layerId: "survey"}};
+  await click("Add selected feature description");assert.match(status(), /description/);assert.equal(root.hasUnsavedChanges(), false);
+  selection.feature.properties.description = "x".repeat(4001);
+  await click("Add selected feature description");assert.match(status(), /4,000/);assert.equal(root.hasUnsavedChanges(), false);
+  assert.equal(root.querySelector('[aria-label="Text content"]'), null);
+  assert.equal([...root.querySelectorAll("button")].find(node => node.textContent === "Undo layout change").disabled, true);
+  assert.equal(writes, 0);
+});
+
 test("native QGIS import reviews rebinding before adding a source-free Project template", async () => {
   const {map} = fixture();editor(map);
   const xml = await readFile(new URL("fixtures/qgis-3.44.14-source-free.qpt", import.meta.url), "utf8");
