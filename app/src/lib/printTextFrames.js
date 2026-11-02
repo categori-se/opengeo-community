@@ -2,6 +2,66 @@
 export const PRINT_TEXT_FRAME_KEYS = ["id", "type", "title", "text", "xMm", "yMm", "widthMm", "heightMm", "fontSizePt", "color", "background", "alignment"];
 const forbiddenControls = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u;
 
+/**
+ * Snapshot only a selected feature's literal description and source identities.
+ * CRLF/CR become LF and tabs become four spaces to satisfy the existing text
+ * frame contract. Markup, entities and URLs remain literal; nothing is fetched.
+ */
+export function selectedFeaturePrintText(selection) {
+  const invalidSelection = "Select a loaded feature with a description in the Print map before adding its description.";
+  const feature = selectionField(selection, "feature"), layer = selectionField(selection, "layer");
+  if (selectionField(feature, "type") !== "Feature" || !layer) throw Error(invalidSelection);
+  const properties = selectionField(feature, "properties");
+  const description = selectionLiteral(selectionField(properties, Object.hasOwn(properties ?? {}, "description") ? "description" : "Description"),
+    "The selected feature needs a nonempty text description (description or Description).", true);
+  const layerTitle = selectionLiteral(selectionField(layer, "title"), "The selected feature needs a known Layer title.");
+  const layerId = selectionIdentity(selectionField(layer, "layerId"), "Layer ID", true);
+  const featureId = selectionIdentity(selectionField(feature, "id"), "Feature ID");
+  let title = null;
+  for (const key of ["name", "title"]) {
+    const value = selectionField(properties, key);
+    if (value === undefined || value === null || value === "") continue;
+    title = selectionLiteral(value, `The selected feature's ${key} must be nonempty single-line text.`);
+    break;
+  }
+  title ??= featureId === null ? "Selected feature" : `Feature ${featureId}`;
+  if (title.length > 200) throw Error("The selected feature title exceeds the 200-character Print title limit. Use a shorter authored text block.");
+  const sources = [`Layer: ${layerTitle}`, `Layer ID: ${layerId}`];
+  for (const [key, label] of [["datasetId", "Dataset ID"], ["datasetVersionId", "Dataset version ID"], ["sourceVersion", "Source revision"], ["featureGeneration", "Feature generation"]]) {
+    const value = selectionIdentity(selectionField(layer, key), label);
+    if (value !== null) sources.push(`${label}: ${value}`);
+  }
+  if (featureId !== null) sources.push(`Feature ID: ${featureId}`);
+  const value = `${title}\n\n${description}\n\n${sources.join("\n")}`;
+  if (value.length > 4000) throw Error("The selected feature description and source identities exceed the 4,000-character Print text limit. Use a shorter authored text block.");
+  return {title, text: value};
+}
+
+function selectionField(record, key) {
+  if (!record || typeof record !== "object" || Array.isArray(record) || ![Object.prototype, null].includes(Object.getPrototypeOf(record))) return undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(record, key);
+  if (!descriptor) return undefined;
+  if (!Object.hasOwn(descriptor, "value")) throw Error("Select a loaded feature with ordinary literal description and source fields.");
+  return descriptor.value;
+}
+function selectionLiteral(value, message, multiline = false) {
+  if (typeof value !== "string") throw Error(message);
+  const normalized = value.replace(/\r\n?/g, "\n").replace(/\t/g, "    ");
+  if (!normalized.trim()) throw Error(message);
+  if (forbiddenControls.test(normalized) || (!multiline && normalized.includes("\n"))) {
+    throw Error("Selected feature text must use literal text with LF line breaks and no other controls; source identities and titles must fit on one line.");
+  }
+  return normalized;
+}
+function selectionIdentity(value, label, required = false) {
+  if (value === undefined || value === null) {
+    if (required) throw Error(`The selected feature needs a known ${label}.`);
+    return null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return selectionLiteral(value, `${label} must be a nonempty literal string or finite number.`);
+}
+
 /** Validate the closed, page-bounded text frames without changing caller data. */
 export function validatePrintTextFrames(frames, page, existingIds = []) {
   array(frames);

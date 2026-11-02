@@ -88,6 +88,7 @@ test("changed map/style/camera/padding/source pin/viewport and GPU clamping cann
     ({context}) => {context.state.map = null;},
     ({style}) => {style.layers[0].paint["circle-color"] = "#ff0000";},
     ({camera}) => {camera.zoom++;},
+    ({map}) => {map.getProjection = () => ({type: "globe"});},
     ({padding}) => {padding.left++;},
     ({layers}) => {layers[0].datasetVersionId = "version-8";},
     ({canvas}) => {canvas.clientWidth++;}

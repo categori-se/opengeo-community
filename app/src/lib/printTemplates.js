@@ -98,10 +98,11 @@ export function layoutFromTemplate(template, map, id = crypto.randomUUID(), bind
     if (!byId.has(bindings[slot]) || byId.get(bindings[slot]).visible === false) throw Error("Bind every template data slot to a visible current Project Layer.");
   }
   const camera = map?.definition?.mapViews?.[0] ?? {};
-  const view = {center: structuredClone(camera.center ?? [0, 0]), zoom: camera.zoom ?? 2, pitch: camera.pitch ?? 0, bearing: camera.bearing ?? 0};
+  const view = {center: structuredClone(camera.center ?? [0, 0]), zoom: camera.zoom ?? 2, pitch: camera.pitch ?? 0, bearing: camera.bearing ?? 0,
+    ...Object.fromEntries(["roll", "elevation", "centerClampedToGround"].filter(key => Object.hasOwn(camera, key)).map(key => [key, camera[key]]))};
   const result = {id, title: value.name, ...pick(value, ["page", "dpi", ...furnitureKeys, "caption"]),
     ...(Object.hasOwn(value, "legendFormat") ? {legendFormat: value.legendFormat} : {}),
-    frames: value.frames.map(frame => ({...structuredClone(frame), view: structuredClone(view), presentation: layers.map(presentation)}))};
+    frames: value.frames.map(frame => ({...structuredClone(frame), view: structuredClone(view), projection: map?.definition?.projection ?? "mercator", presentation: layers.map(presentation)}))};
   if (Object.hasOwn(value, "dataFrames")) result.dataFrames = value.dataFrames.map(frame => {
     const {sourceSlot, ...configuration} = frame, layer = byId.get(bindings[sourceSlot]);
     return {...structuredClone(configuration), source: Object.fromEntries(sourceKeys.map(key => [key, layer[key] ?? null]))};

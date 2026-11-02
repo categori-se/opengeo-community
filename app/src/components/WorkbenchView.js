@@ -949,6 +949,13 @@ function createWorkbenchView({
     cancelDrillDownIdentify(context);
     const location = event.lngLat?.wrap?.() ?? event.lngLat;
     state.activeLayerId = layer.layerId;
+    // Renderer IDs may differ from source IDs. Only bind an exact resident
+    // match; Table and Search also provide an explicit feature selection.
+    const resident = context.dataByLayerId.get(layer.layerId)?.features ?? [];
+    const matches = resident.map((feature, index) => ({feature, index}))
+      .filter(({feature}) => feature.id != null && feature.id === features[0]?.id);
+    state.selectedFeatureIndex = matches.length === 1 ? matches[0].index : null;
+    rememberPrintFeatureSelection(context, layer, matches.length === 1 ? matches[0].feature : null, state.selectedFeatureIndex);
     state.identifyReport = {location: [location.lng, location.lat], bufferMeters: 0, omittedLayerCount: 0,
       layers: [{status: "ready", layerId: layer.layerId, title: layer.title, displayOnly: true,
         result: {source: "displayed-preview", features, numberReturned: features.length}}]};
@@ -956,6 +963,7 @@ function createWorkbenchView({
   };
 
   state.onKmlFeatureClick = (layer, event) => {
+    context.printFeatureSelection = null;
     state.activeLayerId = layer.layerId;
     syncKmlLayerContext(context);
     const place = findKmlPlaceForUi(state.kmlPlaces, event.features?.[0]?.id);
@@ -975,6 +983,7 @@ function createWorkbenchView({
     handles: state.layerHandles,
     withPrintResolution: (options, capture) => withPrintResolution(context, options, capture),
     getPrintDataSource: layerId => analysisInputLayers(context).find(item => item.id === layerId) ?? null,
+    getSelectedPrintFeature: () => selectedPrintFeature(context),
     basemap: activeBasemap(context),
     project: currentProjectDefinition(context),
     savedProjectOrigin: context.savedProjectOrigin,
@@ -1466,6 +1475,7 @@ export async function withPrintResolution(context, {maxWidth, maxHeight, signal,
   if (!Object.hasOwn(map, "_overridePixelRatio")) throw Error("This renderer cannot preserve its pixel ratio mode for print capture.");
   const previousRatio = map._overridePixelRatio ?? null, camera = captureMapView(map);
   const padding = JSON.stringify(map.getPadding?.() ?? null), style = JSON.stringify(map.getStyle());
+  const projection = JSON.stringify(map.getProjection?.() ?? current.project?.projection ?? "mercator");
   const presentation = JSON.stringify(current.layers.map(printLayerPresentation));
   if (style.length > 40_000_000) throw Error("The installed map is too large to capture safely.");
   const controller = new AbortController(), token = {};
@@ -1477,6 +1487,7 @@ export async function withPrintResolution(context, {maxWidth, maxHeight, signal,
     if (context.disposed || latest?.map !== map || latest.renderer !== "maplibre" || !latest.ready
       || map.getCanvas() !== canvas || canvas.clientWidth !== cssWidth || canvas.clientHeight !== cssHeight
       || !sameRendererCamera(camera, captureMapView(map)) || padding !== JSON.stringify(map.getPadding?.() ?? null)
+      || projection !== JSON.stringify(map.getProjection?.() ?? latest.project?.projection ?? "mercator")
       || style !== JSON.stringify(map.getStyle()) || presentation !== JSON.stringify(latest.layers.map(printLayerPresentation))) {
       throw Error("The map changed while capturing. Wait for it to settle, then capture again.");
     }
@@ -1755,7 +1766,10 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
     const scene=context.state.map.scene;
     const pick=scene.onPick(({feature})=>{
       context.state.cesiumSelection=feature;
-      if(feature){context.state.activeLayerId=feature.layerId;context.state.selectedFeatureIndex=feature.featureIndex;}
+      if(feature){context.state.activeLayerId=feature.layerId;context.state.selectedFeatureIndex=feature.featureIndex;
+        const layer=context.layers.find(item=>item.layerId===feature.layerId);
+        rememberPrintFeatureSelection(context,layer,context.dataByLayerId.get(feature.layerId)?.features?.[feature.featureIndex],feature.featureIndex);
+      } else context.printFeatureSelection = null;
       context.state.activePanel="identify";context.state.rightOpen=true;context.render();
     });
     const camera=scene.onCameraChange(()=>updateStatusbar(context.shell.querySelector(".gis-statusbar"),context));
@@ -5832,6 +5846,7 @@ function searchPanel(context) {
       if (context.disposed) return;
       state.activeLayerId = hit.layer.layerId;
       state.selectedFeatureIndex = hit.index;
+      rememberPrintFeatureSelection(context, hit.layer, hit.feature, hit.index);
       zoomToFeature(context, hit.layer, hit.feature);
       setStatus(context, `Found ${hit.title} in Layer ${hit.layer.title}.`);
       context.render();
@@ -16153,6 +16168,7 @@ function syncQueryResultLayer(context, features) {
         state.querySelectedFeatureId = featureId;
         const index = state.queryResult?.features.findIndex(({id}) => id === featureId) ?? -1;
         state.selectedFeatureIndex = index >= 0 ? index : null;
+        rememberPrintFeatureSelection(context, activeLayer(context), state.queryResult?.features[index], index, state.queryResult);
         syncQueryResultLayer(context, state.queryResult?.features ?? []);
         context.render();
       });
@@ -20045,6 +20061,8 @@ function attributeTable(rows, context, layer, {onSelect = null} = {}) {
     const selectRow = () => {
       context.state.selectedFeatureIndex = row.index;
       onSelect?.(row);
+      rememberPrintFeatureSelection(context, layer, row.feature, row.index,
+        onSelect ? context.state.queryResult : context.dataByLayerId.get(layer.layerId));
       zoomToFeature(context, layer, row.feature);
       context.render();
       requestAnimationFrame(() => context.shell
@@ -20382,6 +20400,31 @@ function addSource(id) {
 
 function activeLayer(context) {
   return context.layers.find((layer) => layer.layerId === context.state.activeLayerId) ?? context.layers[0] ?? null;
+}
+
+function rememberPrintFeatureSelection(context, layer, feature, index, collection = context.dataByLayerId.get(layer?.layerId)) {
+  context.printFeatureSelection = feature && collection?.features?.[index] === feature ? {
+    layer, feature, index, collection,
+    pins: [layer.datasetId, layer.datasetVersionId, layer.sourceVersion, layer.featureGeneration]
+  } : null;
+}
+
+function selectedPrintFeature(context) {
+  const selected = context.printFeatureSelection;
+  if (context.disposed || !selected) return null;
+  const {layer, feature, index, collection, pins} = selected;
+  if (!context.layers.includes(layer) || context.state.activeLayerId !== layer.layerId
+    || context.state.selectedFeatureIndex !== index || collection.features?.[index] !== feature
+    || (context.dataByLayerId.get(layer.layerId) !== collection && context.state.queryResult !== collection)
+    || pins.some((value, i) => value !== [layer.datasetId, layer.datasetVersionId, layer.sourceVersion, layer.featureGeneration][i])) return null;
+  // Geometry, transport URLs, unrelated attributes and live selection state
+  // never enter the literal Print snapshot.
+  const properties = Object.fromEntries(["name", "title", "description", "Description"]
+    .filter(key => Object.hasOwn(feature.properties ?? {}, key)).map(key => [key, feature.properties[key]]));
+  return structuredClone({feature: {type: feature.type, ...(feature.id == null ? {} : {id: feature.id}), properties},
+    layer: {layerId: layer.layerId, title: layer.title, datasetId: layer.datasetId,
+      datasetVersionId: layer.datasetVersionId, sourceVersion: layer.sourceVersion,
+      featureGeneration: collection === context.state.queryResult ? collection.generation : layer.featureGeneration}});
 }
 
 function propertyFields(geojson) {

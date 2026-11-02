@@ -30,6 +30,23 @@ function validateBound(layout, map) {
 }
 function deepFreeze(value) {if (value && typeof value === "object") {Object.values(value).forEach(deepFreeze);Object.freeze(value);}return value;}
 
+test("Print templates bind the destination 3D camera and globe projection without copying the source scene", () => {
+  const {template} = fixture(), destination = project("new");
+  destination.definition.projection = "globe";
+  Object.assign(destination.definition.mapViews[0], {pitch: 35, roll: 0, elevation: 120, centerClampedToGround: false});
+  const before = structuredClone(destination);
+  const bindings = Object.fromEntries(template.dataFrames.map(frame => [frame.sourceSlot, destination.definition.layers[0].layerId]));
+  const layout = layoutFromTemplate(template, destination, "new-3d-layout", bindings);
+  for (const frame of layout.frames) {
+    assert.equal(frame.projection, "globe");
+    assert.deepEqual(frame.view, destination.definition.mapViews[0]);
+    assert.equal(frame.view.roll, 0);assert.equal(frame.view.centerClampedToGround, false);
+  }
+  assert.deepEqual(validateBound(layout, destination), layout);
+  assert.deepEqual(destination, before);
+  assert.equal(JSON.stringify(template).includes('"projection"'), false);
+});
+
 test("portable JSON transfers geometry/furniture/data slots to another Project without retaining original sources, views or presentation", () => {
   const {map, layout, template} = fixture(), original = structuredClone({map, layout});
   assert.equal(template.schemaVersion, PRINT_TEMPLATE_SCHEMA);

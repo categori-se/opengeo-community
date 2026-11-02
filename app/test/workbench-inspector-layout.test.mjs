@@ -47,6 +47,32 @@ test("expanded attributes reuse the table and retain filtering, selection, scrol
   });
 });
 
+test("Print selection snapshots bind the exact current row, Layer and source without unrelated data", async () => {
+  await withWorkbench({}, async ({shell}) => {
+    const get = () => shell.getPrintContext()?.getSelectedPrintFeature();
+    assert.equal(get(), null);
+    const data = shell.__opengeoData.get("survey"), feature = data.features[1];
+    feature.properties.description = "Reviewed survey reach";
+    feature.properties.access_token = "unrelated-private-attribute";
+    button(shell, "Table").click();
+    shell.querySelectorAll(".gis-attribute-table tbody tr")[1].click();
+    const snapshot = get();
+    assert.equal(snapshot.feature.id, "Beta");
+    assert.deepEqual(snapshot.feature.properties, {name: "Beta", description: "Reviewed survey reach"});
+    assert.equal(Object.hasOwn(snapshot.feature, "geometry"), false);
+    assert.equal(snapshot.layer.layerId, "survey");
+    snapshot.feature.properties.description = "Changed copy";
+    assert.equal(get().feature.properties.description, "Reviewed survey reach");
+    shell.__opengeoLayers[0].sourceVersion = 2;
+    assert.equal(get(), null, "a changed source pin cannot reuse the previous selection");
+    shell.querySelectorAll(".gis-attribute-table tbody tr")[1].click();
+    assert.equal(get().layer.sourceVersion, 2);
+    shell.__opengeoData.set("survey", structuredClone(data));
+    assert.equal(get(), null, "replaced source data needs an explicit new selection");
+    shell.dispose();assert.equal(shell.getPrintContext(), null);
+  });
+});
+
 test("style disclosures retain each Layer's state through edits without changing presentation", async () => {
   await withWorkbench({}, async ({shell, dom}) => {
     const sections = () => [...shell.querySelectorAll(".gis-style-section")];

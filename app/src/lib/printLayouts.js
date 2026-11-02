@@ -75,7 +75,7 @@ export function printCaptureOutputSignature(frame, dpi) {
 
 export const PROJECT_PRINT_SCHEMA = "opengeo.project-print-layouts.1";
 export const PROJECT_PRINT_EXTENSION = "opengeoPrintLayouts";
-const frameKeys = ["id", "parentId", "title", "xMm", "yMm", "widthMm", "heightMm", "view", "presentation"];
+const frameKeys = ["id", "parentId", "title", "xMm", "yMm", "widthMm", "heightMm", "view", "projection", "presentation"];
 const dataFrameKeys = ["id", "type", "title", "xMm", "yMm", "widthMm", "heightMm", "mapFrameId", "source", "rowLimit"];
 const dataSourceKeys = ["layerId", "datasetId", "datasetVersionId", "sourceVersion"];
 const presentationKeys = ["layerId", "datasetId", "datasetVersionId", "sourceVersion", "managedDisplayId", "visible", "opacity", "opacityMode", "style", "labels", "filter", "styleReference", "pointClustering"];
@@ -91,7 +91,9 @@ export function newProjectPrintLayout(map, id = crypto.randomUUID()) {
   return {id, title: map.name || "Map layout", page: {size: "A4", orientation: "landscape", widthMm: 297, heightMm: 210, marginMm: 10},
     dpi: 96, legend: true, northArrow: true, scaleBar: true, graticule: false, sourceNotes: true, caption: "",
     frames: [{id: "main", parentId: null, title: "Main map", xMm: 10, yMm: 27, widthMm: 215, heightMm: 153,
-      view: {center: [...(camera.center ?? [0, 0])], zoom: camera.zoom ?? 2, pitch: camera.pitch ?? 0, bearing: camera.bearing ?? 0},
+      view: {center: [...(camera.center ?? [0, 0])], zoom: camera.zoom ?? 2, pitch: camera.pitch ?? 0, bearing: camera.bearing ?? 0,
+        ...Object.fromEntries(["roll", "elevation", "centerClampedToGround"].filter(key => Object.hasOwn(camera, key)).map(key => [key, camera[key]]))},
+      projection: map.definition?.projection ?? "mercator",
       presentation: (map.definition?.layers ?? []).map(printLayerPresentation)}]};
 }
 
@@ -143,10 +145,14 @@ export function validateProjectPrintLayouts(value, map) {
       printNumber(frame.xMm, 0, page.widthMm);printNumber(frame.yMm, 0, page.heightMm);
       printNumber(frame.widthMm, 10, page.widthMm);printNumber(frame.heightMm, 10, page.heightMm);
       if (frame.xMm + frame.widthMm > page.widthMm + 0.001 || frame.yMm + frame.heightMm > page.heightMm + 0.001) throw Error("Keep each map frame inside its page.");
-      closedPrintObject(frame.view, ["center", "zoom", "pitch", "bearing"]);
+      closedPrintObject(frame.view, ["center", "zoom", "pitch", "bearing", "roll", "elevation", "centerClampedToGround"]);
       if (!Array.isArray(frame.view.center) || frame.view.center.length !== 2) throw Error("Invalid print map center.");
       printNumber(frame.view.center[0], -180, 180);printNumber(frame.view.center[1], -85, 85);
       printNumber(frame.view.zoom, -2, 24);printNumber(frame.view.pitch, 0, 85);printNumber(frame.view.bearing, -360, 360);
+      if (Object.hasOwn(frame.view, "roll")) printNumber(frame.view.roll, -180, 180);
+      if (Object.hasOwn(frame.view, "elevation")) printNumber(frame.view.elevation, -Number.MAX_VALUE, Number.MAX_VALUE);
+      if (Object.hasOwn(frame.view, "centerClampedToGround") && typeof frame.view.centerClampedToGround !== "boolean") throw Error("Invalid print map ground clamping.");
+      if (Object.hasOwn(frame, "projection") && !["mercator", "globe"].includes(frame.projection)) throw Error("Invalid print map projection.");
       if (!Array.isArray(frame.presentation) || frame.presentation.length > 250) throw Error("Too many print Layer references.");
       const selected = new Set();
       for (const item of frame.presentation) {
@@ -233,6 +239,7 @@ export function definitionForPrintFrame(map, frame) {
   if (definition.layers.some(layer => layer.managedDisplayId)) definition.schemaVersion = "opengeo.map-definition.1.5.0";
   else if (definition.layers.some(layer => layer.styleReference)) definition.schemaVersion = "opengeo.map-definition.1.4.0";
   definition.mapViews = [{id: "print-view", title: frame.title, ...structuredClone(frame.view)}];
+  if (Object.hasOwn(frame, "projection")) definition.projection = frame.projection;
   return definition;
 }
 

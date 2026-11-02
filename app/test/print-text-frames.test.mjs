@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
-import {layoutPrintTextFrame, validatePrintTextFrames} from "../src/lib/printTextFrames.js";
+import {layoutPrintTextFrame, selectedFeaturePrintText, validatePrintTextFrames} from "../src/lib/printTextFrames.js";
 import {alignPrintFrame, movePrintFrame, newProjectPrintLayout, PROJECT_PRINT_SCHEMA, resizePrintFrame, validateProjectPrintLayouts} from "../src/lib/printLayouts.js";
 import {layoutFromTemplate, templateFromLayout, validatePrintTemplate} from "../src/lib/printTemplates.js";
 
@@ -16,6 +16,86 @@ function fixture() {
 }
 const table = () => ({id: "data-original", type: "table", title: "Records", xMm: 240, yMm: 30, widthMm: 40, heightMm: 40,
   mapFrameId: "main", source: {layerId: "layer-one", datasetId: "dataset-one", datasetVersionId: null, sourceVersion: 1}, rowLimit: 2, columns: ["name"]});
+
+const selected = () => ({feature: {type: "Feature", id: 0, properties: {name: "Survey point", description: "An exact description."}},
+  layer: {layerId: "layer-one", title: "Local survey", datasetId: "dataset-one", datasetVersionId: "version-one", sourceVersion: 0}});
+
+test("selected descriptions snapshot only literal description, title and exact source identities without mutation", () => {
+  const value = selected();
+  value.feature.properties.description = '<img src="https://example.test/track" onerror="alert(1)"> &amp; <script>run()</script> javascript:run()';
+  value.feature.properties.password = "never print this";value.feature.properties.token = "never print this either";
+  value.layer.url = "https://example.test/?secret=never-print";
+  const before = structuredClone(value);
+  Object.freeze(value.feature.properties);Object.freeze(value.feature);Object.freeze(value.layer);Object.freeze(value);
+  const result = selectedFeaturePrintText(value);
+  assert.deepEqual(result, {title: "Survey point", text: `Survey point\n\n${value.feature.properties.description}\n\nLayer: Local survey\nLayer ID: layer-one\nDataset ID: dataset-one\nDataset version ID: version-one\nSource revision: 0\nFeature ID: 0`});
+  assert.doesNotMatch(result.text, /never print|never-print|password|token/);
+  const checked = validatePrintTextFrames([frame({...result, widthMm: 270, heightMm: 180, fontSizePt: 6})], page);
+  assert.equal(checked[0].text, result.text);
+  assert.equal(layoutPrintTextFrame(checked[0], () => 1).lines[2].text, value.feature.properties.description);
+  result.text = "independent draft";assert.deepEqual(value, before);
+});
+
+test("selected descriptions preserve Unicode and blank lines with explicit LF and four-space tab normalization", () => {
+  const value = selected();value.feature.properties.name = "Café 水 😀";
+  value.feature.properties.description = "  First\r\n\r\nΩ\t水\rЖ 😀  \n";
+  const before = structuredClone(value), result = selectedFeaturePrintText(value);
+  assert.equal(result.title, "Café 水 😀");
+  assert.ok(result.text.startsWith("Café 水 😀\n\n  First\n\nΩ    水\nЖ 😀  \n\n\nLayer:"));
+  assert.doesNotMatch(result.text, /[\r\t]/);assert.deepEqual(value, before);
+  assert.equal(validatePrintTextFrames([frame(result)], page)[0].text, result.text);
+});
+
+test("description fallback is exact, absent identities remain absent, and numeric zero is retained", () => {
+  const value = selected();delete value.feature.properties.description;
+  value.feature.properties.Description = "Uppercase source field";delete value.feature.properties.name;
+  value.feature.properties.title = "Title fallback";
+  assert.equal(selectedFeaturePrintText(value).title, "Title fallback");
+  delete value.feature.properties.title;
+  assert.equal(selectedFeaturePrintText(value).title, "Feature 0");
+  delete value.feature.id;value.layer = {layerId: "layer-one", title: "Local survey"};
+  assert.deepEqual(selectedFeaturePrintText(value), {title: "Selected feature", text: "Selected feature\n\nUppercase source field\n\nLayer: Local survey\nLayer ID: layer-one"});
+  for (const bad of [undefined, null, "", " \n ", 12, false, {toString() {throw Error("coercion executed");}}]) {
+    value.feature.properties.description = bad;
+    assert.throws(() => selectedFeaturePrintText(value), error => /nonempty text description/.test(error.message) && !/coercion executed/.test(error.message));
+  }
+});
+
+test("selected description limits include source lines and reject oversized text or titles without truncation", () => {
+  const value = selected(), overhead = selectedFeaturePrintText(value).text.length - value.feature.properties.description.length;
+  value.feature.properties.description = "x".repeat(4000 - overhead);
+  assert.equal(selectedFeaturePrintText(value).text.length, 4000);
+  const before = structuredClone(value);value.feature.properties.description += "x";
+  assert.throws(() => selectedFeaturePrintText(value), /4,000-character.*shorter authored text/);
+  assert.equal(value.feature.properties.description, `${before.feature.properties.description}x`);
+  value.feature.properties.description = "short";value.feature.properties.name = "x".repeat(200);
+  assert.equal(selectedFeaturePrintText(value).title.length, 200);
+  value.feature.properties.name += "x";
+  assert.throws(() => selectedFeaturePrintText(value), /200-character.*shorter authored text/);
+  value.feature.properties.name = "name";value.layer.datasetId = "x".repeat(4000);
+  assert.throws(() => selectedFeaturePrintText(value), /4,000-character/);
+});
+
+test("missing selection, invalid controls and nonliteral fields refuse with actionable errors without executing accessors", () => {
+  for (const value of [undefined, null, {}, {feature: {type: "Point"}, layer: {}}, {feature: {type: "Feature", properties: {}}, layer: {}}]) {
+    assert.throws(() => selectedFeaturePrintText(value), /Select a loaded feature|nonempty text description/);
+  }
+  for (const control of ["\u0000", "\u001f", "\u007f", "\u0085", "\u2028", "\u2029"]) {
+    const value = selected();value.feature.properties.description += control;
+    assert.throws(() => selectedFeaturePrintText(value), /no other controls/);
+  }
+  for (const change of [value => {value.layer.layerId = "";}, value => {value.layer.title = null;},
+    value => {value.layer.datasetId = "two\nlines";}, value => {value.feature.id = Infinity;},
+    value => {value.feature.properties.name = "two\nlines";},
+    value => {Object.defineProperty(value.feature.properties, "description", {get() {throw Error("getter executed");}});},
+    value => {Object.defineProperty(value.layer, "title", {get() {throw Error("getter executed");}});}]) {
+    const value = selected();change(value);
+    assert.throws(() => selectedFeaturePrintText(value), error => !/getter executed/.test(error.message));
+  }
+  const value = selected();
+  Object.defineProperty(value.feature.properties, "unrelated", {get() {throw Error("unrelated getter executed");}});
+  assert.equal(selectedFeaturePrintText(value).title, "Survey point");
+});
 
 test("closed literal text admits exact whitespace, blank lines, markup characters and Unicode without mutation", () => {
   const value = [frame({text: '  <paper> & "quote"\n\nCafé Ω Ж 😀  \n'})], before = structuredClone(value), ids = new Set(["main", "data-1"]);
