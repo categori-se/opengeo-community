@@ -51,3 +51,11 @@ community-edition/
 *.key
 credentials
 .DS_Store
+
+# Generated API run reports and screenshots are local outputs.
+/docs/api/evidence/api-*.json
+/docs/api/evidence/export-regressions.json
+/docs/api/evidence/map-default.json
+/docs/api/evidence/route-checks.json
+/docs/api/evidence/task*.json
+/docs/api/evidence/task*.png
