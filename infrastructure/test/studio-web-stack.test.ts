@@ -11,6 +11,8 @@ import {
   STUDIO_ARTIFACT_VIEWER_FALLBACK_CONTENT_SECURITY_POLICY,
   STUDIO_DOMAIN_NAME,
   STUDIO_RELEASE_ORIGIN_PARAMETER,
+  parseAllowLocalAssistant,
+  studioContentSecurityPolicy,
   StudioWebStack,
   type StudioWebStackProps
 } from "../lib/studio-web-stack.js";
@@ -39,6 +41,28 @@ function templateFor(props: Omit<StudioWebStackProps, "env"> = {}): Template {
 }
 
 describe("OpenGeo Studio web edge", () => {
+  it("opts in to only the exact local assistant connection while preserving all other policies", () => {
+    const allowed = studioContentSecurityPolicy(true);
+    assert.equal(studioContentSecurityPolicy(), STUDIO_CONTENT_SECURITY_POLICY);
+    assert.equal(studioContentSecurityPolicy(false), STUDIO_CONTENT_SECURITY_POLICY);
+    assert.equal(allowed.replace(" http://127.0.0.1:11434", ""), STUDIO_CONTENT_SECURITY_POLICY);
+    assert.deepEqual(allowed.split("; ").filter(value => value.startsWith("connect-src ")),
+      ["connect-src 'self' https: http://127.0.0.1:11434"]);
+    for (const value of [undefined, false, "false"]) assert.equal(parseAllowLocalAssistant(value), false);
+    for (const value of [true, "true"]) assert.equal(parseAllowLocalAssistant(value), true);
+    for (const value of [null, 0, 1, "", "TRUE", "false ", "http://localhost:11434", {}]) {
+      assert.throws(() => parseAllowLocalAssistant(value), /true or false/);
+      assert.throws(() => studioContentSecurityPolicy(value as boolean), /explicit boolean/);
+    }
+    const policies = resourcesOfType(templateFor({allowLocalAssistant: true}), "AWS::CloudFront::ResponseHeadersPolicy");
+    for (const policy of policies) {
+      const config = policy.Properties.ResponseHeadersPolicyConfig as Record<string, any>;
+      const expected = config.Name === "opengeo-studio-security" ? allowed
+        : config.Name === "opengeo-studio-auth-config" ? STUDIO_AUTH_CONFIG_CONTENT_SECURITY_POLICY : RENDERER_FRAME_CSP;
+      assert.equal(config.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy, expected);
+    }
+  });
+
   it("preserves the existing production bucket without allowing new dotted names", () => {
     const template = Template.fromStack(stackFor(
       {bucketName: STUDIO_DOMAIN_NAME}, "us-east-1", "111111111111"

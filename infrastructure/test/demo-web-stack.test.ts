@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {describe, it} from "node:test";
 import {App} from "aws-cdk-lib";
 import {Match, Template} from "aws-cdk-lib/assertions";
+import {STUDIO_CONTENT_SECURITY_POLICY, studioContentSecurityPolicy} from "../lib/studio-web-stack.js";
+import {RENDERER_FRAME_CSP} from "../lib/renderer-frame.js";
 import {
   DEMO_BUCKET_NAME,
   DEMO_DOMAIN_NAME,
@@ -25,6 +27,18 @@ function templateFor(props = {}) {
 }
 
 describe("OpenGeo anonymous demo web edge", () => {
+  it("opts in to the exact local assistant only for the demo shell", () => {
+    const template = templateFor({allowLocalAssistant: true});
+    const policies = template.findResources("AWS::CloudFront::ResponseHeadersPolicy");
+    assert.equal(Object.keys(policies).length, 3);
+    for (const policy of Object.values(policies)) {
+      const config = policy.Properties.ResponseHeadersPolicyConfig;
+      const expected = config.Name === "opengeo-demo-security" ? studioContentSecurityPolicy(true)
+        : config.Name === "opengeo-demo-auth-config" ? STUDIO_CONTENT_SECURITY_POLICY : RENDERER_FRAME_CSP;
+      assert.equal(config.SecurityHeadersConfig.ContentSecurityPolicy.ContentSecurityPolicy, expected);
+    }
+  });
+
   it("creates a retained private dotted bucket, OAC, and bootstrap distribution", () => {
     const template = templateFor();
     template.hasResource("AWS::S3::Bucket", {

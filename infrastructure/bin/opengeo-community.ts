@@ -5,7 +5,7 @@ import {environmentConfig, parseBudgetAlertEmail, parseImageTagOrDigest} from ".
 import {PlatformFoundationStack} from "../lib/platform-foundation-stack.js";
 import {PrivateRuntimeEndpointsStack} from "../lib/private-runtime-endpoints-stack.js";
 import {ServerlessApiStack} from "../lib/serverless-api-stack.js";
-import {StudioWebStack} from "../lib/studio-web-stack.js";
+import {StudioWebStack, parseAllowLocalAssistant} from "../lib/studio-web-stack.js";
 import {WorkerServiceStack} from "../lib/worker-service-stack.js";
 import {FrameworkPublisherStack, type PublicationDestination} from "../lib/framework-publisher-stack.js";
 import {GitHubBuildControllerStack} from "../lib/github-build-controller-stack.js";
@@ -88,6 +88,7 @@ const nativePublication = publicationConfiguration(publicationRaw, account, {
 new StudioWebStack(app, `${stem}-Web`, {
   env,
   communityDeployment: true,
+  allowLocalAssistant: parseAllowLocalAssistant(process.env.OPEN_GEO_COMMUNITY_ALLOW_LOCAL_ASSISTANT),
   domainName: hostname,
   bucketName: `${name}-${account}-${region}-studio`,
   resourceNamePrefix: `og-${name}`,
