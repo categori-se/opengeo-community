@@ -50,18 +50,31 @@ it("WMS tile URLs reject malformed normalized configuration without weakening re
 });
 
 // Reuse the actual MapView source-rewrite/fake-renderer pattern from cog-preview.
-// Only the SDK import is replaced; WMS validation, controls and lifecycle run unchanged.
+// Only the SDK import is replaced; validation, controls, Styles and lifecycle run unchanged.
 let rendererImportSequence = 0;
 async function withMapView(check) {
   const dom=new JSDOM("<!doctype html><body></body>"),previous=new Map(),maps=[];
   class TestMap {
-    constructor(options) {this.options=options;this.events=new Map();this.sources=[];this.layers=[];this.jumps=[];this.removals=0;maps.push(this);}
+    constructor(options) {this.options=options;this.events=new Map();this.sources=[];this.layers=[];this.images=new Map();this.operations=[];this.jumps=[];this.removals=0;maps.push(this);}
     on(name,handler) {this.events.set(name,handler);}
     emit(name,event={}) {this.events.get(name)?.(event);}
-    addControl() {} resize() {}
+    addControl() {} resize() {} fitBounds() {}
     getSource(id) {return this.sources.find(entry=>entry.id===id)?.source;}
     addSource(id,source) {this.sources.push({id,source});}
-    addLayer(layer) {this.layers.push(layer);}
+    addLayer(layer) {
+      this.operations.push(["layer",layer.id]);
+      if (this.rejectLayer?.(layer)) {
+        const error=Error("Fixture rejected Style pass");
+        if (this.failureMode==="emit") {this.emit("error",{error});return;}
+        throw error;
+      }
+      assert.equal(this.getLayer(layer.id),undefined,"Renderer layer IDs are unique");this.layers.push(layer);
+    }
+    getLayer(id) {return this.layers.find(layer=>layer.id===id);}
+    removeLayer(id) {this.layers=this.layers.filter(layer=>layer.id!==id);}
+    hasImage(id) {return this.images.has(id);}
+    addImage(id,pixels,options) {this.operations.push(["image",id]);this.images.set(id,{pixels,options});}
+    removeImage(id) {this.images.delete(id);}
     jumpTo(view) {this.jumps.push(view);}
     setStyle(style) {this.style=style;}
     getCenter() {return {toArray:()=>[0,0]};} getZoom() {return 1;} getPitch() {return 0;} getBearing() {return 0;}
@@ -139,5 +152,72 @@ it("actual MapView retains the existing deliberate XYZ area selection and tile c
     assert.equal(map.sources.length,1);assert.deepEqual(map.sources[0].source,{type:"raster",tiles:[xyz.endpoint],
       tileSize:512,scheme:"tms",minzoom:2,maxzoom:12,attribution:xyz.configuration.attribution});
     view.remove();await tick();assert.equal(map.removals,1);
+  });
+});
+
+const styledGeojson={type:"FeatureCollection",features:[{type:"Feature",properties:{name:"Retained point"},geometry:{type:"Point",coordinates:[1,2]}}]};
+const styleLayer={layerId:"catalog-point",geometryType:"Point",opacity:.4};
+const resolvedPointStyle=(imageId="fixture-symbol")=>({reference:{versionNumber:1},
+  images:[{id:imageId,pixels:{width:1,height:1,data:new Uint8Array([255,0,0,255])},pixelRatio:2}],
+  parts:[{id:"circle",type:"circle",paint:{"circle-color":"#ff0000","circle-radius":7,"circle-opacity":.5}},
+    {id:"symbol",type:"symbol",layout:{"icon-image":imageId},paint:{"icon-opacity":.75}}]});
+
+it("actual vector MapView waits for renderer readiness and installs reusable Style images and complete opacity-aware passes",async()=>{
+  await withMapView(async({MapView,maps})=>{
+    const geojson=structuredClone(styledGeojson),resolved=resolvedPointStyle(),original=structuredClone({geojson,resolved,layer:styleLayer});
+    const view=MapView({geojson,geometryType:"Point"});let settled=false;
+    const application=view.applyLayerStyle(resolved,styleLayer).then(()=>{settled=true;});
+    document.body.append(view);await tick();const map=maps.at(-1);
+    assert.equal(settled,false);assert.equal(map.layers.length,0,"Returning a preview element does not confirm renderer application");
+    map.emit("load");await application;
+    assert.equal(map.sources.length,1);assert.equal(map.sources[0].source.data,geojson);
+    assert.equal(map.layers.length,2);assert.equal(map.getLayer("preview-points"),undefined);
+    assert.equal(map.layers[0].paint["circle-opacity"],.5*styleLayer.opacity);assert.equal(map.layers[1].paint["icon-opacity"],.75*styleLayer.opacity);
+    assert.equal(map.layers[1].source,"preview");assert.equal(map.layers[1].layout["icon-image"],"fixture-symbol");
+    assert.deepEqual(map.images.get("fixture-symbol"),{pixels:resolved.images[0].pixels,options:{pixelRatio:2}});
+    assert.ok(map.operations.findIndex(([kind])=>kind==="image")<map.operations.findIndex(([,id])=>id===map.layers[0].id));
+    const previousIds=map.layers.map(part=>part.id);
+    await view.applyLayerStyle(resolved,styleLayer);
+    assert.ok(map.layers.every(part=>!previousIds.includes(part.id)),"A new application uses independent candidate IDs");
+    assert.equal(map.operations.filter(([kind])=>kind==="image").length,1,"Shared symbol images are reused");
+    assert.deepEqual({geojson,resolved,layer:styleLayer},original);assert.equal(view.__opengeoMap,map);
+  });
+});
+
+it("actual vector MapView rolls back rejected Style candidates and preserves the previous paint, images and source",async()=>{
+  await withMapView(async({MapView,maps})=>{
+    const view=MapView({geojson:styledGeojson,geometryType:"Point"});document.body.append(view);await tick();
+    const map=maps.at(-1);map.emit("load");await view.applyLayerStyle(resolvedPointStyle(),styleLayer);
+    const previous=structuredClone(map.layers),status=view.querySelector('[role="status"]');
+    for(const failureMode of ["throw","emit"]){
+      map.failureMode=failureMode;map.rejectLayer=part=>part.type==="symbol";
+      const priorStatus=status.textContent;
+      await assert.rejects(view.applyLayerStyle(resolvedPointStyle(`failed-${failureMode}`),styleLayer),/Fixture rejected Style pass/);
+      assert.deepEqual(map.layers,previous);assert.equal(map.images.size,1);assert.equal(map.hasImage("fixture-symbol"),true);
+      assert.equal(map.sources.length,1);assert.equal(map.sources[0].source.data,styledGeojson);assert.equal(status.textContent,priorStatus);
+    }
+    map.rejectLayer=null;await view.applyLayerStyle(resolvedPointStyle("replacement"),styleLayer);
+    assert.equal(map.images.size,1);assert.equal(map.hasImage("replacement"),true);assert.equal(map.hasImage("fixture-symbol"),false);
+  });
+});
+
+it("actual vector MapView rejects stale applications and disposes pending or initialized renderers once",async()=>{
+  await withMapView(async({MapView,maps})=>{
+    const early=MapView({geojson:styledGeojson,geometryType:"Point"});document.body.append(early);
+    const pending=assert.rejects(early.applyLayerStyle(resolvedPointStyle(),styleLayer),{name:"AbortError"});
+    early.dispose();early.dispose();await pending;await tick();assert.equal(maps.length,0);
+    const loading=MapView({geojson:styledGeojson,geometryType:"Point"});document.body.append(loading);await tick();
+    const loadingMap=maps.at(-1),waiting=assert.rejects(loading.applyLayerStyle(resolvedPointStyle(),styleLayer),{name:"AbortError"});
+    loading.dispose();await waiting;loadingMap.emit("load");assert.equal(loadingMap.removals,1);assert.equal(loadingMap.sources.length,0);
+    const view=MapView({geojson:styledGeojson,geometryType:"Point"});document.body.append(view);await tick();const map=maps.at(-1);
+    let current=true;
+    const stale=assert.rejects(view.applyLayerStyle(resolvedPointStyle(),styleLayer,{isCurrent:()=>current}),{name:"AbortError"});
+    current=false;map.emit("load");await stale;
+    assert.deepEqual(map.layers.map(part=>part.id),["preview-points"]);assert.equal(map.images.size,0);
+    const text=view.querySelector('[role="status"]').textContent;view.dispose();view.dispose();view.remove();await tick();
+    assert.equal(map.removals,1);assert.equal(view.__opengeoMap,undefined);assert.equal(view.__view,undefined);assert.equal(view.__resize,undefined);
+    map.emit("load");map.emit("idle");map.emit("dataloading");map.emit("error");
+    assert.equal(view.querySelector('[role="status"]').textContent,text);
+    await assert.rejects(view.applyLayerStyle(resolvedPointStyle(),styleLayer),{name:"AbortError"});
   });
 });

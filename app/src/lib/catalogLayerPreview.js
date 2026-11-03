@@ -1,4 +1,4 @@
-import {registeredPreviewLayer} from "./catalogProjectSave.js";
+import {managedPreviewLayer, registeredPreviewLayer} from "./catalogProjectSave.js";
 import {readSourceMetadata, sourceLinks} from "../components/SourceDetails.js";
 import {readProviderJson} from "./providerJson.js";
 import {loadLiveFeaturePage} from "./liveFeatureSource.js";
@@ -91,7 +91,7 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
           bounded(30_000, signal => loadArchivedGeojson({url: source.sourceUrl, configuration: source.configuration,
             fetchImpl: fetchImplementation, signal})));
         return {kind: "features", geojson, metadata: {}, endpoint: source.sourceUrl, complete: true,
-          referencedArchive: source, attribution: source.configuration.attribution,
+          referencedArchive: source, attribution: source.configuration.attribution, layer: registeredPreviewLayer(source, record.title),
           geometryNote: `${source.configuration.geometryType} · GeoJSON archive · Source revision ${source.versionNumber}.`};
       }
       if (source.sourceType === "cog") return {kind: "cog", endpoint: source.sourceUrl, metadata: {},
@@ -116,7 +116,7 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
       && layer.datasetId === record.datasetId);
     if (!layer) throw new Error("This layer is no longer in the saved map. Reload the catalog.");
     if (layer.sourceType === "governed-dataset") {
-      return managedPreview(record, layer.datasetVersionId, layer.geometryType, layer.attribution, requestSignal);
+      return managedPreview(record, layer.datasetVersionId, layer.geometryType, layer.attribution, requestSignal, layer);
     }
     if (layer.sourceType === "xyz-raster") return {kind: "xyz", endpoint: layer.sourceUrl, metadata: {},
       attribution: layer.sourceConfiguration.attribution, layer: structuredClone(layer)};
@@ -145,7 +145,7 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
   };
   return load;
 
-  async function managedPreview(record, versionId, geometryType, attribution, requestSignal) {
+  async function managedPreview(record, versionId, geometryType, attribution, requestSignal, savedLayer = null) {
     if (!UUID.test(record.projectId) || !UUID.test(record.datasetId) || !UUID.test(versionId)
       || !VECTOR_GEOMETRIES.has(vectorFamily(geometryType))) {
       throw Error("The selected Layer needs an exact vector dataset version. Reload its Catalog record.");
@@ -165,19 +165,26 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
       || !record.mapId && (dataset.currentVersionId !== versionId || dataset.currentVersionState !== "active")) {
       throw Error("The selected Layer changed or is unavailable. Reload its Catalog record.");
     }
+    let exactVersion = null;
     const result = await bounded(90_000, signal => loadManagedVectorData({
       adapter: {
-        listDatasetVersions: (...args) => adapter.listDatasetVersions(...args),
+        listDatasetVersions: async (...args) => {
+          const versions = await adapter.listDatasetVersions(...args);
+          const selected = versions.find(version => version.id === versionId);
+          if (selected) exactVersion = structuredClone(selected);
+          return versions;
+        },
         requestDatasetDownload: (...args) => adapter.requestDatasetDownload(...args),
         getDatasetSpatialPreview: async () => {throw Error("The exact original GeoJSON is unavailable for this Layer map.");}
       }, projectId: record.projectId, datasetId: record.datasetId, versionId, geometryType,
       assertScope, authorize: assertScope, fetchImpl: fetchImplementation, signal
     }), requestSignal);
     await assertScope();
-    if (result.datasetVersionId !== versionId || result.schemaVersion !== "opengeo.managed-vector-data.1") {
+    if (result.datasetVersionId !== versionId || result.schemaVersion !== "opengeo.managed-vector-data.1" || !exactVersion) {
       throw Error("The selected Layer's exact original could not be verified.");
     }
     return {kind: "features", geojson: result.geojson, metadata: {}, complete: true,
+      layer: savedLayer ? structuredClone(savedLayer) : managedPreviewLayer(dataset, exactVersion, record.title),
       managedArchive: {datasetId: record.datasetId, datasetVersionId: versionId},
       attribution: attribution || "Source credit not recorded",
       geometryNote: "Complete original GeoJSON verified for the selected dataset version. Original attributes and geometry are retained."};

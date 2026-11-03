@@ -7,6 +7,7 @@ import {installCogMapLayer} from "../lib/cogMapLayer.js";
 import {CogIdentifyResult} from "./CogIdentifyResult.js";
 import {RasterViewshed} from "./RasterViewshed.js";
 import {wmsTileUrl} from "../lib/wmsSource.js";
+import {referencedStylePaint} from "../lib/layerStyleReference.js";
 
 export function MapView({geojson, geometryType, height, graduated, imageServer, cog, xyz, wms} = {}) {
   if (!imageServer && !cog && !xyz && !wms && !geojson?.features?.length) return emptyMap();
@@ -25,23 +26,80 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
   let basemapNote = "";
   const setStatus = message => {status.textContent = basemapNote + message;};
   container.append(status);
+  let renderer = null, disposed = false, observer = null, styleGeneration = 0, styleAttempt = null;
+  let paintLayerIds = [], ownedImageIds = new Set(), resolveReady, rejectReady;
+  const ready = new Promise((resolve, reject) => {resolveReady = resolve; rejectReady = reject;});
+  // Most previews never select a Style; disposal still settles pending callers.
+  ready.catch(() => {});
+  const staleStyle = () => new DOMException("Style application is no longer current", "AbortError");
+  container.applyLayerStyle = async (resolved, layer, {isCurrent = () => true} = {}) => {
+    if (imageServer || cog || xyz || wms) throw Error("Reusable Styles require a vector Layer");
+    const generation = ++styleGeneration;
+    const check = () => {if (disposed || generation !== styleGeneration || !isCurrent()) throw staleStyle();};
+    check();
+    const map = await ready;
+    check();
+    if (!map.getSource("preview")) throw Error("The Layer source is unavailable");
+    const parts = referencedStylePaint(resolved, {...layer, layerId: "preview", opacity: layer.opacity ?? 1})
+      .map((part, index) => ({...part, id: `preview-style-${generation}-${index}`, source: "preview"}));
+    if (!parts.length) throw Error("The Style has no rendering passes");
+    const candidateIds = [], newImageIds = [], nextImageIds = new Set((resolved.images ?? []).map(image => image.id));
+    const attempt = {error: null}; styleAttempt = attempt;
+    try {
+      for (const image of resolved.images ?? []) {
+        check();
+        if (!map.hasImage(image.id)) {
+          newImageIds.push(image.id);
+          map.addImage(image.id, image.pixels, {pixelRatio: image.pixelRatio});
+          if (attempt.error || !map.hasImage(image.id)) throw attempt.error ?? Error("The Style image could not be installed");
+        }
+      }
+      for (const part of parts) {
+        check(); candidateIds.push(part.id); map.addLayer(part);
+        if (attempt.error || !map.getLayer(part.id)) throw attempt.error ?? Error("The Style pass could not be installed");
+      }
+      check();
+    } catch (error) {
+      if (!disposed) {
+        for (const id of candidateIds.reverse()) if (map.getLayer(id)) map.removeLayer(id);
+        for (const id of newImageIds) if (map.hasImage(id)) map.removeImage(id);
+      }
+      throw error;
+    } finally {if (styleAttempt === attempt) styleAttempt = null;}
+    for (const id of paintLayerIds) if (map.getLayer(id)) map.removeLayer(id);
+    for (const id of ownedImageIds) if (!nextImageIds.has(id) && map.hasImage(id)) map.removeImage(id);
+    ownedImageIds = new Set([...ownedImageIds, ...newImageIds].filter(id => nextImageIds.has(id)));
+    paintLayerIds = candidateIds;
+    return true;
+  };
+  container.dispose = () => {
+    if (disposed) return;
+    disposed = true; styleGeneration++; clearTimeout(initialization); observer?.disconnect();
+    rejectReady(staleStyle());
+    delete container.__opengeoMap; delete container.__resize; delete container.__view;
+    container.__cogSession?.dispose(); delete container.__cogSession;
+    renderer?.remove(); renderer = null;
+  };
   // Allow an asynchronously constructed preview panel to attach before WebGL
   // initialization; a microtask can run before its caller inserts the panel.
-  setTimeout(() => {
-    if (!container.isConnected) return;
-    const map = new maplibregl.Map({
+  const initialization = setTimeout(() => {
+    if (disposed) return;
+    if (!container.isConnected) {container.dispose(); return;}
+    let map;
+    try {map = new maplibregl.Map({
       container,
       transformRequest: url => ({url, credentials: "omit"}),
       style: "https://tiles.openfreemap.org/styles/positron",
       center: [0, 0],
       zoom: 1
-    });
+    });} catch (error) {rejectReady(error); container.dispose(); return;}
+    renderer = map;
     container.__opengeoMap = map;
     container.__resize = () => map.resize();
     container.__view = () => ({center: map.getCenter().toArray(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing()});
     map.addControl(new maplibregl.NavigationControl({showCompass: false}), "top-left");
     map.addControl(new maplibregl.ScaleControl());
-    let previewStarted = false, blankBasemap = false, disposed = false;
+    let previewStarted = false, blankBasemap = false;
     const blank = document.createElement("button");
     blank.type = "button"; blank.className = "platform-button secondary";
     blank.textContent = "Use blank basemap";
@@ -83,15 +141,16 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
       container.append(form);
     }
     let failed = false;
-    map.on("error", () => {
+    map.on("error", event => {
       if (disposed) return;
+      if (styleAttempt) {styleAttempt.error = event?.error ?? Error("The Style could not be rendered"); return;}
       if (!previewStarted && !blankBasemap) {useBlankBasemap(true); return;}
       failed = true; setStatus("Some layer imagery could not load. Pan or zoom to try another area, or reopen the preview.");
     });
     // The bounded COG reader owns its loading/ready/error state. Canvas source
     // uploads can emit dataloading after it has reported readiness and warnings.
-    map.on("dataloading", () => {if (!failed && !cog) setStatus("Loading visible layer area…");});
-    map.on("idle", () => {if (!failed && !cog) setStatus(tiled && !tiledActive ? chooseArea : "Layer view ready. Pan and zoom to explore.");});
+    map.on("dataloading", () => {if (!disposed && !failed && !cog) setStatus("Loading visible layer area…");});
+    map.on("idle", () => {if (!disposed && !failed && !cog) setStatus(tiled && !tiledActive ? chooseArea : "Layer view ready. Pan and zoom to explore.");});
 
     map.on("load", () => {
       if (disposed || previewStarted) return;
@@ -182,32 +241,29 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
         }
         return;
       }
-      map.addSource("preview", {type: "geojson", data: geojson});
+      try {
+        map.addSource("preview", {type: "geojson", data: geojson});
 
-      for (const layer of geometryPaint(geometryType)) {
-        if (graduated) {
-          if (layer.id === "preview-outline") layer.paint = {"line-color": "#ffffff", "line-width": 0.35};
-          const property = {fill: "fill-color", circle: "circle-color", line: "line-color"}[layer.type];
-          if (property && layer.id !== "preview-outline") {
-            layer.paint[property] = graduatedColorExpression(graduated);
-            if (layer.type === "fill") layer.paint["fill-opacity"] = 0.8;
+        for (const layer of geometryPaint(geometryType)) {
+          if (graduated) {
+            if (layer.id === "preview-outline") layer.paint = {"line-color": "#ffffff", "line-width": 0.35};
+            const property = {fill: "fill-color", circle: "circle-color", line: "line-color"}[layer.type];
+            if (property && layer.id !== "preview-outline") {
+              layer.paint[property] = graduatedColorExpression(graduated);
+              if (layer.type === "fill") layer.paint["fill-opacity"] = 0.8;
+            }
           }
+          map.addLayer({...layer, source: "preview"});
+          paintLayerIds.push(layer.id);
         }
-        map.addLayer({...layer, source: "preview"});
-      }
 
-      const bounds = geojsonBounds(geojson);
-      if (bounds) map.fitBounds(bounds, {padding: 48, maxZoom: 18, duration: 0});
+        const bounds = geojsonBounds(geojson);
+        if (bounds) map.fitBounds(bounds, {padding: 48, maxZoom: 18, duration: 0});
+        resolveReady(map);
+      } catch (error) {rejectReady(error);}
     });
 
-    observeDisconnection(container, () => {
-      disposed = true;
-      delete container.__opengeoMap;
-      delete container.__resize;
-      delete container.__view;
-      container.__cogSession?.dispose(); delete container.__cogSession;
-      map.remove();
-    });
+    observer = observeDisconnection(container, container.dispose);
   }, 0);
 
   return container;

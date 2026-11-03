@@ -6,7 +6,7 @@
   "fixtureType": "interaction",
   "source": {
     "kind": "synthetic",
-    "description": "Local deterministic body-distance, elevation, no-data, browser interaction, serialization, and API recomputation fixtures. No Google service, proprietary byte, live terrain provider, AWS deployment, or credential is used."
+    "description": "Local deterministic offline fixtures for measurement, XYZ KML paths/faces, elevation/profile LOS and cached-grid viewshed. No credentials, personal data or proprietary bytes. The selected report separately summarizes real-provider, normal-owner, native-comparator and accessibility acceptance; revised production UI delivery remains pending."
   },
   "license": {
     "spdxId": "CC0-1.0",
@@ -19,7 +19,7 @@
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/src/lib/pathMeasurement.js",
-      "sha256": "bade5b506ecd7316b9edd36ed864832174fd12481cf05dbd04e0d59fb71af1bc"
+      "sha256": "7a2433fcec4e7435e4dbfb5ed25599ccbc6e8dde9c1e11b1bb05c6fe60d0e6af"
     },
     {
       "name": "areaMeasurement.js",
@@ -33,7 +33,7 @@
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/src/lib/savedMeasurement.js",
-      "sha256": "a6460d84447430b667bcd6c1d312fce6dddfec4dc3a98c4644a2090218f6e5d2"
+      "sha256": "f748d1871ae0741adc3ee6a128e96ac6baaf2801ab3bde4f18565bda12d2dde5"
     },
     {
       "name": "path-measurement.test.mjs",
@@ -54,14 +54,14 @@
       "mediaType": "application/schema+json",
       "encoding": "path",
       "value": "schemas/opengeo-map-definition-1.3.0.schema.json",
-      "sha256": "66b3c915349677769ad4ea51afb44617c3e9e78e43419d5adf92aa3587e054a3"
+      "sha256": "9207705d3e30f36bd84f6f7d147201c1311f2dec907cb92136f523f0cc871266"
     },
     {
       "name": "map_definitions.py",
       "mediaType": "text/x-python",
       "encoding": "path",
       "value": "services/api/src/opengeo_api/map_definitions.py",
-      "sha256": "cb7bf75d578d1bed66b79a0a35353e7301664117b0576a8c05be6ca288758f3c"
+      "sha256": "9b23df59660110bf3796dedc303bcaca1182839b12493b412b882ad739c56fa8"
     },
     {
       "name": "test_map_measurements.py",
@@ -75,34 +75,76 @@
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/src/components/WorkbenchView.js",
-      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
-    },
-    {
-      "name": "check-pages.mjs",
-      "mediaType": "text/javascript",
-      "encoding": "path",
-      "value": "app/scripts/check-pages.mjs",
-      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
-    },
-    {
-      "name": "build-demo-site.mjs",
-      "mediaType": "text/javascript",
-      "encoding": "path",
-      "value": "app/scripts/build-demo-site.mjs",
-      "sha256": "41d6c01518be12cf57f3aac9497f1b5451c8702dfe6c2c6a7a9a001a361556f9"
+      "sha256": "c1ba2ecd7f32dd81b8d28da7c8676276b9b6e16db20143105b372b9eb0570401"
     },
     {
       "name": "google-earth-pro-006-path-measurement-profile.json",
       "mediaType": "application/json",
       "encoding": "path",
       "value": "parity/reports/google-earth-pro-006-path-measurement-profile.json",
-      "sha256": "4d2a96796c16e8ebff02fe43959682d4c8118fc731f1aa8af50edcf17705cb4c"
+      "sha256": "6ff42322ffd97f2dc853ae90930b67f56b941811bd2bfe6920cd5e9070f9f0b5"
+    },
+    {
+      "name": "kmlGeometrySettings.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/kmlGeometrySettings.js",
+      "sha256": "a40d00af518eb6bdd31d96ad08a4c47163e788e3c274c661246030b61fdb73c4"
+    },
+    {
+      "name": "kml-geometry-settings.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/kml-geometry-settings.test.mjs",
+      "sha256": "0604d3895a1661dfb5113e6887cff3d6152f01b730b7689a5ece03065a394630"
+    },
+    {
+      "name": "polygon3dMeasurement.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/polygon3dMeasurement.js",
+      "sha256": "baac255b2ba9762d5676feb948ac4114917b5b1a9696cbff0e4e1c0215f50422"
+    },
+    {
+      "name": "polygon3d-measurement.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/polygon3d-measurement.test.mjs",
+      "sha256": "e8e988ee8cd23c2a051941af45b9e7afe160c8c7b28e48c1f51e1fcf8caa2940"
+    },
+    {
+      "name": "RasterViewshed.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/RasterViewshed.js",
+      "sha256": "3f571d24a86a01a9a596f175590dcd554e381fc7e740cfe7c80fca024e086790"
+    },
+    {
+      "name": "gridViewshed.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/gridViewshed.js",
+      "sha256": "671a24d61a336722800e14da1cccec1fc0e04bb959e6877ed6c0a6f9e0dd582e"
+    },
+    {
+      "name": "grid-viewshed.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/grid-viewshed.test.mjs",
+      "sha256": "343978a8a99dcc71621e89b13f3cba482ca596dfca46979d69af3e31b49510c3"
+    },
+    {
+      "name": "profile-line-of-sight.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/profile-line-of-sight.test.mjs",
+      "sha256": "fe8d86305872c2b51e238ad214e17272b7b0674a692393975a00f7be105e1562"
     }
   ],
   "expectedOutcomes": [
     {
       "rowId": "google-earth-pro.measurement-elevation-viewshed",
-      "assertion": "OpenGeo locally provides editable durable line distance, multi-vertex path distance, simple polygon area, circle area, and bounded elevation profiles with exact renderer-source provenance, derived sampled slope, independent browser/API recomputation, truthful no-data behavior, and path export. Three-dimensional polygon measurement, elevation uncertainty, line-of-sight, viewshed, deployment, and exact Google Earth comparison remain open, so the aggregate row remains partial."
+      "assertion": "Original C01–C03 functional implementation qualified within declared bounds: editable durable 2D/XYZ measurements, exact-source elevation profiles/LOS and bounded cached-grid viewshed with units, uncertainty disclosures and portable export. Synthetic fixtures remain offline. Real-provider/owner/native/device acceptance and limits are summarized in the selected report. Revised frontend deployment/readback and issue22 closure remain pending."
     }
   ],
   "constraints": {

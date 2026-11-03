@@ -43,7 +43,7 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
     image.src = result.imageUrl; panel.append(image, status);
   }
   panel.append(node("p", result.attribution));
-  if (interactive && adapter && result.layer) panel.append(CatalogProjectSave({adapter, record, layer: result.layer, getView: () => panel.querySelector(".map-frame")?.__view?.()}));
+  if (interactive && typeof adapter?.createMap === "function" && result.layer) panel.append(CatalogProjectSave({adapter, record, layer: result.layer, getView: () => panel.querySelector(".map-frame")?.__view?.()}));
   const access = node("section", "", "catalog-layer-access");
   if (result.managedArchive) {
     access.append(node("h4", "Archived source"),

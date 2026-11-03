@@ -3,7 +3,7 @@ import {metadataCard, recordedLayerMetadata} from "./LayerMetadataCards.js";
 import {layerHref} from "../lib/applicationRoutes.js";
 import {placeReferences} from "../lib/geographicReferences.js";
 
-export function AuthoredResourceMetadata({adapter, kind, id, projectContext = null}) {
+export function AuthoredResourceMetadata({adapter, kind, id, projectContext = null, isContentBlocked = null}) {
   if (!["project", "publication"].includes(kind) || !id) throw Error("Authored resource identity required");
   const root = document.createElement("details");
   root.className = "authored-resource-metadata";
@@ -21,12 +21,28 @@ export function AuthoredResourceMetadata({adapter, kind, id, projectContext = nu
     renderProjectContext(context, value, adapter.kind);
   };
   root.updateProjectContext(projectContext);
+  let controls = null;
+  const contentNotice = document.createElement("p");
+  contentNotice.className = "project-resource-feedback";
+  contentNotice.hidden = true;
+  root.updateContentState = () => {
+    const blocked = Boolean(isContentBlocked?.());
+    if (controls) controls.disabled = blocked;
+    contentNotice.hidden = !blocked;
+    contentNotice.textContent = blocked ? "Save or reload the Publication draft and wait for content operations to finish before editing metadata." : "";
+    return blocked;
+  };
   // Opening metadata is deliberate; the shared editor loads only on request.
   root.addEventListener("toggle", () => {
     if (!root.open || root.dataset.mounted) return;
     root.dataset.mounted = "true";
     const editor = ResourceKnowledge({adapter, resourceKind: kind, resourceId: id});
-    root.append(editor);
+    if (isContentBlocked) {
+      controls = document.createElement("fieldset");
+      controls.append(editor);
+      root.append(contentNotice, controls);
+      root.updateContentState();
+    } else root.append(editor);
     if (kind === "project") void editor.load();
   });
   return root;
@@ -92,6 +108,16 @@ function node(tag, text = "") {
   const element = document.createElement(tag);element.textContent = text;return element;
 }
 
+export function revealAuthoredMetadataDraft(editor) {
+  const status = editor.querySelector('[role="status"]');
+  if (status) status.textContent = editor.hasUnsavedChanges?.()
+    ? "Save or discard the metadata draft before leaving or refreshing."
+    : "Wait for the metadata operation to finish before leaving or refreshing.";
+  editor.closest("details.authored-resource-metadata")?.setAttribute("open", "");
+  // The metadata may belong to a mounted but hidden Publication card.
+  editor.dispatchEvent(new editor.ownerDocument.defaultView.Event("opengeo-reveal-draft", {bubbles: true}));
+}
+
 export function guardAuthoredMetadata(root) {
   const document = root.ownerDocument, browser = document.defaultView;
   const accountValues = new Map();
@@ -107,9 +133,7 @@ export function guardAuthoredMetadata(root) {
     const editor = blocked();
     if (!editor) return false;
     if (editor.checkDraft) return editor.checkDraft();
-    const status = editor.querySelector('[role="status"]');
-    if (status) status.textContent = "Save or discard the metadata draft before leaving or refreshing.";
-    editor.closest("details.authored-resource-metadata")?.setAttribute("open", "");
+    revealAuthoredMetadataDraft(editor);
     return true;
   };
   const href = browser.location.href;

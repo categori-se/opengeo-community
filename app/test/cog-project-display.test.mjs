@@ -59,16 +59,52 @@ it("saved raster settings reject malformed or wrong-band values without changing
   const old = emptyMapDefinition({layers: [base]}); assert.deepEqual(upgradeMapDefinition(old), old);
 });
 
+it("Project Save excludes only the temporary grid viewshed while preserving its governed source and runtime result", () => {
+  const source = layer(), original = structuredClone(source);
+  const viewshed = {layerId: "scratch_processing_viewshed", datasetId: null, title: "Elevation viewshed",
+    sourceType: "geojson-object", geometryType: "Polygon", visible: true, opacity: .5, order: 999,
+    transientAnalysis: "grid-viewshed", style: {fill: "#16a34a"}, labels: {enabled: false, field: null}};
+  const other = {...layer(), layerId: "other-analysis", title: "Other processing result", transientAnalysis: "other-analysis"};
+  const data = {type: "FeatureCollection", features: [], opengeo: {source: {url: source.sourceUrl, etag: "exact-source"}, assumptions: {observerHeight: 1.7}}};
+  const runtime = structuredClone({viewshed, data});
+  const context = {layers: [source, viewshed, other], project: emptyMapDefinition(), state: {
+    map: null, activeLayerId: viewshed.layerId, geojsonByLayerId: new Map([[viewshed.layerId, data]])}};
+  const saved = currentProjectDefinition(context), reopened = upgradeMapDefinition(JSON.parse(JSON.stringify(saved)));
+  assert.deepEqual(saved.layers.map(({layerId}) => layerId), [source.layerId, other.layerId]);
+  assert.equal(saved.activeLayerId, source.layerId);
+  assert.deepEqual(reopened.layers[0], original);
+  assert.equal(JSON.stringify(saved).includes("scratch_processing_viewshed"), false);
+  assert.deepEqual({viewshed, data}, runtime);
+  assert.equal(context.state.geojsonByLayerId.get(viewshed.layerId), data);
+});
+
 it("compiled Catalog and Project use real scientific raster pixels through Apply, Save and fresh reopen", {
-  skip: !process.env.OPEN_GEO_COG_COMPILED_DIST, timeout: 60000
+  skip: !process.env.OPEN_GEO_COG_COMPILED_DIST, timeout: process.env.OPEN_GEO_COG_PROVIDER_PRIOR_RECEIPT ? 73000 : process.env.OPEN_GEO_COG_PROVIDER_METADATA ? 90000 : 60000
 }, async () => {
-  const {readFile, writeFile} = await import("node:fs/promises");
+  const {readFile, writeFile, access} = await import("node:fs/promises");
   const {resolve, dirname} = await import("node:path");
   const {createHash} = await import("node:crypto");
   const {chromium} = await import("playwright");
   const geotiff = await import("geotiff");
+  const providerRecord = process.env.OPEN_GEO_COG_PROVIDER_METADATA
+    ? JSON.parse(await readFile(process.env.OPEN_GEO_COG_PROVIDER_METADATA, "utf8")) : null;
+  const providerOnly = Boolean(providerRecord);
+  const priorProviderBrowser = process.env.OPEN_GEO_COG_PROVIDER_PRIOR_RECEIPT
+    ? JSON.parse(await readFile(process.env.OPEN_GEO_COG_PROVIDER_PRIOR_RECEIPT, "utf8")) : null;
+  if (priorProviderBrowser) {
+    assert.equal(priorProviderBrowser.browserClosed, true);
+    assert.equal(priorProviderBrowser.rasterRanges, 1);assert.equal(priorProviderBrowser.rasterBytes, 65536);
+    assert.equal(priorProviderBrowser.elapsedMilliseconds, 17026);
+  }
+  const harnessOrigin = providerOnly ? "https://studio.opengeo.tools" : "https://cog.test";
+  if (providerOnly) {
+    assert.equal(providerRecord.status, "verified-public-elevation-GeoTIFF-EPSG3857-Origin-CORS");
+    assert.equal(providerRecord.assetUrl, "https://elevation-tiles-prod.s3.amazonaws.com/geotiff/11/619/757.tif");
+    assert(process.env.OPEN_GEO_COG_PROVIDER_RECEIPT, "Separate provider receipt is required");
+    await assert.rejects(access(process.env.OPEN_GEO_COG_PROVIDER_RECEIPT), {code: "ENOENT"});
+  }
   const viewshedLayoutOnly = process.env.OPEN_GEO_COG_VIEWSHED_LAYOUT_ONLY === "1";
-  const viewshedOnly = viewshedLayoutOnly || process.env.OPEN_GEO_COG_VIEWSHED_ONLY === "1";
+  const viewshedOnly = providerOnly || viewshedLayoutOnly || process.env.OPEN_GEO_COG_VIEWSHED_ONLY === "1";
   const layoutOnly = viewshedLayoutOnly || process.env.OPEN_GEO_COG_CATALOG_LAYOUT_ONLY === "1";
   const inspectOnly = layoutOnly || process.env.OPEN_GEO_COG_INSPECT_ONLY === "1";
   const dist = resolve(process.env.OPEN_GEO_COG_COMPILED_DIST), area = dirname(dirname(dist));
@@ -77,10 +113,16 @@ it("compiled Catalog and Project use real scientific raster pixels through Apply
   const modulePath = name => "/" + [...files.values()].find(file => file.path.startsWith("_import/" + name + ".") && file.path.endsWith(".js")).path;
   const workspaceHTML = await readFile(resolve(dist, "workspaces.html"), "utf8");
   const styles = [...workspaceHTML.matchAll(/<link[^>]*href="([^"]+\.css)"[^>]*>/g)].map(match => `<link rel="stylesheet" href="${match[1]}">`).join("");
-  const fixture = new Uint8Array(geotiff.writeArrayBuffer(new Float32Array(Array.from({length: 64}, (_, index) => (viewshedOnly ? [0, 0, 0, 50, 0, -9999, 0, 0] : [-100, -50, 0, 50, 100, -9999, NaN, Infinity])[index % 8])),
+  const fixture = providerOnly ? null : new Uint8Array(geotiff.writeArrayBuffer(new Float32Array(Array.from({length: 64}, (_, index) => (viewshedOnly ? [0, 0, 0, 50, 0, -9999, 0, 0] : [-100, -50, 0, 50, 100, -9999, NaN, Infinity])[index % 8])),
     {width: 8, height: 8, SampleFormat: [3], ModelPixelScale: viewshedOnly ? [.001, .001, 0] : [1, 1, 0], ModelTiepoint: [0, 0, 0, 0, viewshedOnly ? .008 : 8, 0], GeographicTypeGeoKey: 4326, GDAL_NODATA: "-9999"}));
-  const value = {...layer(), sourceConfiguration: {...layer().sourceConfiguration, ...(viewshedOnly ? {bounds:[0,0,.008,.008]} : {}), bands: [1], sizeBytes: fixture.length}};
-  const html = `<!doctype html><meta charset="utf-8">${styles}<style>html,body,#root{height:100%;margin:0}</style><main id="root"></main><script type="module">
+  const value = providerOnly ? {...layer(), sourceUrl: providerRecord.assetUrl, sourceConfiguration: {
+    bands: [1], bounds: [-71.19140625, 42.293564192170095, -71.015625, 42.42345651793832], sizeBytes: 88432,
+    license: "Provider source terms and attribution: https://github.com/tilezen/joerd/blob/master/docs/attribution.md",
+    attribution: "Mapzen terrain tiles; United States 3DEP, GMTED2010 and SRTM data courtesy of the U.S. Geological Survey",
+    referenceMetadata: {source: {provider: "Mapzen terrain tiles", formatDocumentation: providerRecord.formatDocumentation,
+      attributionDocumentation: providerRecord.attributionDocumentation, metadataFixture: true}}
+  }} : {...layer(), sourceConfiguration: {...layer().sourceConfiguration, ...(viewshedOnly ? {bounds:[0,0,.008,.008]} : {}), bands: [1], sizeBytes: fixture.length}};
+  const html = `<!doctype html><meta charset="utf-8">${styles}<style>html,body,#root{height:100%;margin:0}</style>${providerOnly ? '<p>Public real-provider elevation reference with fixture metadata; this is not a registered Catalog record.</p>' : ''}<main id="root"></main><script type="module">
     import {MapView} from '${modulePath("components/MapView")}';
     ${layoutOnly ? "" : `import {WorkbenchView} from '${modulePath("components/WorkbenchView")}';`}
     import {upgradeMapDefinition} from '${modulePath("lib/mapDefinition")}';
@@ -92,12 +134,15 @@ it("compiled Catalog and Project use real scientific raster pixels through Apply
         saveProject:async definition=>{window.saved=JSON.parse(JSON.stringify(definition));return{id:'70000000-0000-4000-8000-000000000003',version:1,definition:window.saved};}}));
     };
     window.openProject = () => mountProject({schemaVersion:'opengeo.map-definition.1.3.0',activeLayerId:layer.layerId,
-      layers:[${inspectOnly || viewshedOnly ? "{...layer,style:{...layer.style,cogDisplay:{displayRange:{minimum:-100,maximum:100},noDataValue:null}}}" : "layer"}],mapViews:[{center:${viewshedOnly ? "[.004,.004],zoom:15" : "[4,4],zoom:5"}}],basemaps:[]});
+      layers:[${inspectOnly || viewshedOnly ? "{...layer,style:{...layer.style,cogDisplay:{displayRange:{minimum:-100,maximum:100},noDataValue:null}}}" : "layer"}],mapViews:[{center:${providerOnly ? "[-71.06,42.36],zoom:12" : viewshedOnly ? "[.004,.004],zoom:15" : "[4,4],zoom:5"}}],basemaps:[]});
     root.append(MapView({cog:reference,height:400})); window.ready=true;
   </script>`;
-  const limits = viewshedLayoutOnly ? {softwareGETs:90,softwareBytes:8*1024*1024,seconds:30,ranges:2} : viewshedOnly ? {softwareGETs:320,softwareBytes:32*1024*1024,seconds:90,ranges:12} : layoutOnly ? {softwareGETs:80,softwareBytes:8*1024*1024,seconds:30,ranges:8} : inspectOnly ? {softwareGETs:280,softwareBytes:20*1024*1024,seconds:60,ranges:12} : {softwareGETs:1000,softwareBytes:40*1024*1024,seconds:60,ranges:12};
-  const begun=Date.now(), receipt = {status:"started",limits,AWS:0,API:0,providerRequests:0,softwareRequests:0,softwareBytes:0,rasterRanges:0,rasterBytes:0,saves:0,errors:[]};
-  const browser = await chromium.launch({headless:true, executablePath:"/usr/bin/chromium-browser",args:["--no-sandbox","--enable-unsafe-swiftshader"]});
+  const limits = viewshedLayoutOnly ? {softwareGETs:90,softwareBytes:8*1024*1024,seconds:30,ranges:2} : viewshedOnly ? {softwareGETs:320,softwareBytes:32*1024*1024,seconds:priorProviderBrowser?72.974:90,ranges:priorProviderBrowser?11:12} : layoutOnly ? {softwareGETs:80,softwareBytes:8*1024*1024,seconds:30,ranges:8} : inspectOnly ? {softwareGETs:280,softwareBytes:20*1024*1024,seconds:60,ranges:12} : {softwareGETs:1000,softwareBytes:40*1024*1024,seconds:60,ranges:12};
+  const begun=Date.now(), receipt = {status:"started",limits:{...limits,...(providerOnly?{rasterBytes:8*1024*1024-(priorProviderBrowser?.rasterBytes??0)}: {})},AWS:0,API:0,providerRequests:0,softwareRequests:0,softwareBytes:0,rasterRanges:0,rasterBytes:0,saves:0,errors:[],
+    ...(priorProviderBrowser?{priorBrowser:{receipt:process.env.OPEN_GEO_COG_PROVIDER_PRIOR_RECEIPT,rasterRanges:priorProviderBrowser.rasterRanges,rasterBytes:priorProviderBrowser.rasterBytes,softwareRequests:priorProviderBrowser.softwareRequests,softwareBytes:priorProviderBrowser.softwareBytes,elapsedMilliseconds:priorProviderBrowser.elapsedMilliseconds},changedMethod:'Complete the required signed-band display-range UI before waiting for cached elevation samples; source values remain unchanged.'}: {}),
+    ...(providerOnly?{sourceMetadataReceipt:process.env.OPEN_GEO_COG_PROVIDER_METADATA,priorProviderUsage:{metadataRequests:providerRecord.cumulativeMetadataRequests,metadataBytes:providerRecord.cumulativeMetadataBytes,metadataMilliseconds:providerRecord.cumulativeMetadataElapsedMilliseconds,webReads:5},externalRequestsAborted:0,fixtureMetadata:true}: {})};
+  const browser = await chromium.launch({headless:true, chromiumSandbox:true, executablePath:"/usr/bin/chromium-browser",args:["--enable-unsafe-swiftshader"]});
+  const providerTimer=providerOnly?setTimeout(()=>{receipt.timerClosedBrowser=true;void browser.close();},priorProviderBrowser?68000:85000):null;
   try {
     const context = await browser.newContext({viewport:{width:1440,height:1000},serviceWorkers:"block"});
     await context.route("**/*", async route => {
@@ -106,14 +151,24 @@ it("compiled Catalog and Project use real scientific raster pixels through Apply
       if (["blob:","data:"].includes(url.protocol)) return route.continue();
       if (url.href === value.sourceUrl) {
         assert(receipt.rasterRanges < limits.ranges); const match = /^bytes=(\d+)-(\d+)$/.exec(request.headers().range); assert(match);
+        if (providerOnly) {
+          assert.equal(request.method(), "GET");
+          const length=Math.min(Number(match[2]),value.sourceConfiguration.sizeBytes-1)-Number(match[1])+1;
+          assert(length>0);receipt.reservedRasterBytes=(receipt.reservedRasterBytes??0)+length;
+          assert(receipt.reservedRasterBytes<=receipt.limits.rasterBytes);
+          receipt.providerRequests++;receipt.rasterRanges++;
+          return route.continue();
+        }
         const start = Number(match[1]), end = Math.min(Number(match[2]),fixture.length-1), body = fixture.slice(start,end+1);
         receipt.rasterRanges++; receipt.rasterBytes += body.length;
         return route.fulfill({status:206,body:Buffer.from(body),headers:{"access-control-allow-origin":"*","access-control-expose-headers":"Content-Range,ETag","content-range":`bytes ${start}-${end}/${fixture.length}`,etag:'"local-scientific-fixture"'}});
       }
       if (url.origin === "https://tiles.openfreemap.org" && url.pathname.startsWith("/styles/")) {
+        if (providerOnly) {receipt.externalRequestsAborted++;return route.abort();}
         return route.fulfill({contentType:"application/json",body:JSON.stringify({version:8,sources:{},layers:[{id:"background",type:"background",paint:{"background-color":"white"}}]})});
       }
-      assert.equal(url.origin,"https://cog.test");
+      if (providerOnly && ["fonts.googleapis.com","fonts.gstatic.com"].includes(url.hostname)) {receipt.externalRequestsAborted++;return route.abort();}
+      assert.equal(url.origin,harnessOrigin);
       if (url.pathname === "/") return route.fulfill({contentType:"text/html",body:html});
       const file = files.get(decodeURIComponent(url.pathname)); assert(file,"Unreviewed software request: "+url.pathname);
       assert(receipt.softwareRequests < limits.softwareGETs && receipt.softwareBytes + file.bytes <= limits.softwareBytes);
@@ -122,7 +177,60 @@ it("compiled Catalog and Project use real scientific raster pixels through Apply
       return route.fulfill({body:bytes,contentType:file.path.endsWith(".css")?"text/css":file.path.endsWith(".json")?"application/json":"text/javascript"});
     });
     const page = await context.newPage(); page.setDefaultTimeout(15000); page.on("pageerror",error=>receipt.errors.push(error.message));
-    await page.goto("https://cog.test/"); await page.waitForFunction(()=>window.ready);
+    const providerResponses=[];
+    if (providerOnly) page.on("response",response=>{
+      if(response.url()!==value.sourceUrl)return;
+      providerResponses.push((async()=>{const body=await response.body();receipt.rasterBytes+=body.length;assert(receipt.rasterBytes<=receipt.limits.rasterBytes);assert.equal(response.status(),206);
+        receipt.providerResponses??=[];const headers=response.headers();receipt.providerResponses.push({status:response.status(),range:response.request().headers().range,bytes:body.length,sha256:createHash('sha256').update(body).digest('hex'),headers:Object.fromEntries(['etag','content-range','access-control-allow-origin','access-control-expose-headers','x-amz-meta-x-imagery-sources'].filter(key=>headers[key]!==undefined).map(key=>[key,headers[key]]))});})()
+        .catch(error=>{receipt.errors.push(`Provider response: ${error.message}`);}));
+    });
+    await page.goto(harnessOrigin+"/"); await page.waitForFunction(()=>window.ready);
+    if (providerOnly) {
+      receipt.stage="Real provider cached elevation-grid Calculate and portable export";
+      await page.getByLabel('Display minimum',{exact:true}).fill('0');
+      await page.getByLabel('Display maximum',{exact:true}).fill('300');
+      await page.getByRole('button',{name:'Apply display range',exact:true}).click();
+      await page.waitForFunction(()=>Boolean(document.querySelector('.map-frame')?.__cogSession?.grid));
+      const calculateAndDownload=async catalog=>{
+        const panel=page.locator('.gis-grid-viewshed');await panel.locator('summary').click();
+        await panel.getByLabel('Interpret elevation units',{exact:true}).selectOption('metres');
+        await panel.getByLabel('Use this band as elevation',{exact:true}).check();
+        await panel.getByLabel('Observer longitude',{exact:true}).fill('-71.06');
+        await panel.getByLabel('Observer latitude',{exact:true}).fill('42.36');
+        await panel.getByLabel('Analysis grid (maximum cells per side)',{exact:true}).selectOption('17');
+        const before=receipt.rasterRanges;
+        await panel.getByRole('button',{name:'Calculate viewshed',exact:true}).click();
+        await panel.getByText('Viewshed ready. No additional raster reads were made.',{exact:true}).waitFor();
+        await panel.getByLabel('I have reviewed the source terms for this derived output',{exact:true}).check();
+        const [download]=await Promise.all([page.waitForEvent('download'),panel.getByRole('button',{name:'Download viewshed GeoJSON',exact:true}).click()]);
+        const bytes=await readFile(await download.path()),data=JSON.parse(bytes);
+        assert(data.features.length>0&&data.features.length<=289);
+        assert.equal(data.opengeo.source.source.url,value.sourceUrl);assert.equal(data.opengeo.source.source.size,88432);
+        assert.equal(data.opengeo.source.source.verified,false);assert.equal(receipt.rasterRanges,before);
+        receipt[catalog?'catalogOutput':'projectOutput']={bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),counts:data.opengeo.counts,provenance:data.opengeo};
+        return data;
+      };
+      await calculateAndDownload(true);
+      receipt.stage="Real provider Project temporary Add preserves exact downloaded features and provenance";
+      await page.evaluate(()=>openProject());
+      await page.getByRole('button',{name:'View',exact:true}).click();await page.getByRole('menuitem',{name:'Change basemap',exact:true}).click();
+      const blank=page.locator('[data-catalog-id="blank"]'),group=blank.locator('xpath=ancestor::details[1]');
+      if(await group.getAttribute('open')===null)await group.locator('summary').first().click();
+      await blank.click();const dialog=page.getByRole('dialog',{name:'Change basemap',exact:true});
+      if(await dialog.count())await dialog.getByRole('button',{name:'Done',exact:true}).click();
+      await page.waitForFunction(()=>Boolean(document.querySelector('.opengeo-workbench')?.__opengeoMap?.getSource('elevation-source')?.getCanvas()));
+      await page.getByLabel('Layer actions for Elevation',{exact:true}).click();await page.getByRole('button',{name:'Style layer',exact:true}).click();
+      const output=await calculateAndDownload(false),before=receipt.rasterRanges;
+      await page.getByRole('button',{name:'Add temporary result to map',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('.opengeo-workbench').__opengeoLayers.length===2);
+      const state=await page.evaluate(()=>{const root=document.querySelector('.opengeo-workbench'),layers=root.__opengeoLayers;return{layers,data:root.__opengeoData.get(layers[0].layerId)};});
+      assert.equal(state.layers[0].sourceType,'geojson-object');assert.deepEqual(state.data.features,output.features);assert.deepEqual(state.data.opengeo,output.opengeo);
+      assert.equal(state.data['opengeo:analysis'].persisted,false);assert.deepEqual(state.layers[1].sourceConfiguration,value.sourceConfiguration);
+      assert.equal(receipt.rasterRanges,before);await Promise.all(providerResponses);assert.deepEqual(receipt.errors,[]);
+      receipt.status='passed-real-provider-compiled-cached-grid-viewshed-download-temporary-add';receipt.analysisAddedRanges=0;
+      receipt.limit='Actual public Mapzen GeoTIFF read by retained compiled components with clearly declared fixture metadata. No Catalog registration, authentication, application writes, source accuracy or atomic snapshot claim. CORS hides ETag and Content-Range; known size is retained.';
+      return;
+    }
     const openStyle = async () => { await page.getByLabel("Layer actions for Elevation",{exact:true}).click(); await page.getByRole("button",{name:"Style layer",exact:true}).click(); };
     const fill = async () => {
       await page.getByLabel("Display minimum",{exact:true}).fill("-100");
@@ -184,7 +292,7 @@ it("compiled Catalog and Project use real scientific raster pixels through Apply
       await page.getByRole('button',{name:'Add temporary result to map',exact:true}).click();
       await page.waitForFunction(()=>document.querySelector('.opengeo-workbench').__opengeoLayers.length===2);
       const state=await page.evaluate(()=>{const root=document.querySelector('.opengeo-workbench'),layers=root.__opengeoLayers,map=root.__opengeoMap;return{layers,data:root.__opengeoData.get(layers[0].layerId),style:map.getStyle().layers};});
-      assert.equal(state.layers[0].sourceType,'geojson-object');assert.deepEqual(state.data.features,output.features);assert.deepEqual(state.data.opengeo,output.opengeo);
+      assert.equal(state.layers[0].sourceType,'geojson-object');assert.equal(state.layers[0].transientAnalysis,'grid-viewshed');assert.deepEqual(state.data.features,output.features);assert.deepEqual(state.data.opengeo,output.opengeo);
       assert.equal(state.data['opengeo:analysis'].persisted,false);
       assert.deepEqual(state.layers[1].sourceConfiguration,value.sourceConfiguration);
       assert.deepEqual(state.layers[1].style,{...value.style,cogDisplay:{displayRange:{minimum:-100,maximum:100},noDataValue:null}});
@@ -253,9 +361,10 @@ it("compiled Catalog and Project use real scientific raster pixels through Apply
     receipt.status="passed-compiled-Catalog-and-Project-save-fresh-reopen-local-persistence";
     receipt.limit="Local synthetic real Float32 TIFF, actual compiled components and MapLibre; fixture Save callback. No fresh provider, hosted auth or API-persistence claim; basemap local blank.";
   } catch (error) {
+    receipt.status="stopped";
     receipt.failure=String(error.message).slice(0,1200);
     const pages=browser.contexts().flatMap(context=>context.pages());
-    if(pages[0]) {receipt.visibleText=(await pages[0].locator("body").innerText()).slice(-3500);await pages[0].screenshot({path:resolve(area,"../compiled-scientific-cog-stopped.png")});}
+    if(pages[0]) {receipt.visibleText=(await pages[0].locator("body").innerText()).slice(-3500);if(!providerOnly)await pages[0].screenshot({path:resolve(area,"../compiled-scientific-cog-stopped.png")});}
     throw error;
-  } finally {await browser.close();receipt.browserClosed=true;receipt.elapsedMilliseconds=Date.now()-begun; await writeFile(resolve(area,viewshedLayoutOnly?"../compiled-viewshed-layout.json":viewshedOnly?"../compiled-grid-viewshed.json":layoutOnly?"../compiled-catalog-controls.json":"../compiled-scientific-cog.json"),JSON.stringify(receipt,null,2)+"\n");}
+  } finally {clearTimeout(providerTimer);await browser.close();receipt.browserClosed=true;receipt.elapsedMilliseconds=Date.now()-begun;if(priorProviderBrowser)receipt.cumulativeBrowser={rasterRanges:priorProviderBrowser.rasterRanges+receipt.rasterRanges,rasterBytes:priorProviderBrowser.rasterBytes+receipt.rasterBytes,softwareRequests:priorProviderBrowser.softwareRequests+receipt.softwareRequests,softwareBytes:priorProviderBrowser.softwareBytes+receipt.softwareBytes,elapsedMilliseconds:priorProviderBrowser.elapsedMilliseconds+receipt.elapsedMilliseconds}; await writeFile(providerOnly?process.env.OPEN_GEO_COG_PROVIDER_RECEIPT:resolve(area,viewshedLayoutOnly?"../compiled-viewshed-layout.json":viewshedOnly?"../compiled-grid-viewshed.json":layoutOnly?"../compiled-catalog-controls.json":"../compiled-scientific-cog.json"),JSON.stringify(receipt,null,2)+"\n");}
 });
