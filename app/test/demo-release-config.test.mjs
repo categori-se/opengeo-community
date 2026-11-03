@@ -40,7 +40,7 @@ it('rejects unknown or incomplete SDK files rather than exempting a whole direct
 it('accepts only bounded anonymous Demo artifacts',()=>{
  assertBrowserDemoRelease(manifest());
  for(const privatePath of ['auth-config.json','workspaces.html','login.html','admin.html'])assert.throws(()=>assertBrowserDemoRelease(manifest(['index.html',privatePath])));
- assert.throws(()=>assertBrowserDemoRelease(manifest(['index.html'],21*1024*1024)));
+ assert.throws(()=>assertBrowserDemoRelease(manifest(['index.html'],BROWSER_DEMO_LIMITS.coreBytes+1)));
  assert.throws(()=>assertBrowserDemoRelease({...manifest(),authConfig:{path:'auth-config.json'}}));
  assert.throws(()=>assertBrowserDemoRelease({...manifest(),routes:[{path:'/workspaces'}]}));
 });
