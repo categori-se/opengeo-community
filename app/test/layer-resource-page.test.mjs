@@ -321,6 +321,49 @@ it('loads connection and archive history deliberately without reading archive by
  }finally{globalThis.document=old;dom.window.close();}
 });
 
+it("hands off final Project picker page focus without stealing a moved keyboard focus", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>"), previous = globalThis.document;
+  globalThis.document = dom.window.document;
+  try {
+    for (const mode of ["editable", "empty", "moved"]) {
+      const first = Array.from({length:100}, (_, index) => ({id:`read-${index}`,name:`Read ${index}`,
+        status:"active",callerRole:"viewer"}));
+      const requests = []; let resolvePage;
+      const adapter = {kind:"api",organizationProvider:()=>"account-a",
+        listProjects: options => {requests.push(options);return new Promise(resolve=>{resolvePage=resolve;});},
+        attachDataset:()=>assert.fail("Paging must not attach or copy the Layer")};
+      const root = renderLayerResource({dataset:{...dataset,capabilities:{managePermissions:true}},
+        adapter,projects:first,accountId:"account-a"});
+      document.body.append(root);
+      try {
+        const reuse=root.querySelector(".layer-resource-reuse"), select=reuse.querySelector("select");
+        const more=[...reuse.querySelectorAll("button")].find(item=>item.textContent==="Load more projects");
+        const browse=[...reuse.querySelectorAll("a")].find(item=>item.textContent==="Browse projects");
+        assert.equal(requests.length,0,"Opening the picker never requests another page");
+        more.focus();assert.equal(document.activeElement,more);
+        more.click();await flush();assert.equal(more.disabled,true);
+        assert.deepEqual([requests[0].limit,requests[0].offset],[100,100]);
+        // Browsers may release focus when the native button becomes disabled.
+        document.body.tabIndex=-1;document.body.focus();
+        if(mode==="moved") browse.focus();
+        resolvePage(mode==="empty" ? [] : [{id:"editable-last",name:"Last Project",status:"active",callerRole:"editor"}]);
+        await flush();
+        assert.equal(more.hidden,true);
+        assert.equal(requests.length,1,"Finishing a page never auto-loads or retries");
+        if(mode==="moved") assert.equal(document.activeElement,browse,"Deliberately moved focus is preserved");
+        else if(mode==="editable") {
+          assert.equal(document.activeElement,select,"Focus moves to the editable destination chooser");
+          assert.equal(select.value,"editable-last");assert.equal(select.disabled,false);
+        } else {
+          const status=reuse.querySelector('[role="status"]');
+          assert.equal(document.activeElement,status,"No editable destination leaves focus on the final result status");
+          assert.match(status.textContent,/No editable projects/);assert.equal(select.disabled,true);
+        }
+      } finally {root.dispose();root.remove();}
+    }
+  } finally {globalThis.document=previous;dom.window.close();}
+});
+
 it("loads another authorized Project page explicitly, preserving selection and attachment feedback across failure", async () => {
   const dom = new JSDOM("<!doctype html>");
   const previous = globalThis.document; globalThis.document = dom.window.document;

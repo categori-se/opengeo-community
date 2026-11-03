@@ -31,6 +31,65 @@ const MASSGIS = JSON.parse(await readFile(
 
 if(process.env.OPEN_GEO_GPX_DIST){await checkGpxBrowser();process.exit(0);}
 
+it("terrain source recovery closes its guard without map idle and ignores unqualified events", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>", {url:"https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), listeners = new Map(), sources = new Map();
+  const sourceId = "opengeo-mapterhorn-terrain", originalNow = Date.now;
+  let now = Date.parse("2026-09-10T12:00:00Z"), shell, terrain = {source:sourceId}, refreshes = 0;
+  sources.set(sourceId, {type:"raster-dem"});
+  const map = {
+    on(type, callback) {listeners.set(type, callback);}, off(type) {listeners.delete(type);},
+    resize() {}, isStyleLoaded:()=>false, loaded:()=>false,
+    getZoom:()=>2, getBearing:()=>0, getPitch:()=>0, getCenter:()=>({lng:0,lat:0}),
+    getStyle:()=>({version:8,sources:Object.fromEntries(sources),layers:[]}), getLayer:()=>null,
+    getSource:id=>sources.get(id), addSource(id, source) {sources.set(id, source);},
+    setTerrain(value) {terrain=value;}, getTerrain:()=>terrain,
+    refreshTiles(id) {assert.equal(id,sourceId);refreshes++;}
+  };
+  const fire = (type, event) => listeners.get(type)(event);
+  const sourceEvent = overrides => ({sourceId,sourceDataType:"content",isSourceLoaded:true,...overrides});
+  const retry = () => shell.querySelector('[data-map-mode="terrainEnabled"]').click();
+  try {
+    Date.now = () => now;
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    shell = WorkbenchView({workspace:{workspaceId:"50000000-0000-4000-8000-000000000001",title:"Terrain recovery"},
+      project:{...emptyMapDefinition(),projection:"globe",terrain:{enabled:true}},
+      role:"local",publicDemo:true,restoreBrowserDraft:false,
+      rendererAdapter:{id:"maplibre",initialize(){},registerProtocol(){},createMap:()=>map,disposeMap(){}}});
+    document.body.append(shell);
+    await waitFor(()=>listeners.has("sourcedata"));
+    shell.querySelector('[aria-label="Show map controls"]').click();
+    for(let i=0;i<3;i++) fire("error",{sourceId});
+    assert.equal(shell.dataset.terrain,"disabled");
+    assert.equal(shell.dataset.terrainOutage,"open");
+    fire("sourcedata",sourceEvent());
+    assert.equal(shell.dataset.terrainOutage,"open","late source completion cannot recover disabled terrain");
+    now += 59_000;retry();
+    assert.equal(shell.dataset.terrain,"disabled","Retry cannot bypass the source cooldown");
+    assert.equal(shell.dataset.terrainOutage,"open");
+    now += 2_000;retry();
+    assert.equal(shell.dataset.terrain,"enabled");
+    assert.equal(shell.dataset.terrainOutage,"half-open","activation alone does not establish recovery");
+    assert.equal(refreshes,1,"half-open Retry refreshes the original terrain source");
+    for(const event of [sourceEvent({sourceId:"unrelated-loading-source"}),
+      sourceEvent({sourceDataType:"metadata"}),sourceEvent({isSourceLoaded:false})]) {
+      fire("sourcedata",event);
+      assert.equal(shell.dataset.terrainOutage,"half-open","only completed matching source content settles recovery");
+    }
+    const observer = new dom.window.MutationObserver(()=>{});
+    observer.observe(shell,{attributes:true,attributeFilter:["data-terrain-outage"]});
+    try {
+      fire("sourcedata",sourceEvent());
+      assert.equal(map.loaded(),false,"another source still prevents map-wide idle");
+      assert.equal(shell.dataset.terrainOutage,"closed");
+      assert.equal(shell.dataset.terrain,"enabled");
+      assert.equal(observer.takeRecords().length,1,"the state transition updates presentation");
+      fire("sourcedata",sourceEvent());
+      assert.equal(observer.takeRecords().length,0,"repeated successful content does not refresh unchanged presentation");
+    } finally {observer.disconnect();}
+  } finally {Date.now=originalNow;shell?.dispose?.();shell?.remove();restore();dom.window.close();}
+});
+
 it("graphics failure retains Catalog additions and draft state, disables capture and recovers only on Retry", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {url:"https://studio.opengeo.tools/"});
   const restore = installDomGlobals(dom.window), listeners = new Map();let shell, creates = 0, removes = 0;

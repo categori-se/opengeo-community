@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {it} from "node:test";
-import {saveCatalogProject} from "../src/lib/catalogProjectSave.js";
+import {saveCatalogProject, registeredPreviewLayer} from "../src/lib/catalogProjectSave.js";
 import {emptyMapDefinition} from "../src/lib/mapDefinition.js";
 const record = {projectId: "source", datasetId: "layer", title: "Roads"};
 const layer = {layerId: "old", datasetId: "layer", sourceVersion: 3, sourceConfiguration: {attribution: "Provider"}, visible: false, order: 4};
@@ -52,4 +52,22 @@ it("does not create a Project if reference access is denied",async()=>{
   const adapter={async attachDataset(){throw Object.assign(Error('denied'),{status:403});},async createMap(){creates++;}};
   await assert.rejects(saveCatalogProject({adapter,record,layer,title:'Denied',occurrenceId:'occurrence',accessContainerId:'chosen'}),error=>error.status===403);
   assert.equal(creates,0);
+});
+
+it("deliberate WMS Project save and fresh reopen preserve the shared Layer, source revision and image configuration", async () => {
+  const configuration={version:"1.1.1",layers:["public:elevation","public:roads"],styles:["","roads"],imageFormat:"image/png",
+    transparent:false,crs:"EPSG:3857",tileSize:512,attribution:"Provider rights remain as recorded"};
+  const source={sourceType:"wms",datasetId:"layer",versionNumber:7,sourceUrl:"https://maps.example.com/geoserver/wms",configuration};
+  const original=structuredClone(source),preview=registeredPreviewLayer(source,"Selected WMS"),calls=[];let saved;
+  const adapter={attachDataset:async(projectId,id)=>{calls.push("link");return {projectId,id};},
+    createMap:async(projectId,draft)=>{calls.push("save");saved={id:"new-project",projectId,version:1,definition:JSON.parse(JSON.stringify(draft.definition))};return saved;},
+    getMap:async()=>structuredClone(saved)};
+  assert.deepEqual(calls,[]);
+  await saveCatalogProject({adapter,record,layer:preview,title:"WMS study",occurrenceId:"wms-occurrence",accessContainerId:"chosen"});
+  const reopened=await adapter.getMap(),retained=reopened.definition.layers[0];
+  assert.deepEqual(calls,["link","save"]);assert.equal(retained.datasetId,"layer");assert.equal(retained.sourceVersion,7);
+  assert.equal(retained.sourceType,"wms-raster");assert.equal(retained.sourceUrl,source.sourceUrl);assert.equal(retained.tileSize,512);
+  assert.deepEqual(retained.sourceConfiguration,configuration);assert.equal(retained.tileUrl,preview.tileUrl);
+  assert.equal(reopened.definition.layers.length,1);assert.deepEqual(source,original);
+  assert.equal(preview.layerId,"source_layer","Saving adds an occurrence without mutating the temporary Layer");
 });

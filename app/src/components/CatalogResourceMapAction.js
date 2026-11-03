@@ -1,7 +1,7 @@
 import {CatalogLayerPreview} from "./CatalogLayerPreview.js";
 import {canPreviewCatalogManagedVector, createCatalogPreviewLoader} from "../lib/catalogLayerPreview.js";
 
-const PREVIEW_SOURCES = new Set(["arcgis", "wfs", "imageserver", "mapserver", "cog", "xyz", "geojson", "postgis"]);
+const PREVIEW_SOURCES = new Set(["arcgis", "wfs", "wms", "imageserver", "mapserver", "cog", "xyz", "geojson", "postgis"]);
 let previewSequence = 0;
 
 // Catalog listing is metadata-only. The source and provider are read after a deliberate click.

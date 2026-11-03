@@ -18,7 +18,10 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
   };
   panel.append(node("h4", `${record.title} · ${result.managedArchive ? "archived data preview" : result.referencedArchive ? "referenced archive preview" : "live source preview"}`));
   if (interactive) panel.append(node("p", "Temporary Layer view. Exploring this map does not change a saved Project."));
-  if (result.kind === "xyz") {
+  if (result.kind === "wms") {
+    panel.append(await render({wms: {endpoint: result.endpoint, configuration: result.layer.sourceConfiguration}, height: interactive ? "60vh" : "20rem"}));
+    panel.append(node("p", "Live WMS map images for the selected layers and current area. No archived images are requested. This display does not provide source features or establish reuse rights."));
+  } else if (result.kind === "xyz") {
     panel.append(await render({xyz: {endpoint: result.endpoint, configuration: result.layer.sourceConfiguration}, height: interactive ? "60vh" : "20rem"}));
     panel.append(node("p", "Live provider tiles. Choose an area to inspect; no archived images are requested. This display is not an original-data export."));
   } else if (result.kind === "cog") {

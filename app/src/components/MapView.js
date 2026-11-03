@@ -6,9 +6,13 @@ import {graduatedColorExpression} from "../lib/thematicStyle.js";
 import {installCogMapLayer} from "../lib/cogMapLayer.js";
 import {CogIdentifyResult} from "./CogIdentifyResult.js";
 import {RasterViewshed} from "./RasterViewshed.js";
+import {wmsTileUrl} from "../lib/wmsSource.js";
 
-export function MapView({geojson, geometryType, height, graduated, imageServer, cog, xyz} = {}) {
-  if (!imageServer && !cog && !xyz && !geojson?.features?.length) return emptyMap();
+export function MapView({geojson, geometryType, height, graduated, imageServer, cog, xyz, wms} = {}) {
+  if (!imageServer && !cog && !xyz && !wms && !geojson?.features?.length) return emptyMap();
+  const tiled = wms ? {endpoint: wmsTileUrl(wms.endpoint, wms.configuration),
+    configuration: {...wms.configuration, minZoom: 0, maxZoom: 22, scheme: "xyz"}} : xyz;
+  const chooseArea = wms ? "Choose an area to load WMS imagery." : "Choose an area to load provider tiles.";
 
   const container = document.createElement("div");
   container.className = "map-frame";
@@ -27,6 +31,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
     if (!container.isConnected) return;
     const map = new maplibregl.Map({
       container,
+      transformRequest: url => ({url, credentials: "omit"}),
       style: "https://tiles.openfreemap.org/styles/positron",
       center: [0, 0],
       zoom: 1
@@ -50,19 +55,19 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
     };
     blank.addEventListener("click", () => useBlankBasemap(false));
     container.append(blank);
-    let xyzActive = false, areaButton;
-    const activateXyz = () => {
+    let tiledActive = false, areaButton;
+    const activateTiled = () => {
       if (map.getSource("preview")) return;
-      const c = xyz.configuration;
-      map.addSource("preview", {type: "raster", tiles: [xyz.endpoint], tileSize: c.tileSize, scheme: c.scheme,
+      const c = tiled.configuration;
+      map.addSource("preview", {type: "raster", tiles: [tiled.endpoint], tileSize: c.tileSize, scheme: c.scheme,
         minzoom: c.minZoom, maxzoom: c.maxZoom, attribution: c.attribution});
       map.addLayer({id: "preview-image", type: "raster", source: "preview"});
     };
-    if (xyz) {
+    if (tiled) {
       const form = document.createElement("form"); form.className = "map-preview-area";
       const controls = [
         ["Longitude", -180, 180, 0], ["Latitude", -85, 85, 0],
-        ["Zoom", xyz.configuration.minZoom, xyz.configuration.maxZoom, Math.max(1, xyz.configuration.minZoom)]
+        ["Zoom", tiled.configuration.minZoom, tiled.configuration.maxZoom, Math.max(1, tiled.configuration.minZoom)]
       ].map(([name, min, max, value]) => {
         const label = document.createElement("label"); label.textContent = name;
         const input = document.createElement("input"); input.type = "number"; input.min = min; input.max = max; input.step = "any"; input.value = value; input.required = true; input.setAttribute("aria-label", name);
@@ -72,8 +77,8 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
       form.addEventListener("submit", event => {
         event.preventDefault(); if (!form.reportValidity()) return;
         const values = controls.map(input => Number(input.value)); if (!values.every(Number.isFinite)) return;
-        failed = false; xyzActive = true;
-        map.jumpTo({center: values.slice(0, 2), zoom: values[2]}); activateXyz();
+        failed = false; tiledActive = true;
+        map.jumpTo({center: values.slice(0, 2), zoom: values[2]}); activateTiled();
       });
       container.append(form);
     }
@@ -86,14 +91,14 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
     // The bounded COG reader owns its loading/ready/error state. Canvas source
     // uploads can emit dataloading after it has reported readiness and warnings.
     map.on("dataloading", () => {if (!failed && !cog) setStatus("Loading visible layer area…");});
-    map.on("idle", () => {if (!failed && !cog) setStatus(xyz && !xyzActive ? "Choose an area to load provider tiles." : "Layer view ready. Pan and zoom to explore.");});
+    map.on("idle", () => {if (!failed && !cog) setStatus(tiled && !tiledActive ? chooseArea : "Layer view ready. Pan and zoom to explore.");});
 
     map.on("load", () => {
       if (disposed || previewStarted) return;
       previewStarted = true; blank.remove();
-      if (xyz) {
+      if (tiled) {
         areaButton.disabled = false;
-        setStatus("Choose an area to load provider tiles.");
+        setStatus(chooseArea);
         return;
       }
       if (cog) {
