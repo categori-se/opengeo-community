@@ -1,0 +1,49 @@
+{
+  "$schema": "../../schemas/parity-evidence.schema.json",
+  "schemaVersion": "1.0.0",
+  "evidence": [
+    {
+      "id": "google-earth-pro-002.scene-integration-candidate",
+      "kind": "contract",
+      "result": "pass",
+      "observedAt": "2026-11-03",
+      "environment": {
+        "kind": "local",
+        "description": "Original C01–C03 independently accepted in declared profiles: 14 focused tests, native NVIDIA navigation, visible real imagery/DEM/buildings/woodland and full240-frame p95 21.6ms. Source publication and deployment pending.",
+        "limitations": [
+          "Full settled native metrics pass; the complete helper later failed an extra queryRenderedFeatures diagnostic and is not labeled passing.",
+          "Earlier startup50-frame328.4ms and failed software693/748.5ms remain separate from settled240-frame21.6ms; narrow130-frame85.1ms is an emulated viewport.",
+          "Woodland-area canopy is not individual trees; fixed snapshot review-due status, provider resolution/availability and unknown datum/accuracy remain explicit.",
+          "Named hardware, emulated touch and keyboard/control semantics do not establish physical-device, full WCAG or global SLA coverage."
+        ]
+      },
+      "commands": [
+        "cd app && node --test --test-isolation=none test/historical-imagery-ui.test.mjs test/terrain-view.test.mjs",
+        "npm --prefix app run build:studio",
+        "npm --prefix app run build:demo"
+      ],
+      "artifacts": [
+        {
+          "path": "parity/reports/google-earth-pro-002-globe-camera.json",
+          "description": "Original criteria, independently accepted declared profiles, failed diagnostics and remaining delivery."
+        },
+        {
+          "path": "parity/fixtures/google-earth-pro-002-globe-camera.json",
+          "description": "Offline synthetic checksum bindings; provider payloads are not committed."
+        }
+      ],
+      "assertions": [
+        "Before-fail/after-pass regression exercises real Workbench load ordering with pending DEM; saved imagery/camera/source/opacity/order persist.",
+        "Original C01–C03 accepted by independent review SHA256 3bc8d88efd77b645403795afe6c9ed8a3b0d254c3c1a0bae44a769e549e24322.",
+        "Visible real canopy and settled240-frame native p95 21.6ms meet declared limits; whole-helper and software failures are preserved.",
+        "Normal source checks/merges and production cutovers/readback remain pending."
+      ],
+      "rowIds": [
+        "google-earth-pro.virtual-globe-terrain-3d"
+      ],
+      "fixtureIds": [
+        "google-earth-pro-002.globe-camera"
+      ]
+    }
+  ]
+}

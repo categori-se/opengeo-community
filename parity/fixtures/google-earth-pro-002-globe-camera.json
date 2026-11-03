@@ -2,11 +2,11 @@
   "$schema": "../../schemas/parity-fixture.schema.json",
   "schemaVersion": "1.0.0",
   "fixtureId": "google-earth-pro-002.globe-camera",
-  "title": "Bounded browser globe projection and saved camera",
+  "title": "Bounded globe, imagery, terrain and scene candidate",
   "fixtureType": "interaction",
   "source": {
     "kind": "synthetic",
-    "description": "Local deterministic projection, camera normalization, fallback, project serialization, browser build, and managed Chromium evidence. No proprietary package byte or Google-hosted service is used."
+    "description": "Synthetic camera/terrain/imagery contracts and source checksum bindings. Provider scene observations are reported separately; no provider or proprietary data is embedded. Referenced application code retains its repository license."
   },
   "license": {
     "spdxId": "CC0-1.0",
@@ -15,56 +15,84 @@
   "sensitivity": "public",
   "artifacts": [
     {
-      "name": "globeView.js",
-      "mediaType": "text/javascript",
-      "encoding": "path",
-      "value": "app/src/lib/globeView.js",
-      "sha256": "be671a9671a2e9280acae1dce60ab4fbdc6c87f91cecc68281cf2c55349d47f4"
-    },
-    {
       "name": "WorkbenchView.js",
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/src/components/WorkbenchView.js",
-      "sha256": "4d12ab732cdc5a45622125c52cbc792a8be297ab1112026726b1728546f5bdd7"
+      "sha256": "1ef0253a664d577baf7acd602fce14c742c7428720d3b552bc6fe2bb5bd6a8a1"
     },
     {
-      "name": "style.css",
-      "mediaType": "text/css",
+      "name": "globeView.js",
+      "mediaType": "text/javascript",
       "encoding": "path",
-      "value": "app/src/style.css",
-      "sha256": "b267b92ee033a73c7fca50da768b53d007685fc086f30479dd1322069541d6ee"
+      "value": "app/src/lib/globeView.js",
+      "sha256": "e99b1af431efed5349f3e4667ed6e1b9e900bb9200cf6e0db173fdc28df7119d"
+    },
+    {
+      "name": "terrainView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/terrainView.js",
+      "sha256": "0f319aa688901791ba5559e7a421825db1050928f9c395b17278fb89402a47cb"
+    },
+    {
+      "name": "openScene3d.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/openScene3d.js",
+      "sha256": "47b48512e1693a5f548923a33d021676149722be59675d8b610a7aa3a9942609"
+    },
+    {
+      "name": "historicalImagery.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/historicalImagery.js",
+      "sha256": "9db01c3ce5b5f0e73fce449ebe1467620eeb32899352af0de9fa9e779d35e275"
+    },
+    {
+      "name": "globeTelemetry.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/globeTelemetry.js",
+      "sha256": "3e982af27b5f8dab40b7a2a02f003ecf61e440d4d0afed73b783f2fc75e2f4e1"
+    },
+    {
+      "name": "historical-imagery-ui.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/historical-imagery-ui.test.mjs",
+      "sha256": "f4668970aa5073c0b38016f3f2003a24faa897c84a43843fef6e0ad7f92a4acb"
     },
     {
       "name": "globe-view.test.mjs",
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/test/globe-view.test.mjs",
-      "sha256": "93bb74a2853e57653f7e0c3a1ad04d194cb05fb444aa1cebc8a5101d1a5cb836"
+      "sha256": "4d70049e502f4ec87004a0123fd04d3442ad19cbcf7e69673faccbbfc181d496"
     },
     {
-      "name": "check-pages.mjs",
+      "name": "terrain-view.test.mjs",
       "mediaType": "text/javascript",
       "encoding": "path",
-      "value": "app/scripts/check-pages.mjs",
-      "sha256": "a1b7b03e369f2d104b831b700c83b58cc0b3f3edcad1f8675f5659654f841353"
+      "value": "app/test/terrain-view.test.mjs",
+      "sha256": "be4d19d3b6b54649c4fe01b9dd13913eefd60d1ae734172b61bcb65d58b062f2"
     },
     {
       "name": "google-earth-pro-002-globe-camera.json",
       "mediaType": "application/json",
       "encoding": "path",
       "value": "parity/reports/google-earth-pro-002-globe-camera.json",
-      "sha256": "35452cad0bb933d117760a2101ffac57542bf0a095ba10fee54a035c4934dbe6"
+      "sha256": "d16b58579ef093f306adea712411c1dc84d69185ca7891b81dd4b98704facfaf"
     }
   ],
   "expectedOutcomes": [
     {
       "rowId": "google-earth-pro.virtual-globe-terrain-3d",
-      "assertion": "OpenGeo supplies a real browser globe projection, atmospheric presentation, bounded saved camera, and accessible Mercator fallback. GEP-002B separately covers bounded attributed terrain; the remaining 3D scene and full-row evidence are not implemented."
+      "assertion": "Original C01–C03 accepted in declared NVIDIA and emulated-touch profiles; full240-frame real scene p95 21.6ms. Visible woodland independently reviewed. Software failures and failed extra renderer query remain explicit; source publication and deployment pending."
     }
   ],
   "constraints": {
-    "offline": false,
+    "offline": true,
     "containsPersonalData": false,
     "requiresCredentials": false
   }
