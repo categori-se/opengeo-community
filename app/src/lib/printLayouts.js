@@ -7,6 +7,9 @@ import {validatePrintTemplate} from "./printTemplates.js";
 import {canonicalJson} from "./artifactCanonicalJson.js";
 import {cogDisplayOptions} from "./cogDisplay.js";
 import {validatePrintTextFrames} from "./printTextFrames.js";
+import {historicalImageryForSave, historicalImageryBasemap} from "./historicalImagery.js";
+import {customBasemapDefinition, publicBasemapUrl} from "./basemapSource.js";
+import {BASEMAPS} from "./workbenchConfig.js";
 
 export const standardPageSizes = [
   {size: "Letter", orientation: "portrait", widthMm: 216, heightMm: 279},
@@ -75,7 +78,7 @@ export function printCaptureOutputSignature(frame, dpi) {
 
 export const PROJECT_PRINT_SCHEMA = "opengeo.project-print-layouts.1";
 export const PROJECT_PRINT_EXTENSION = "opengeoPrintLayouts";
-const frameKeys = ["id", "parentId", "title", "xMm", "yMm", "widthMm", "heightMm", "view", "projection", "presentation"];
+const frameKeys = ["id", "parentId", "title", "xMm", "yMm", "widthMm", "heightMm", "view", "projection", "presentation", "basemaps", "historicalImagery"];
 const dataFrameKeys = ["id", "type", "title", "xMm", "yMm", "widthMm", "heightMm", "mapFrameId", "source", "rowLimit"];
 const dataSourceKeys = ["layerId", "datasetId", "datasetVersionId", "sourceVersion"];
 const presentationKeys = ["layerId", "datasetId", "datasetVersionId", "sourceVersion", "managedDisplayId", "visible", "opacity", "opacityMode", "style", "labels", "filter", "styleReference", "pointClustering"];
@@ -106,6 +109,67 @@ export function printLayerPresentation(layer) {
     ...(layer.filter ? {filter: structuredClone(layer.filter)} : {}),
     ...(Object.hasOwn(layer, "pointClustering") ? {pointClustering: structuredClone(layer.pointClustering)} : {}),
     ...(layer.styleReference ? {styleReference: structuredClone(layer.styleReference)} : {})};
+}
+
+// The Workbench supplies its canonical, credential-free Project definition.
+// Missing fields remain legacy inheritance; null/empty snapshots are deliberate.
+export function printFrameScene(project) {
+  if (!project || !Object.hasOwn(project, "basemaps") && !Object.hasOwn(project.extensions ?? {}, "historicalImagery")) return {};
+  const scene = {basemaps: structuredClone(project.basemaps ?? []), historicalImagery: project.extensions?.historicalImagery == null
+    ? null : historicalImageryForSave(project.extensions.historicalImagery)};
+  validatePrintScene(scene);
+  return scene;
+}
+
+export function printFrameSceneSignature(frame) {
+  const scene = Object.fromEntries(["basemaps", "historicalImagery"].filter(key => Object.hasOwn(frame, key)).map(key => [key, frame[key]]));
+  return Object.keys(scene).length ? canonicalJson(scene) : null;
+}
+
+function validatePrintScene(frame) {
+  if (Object.hasOwn(frame, "historicalImagery") && frame.historicalImagery !== null
+    && canonicalJson(frame.historicalImagery) !== canonicalJson(historicalImageryForSave(frame.historicalImagery))) {
+    throw Error("The saved Print imagery selection is unavailable or invalid. Review its source revision and date.");
+  }
+  if (!Object.hasOwn(frame, "basemaps")) return;
+  if (!Array.isArray(frame.basemaps) || frame.basemaps.length > 16) throw Error("Invalid Print background selection.");
+  const common = ["basemapId", "title", "kind", "attribution", "visible", "opacity"], ids = new Set();
+  for (const basemap of frame.basemaps) {
+    const extra = basemap.kind === "temporal-raster" ? ["sourceId", "sourceRevision", "selection"]
+      : ["provider-style", "provider-raster"].includes(basemap.kind) ? ["provider", "connectionBindingId", "flavor"]
+        : basemap.kind === "governed-raster" ? ["datasetId", "sourceType", "sourceVersion", "sourceUrl", "sourceConfiguration"]
+          : basemap.kind === "planetary-blank" ? ["spatialBodyId"] : ["url"];
+    closedPrintObject(basemap, [...common, ...extra]);
+    printText(basemap.basemapId, 200); if (ids.has(basemap.basemapId)) throw Error("Duplicate Print background identity."); ids.add(basemap.basemapId);
+    printText(basemap.title, 200); printText(basemap.attribution, 2000, true);
+    if (typeof basemap.visible !== "boolean") throw Error("Invalid Print background visibility."); printNumber(basemap.opacity, 0, 1);
+    if (basemap.kind === "temporal-raster") {
+      const checked = historicalImageryBasemap(basemap);
+      if (checked.basemapId !== basemap.basemapId || canonicalJson(checked.selection) !== canonicalJson(basemap.selection)) throw Error("Invalid Print imagery source pin.");
+    } else if (["provider-style", "provider-raster"].includes(basemap.kind)) {
+      if (!/^[a-f0-9-]{36}$/i.test(basemap.connectionBindingId ?? "") || !(basemap.provider === "carto"
+        ? ["voyager", "positron", "dark-matter"] : basemap.provider === "protomaps" ? ["light", "dark", "white", "grayscale", "black"] : []).includes(basemap.flavor)) throw Error("Invalid Print background connection reference.");
+    } else if (basemap.kind === "governed-raster") {
+      if (basemap.sourceType !== "xyz-raster" || !/^[a-f0-9-]{36}$/i.test(basemap.datasetId ?? "") || !Number.isSafeInteger(basemap.sourceVersion) || basemap.sourceVersion < 1
+        || basemap.sourceConfiguration?.presentationRole !== "regional_basemap" || basemap.sourceConfiguration?.coordinateBehavior !== "wgs84_web_mercator") throw Error("Invalid Print background source reference.");
+      publicBasemapUrl(basemap.sourceUrl, "raster");
+    } else if (basemap.kind === "planetary-blank") {
+      if (!["moon", "mars"].includes(basemap.spatialBodyId) || basemap.basemapId !== `planetary-blank-${basemap.spatialBodyId}`) throw Error("Invalid Print planetary background.");
+    } else {
+      const reviewed = BASEMAPS.find(item => item.basemapId === basemap.basemapId);
+      if (reviewed) {
+        if (basemap.kind !== reviewed.kind || basemap.url !== (reviewed.styleUrl ?? reviewed.url ?? null)) throw Error("The saved Print background no longer matches its reviewed source.");
+      } else customBasemapDefinition({...basemap, sourceType: basemap.kind});
+    }
+    const pending = [basemap]; let count = 0;
+    while (pending.length) {
+      const value = pending.pop(); if (++count > 4096) throw Error("Print background metadata exceeds its bound.");
+      if (value && typeof value === "object") {
+        if (Object.keys(value).some(key => /^(?:__proto__|prototype|constructor|password|token|credentials|secret|headers|authorization)$/i.test(key))) throw Error("Print backgrounds cannot contain credentials.");
+        pending.push(...Object.values(value));
+      } else if (typeof value === "number" && !Number.isFinite(value)) throw Error("Invalid Print background metadata.");
+    }
+  }
 }
 
 export function validateProjectPrintLayouts(value, map) {
@@ -153,6 +217,7 @@ export function validateProjectPrintLayouts(value, map) {
       if (Object.hasOwn(frame.view, "elevation")) printNumber(frame.view.elevation, -Number.MAX_VALUE, Number.MAX_VALUE);
       if (Object.hasOwn(frame.view, "centerClampedToGround") && typeof frame.view.centerClampedToGround !== "boolean") throw Error("Invalid print map ground clamping.");
       if (Object.hasOwn(frame, "projection") && !["mercator", "globe"].includes(frame.projection)) throw Error("Invalid print map projection.");
+      validatePrintScene(frame);
       if (!Array.isArray(frame.presentation) || frame.presentation.length > 250) throw Error("Too many print Layer references.");
       const selected = new Set();
       for (const item of frame.presentation) {
@@ -223,6 +288,7 @@ export function definitionWithPrintLayouts(map, collection) {
 }
 
 export function definitionForPrintFrame(map, frame) {
+  validatePrintScene(frame);
   const definition = structuredClone(map.definition);
   const byId = new Map(frame.presentation.map(item => [item.layerId, item]));
   definition.layers = definition.layers.map(layer => {
@@ -240,6 +306,13 @@ export function definitionForPrintFrame(map, frame) {
   else if (definition.layers.some(layer => layer.styleReference)) definition.schemaVersion = "opengeo.map-definition.1.4.0";
   definition.mapViews = [{id: "print-view", title: frame.title, ...structuredClone(frame.view)}];
   if (Object.hasOwn(frame, "projection")) definition.projection = frame.projection;
+  if (Object.hasOwn(frame, "basemaps")) definition.basemaps = frame.basemaps.length ? structuredClone(frame.basemaps)
+    : [{basemapId: "blank", title: "Blank canvas", kind: "blank", url: null, attribution: "No basemap", visible: true, opacity: 1}];
+  if (Object.hasOwn(frame, "historicalImagery")) {
+    definition.extensions = {...definition.extensions};
+    if (frame.historicalImagery === null) delete definition.extensions.historicalImagery;
+    else definition.extensions.historicalImagery = structuredClone(frame.historicalImagery);
+  }
   return definition;
 }
 
