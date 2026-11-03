@@ -4,6 +4,7 @@ import {cogDisplayOptions, isCogLayer} from "../lib/cogDisplay.js";
 import {isManagedCogIdentity} from "../lib/managedCogIdentity.js";
 import {AnalysisConsole} from "./AnalysisConsole.js";
 import {WorkbenchHelp} from "./WorkbenchHelp.js";
+import {AssistantPanel} from "./AssistantPanel.js";
 import {createLocalAnalysisRuntime} from "../lib/analysisLocalRuntime.js";
 import {RendererPanel} from "./RendererPanel.js";
 import {createMapboxSession} from "../lib/mapboxSession.js";
@@ -1031,6 +1032,8 @@ function createWorkbenchView({
     return !context.rendererSuspended && Boolean(state.map);
   };
   const accountNavigation = () => {
+    context.assistantPanel?.dispose();
+    context.assistantPanel = null;
     context.analysisConsole?.dispose();
     context.analysisConsole = null;
     context.rasterBaseline?.view.dispose();
@@ -1061,6 +1064,7 @@ function createWorkbenchView({
     disposeHistoricalComparison(context);
     context.disposeSaveShortcut?.();
     context.browserCatalogPanel?.dispose?.();
+    context.assistantPanel?.dispose();
     context.analysisConsole?.dispose();
     context.browserPrintStudio?.dispose?.();
     context.localProjectDialog?.dispose?.();
@@ -1144,6 +1148,7 @@ function createWorkbenchView({
     panelAfterAdd
   });
   context.render = () => {
+    context.assistantPanel?.updateContext();
     syncHistoricalComparison(context);
     const cogCredits = context.rendererAdapter.id === "maplibre"
       ? context.layers.filter(layer => isCogLayer(layer) && layer.visible !== false)
@@ -2902,7 +2907,7 @@ function toolbarMenus(context) {
       id: "plugins",
       label: "Plugins",
       sections: [
-        PLUGINS.map(([id, label]) => menuAction(id === "time" ? "Open imagery history" : `${state.pluginState.has(id) ? "Disable" : "Enable"} ${label}`, () => {
+        PLUGINS.map(([id, label]) => menuAction(id === "time" ? "Open imagery history" : id === "assistant" ? "Open assistant" : `${state.pluginState.has(id) ? "Disable" : "Enable"} ${label}`, () => {
           togglePlugin(context, id);
         }))
       ]
@@ -6175,6 +6180,7 @@ function panelTitle(panel) {
     sql: "SQL Workspace",
     renderer: "Rendering engine",
     settings: "Settings",
+    assistant: "Assistant",
     help: "Help"
   })[panel] ?? "Style";
 }
@@ -6208,6 +6214,7 @@ function inspectorTab(label, active, action) {
 }
 
 function panelBody(context) {
+  if (context.state.activePanel === "assistant") return assistantPanel(context);
   if (context.state.activePanel === "renderer") {
     context.rendererPanel ??= RendererPanel({
       session: context.mapboxSession,
@@ -14108,6 +14115,28 @@ function helpPanel(context) {
     landingMode: context.landingMode, persistenceMode: context.persistenceMode, interfaceModuleURL: import.meta.url});
 }
 
+function assistantPanel(context) {
+  context.assistantPanel ??= AssistantPanel({
+    contextIdentity: () => {
+      const layer = activeLayer(context);
+      return JSON.stringify([context.draftScopeId, context.workspace?.workspaceId,
+        context.project?.mapId ?? context.project?.id ?? context.localProjectRecord?.id,
+        context.project?.version, context.queryLocationScopeInvalid,
+        layer?.layerId, layer?.datasetVersionId, layer?.featureGeneration]);
+    },
+    contextSummary: () => {
+      const layer = activeLayer(context);
+      return {project: context.project?.name ?? context.localProjectRecord?.title ?? null,
+        layerCount: context.layers.length, layer: layer ? {title: layer.title,
+          type: layer.sourceType ?? layer.geometryType ?? null,
+          loadedFeatures: context.dataByLayerId.get(layer.layerId)?.features?.length ?? null} : null};
+    },
+    download: (name, value) => downloadBlob(name, value, "application/json")
+  });
+  context.assistantPanel.updateContext();
+  return context.assistantPanel;
+}
+
 function createMap(adapter, container, savedView, projection, basemap = null, transformRequest = (url) => ({url, credentials: "omit"})) {
   const view = normalizeMapView(savedView);
   return adapter.createMap({
@@ -16265,6 +16294,12 @@ function runTool(context, toolId) {
     return;
   }
 
+  if (toolId === "assistant-plan") {
+    state.activePanel = "assistant";
+    state.rightOpen = true;
+    return;
+  }
+
   if (toolId === "vector-to-pmtiles") {
     state.activePanel='processing';state.activeToolId=toolId;state.processingFocus=null;state.rightOpen=true;
     setStatus(context,'Review the PMTiles conversion settings before queuing the job.');
@@ -16272,7 +16307,7 @@ function runTool(context, toolId) {
     return;
   }
 
-  if (["raster-to-cog", "assistant-plan"].includes(toolId)) {
+  if (toolId === "raster-to-cog") {
     state.processingLog.unshift(`${toolTitle(toolId)} requires its durable server operation. No job was queued from this browser panel.`);
     return;
   }
@@ -16591,10 +16626,16 @@ function togglePlugin(context, id) {
     openHistoricalImageryPanel(context);
     return;
   }
+  if (id === "assistant") {
+    state.pluginState.add(id);
+    state.activePanel = "assistant";
+    state.rightOpen = true;
+    setStatus(context, "Assistant ready. Choose a local model to draft guidance.");
+    return;
+  }
   if (state.pluginState.has(id)) state.pluginState.delete(id);
   else state.pluginState.add(id);
   if (id === "catalog") state.activePanel = "catalog";
-  if (id === "assistant") state.activePanel = "help";
   setStatus(context, `${PLUGINS.find(([pluginId]) => pluginId === id)?.[1] ?? id} ${state.pluginState.has(id) ? "enabled" : "disabled"}.`);
 }
 

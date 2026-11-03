@@ -121,7 +121,7 @@ export const PLUGINS = [
   ["field", "Field collection", "Mobile forms and offline submissions"],
   ["offline", "Offline cache", "PMTiles and project package manifest"],
   ["time", "Time slider", "Temporal layer filtering"],
-  ["assistant", "Automation", "Auditable command plans"]
+  ["assistant", "Assistant", "Draft guidance with an installed local model"]
 ];
 
 export const STYLE_PALETTES = [

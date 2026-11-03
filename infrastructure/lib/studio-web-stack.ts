@@ -43,6 +43,23 @@ export const STUDIO_CONTENT_SECURITY_POLICY = [
   "upgrade-insecure-requests"
 ].join("; ");
 
+/** Deliberate opt-in for the local assistant; all other CSP directives stay exact. */
+export function studioContentSecurityPolicy(allowLocalAssistant = false): string {
+  if (typeof allowLocalAssistant !== "boolean") {
+    throw new Error("Local assistant access must be an explicit boolean");
+  }
+  return allowLocalAssistant
+    ? STUDIO_CONTENT_SECURITY_POLICY.replace("connect-src 'self' https:;",
+      "connect-src 'self' https: http://127.0.0.1:11434;")
+    : STUDIO_CONTENT_SECURITY_POLICY;
+}
+
+export function parseAllowLocalAssistant(value: unknown): boolean {
+  if (value === undefined || value === false || value === "false") return false;
+  if (value === true || value === "true") return true;
+  throw new Error("Local assistant access must be true or false when supplied");
+}
+
 export const STUDIO_AUTH_CONFIG_CONTENT_SECURITY_POLICY = STUDIO_CONTENT_SECURITY_POLICY.replace(
   "frame-src 'self' https://preview.studio.opengeo.tools https://maps-preview.studio.opengeo.tools", "frame-src 'none'"
 );
@@ -72,6 +89,9 @@ export interface StudioWebStackProps extends StackProps {
 
   /** Allow an independently owned domain and omit managed preview hosts. */
   readonly communityDeployment?: boolean;
+
+  /** Permit deliberate browser requests to http://127.0.0.1:11434. Defaults off. */
+  readonly allowLocalAssistant?: boolean;
 
   /** Exact private-preview origins for an independently configured community installation. */
   readonly independentPreviewOrigins?: readonly string[];
@@ -218,15 +238,16 @@ export class StudioWebStack extends Stack {
       originPath: releaseOriginPath.valueAsString
     });
 
+    const shellContentSecurityPolicy = studioContentSecurityPolicy(props.allowLocalAssistant);
     const securityHeaders = this.securityHeadersPolicy(
       "StudioSecurityHeaders",
       `${resourceNamePrefix}-security`,
       domainName,
       [],
       props.communityDeployment === true
-        ? STUDIO_CONTENT_SECURITY_POLICY.replace("frame-src 'self' https://preview.studio.opengeo.tools https://maps-preview.studio.opengeo.tools",
+        ? shellContentSecurityPolicy.replace("frame-src 'self' https://preview.studio.opengeo.tools https://maps-preview.studio.opengeo.tools",
           ["frame-src 'self'", ...previewOrigins].join(" "))
-        : STUDIO_CONTENT_SECURITY_POLICY
+        : shellContentSecurityPolicy
     );
     const authConfigHeaders = this.securityHeadersPolicy(
       "StudioAuthConfigHeaders",

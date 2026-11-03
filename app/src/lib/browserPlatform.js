@@ -15,7 +15,7 @@ const EXTENSION_POLICIES = Object.freeze({
   field: Object.freeze({capabilities: Object.freeze(["capture:navigate"])}),
   offline: Object.freeze({capabilities: Object.freeze(["offline-package:navigate"])}),
   time: Object.freeze({capabilities: Object.freeze(["temporal-filter:ui"])}),
-  assistant: Object.freeze({capabilities: Object.freeze(["help:navigate"])})
+  assistant: Object.freeze({capabilities: Object.freeze(["assistant:navigate"])})
 });
 
 export function extensionPolicy(extensionId) {

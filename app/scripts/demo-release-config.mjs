@@ -6,13 +6,13 @@ import {CESIUM_FONT_ROOT, CESIUM_FONT_SHA256} from '../src/lib/cesiumLabels.js';
 import {MAPBOX_RUNTIME} from '../src/lib/mapboxRuntime.js';
 import {withoutRendererFrameBehavior} from './studio-edge-boundary.mjs';
 
-// The 247 staged public files include 37 reachable KML/Tour/raster helpers.
-// Their locked PDF/raster dependencies, editor/print-math runtime and required
-// source/font notices produce the measured 425-file, 23,076,108-byte core.
+// The 249 staged public files include the two local Assistant modules alongside
+// the previously qualified KML/Tour/raster helpers and locked dependencies.
+// The 427-file cap adds only those two modules to the measured 425-file core.
 // The core cap is 24 MiB; exact renderer inventory/14 MiB and PWA/startup
 // budgets are unchanged.
 export const BROWSER_DEMO_LIMITS = Object.freeze({
-  coreFiles: 425, coreBytes: 24 * 1024 * 1024,
+  coreFiles: 427, coreBytes: 24 * 1024 * 1024,
   rendererFiles: 400, rendererBytes: 14 * 1024 * 1024
 });
 

@@ -13,7 +13,7 @@ import {
   aws_s3 as s3
 } from "aws-cdk-lib";
 import type {Construct} from "constructs";
-import {STUDIO_CONTENT_SECURITY_POLICY} from "./studio-web-stack.js";
+import {STUDIO_CONTENT_SECURITY_POLICY, studioContentSecurityPolicy} from "./studio-web-stack.js";
 
 export const DEMO_DOMAIN_NAME = "demo.studio.opengeo.tools";
 export const DEMO_BUCKET_NAME = "demo.studio.opengeo.tools";
@@ -49,6 +49,8 @@ export interface DemoWebStackProps extends StackProps {
   readonly stage?: DemoWebStage;
   /** Exact demo API Gateway origin. When set, only /api/* is forwarded. */
   readonly apiOriginDomain?: string;
+  /** Permit deliberate browser requests to http://127.0.0.1:11434. Defaults off. */
+  readonly allowLocalAssistant?: boolean;
 }
 
 /**
@@ -134,7 +136,7 @@ export class DemoWebStack extends Stack {
         ? `${DEMO_DOMAIN_NAME} browser security headers`
         : "OpenGeo development demo bootstrap security headers",
       securityHeadersBehavior: {
-        contentSecurityPolicy: {contentSecurityPolicy: STUDIO_CONTENT_SECURITY_POLICY, override: true},
+        contentSecurityPolicy: {contentSecurityPolicy: studioContentSecurityPolicy(props.allowLocalAssistant), override: true},
         contentTypeOptions: {override: true},
         frameOptions: {frameOption: cloudfront.HeadersFrameOption.DENY, override: true},
         referrerPolicy: {referrerPolicy: cloudfront.HeadersReferrerPolicy.NO_REFERRER, override: true},

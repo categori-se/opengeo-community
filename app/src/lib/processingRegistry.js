@@ -128,7 +128,7 @@ export const PROCESSING_TOOLS = Object.freeze([
     version: "1.0.0",
     category: "Operations",
     title: "Draft auditable operation",
-    engine: "audit log",
+    engine: "local assistant",
     executionMode: "plan-only",
     deterministic: false,
     parameters: Object.freeze([]),

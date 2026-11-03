@@ -280,8 +280,9 @@ async function prepareTIFFFixture(fixture, signal) {
     resolveDir: new URL('..', import.meta.url).pathname, loader: 'js'}, bundle: true, format: 'esm', write: false}, signal);
   checkActive();
   enterPhase('Chromium launch');
-  fixture.browser = await chromium.launch({headless: true,
-    executablePath: ['/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync),
+  const executablePath = [chromium.executablePath(), '/usr/bin/chromium', '/usr/bin/chromium-browser'].find(existsSync);
+  console.error(JSON.stringify({frameworkTIFF: 'browser', executablePath: executablePath ?? chromium.executablePath()}));
+  fixture.browser = await chromium.launch({headless: true, executablePath,
     ...(signal ? {timeout: Math.max(1, 15000 - (performance.now() - setupStarted))} : {})});
   checkActive();
   enterPhase('fixture ready');
