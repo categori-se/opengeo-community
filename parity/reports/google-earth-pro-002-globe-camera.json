@@ -1,0 +1,72 @@
+{
+  "schemaVersion": "1.0.0",
+  "result": "Original C01–C03 accepted in declared profiles; source publication and deployment pending.",
+  "observedAt": "2026-11-03",
+  "scope": {
+    "rowId": "google-earth-pro.virtual-globe-terrain-3d",
+    "milestone": "GEP-002",
+    "renderer": "MapLibre GL JS6.4.1",
+    "wholeProductParityClaimed": false
+  },
+  "originalAcceptanceCriteria": [
+    "A user smoothly flies, pans, zooms, tilts, and orbits a global 3D scene with keyboard, pointer, and touch controls.",
+    "Openly licensed satellite or aerial imagery, terrain, atmosphere, 3D buildings, and trees expose attribution and freshness.",
+    "Representative desktop and mobile scenes meet declared visual, latency, memory, and accessibility limits."
+  ],
+  "implemented": [
+    "Globe/atmosphere and keyboard/pointer/wheel/emulated two-finger navigation preserve saved camera.",
+    "Dated NASA raster, Mapterhorn terrain and fixed OpenFreeMap buildings/woodland canopy expose credits and review-due status.",
+    "Initial raster installation precedes projection/DEM mutation, preserving saved source, opacity and layer order."
+  ],
+  "verification": {
+    "focusedImageryTerrainTests": 14,
+    "controlledNVIDIA": {
+      "samples": 240,
+      "p95Ms": 70.1,
+      "result": "pass; unchanged controlled navigation checker"
+    },
+    "realScene": {
+      "NASAImageDate": "2026-08-30",
+      "terrainCenterMeters": 35.5,
+      "fixedVectorSnapshot": "20260906_080001_pt",
+      "cameraDelta": 0,
+      "visibleBuildingsAndWoodland": "independently reviewed real-source captures",
+      "settled240Frames": {
+        "p95Ms": 21.6,
+        "p50Ms": 16.7,
+        "loadMs": 1114.3,
+        "terrainMs": 972.7,
+        "heapMiB": 29.8,
+        "nativePerformanceAccepted": true
+      },
+      "wholeHelperResult": "failed later extra queryRenderedFeatures assertion; not a claimed passing helper or query API conformance"
+    },
+    "retainedFailures": {
+      "softwareP95Ms": [
+        693,
+        748.5
+      ],
+      "softwareResult": "fail; distinct from NVIDIA hardware",
+      "startup50FrameP95Ms": 328.4,
+      "startupResult": "failed partial window",
+      "narrow130FrameP95Ms": 85.1
+    },
+    "independentAcceptanceSHA256": "3bc8d88efd77b645403795afe6c9ed8a3b0d254c3c1a0bae44a769e549e24322"
+  },
+  "limits": [
+    "Camera lon±180/lat±85.051129,zoom0–22,pitch0–85,bearing[-180,180),8 saved views; restoration delta≤0.001.",
+    "Terrarium512px,z0–12,exaggeration0.25–3;3 failures/30s pause60s. Source checks older than7d are advisory review-due, not permission expiry. Public upstream viewing requires no key or governed mirror; no provider/global SLA.",
+    "OpenFreeMap fixed20260906 snapshot,displayz13+,buildings≤500m/default9m;woodland-area canopy8m, not individual trees or photorealistic meshes. Actual imagery date2026-08-30; current provider metadata does not silently replace a saved source.",
+    "Declared controlled gate p95≤250ms,load/terrain≤10s,heap≤512MiB. Hardware/scene/startup/software profiles stay separate; no claim every device/renderer passes.",
+    "Mobile evidence is browser viewport/emulated touch, not physical-device certification. Keyboard/control labels and bounded visual readability are evidence, not full WCAG/assistive-technology/global-device conformance.",
+    "Coarse imagery at high zoom and visualization terrain have provider resolution/accuracy limits; no analytical/datum accuracy or polar/Google imagery entitlement is implied."
+  ],
+  "remainingRequiredAcceptance": [],
+  "remainingDelivery": [
+    "Normal required source checks and both merges; both frontend cutovers and published byte readback."
+  ],
+  "sourcePins": {
+    "WorkbenchView.js": "1ef0253a664d577baf7acd602fce14c742c7428720d3b552bc6fe2bb5bd6a8a1",
+    "historical-imagery-ui.test.mjs": "f4668970aa5073c0b38016f3f2003a24faa897c84a43843fef6e0ad7f92a4acb"
+  }
+}

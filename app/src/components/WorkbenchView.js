@@ -1819,6 +1819,10 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
 
   on("load", () => {
     recordGlobeLoad(state.globeTelemetry);
+    // Install the base before projection/terrain can make the loaded style busy.
+    installRasterBasemap(state, activeBasemap(context));
+    captureBasemapOpacityLayers(state);
+    setBasemapOpacity(state);
     const projection = applyMapProjection(state.map, state.globe ? "globe" : "mercator");
     state.globe = projection.effective === "globe";
     state.projectionFallback = projection.fallback;
@@ -1837,9 +1841,6 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
     recordGlobeCamera(state.globeTelemetry, state.map);
     updateProjectionPresentation(context);
     resizeMap();
-    installRasterBasemap(state, activeBasemap(context));
-    captureBasemapOpacityLayers(state);
-    setBasemapOpacity(state);
     const openScene3dActivation = currentOpenScene3dActivation(state);
     const openScene3d = applyOpenScene3d(
       state.map,

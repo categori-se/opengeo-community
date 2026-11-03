@@ -3,7 +3,8 @@ import {afterEach, beforeEach, describe, it} from "node:test";
 import {JSDOM} from "jsdom";
 
 import {WorkbenchView} from "../src/components/WorkbenchView.js";
-import {HISTORICAL_IMAGERY_SCHEMA_VERSION} from "../src/lib/historicalImagery.js";
+import {HISTORICAL_IMAGERY_SCHEMA_VERSION, historicalImageryBasemap, normalizeHistoricalImagery} from "../src/lib/historicalImagery.js";
+import {OPEN_TERRAIN_SOURCE} from "../src/lib/terrainView.js";
 
 let harness;
 
@@ -186,6 +187,43 @@ describe("historical imagery workbench experience", () => {
     } finally { shell.dispose(); }
   });
 
+  it("installs saved imagery before terrain makes the initial style busy without changing camera or source pins", async () => {
+    const history = normalizeHistoricalImagery({enabled: true,
+      selection: {requestedDate: "2026-08-20", displayedDate: "2026-08-20", policy: "exact"}});
+    const imagery = {...historicalImageryBasemap(history), visible: true, opacity: 0.37};
+    const view = {id: "primary", title: "Saved view", center: [-71.06, 42.36], zoom: 14, pitch: 45, bearing: 20};
+    let map;
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    const shell = mountWorkbench({project: {projection: "globe", terrain: {enabled: true, exaggeration: 1.5},
+      mapViews: [view], basemaps: [imagery], extensions: {historicalImagery: history}}, rendererAdapter: {
+      id: "maplibre", initialize() {}, registerProtocol() {},
+      createMap(options) { map = new TerrainLoadingFixtureMap(options); return map; },
+      disposeMap() {}
+    }});
+    try {
+      await waitFor(() => map?.listeners.has("load"));
+      const camera = structuredClone(map.camera);
+      map.emit("load");
+      assert.ok(map.getSource("basemap"), "The saved imagery must not be skipped while DEM tiles load");
+      assert.deepEqual(map.getSource("basemap").tiles, [imagery.url]);
+      assert.equal(map.getLayer("basemap").paint["raster-opacity"], 0.37);
+      assert.ok(map.style.layers.findIndex(layer => layer.id === "basemap")
+        < map.style.layers.findIndex(layer => layer.id === "retained-labels"));
+      assert.ok(map.sourceAdds.indexOf("basemap") < map.sourceAdds.indexOf(OPEN_TERRAIN_SOURCE.sourceId));
+      assert.equal(map.isStyleLoaded(), false, "Exercise the pending DEM readiness condition");
+      assert.deepEqual(map.getTerrain(), {source: OPEN_TERRAIN_SOURCE.sourceId, exaggeration: 1.5});
+      assert.deepEqual(map.camera, camera);
+      const saved = shell.getPrintContext().project;
+      assert.equal(saved.projection, "globe");
+      assert.deepEqual(saved.mapViews[0].center, view.center);
+      assert.deepEqual(saved.extensions.historicalImagery, history);
+      assert.equal(saved.basemaps.find(basemap => basemap.visible).basemapId, imagery.basemapId);
+      assert.equal(saved.terrain.sourceId, OPEN_TERRAIN_SOURCE.sourceId);
+      assert.equal(saved.terrain.exaggeration, 1.5);
+    } finally { shell.dispose(); }
+  });
+
   it("keeps the complete history route in the compact Actions sheet", () => {
     harness.media.matches = true;
     const shell = mountWorkbench({initialPanel: null});
@@ -319,4 +357,33 @@ class HistoryFixtureMap {
       catch (error) { this.eventError = `${type}: ${error.message}`; throw error; }
     }
   }
+}
+
+class TerrainLoadingFixtureMap extends HistoryFixtureMap {
+  sources = new Map();
+  sourceAdds = [];
+  ready = true;
+  terrain = null;
+  constructor(options) {
+    super(options);
+    this.style.layers.push({id: "retained-labels", type: "symbol", paint: {"text-opacity": 1}});
+  }
+  isStyleLoaded() { return this.ready; }
+  getSource(id) { return this.sources.get(id); }
+  addSource(id, source) {
+    this.sources.set(id, source); this.sourceAdds.push(id);
+    if (source.type === "raster-dem") this.ready = false;
+  }
+  removeSource(id) { this.sources.delete(id); }
+  getLayer(id) { return this.style.layers.find(layer => layer.id === id); }
+  addLayer(layer, before) {
+    const index = this.style.layers.findIndex(item => item.id === before);
+    this.style.layers.splice(index < 0 ? this.style.layers.length : index, 0, layer);
+  }
+  removeLayer(id) { this.style.layers = this.style.layers.filter(layer => layer.id !== id); }
+  setPaintProperty(id, property, value) { this.getLayer(id).paint[property] = value; }
+  setProjection(projection) { this.projection = projection; }
+  getProjection() { return this.projection; }
+  setTerrain(terrain) { this.terrain = terrain; }
+  getTerrain() { return this.terrain; }
 }
