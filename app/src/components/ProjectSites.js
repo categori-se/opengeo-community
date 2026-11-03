@@ -3347,6 +3347,44 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     "project-resource-feedback"
   );
   let selected = null;
+  let activePointerEdit = null;
+  let importGeneration = 0;
+  const conversionReport = document.createElement("details");
+  conversionReport.className = "project-geomoose-conversion-report";
+  conversionReport.hidden = true;
+  const showConversionReport = (report) => {
+    const reportJson = JSON.stringify(report, null, 2);
+    const summary = text("summary", "GeoMoose conversion report");
+    const status = text("p", `${report.sourceLabel} converted: ${report.convertedElementCount}/${report.sourceElementCount} elements retained; ${report.omittedElementCount} omitted; ${report.losses.length + report.externalContextLosses.length} declared differences.`);
+    status.setAttribute("role", "status");
+    const outcomes = document.createElement("ol");
+    for (const outcome of report.sourceElementOutcomes) {
+      const item = text("li", `Element ${outcome.sourceElementIndex + 1} (${outcome.sourceType}): ${outcome.disposition}${outcome.targetElementIds.length ? ` → ${outcome.targetElementIds.join(", ")}` : ""}.`);
+      const losses = report.losses.filter(({sourceElementIndex}) => sourceElementIndex === outcome.sourceElementIndex);
+      if (losses.length) {
+        const list = document.createElement("ul");
+        list.append(...losses.map(({code, detail}) => text("li", `${code}: ${detail}`)));
+        item.append(list);
+      }
+      outcomes.append(item);
+    }
+    const external = document.createElement("ul");
+    external.append(...report.externalContextLosses.map(({code, detail}) => text("li", `${code}: ${detail}`)));
+    const download = button("Download conversion report JSON", "platform-button secondary");
+    download.addEventListener("click", () => {
+      const url = URL.createObjectURL(new Blob([reportJson + "\n"], {type: "application/json"}));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "geomoose-print-conversion.json";
+      try { document.body.append(anchor); anchor.click(); }
+      finally { anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1_000); }
+    });
+    conversionReport.replaceChildren(summary, status,
+      text("p", "Last successful import. This report remains while editing; download it to retain the original conversion decisions."),
+      outcomes, text("h4", "Runtime settings outside the layout"), external, download);
+    conversionReport.hidden = false;
+    conversionReport.open = true;
+  };
 
   const selectedRows = () => rows.filter((row) => row.include.checked);
   const allowedSlugs = () => new Set(selectedRows().map((row) => siteSlug(row.resource.slug)));
@@ -3399,19 +3437,41 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     return element.type.replaceAll("_", " ");
   };
   const beginPointerEdit = (event, element, shell, mode) => {
-    if (event.button !== 0) return;
+    if (event.button !== 0 || event.isPrimary === false || !Number.isInteger(event.pointerId) || activePointerEdit) return;
+    const bounds = preview.getBoundingClientRect();
+    if (!(bounds.width > 0 && bounds.height > 0) || !fieldset.isConnected) return;
     event.preventDefault();
     selected = {pageSlug: pageChoice.control.value, elementId: element.id};
+    const view = fieldset.ownerDocument.defaultView;
+    const pointerId = event.pointerId;
     const startX = event.clientX;
     const startY = event.clientY;
     const start = {...element};
-    const bounds = preview.getBoundingClientRect();
+    const originalSource = source.control.value;
+    let ownedSource = originalSource;
+    const finish = (cancel, repaint = true) => {
+      if (activePointerEdit !== finish) return;
+      activePointerEdit = null;
+      view.removeEventListener("pointermove", move);
+      view.removeEventListener("pointerup", end);
+      view.removeEventListener("pointercancel", cancelPointer);
+      view.removeEventListener("keydown", escape);
+      preview.removeEventListener("lostpointercapture", cancelPointer);
+      observer.disconnect();
+      if (cancel && source.control.value === ownedSource) source.control.value = originalSource;
+      if (preview.hasPointerCapture?.(pointerId)) preview.releasePointerCapture(pointerId);
+      if (repaint && fieldset.isConnected) renderPreview();
+    };
     const move = (moveEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
+      if (!fieldset.isConnected || !shell.isConnected || source.control.value !== ownedSource) {
+        finish(true); return;
+      }
       const dx = Math.round((moveEvent.clientX - startX) * 1000 / bounds.width);
       const dy = Math.round((moveEvent.clientY - startY) * 1000 / bounds.height);
       const layout = rawLayout();
       const target = findSelected(layout);
-      if (!target || layout.schemaVersion !== "opengeo.print-layout.1.1.0") return;
+      if (!target || layout.schemaVersion !== "opengeo.print-layout.1.1.0") { finish(true); return; }
       if (mode === "move") {
         target.element.x = Math.max(0, Math.min(1000 - start.width, start.x + dx));
         target.element.y = Math.max(0, Math.min(1000 - start.height, start.y + dy));
@@ -3419,21 +3479,33 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         target.element.width = Math.max(10, Math.min(1000 - start.x, start.width + dx));
         target.element.height = Math.max(10, Math.min(1000 - start.y, start.height + dy));
       }
-      source.control.value = JSON.stringify(layout, null, 2);
+      source.control.value = ownedSource = JSON.stringify(layout, null, 2);
       shell.style.left = `${target.element.x / 10}%`;
       shell.style.top = `${target.element.y / 10}%`;
       shell.style.width = `${target.element.width / 10}%`;
       shell.style.height = `${target.element.height / 10}%`;
     };
-    const end = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", end);
-      renderPreview();
+    const end = (upEvent) => {
+      if (upEvent.pointerId === pointerId) finish(!fieldset.isConnected || !shell.isConnected);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", end, {once: true});
+    const cancelPointer = (cancelEvent) => { if (cancelEvent.pointerId === pointerId) finish(true); };
+    const escape = (keyEvent) => {
+      if (keyEvent.key === "Escape") { keyEvent.preventDefault(); finish(true); }
+    };
+    const observer = new view.MutationObserver(() => {
+      if (!fieldset.isConnected) finish(true, false);
+    });
+    activePointerEdit = finish;
+    observer.observe(fieldset.ownerDocument, {childList: true, subtree: true});
+    view.addEventListener("pointermove", move);
+    view.addEventListener("pointerup", end);
+    view.addEventListener("pointercancel", cancelPointer);
+    view.addEventListener("keydown", escape);
+    preview.addEventListener("lostpointercapture", cancelPointer);
+    preview.setPointerCapture?.(pointerId);
   };
   const renderPreview = () => {
+    activePointerEdit?.(true, false);
     preview.replaceChildren();
     try {
       const layout = parsedLayout();
@@ -3467,9 +3539,13 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         );
         const selectFrame = button(frameLabel(element), "project-positioned-layout-frame-select");
         selectFrame.ariaLabel = `Select and move ${element.id} ${frameLabel(element)}`;
+        selectFrame.dataset.elementId = element.id;
+        selectFrame.setAttribute("aria-pressed", shell.dataset.selected);
         selectFrame.addEventListener("click", () => {
           selected = {pageSlug: page.sitePageSlug, elementId: element.id};
           renderPreview();
+          [...preview.querySelectorAll(".project-positioned-layout-frame-select")]
+            .find((control) => control.dataset.elementId === element.id)?.focus({preventScroll: true});
         });
         selectFrame.addEventListener("keydown", (event) => {
           const movement = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]}[event.key];
@@ -3482,6 +3558,8 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
             target.y = Math.max(0, Math.min(1000 - target.height, target.y + movement[1] * step));
           });
           renderPreview();
+          [...preview.querySelectorAll(".project-positioned-layout-frame-select")]
+            .find((control) => control.dataset.elementId === element.id)?.focus({preventScroll: true});
         });
         selectFrame.addEventListener("pointerdown", (event) => beginPointerEdit(event, element, shell, "move"));
         const resize = button("↘", "project-positioned-layout-resize");
@@ -3510,6 +3588,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   });
   importGeoMoose.addEventListener("click", () => importGeoMooseFile.click());
   importGeoMooseFile.addEventListener("change", async () => {
+    const generation = ++importGeneration;
     const file = importGeoMooseFile.files?.[0];
     importGeoMooseFile.value = "";
     if (!file) return;
@@ -3519,7 +3598,12 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
       }
       const mapRow = selectedRows().find((row) => row.resource.kind === "map");
       if (!mapRow) throw new TypeError("select a map page before importing a GeoMoose layout");
-      const converted = convertGeoMoosePrintLayout(JSON.parse(await file.text()), {
+      const content = await file.text();
+      if (generation !== importGeneration || !fieldset.isConnected) return;
+      if (selectedRows().find((row) => row.resource.kind === "map") !== mapRow) {
+        throw new TypeError("selected map page changed during import");
+      }
+      const converted = convertGeoMoosePrintLayout(JSON.parse(content), {
         sitePageSlug: siteSlug(mapRow.resource.slug),
         mapResourceId: mapRow.resource.id,
         title: mapRow.resource.title,
@@ -3534,19 +3618,9 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
       printControls.printScaleBar.control.checked = false;
       selected = null;
       renderPreview();
-      const declaredDifferences = [
-        ...converted.report.losses,
-        ...converted.report.externalContextLosses
-      ];
-      const codes = [...new Set(declaredDifferences.map(({code}) => code))];
-      const suffix = codes.length ? ` (${codes.join(", ")})` : "";
-      feedback.textContent = [
-        `${converted.report.sourceLabel} converted:`,
-        `${converted.report.convertedElementCount}/${converted.report.sourceElementCount} elements retained;`,
-        `${converted.report.omittedElementCount} omitted;`,
-        `${declaredDifferences.length} declared differences${suffix}.`
-      ].join(" ");
+      showConversionReport(converted.report);
     } catch (error) {
+      if (generation !== importGeneration || !fieldset.isConnected) return;
       feedback.textContent = `GeoMoose layout was not imported (${error?.message ?? "invalid_layout"}).`;
     }
   });
@@ -3672,7 +3746,8 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     preview,
     inspector,
     source.label,
-    feedback
+    feedback,
+    conversionReport
   );
   renderPreview();
   return {

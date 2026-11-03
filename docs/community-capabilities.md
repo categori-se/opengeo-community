@@ -3,6 +3,8 @@
 The community edition includes the full suite of OpenGeo Studio tools. This
 guide describes the supported operations, their limits and what has been tested.
 
+GeoMoose print/responsive meets its original criteria in the declared desktop and 390px emulated-touch profile: reliable layout gestures, persistent conversion details, and source-pinned PDF/PNG with credits, scale and accessible HTML. Imported widthless titles/dates retain their text. Five pinned 3.15.2 layouts retain fourteen explicit element losses; full device coverage, WCAG certification and lossless native rendering are not claimed. See the [criterion report](../parity/reports/geomoose-print-responsive.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/27) for exact acceptance and release identities.
+
 The [Baseline guide](community-baseline.md) describes locally implemented source
 suitability, cached raster inventory/comparison/reference agreement/patches,
 stratified whole-cell reference review with conditional class-area uncertainty,
