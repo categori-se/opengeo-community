@@ -19,7 +19,7 @@
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/src/components/WorkbenchView.js",
-      "sha256": "1ef0253a664d577baf7acd602fce14c742c7428720d3b552bc6fe2bb5bd6a8a1"
+      "sha256": "a484e38e36ef45dca8046e138bfc199010a16035c93d2c11a63a35039c03e8ee"
     },
     {
       "name": "globeView.js",
@@ -61,7 +61,7 @@
       "mediaType": "text/javascript",
       "encoding": "path",
       "value": "app/test/historical-imagery-ui.test.mjs",
-      "sha256": "f4668970aa5073c0b38016f3f2003a24faa897c84a43843fef6e0ad7f92a4acb"
+      "sha256": "7f6207c56dd1d2308af476cd7a5fa00074002eb786e38c880ab613f71cfa66a7"
     },
     {
       "name": "globe-view.test.mjs",
@@ -82,7 +82,7 @@
       "mediaType": "application/json",
       "encoding": "path",
       "value": "parity/reports/google-earth-pro-002-globe-camera.json",
-      "sha256": "d16b58579ef093f306adea712411c1dc84d69185ca7891b81dd4b98704facfaf"
+      "sha256": "7f46342202d3387ae3f0066580dd1ba512b65472e5fc415560b905464720b58d"
     }
   ],
   "expectedOutcomes": [
