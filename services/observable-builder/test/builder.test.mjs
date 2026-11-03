@@ -773,7 +773,7 @@ describe("credential-free Observable builder contract", () => {
   it("builds the same local tree twice and emits no storage or publication authority", () => {
     const first = fixture({
       "data.js": "export const answer = 42;\n",
-      "index.md": "# Exact private preview\n\n```js\nimport {answer} from './data.js';\ndisplay(answer);\nPlot.plot({marks: [Plot.dot([[1, answer]])]});\n```\n"
+      "index.md": "# Exact private preview\n\n```js\nimport * as Plot from 'npm:@observablehq/plot@0.6.17';\nimport {answer} from './data.js';\ndisplay(answer);\nPlot.plot({marks: [Plot.dot([[1, answer]])]});\n```\n"
     });
     const cli = resolve("../../app/node_modules/.bin/observable");
     const firstReport = runBuild({
@@ -785,7 +785,7 @@ describe("credential-free Observable builder contract", () => {
     });
     const second = fixture({
       "data.js": "export const answer = 42;\n",
-      "index.md": "# Exact private preview\n\n```js\nimport {answer} from './data.js';\ndisplay(answer);\nPlot.plot({marks: [Plot.dot([[1, answer]])]});\n```\n"
+      "index.md": "# Exact private preview\n\n```js\nimport * as Plot from 'npm:@observablehq/plot@0.6.17';\nimport {answer} from './data.js';\ndisplay(answer);\nPlot.plot({marks: [Plot.dot([[1, answer]])]});\n```\n"
     });
     second.invocation.buildJobId = first.invocation.buildJobId;
     second.invocation.request = structuredClone(first.invocation.request);
