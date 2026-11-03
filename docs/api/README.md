@@ -15,6 +15,10 @@ See [errors and schema limits](#errors-and-specification-limits) and
 
 ## Check the contract locally
 
+Generated validation reports and screenshots stay in local output directories.
+This repository keeps the API contract, examples and functional interoperability
+fixtures. Earlier run reports remain available in Git history.
+
 Inspect and validate the interface without a database, sign-in or hosted
 deployment. From the repository root, create the API's
 [locked development environment](../../services/api/README.md#local-checks) with Python 3.14:
