@@ -1,0 +1,51 @@
+{
+  "$schema": "../../schemas/parity-evidence.schema.json",
+  "schemaVersion": "1.0.0",
+  "evidence": [
+    {
+      "id": "google-earth-pro-008.print-save-image",
+      "kind": "visual",
+      "result": "pass",
+      "observedAt": "2026-11-03",
+      "environment": {
+        "kind": "local",
+        "description": "Qualified Studio/Demo candidate; focused synthetic contracts, real MapLibre pixels, normal-owner revision-checked save/fresh read, exact-source local PNG/JPEG/PDF and independent Google Earth Pro7.3.7.1327 rendered Save Image preview/control comparison. Source publication and revised delivery pending.",
+        "limitations": [
+          "Map frames and figure PDF are raster captures; PDF embeds the composed JPEG and is not selectable/georeferenced.3D compass, measured scale and grid are visibly omitted. MapLibre is the accepted capture engine; other engines remain unverified.",
+          "Output DPI rerenders loaded vectors but adds no finer upstream raster/terrain data. Letterboxing preserves the captured viewport. System-font metrics may differ; supplied raster formats retain fixed pixels. Arbitrary authored Styles, scripts/fonts/devices and full WCAG/tagged-PDF conformance are not claimed.",
+          "Actual owner historical-scene proof uses blank basemap and disabled date metadata; active date/imagery attribution has controlled-source functional evidence, not new provider reconstruction/freshness proof.",
+          "Independent Google Earth Pro7.3.7.1327 comparison uses actual rendered scene/Save Image previews and controls. Final native file-modal dispatch was uncertain; no native exported file or custom-annotation configuration/equivalence is claimed. Native service usage is uninstrumented.",
+          "Source publication and revised frontend deployment/readback remain pending; local candidate acceptance is not production delivery or whole-product Google Earth parity."
+        ]
+      },
+      "commands": [
+        "cd app && node --test --test-isolation=none --test-concurrency=1 test/print-scene-pins.test.mjs",
+        "npm --prefix app run build:studio",
+        "npm --prefix app run build:demo"
+      ],
+      "artifacts": [
+        {
+          "path": "parity/reports/google-earth-pro-008-print-save-image.json",
+          "description": "Sanitized criterion-specific acceptance, measured limits, retained failures and pending source/delivery status."
+        },
+        {
+          "path": "parity/fixtures/google-earth-pro-008-print-save-image.json",
+          "description": "Offline synthetic current-source/test/report checksum bindings; no real data or proprietary comparator payload."
+        }
+      ],
+      "assertions": [
+        "All original GEP008 C01-C03 are supported within the declared profile; criteria remain unchanged.",
+        "Annotated PNG/JPEG/raster PDF and captured2D/3D scene/date/source metadata remain explicit; invalid flat-map furniture is visibly omitted for3D.",
+        "Independent comparison covers representative layouts, bounded named controls/keyboard, contrast/text,96/300DPI detail and cancellation/error; native preview is not mislabeled an exported file.",
+        "Actual owner saved-frame restoration and local deliberate-fit output are separate accepted proofs; uncertain writes are not replayed.",
+        "Source publication and revised frontend deployment/readback remain pending; no whole-product parity or unknown billing claim."
+      ],
+      "rowIds": [
+        "google-earth-pro.print-save-image"
+      ],
+      "fixtureIds": [
+        "google-earth-pro-008.print-save-image"
+      ]
+    }
+  ]
+}

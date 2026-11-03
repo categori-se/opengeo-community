@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0.0",
+  "result": "Original GEP008 C01-C03 candidate acceptance qualified within declared profiles; source publication and revised frontend delivery/readback pending.",
+  "observedAt": "2026-11-03",
+  "scope": {
+    "rowId": "google-earth-pro.print-save-image",
+    "milestone": "GEP-008",
+    "profile": "MapLibre loaded-scene captured raster pages and observed Linux desktop controls",
+    "noWholeProductClaim": true
+  },
+  "contract": {
+    "originalAcceptanceCriteria": [
+      "Users save PNG/JPEG and print/PDF views at declared resolutions with title, description, legend, compass, scale, attribution, and selected feature descriptions.",
+      "2D and 3D camera framing, layer order, labels, overlays, historical date, and imagery attribution reproduce in the exported artifact.",
+      "Independent visual comparison covers representative layouts, accessibility, color, text, high DPI, and cancellation/error behavior."
+    ],
+    "limits": "MapLibre captured output:8 layouts/Project,2 map frames/layout,32KiB saved layouts;96/150/300DPI,20M pixels/page/frame,8MiB/frame PNG,32MiB figure ZIP,1MiB context/64KiB manifest;8 text blocks/layout,4000 characters each,40 legend rows.3D compass/scale/grid omitted with visible notice. Source publication and revised frontend delivery/readback pending."
+  },
+  "acceptedBehavior": [
+    "Annotated PNG/JPEG/raster PDF/SVG/HTML/ZIP preserve title, description/selected-feature text, legend, valid compass/scale, credits and exact capture/source bindings.",
+    "Saved2D/3D camera, Layer order/labels and frame basemap/date/imagery attribution restore after main-Project changes. Stale captures refuse; templates use destination scene.",
+    "Normal-owner UI CAS saves and fresh archived server/UI read prove saved-frame restoration/recapture. Real-source authored text and synthetic selected-description extraction remain distinct.",
+    "Exact-source local fit yields visible frame/PNG/JPEG/PDF pixels; fitted camera was not owner-saved.",
+    "Independent native rendered-scene/Save Image PREVIEW comparison covers representative layouts, controls/keyboard, contrast/text, physical DPI and cancellation/errors."
+  ],
+  "verification": {
+    "currentSceneFocusedCases": 6,
+    "actualSourceOutput": {
+      "pageMm": [
+        297,
+        210
+      ],
+      "dpi": 96,
+      "pagePixels": [
+        1123,
+        794
+      ],
+      "sourcePixels": {
+        "frame": 49,
+        "PNG": 144,
+        "JPEG": 101,
+        "PopplerPDF": 84
+      }
+    },
+    "highDPI": {
+      "lowPixels": [
+        813,
+        496
+      ],
+      "highPixels": [
+        2539,
+        1551
+      ],
+      "DPI": [
+        96,
+        300
+      ],
+      "sameCameraAndBounds": true,
+      "freshPixelsDifferFromEnlargement": 13282
+    },
+    "comparison": {
+      "independentlyInspectedRetainedImages": 9,
+      "dimensions": [
+        "representative layouts",
+        "accessibility",
+        "color/contrast",
+        "text",
+        "high DPI",
+        "cancellation/error"
+      ],
+      "nativeExportObtained": false,
+      "nativeNamedMenuActionAndToolbarVerified": true,
+      "nativeModalDispatchUncertain": true
+    }
+  },
+  "limitations": [
+    "Map/PDF frames are captured raster; PDF embeds JPEG without selectable/georeferenced content.3D compass/scale/grid are visibly omitted; only MapLibre capture accepted.",
+    "Output DPI rerenders loaded vectors but adds no finer upstream raster/terrain data. Letterboxing preserves the captured viewport. System-font metrics may differ; supplied raster formats retain fixed pixels. Arbitrary authored Styles, scripts/fonts/devices and full WCAG/tagged-PDF conformance are not claimed.",
+    "Owner date proof uses blank basemap/disabled imagery; active date/credits use controlled-source checks, without new provider reconstruction or freshness proof.",
+    "Google Earth Pro7.3.7.1327 comparison uses rendered Save Image preview/controls. Final native modal dispatch is uncertain; no native file/custom annotation equivalence claimed; native service usage uninstrumented.",
+    "Source publication and revised frontend delivery/readback pending; candidate acceptance is not production delivery or whole-product parity."
+  ],
+  "delivery": {
+    "sourcePublication": "pending coherent corrective source/metadata batch with normal required checks",
+    "frontendDelivery": "pending revised deployment and exact readback",
+    "backendOrSchemaDeploymentRequired": false
+  }
+}
