@@ -224,6 +224,68 @@ describe("historical imagery workbench experience", () => {
     } finally { shell.dispose(); }
   });
 
+  it("recovers terrain from native ready-source events while saved imagery remains busy", async () => {
+    const history = normalizeHistoricalImagery({enabled: true,
+      selection: {requestedDate: "2026-08-20", displayedDate: "2026-08-20", policy: "exact"}});
+    const imagery = {...historicalImageryBasemap(history), visible: true, opacity: 0.37};
+    let map;
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    const shell = mountWorkbench({project: {projection: "globe", terrain: {enabled: true, exaggeration: 1.5},
+      basemaps: [imagery], extensions: {historicalImagery: history}}, rendererAdapter: {
+      id: "maplibre", initialize() {}, registerProtocol() {},
+      createMap(options) { map = new TerrainLoadingFixtureMap(options); return map; },
+      disposeMap() {}
+    }});
+    const originalNow = Date.now;
+    let now = originalNow();
+    try {
+      await waitFor(() => map?.listeners.has("load"));
+      map.emit("load");
+      shell.querySelector(".gis-controls-command").click();
+      const camera = structuredClone(map.camera);
+      Date.now = () => now;
+      const sourceId = OPEN_TERRAIN_SOURCE.sourceId;
+      // MapLibre 6.4.1 emits loaded tiles without sourceDataType; they can
+      // establish DEM success independently of an unfinished raster.
+      const readyEvents = [
+        {sourceId, isSourceLoaded: true, coord: {canonical: {z: 1, x: 0, y: 0}}, tile: {state: "loaded"}},
+        {sourceId, isSourceLoaded: true, sourceDataType: "content"}
+      ];
+      for (const ready of readyEvents) {
+        for (let index = 0; index < 3; index += 1) map.emit("error", {sourceId});
+        assert.equal(shell.dataset.terrain, "disabled");
+        assert.equal(shell.dataset.terrainOutage, "open", "Three failures must still open the circuit");
+        now += 61_000;
+        const retry = shell.querySelector('[data-map-mode="terrainEnabled"]');
+        assert.equal(retry.getAttribute("aria-label"), "Retry 3D terrain");
+        retry.click();
+        assert.equal(shell.dataset.terrain, "enabled");
+        assert.equal(shell.dataset.terrainOutage, "half-open");
+        for (const unrelated of [
+          {sourceId, isSourceLoaded: true, sourceDataType: "idle"},
+          {sourceId, isSourceLoaded: true, sourceDataType: "idle", coord: {}, tile: {state: "errored"}},
+          {sourceId, isSourceLoaded: true, sourceDataType: "metadata"},
+          {sourceId, isSourceLoaded: true, sourceDataType: "visibility"},
+          {sourceId, isSourceLoaded: false, sourceDataType: "content"},
+          {sourceId: "basemap", isSourceLoaded: true, sourceDataType: "content"},
+          {sourceId, isSourceLoaded: true, coord: {}, tile: {state: "loading"}},
+          {sourceId, isSourceLoaded: true, tile: {state: "loaded"}}
+        ]) {
+          map.emit("sourcedata", unrelated);
+          assert.equal(shell.dataset.terrainOutage, "half-open", "Only ready DEM data may complete recovery");
+        }
+        map.emit("sourcedata", ready);
+        assert.equal(shell.dataset.terrainOutage, "closed", "Ready DEM must recover without global map idle");
+        assert.equal(map.isStyleLoaded(), false, "The independent imagery load remains unsettled");
+        assert.deepEqual(map.camera, camera);
+        assert.equal(map.getLayer("basemap").paint["raster-opacity"], 0.37);
+        assert.deepEqual(map.getSource("basemap").tiles, [imagery.url]);
+        assert.deepEqual(map.getTerrain(), {source: sourceId, exaggeration: 1.5});
+      }
+    } finally { Date.now = originalNow; shell.dispose(); }
+  });
+
   it("keeps the complete history route in the compact Actions sheet", () => {
     harness.media.matches = true;
     const shell = mountWorkbench({initialPanel: null});
@@ -351,9 +413,9 @@ class HistoryFixtureMap {
   jumpTo(camera) { this.camera = {...camera}; this.emit("move"); this.emit("moveend"); }
   on(type, callback) { const listeners = this.listeners.get(type) ?? new Set(); listeners.add(callback); this.listeners.set(type, listeners); }
   off(type, callback) { const listeners = this.listeners.get(type); listeners?.delete(callback); if (!listeners?.size) this.listeners.delete(type); }
-  emit(type) {
+  emit(type, event = {}) {
     for (const callback of this.listeners.get(type) ?? []) {
-      try { callback({}); }
+      try { callback(event); }
       catch (error) { this.eventError = `${type}: ${error.message}`; throw error; }
     }
   }

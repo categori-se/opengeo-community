@@ -1942,7 +1942,9 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
 
   on("sourcedata", (event) => {
     if (state.terrainEnabled && event.sourceId === OPEN_TERRAIN_SOURCE.sourceId
-      && event.sourceDataType === "content" && event.isSourceLoaded === true) {
+      && event.isSourceLoaded === true
+      && (event.sourceDataType === "content"
+        || (event.sourceDataType === undefined && event.coord && event.tile?.state === "loaded"))) {
       const before = state.terrainOutageGuard.snapshot();
       const after = state.terrainOutageGuard.recordSuccess(event.sourceId);
       if (after.state !== before.state) updateProjectionPresentation(context);
