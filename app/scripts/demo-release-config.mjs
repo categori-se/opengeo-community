@@ -6,17 +6,13 @@ import {CESIUM_FONT_ROOT, CESIUM_FONT_SHA256} from '../src/lib/cesiumLabels.js';
 import {MAPBOX_RUNTIME} from '../src/lib/mapboxRuntime.js';
 import {withoutRendererFrameBehavior} from './studio-edge-boundary.mjs';
 
-// Shared Workbench adapters are part of the core; optional SDKs have a separate,
-// exact source inventory. The shared publication editor/compilers add 29 files;
-// Local developer/figure/publishing exports add five files; cached COG Identify adds one.
-// Saved-profile line of sight adds one shared component. These allowances
-// do not change the byte or PWA/startup cache budgets. Bounded Ozi import adds one file.
-// Public credits and seven local licensing records add eight core artifacts.
-// The completed source list adds seventeen existing shared-workbench modules.
-// The measured 304-file core also includes their emitted dependency artifacts;
-// the byte budget and exact optional-renderer inventory remain unchanged.
+// The 247 staged public files include 37 reachable KML/Tour/raster helpers.
+// Their locked PDF/raster dependencies, editor/print-math runtime and required
+// source/font notices produce the measured 425-file, 23,076,108-byte core.
+// The core cap is 24 MiB; exact renderer inventory/14 MiB and PWA/startup
+// budgets are unchanged.
 export const BROWSER_DEMO_LIMITS = Object.freeze({
-  coreFiles: 304, coreBytes: 20 * 1024 * 1024,
+  coreFiles: 425, coreBytes: 24 * 1024 * 1024,
   rendererFiles: 400, rendererBytes: 14 * 1024 * 1024
 });
 
