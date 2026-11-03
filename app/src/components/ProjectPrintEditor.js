@@ -1,6 +1,6 @@
 import {definitionWithPrintLayouts, mmToPx, newProjectPrintLayout, printLayerPresentation,
   projectPrintLayouts, standardPageSizes, validateProjectPrintLayouts, movePrintFrame,
-  resizePrintFrame, alignPrintFrame, printRulerTicks, printCaptureTarget, printCaptureOutputSignature} from "../lib/printLayouts.js";
+  resizePrintFrame, alignPrintFrame, printRulerTicks, printCaptureTarget, printCaptureOutputSignature, printFrameScene, printFrameSceneSignature} from "../lib/printLayouts.js";
 import {parseContinuousColorExpression} from "../lib/continuousStyle.js";
 import {continuousLegendGroups, continuousLegendRows} from "../lib/printContinuousLegend.js";
 import {capturePrintRasterLegend, rasterLegendGroups} from "../lib/printRasterLegend.js";
@@ -34,6 +34,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     el("p", persistence === "browser"
       ? "Arrange this local Project on a paper-sized page. Capture each map frame, then print or export. Save layout keeps the settings with this browser draft; download a Project backup to keep them."
       : "Arrange the saved Project on a paper-sized page. Edit a map frame, then capture its view and styling. Save layout keeps these settings in this Project."));
+  root.append(el("p", "Captured frames retain their background and imagery date. Older frames inherit the Project background and imagery until captured again."));
   const shell = el("div");shell.className = "print-studio-shell";
   const controls = el("aside");controls.className = "print-studio-controls";
   const stage = el("div");stage.className = "print-stage";
@@ -86,8 +87,12 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         outputFrame: {widthMm: selected.widthMm, heightMm: selected.heightMm, dpi: layout().dpi}, signal: captureController.signal,
         onPhase: message => {if (!disposed) status.textContent = ({rendering: "Rendering the map at Print resolution…", capturing: "Reading rendered map pixels…", restoring: "Restoring the map display…"})[message] ?? message;}});
       if (!await current() || key(mapFrame()) !== selectedKey) return;
+      if ((captured.sceneSignature ?? null) !== printFrameSceneSignature(printFrameScene(workbench.getPrintContext?.()?.project))) {
+        throw Error("The map background or imagery changed during capture. Wait for it to settle, then capture again.");
+      }
       selected.view = captured.view;selected.presentation = captured.presentation;
       if (captured.projection !== undefined) selected.projection = captured.projection;
+      for (const key of ["basemaps", "historicalImagery"]) if (Object.hasOwn(captured, key)) selected[key] = structuredClone(captured[key]);
       validateProjectPrintLayouts(collection, mapRecord);
       captured.outputSignature = printCaptureOutputSignature(selected, layout().dpi);
       remember(previous);captures.set(selectedKey, captured);
@@ -121,6 +126,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     for (const [id, captured] of captures) {
       const saved = retained.get(id), savedFrame = saved?.frame;
       if (!savedFrame || captured.signature !== canonicalJson({view: savedFrame.view, presentation: savedFrame.presentation})
+        || (captured.sceneSignature ?? null) !== printFrameSceneSignature(savedFrame)
         || (captured.projection ?? "mercator") !== (savedFrame.projection ?? "mercator")
         || captured.outputSignature !== printCaptureOutputSignature(savedFrame, saved.dpi)) captures.delete(id);
     }
@@ -317,6 +323,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       const capture = captures.get(key(item));
       if (!capture) return `Capture every map frame before exporting this layout. ${item.title} still needs a capture.`;
       if (capture.signature !== canonicalJson({view: item.view, presentation: item.presentation})
+        || (capture.sceneSignature ?? null) !== printFrameSceneSignature(item)
         || (capture.projection ?? "mercator") !== (item.projection ?? "mercator")
         || capture.outputSignature !== undefined && capture.outputSignature !== printCaptureOutputSignature(item, layout().dpi)) {
         return `${item.title}: capture again after changing its view, styling, dimensions or DPI.`;
@@ -748,7 +755,7 @@ function collectPrintSnapshot(context, mapRecord, canvas, requestedDataFrames) {
     }
   }
   if (legend.length > 40) throw Error("The legend exceeds 40 rows. Reduce the included Layers or classes for this layout.");
-  const attribution = [...new Set([context.basemap?.attribution,
+  const attribution = [...new Set([context.basemap?.attribution, context.basemap?.kind === "temporal-raster" ? context.basemap.title : null,
     ...context.layers.filter(item => item.visible !== false).flatMap(item => [item.attribution ?? item.sourceConfiguration?.attribution, item.metadata?.curated?.attribution])]
     .filter(value => typeof value === "string" && value.trim()))].map(plainText);
   const lines = [];
@@ -777,7 +784,8 @@ function collectPrintSnapshot(context, mapRecord, canvas, requestedDataFrames) {
   let vectorScene, vectorUnavailable;
   if (!flat) vectorUnavailable = "3D, globe and terrain views require a raster output; vector and geospatial PDF need a flat Earth Mercator view";
   else try {vectorScene = capturePrintVectorScene(context, mapRecord);} catch (error) {vectorUnavailable = error.message;}
-  return {dataUrl, width, height, cssWidth, cssHeight, view, projection, presentation, signature: canonicalJson({view, presentation}), legend, numericLegends, continuousLegends, dataFrames, attribution, displayNotes, sourceMetadata, lines, metresPerPixel, flat,
+  const scene = printFrameScene(context.project);
+  return {dataUrl, width, height, cssWidth, cssHeight, view, projection, presentation, ...scene, sceneSignature: printFrameSceneSignature(scene), signature: canonicalJson({view, presentation}), legend, numericLegends, continuousLegends, dataFrames, attribution, displayNotes, sourceMetadata, lines, metresPerPixel, flat,
     ...(rasterLegends.length ? {rasterLegends} : {}),
     ...(vectorScene ? {vectorScene} : {vectorUnavailable}),
     projectId: mapRecord.id, projectVersion: mapRecord.version};
@@ -1076,6 +1084,7 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   if (!preview) for (const frame of layout.frames) {
     const captured = captures.get(`${layoutId}:${frame.id}`);
     if (captured && (captured.signature !== canonicalJson({view: frame.view, presentation: frame.presentation})
+      || (captured.sceneSignature ?? null) !== printFrameSceneSignature(frame)
       || (captured.projection ?? "mercator") !== (frame.projection ?? "mercator")
       || captured.outputSignature !== undefined && captured.outputSignature !== printCaptureOutputSignature(frame, layout.dpi)))
       throw Error("Capture every map frame again after changing its view, styling, dimensions or DPI.");
@@ -1085,6 +1094,8 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   const metadata = svgNode("metadata", {});metadata.textContent = JSON.stringify({layout,
     ...(mapRepresentation === "vector" ? {mapRepresentation: "vector", geographicRegistration: false} : {}),
     captures: layout.frames.map(frame => {const captured = captures.get(`${layoutId}:${frame.id}`);return captured ? {frameId: frame.id, projectId: captured.projectId, projectVersion: captured.projectVersion, imageSha256: captured.imageSha256, width: captured.width, height: captured.height,
+      ...(captured.sceneSignature != null ? {sceneSignature: captured.sceneSignature} : {}),
+      ...Object.fromEntries(["basemaps", "historicalImagery"].filter(key => Object.hasOwn(captured, key)).map(key => [key, structuredClone(captured[key])])),
       ...(captured.projection !== undefined ? {renderer: "maplibre", projection: captured.projection, view: captured.view, flat: captured.flat} : {}),
       ...(captured.outputSignature !== undefined ? {outputSignature: captured.outputSignature} : {}),
       ...(mapRepresentation === "vector" ? {vectorMap: vectorSceneMetadata(captured)} : {}),
