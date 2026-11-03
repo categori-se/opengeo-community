@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0.0",
+  "observedAt": "2026-11-03",
+  "family": "geomoose.print-responsive",
+  "originalAcceptanceCriteria": [
+    "Portal workflows operate on desktop and mobile with keyboard and touch accessibility.",
+    "Reproducible PDF and PNG layouts preserve source revision, attribution, scale, and accessible alternatives.",
+    "GeoMoose print configuration converts with explicit layout losses."
+  ],
+  "result": "pass",
+  "environment": "Local compiled workflows and production exporters; required source/deployment gates remain separate.",
+  "reference": {
+    "product": "GeoMoose",
+    "version": "3.15.2",
+    "commit": "6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "url": "https://github.com/geomoose/gm3/tree/6eb12a80c9d379b5634126da6ad047071fa85b92",
+    "officialFiles": 4,
+    "officialBytes": 31026,
+    "runtime": "Exact native drawing methods, compatible jsPDF4.2.1, local Noto fonts, actual OpenLayers View, four literal token substitutions.",
+    "boundary": "Not the full React UI, network font loader, GeoPDF plugin or native portal scale-line runtime."
+  },
+  "criteria": [
+    {
+      "id": "geomoose.print-responsive:C01",
+      "result": "pass",
+      "assertions": [
+        "Desktop keyboard/fine movement, focus restoration, persistent accessible per-element import report and exact JSON download.",
+        "Native390px emulated primary touch move, pointercancel rollback, nonprimary isolation, renewed gesture and visible-hit resize.",
+        "Reuse unchanged accepted managed portal/mapbook/catalog responsive workflows."
+      ],
+      "limits": "Browser touch emulation; no all-physical-device or full WCAG certification claim."
+    },
+    {
+      "id": "geomoose.print-responsive:C02",
+      "result": "pass",
+      "assertions": [
+        "Normal compiled draft save retains revision4 and enabled scale; fixture CAS remains distinct from reused real persistence/authorization evidence.",
+        "Production PDF, PNG and SVG repeat byte equality; full title/date, source revision, attribution/license and2km scale retained.",
+        "Normal UI PDF download and PNG opening pass with maintained response headers over actual loopback HTTP.",
+        "390px HTML has semantic heading/nav, image alternative, credits/revision lineage, keyboard focus and no horizontal overflow."
+      ],
+      "PDF": {
+        "normalDownloadByteEqual": true,
+        "letterLandscape": true,
+        "onePage": true,
+        "titleDateCreditsScaleText": true
+      },
+      "PNG": {
+        "width": 1056,
+        "height": 816
+      },
+      "HTML": {
+        "heading": true,
+        "imageAlternative": true,
+        "credits": true,
+        "keyboardFocus": true,
+        "noHorizontalOverflow": true,
+        "viewport": 390
+      }
+    },
+    {
+      "id": "geomoose.print-responsive:C03",
+      "result": "pass",
+      "assertions": [
+        "Five exact configurations convert through production converter and strict parser:26 source elements,19 retained,7 rectangle omissions,14 declared element losses.",
+        "Persistent full report retains font and governed-legend substitutions and four external runtime-setting loss kinds.",
+        "Paired native output exposed unreported clipped title/year. Corrected widthless-text conversion uses remaining page width; actual fresh compiled converter and corrected raster visibly retain both."
+      ],
+      "losses": {
+        "rectangleOmissions": 7,
+        "textStyleCoarsenings": 5,
+        "governedLegendSubstitutions": 2,
+        "externalRuntimeSettingKinds": 4
+      },
+      "limits": "One representative rendered native page; not all-five pixel identity or lossless font/shape/legend fidelity."
+    }
+  ],
+  "sourceVersion": 4,
+  "siteVersion": 4,
+  "manifestSHA256": "3eb6da844dccfeaa60af1f9fc41b4712d5078a41d2b90d9be75d7767ccf40589",
+  "fontSHA256": "c31d210962408a00de8e2ebe2f2fc26824d7a4939d4eb15d347761fb2a0b39a6",
+  "fixture": {
+    "width": 32,
+    "height": 20,
+    "bytes": 97,
+    "sha256": "ddc1b5ab7248c53d522c10b8d6245905474e9c316ce369dd28dd764540a334f2",
+    "meaning": "Existing synthetic sealed bitmap, not new real-provider portrayal acceptance; accepted mixed-source Print evidence is reused."
+  },
+  "outputs": [
+    {
+      "path": "page.pdf",
+      "bytes": 15364,
+      "sha256": "afc895d25973ad3a49d2214ece58d8463d215f663645811f2c1965bd5d90f1d1"
+    },
+    {
+      "path": "page.png",
+      "bytes": 7130,
+      "sha256": "14b06a19d033599ca112755a249124a32fa2e2d20d18816eac8a2841ea4dc990"
+    },
+    {
+      "path": "map.svg",
+      "bytes": 2360,
+      "sha256": "433a29f7a440e0fd0260a757385de9d520f9d7f07dd351228cff3d4a7d974936"
+    },
+    {
+      "path": "static/index.html",
+      "bytes": 1736,
+      "sha256": "54390679388ec8016374bf1e59e24b35ec7db86e174fcbb77ba86581145cdd04"
+    }
+  ],
+  "receiptSHA256": {
+    "handoff": "997b842e722c20e6f623a8373939dbf9d329424b3d547fa3ca7e7f3b378e32e3",
+    "qualifiedBuild": "6f031fe39846aec5c561a0e9d701a85608c26ce633e03b05982f913e2abe7b1e",
+    "compiledConverter": "61800ea3c275e8e72ffc576b5e9223e9e09630004e646657e414cfee984da5df",
+    "correctedEncoder": "81065c9364b16530a6f69bb0087de200f1af6a30e6f2b14ffeaf4e0223d44bfb",
+    "downloadsAndHTML": "3ef08375062da07c676376af4e98f9cffe3e6833c76e2060daf16fee3748d3b4",
+    "officialUpstreamRead": "90cdd477ef94c2f242ee07a56b2638cee86f24aeab9bd66da9c94128a0f99b23",
+    "fiveConfigurations": "f31a5b54a7a9998c5b6d04e17d77afdee0189c43ce9c2aee0c38a573a0739519",
+    "nativeDrawing": "0879b142a3ec0302acee91ff72b58af12b224f92a8f3245d7d4aa709c913a8c3",
+    "independentAcceptance": "d13b6701be314a904943889a0ff1e392dd154bc045986e4cb73831eebf6444c4"
+  },
+  "implementation": {
+    "gestureReportManifestSHA256": "ce5cff9f3eea57978055f5ad19ea197829172e29386170adcafbf3aa2ed1ff02",
+    "textWidthManifestSHA256": "67353f181cb43bbc336a68d4f931c3fc2139283416741b6409aeb3fa5592813a",
+    "converterSHA256": "f73255e3563bb43e210eccde4e283de5cbfb2749f4b76a03a2e83d2714c8cdf4",
+    "checks": "40 publication cases and6 converter cases pass;1 owning import case checked after width correction. Regressions fail unchanged source."
+  },
+  "release": "Normal required source checks/merges and both maintained cutovers/readback must finish before issue27 closes. Other GeoMoose distributed-service criteria remain open.",
+  "retainedFailures": "Earlier helper/runtime failures remain failed; exact local handoff and independent review retain their costs, diagnostics and cleanup."
+}

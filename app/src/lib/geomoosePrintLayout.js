@@ -317,16 +317,14 @@ export function convertGeoMoosePrintLayout(value, {
       const substitution = substituteText(element.text, safeTitle, printedOn);
       const lineHeightMm = element.size * 25.4 / 72 * 1.35;
       const topMm = Math.max(0, element.y * scale - lineHeightMm);
-      const estimatedWidthMm = Math.max(
-        pageWidthMm * 0.01,
-        Math.min(pageWidthMm - element.x * scale, substitution.text.length * element.size * 25.4 / 72 * 0.58)
-      );
+      // Native GeoMoose text has no box width; semantic font substitution must not clip it to guessed glyph metrics.
+      const remainingWidthMm = pageWidthMm - element.x * scale;
       const converted = target(
         "text",
         frame(
           element.x * scale,
           topMm,
-          estimatedWidthMm,
+          remainingWidthMm,
           lineHeightMm,
           pageWidthMm,
           pageHeightMm
@@ -349,7 +347,7 @@ export function convertGeoMoosePrintLayout(value, {
           index,
           element.type,
           "text_style_coarsened",
-          "Font family, exact point size, color, and face were mapped to one semantic OpenGeo Studio text style."
+          "Font family, exact point size, color, and face were mapped to one semantic OpenGeo Studio text style; metrics may differ, so text retains the remaining page width."
         ));
       }
     } else if (element.type === "legend") {

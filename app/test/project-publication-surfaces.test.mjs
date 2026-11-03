@@ -695,29 +695,7 @@ describe("publication project surfaces", () => {
   });
 
   it("imports one bounded GeoMoose layout into the governed site print editor", async () => {
-    const map = {
-      id: "60000000-0000-4000-8000-000000000001",
-      slug: "massgis-map",
-      title: "MassGIS review",
-      kind: "map",
-      versionNumber: 3
-    };
-    const surface = ProjectSites({
-      state: {
-        organization: {id: IDS.organization, callerRole: "member"},
-        project: {
-          id: IDS.project,
-          name: "MassGIS",
-          description: "Reviewed map site",
-          callerRole: "owner"
-        },
-        adapter: {listSites() {}, createSite() {}},
-        sites: [],
-        resources: [map]
-      },
-      refresh: async () => {}
-    });
-    document.body.append(surface);
+    const {surface, map} = positionedSiteFixture();
     assert.match(surface.textContent, /Import GeoMoose print layout/);
     const layout = {
       label: "letter-landscape",
@@ -755,6 +733,121 @@ describe("publication project surfaces", () => {
       .find((label) => label.querySelector("span")?.textContent === "Print page size")
       ?.querySelector("select");
     assert.equal(pageSize.value, "letter");
+    const report = surface.querySelector(".project-geomoose-conversion-report");
+    assert.equal(report.hidden, false);
+    assert.equal(report.querySelector("summary").textContent, "GeoMoose conversion report");
+    assert.match(report.querySelector('[role="status"]').textContent, /2\/3 elements retained/);
+    assert.match(report.textContent, /Element 3 \(rect\): omitted.*drawing_omitted:.*shape was not approximated/s);
+    assert.match(report.textContent, /runtime_resolution_not_converted/);
+    const reportText = report.textContent;
+    const frame = surface.querySelector(".project-positioned-layout-frame-select");
+    frame.dispatchEvent(new harness.dom.window.KeyboardEvent("keydown", {key: "ArrowRight", bubbles: true, cancelable: true}));
+    assert.equal(report.textContent, reportText, "preview edits retain every original conversion decision");
+    assert.equal(document.activeElement.dataset.elementId, "text_1", "keyboard edits retain focus on the selected frame");
+    let downloaded;
+    const originalCreate = URL.createObjectURL, originalRevoke = URL.revokeObjectURL;
+    const anchorPrototype = harness.dom.window.HTMLAnchorElement.prototype;
+    const originalClick = anchorPrototype.click;
+    try {
+      URL.createObjectURL = (blob) => { downloaded = blob; return "blob:conversion-report"; };
+      URL.revokeObjectURL = () => {};
+      anchorPrototype.click = function () { assert.equal(this.download, "geomoose-print-conversion.json"); };
+      findButton(report, "Download conversion report JSON").click();
+      const downloadedReport = JSON.parse(await downloaded.text());
+      assert.equal(downloadedReport.sourceLabel, "letter-landscape");
+      assert.equal(downloadedReport.sourceElementOutcomes[2].disposition, "omitted");
+      assert.ok(downloadedReport.losses.some(({code}) => code === "drawing_omitted"));
+      assert.equal(downloadedReport.externalContextLosses.length, 4);
+    } finally {
+      URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; anchorPrototype.click = originalClick;
+    }
+    Object.defineProperty(file, "files", {configurable: true, value: [{size: 1, text: async () => "{"}]});
+    file.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    await waitFor(() => /was not imported/.test(surface.textContent));
+    assert.equal(report.textContent, reportText, "an invalid replacement does not erase the last successful report");
+  });
+
+  it("owns one positioned-page pointer and restores canceled or detached gestures without stale writes", async (t) => {
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {configurable: true, value: harness.dom.window});
+    t.after(() => {
+      if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+      else delete globalThis.window;
+    });
+    const {surface, advanced} = positionedSiteFixture();
+    findButton(surface, "Insert accessible starter layout").click();
+    const preview = surface.querySelector(".project-positioned-layout-preview");
+    preview.getBoundingClientRect = () => ({width: 1000, height: 1000});
+    const captures = new Set();
+    preview.setPointerCapture = (id) => captures.add(id);
+    preview.hasPointerCapture = (id) => captures.has(id);
+    preview.releasePointerCapture = (id) => captures.delete(id);
+    const handle = () => preview.querySelector(".project-positioned-layout-frame-select");
+    const geometry = () => JSON.parse(advanced.value).pages[0].elements[0];
+    const original = advanced.value, start = geometry();
+    positionedPointer(handle(), "pointerdown", {isPrimary: false});
+    positionedPointer(harness.dom.window, "pointermove", {clientX: 100, clientY: 100});
+    assert.equal(advanced.value, original, "a secondary touch cannot begin a gesture");
+    positionedPointer(handle(), "pointerdown");
+    positionedPointer(handle(), "pointerdown", {pointerId: 8});
+    positionedPointer(harness.dom.window, "pointermove", {pointerId: 8, clientX: 100, clientY: 100});
+    assert.equal(advanced.value, original, "another pointer cannot move the owned frame");
+    positionedPointer(harness.dom.window, "pointermove", {clientX: 20, clientY: 30});
+    assert.equal(geometry().x, start.x + 20);
+    positionedPointer(harness.dom.window, "pointerup", {pointerId: 8});
+    assert.equal(captures.has(7), true, "another pointer cannot commit the gesture");
+    positionedPointer(harness.dom.window, "pointercancel");
+    assert.equal(advanced.value, original); assert.equal(captures.size, 0);
+    positionedPointer(harness.dom.window, "pointermove", {clientX: 200, clientY: 200});
+    assert.equal(advanced.value, original, "canceled listeners no longer write");
+    positionedPointer(handle(), "pointerdown");
+    positionedPointer(harness.dom.window, "pointermove", {clientX: 20, clientY: 30});
+    positionedPointer(harness.dom.window, "pointerup");
+    assert.equal(geometry().x, start.x + 20); assert.equal(geometry().y, start.y + 30);
+    const beforeResize = geometry();
+    positionedPointer(preview.querySelector(".project-positioned-layout-resize"), "pointerdown");
+    positionedPointer(harness.dom.window, "pointermove", {clientX: 10, clientY: 20});
+    positionedPointer(harness.dom.window, "pointerup");
+    assert.equal(geometry().width, beforeResize.width + 10); assert.equal(geometry().height, beforeResize.height + 20);
+    const committed = advanced.value;
+    for (const cancellation of ["Escape", "lostpointercapture", "detach"]) {
+      positionedPointer(handle(), "pointerdown");
+      positionedPointer(harness.dom.window, "pointermove", {clientX: 50, clientY: 50});
+      if (cancellation === "Escape") harness.dom.window.dispatchEvent(new harness.dom.window.KeyboardEvent("keydown", {key: "Escape", cancelable: true}));
+      else if (cancellation === "lostpointercapture") positionedPointer(preview, cancellation);
+      else { surface.remove(); await Promise.resolve(); }
+      assert.equal(advanced.value, committed, cancellation);
+      assert.equal(captures.size, 0, cancellation);
+    }
+    positionedPointer(harness.dom.window, "pointermove", {clientX: 300, clientY: 300});
+    assert.equal(advanced.value, committed);
+    const css = await readFile(new URL("../src/style.css", import.meta.url), "utf8");
+    for (const selector of ["frame-select", "resize"]) {
+      assert.match(css, new RegExp(`\\.project-positioned-layout-${selector} \\{[^}]*touch-action: none;`));
+    }
+  });
+
+  it("ignores superseded or detached asynchronous GeoMoose imports", async () => {
+    const {surface, advanced} = positionedSiteFixture();
+    const file = surface.querySelector('.project-positioned-layout input[type="file"]');
+    const change = (text) => {
+      Object.defineProperty(file, "files", {configurable: true, value: [{size: 100, text}]});
+      file.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    };
+    const layout = (label) => JSON.stringify({label, orientation: "landscape", page: "letter", units: "in",
+      elements: [{type: "map", x: 0.5, y: 0.75, width: 10, height: 7}]});
+    let resolveFirst;
+    change(() => new Promise((resolve) => { resolveFirst = resolve; }));
+    change(async () => layout("Newest layout"));
+    await waitFor(() => /Newest layout converted/.test(surface.textContent));
+    const newest = advanced.value;
+    resolveFirst(layout("Stale layout")); await Promise.resolve(); await Promise.resolve();
+    assert.equal(advanced.value, newest);
+    assert.doesNotMatch(surface.querySelector(".project-geomoose-conversion-report").textContent, /Stale layout/);
+    let resolveDetached;
+    change(() => new Promise((resolve) => { resolveDetached = resolve; }));
+    surface.remove(); resolveDetached(layout("Detached layout")); await Promise.resolve(); await Promise.resolve();
+    assert.equal(advanced.value, newest, "disposed account surfaces cannot receive a delayed import");
   });
 
   it("edits a draft without silently advancing pinned pages and saves navigation order", async () => {
@@ -1798,6 +1891,27 @@ function resourceInclude(editor, resourceId) {
   return [...editor.querySelectorAll(".project-site-page-selector")]
     .find((row) => row.dataset.resourceId === resourceId)
     .querySelector(':scope > input[type="checkbox"]');
+}
+
+function positionedSiteFixture() {
+  const map = {id: "60000000-0000-4000-8000-000000000001", slug: "massgis-map",
+    title: "MassGIS review", kind: "map", versionNumber: 3};
+  const surface = ProjectSites({state: {
+    organization: {id: IDS.organization, callerRole: "member"},
+    project: {id: IDS.project, name: "MassGIS", description: "Reviewed map site", callerRole: "owner"},
+    adapter: {listSites() {}, createSite() {}}, sites: [], resources: [map]
+  }, refresh: async () => {}});
+  document.body.append(surface);
+  const advanced = [...surface.querySelectorAll("label")]
+    .find((label) => label.querySelector("span")?.textContent === "Advanced layout JSON").querySelector("textarea");
+  return {surface, map, advanced};
+}
+
+function positionedPointer(target, type, options = {}) {
+  const {pointerId = 7, isPrimary = true, ...mouse} = options;
+  const event = new harness.dom.window.MouseEvent(type, {button: 0, bubbles: true, cancelable: true, ...mouse});
+  Object.defineProperties(event, {pointerId: {value: pointerId}, isPrimary: {value: isPrimary}});
+  target.dispatchEvent(event);
 }
 
 async function waitFor(predicate) {

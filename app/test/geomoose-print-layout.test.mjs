@@ -93,6 +93,24 @@ describe("GeoMoose 3.15.2 print-layout conversion", () => {
     assert.equal(result.report.externalResourcesOpened, false);
   });
 
+  it("leaves title and date text the remaining page width instead of clipping to guessed source-font metrics", () => {
+    const layout = sourceLayout();
+    layout.elements[3].text = "Printed on {{month}}/{{day}}/{{year}}";
+    const result = convert(layout);
+    const texts = result.printLayout.pages[0].elements.filter(({type}) => type === "text");
+    assert.deepEqual(texts.map(({text}) => text), ["MassGIS review", "Printed on 9/1/2026", "Legend"]);
+    assert.deepEqual(
+      Object.fromEntries(["x", "y", "width", "height"].map((key) => [key, texts[0][key]])),
+      {x: 45, y: 43, width: 955, height: 40}
+    );
+    for (const text of texts) assert.equal(text.x + text.width, 1000, "native text has no box constraint before the page edge");
+    const longer = sourceLayout();
+    longer.elements[0].text = "A longer complete title remains text, rather than a source-font width estimate";
+    assert.equal(convert(longer).printLayout.pages[0].elements[0].width, texts[0].width);
+    assert.match(result.report.losses.find(({code}) => code === "text_style_coarsened").detail, /metrics may differ/);
+    assert.equal(result.report.losses.filter(({code}) => code === "drawing_omitted").length, 2);
+  });
+
   it("retains unknown template tokens literally and reports them", () => {
     const layout = sourceLayout();
     layout.elements[0].text = "{{title}} · {{organization.secret}}";

@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schemas/parity-evidence.schema.json",
+  "schemaVersion": "1.0.0",
+  "evidence": [
+    {
+      "id": "geomoose.print-responsive.current-workflow",
+      "kind": "independent_client",
+      "result": "pass",
+      "observedAt": "2026-11-03",
+      "environment": {
+        "kind": "local",
+        "description": "Current compiled keyboard/emulated-touch portal and deterministic production exports, compared with pinned GeoMoose3.15.2 native print methods.",
+        "limitations": [
+          "One rendered native layout; five configurations converted with explicit losses.",
+          "Emulated touch and semantic HTML do not establish all physical devices/full WCAG.",
+          "Fixture CAS is distinct from reused real persistence/authorization and subsequent delivery."
+        ]
+      },
+      "commands": [
+        "cd app && node --test --test-isolation=none test/project-publication-surfaces.test.mjs",
+        "cd app && node --test --test-isolation=none test/geomoose-print-layout.test.mjs",
+        "npm --prefix app run build:studio",
+        "npm --prefix app run build:demo"
+      ],
+      "artifacts": [
+        {
+          "path": "parity/reports/geomoose-print-responsive.json",
+          "description": "Original C01-C03, exact upstream boundaries, corrected outputs, retained failures and release separation."
+        }
+      ],
+      "assertions": [
+        "Original desktop/mobile keyboard/touch, source-pinned credited PDF/PNG with scale/HTML alternatives, and explicit-loss conversion pass in declared profiles.",
+        "Actual paired-output text clipping is corrected; fourteen element losses remain explicit.",
+        "Normal source and deployment gates remain required before issue closure."
+      ],
+      "rowIds": [
+        "geomoose.print-responsive"
+      ],
+      "fixtureIds": [
+        "geomoose-009.print-layouts-client"
+      ]
+    }
+  ]
+}

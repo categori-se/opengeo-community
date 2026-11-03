@@ -6,7 +6,11 @@ carry forward into the next report, notebook or website. Low idle infrastructure
 cost is a design goal; workload costs depend on storage, processing, traffic and
 deployment choices.
 
-## Development status — October 23, 2026
+## Development status — November 3, 2026
+
+Current records: **28 pass / 21 partial / one conditional exclusion** across 50 families; this is not a product-completion percentage. GeoMoose print/responsive meets its original criteria in the declared desktop and 390px emulated-touch profile: reliable layout gestures, persistent conversion details, and source-pinned PDF/PNG with credits, scale and accessible HTML. Imported widthless titles/dates retain their text. Five pinned 3.15.2 layouts retain fourteen explicit element losses; full device coverage, WCAG certification and lossless native rendering are not claimed. See the [criterion report](parity/reports/geomoose-print-responsive.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/27) for exact acceptance and release identities.
+
+
 
 The shared [Baseline tools](docs/community-baseline.md) now include source
 suitability, categorical inventory/comparison/patches, stratified reference review
@@ -33,8 +37,7 @@ reducing unminified output from 96,953 to 38,353 bytes under the unchanged 64 Ki
 limit. The explicit Demo stage list includes the existing Workbench dependencies.
 The maintained browser check verifies anonymous credits, eight local notice links,
 375-pixel layout and the offline Demo shell, with provider requests blocked.
-This source increment is not yet published or deployed; formal parity remains
-24 pass, 25 partial and one exclusion. Independent acceptance remains open.
+The browser shell is included in the published community source; current acceptance and configured delivery are recorded by the family-specific reports and issues.
 
 The community edition contains the full suite of tools. Community installations,
 the public Demo and managed Studio use the same core with their own configuration,
