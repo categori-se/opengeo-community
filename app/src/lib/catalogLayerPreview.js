@@ -81,7 +81,9 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
         || expectedVersion != null && source.versionNumber !== expectedVersion || source.status !== "active"
         || source.credentialMode !== "none" || source.accessMode !== "direct_browser" || !source.capabilities?.read
         || source.sourceType === "geojson" && record.sourceType !== "geojson"
-        || !["arcgis", "wfs", "imageserver", "mapserver", "cog", "xyz", "geojson"].includes(source.sourceType)) {
+        || (record.sourceType === "wms" || record.service?.kind === "WMS") && source.sourceType !== "wms"
+        || source.sourceType === "wms" && record.sourceType !== "wms" && record.service?.kind !== "WMS"
+        || !["arcgis", "wfs", "wms", "imageserver", "mapserver", "cog", "xyz", "geojson"].includes(source.sourceType)) {
         throw new Error("The connection changed or is unavailable. Search the catalog again before previewing it.");
       }
       if (source.sourceType === "geojson") {
@@ -98,6 +100,8 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
         attribution: source.configuration.attribution, layer: registeredPreviewLayer(source, record.title)};
       const endpoint = livePreviewEndpoint(source);
       if (record.service?.layerUrl && endpoint !== record.service.layerUrl) throw new Error("The provider address changed. Search the catalog again.");
+      if (source.sourceType === "wms") return {kind: "wms", endpoint, metadata: {},
+        attribution: source.configuration.attribution, layer: registeredPreviewLayer(source, record.title)};
       if (source.sourceType === "wfs") return {...await previewWfs(endpoint, source.configuration), layer: registeredPreviewLayer(source, record.title)};
       const fields = source.sourceType === "arcgis" ? source.configuration.fields : [];
       return {...await preview(endpoint, fields, source.configuration.attribution, source.configuration), layer: registeredPreviewLayer(source, record.title)};
@@ -119,6 +123,8 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
     if (layer.sourceType === "cog-raster") return {kind: "cog", endpoint: layer.sourceUrl, metadata: {},
       attribution: layer.attribution, cog: {sourceUrl: layer.sourceUrl, configuration: layer.sourceConfiguration}, layer: structuredClone(layer)};
     const endpoint = livePreviewEndpoint(layer);
+    if (layer.sourceType === "wms-raster") return {kind: "wms", endpoint, metadata: {},
+      attribution: layer.sourceConfiguration.attribution, layer: structuredClone(layer)};
     if (record.service?.kind === "WFS") return {...await previewWfs(endpoint, layer.sourceConfiguration, layer.bbox), layer: structuredClone(layer)};
     const fields = [...new Set(map.definition.layers.filter(candidate => candidate.datasetId === record.datasetId)
       .map(candidate => candidate.style?.graduated?.field).concat(record.styleField ?? [])
@@ -204,6 +210,10 @@ export function livePreviewEndpoint(layer) {
   if (url.search || url.hash || url.port && url.port !== "443"
     || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(url.hostname)
     || /\.(?:localhost|local|internal)$/i.test(url.hostname)) throw new Error("This endpoint is not eligible for a credential-free public preview.");
+  if (["wms", "wms-raster"].includes(layer.sourceType)) {
+    sourceLinks(candidate); // Validate HTTPS/credentials without rewriting an ArcGIS WMSServer endpoint.
+    return candidate;
+  }
   const endpoint = sourceLinks(candidate).provider;
   if (layer.sourceType === "wfs" || layer.sourceType === "external-feature-reference" && layer.sourceConfiguration?.typeName) {
     if (!/^\/[A-Za-z0-9_./~-]+$/.test(url.pathname)) throw new Error("This WFS endpoint is not eligible for preview.");

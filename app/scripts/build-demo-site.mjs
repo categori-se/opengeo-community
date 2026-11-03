@@ -341,6 +341,7 @@ async function stageDemoSource() {
     ["lib/liveFeatureSource.js", "lib/liveFeatureSource.js"],
     ["lib/browserPlatform.js", "lib/browserPlatform.js"],
     ["lib/assistantProvider.js", "lib/assistantProvider.js"],
+    ["lib/wmsSource.js", "lib/wmsSource.js"],
     ["lib/basemapActivation.js", "lib/basemapActivation.js"],
     ["lib/basemapCatalog.js", "lib/basemapCatalog.js"],
     ["lib/basemapGovernance.js", "lib/basemapGovernance.js"],

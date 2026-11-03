@@ -305,6 +305,85 @@ it("checks GeoJSON source authority, revision and integrity without substituting
   await assert.rejects(loader(record), {code: "object_checksum_mismatch"}); loader.dispose();
 });
 
+function wmsFixture({version="1.3.0",tileSize=256,endpoint="https://maps.example.com/geoserver/wms"}={}) {
+  const configuration={version,layers:["public:elevation","public:roads"],styles:["","roads"],imageFormat:"image/png",
+    transparent:true,crs:"EPSG:3857",tileSize,attribution:"Official WMS provider"};
+  const source={datasetId:"dataset",projectId:"project",versionNumber:2,status:"active",sourceType:"wms",
+    credentialMode:"none",accessMode:"direct_browser",capabilities:{read:true},
+    sourceUrl:endpoint,configuration};
+  return {configuration,source,resource:{datasetId:source.datasetId,projectId:source.projectId,title:"Selected WMS Layer",
+    resourcePreview:true,sourceType:"wms",sourceVersion:2}};
+}
+
+it("opens only the selected WMS Catalog Layer on demand without provider discovery, copies or a containing Project", async () => {
+  const dom=new JSDOM("<!doctype html>"),old=globalThis.document;globalThis.document=dom.window.document;
+  try {
+    for(const settings of [{version:"1.3.0",tileSize:256},{version:"1.1.1",tileSize:512,
+      endpoint:"https://maps.example.com/arcgis/services/Imagery/MapServer/WMSServer"}]) {
+      const {source,configuration,resource}=wmsFixture(settings),original=structuredClone(source);
+      let reads=0,providerReads=0,rendered,action;
+      const adapter={getSource:async(project,dataset)=>{assert.deepEqual([project,dataset],["project","dataset"]);reads++;return source;},
+        getMap:()=>assert.fail("A registered WMS preview must not open a containing Project"),
+        createMap:()=>assert.fail("Opening a Layer never saves a Project"),attachDataset:()=>assert.fail("Opening never links or copies data")};
+      const loader=createCatalogPreviewLoader({adapter,fetchImplementation:()=>{providerReads++;assert.fail("No GetCapabilities, archive or provider prefetch");}});
+      try {
+        action=CatalogResourceMapAction({dataset:previewDataset("wms"),adapter,load:loader,
+          renderMap:async options=>{rendered=options;const map=document.createElement("div");map.className="map-frame";return map;}});
+        assert.ok(action,"Readable active registered WMS Layers offer Open map");
+        document.body.append(action.button,action.panel);assert.equal(reads,0);assert.equal(providerReads,0);
+        action.button.click();await finishPreviewAction();
+        assert.equal(reads,1);assert.equal(providerReads,0);assert.equal(rendered.wms.endpoint,source.sourceUrl);
+        assert.deepEqual(rendered.wms.configuration,configuration);assert.equal(rendered.height,"60vh");
+        assert.equal(rendered.imageServer,undefined);assert.equal(action.panel.querySelector("img"),null);
+        assert.match(action.panel.textContent,/Live WMS map images/);assert.match(action.panel.textContent,/No archived images/);
+        const retained=await loader(resource);
+        assert.equal(retained.kind,"wms");assert.equal(retained.layer.sourceType,"wms-raster");
+        assert.equal(retained.layer.datasetId,source.datasetId);assert.equal(retained.layer.sourceVersion,2);
+        assert.equal(retained.layer.sourceUrl,source.sourceUrl);assert.equal(retained.layer.tileSize,configuration.tileSize);
+        assert.deepEqual(retained.layer.sourceConfiguration,configuration);assert.deepEqual(source,original);
+        const q=new URL(retained.layer.tileUrl).searchParams;
+        assert.equal(q.get("LAYERS"),"public:elevation,public:roads");assert.equal(q.get("STYLES"),",roads");
+        assert.equal(q.get("WIDTH"),String(settings.tileSize));assert.equal(q.get(settings.version==="1.3.0"?"CRS":"SRS"),"EPSG:3857");
+        action.button.click();action.button.click();assert.equal(reads,1,"Reopening the same temporary map reuses its metadata");
+      } finally {action?.dispose();loader.dispose();action?.button.remove();action?.panel.remove();}
+    }
+    for(const patch of [{status:"archived"},{capabilities:{read:false}},{projectId:null}])
+      assert.equal(CatalogResourceMapAction({dataset:{...previewDataset("wms"),...patch},adapter:{getSource(){}}}),null);
+  } finally {globalThis.document=old;dom.window.close();}
+});
+
+it("rejects changed WMS identity, revision, authority, type or provider address before rendering", async () => {
+  const {source,resource}=wmsFixture();
+  for(const patch of [{datasetId:"other"},{projectId:"other"},{versionNumber:3},{status:"archived"},
+    {capabilities:{read:false}},{credentialMode:"connection_reference"},{accessMode:"server_mediated"},
+    {sourceType:"arcgis"},{sourceUrl:"https://maps.example.com/geoserver/wms?token=private"}]) {
+    const loader=createCatalogPreviewLoader({adapter:{getSource:async()=>({...source,...patch}),getMap:()=>assert.fail("No Project read")},
+      fetchImplementation:()=>assert.fail("Rejected source cannot trigger a provider fetch")});
+    try {await assert.rejects(loader(resource));} finally {loader.dispose();}
+  }
+  const loader=createCatalogPreviewLoader({adapter:{getSource:async()=>source},fetchImplementation:()=>assert.fail("No provider fetch")});
+  try {await assert.rejects(loader({...resource,service:{kind:"WMS",sourceVersion:2,layerUrl:"https://other.example.com/wms"}}),/provider address changed/);}
+  finally {loader.dispose();}
+});
+
+it("previews only the pinned saved WMS occurrence without provider discovery or source substitution", async () => {
+  const {source,configuration,resource}=wmsFixture({version:"1.1.1",tileSize:512,
+    endpoint:"https://maps.example.com/arcgis/services/Imagery/MapServer/WMSServer"});let mapReads=0;
+  const layer={layerId:"selected",datasetId:source.datasetId,sourceType:"wms-raster",sourceVersion:2,
+    sourceUrl:source.sourceUrl,sourceConfiguration:structuredClone(configuration),tileSize:512,visible:true};
+  const loader=createCatalogPreviewLoader({adapter:{getSource:()=>assert.fail("Saved WMS configuration remains pinned"),
+    getMap:async(project,id)=>{mapReads++;assert.deepEqual([project,id],["project","saved"]);return {id,projectId:project,version:4,
+      definition:{layers:[{...layer,layerId:"unrelated",datasetId:"other",sourceUrl:"https://other.example.com/wms"},layer]}};}},
+    fetchImplementation:()=>assert.fail("No provider metadata or archived images")});
+  try {
+    const result=await loader({...resource,mapId:"saved",mapVersion:4,layerId:"selected"});
+    assert.equal(result.kind,"wms");assert.equal(result.endpoint,source.sourceUrl);assert.equal(result.layer.datasetId,resource.datasetId);
+    assert.deepEqual(result.layer,layer);assert.notEqual(result.layer,layer);assert.equal(mapReads,1);
+    await assert.rejects(loader({...resource,mapId:"saved",mapVersion:5,layerId:"selected"}),/map changed/);
+    await assert.rejects(loader({...resource,mapId:"saved",mapVersion:4,layerId:"missing"}),/no longer/);
+  } finally {loader.dispose();}
+});
+
 it("previews NOAA XYZ references without provider metadata, archives or a saved Project", async () => {
   const url = "https://coast.noaa.gov/arcgis/rest/services/dc_slr/slr_2ft/MapServer/tile/{z}/{y}/{x}";
   const configuration = {minZoom: 0, maxZoom: 15, tileSize: 256, scheme: "xyz", attribution: "NOAA"};

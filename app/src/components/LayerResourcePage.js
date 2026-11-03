@@ -293,6 +293,7 @@ function layerReuse({dataset, adapter, projects, projectsLoaded, accountRole, ac
   status.setAttribute("role", "status");
   const pageStatus = node("p");
   pageStatus.setAttribute("role", "status");
+  pageStatus.tabIndex = -1;
   const destination = node("div");
   const add = button("Add resource to project", async () => {
     if (attaching || disposed || !targets.length || accountChanged) return;
@@ -316,6 +317,7 @@ function layerReuse({dataset, adapter, projects, projectsLoaded, accountRole, ac
   });
   const more = button(projectsLoaded ? "Load more projects" : "Load projects", async () => {
     if (loadingMore || attaching || disposed || accountChanged || !hasMore || offset > maximumOffset) return;
+    const hadFocus = more.ownerDocument.activeElement === more;
     loadingMore = true;
     pageStatus.textContent = projectsLoaded ? "Loading more projects…" : "Loading projects…";
     updateControls();
@@ -334,7 +336,15 @@ function layerReuse({dataset, adapter, projects, projectsLoaded, accountRole, ac
       pageStatus.textContent = projectsLoaded
         ? "More projects could not load. Your selection is kept. Choose Load more projects to retry."
         : "Projects could not load. Choose Load projects to retry.";
-    } finally {loadingMore = false; if (!disposed) updateControls();}
+    } finally {
+      loadingMore = false;
+      if (!disposed) {
+        const restoreFocus = hadFocus && !accountChanged && section.isConnected
+          && [more, more.ownerDocument.body].includes(more.ownerDocument.activeElement);
+        updateControls();
+        if (restoreFocus && more.hidden) (select.disabled ? pageStatus : select).focus({preventScroll: true});
+      }
+    }
   });
   const controls = node("div", "", "platform-controls");
   controls.append(label, add, more);

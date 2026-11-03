@@ -1,10 +1,10 @@
-import {resolvePlusCode} from "../lib/plusCode.js";
 import {cesiumWorkbenchContent, prepareCesiumWorkbench, cesiumWorkbenchAdapter, rendererTitle} from "../lib/cesiumWorkbench.js";
 import {cogDisplayOptions, isCogLayer} from "../lib/cogDisplay.js";
 import {isManagedCogIdentity} from "../lib/managedCogIdentity.js";
 import {AnalysisConsole} from "./AnalysisConsole.js";
 import {WorkbenchHelp} from "./WorkbenchHelp.js";
 import {AssistantPanel} from "./AssistantPanel.js";
+import {wmsTileUrl} from "../lib/wmsSource.js";
 import {createLocalAnalysisRuntime} from "../lib/analysisLocalRuntime.js";
 import {RendererPanel} from "./RendererPanel.js";
 import {createMapboxSession} from "../lib/mapboxSession.js";
@@ -65,6 +65,7 @@ import {ProjectSocialBaseline} from "./ProjectSocialBaseline.js";
 import {validateProjectSocialBaselineSelection} from "../lib/projectSocialBaseline.js";
 import {polygon3DGeojson} from "../lib/polygon3dMeasurement.js";
 import {geojsonBounds} from "../lib/mapLayers.js";
+import {resolvePlusCode} from "../lib/plusCode.js";
 import {applyKmlView} from "../lib/kmlView.js";
 import {mapGraticule} from "../lib/mapGraticule.js";
 import {installLoadedMapLayers, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../lib/loadedLayerInstallation.js";
@@ -1937,6 +1938,12 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   });
 
   on("sourcedata", (event) => {
+    if (state.terrainEnabled && event.sourceId === OPEN_TERRAIN_SOURCE.sourceId
+      && event.sourceDataType === "content" && event.isSourceLoaded === true) {
+      const before = state.terrainOutageGuard.snapshot();
+      const after = state.terrainOutageGuard.recordSuccess(event.sourceId);
+      if (after.state !== before.state) updateProjectionPresentation(context);
+    }
     if (state.openScene3dEnabled && event.sourceId === OPEN_3D_SCENE_SOURCE.sourceId
       && event.sourceDataType === "content" && event.isSourceLoaded) {
       state.openScene3dOutageGuard.recordSuccess(event.sourceId);
@@ -10278,23 +10285,6 @@ function cancelLiveFeatureLayer(context, layer) {
   request.controller.abort();
   context.liveFeatureRequests.delete(layer.layerId);
   layer.liveFeatureState = context.dataByLayerId.has(layer.layerId) ? "ready" : null;
-}
-
-function wmsTileUrl(endpoint, configuration) {
-  const parameters = new URLSearchParams({
-    SERVICE: "WMS",
-    REQUEST: "GetMap",
-    VERSION: configuration.version,
-    LAYERS: configuration.layers.join(","),
-    STYLES: configuration.styles.join(","),
-    FORMAT: configuration.imageFormat,
-    TRANSPARENT: configuration.transparent ? "TRUE" : "FALSE",
-    WIDTH: String(configuration.tileSize),
-    HEIGHT: String(configuration.tileSize),
-    BBOX: "{bbox-epsg-3857}",
-    [configuration.version === "1.3.0" ? "CRS" : "SRS"]: configuration.crs
-  });
-  return `${endpoint}?${parameters}`.replaceAll("%7B", "{").replaceAll("%7D", "}");
 }
 
 function pmtilesLayerForm(context) {

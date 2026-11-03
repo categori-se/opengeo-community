@@ -1,14 +1,16 @@
 import {emptyMapDefinition, STYLE_MAP_DEFINITION_SCHEMA_VERSION} from "./mapDefinition.js";
 import {mapServerTileUrl} from "./mapServer.js";
 import {imageServerTileUrl} from "./imageServer.js";
+import {wmsTileUrl} from "./wmsSource.js";
 
 export function registeredPreviewLayer(source, title) {
-  if (!["arcgis", "wfs", "imageserver", "mapserver", "cog", "xyz"].includes(source.sourceType)) throw Error("Unsupported preview source");
+  if (!["arcgis", "wfs", "wms", "imageserver", "mapserver", "cog", "xyz"].includes(source.sourceType)) throw Error("Unsupported preview source");
   const configuration = structuredClone(source.configuration);
   return {layerId: `source_${source.datasetId}`, datasetId: source.datasetId, title: title || source.name,
     sourceType: ["arcgis", "wfs"].includes(source.sourceType) ? "external-feature-reference" : `${source.sourceType}-raster`,
     sourceVersion: source.versionNumber, sourceUrl: source.sourceUrl, sourceConfiguration: configuration,
     ...(["imageserver", "mapserver"].includes(source.sourceType) ? {tileUrl: (source.sourceType === "mapserver" ? mapServerTileUrl : imageServerTileUrl)(source.sourceUrl, configuration), tileSize: configuration.tileSize} : {}),
+    ...(source.sourceType === "wms" ? {tileUrl: wmsTileUrl(source.sourceUrl, configuration), tileSize: configuration.tileSize} : {}),
     ...(source.sourceType === "xyz" ? {tileUrl: source.sourceUrl, tileSize: configuration.tileSize,
       minZoom: configuration.minZoom, maxZoom: configuration.maxZoom, scheme: configuration.scheme} : {}),
     attribution: configuration.attribution, governedSource: true, geometryType: configuration.geometryType ?? "Raster",
