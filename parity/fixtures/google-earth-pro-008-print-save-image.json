@@ -1,0 +1,134 @@
+{
+  "$schema": "../../schemas/parity-fixture.schema.json",
+  "schemaVersion": "1.0.0",
+  "fixtureId": "google-earth-pro-008.print-save-image",
+  "title": "Annotated Print frames, scene pins and portable captured output",
+  "fixtureType": "interaction",
+  "source": {
+    "kind": "synthetic",
+    "description": "Offline authored points/polygons/text, controlled capture/renderer and serialization fixtures. No credentials, personal data, Google proprietary bytes or real imagery/data payloads are included. Supplemental normal-owner, real-source and native-preview comparison acceptance is summarized only in the selected report."
+  },
+  "license": {
+    "spdxId": "CC0-1.0",
+    "redistributable": true
+  },
+  "sensitivity": "public",
+  "artifacts": [
+    {
+      "name": "ProjectPrintEditor.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/ProjectPrintEditor.js",
+      "sha256": "f2b8ea2f8725e12ce1ef5b1b7a4c1cbd87276d6d0ff9476bef5e46351cb9138f"
+    },
+    {
+      "name": "WorkbenchView.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/components/WorkbenchView.js",
+      "sha256": "dea5d9121c0f312bf5e3b8acb7ce364244aa990a0ea405c91e722df4503ffb5d"
+    },
+    {
+      "name": "printLayouts.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/printLayouts.js",
+      "sha256": "3cef2a9f81cb450491721617e8baa30d373de1d333b2445a53e799a99c163b77"
+    },
+    {
+      "name": "figurePrintPack.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/figurePrintPack.js",
+      "sha256": "306f63b68ab03635b2b7f73aee8a9d07393ac522e564dc2e8300e5d928f8b705"
+    },
+    {
+      "name": "printTemplates.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/printTemplates.js",
+      "sha256": "22c4fe233d4d47945bc23cf32c0ce33bd7c7eef55307fbae218aa6939bdbb0e0"
+    },
+    {
+      "name": "printTextFrames.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/printTextFrames.js",
+      "sha256": "b29ffb5ce5aadc3f9b4877a962c7c623a5d7afd8f269632f821179633a459a7d"
+    },
+    {
+      "name": "printTextSvg.js",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/src/lib/printTextSvg.js",
+      "sha256": "75cfd36f849f7273e9f974191e8ea236e13e47b0bdff3e8b2aaa2d4bbfc8d3b0"
+    },
+    {
+      "name": "print-scene-pins.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/print-scene-pins.test.mjs",
+      "sha256": "8b06e915393a785dcf6295542b6e8a5429f05217629911f1ee840408c28b0bc1"
+    },
+    {
+      "name": "print-resolution.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/print-resolution.test.mjs",
+      "sha256": "835b41a53a781ac2b330cdc47613d9efa7ada7ce306d6d0b21475a64d4150345"
+    },
+    {
+      "name": "print-raster-output.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/print-raster-output.test.mjs",
+      "sha256": "51554cbf5c7b7699bf3ed9b57a4799e399bccaf6a92327b7f1d3a9c9cfd3927e"
+    },
+    {
+      "name": "figure-print-pack.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/figure-print-pack.test.mjs",
+      "sha256": "2b00291e8045376287d5cbb044bea370a93a5091bf3578b8407ef661d52e4621"
+    },
+    {
+      "name": "print-text-frames.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/print-text-frames.test.mjs",
+      "sha256": "e62718f98a9f03e5fa67e2fc7d6b1ae3f1560b8af54175ccc28d3caf4c132e4e"
+    },
+    {
+      "name": "print-map-annotations.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/print-map-annotations.test.mjs",
+      "sha256": "dae729e7376cd09ba750b68c9928b4ace664c4c43cbe4eb08a499c4b1d46f12f"
+    },
+    {
+      "name": "print-template-editor.test.mjs",
+      "mediaType": "text/javascript",
+      "encoding": "path",
+      "value": "app/test/print-template-editor.test.mjs",
+      "sha256": "08e29ddee9de23a87fca9005eadfb2dd32273f1dc5ea78368fd718df2282db48"
+    },
+    {
+      "name": "google-earth-pro-008-print-save-image.json",
+      "mediaType": "application/json",
+      "encoding": "path",
+      "value": "parity/reports/google-earth-pro-008-print-save-image.json",
+      "sha256": "f8eeacca7a96de6da5ccc6a4acf03fa37982480ca2307bbccd39ac719400ab25"
+    }
+  ],
+  "expectedOutcomes": [
+    {
+      "rowId": "google-earth-pro.print-save-image",
+      "assertion": "Original C01-C03 are supported within declared MapLibre captured-raster/desktop profiles: annotated PNG/JPEG/PDF, reproducible2D/3D scene/date/credits, and independent representative layout/accessibility/color/text/DPI/cancel/error comparison. Synthetic fixtures remain offline; selected report declares native-preview/export limits. Source publication and revised frontend delivery/readback pending."
+    }
+  ],
+  "constraints": {
+    "offline": true,
+    "containsPersonalData": false,
+    "requiresCredentials": false
+  }
+}

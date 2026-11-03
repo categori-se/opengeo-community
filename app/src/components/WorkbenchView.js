@@ -594,6 +594,7 @@ function createWorkbenchView({
     activeMenu: null,
     leftPanelMode: storedUi?.leftPanelMode ?? "layers",
     activeAddSource: "vector",
+    projectDatasetLiveCollectionsOpen: new Set(),
     activeToolId: "count",
     activeProcessingModelId: Array.isArray(project?.models)
       && project.models.some(({id}) => id === project?.activeProcessingModelId)
@@ -1033,6 +1034,7 @@ function createWorkbenchView({
     return !context.rendererSuspended && Boolean(state.map);
   };
   const accountNavigation = () => {
+    state.projectDatasetLiveCollectionsOpen.clear();
     context.assistantPanel?.dispose();
     context.assistantPanel = null;
     context.analysisConsole?.dispose();
@@ -9258,8 +9260,24 @@ function projectDatasetChoices(context) {
       live.disabled = processingFailed || !targetCanEdit;
       const disclosure = document.createElement("details");
       disclosure.className = "gis-project-dataset-live-collection";
+      // This state belongs only to this Workbench/account scope and exact version.
+      const disclosureKey = JSON.stringify([dataset.datasetId, selectedVersionId]);
+      const openCollections = context.state.projectDatasetLiveCollectionsOpen;
+      disclosure.open = !context.queryLocationScopeInvalid && openCollections.has(disclosureKey);
+      const currentDisclosure = () => !context.disposed && !context.queryLocationScopeInvalid
+        && disclosure.isConnected && context.shell.contains(disclosure)
+        && context.datasets.includes(dataset) && selectedProjectDatasetVersion(context, dataset) === selectedVersionId;
+      const rememberOpen = open => open ? openCollections.add(disclosureKey) : openCollections.delete(disclosureKey);
       const summary = textElement("summary", "Editable feature collection");
       summary.setAttribute("aria-label", `Editable feature collection for ${dataset.title}`);
+      summary.addEventListener("click", event => {
+        // Native summary activation (including keyboard clicks) toggles after
+        // this handler; retain intent before an asynchronous render replaces it.
+        if (!event.defaultPrevented && currentDisclosure()) rememberOpen(!disclosure.open);
+      });
+      disclosure.addEventListener("toggle", () => {
+        if (currentDisclosure()) rememberOpen(disclosure.open);
+      });
       disclosure.append(summary, live, textElement("small",
         "Authoritative features use an existing editable collection and its current generation, not the saved upload version. This action does not create a collection."));
       record.append(disclosure);
