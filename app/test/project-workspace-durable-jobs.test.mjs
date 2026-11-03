@@ -861,6 +861,7 @@ describe("project durable-job hydration", () => {
 
     const pickerButton = findButton(page, "Find Styles for this Layer");
     pickerButton.click();
+    await waitFor(() => typeof resolveRecords === "function");
     page.querySelector('.opengeo-workbench').dispatchEvent(new harness.dom.window.Event("workbench:render"));
     assert.equal(findButton(page, "Find Styles for this Layer"), pickerButton);
     resolveRecords([record]);

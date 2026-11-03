@@ -34,3 +34,80 @@ it("selects an explicit saved version without copying its definition and preserv
     assert.match(root.textContent,/unavailable or incompatible.*previous Style selection is unchanged/);
   } finally {globalThis.document=previous;dom.window.close();}
 });
+
+it("ignores delayed record, Style, version and resource results after the account changes", async () => {
+  for (const stage of ["records", "styles", "version", "resource"]) {
+    const dom = new JSDOM("<!doctype html><body></body>"), previous = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+      let valid = true, applied = 0, entered;
+      const started = new Promise(resolve => {entered = resolve;});
+      let release;
+      const delayed = new Promise(resolve => {release = resolve;});
+      const record = {id, projectId: id, datasetId: id, title: "Road metadata"};
+      const style = {id, resourceId: id, title: "Road style", versionNumber: 3,
+        format: "maplibre", checksumSha256: checksum, definition};
+      const read = async (name, result) => {
+        if (stage === name) {entered(); await delayed;}
+        return result;
+      };
+      const adapter = {listDatasetResources: () => read("records", [record]),
+        listResourceStyles: () => read("styles", [style]),
+        getResourceStyleVersion: () => read("version", style), getResource: () => read("resource", record)};
+      const busy = [];
+      const root = LayerStylePicker({adapter, layer: {datasetId: id, geometryType: "LineString"},
+        isCurrent: async () => valid, onBusy: value => busy.push(value), onApply: () => {applied++;}});
+      document.body.append(root);
+      const click = async label => {
+        const control = [...root.querySelectorAll("button")].find(button => button.textContent === label);
+        assert.ok(control, `${stage}: ${label}`); control.click(); await tick();
+      };
+      await click("Find Styles for this Layer");
+      if (stage !== "records") await click("Styles in Road metadata");
+      if (!["records", "styles"].includes(stage)) await click("Apply Road style");
+      await started;
+      valid = false; release();
+      await tick(); await tick();
+      assert.equal(applied, 0, `${stage} must not apply a previous account's result`);
+      assert.match(root.textContent, /selected account or Layer changed/);
+      assert.doesNotMatch(root.textContent, /Applied Road style/);
+      assert.equal(root.querySelectorAll("input").length, 0);
+      assert.equal(root.querySelector("button").disabled, true);
+      assert.equal(busy[0], true); assert.equal(busy.at(-1), true);
+    } finally {globalThis.document = previous; dom.window.close();}
+  }
+});
+
+it("aborts or disposes pending selections without applying them or reporting success", async () => {
+  for (const stop of ["abort", "dispose", "detach"]) {
+    const dom = new JSDOM("<!doctype html><body></body>"), previous = globalThis.document;
+    globalThis.document = dom.window.document;
+    try {
+      let release, entered, applied = 0;
+      const delayed = new Promise(resolve => {release = resolve;});
+      const started = new Promise(resolve => {entered = resolve;});
+      const record = {id, projectId: id, datasetId: id, title: "Road metadata"};
+      const style = {id, resourceId: id, title: "Road style", versionNumber: 3,
+        format: "maplibre", checksumSha256: checksum, definition};
+      const adapter = {listDatasetResources: async () => [record], listResourceStyles: async () => [style],
+        getResource: async () => record,
+        getResourceStyleVersion: async () => {entered(); await delayed; return style;}};
+      const controller = new AbortController();
+      const busy = [];
+      const root = LayerStylePicker({adapter, layer: {datasetId: id, geometryType: "LineString"},
+        signal: controller.signal, onBusy: value => busy.push(value), onApply: () => {applied++;}});
+      document.body.append(root);
+      for (const label of ["Find Styles for this Layer", "Styles in Road metadata", "Apply Road style"]) {
+        [...root.querySelectorAll("button")].find(button => button.textContent === label).click(); await tick();
+      }
+      await started;
+      if (stop === "abort") controller.abort();
+      else if (stop === "dispose") root.dispose();
+      else root.remove();
+      release(); await tick(); await tick();
+      assert.equal(applied, 0, stop); assert.doesNotMatch(root.textContent, /Applied Road style/);
+      assert.equal(busy[0], true);
+      if (stop !== "detach") assert.equal(root.querySelector("button").disabled, true);
+    } finally {globalThis.document = previous; dom.window.close();}
+  }
+});
