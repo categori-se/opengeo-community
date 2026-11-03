@@ -142,7 +142,7 @@ function managedCatalogFixture() {
   const dataset = {id: datasetId, projectId, name: "Original buildings", sourceType: "upload", format: "geojson",
     status: "active", capabilities: {read: true}, currentVersionId: versionId, currentVersionNumber: 1,
     currentVersionState: "active", geometryType: "Polygon"};
-  const version = {id: versionId, state: "active", featureCount: 2, crs: "EPSG:4326", geometryType: "Polygon",
+  const version = {id: versionId, versionNumber: 1, state: "active", featureCount: 2, crs: "EPSG:4326", geometryType: "Polygon", extent: [-72, 42, -71.996, 42.001],
     objects: [{id: "55555555-5555-4555-8555-555555555555", role: "original", filename: "buildings.geojson",
       contentType: "application/geo+json", sizeBytes: bytes.length, checksumSha256: createHash("sha256").update(bytes).digest("hex")}]};
   const scope = {organization};
@@ -190,15 +190,39 @@ it("opens an uploaded Catalog resource only on click and renders exact original 
 it("opens only the selected governed presentation and keeps its historical version pin", async () => {
   const f = managedCatalogFixture();
   f.dataset.currentVersionId = "66666666-6666-4666-8666-666666666666";
+  f.dataset.currentVersionNumber = 2;
   const layer = {layerId: "original-source", datasetId: f.datasetId, datasetVersionId: f.versionId,
-    sourceType: "governed-dataset", geometryType: "Polygon", attribution: "Recorded source credit"};
+    sourceType: "governed-dataset", sourceVersion: 1, geometryType: "Polygon", attribution: "Recorded source credit",
+    title: "Reviewed buildings", bbox: f.version.extent, visible: false, opacity: .35, order: 4,
+    style: {fill: "#123456"}, labels: {enabled: true, field: "name"},
+    styleReference: {projectId: f.projectId, resourceId: "77777777-7777-4777-8777-777777777777",
+      styleId: "88888888-8888-4888-8888-888888888888", versionNumber: 1, checksumSha256: "a".repeat(64), format: "maplibre"}};
+  const saved = structuredClone(layer);
   f.adapter.getMap = async () => ({id: "saved-map", projectId: f.projectId, version: 3,
     definition: {layers: [layer, {layerId: "other", datasetId: "other-dataset", sourceUrl: "https://unrequested.example/other"}]}});
   const loader = createCatalogPreviewLoader(f.options);
   const result = await loader({...f.resource, mapId: "saved-map", mapVersion: 3, layerId: layer.layerId});
   assert.deepEqual(result.geojson, f.geojson); assert.equal(result.managedArchive.datasetVersionId, f.versionId);
-  assert.equal(result.attribution, layer.attribution); assert.equal(result.layer, undefined);
+  assert.equal(result.attribution, layer.attribution); assert.deepEqual(result.layer, saved); assert.notEqual(result.layer, layer);
+  result.layer.style.fill = "#ffffff"; result.layer.styleReference.versionNumber = 2;
+  assert.deepEqual(layer, saved, "Temporary styling cannot rewrite the saved presentation or its exact Style pin");
   assert.deepEqual(f.calls, {metadata: 1, versions: 1, tickets: 1, originals: 1}); loader.dispose();
+});
+
+it("returns a canonical managed Layer with the verified original version identity and no read ticket", async () => {
+  const f = managedCatalogFixture(), before = structuredClone({dataset: f.dataset, version: f.version});
+  const loader = createCatalogPreviewLoader(f.options);
+  try {
+    const {layer} = await loader(f.resource);
+    assert.equal(layer.datasetId, f.datasetId); assert.equal(layer.datasetVersionId, f.versionId);
+    assert.equal(layer.sourceType, "governed-dataset"); assert.equal(layer.sourceVersion, f.version.versionNumber);
+    assert.equal(layer.geometryType, f.version.geometryType); assert.deepEqual(layer.bbox, f.version.extent);
+    assert.equal(layer.title, f.resource.title); assert.equal(layer.visible, true); assert.equal(layer.styleReference, undefined);
+    assert.doesNotMatch(JSON.stringify(layer), /X-Amz|Signature|ticket|original\/buildings/);
+    layer.bbox[0] = 0; layer.style.fill = "#ffffff";
+    assert.deepEqual({dataset: f.dataset, version: f.version}, before);
+    assert.deepEqual(f.calls, {metadata: 1, versions: 1, tickets: 1, originals: 1});
+  } finally {loader.dispose();}
 });
 
 it("rejects stale upload identity or withdrawn access before reading original bytes", async () => {
@@ -259,6 +283,21 @@ function archiveFixture() {
   return {bytes, source, record: {datasetId: "dataset", projectId: "project", title: "Context", geometryType: "Point",
     sourceType: "geojson", resourcePreview: true, sourceVersion: 2}};
 }
+
+it("returns the registered referenced GeoJSON Layer without changing custody, exact revision or configuration", async () => {
+  const {bytes, source, record} = archiveFixture(), before = structuredClone(source);
+  const loader = createCatalogPreviewLoader({adapter: {getSource: async () => source}, fetchImplementation: async () =>
+    new Response(bytes, {headers: {"content-type": "application/geo+json", "content-length": String(bytes.length)}})});
+  try {
+    const {layer} = await loader(record);
+    assert.equal(layer.layerId, `source_${record.datasetId}`); assert.equal(layer.datasetId, record.datasetId);
+    assert.equal(layer.sourceType, "geojson-archive"); assert.equal(layer.sourceVersion, source.versionNumber);
+    assert.equal(layer.sourceUrl, source.sourceUrl); assert.deepEqual(layer.sourceConfiguration, source.configuration);
+    assert.equal(layer.geometryType, source.configuration.geometryType); assert.equal(layer.governedSource, true);
+    assert.equal(layer.title, record.title); assert.equal(layer.styleReference, undefined);
+    layer.sourceConfiguration.attribution = "Temporary credit"; assert.deepEqual(source, before);
+  } finally {loader.dispose();}
+});
 
 it("opens only the selected referenced GeoJSON after a deliberate click and retains archive custody", async () => {
   const {bytes, source, record} = archiveFixture();

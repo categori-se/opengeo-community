@@ -278,7 +278,7 @@ import {
   sortKmlPlaceSiblings,
   updateKmlPlace
 } from "../lib/kmlPlaces.js";
-import {applyKmlGeometrySettings, summarizeKmlGeometrySettings} from "../lib/kmlGeometrySettings.js";
+import {applyKmlGeometrySettings, measureKmlAbsolutePath, summarizeKmlGeometrySettings} from "../lib/kmlGeometrySettings.js";
 import {
   KML_NETWORK_LINK_LIMITS,
   acceptKmlNetworkLinkReceipt,
@@ -3876,6 +3876,15 @@ function kmlPlaceGeometryEditor(place, draft, editable) {
   element.className = "gis-kml-geometry-editor";
   element.append(textElement("summary", "Altitude and geometry"), textElement("p",
     "Changing a setting applies it to this Place's geometries. Mixed settings stay unchanged until you choose a value. Edge following applies to paths and polygons. These are KML source settings; this map shows the geometry in 2D."));
+  const absolutePath = measureKmlAbsolutePath(place);
+  if (absolutePath) {
+    const metric = textElement("p", absolutePath.status === "available"
+      ? `3D coordinate path: ${formatMeasurementDistance(absolutePath.distanceMeters)} (${absolutePath.distanceMeters.toFixed(3)} metres). ${absolutePath.segmentCount} straight coordinate segments on Earth's mean sphere. Source KML absolute altitudes are used unchanged; vertical datum is not converted, provider accuracy and uncertainty are unknown. This is not sampled terrain distance or a survey measurement.`
+      : "3D coordinate path unavailable: every vertex needs an explicit valid XYZ coordinate and absolute altitude mode. Relative or clamped heights are not replaced with terrain samples.");
+    metric.className = "gis-kml-absolute-path";
+    metric.dataset.kmlAbsolutePath = absolutePath.status;
+    element.append(metric);
+  }
   const grid = document.createElement("div");
   grid.className = "gis-form-grid";
   const fields = new Map(), initial = new Map();
@@ -13441,6 +13450,9 @@ function appendPathMeasurementSummary(section, measurement) {
     "Elevation accuracy": profile.status === "unavailable"
       ? "No samples"
       : "Provider accuracy not declared",
+    "Measurement uncertainty": profile.status === "unavailable"
+      ? "Not estimated; coordinate accuracy is unknown."
+      : "Not estimated; coordinate and terrain-source accuracy are unknown.",
     "Model": `${measurement.measurementModel} · ${measurement.spatialBodyId}`,
     "Terrain source": profile.source
       ? `${profile.source.provider} · ${profile.source.queryMode}`
@@ -13478,6 +13490,7 @@ function appendAreaMeasurementSummary(section, measurement) {
       };
   section.append(compactKeyValues({
     ...facts,
+    "Measurement uncertainty": "Not estimated; coordinate accuracy is unknown.",
     "Model": `${measurement.measurementModel} · ${measurement.spatialBodyId}`
   }));
 }
@@ -16379,6 +16392,7 @@ function addProcessingOutputLayer(context, sourceLayer, toolId, geojson, explici
     layerId: `scratch_processing_${Date.now()}_${context.state.processingRunSequence}`,
     datasetId: null,
     title,
+    ...(toolId === "viewshed" ? {transientAnalysis: "grid-viewshed"} : {}),
     ...(raster?.source.attribution ? {attribution: raster.source.attribution} : {}),
     ...(source ? {attribution: source.attribution, metadata: {source: {
       format: "geoparquet", url: source.partitionUrl, license: source.license,
@@ -17751,7 +17765,7 @@ function browserLocalStorage() {
 
 function createLocalDraft(context) {
   const {workspace, layers, state} = context;
-  const persistentLayers = layers.filter((layer) => !isTemporaryLayer(layer));
+  const persistentLayers = layers.filter((layer) => !isTemporaryLayer(layer) && layer.transientAnalysis !== "grid-viewshed");
   for (const layer of persistentLayers) {
     if (Object.hasOwn(layer.labels ?? {}, "fontRef")) validateMapFontRef(layer.labels.fontRef);
     validateManagedDisplayReference(layer);
@@ -17969,7 +17983,7 @@ function restoreDemoLayer(value) {
 
 export function currentProjectDefinition(context) {
   const {layers, state} = context;
-  const persistentLayers = layers.filter((layer) => !isTemporaryLayer(layer));
+  const persistentLayers = layers.filter((layer) => !isTemporaryLayer(layer) && layer.transientAnalysis !== "grid-viewshed");
   for (const layer of persistentLayers) {
     if (Object.hasOwn(layer.labels ?? {}, "fontRef")) validateMapFontRef(layer.labels.fontRef);
     validateManagedDisplayReference(layer);

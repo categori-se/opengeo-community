@@ -1,4 +1,4 @@
-import {AuthoredResourceMetadata} from "./AuthoredResourceMetadata.js";
+import {AuthoredResourceMetadata, revealAuthoredMetadataDraft} from "./AuthoredResourceMetadata.js";
 import {PublicationArtifactReferences} from "./PublicationArtifactReferences.js";
 import {insertPublicArtifact} from "../lib/publicationArtifactEmbed.js";
 import {verifyPortableMapArtifact, readPortableMapManifest} from "../lib/portableMapArtifact.js";
@@ -39,6 +39,10 @@ export function ProjectPublishingWorkspace({state, refresh, initialResourceTarge
   const root = document.createElement("section");
   root.className = "project-publishing-workspace";
   root.id = "project-sites";
+  const refreshContent = async (...args) => {
+    if (blockPublicationMetadata(root)) throw Error("Save or discard Publication metadata before refreshing content.");
+    return refresh(...args);
+  };
   const sourceAnchor = document.createElement("span"); sourceAnchor.id = "framework-source";
   root.append(sourceAnchor);
   const sites = state.sites ?? [];
@@ -67,10 +71,25 @@ export function ProjectPublishingWorkspace({state, refresh, initialResourceTarge
     try {root.ownerDocument.defaultView.sessionStorage.setItem(selectionKey,site.id);} catch { /* Optional preference. */ }
     if (!opened.has(site.id)) {
       const source = sources.get(site.id);
-      opened.set(site.id, source ? observableSourceProjectCard(state, refresh, site, source)
-        : siteCard(state, refresh, site, {workspace: true}));
+      opened.set(site.id, source ? observableSourceProjectCard(state, refreshContent, site, source)
+        : siteCard(state, refreshContent, site, {workspace: true}));
       if (typeof state.adapter.getAuthoredKnowledge === "function") {
-        opened.get(site.id).append(AuthoredResourceMetadata({adapter:state.adapter, kind:"publication", id:site.id}));
+        const card = opened.get(site.id);
+        const contentBlocked = () => [...card.querySelectorAll(".observable-source-revision-editor, .project-site-revision-editor, .publication-artifact-references")]
+          .some(editor => editor.shouldBlockMetadata?.() || editor.shouldBlockNavigation?.())
+          || [...card.querySelectorAll('[aria-busy="true"]')].some(element => !element.closest(".authored-resource-metadata"));
+        const metadata = AuthoredResourceMetadata({adapter:state.adapter, kind:"publication", id:site.id, isContentBlocked:contentBlocked});
+        card.append(metadata);
+        const update = () => metadata.updateContentState();
+        for (const type of ["input", "change", "opengeo-publication-content-state"]) card.addEventListener(type, update);
+        const observer = new card.ownerDocument.defaultView.MutationObserver(update);
+        observer.observe(card, {subtree:true, attributes:true, attributeFilter:["aria-busy"]});
+        for (const type of ["click", "beforeinput", "keydown"]) card.addEventListener(type, event => {
+          if (event.key === "Tab" || event.target === metadata.firstElementChild) return;
+          const inMetadata = metadata.contains(event.target);
+          if (inMetadata ? !metadata.updateContentState() : !blockPublicationMetadata(card)) return;
+          event.preventDefault(); event.stopImmediatePropagation();
+        }, true);
       }
       content.append(opened.get(site.id));
     }
@@ -80,7 +99,13 @@ export function ProjectPublishingWorkspace({state, refresh, initialResourceTarge
     const entry = [...opened].find(([, element]) => element.contains(event.target));
     if (entry) {choice.value = entry[0]; show();}
   });
-  choice.addEventListener("change", show); show();
+  choice.addEventListener("change", () => {
+    const draft = [...content.querySelectorAll(".resource-knowledge")]
+      .find(editor => editor.shouldBlockNavigation?.());
+    if (draft) {revealAuthoredMetadataDraft(draft); return;}
+    show();
+  });
+  show();
   const selectedCard = () => opened.get(choice.value || sites[0]?.id);
   const hasSource = () => canManage(state) && sources.has(choice.value || sites[0]?.id);
   const command = name => selectedCard()?.runPublicationCommand?.(name);
@@ -94,8 +119,8 @@ export function ProjectPublishingWorkspace({state, refresh, initialResourceTarge
       close.onclick = () => {if (setupDialog.close) setupDialog.close(); else setupDialog.open = false;};
       setupDialog.append(close, PublicationPanels({label: 'New publication type',
         initial: handoff?.status === 'ready' ? 'pages' : 'framework', panels: [
-          {id: 'framework', label: 'Files and notebooks', render: () => frameworkPublicationSetup(state, refresh)},
-          {id: 'pages', label: 'Maps and pages', render: () => siteCreator(state, refresh, handoff)}
+          {id: 'framework', label: 'Files and notebooks', render: () => frameworkPublicationSetup(state, refreshContent)},
+          {id: 'pages', label: 'Maps and pages', render: () => siteCreator(state, refreshContent, handoff)}
         ]}));
       root.append(setupDialog);
     }
@@ -139,6 +164,14 @@ export function ProjectPublishingWorkspace({state, refresh, initialResourceTarge
     if (handoff?.status === 'ready') queueMicrotask(openSetup);
   }
   return root;
+}
+
+function blockPublicationMetadata(root) {
+  const editor = [...root.querySelectorAll(".authored-resource-metadata .resource-knowledge")]
+    .find(candidate => candidate.shouldBlockNavigation?.());
+  if (!editor) return false;
+  revealAuthoredMetadataDraft(editor);
+  return true;
 }
 
 export function ProjectSites({state, refresh, initialResourceTarget = null}) {
@@ -623,6 +656,7 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   let treeGeneration = 0;
   let importGeneration = null;
   let committing = false;
+  let loadingSavedDraft = false;
   let revisionCommitted = false;
   let openedRevisionBaseline = null;
   const draftStatus = text("span", "Open or import a draft", "publication-draft-status");
@@ -647,6 +681,8 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
     return {context: Object.freeze({...contextProviders, token, organization})};
   })().catch(error => ({error})) : Promise.resolve({context: null});
   let autosaveTimer = null, autosavePaused = false, draftDirty = false;
+  fieldset.shouldBlockMetadata = () => draftDirty || committing || loadingSavedDraft || importGeneration !== null;
+  const notifyContentState = () => fieldset.dispatchEvent(new fieldset.ownerDocument.defaultView.Event("opengeo-publication-content-state", {bubbles:true}));
   const clearAutosave = () => { clearTimeout(autosaveTimer); autosaveTimer = null; };
   const scheduleAutosave = () => {
     clearAutosave();
@@ -665,6 +701,7 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   };
   const markDraftChanged = () => {
     draftDirty = true;
+    notifyContentState();
     draftStatus.textContent = autosavePaused ? 'Autosave paused · changes remain in this editor' : 'Unsaved changes';
     scheduleAutosave();
   };
@@ -1310,7 +1347,8 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   reopen.disabled = sourceProject.currentRevisionId === null
     || typeof state.adapter.readObservableSourceRevisionFile !== "function";
   reopen.addEventListener("click", async () => {
-    if (committing || !draftEditorCurrent()) return;
+    if (committing || !draftEditorCurrent() || blockPublicationMetadata(fieldset.closest(".project-site-card") ?? fieldset)) return;
+    loadingSavedDraft = true; notifyContentState();
     clearAutosave();
     const generation = ++treeGeneration;
     reopen.disabled = true;
@@ -1385,6 +1423,7 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
       draftStatus.textContent = 'Saved draft unavailable';
       reopen.disabled = false;
     } finally {
+      loadingSavedDraft = false; notifyContentState();
       if (draftEditorCurrent()) reopen.disabled = committing || revisionCommitted;
     }
   });
@@ -1395,10 +1434,11 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
     "project-resource-feedback"
   );
   async function saveDraft(automatic = false) {
-    if (committing) return;
+    if (committing || blockPublicationMetadata(fieldset.closest(".project-site-card") ?? fieldset)) return;
     clearAutosave();
     if (automatic && (!draftDirty || autosavePaused || !fieldset.isConnected)) return;
     committing = true;
+    notifyContentState();
     submit.disabled = true;
     let restoreControls = () => { submit.disabled = false; };
     let savedGeneration = treeGeneration;
@@ -1532,6 +1572,7 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
       }
     } finally {
       committing = false;
+      notifyContentState();
       archiveEditor.resume();
       reflectDownload();
       if (automatic && draftDirty && !autosavePaused && draftStatus.textContent !== 'Unsaved changes · Save draft required') scheduleAutosave();
@@ -2769,6 +2810,12 @@ function siteRevisionEditor(state, refresh, site, card, {settingsTarget = null, 
   const details = document.createElement("details");
   details.className = "project-site-revision-editor project-site-editor";
   details.dataset.siteDestination = site.id;
+  let dirty = false, saving = false;
+  details.shouldBlockMetadata = () => dirty || saving;
+  const notifyContentState = () => details.dispatchEvent(new details.ownerDocument.defaultView.Event("opengeo-publication-content-state", {bubbles:true}));
+  for (const host of [details, settingsTarget, actionsTarget].filter(Boolean)) {
+    for (const type of ["input", "change"]) host.addEventListener(type, () => {dirty = true; notifyContentState();});
+  }
   details.append(text("summary", "Edit draft revision"));
   details.append(text(
     "p",
@@ -2873,6 +2920,8 @@ function siteRevisionEditor(state, refresh, site, card, {settingsTarget = null, 
     "project-resource-feedback"
   );
   save.addEventListener("click", async () => {
+    if (saving || blockPublicationMetadata(card)) return;
+    saving = true; notifyContentState();
     save.disabled = true;
     feedback.textContent = "Saving a version-checked immutable draft revision…";
     try {
@@ -2904,6 +2953,8 @@ function siteRevisionEditor(state, refresh, site, card, {settingsTarget = null, 
       feedback.textContent = `Draft revision was not changed (${error?.code ?? error?.message ?? "site_update_failed"}).`;
       card.dataset.revisionError = error?.code ?? "site_update_failed";
       save.disabled = false;
+    } finally {
+      saving = false; notifyContentState();
     }
   });
   details.append(title.label, description.label);
@@ -2994,7 +3045,9 @@ function publicationDestinationEditor(state, refresh, site, card) {
 function actionButton(label, action, card, className = "platform-button") {
   const control = button(label, className);
   control.addEventListener("click", async () => {
+    if (blockPublicationMetadata(card)) return;
     control.disabled = true;
+    control.setAttribute("aria-busy", "true");
     try {
       await action();
     } catch (error) {
@@ -3004,6 +3057,8 @@ function actionButton(label, action, card, className = "platform-button") {
         "project-resource-feedback"
       ));
       control.disabled = false;
+    } finally {
+      control.removeAttribute("aria-busy");
     }
   });
   return control;

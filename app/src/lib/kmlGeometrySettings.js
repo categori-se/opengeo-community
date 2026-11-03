@@ -1,3 +1,6 @@
+import {KML_PLACES_LIMITS} from "./kmlPlaces.js";
+import {EARTH_SPATIAL_BODY, meanRadiusMeters} from "./spatialBody.js";
+
 const ALTITUDE_MODES = new Set([
   null,
   "clampToGround",
@@ -26,6 +29,39 @@ export function summarizeKmlGeometrySettings(place) {
     result.pointAltitude = place.geometry.coordinates.length > 2 ? place.geometry.coordinates[2] : null;
   }
   return result;
+}
+
+/** Read-only source-coordinate chords: no terrain sampling or vertical-datum conversion. */
+export function measureKmlAbsolutePath(place) {
+  const geometry = place?.geometry;
+  if (geometry?.type !== "LineString") return null;
+  const altitudeMode = effectiveControls(geometry, place).altitudeMode;
+  const unavailable = reason => ({status: "unavailable", reason, altitudeMode, distanceMeters: null});
+  if (altitudeMode !== "absolute") return unavailable("absolute_altitude_required");
+  const coordinates = geometry.coordinates;
+  if (!Array.isArray(coordinates) || coordinates.length < 2
+    || coordinates.length > KML_PLACES_LIMITS.maximumPositions) return unavailable("path_position_limit");
+  const radiusMeters = meanRadiusMeters(EARTH_SPATIAL_BODY);
+  if (coordinates.some(position => !Array.isArray(position) || position.length !== 3
+    || !position.every(Number.isFinite) || Math.abs(position[0]) > 180 || Math.abs(position[1]) > 90
+    || Math.abs(position[2]) > MAXIMUM_POINT_ALTITUDE || radiusMeters + position[2] <= 0)) {
+    return unavailable("explicit_valid_xyz_required");
+  }
+  let distanceMeters = 0;
+  for (let index = 1; index < coordinates.length; index++) {
+    const a = coordinates[index - 1], b = coordinates[index];
+    const radians = Math.PI / 180;
+    const haversine = Math.sin((b[1] - a[1]) * radians / 2) ** 2
+      + Math.cos(a[1] * radians) * Math.cos(b[1] * radians)
+      * Math.sin((b[0] - a[0]) * radians / 2) ** 2;
+    // This stable chord formula also preserves a purely vertical segment.
+    distanceMeters += Math.hypot(b[2] - a[2],
+      2 * Math.sqrt((radiusMeters + a[2]) * (radiusMeters + b[2]) * Math.max(0, Math.min(1, haversine))));
+  }
+  return {status: "available", distanceMeters, vertexCount: coordinates.length,
+    segmentCount: coordinates.length - 1, distanceUnit: "meter", altitudeMode,
+    model: "earth-mean-sphere-coordinate-chords", radiusMeters,
+    verticalDatum: "KML source altitudes, unconverted", uncertaintyMeters: null, providerAccuracy: "unknown"};
 }
 
 /**

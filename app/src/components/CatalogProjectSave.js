@@ -92,7 +92,7 @@ export function CatalogProjectSave({adapter, record, layer, getView}) {
       for (const input of form.querySelectorAll("input,select,button")) input.disabled = true;
       status.textContent = "Saving Layer reference…";
       try {
-        frozenSave ??= {adapter, record, layer, view: getView?.(), title: title.value.trim(), targetId, occurrenceId, creationKey, accessContainerId: workspace.value};
+        frozenSave ??= {adapter, record: structuredClone(record), layer: structuredClone(layer), view: structuredClone(getView?.()), title: title.value.trim(), targetId, occurrenceId, creationKey, accessContainerId: workspace.value};
         const saved = await saveCatalogProject(frozenSave);
         status.textContent = "Saved. The Project references this catalog Layer.";
         const link = element("a", "Open saved Project"); link.href = compositionHref(saved.id, {adapterKind: adapter.kind});

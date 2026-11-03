@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "1.0.0",
+  "result": "pass",
+  "observedAt": "2026-11-03",
+  "scope": {
+    "kind": "Original GEP006 functional implementation qualified within declared limits",
+    "rowId": "google-earth-pro.measurement-elevation-viewshed",
+    "milestone": "GEP-006",
+    "fullRowParityClaimed": true,
+    "deployedEnvironmentTested": false,
+    "googleEarthComparisonExecuted": true,
+    "qualification": "Reviewed source and compiled candidate behavior; new UI delivery pending"
+  },
+  "contract": {
+    "mapDefinition": "opengeo.map-definition.1.3.0",
+    "measurement": "opengeo.path-measurement.1.0.0",
+    "areaMeasurement": "opengeo.area-measurement.1.0.0",
+    "maximumSavedMeasurements": 50,
+    "maximumVerticesPerPathOrPolygon": 128,
+    "maximumTerrainSamplesPerPath": 128,
+    "targetTerrainSampleSpacingMeters": 250,
+    "distanceUnit": "meter",
+    "horizontalModel": "selected spatial body spherical mean radius",
+    "terrainQueryMode": "renderer-unexaggerated-point-sample",
+    "maximumAbsoluteElevationMeters": 100000,
+    "noDataSentinel": -32768,
+    "slopeDerivation": "adjacent complete-profile samples",
+    "slopeAccuracy": "terrain-provider-not-declared",
+    "distanceToleranceMeters": 0.01,
+    "areaToleranceSquareMeters": 0.1,
+    "mapDefinitionScope": "Retained path/area baseline; XYZ faces use 1.6.0 and XYZ paths use existing KML layer documents. No new XYZ-path saved kind."
+  },
+  "acceptedBehavior": [
+    "C01: Editable durable line, path, polygon, circle, absolute XYZ KML path and XYZ face metrics expose units and honest uncertainty. Unknown source accuracy remains unknown; supplied radial/elevation bounds cover only the stated model. Normal-owner compiled XYZ editing preserves exact Z through UI CAS Save, fresh context/server reopen and exact KML export/reparse.",
+    "C02: Real-provider saved profiles retain slope, distance, elevation, exact sample coordinates/values and recorded source/query provenance. Fresh hosted reopen preserves profile and LOS/CSV output without terrain resampling.",
+    "C03: Real Mapzen elevation passes compiled Catalog/Project 289-cell viewshed Calculate, full portable GeoJSON export and temporary Add, with 0 analysis-added terrain reads. Source/grid, observer/target assumptions, units, tolerance, bounds and classifications are retained. Added cells are visibly temporary and excluded from Project Save.",
+    "Exact pinned Google Earth Pro 7.3.7.1327 native controls were exercised for all six types and a saved-path profile. Observed model differences remain disclosed; comparison does not assert numerical agreement."
+  ],
+  "verification": {
+    "unitReferenceProfile": "Three authored vertices with a deterministic elevation function produce a bounded complete profile whose 3D distance is greater than its 2D distance.",
+    "apiReferenceProfile": "The API independently recomputes a two-vertex 2D distance and a 10-meter elevation gain within 0.01 meter tolerance.",
+    "browserNoDataProfile": "The managed renderer fixture returns the terrain no-data sentinel; the browser saves a three-vertex path, reopens it for a four-vertex edit, and persists unavailable elevation, null terrain source, and null 3D summary.",
+    "adversarialCases": [
+      "forged horizontal distance",
+      "mismatched spatial body",
+      "invalid coordinate",
+      "non-HTTPS terrain source",
+      "changed sample endpoint or distance",
+      "forged summary",
+      "over-limit inventory",
+      "exact -32768 terrain no-data sentinel"
+    ],
+    "fixedInactiveCostDeltaUsd": 0,
+    "ownerXYZ": "100.49875621123603 m initial; normal XY edit retains exact Z and gives 100.79552876201174 m; UI CAS Save/fresh server+browser reopen/exact 578 B KML reparse pass.",
+    "realProviderGrid": "289 cells: 135 visible/153 occluded/1 observer; full analytical export and temporary Add; 0 extra analysis reads. Fixture metadata, not Catalog ingestion.",
+    "browserBoundsAndAT": "Linux Chromium: 63x63/3,969 cells in 2,362.1 ms; 128 vertices/126 triangles in 44.6 ms. Keyboard calculation/cell inspection, browser labels and 284 native AT-SPI nodes passed."
+  },
+  "limitations": [
+    "Unknown position/provider accuracy is not a survey or estimated error bound. Mean-sphere models and unconverted KML source altitudes can differ from native ellipsoid/terrain results.",
+    "Saved measurements: 50/map, 128 vertices/profile samples, 256 KiB native map. XYZ faces: 126 triangles, 100 km extent/100,000 m absolute elevation,1,000 m supplied uncertainty,128 KiB GeoJSON. Absolute KML paths retain existing 10,000-position/source-altitude parser limits.",
+    "Cached grid: 63 cells/side, 4M checks/5s, 100 km, 8 MiB GeoJSON. Missing terrain remains unknown; outside-grid areas are unevaluated. No refraction, buildings, vegetation or finer-than-source surface claim.",
+    "Browser CORS hides Mapzen ETag/Content-Range; no atomic immutable provider snapshot is claimed. Native Circle export retains a sampled perimeter, not exact centre/radius metadata; proprietary Google full terrain samples/model are unavailable. No same-circle identity or same-provider equivalence claim.",
+    "Device/AT/performance evidence covers the observed Linux desktop and declared finite workloads. Other physical devices, representative-user studies and larger-than-supported workflows remain unverified. New UI production delivery remains pending."
+  ],
+  "delivery": {
+    "status": "candidate-qualified; both frontend deployment/readback pending",
+    "issue22": "open until both frontend delivery readbacks pass",
+    "retainedHostedEvidence": "Normal-owner real-provider profile/LOS Save and fresh published-UI reopen; candidate XYZ path UI Save and fresh server/browser reopen."
+  }
+}

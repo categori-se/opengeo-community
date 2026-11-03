@@ -88,7 +88,7 @@ export function RasterViewshed({getGrid,initialObserver=()=>[0,0],pickObserver=n
   add.onclick=()=>{if(disposed)return;try{const data=JSON.parse(exported());added=true;actions();onAdd?.(data);}catch{status.textContent="Review map Layers before adding this result again.";}};
   root.addEventListener("toggle",()=>{if(!root.open)stopPick();});
   root.dispose=()=>{disposed=true;stopPick();invalidate();knownGrid=null;calculate.disabled=true;};
-  root.append(source,form,status,output,consent.label,download,...(onAdd?[add]:[]),text("p","Cells use the loaded grid and chosen elevation units. Source NoData remains unknown; display transparency does not remove terrain. Curvature uses a mean sphere without atmospheric refraction. Buildings and vegetation are excluded. Source elevation accuracy is undeclared; uncertainty is your assumption."));
+  root.append(source,form,status,output,consent.label,download,...(onAdd?[add,text("p","Added results are temporary in this browser and are not saved with the Project. Download viewshed GeoJSON to keep and reuse the full result.")]:[]),text("p","Cells use the loaded grid and chosen elevation units. Source NoData remains unknown; display transparency does not remove terrain. Curvature uses a mean sphere without atmospheric refraction. Buildings and vegetation are excluded. Source elevation accuracy is undeclared; uncertainty is your assumption."));
   root.updateSource();return root;
 }
 function text(tag,value){const node=document.createElement(tag);node.textContent=value;return node;}
