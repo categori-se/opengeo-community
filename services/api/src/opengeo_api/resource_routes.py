@@ -30,6 +30,7 @@ from opengeo_api.geonode_adapter import (
     assert_safe_geonode_tree,
     build_geonode_import_plan,
     export_geonode_resource,
+    geonode_metadata_values,
 )
 from opengeo_api.ingestion import IngestionRepository
 from opengeo_api.ingestion_routes import (
@@ -753,7 +754,7 @@ class GeoNodeExtent(RequestModel):
 class GeoNodeResource(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    pk: int = Field(ge=1)
+    pk: int | None = Field(default=None, ge=1)
     uuid: UUID
     resource_type: Literal[
         "dataset", "map", "document", "geoapp", "geostory", "story", "dashboard", "service"
@@ -798,7 +799,16 @@ class GeoNodeResource(BaseModel):
             raise ValueError("GeoNode geoapp resources require a supported subtype")
         if self.resource_type != "geoapp" and self.subtype is not None:
             raise ValueError("GeoNode subtype is valid only for geoapp resources")
+        self.to_resource_metadata()
         return self
+
+    def to_resource_metadata(self) -> ResourceMetadata:
+        # Validate portable fields at the HTTP boundary, without an adapter cycle.
+        return _metadata(
+            ResourceMetadataRequest.model_validate(
+                geonode_metadata_values(self.model_dump(mode="python"))
+            )
+        )
 
 
 class GeoNodeRelationship(RequestModel):
@@ -2092,6 +2102,9 @@ async def import_geonode(
             relationships=tuple(
                 relationship.model_dump(mode="python") for relationship in payload.relationships
             ),
+            normalized_metadata=tuple(
+                resource.to_resource_metadata() for resource in payload.resources
+            ),
         )
     except (TypeError, ValueError) as error:
         raise HTTPException(status_code=422, detail="invalid_geonode_import") from error
@@ -2118,7 +2131,10 @@ async def export_geonode(
     record = await execute_resource(
         repository.get_resource(tenant_context(session), project_id, resource_id)
     )
-    export = export_geonode_resource(record)
+    try:
+        export = export_geonode_resource(record)
+    except (TypeError, ValueError) as error:
+        raise HTTPException(status_code=422, detail="invalid_geonode_export") from error
     return GeoNodeExportResponse(resource=export["resource"], report=export["report"])
 
 

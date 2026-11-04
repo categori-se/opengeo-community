@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
@@ -174,7 +175,7 @@ def test_sensitive_or_excessively_nested_source_fields_fail_closed() -> None:
         assert_safe_geonode_tree(nested)
 
 
-def test_export_maps_core_fields_and_preserves_opengeo_extensions() -> None:
+def governed_resource() -> GovernedResource:
     summary = ResourceSummary(
         resource_id=RESOURCE_ID,
         project_id=PROJECT_ID,
@@ -232,10 +233,248 @@ def test_export_maps_core_fields_and_preserves_opengeo_extensions() -> None:
         ),
     )
 
-    exported = export_geonode_resource(resource)
+    return resource
+
+
+def test_export_maps_core_fields_and_preserves_opengeo_extensions() -> None:
+    exported = export_geonode_resource(governed_resource())
 
     assert exported["resource"]["uuid"] == GEONODE_STORY_ID
     assert exported["resource"]["resource_type"] == "geostory"
     assert exported["resource"]["extent"]["srid"] == "EPSG:4326"
     assert exported["resource"]["_opengeo"]["content"]["blocks"][0]["type"] == "markdown"
+    assert (
+        exported["resource"]["_opengeo"]["externalIdentifiers"][0]["sourcePayloadSHA256"]
+        == "a" * 64
+    )
     assert exported["report"]["target"]["commit"] == GEONODE_COMMIT
+
+
+def portable_plan(document: dict):
+    payload = GeoNodeImportRequest.model_validate(
+        {
+            "source_product": "geonode",
+            "source_version": "5.1.0",
+            "source_commit": GEONODE_COMMIT,
+            "source_url": "https://catalog.example.test",
+            "resources": [document],
+        }
+    )
+    return build_geonode_import_plan(
+        source_url=payload.source_url,
+        resources=tuple(item.model_dump(mode="python") for item in payload.resources),
+        relationships=(),
+        normalized_metadata=tuple(item.to_resource_metadata() for item in payload.resources),
+    )
+
+
+def test_native_portable_roundtrip_preserves_metadata_without_restoring_authority() -> None:
+    original = governed_resource()
+    translations = {
+        "fr": {
+            "title": "Réseau routier",
+            "abstract": "Routes vérifiées",
+            "attribution": "Équipe",
+            "keywords": ["routes"],
+        }
+    }
+    source_fields = {
+        "edition": "2026",
+        "purpose": "Public research",
+        "regions": [{"name": "Study area"}],
+        "constraints_other": "Cite source",
+    }
+    source_style = [{"name": "roads", "format": "sld", "body": "inert source"}]
+    publication = {"dataset": "source evidence, not an authorization"}
+    resource = replace(
+        original,
+        summary=replace(original.summary, kind="document", state="published", visibility="public"),
+        metadata_profile="organization.managed",
+        managed_metadata_profile_id=OTHER_RESOURCE_ID,
+        managed_metadata_profile_version=7,
+        metadata_extensions={
+            "research": {"review": "passed", "lineage": ["survey"]},
+            "opengeo.style-publications": publication,
+            "geonode": {
+                "metadata": source_fields,
+                "detailUrl": "https://catalog.example.test/document/7",
+                "styles": source_style,
+                "permissions": {"groups": {"readers": ["view"]}},
+                "unmapped": {"custom_research_field": {"reviewed": True}},
+            },
+        },
+        translations=translations,
+        external_identifiers=(),
+        provenance={"sourceSystem": "native", "checksum": "b" * 64},
+    )
+    exported = export_geonode_resource(resource)
+    doc = exported["resource"]
+    assert doc["pk"] is None and doc["uuid"] == str(RESOURCE_ID)
+    assert doc["detail_url"] == "https://catalog.example.test/document/7"
+    assert all(doc[name] == value for name, value in source_fields.items())
+    assert doc["custom_research_field"] == {"reviewed": True}
+    plan = portable_plan(doc)
+    draft = plan.resources[0].draft
+    assert draft.metadata.translations == translations
+    assert draft.metadata.extensions["research"] == resource.metadata_extensions["research"]
+    assert "opengeo.style-publications" not in draft.metadata.extensions
+    custody = draft.metadata.extensions["geonode"]
+    assert custody["metadata"] == source_fields and custody["styles"] == source_style
+    assert custody["opengeo"]["sourceAuthorityExtensions"] == {
+        "opengeo.style-publications": publication
+    }
+    assert custody["opengeo"]["provenance"] == resource.provenance
+    assert custody["opengeo"]["content"] == resource.content
+    assert draft.state == "review" and draft.visibility == "restricted"
+    assert draft.dataset_id is None and draft.map_id is None
+    assert draft.metadata.profile == "opengeo.core.v1"
+    assert (
+        draft.metadata.managed_profile_id is None and draft.metadata.managed_profile_version is None
+    )
+    assert draft.content["blocks"][0]["url"] == doc["detail_url"]
+    assert draft.provenance["sourceSystem"] == "geonode"
+    assert draft.provenance["sourceUrl"] == "https://catalog.example.test"
+
+    # Source custody is stable; repeating the same exchange does not nest carriers.
+    sizes = []
+    for _ in range(3):
+        restored = replace(
+            resource,
+            metadata_extensions=draft.metadata.extensions,
+            translations=draft.metadata.translations,
+            provenance=draft.provenance,
+        )
+        next_export = export_geonode_resource(restored)
+        draft = portable_plan(next_export["resource"]).resources[0].draft
+        assert draft.metadata.extensions["research"] == resource.metadata_extensions["research"]
+        assert draft.metadata.extensions["geonode"]["metadata"] == source_fields
+        sizes.append(len(json.dumps(draft.metadata.extensions)))
+        assert len(json.dumps(next_export["report"]).encode()) <= 16_384
+    assert sizes[-1] == sizes[-2]  # Fixed first/current custody, no recursive envelope growth.
+    paths = {item["path"]: item for item in exported["report"]["fields"]}
+    assert paths["_opengeo.translations.fr.title"]["outcome"] == "preserved_extension"
+    assert paths["pk"]["outcome"] == "not_present"
+    assert "regions" in paths and "constraints_other" in paths
+    assert paths["regions"]["outcome"] == "preserved_source"
+    assert paths["is_published"]["outcome"] == "editorial_hint"
+    assert exported["report"]["summary"]["mapped"] == sum(
+        row["outcome"] == "mapped" for row in exported["report"]["fields"]
+    )
+
+
+def test_import_reports_each_source_field_and_declares_named_value_normalization() -> None:
+    source = {
+        **source_resources()[0],
+        "regions": [{"name": "Study area"}],
+        "constraints_other": "Cite source",
+        "doi": "10.1234/example",
+    }
+    plan = build_geonode_import_plan(
+        source_url="https://catalog.example.test", resources=(source,), relationships=()
+    )
+    rows = {row["path"]: row for row in plan.report["fields"]}
+    for name in ["regions", "constraints_other", "doi", "custom_research_field", "perms", "styles"]:
+        assert rows["resources[0]." + name]["outcome"] == "preserved_extension"
+    assert rows["resources[0].license"]["outcome"] == "normalized"
+    assert rows["resources[0].keywords"]["outcome"] == "normalized"
+    assert plan.report["summary"]["normalizedFields"] == 2
+    assert len(json.dumps(plan.report).encode()) <= 16_384
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"translations": {"en": {"title": "Duplicate primary"}}},
+        {"translations": {"fr": {"title": "A", "keywords": ["Same", "same"]}}},
+        {"translations": {"fr": {"title": "A"}, "FR": {"title": "B"}}},
+        {"metadataExtensions": {"research": {"api_token": "must-not-restore"}}},
+        {"metadataExtensions": {"research": {"large": "x" * 8192}}},
+        {"translations": {"fr": {"title": "A", "abstract": "x" * 16_384}}},
+    ],
+)
+def test_portable_fields_use_existing_native_metadata_limits(change: dict) -> None:
+    document = export_geonode_resource(governed_resource())["resource"]
+    document["_opengeo"].update(change)
+    with pytest.raises(ValueError):
+        portable_plan(document)
+
+
+def test_raw_portable_import_requires_native_validation_and_report_limit_is_explicit() -> None:
+    document = export_geonode_resource(governed_resource())["resource"]
+    with pytest.raises(ValueError, match="native request validation"):
+        build_geonode_import_plan(
+            source_url="https://catalog.example.test", resources=(document,), relationships=()
+        )
+    oversized_report = {
+        **source_resources()[0],
+        **{f"source_field_{index}": index for index in range(200)},
+    }
+    with pytest.raises(ValueError, match="report exceeds the 16 KiB"):
+        build_geonode_import_plan(
+            source_url="https://catalog.example.test",
+            resources=(oversized_report,),
+            relationships=(),
+        )
+
+
+def test_edited_source_and_carrier_values_replace_stale_values_with_first_evidence() -> None:
+    original = replace(
+        governed_resource(),
+        metadata_extensions={
+            "geonode": {
+                "pk": 18,
+                "metadata": {"purpose": "Original purpose", "edition": "Original edition"},
+                "unmapped": {"custom_field": {"value": "original"}},
+            },
+        },
+    )
+    first = portable_plan(export_geonode_resource(original)["resource"]).resources[0].draft
+    current = replace(original, metadata_extensions=first.metadata.extensions)
+    document = export_geonode_resource(current)["resource"]
+    document["purpose"] = "Edited purpose"
+    document["edition"] = None
+    document["custom_field"] = {"value": "edited"}
+    document["empty_source_field"] = {}
+    document["_opengeo"]["provenance"] = {"sourceSystem": "edited evidence"}
+    result = portable_plan(document)
+    custody = result.resources[0].draft.metadata.extensions["geonode"]
+    assert custody["metadata"]["purpose"] == "Edited purpose"
+    assert custody["metadata"]["edition"] is None
+    assert custody["unmapped"]["custom_field"] == {"value": "edited"}
+    assert custody["unmapped"]["empty_source_field"] == {}
+    assert custody["sourceFieldsFirst"]["metadata"]["purpose"] == "Original purpose"
+    assert custody["sourceFieldsFirst"]["metadata"]["edition"] == "Original edition"
+    assert custody["sourceFieldsFirst"]["unmapped"]["custom_field"] == {"value": "original"}
+    assert custody["opengeo"]["provenance"] == {"sourceSystem": "edited evidence"}
+    assert custody["opengeoFirst"]["provenance"] == original.provenance
+    rows = {row["path"]: row for row in result.report["fields"]}
+    assert rows["resources[0].purpose"]["target"] == "metadata.extensions.geonode.metadata.purpose"
+    assert rows["resources[0].edition"]["outcome"] == "preserved_extension"
+    assert rows["resources[0].empty_source_field"]["outcome"] == "preserved_extension"
+
+
+def test_nonobject_native_geonode_namespace_preserves_value_and_reports_actual_custody() -> None:
+    original = replace(governed_resource(), metadata_extensions={"geonode": "opaque native value"})
+    document = export_geonode_resource(original)["resource"]
+    document["purpose"] = "Source purpose"
+    document["custom_field"] = {"value": "retained"}
+    result = portable_plan(document)
+    metadata = result.resources[0].draft.metadata
+    assert metadata.extensions["geonode"] == "opaque native value"
+    assert metadata.extensions["geonode.import"]["metadata"]["purpose"] == "Source purpose"
+    rows = {row["path"]: row for row in result.report["fields"]}
+    assert (
+        rows["resources[0].purpose"]["target"]
+        == "metadata.extensions.geonode.import.metadata.purpose"
+    )
+    assert rows["resources[0].custom_field"]["target"].startswith(
+        "metadata.extensions.geonode.import."
+    )
+    assert (
+        rows["resources[0]._opengeo.provenance"]["target"]
+        == "metadata.extensions.geonode.import.opengeo.provenance"
+    )
+    restored = replace(original, metadata_extensions=metadata.extensions)
+    exported = export_geonode_resource(restored)
+    assert exported["resource"]["purpose"] == "Source purpose"
+    assert exported["resource"]["custom_field"] == {"value": "retained"}
