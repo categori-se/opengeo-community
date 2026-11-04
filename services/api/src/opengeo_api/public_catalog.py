@@ -315,7 +315,6 @@ class PublicCatalogRepository(Protocol):
         resource_id: UUID,
     ) -> PublicMapPreview | None: ...
 
-
     async def get_public_map_artifact_preview(
         self,
         organization_id: UUID,
@@ -722,9 +721,9 @@ class PostgresPublicCatalogRepository:
         *,
         artifact_repository: "PostgresRenderRepository",
     ) -> PublicMapArtifactPreview | None:
-        async def resolve(transaction: TenantTransaction) -> tuple[
-            PublicMapArtifactPreview, UUID, tuple[Any, ...] | None
-        ] | None:
+        async def resolve(
+            transaction: TenantTransaction,
+        ) -> tuple[PublicMapArtifactPreview, UUID, tuple[Any, ...] | None] | None:
             return await self._public_map_artifact_preview_target(
                 transaction, organization_id, project_id, resource_id, artifact_repository
             )
@@ -772,7 +771,12 @@ class PostgresPublicCatalogRepository:
         if resource is None:
             return None
         map_id, map_version = resource[2], resource[3]
-        if resource[4] != map_id or isinstance(map_version, bool) or not isinstance(map_version, int) or map_version < 1:
+        if (
+            resource[4] != map_id
+            or isinstance(map_version, bool)
+            or not isinstance(map_version, int)
+            or map_version < 1
+        ):
             raise PublicCatalogPreviewConflict("public_map_artifact_preview_not_sealed")
         empty = PublicMapArtifactPreview(resource_id, resource[1], map_version, "unavailable", None)
         # Only explicit releases of an exact edition qualify. Artifact current
@@ -781,23 +785,37 @@ class PostgresPublicCatalogRepository:
             """SELECT release.id, artifact.id, edition.version_number, artifact.representation
                FROM app.project_artifacts artifact
                JOIN app.project_artifact_versions edition
-                 ON edition.organization_id=artifact.organization_id AND edition.artifact_id=artifact.id
+                 ON edition.organization_id=artifact.organization_id
+                AND edition.artifact_id=artifact.id
                JOIN app.project_artifact_releases release
-                 ON release.organization_id=edition.organization_id AND release.artifact_id=edition.artifact_id
+                 ON release.organization_id=edition.organization_id
+                AND release.artifact_id=edition.artifact_id
                 AND release.version_number=edition.version_number AND release.revoked_at IS NULL
                LEFT JOIN app.map_render_job_bindings rendered
-                 ON rendered.organization_id=edition.organization_id AND rendered.render_job_id=edition.render_job_id
+                 ON rendered.organization_id=edition.organization_id
+                AND rendered.render_job_id=edition.render_job_id
                 AND rendered.resource_id=artifact.resource_id
                LEFT JOIN app.map_resource_version_bindings saved
-                 ON saved.organization_id=rendered.organization_id AND saved.resource_id=rendered.resource_id
+                 ON saved.organization_id=rendered.organization_id
+                AND saved.resource_id=rendered.resource_id
                 AND saved.resource_version_id=rendered.resource_version_id
                WHERE artifact.organization_id=%s AND artifact.resource_id=%s AND artifact.map_id=%s
                  AND ((artifact.representation='saved-map-image'
-                       AND rendered.resource_version_id=%s AND saved.map_id=%s AND saved.map_version=%s)
+                       AND rendered.resource_version_id=%s
+                       AND saved.map_id=%s AND saved.map_version=%s)
                    OR (artifact.representation='portable-map-html'
                        AND edition.origin_map_id=%s AND edition.origin_map_version=%s))
                ORDER BY release.created_at DESC, release.id DESC LIMIT 1""",
-            (organization_id, resource_id, map_id, resource[0], map_id, map_version, map_id, map_version),
+            (
+                organization_id,
+                resource_id,
+                map_id,
+                resource[0],
+                map_id,
+                map_version,
+                map_id,
+                map_version,
+            ),
         )
         if release is None:
             return empty, resource[0], None
@@ -811,9 +829,13 @@ class PostgresPublicCatalogRepository:
         except (RenderConflict, RenderNotFound):
             return empty, resource[0], None
         if (target[0], target[1], target[2]) != (resource_id, map_id, project_id) or (
-            record.get("artifact_id") != str(artifact_id) or record.get("version_number") != version_number
-            or representation == "saved-map-image" and target[4] != resource[0]
-            or representation == "portable-map-html" and (len(target) < 16 or target[14] != map_version)
+            record.get("artifact_id") != str(artifact_id)
+            or record.get("version_number") != version_number
+            or (representation == "saved-map-image" and target[4] != resource[0])
+            or (
+                representation == "portable-map-html"
+                and (len(target) < 16 or target[14] != map_version)
+            )
         ):
             raise PublicCatalogPreviewConflict("public_map_artifact_preview_mismatch")
         media_type, size_bytes, checksum = target[10:13]
@@ -827,21 +849,37 @@ class PostgresPublicCatalogRepository:
         license = record.get("license")
         attribution = record.get("attribution")
         if (
-            media_type not in media_types or isinstance(size_bytes, bool)
-            or not isinstance(size_bytes, int) or not 0 < size_bytes <= maximum_bytes
-            or not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None
-            or isinstance(version_number, bool) or not isinstance(version_number, int) or version_number < 1
+            media_type not in media_types
+            or isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, int)
+            or not 0 < size_bytes <= maximum_bytes
+            or not isinstance(checksum, str)
+            or re.fullmatch(r"[0-9a-f]{64}", checksum) is None
+            or isinstance(version_number, bool)
+            or not isinstance(version_number, int)
+            or version_number < 1
             or license not in {"CC0-1.0", "CC-BY-4.0", "PDDL-1.0"}
-            or not isinstance(attribution, str) or not 1 <= len(attribution.strip()) <= 2000
+            or not isinstance(attribution, str)
+            or not 1 <= len(attribution.strip()) <= 2000
         ):
             raise PublicCatalogPreviewConflict("public_map_artifact_preview_invalid")
         artifact = PublicMapArtifact(
-            artifact_id, release_id, version_number, representation, media_type,
-            size_bytes, checksum,
+            artifact_id,
+            release_id,
+            version_number,
+            representation,
+            media_type,
+            size_bytes,
+            checksum,
             f"/public/organizations/{organization_id}/artifact-releases/{release_id}/{action}",
-            license, attribution.strip(),
+            license,
+            attribution.strip(),
         )
-        return PublicMapArtifactPreview(resource_id, resource[1], map_version, "available", artifact), resource[0], target
+        return (
+            PublicMapArtifactPreview(resource_id, resource[1], map_version, "available", artifact),
+            resource[0],
+            target,
+        )
 
     @classmethod
     async def _public_map_preview_target(

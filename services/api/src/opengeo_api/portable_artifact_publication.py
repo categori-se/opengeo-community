@@ -10,8 +10,6 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
-from psycopg.types.json import Jsonb
-
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.map_definitions import external_map_configuration
 from opengeo_api.portable_artifacts import validate_portable_manifest, validate_portable_origin
@@ -20,6 +18,7 @@ from opengeo_api.saved_map_publication import PUBLIC_SAVED_MAP_LICENSES
 from opengeo_api.saved_map_rendering import SavedMapRenderUnsupported
 from opengeo_api.saved_map_style_resolution import resolve_public_saved_map_styles
 from opengeo_api.tenant_database import TenantContext, TenantTransaction
+from psycopg.types.json import Jsonb
 
 
 def _public_origin(url: str) -> str:
@@ -57,29 +56,47 @@ def _tile_url(layer: dict[str, Any]) -> str:
             raise ValueError("invalid_xyz_url")
         return str(url)
     if layer["sourceType"] == "wms-raster":
+
         def name(value: Any) -> bool:
-            return isinstance(value, str) and len(value) <= 200 and bool(re.fullmatch(r"[A-Za-z0-9_.:-]+", value))
+            return (
+                isinstance(value, str)
+                and len(value) <= 200
+                and bool(re.fullmatch(r"[A-Za-z0-9_.:-]+", value))
+            )
+
         layers, styles = config.get("layers"), config.get("styles")
         if (
-            urlsplit(url).query or urlsplit(url).fragment
+            urlsplit(url).query
+            or urlsplit(url).fragment
             or config.get("version") not in ("1.3.0", "1.1.1")
-            or config.get("crs") != "EPSG:3857" or config.get("tileSize") not in (256, 512)
+            or config.get("crs") != "EPSG:3857"
+            or config.get("tileSize") not in (256, 512)
             or config.get("imageFormat") not in ("image/png", "image/jpeg")
             or type(config.get("transparent")) is not bool
             or (config["imageFormat"] == "image/jpeg" and config["transparent"])
-            or not isinstance(layers, list) or not 1 <= len(layers) <= 32
-            or not all(name(value) for value in layers) or len(set(layers)) != len(layers)
-            or not isinstance(styles, list) or len(styles) > 32
+            or not isinstance(layers, list)
+            or not 1 <= len(layers) <= 32
+            or not all(name(value) for value in layers)
+            or len(set(layers)) != len(layers)
+            or not isinstance(styles, list)
+            or len(styles) > 32
             or (len(styles) != 0 and len(styles) != len(layers))
             or not all(value == "" or name(value) for value in styles)
         ):
             raise ValueError("invalid_wms_configuration")
-        query = {"SERVICE": "WMS", "REQUEST": "GetMap", "VERSION": config["version"],
-                 "LAYERS": ",".join(layers), "STYLES": ",".join(styles),
-                 "FORMAT": config["imageFormat"], "TRANSPARENT": "TRUE" if config["transparent"] else "FALSE",
-                 "WIDTH": str(config["tileSize"]), "HEIGHT": str(config["tileSize"]),
-                 "BBOX": "{bbox-epsg-3857}",
-                 "CRS" if config["version"] == "1.3.0" else "SRS": config["crs"]}
+        query = {
+            "SERVICE": "WMS",
+            "REQUEST": "GetMap",
+            "VERSION": config["version"],
+            "LAYERS": ",".join(layers),
+            "STYLES": ",".join(styles),
+            "FORMAT": config["imageFormat"],
+            "TRANSPARENT": "TRUE" if config["transparent"] else "FALSE",
+            "WIDTH": str(config["tileSize"]),
+            "HEIGHT": str(config["tileSize"]),
+            "BBOX": "{bbox-epsg-3857}",
+            "CRS" if config["version"] == "1.3.0" else "SRS": config["crs"],
+        }
         return url + "?" + urlencode(query).replace("%7B", "{").replace("%7D", "}")
     if layer["sourceType"] == "imageserver-raster":
         if urlsplit(url).query or not url.rstrip("/").endswith("/ImageServer"):
@@ -311,7 +328,12 @@ async def public_portable_seal(
                  AND (requested.source_type<>'wms' OR metadata.license=ANY(%s::text[]))
                  AND metadata.provenance->>'externalSourceVersion'=requested.version_number::text
                  AND metadata.provenance->>'externalSourceUrl'=requested.source_url""",
-            (Jsonb(referenced), context.organization_id, target[2], sorted(PUBLIC_SAVED_MAP_LICENSES)),
+            (
+                Jsonb(referenced),
+                context.organization_id,
+                target[2],
+                sorted(PUBLIC_SAVED_MAP_LICENSES),
+            ),
         )
         expected_references = {(item["dataset_id"], item["version_number"]) for item in referenced}
         configurations = {(item["dataset_id"], item["version_number"]): item for item in referenced}
@@ -321,4 +343,7 @@ async def public_portable_seal(
             for row in rows
         ):
             raise RenderConflict("artifact_source_not_public")
-    return {"schemaVersion": "opengeo.portable-map-publication.1.0.0", "styleDependencies": style_dependencies}
+    return {
+        "schemaVersion": "opengeo.portable-map-publication.1.0.0",
+        "styleDependencies": style_dependencies,
+    }

@@ -5,7 +5,6 @@ from uuid import UUID
 
 import pytest
 from fastapi import HTTPException, Request
-
 from opengeo_api.artifact_release_routes import (
     public_release_map,
     public_release_module,
@@ -36,7 +35,6 @@ def test_release_history_returns_canonical_api_url_for_proxy_clients():
     import json
 
     from fastapi import FastAPI
-
     from opengeo_api.artifact_release_routes import artifact_release_history, router
 
     app = FastAPI()
@@ -371,7 +369,6 @@ def native_request(artifact):
     from hashlib import sha256
 
     from fastapi import FastAPI
-
     from opengeo_api.artifact_release_routes import router
 
     html = artifact["html"].encode()
@@ -671,33 +668,89 @@ def test_public_image_descriptor_does_not_advertise_html_or_native(native_artifa
 @pytest.mark.parametrize("media_type", ["image/png", "text/html"])
 def test_public_artifact_output_rejects_changed_publication_terms_after_storage(media_type):
     from opengeo_api.artifact_release_routes import public_release_image
-    exact=SimpleNamespace(body=b"retained-output",content_type=media_type)
-    storage=SimpleNamespace(read_exact_object=AsyncMock(return_value=exact))
-    request=Request({"type":"http","app":SimpleNamespace(state=SimpleNamespace(
-        download_storage=storage,render_repository=SimpleNamespace(_artifact_downloads=storage)))})
-    target=[None]*13;target[7:13]=["bucket","key","version",media_type,len(exact.body),"a"*64]
-    if media_type=="text/html":target.extend([{},1,{}])
-    first=tuple(target+['{"styleDependencies":[{"metadataVersionNumber":1}]}'])
-    changed=tuple(target+['{"styleDependencies":[{"metadataVersionNumber":2}]}'])
-    authority=AsyncMock(side_effect=[({},first),({},changed)])
-    call=public_release_map if media_type=="text/html" else public_release_image
-    with patch("opengeo_api.artifact_release_routes._public",authority),pytest.raises(HTTPException) as error:
-        asyncio.run(call(UUID(int=1),UUID(int=2),request))
-    assert error.value.status_code==409 and error.value.detail=="artifact_release_target_changed"
-    assert error.value.headers["Cache-Control"]=="no-store"
-    assert storage.read_exact_object.await_count==1 and authority.await_count==2
+
+    exact = SimpleNamespace(body=b"retained-output", content_type=media_type)
+    storage = SimpleNamespace(read_exact_object=AsyncMock(return_value=exact))
+    request = Request(
+        {
+            "type": "http",
+            "app": SimpleNamespace(
+                state=SimpleNamespace(
+                    download_storage=storage,
+                    render_repository=SimpleNamespace(_artifact_downloads=storage),
+                )
+            ),
+        }
+    )
+    target = [None] * 13
+    target[7:13] = ["bucket", "key", "version", media_type, len(exact.body), "a" * 64]
+    if media_type == "text/html":
+        target.extend([{}, 1, {}])
+    first = (*target, '{"styleDependencies":[{"metadataVersionNumber":1}]}')
+    changed = (*target, '{"styleDependencies":[{"metadataVersionNumber":2}]}')
+    authority = AsyncMock(side_effect=[({}, first), ({}, changed)])
+    call = public_release_map if media_type == "text/html" else public_release_image
+    with (
+        patch("opengeo_api.artifact_release_routes._public", authority),
+        pytest.raises(HTTPException) as error,
+    ):
+        asyncio.run(call(UUID(int=1), UUID(int=2), request))
+    assert (
+        error.value.status_code == 409 and error.value.detail == "artifact_release_target_changed"
+    )
+    assert error.value.headers["Cache-Control"] == "no-store"
+    assert storage.read_exact_object.await_count == 1 and authority.await_count == 2
 
 
 def test_public_release_appends_immutable_policy_seal_without_changing_target_indices():
     import json
+
     from opengeo_api.artifact_releases import read_release
-    tx=SimpleNamespace(fetch_one=AsyncMock(return_value=(UUID(int=7),2,"Title","CC-BY-4.0","Credit")))
-    target=(UUID(int=1),UUID(int=2),UUID(int=3),None,None,None,"completed","bucket","key","version","image/png",100,"a"*64)
-    policy=AsyncMock(side_effect=[{"styleDependencies":[{"publication":{"metadataVersionNumber":1,"license":"CC-BY-4.0"}}]},
-                                 {"styleDependencies":[{"publication":{"metadataVersionNumber":2,"license":"CC0-1.0"}}]}])
-    with patch("opengeo_api.artifact_releases._target",AsyncMock(return_value=target)),patch("opengeo_api.artifact_releases._public_seal",policy):
-        first=asyncio.run(read_release(SimpleNamespace(),UUID(int=9),UUID(int=8),transaction=tx))[1]
-        second=asyncio.run(read_release(SimpleNamespace(),UUID(int=9),UUID(int=8),transaction=tx))[1]
-    assert first[:13]==second[:13]==target and first[-1]!=second[-1]
-    assert json.loads(first[-1])["styleDependencies"][0]["publication"]["metadataVersionNumber"]==1
-    assert all(call.args[1].user_id==UUID(int=0) for call in policy.await_args_list)
+
+    tx = SimpleNamespace(
+        fetch_one=AsyncMock(return_value=(UUID(int=7), 2, "Title", "CC-BY-4.0", "Credit"))
+    )
+    target = (
+        UUID(int=1),
+        UUID(int=2),
+        UUID(int=3),
+        None,
+        None,
+        None,
+        "completed",
+        "bucket",
+        "key",
+        "version",
+        "image/png",
+        100,
+        "a" * 64,
+    )
+    policy = AsyncMock(
+        side_effect=[
+            {
+                "styleDependencies": [
+                    {"publication": {"metadataVersionNumber": 1, "license": "CC-BY-4.0"}}
+                ]
+            },
+            {
+                "styleDependencies": [
+                    {"publication": {"metadataVersionNumber": 2, "license": "CC0-1.0"}}
+                ]
+            },
+        ]
+    )
+    with (
+        patch("opengeo_api.artifact_releases._target", AsyncMock(return_value=target)),
+        patch("opengeo_api.artifact_releases._public_seal", policy),
+    ):
+        first = asyncio.run(
+            read_release(SimpleNamespace(), UUID(int=9), UUID(int=8), transaction=tx)
+        )[1]
+        second = asyncio.run(
+            read_release(SimpleNamespace(), UUID(int=9), UUID(int=8), transaction=tx)
+        )[1]
+    assert first[:13] == second[:13] == target and first[-1] != second[-1]
+    assert (
+        json.loads(first[-1])["styleDependencies"][0]["publication"]["metadataVersionNumber"] == 1
+    )
+    assert all(call.args[1].user_id == UUID(int=0) for call in policy.await_args_list)

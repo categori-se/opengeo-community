@@ -5,8 +5,6 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
-
 from opengeo_api.public_catalog import (
     PublicCatalogFacet,
     PublicCatalogFilters,
@@ -21,6 +19,7 @@ from opengeo_api.public_catalog import (
     PublicSpatialPreview,
 )
 from opengeo_api.resources import ResourceKind
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from opengeo_api.rendering import PostgresRenderRepository
@@ -478,12 +477,18 @@ async def get_public_map_artifact_preview(
 ) -> PublicMapArtifactPreviewResponse:
     preview: PublicMapArtifactPreview | None = await _execute(
         repository.get_public_map_artifact_preview(
-            organization_id, project_id, resource_id,
-            artifact_repository=cast("PostgresRenderRepository", request.app.state.render_repository),
+            organization_id,
+            project_id,
+            resource_id,
+            artifact_repository=cast(
+                "PostgresRenderRepository", request.app.state.render_repository
+            ),
         )
     )
     if preview is None:
-        raise HTTPException(status_code=404, detail={"code": "public_map_artifact_preview_not_found"})
+        raise HTTPException(
+            status_code=404, detail={"code": "public_map_artifact_preview_not_found"}
+        )
     artifact = preview.artifact
     return PublicMapArtifactPreviewResponse(
         schema_version="opengeo.public-map-artifact-preview.1.0.0",
@@ -491,12 +496,19 @@ async def get_public_map_artifact_preview(
         resource_version_number=preview.resource_version_number,
         map_version=preview.map_version,
         status=preview.status,
-        artifact=None if artifact is None else PublicMapArtifactResponse(
-            artifact_id=artifact.artifact_id, release_id=artifact.release_id,
-            version_number=artifact.version_number, representation=artifact.representation,
-            media_type=artifact.media_type, size_bytes=artifact.size_bytes,
-            checksum_sha256=artifact.checksum_sha256, preview_href=artifact.preview_href,
-            license=artifact.license, attribution=artifact.attribution,
+        artifact=None
+        if artifact is None
+        else PublicMapArtifactResponse(
+            artifact_id=artifact.artifact_id,
+            release_id=artifact.release_id,
+            version_number=artifact.version_number,
+            representation=artifact.representation,
+            media_type=artifact.media_type,
+            size_bytes=artifact.size_bytes,
+            checksum_sha256=artifact.checksum_sha256,
+            preview_href=artifact.preview_href,
+            license=artifact.license,
+            attribution=artifact.attribution,
         ),
     )
 

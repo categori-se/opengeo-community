@@ -3,7 +3,6 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi.testclient import TestClient
-
 from opengeo_api.app import create_app
 from opengeo_api.config import Settings
 from opengeo_api.public_catalog import (
@@ -226,7 +225,6 @@ class FakePublicCatalogRepository:
             ),
         )
 
-
     async def get_public_map_artifact_preview(
         self, organization_id: UUID, project_id: UUID, resource_id: UUID, *, artifact_repository
     ) -> PublicMapArtifactPreview | None:
@@ -236,9 +234,26 @@ class FakePublicCatalogRepository:
             return None
         release_id, artifact_id = UUID(int=17), UUID(int=18)
         unavailable = getattr(self, "artifact_unavailable", False)
-        return PublicMapArtifactPreview(resource_id,3,7,"unavailable" if unavailable else "available",
-            None if unavailable else PublicMapArtifact(artifact_id,release_id,2,"saved-map-image","image/png",1200,"a"*64,
-                f"/public/organizations/{organization_id}/artifact-releases/{release_id}/image","CC-BY-4.0","Public Lab"))
+        return PublicMapArtifactPreview(
+            resource_id,
+            3,
+            7,
+            "unavailable" if unavailable else "available",
+            None
+            if unavailable
+            else PublicMapArtifact(
+                artifact_id,
+                release_id,
+                2,
+                "saved-map-image",
+                "image/png",
+                1200,
+                "a" * 64,
+                f"/public/organizations/{organization_id}/artifact-releases/{release_id}/image",
+                "CC-BY-4.0",
+                "Public Lab",
+            ),
+        )
 
 
 class FailingPublicCatalogRepository(FakePublicCatalogRepository):
@@ -590,17 +605,39 @@ def test_public_catalog_stops_pagination_at_the_documented_offset_boundary() -> 
 
 
 def test_public_map_artifact_descriptor_is_anonymous_and_sanitized():
-    repository=FakePublicCatalogRepository()
-    path=f"/public/organizations/{ORGANIZATION_ID}/projects/{PROJECT_ID}/resources/{RESOURCE_ID}/map-artifact-preview"
-    response=client(repository).get(path,headers={"Authorization":"Bearer unrelated-owner-token"})
-    assert response.status_code==200
-    body=response.json();assert body["schema_version"]=="opengeo.public-map-artifact-preview.1.0.0"
-    assert body["resource_id"]==str(RESOURCE_ID) and body["resource_version_number"]==3 and body["map_version"]==7
-    assert body["status"]=="available" and body["artifact"]["release_id"]==str(UUID(int=17))
-    assert body["artifact"]["preview_href"]==f"/public/organizations/{ORGANIZATION_ID}/artifact-releases/{UUID(int=17)}/image"
-    assert not any(word in response.text for word in ["bucket","object_key","dataset_id","connection","token"])
-    repository.artifact_unavailable=True
-    unavailable=client(repository).get(path)
-    assert unavailable.status_code==200 and unavailable.json()["status"]=="unavailable" and unavailable.json()["artifact"] is None
-    hidden=client(repository).get(path.replace(str(RESOURCE_ID),str(UUID(int=99))))
-    assert hidden.status_code==404 and hidden.json()=={"detail":{"code":"public_map_artifact_preview_not_found"}}
+    repository = FakePublicCatalogRepository()
+    path = (
+        f"/public/organizations/{ORGANIZATION_ID}/projects/{PROJECT_ID}"
+        f"/resources/{RESOURCE_ID}/map-artifact-preview"
+    )
+    response = client(repository).get(
+        path, headers={"Authorization": "Bearer unrelated-owner-token"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["schema_version"] == "opengeo.public-map-artifact-preview.1.0.0"
+    assert (
+        body["resource_id"] == str(RESOURCE_ID)
+        and body["resource_version_number"] == 3
+        and body["map_version"] == 7
+    )
+    assert body["status"] == "available" and body["artifact"]["release_id"] == str(UUID(int=17))
+    assert (
+        body["artifact"]["preview_href"]
+        == f"/public/organizations/{ORGANIZATION_ID}/artifact-releases/{UUID(int=17)}/image"
+    )
+    assert not any(
+        word in response.text
+        for word in ["bucket", "object_key", "dataset_id", "connection", "token"]
+    )
+    repository.artifact_unavailable = True
+    unavailable = client(repository).get(path)
+    assert (
+        unavailable.status_code == 200
+        and unavailable.json()["status"] == "unavailable"
+        and unavailable.json()["artifact"] is None
+    )
+    hidden = client(repository).get(path.replace(str(RESOURCE_ID), str(UUID(int=99))))
+    assert hidden.status_code == 404 and hidden.json() == {
+        "detail": {"code": "public_map_artifact_preview_not_found"}
+    }

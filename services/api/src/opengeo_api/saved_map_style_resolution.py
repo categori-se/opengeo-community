@@ -16,13 +16,14 @@ from opengeo_api.resources import (
 from opengeo_api.saved_map_rendering import SavedMapRenderUnsupported
 from opengeo_api.tenant_database import TenantContext, TenantTransaction
 
-
 PUBLIC_STYLE_PUBLICATION_LICENSES = frozenset({"CC-BY-4.0", "CC0-1.0", "PDDL-1.0"})
 PUBLIC_STYLE_PUBLICATION_KEY = "opengeo.style-publications"
 
 
 def _public_style_terms(extensions: Any, reference: dict[str, Any]) -> dict[str, str]:
-    declaration = extensions.get(PUBLIC_STYLE_PUBLICATION_KEY) if isinstance(extensions, dict) else None
+    declaration = (
+        extensions.get(PUBLIC_STYLE_PUBLICATION_KEY) if isinstance(extensions, dict) else None
+    )
     if (
         not isinstance(declaration, dict)
         or set(declaration) != {"schemaVersion", "styles"}
@@ -43,8 +44,10 @@ def _public_style_terms(extensions: Any, reference: dict[str, Any]) -> dict[str,
         checksum = entry["checksumSha256"]
         if (
             style_id != entry["styleId"]
-            or type(version) is not int or not 1 <= version <= 9007199254740991
-            or not isinstance(checksum, str) or len(checksum) != 64
+            or type(version) is not int
+            or not 1 <= version <= 9007199254740991
+            or not isinstance(checksum, str)
+            or len(checksum) != 64
             or any(char not in "0123456789abcdef" for char in checksum)
             or entry["format"] not in {"maplibre", "geostyler", "sld", "mapserver"}
             or entry["license"] not in PUBLIC_STYLE_PUBLICATION_LICENSES
@@ -58,8 +61,10 @@ def _public_style_terms(extensions: Any, reference: dict[str, Any]) -> dict[str,
             raise ValueError("style_publication_duplicated")
         seen.add(identity)
         if identity == (
-            reference["styleId"], reference["versionNumber"],
-            reference["checksumSha256"], reference["format"],
+            reference["styleId"],
+            reference["versionNumber"],
+            reference["checksumSha256"],
+            reference["format"],
         ):
             selected = {"license": entry["license"], "attribution": entry["attribution"]}
     if selected is None:
@@ -83,23 +88,38 @@ async def resolve_public_saved_map_styles(
         reference = layer.get("styleReference")
         if reference is None:
             continue
-        key = tuple(reference[name] for name in (
-            "projectId", "resourceId", "styleId", "versionNumber", "checksumSha256", "format"
-        )) + (layer["datasetId"],)
+        key = (
+            *(
+                reference[name]
+                for name in (
+                    "projectId",
+                    "resourceId",
+                    "styleId",
+                    "versionNumber",
+                    "checksumSha256",
+                    "format",
+                )
+            ),
+            layer["datasetId"],
+        )
         if key not in cache:
             statement = PostgresResourceRepository._style_select(current=False).replace(
-                "SELECT style.id", "SELECT metadata.id, metadata.version_number, "
+                "SELECT style.id",
+                "SELECT metadata.id, metadata.version_number, "
                 "metadata.metadata_extensions, resource.state::text, resource.visibility::text, "
-                "resource.dataset_id, style.id", 1
+                "resource.dataset_id, style.id",
+                1,
             )
             row = await transaction.fetch_one(
-                statement + """
+                statement
+                + """
                 JOIN app.governed_resources resource
                   ON resource.organization_id = style.organization_id
                  AND resource.project_id = style.project_id AND resource.id = style.resource_id
                 JOIN app.governed_resource_versions metadata
                   ON metadata.organization_id = resource.organization_id
-                 AND metadata.resource_id = resource.id AND metadata.id = resource.current_version_id
+                 AND metadata.resource_id = resource.id
+                 AND metadata.id = resource.current_version_id
                 WHERE style.organization_id = %s AND style.project_id = %s
                   AND style.resource_id = %s AND style.id = %s
                   AND version.version_number = %s AND version.checksum_sha256 = %s
@@ -107,12 +127,23 @@ async def resolve_public_saved_map_styles(
                   AND style.archived_at IS NULL
                   AND resource.state = 'published' AND resource.visibility = 'public'
                 """,
-                (context.organization_id, UUID(reference["projectId"]), UUID(reference["resourceId"]),
-                 UUID(reference["styleId"]), reference["versionNumber"],
-                 reference["checksumSha256"], reference["format"], UUID(layer["datasetId"])),
+                (
+                    context.organization_id,
+                    UUID(reference["projectId"]),
+                    UUID(reference["resourceId"]),
+                    UUID(reference["styleId"]),
+                    reference["versionNumber"],
+                    reference["checksumSha256"],
+                    reference["format"],
+                    UUID(layer["datasetId"]),
+                ),
             )
             try:
-                if row is None or row[3:5] != ("published", "public") or str(row[5]) != layer["datasetId"]:
+                if (
+                    row is None
+                    or row[3:5] != ("published", "public")
+                    or str(row[5]) != layer["datasetId"]
+                ):
                     raise ValueError("style_not_public")
                 style = PostgresResourceRepository._style(row[6:])
                 if (
@@ -121,23 +152,35 @@ async def resolve_public_saved_map_styles(
                     or style.version_number != reference["versionNumber"]
                     or style.format != reference["format"]
                     or style.checksum_sha256 != reference["checksumSha256"]
-                    or sha256(style.definition.encode("utf-8")).hexdigest() != reference["checksumSha256"]
-                    or type(row[1]) is not int or row[1] < 1
+                    or sha256(style.definition.encode("utf-8")).hexdigest()
+                    != reference["checksumSha256"]
+                    or type(row[1]) is not int
+                    or row[1] < 1
                 ):
                     raise ValueError("style_pin_changed")
                 publication = {
-                    "metadataVersionId": str(UUID(str(row[0]))), "metadataVersionNumber": row[1],
-                    "state": row[3], "visibility": row[4], **_public_style_terms(row[2], reference),
+                    "metadataVersionId": str(UUID(str(row[0]))),
+                    "metadataVersionNumber": row[1],
+                    "state": row[3],
+                    "visibility": row[4],
+                    **_public_style_terms(row[2], reference),
                 }
             except (ValueError, TypeError, KeyError, AttributeError) as error:
                 raise SavedMapRenderUnsupported(
-                    "saved_map_style_unavailable", "The selected Style is not explicitly published for public use."
+                    "saved_map_style_unavailable",
+                    "The selected Style is not explicitly published for public use.",
                 ) from error
             cache[key] = style, publication
         style, publication = cache[key]
         resolved[layer["layerId"]] = style
-        dependencies.append({"layerId": layer["layerId"], "datasetId": layer["datasetId"],
-                             "reference": dict(reference), "publication": dict(publication)})
+        dependencies.append(
+            {
+                "layerId": layer["layerId"],
+                "datasetId": layer["datasetId"],
+                "reference": dict(reference),
+                "publication": dict(publication),
+            }
+        )
     return resolved, dependencies
 
 

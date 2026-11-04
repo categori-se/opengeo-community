@@ -9,7 +9,6 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
-
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.portable_artifacts import validate_portable_bytes, validate_portable_origin
 
@@ -80,7 +79,13 @@ def test_browser_manifest_hashes_match_server_canonical_bytes(browser_artifact):
 
 @pytest.fixture(
     scope="module",
-    params=[("xyz", None), ("imageserver", None), ("imageserver", [2]), ("wms-1.3.0", None), ("wms-1.1.1", None)],
+    params=[
+        ("xyz", None),
+        ("imageserver", None),
+        ("imageserver", [2]),
+        ("wms-1.3.0", None),
+        ("wms-1.1.1", None),
+    ],
     ids=["xyz", "imageserver", "imageserver-record", "wms-1.3.0", "wms-1.1.1"],
 )
 def browser_raster_artifact(request):
@@ -93,7 +98,8 @@ const kind=process.argv[1];
 const sourceKind=kind.startsWith('wms-') ? 'wms' : kind;
 const rasterIds=JSON.parse(process.argv[2]);
 const configuration=sourceKind==='wms'
- ? {version:kind.slice(4),layers:['roads','water'],styles:['',''],imageFormat:'image/png',transparent:true,
+ ? {version:kind.slice(4),layers:['roads','water'],styles:['',''],
+    imageFormat:'image/png',transparent:true,
     crs:'EPSG:3857',tileSize:256,attribution:'Public WMS publisher'}
  : kind==='xyz'
  ? {minZoom:0,maxZoom:15,tileSize:256,scheme:'xyz',attribution:'NOAA'}
@@ -158,9 +164,16 @@ def test_live_publication_requires_exact_public_external_revision(browser_raster
     if layer["sourceConfiguration"].get("rasterIds"):
         raw_config["raster_ids"] = layer["sourceConfiguration"]["rasterIds"]
     if payload["kind"].startswith("wms-"):
-        raw_config = {"version": payload["kind"][4:], "layers": ["roads", "water"], "styles": ["", ""],
-                      "format": "image/png", "transparent": True, "crs": "EPSG:3857",
-                      "tile_size": 256, "attribution": "Public WMS publisher"}
+        raw_config = {
+            "version": payload["kind"][4:],
+            "layers": ["roads", "water"],
+            "styles": ["", ""],
+            "format": "image/png",
+            "transparent": True,
+            "crs": "EPSG:3857",
+            "tile_size": 256,
+            "attribution": "Public WMS publisher",
+        }
     target = [None] * 16
     target[1], target[2] = UUID("11111111-1111-4111-8111-111111111111"), UUID(int=2)
     target[13:] = [manifest, 1, payload["definition"]]
@@ -199,15 +212,29 @@ def test_live_publication_requires_exact_public_external_revision(browser_raster
     assert tx.calls[0][1][0].obj[0]["version_number"] == 1
     assert tx.calls[0][1][0].obj[0]["configuration"] == layer["sourceConfiguration"]
     assert public_portable_origins(manifest, payload["definition"]) == [
-        "https://maps.example.org" if payload["kind"].startswith("wms-")
-        else "https://coast.noaa.gov" if payload["kind"] == "xyz" else "https://gis.nnvl.noaa.gov"
+        "https://maps.example.org"
+        if payload["kind"].startswith("wms-")
+        else "https://coast.noaa.gov"
+        if payload["kind"] == "xyz"
+        else "https://gis.nnvl.noaa.gov"
     ]
     invalid_rows = [
         [],
         [(UUID(layer["datasetId"]), 2, raw_config)],
-        [(UUID(layer["datasetId"]), 1, {**raw_config, **(
-            {"layers": ["changed"]} if payload["kind"].startswith("wms-") else {"max_zoom": 14}
-        )})],
+        [
+            (
+                UUID(layer["datasetId"]),
+                1,
+                {
+                    **raw_config,
+                    **(
+                        {"layers": ["changed"]}
+                        if payload["kind"].startswith("wms-")
+                        else {"max_zoom": 14}
+                    ),
+                },
+            )
+        ],
     ]
     if payload["kind"] == "imageserver":
         invalid_rows.append([(UUID(layer["datasetId"]), 1, {**raw_config, "raster_ids": [3]})])
@@ -230,8 +257,12 @@ def test_live_publication_requires_exact_public_external_revision(browser_raster
         with pytest.raises(RenderConflict, match="artifact_public_sources_unsupported"):
             public_portable_origins(manifest, changed_definition)
     if payload["kind"].startswith("wms-"):
-        for field, value in [("crs", "EPSG:4326"), ("version", "1.2.0"),
-                             ("layers", ["roads", "roads"]), ("transparent", "true")]:
+        for field, value in [
+            ("crs", "EPSG:4326"),
+            ("version", "1.2.0"),
+            ("layers", ["roads", "roads"]),
+            ("transparent", "true"),
+        ]:
             changed_definition = copy.deepcopy(payload["definition"])
             changed_definition["layers"][0]["sourceConfiguration"][field] = value
             with pytest.raises(RenderConflict, match="artifact_public_sources_unsupported"):
@@ -256,14 +287,22 @@ const result=await compilePortableMapArtifact({title:'Published Style fixture',r
  savedProjectOrigin:{id:'11111111-1111-4111-8111-111111111111',version:1,definition}});
 console.log(JSON.stringify(result.manifest));
 """
-    manifest = json.loads(subprocess.run(
-        ["node", "--input-type=module", "-e", script, json.dumps(definition)],
-        cwd=Path(__file__).resolve().parents[3], check=True, capture_output=True, text=True, timeout=20,
-    ).stdout)
+    manifest = json.loads(
+        subprocess.run(
+            ["node", "--input-type=module", "-e", script, json.dumps(definition)],
+            cwd=Path(__file__).resolve().parents[3],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        ).stdout
+    )
     return manifest, definition, public_style_row(style, reference, rows[0][3])
 
 
-def test_portable_public_style_requires_explicit_terms_and_seals_current_metadata(browser_public_style_artifact):
+def test_portable_public_style_requires_explicit_terms_and_seals_current_metadata(
+    browser_public_style_artifact,
+):
     from opengeo_api.portable_artifact_publication import public_portable_seal
     from opengeo_api.rendering import RenderConflict
     from test_saved_map_jobs import CONTEXT
@@ -275,10 +314,13 @@ def test_portable_public_style_requires_explicit_terms_and_seals_current_metadat
     target[13:] = [manifest, 1, definition]
 
     class Transaction:
-        def __init__(self, row): self.row, self.source_reads = row, 0
+        def __init__(self, row):
+            self.row, self.source_reads = row, 0
+
         async def fetch_one(self, sql, params):
             assert "resource.visibility = 'public'" in sql
             return self.row
+
         async def fetch_all(self, sql, params):
             self.source_reads += 1
             assert "dataset.classification='public'" in sql
@@ -913,9 +955,8 @@ def test_upload_lifecycle_routes_are_authenticated_and_no_store():
 
 
 def test_portable_storage_is_default_off_and_requires_application_bucket():
-    from pydantic import ValidationError
-
     from opengeo_api.config import Settings
+    from pydantic import ValidationError
 
     assert Settings(env="test").portable_artifacts_enabled is False
     with pytest.raises(ValidationError, match="Portable Artifacts require"):

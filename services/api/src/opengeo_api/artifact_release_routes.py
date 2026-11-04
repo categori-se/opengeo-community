@@ -3,8 +3,6 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-
 from opengeo_api.artifact_releases import (
     create_release,
     list_releases,
@@ -23,6 +21,7 @@ from opengeo_api.rendering import (
 )
 from opengeo_api.s3_downloads import DownloadStorageUnavailable, ExactObject, ExactObjectSpec
 from opengeo_api.workspace_routes import tenant_context
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 router = APIRouter(tags=["artifact-releases"])
 HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}

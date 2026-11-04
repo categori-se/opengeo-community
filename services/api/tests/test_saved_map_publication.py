@@ -6,7 +6,6 @@ from hashlib import sha256
 from uuid import UUID
 
 import pytest
-
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.rendering import RenderAccessDenied, RenderConflict, RenderNotFound
 from opengeo_api.saved_map_publication import load_saved_map_seal
@@ -368,12 +367,19 @@ def test_public_seal_does_not_use_private_style_access_to_authorize_distribution
 
 
 def public_style_row(style, reference, dataset_id):
-    entry = {key: reference[key] for key in ("styleId", "versionNumber", "checksumSha256", "format")}
+    entry = {
+        key: reference[key] for key in ("styleId", "versionNumber", "checksumSha256", "format")
+    }
     entry.update(license="CC-BY-4.0", attribution="Style author; curated public-use assertion")
     declaration = {"schemaVersion": "opengeo.public-style-publications.1.0.0", "styles": [entry]}
     return (
-        UUID(int=911), 4, {"opengeo.style-publications": declaration},
-        "published", "public", dataset_id, *style,
+        UUID(int=911),
+        4,
+        {"opengeo.style-publications": declaration},
+        "published",
+        "public",
+        dataset_id,
+        *style,
     )
 
 
@@ -385,8 +391,11 @@ def test_public_seal_requires_separate_exact_style_terms_and_binds_metadata_revi
     dependency = seal["styleDependencies"][0]
     assert dependency["reference"] == reference
     assert dependency["publication"] == {
-        "metadataVersionId": str(UUID(int=911)), "metadataVersionNumber": 4,
-        "state": "published", "visibility": "public", "license": "CC-BY-4.0",
+        "metadataVersionId": str(UUID(int=911)),
+        "metadataVersionNumber": 4,
+        "state": "published",
+        "visibility": "public",
+        "license": "CC-BY-4.0",
         "attribution": "Style author; curated public-use assertion",
     }
     query, parameters = transaction.queries[1]
@@ -404,11 +413,26 @@ def test_public_seal_requires_separate_exact_style_terms_and_binds_metadata_revi
     assert reread["recipeChecksumSha256"] == seal["recipeChecksumSha256"]
 
 
-@pytest.mark.parametrize("fault", [
-    "dataset_terms_only", "private", "review", "wrong_dataset", "archived_style",
-    "wrong_style", "wrong_version", "wrong_checksum", "wrong_format", "corrupt_bytes",
-    "nonredistributable", "no_attribution", "unknown_key", "duplicate", "oversized",
-])
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "dataset_terms_only",
+        "private",
+        "review",
+        "wrong_dataset",
+        "archived_style",
+        "wrong_style",
+        "wrong_version",
+        "wrong_checksum",
+        "wrong_format",
+        "corrupt_bytes",
+        "nonredistributable",
+        "no_attribution",
+        "unknown_key",
+        "duplicate",
+        "oversized",
+    ],
+)
 def test_public_style_publication_rejects_missing_revoked_or_mismatched_terms(fault):
     binding, rows, style, reference = style_bound_rows()
     row = list(deepcopy(public_style_row(style, reference, rows[0][3])))
@@ -416,19 +440,32 @@ def test_public_style_publication_rejects_missing_revoked_or_mismatched_terms(fa
     entry = declaration["styles"][0]
     if fault == "dataset_terms_only":
         row[2] = {}  # The public dataset's CC-BY source terms do not license its Style.
-    elif fault == "private": row[4] = "private"
-    elif fault == "review": row[3] = "review"
-    elif fault == "wrong_dataset": row[5] = UUID(int=999)
-    elif fault == "wrong_style": entry["styleId"] = str(UUID(int=998))
-    elif fault == "wrong_version": entry["versionNumber"] = 3
-    elif fault == "wrong_checksum": entry["checksumSha256"] = "0" * 64
-    elif fault == "wrong_format": entry["format"] = "sld"
-    elif fault == "corrupt_bytes": row[13] = "corrupt"
-    elif fault == "nonredistributable": entry["license"] = "all rights reserved"
-    elif fault == "no_attribution": entry["attribution"] = " "
-    elif fault == "unknown_key": entry["public"] = True
-    elif fault == "duplicate": declaration["styles"].append(deepcopy(entry))
-    elif fault == "oversized": declaration["styles"] *= 65
+    elif fault == "private":
+        row[4] = "private"
+    elif fault == "review":
+        row[3] = "review"
+    elif fault == "wrong_dataset":
+        row[5] = UUID(int=999)
+    elif fault == "wrong_style":
+        entry["styleId"] = str(UUID(int=998))
+    elif fault == "wrong_version":
+        entry["versionNumber"] = 3
+    elif fault == "wrong_checksum":
+        entry["checksumSha256"] = "0" * 64
+    elif fault == "wrong_format":
+        entry["format"] = "sld"
+    elif fault == "corrupt_bytes":
+        row[13] = "corrupt"
+    elif fault == "nonredistributable":
+        entry["license"] = "all rights reserved"
+    elif fault == "no_attribution":
+        entry["attribution"] = " "
+    elif fault == "unknown_key":
+        entry["public"] = True
+    elif fault == "duplicate":
+        declaration["styles"].append(deepcopy(entry))
+    elif fault == "oversized":
+        declaration["styles"] *= 65
     # An archived Style is excluded by the SQL predicate, including deployed
     # parsers whose ResourceStyle has no archived attribute.
     transaction = Transaction([binding, None if fault == "archived_style" else tuple(row)], [rows])

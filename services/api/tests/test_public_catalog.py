@@ -9,7 +9,6 @@ from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
-
 from opengeo_api.public_catalog import (
     PUBLIC_CATALOG_MAXIMUM_FACET_SAMPLE,
     PostgresPublicCatalogRepository,
@@ -506,7 +505,9 @@ def test_repository_detail_uses_the_same_non_leaking_public_predicate() -> None:
     assert parameters == (ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID)
 
 
-def test_mapinfo_public_spatial_preview_reads_one_exact_derivative_and_rechecks_public_policy() -> None:
+def test_mapinfo_public_spatial_preview_reads_one_exact_derivative_and_rechecks_public_policy() -> (
+    None
+):
     transaction = ScriptedTransaction(
         all_rows=[[spatial_preview_target_row()], [spatial_preview_target_row()]]
     )
@@ -914,19 +915,39 @@ def public_artifact_fixture(representation="saved-map-image", *, size=1200):
     resource = (MAP_RESOURCE_VERSION_ID, 8, MAP_ID, 4, MAP_ID)
     release = (RELEASE_ID, ARTIFACT_ID, 3, representation)
     media = "text/html" if representation == "portable-map-html" else "image/png"
-    target = (RESOURCE_ID, MAP_ID, PROJECT_ID, OBJECT_ID, MAP_RESOURCE_VERSION_ID,
-              OBJECT_ID, "completed", "private-bucket", "private/key", "object-version", media, size, "a" * 64)
+    target = (
+        RESOURCE_ID,
+        MAP_ID,
+        PROJECT_ID,
+        OBJECT_ID,
+        MAP_RESOURCE_VERSION_ID,
+        OBJECT_ID,
+        "completed",
+        "private-bucket",
+        "private/key",
+        "object-version",
+        media,
+        size,
+        "a" * 64,
+    )
     if representation == "portable-map-html":
-        target += ({"manifestChecksumSha256":"b" * 64}, 4, {"layers":[]})
+        target += ({"manifestChecksumSha256": "b" * 64}, 4, {"layers": []})
     target += ('{"styleDependencies":[]}',)
-    record = {"id":str(RELEASE_ID), "artifact_id":str(ARTIFACT_ID), "version_number":3,
-              "license":"CC-BY-4.0", "attribution":"Public Lab",
-              "preview_href":"https://must-not-escape.invalid/?token=synthetic"}
+    record = {
+        "id": str(RELEASE_ID),
+        "artifact_id": str(ARTIFACT_ID),
+        "version_number": 3,
+        "license": "CC-BY-4.0",
+        "attribution": "Public Lab",
+        "preview_href": "https://must-not-escape.invalid/?token=synthetic",
+    }
     return resource, release, record, target
 
 
 @pytest.mark.parametrize("representation", ["saved-map-image", "portable-map-html"])
-def test_public_map_artifact_preview_reuses_public_reader_and_exact_origin_without_storage(monkeypatch, representation):
+def test_public_map_artifact_preview_reuses_public_reader_and_exact_origin_without_storage(
+    monkeypatch, representation
+):
     resource, release, record, target = public_artifact_fixture(representation)
     transaction = ScriptedTransaction(one=[resource, release, resource, release])
     executor = ScriptedExecutor(transaction)
@@ -934,74 +955,154 @@ def test_public_map_artifact_preview_reuses_public_reader_and_exact_origin_witho
     monkeypatch.setattr("opengeo_api.artifact_releases.read_release", reader)
     repository = PostgresPublicCatalogRepository(executor)
     render_repository = cast(Any, object())
-    preview = asyncio.run(repository.get_public_map_artifact_preview(
-        ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=render_repository))
+    preview = asyncio.run(
+        repository.get_public_map_artifact_preview(
+            ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=render_repository
+        )
+    )
     assert preview is not None and preview.status == "available" and preview.artifact is not None
-    assert preview.resource_id == RESOURCE_ID and preview.resource_version_number == 8 and preview.map_version == 4
+    assert (
+        preview.resource_id == RESOURCE_ID
+        and preview.resource_version_number == 8
+        and preview.map_version == 4
+    )
     assert preview.artifact.artifact_id == ARTIFACT_ID and preview.artifact.release_id == RELEASE_ID
     action = "map" if representation == "portable-map-html" else "image"
-    assert preview.artifact.preview_href == f"/public/organizations/{ORGANIZATION_ID}/artifact-releases/{RELEASE_ID}/{action}"
+    assert (
+        preview.artifact.preview_href
+        == f"/public/organizations/{ORGANIZATION_ID}/artifact-releases/{RELEASE_ID}/{action}"
+    )
     assert "token=" not in preview.artifact.preview_href
     assert all(context.user_id == UUID(int=0) for context in executor.contexts)
     assert len(executor.contexts) == reader.await_count == 2
-    assert all(call.args == (render_repository, ORGANIZATION_ID, RELEASE_ID) and call.kwargs == {"transaction":transaction} for call in reader.await_args_list)
+    assert all(
+        call.args == (render_repository, ORGANIZATION_ID, RELEASE_ID)
+        and call.kwargs == {"transaction": transaction}
+        for call in reader.await_args_list
+    )
     query, parameters = transaction.fetch_one_calls[1]
     assert "release.revoked_at IS NULL" in query and "LIMIT 1" in query
     assert "rendered.resource_version_id=%s" in query and "edition.origin_map_version=%s" in query
-    assert parameters == (ORGANIZATION_ID, RESOURCE_ID, MAP_ID, MAP_RESOURCE_VERSION_ID, MAP_ID, 4, MAP_ID, 4)
+    assert parameters == (
+        ORGANIZATION_ID,
+        RESOURCE_ID,
+        MAP_ID,
+        MAP_RESOURCE_VERSION_ID,
+        MAP_ID,
+        4,
+        MAP_ID,
+        4,
+    )
     assert transaction.fetch_all_calls == []
 
 
-def test_public_map_artifact_preview_missing_explicit_release_is_unavailable_not_authorized(monkeypatch):
+def test_public_map_artifact_preview_missing_explicit_release_is_unavailable_not_authorized(
+    monkeypatch,
+):
     resource, _, _, _ = public_artifact_fixture()
     transaction = ScriptedTransaction(one=[resource, None, resource, None])
     reader = AsyncMock(side_effect=AssertionError("no implicit publication"))
     monkeypatch.setattr("opengeo_api.artifact_releases.read_release", reader)
-    preview = asyncio.run(PostgresPublicCatalogRepository(ScriptedExecutor(transaction)).get_public_map_artifact_preview(
-        ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object())))
+    preview = asyncio.run(
+        PostgresPublicCatalogRepository(
+            ScriptedExecutor(transaction)
+        ).get_public_map_artifact_preview(
+            ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object())
+        )
+    )
     assert preview is not None and preview.status == "unavailable" and preview.artifact is None
     reader.assert_not_awaited()
     hidden = ScriptedTransaction(one=[None])
-    assert asyncio.run(PostgresPublicCatalogRepository(ScriptedExecutor(hidden)).get_public_map_artifact_preview(
-        ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object()))) is None
+    assert (
+        asyncio.run(
+            PostgresPublicCatalogRepository(
+                ScriptedExecutor(hidden)
+            ).get_public_map_artifact_preview(
+                ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object())
+            )
+        )
+        is None
+    )
 
 
 @pytest.mark.parametrize("change", ["revoked", "style-terms", "map-version"])
 def test_public_map_artifact_preview_rechecks_release_and_public_policy(monkeypatch, change):
     from opengeo_api.rendering import RenderNotFound
+
     resource, release, record, target = public_artifact_fixture()
-    second_resource = resource if change != "map-version" else (MAP_RESOURCE_VERSION_ID, 8, MAP_ID, 5, MAP_ID)
-    second = RenderNotFound("artifact_release") if change == "revoked" else (record, (*target[:-1], '{"styleDependencies":["changed-terms"]}') if change == "style-terms" else target)
-    reader = AsyncMock(side_effect=[(record,target), second])
+    second_resource = (
+        resource if change != "map-version" else (MAP_RESOURCE_VERSION_ID, 8, MAP_ID, 5, MAP_ID)
+    )
+    second = (
+        RenderNotFound("artifact_release")
+        if change == "revoked"
+        else (
+            record,
+            (*target[:-1], '{"styleDependencies":["changed-terms"]}')
+            if change == "style-terms"
+            else target,
+        )
+    )
+    reader = AsyncMock(side_effect=[(record, target), second])
     monkeypatch.setattr("opengeo_api.artifact_releases.read_release", reader)
-    transaction = ScriptedTransaction(one=[resource,release,second_resource,release])
+    transaction = ScriptedTransaction(one=[resource, release, second_resource, release])
     with pytest.raises(PublicCatalogPreviewConflict) as error:
-        asyncio.run(PostgresPublicCatalogRepository(ScriptedExecutor(transaction)).get_public_map_artifact_preview(
-            ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object())))
+        asyncio.run(
+            PostgresPublicCatalogRepository(
+                ScriptedExecutor(transaction)
+            ).get_public_map_artifact_preview(
+                ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object())
+            )
+        )
     assert error.value.code == "public_map_artifact_preview_target_changed"
     assert reader.await_count == 2
 
 
-@pytest.mark.parametrize("representation,size", [("saved-map-image",16*1024*1024+1),("portable-map-html",4*1024*1024+1)])
-def test_public_map_artifact_preview_rejects_oversize_without_object_reads(monkeypatch, representation, size):
-    resource,release,record,target=public_artifact_fixture(representation,size=size)
-    monkeypatch.setattr("opengeo_api.artifact_releases.read_release",AsyncMock(return_value=(record,target)))
-    transaction=ScriptedTransaction(one=[resource,release])
+@pytest.mark.parametrize(
+    "representation,size",
+    [("saved-map-image", 16 * 1024 * 1024 + 1), ("portable-map-html", 4 * 1024 * 1024 + 1)],
+)
+def test_public_map_artifact_preview_rejects_oversize_without_object_reads(
+    monkeypatch, representation, size
+):
+    resource, release, record, target = public_artifact_fixture(representation, size=size)
+    monkeypatch.setattr(
+        "opengeo_api.artifact_releases.read_release", AsyncMock(return_value=(record, target))
+    )
+    transaction = ScriptedTransaction(one=[resource, release])
     with pytest.raises(PublicCatalogPreviewConflict) as error:
-        asyncio.run(PostgresPublicCatalogRepository(ScriptedExecutor(transaction)).get_public_map_artifact_preview(
-            ORGANIZATION_ID,PROJECT_ID,RESOURCE_ID,artifact_repository=cast(Any,object())))
+        asyncio.run(
+            PostgresPublicCatalogRepository(
+                ScriptedExecutor(transaction)
+            ).get_public_map_artifact_preview(
+                ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object())
+            )
+        )
     assert error.value.code == "public_map_artifact_preview_invalid"
 
 
-@pytest.mark.parametrize("change", ["resource", "map", "project", "resource-version", "portable-version"])
+@pytest.mark.parametrize(
+    "change", ["resource", "map", "project", "resource-version", "portable-version"]
+)
 def test_public_map_artifact_preview_rejects_mismatched_identity(monkeypatch, change):
-    representation="portable-map-html" if change=="portable-version" else "saved-map-image"
-    resource,release,record,target=public_artifact_fixture(representation)
-    values=list(target);index={"resource":0,"map":1,"project":2,"resource-version":4,"portable-version":14}[change]
-    values[index]=99 if change=="portable-version" else UUID(int=99)
-    monkeypatch.setattr("opengeo_api.artifact_releases.read_release",AsyncMock(return_value=(record,tuple(values))))
-    transaction=ScriptedTransaction(one=[resource,release])
+    representation = "portable-map-html" if change == "portable-version" else "saved-map-image"
+    resource, release, record, target = public_artifact_fixture(representation)
+    values = list(target)
+    index = {"resource": 0, "map": 1, "project": 2, "resource-version": 4, "portable-version": 14}[
+        change
+    ]
+    values[index] = 99 if change == "portable-version" else UUID(int=99)
+    monkeypatch.setattr(
+        "opengeo_api.artifact_releases.read_release",
+        AsyncMock(return_value=(record, tuple(values))),
+    )
+    transaction = ScriptedTransaction(one=[resource, release])
     with pytest.raises(PublicCatalogPreviewConflict) as error:
-        asyncio.run(PostgresPublicCatalogRepository(ScriptedExecutor(transaction)).get_public_map_artifact_preview(
-            ORGANIZATION_ID,PROJECT_ID,RESOURCE_ID,artifact_repository=cast(Any,object())))
+        asyncio.run(
+            PostgresPublicCatalogRepository(
+                ScriptedExecutor(transaction)
+            ).get_public_map_artifact_preview(
+                ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID, artifact_repository=cast(Any, object())
+            )
+        )
     assert error.value.code == "public_map_artifact_preview_mismatch"

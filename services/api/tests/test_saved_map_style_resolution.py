@@ -4,7 +4,6 @@ from hashlib import sha256
 from uuid import UUID
 
 import pytest
-
 from opengeo_api.saved_map_rendering import SavedMapRenderUnsupported
 from opengeo_api.saved_map_style_resolution import resolve_saved_map_styles
 from opengeo_api.tenant_database import TenantContext
@@ -99,9 +98,10 @@ def test_resolution_rechecks_access_and_dataset_and_deduplicates_exact_reference
 
 def test_public_style_resolution_uses_no_caller_roles_and_deduplicates_exact_pins():
     from copy import deepcopy
+
     from opengeo_api.saved_map_style_resolution import resolve_public_saved_map_styles
-    from test_saved_map_publication import public_style_row, style_bound_rows
     from test_saved_map_jobs import CONTEXT
+    from test_saved_map_publication import public_style_row, style_bound_rows
 
     binding, rows, style, reference = style_bound_rows()
     definition = deepcopy(binding[5])
@@ -109,7 +109,9 @@ def test_public_style_resolution_uses_no_caller_roles_and_deduplicates_exact_pin
     publication = public_style_row(style, reference, rows[0][3])
 
     class Transaction:
-        def __init__(self): self.calls = []
+        def __init__(self):
+            self.calls = []
+
         async def fetch_one(self, sql, parameters):
             self.calls.append((sql, parameters))
             return publication
@@ -125,19 +127,32 @@ def test_public_style_resolution_uses_no_caller_roles_and_deduplicates_exact_pin
 
 def test_public_style_resolution_supports_deployed_thirteen_column_style_parser(monkeypatch):
     from types import SimpleNamespace
+
     from opengeo_api.resources import PostgresResourceRepository
     from opengeo_api.saved_map_style_resolution import resolve_public_saved_map_styles
-    from test_saved_map_publication import public_style_row, style_bound_rows
     from test_saved_map_jobs import CONTEXT
+    from test_saved_map_publication import public_style_row, style_bound_rows
 
     binding, rows, style, reference = style_bound_rows()
     publication = public_style_row(style, reference, rows[0][3])[:-1]
     selected = PostgresResourceRepository._style_select(current=False).replace(
         ", style.archived_at IS NOT NULL", ""
     )
-    fields = ("style_id", "resource_id", "slug", "format", "version_number", "title",
-              "media_type", "definition", "checksum_sha256", "change_message",
-              "created_by", "created_at", "updated_at")
+    fields = (
+        "style_id",
+        "resource_id",
+        "slug",
+        "format",
+        "version_number",
+        "title",
+        "media_type",
+        "definition",
+        "checksum_sha256",
+        "change_message",
+        "created_by",
+        "created_at",
+        "updated_at",
+    )
     parsed = []
 
     def deployed_parser(row):
@@ -147,7 +162,9 @@ def test_public_style_resolution_supports_deployed_thirteen_column_style_parser(
         parsed.append(value)
         return value
 
-    monkeypatch.setattr(PostgresResourceRepository, "_style_select", staticmethod(lambda *, current=True: selected))
+    monkeypatch.setattr(
+        PostgresResourceRepository, "_style_select", staticmethod(lambda *, current=True: selected)
+    )
     monkeypatch.setattr(PostgresResourceRepository, "_style", staticmethod(deployed_parser))
 
     class Transaction:

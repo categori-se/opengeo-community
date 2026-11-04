@@ -88,7 +88,9 @@ async def _public_seal(
         from opengeo_api.portable_artifact_publication import public_portable_seal
 
         return await public_portable_seal(tx, context, target)
-    return await load_saved_map_seal(tx, context, target[2], target[0], target[4], target[3], public=True)
+    return await load_saved_map_seal(
+        tx, context, target[2], target[0], target[4], target[3], public=True
+    )
 
 
 async def create_release(
