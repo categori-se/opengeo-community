@@ -6,6 +6,7 @@ from hashlib import sha256
 from uuid import UUID
 
 import pytest
+
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.rendering import RenderAccessDenied, RenderConflict, RenderNotFound
 from opengeo_api.saved_map_publication import load_saved_map_seal

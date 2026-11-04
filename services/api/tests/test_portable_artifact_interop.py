@@ -9,6 +9,7 @@ from pathlib import Path
 from uuid import UUID
 
 import pytest
+
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.portable_artifacts import validate_portable_bytes, validate_portable_origin
 
@@ -955,8 +956,9 @@ def test_upload_lifecycle_routes_are_authenticated_and_no_store():
 
 
 def test_portable_storage_is_default_off_and_requires_application_bucket():
-    from opengeo_api.config import Settings
     from pydantic import ValidationError
+
+    from opengeo_api.config import Settings
 
     assert Settings(env="test").portable_artifacts_enabled is False
     with pytest.raises(ValidationError, match="Portable Artifacts require"):

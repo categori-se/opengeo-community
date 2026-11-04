@@ -3,6 +3,7 @@ from typing import Literal
 from uuid import UUID
 
 from fastapi.testclient import TestClient
+
 from opengeo_api.app import create_app
 from opengeo_api.config import Settings
 from opengeo_api.public_catalog import (

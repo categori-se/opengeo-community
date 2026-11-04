@@ -10,6 +10,8 @@ from typing import Any
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
 
+from psycopg.types.json import Jsonb
+
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.map_definitions import external_map_configuration
 from opengeo_api.portable_artifacts import validate_portable_manifest, validate_portable_origin
@@ -18,7 +20,6 @@ from opengeo_api.saved_map_publication import PUBLIC_SAVED_MAP_LICENSES
 from opengeo_api.saved_map_rendering import SavedMapRenderUnsupported
 from opengeo_api.saved_map_style_resolution import resolve_public_saved_map_styles
 from opengeo_api.tenant_database import TenantContext, TenantTransaction
-from psycopg.types.json import Jsonb
 
 
 def _public_origin(url: str) -> str:

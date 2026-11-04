@@ -5,6 +5,7 @@ from uuid import UUID
 
 import pytest
 from fastapi import HTTPException, Request
+
 from opengeo_api.artifact_release_routes import (
     public_release_map,
     public_release_module,
@@ -35,6 +36,7 @@ def test_release_history_returns_canonical_api_url_for_proxy_clients():
     import json
 
     from fastapi import FastAPI
+
     from opengeo_api.artifact_release_routes import artifact_release_history, router
 
     app = FastAPI()
@@ -369,6 +371,7 @@ def native_request(artifact):
     from hashlib import sha256
 
     from fastapi import FastAPI
+
     from opengeo_api.artifact_release_routes import router
 
     html = artifact["html"].encode()

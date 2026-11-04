@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
+
 from opengeo_api.public_catalog import (
     PUBLIC_CATALOG_MAXIMUM_FACET_SAMPLE,
     PostgresPublicCatalogRepository,

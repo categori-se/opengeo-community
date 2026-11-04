@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, Field
+
 from opengeo_api.public_catalog import (
     PublicCatalogFacet,
     PublicCatalogFilters,
@@ -19,7 +21,6 @@ from opengeo_api.public_catalog import (
     PublicSpatialPreview,
 )
 from opengeo_api.resources import ResourceKind
-from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from opengeo_api.rendering import PostgresRenderRepository

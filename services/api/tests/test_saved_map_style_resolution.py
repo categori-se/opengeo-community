@@ -4,6 +4,7 @@ from hashlib import sha256
 from uuid import UUID
 
 import pytest
+
 from opengeo_api.saved_map_rendering import SavedMapRenderUnsupported
 from opengeo_api.saved_map_style_resolution import resolve_saved_map_styles
 from opengeo_api.tenant_database import TenantContext
