@@ -310,6 +310,17 @@ def _iso_primary_locale(value: str) -> tuple[str, str | None] | None:
     return language.lower(), country.upper() if country else None
 
 
+def _iso_quality_unit_label_supported(value: str) -> bool:
+    """XML 1.0 characters that survive parse unchanged (CR normalizes to LF)."""
+    return all(
+        character in "\t\n"
+        or 0x20 <= ord(character) <= 0xD7FF
+        or 0xE000 <= ord(character) <= 0xFFFD
+        or 0x10000 <= ord(character) <= 0x10FFFF
+        for character in value
+    )
+
+
 class MetadataStoreUnavailable(RuntimeError):
     pass
 
@@ -1838,7 +1849,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_ScopeCode",
         )
         level_code.set("codeListValue", level_value)
-        for value in quality:
+        for quality_index, value in enumerate(quality):
             report = child(quality_value, "mdq", "report")
             report_value = child(report, "mdq", "DQ_UsabilityElement")
             measure = child(report_value, "mdq", "measure")
@@ -1874,6 +1885,17 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     else str(result_value)
                 )
                 child(child(quantitative, "mdq", "value"), "gco", "Record", scalar)
+                if (
+                    value.get("unit") is not None
+                    and not isinstance(result_value, bool)
+                    and _iso_quality_unit_label_supported(value["unit"])
+                ):
+                    unit_property = child(quantitative, "mdq", "valueUnit")
+                    unit_definition = child(unit_property, "gml", "UnitDefinition")
+                    unit_definition.set(tag("gml", "id"), f"quality-unit-{quality_index}")
+                    unit_identifier = child(unit_definition, "gml", "identifier", value["unit"])
+                    # The exact native label carries no asserted unit authority or conversion.
+                    unit_identifier.set("codeSpace", "")
     lineage = catalog.get("lineage")
     if isinstance(lineage, dict):
         lineage_info = child(root, "mdb", "resourceLineage")
@@ -2082,12 +2104,15 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             value["identifier"]: f"opengeo-requirement-{index}"
             for index, value in enumerate(requirement_records, start=1)
         }
-        for index, value in enumerate(
-            cast(list[dict[str, Any]], acquisition.get("plans", [])), start=1
-        ):
+        plan_records = cast(list[dict[str, Any]], acquisition.get("plans", []))
+        plan_xml_ids = {
+            value["identifier"]: f"opengeo-plan-{index}"
+            for index, value in enumerate(plan_records, start=1)
+        }
+        for value in plan_records:
             plan_info = child(acquisition_value, "mac", "acquisitionPlan")
             plan = child(plan_info, "mac", "MI_Plan")
-            plan.set("id", f"opengeo-plan-{index}")
+            plan.set("id", plan_xml_ids[value["identifier"]])
             if value.get("type"):
                 plan_type = child(plan, "mac", "type")
                 plan_type_code = child(plan_type, "mac", "MI_GeometryTypeCode", value["type"])
@@ -2245,6 +2270,13 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 "DateTime",
                 value["expiryDate"],
             )
+            for plan_value in plan_records:
+                if value["identifier"] in plan_value.get("requirementIdentifiers", []):
+                    # The pinned ISO schema deliberately spells this property satisifiedPlan.
+                    inverse_plan = child(requirement, "mac", "satisifiedPlan")
+                    inverse_plan.set(
+                        tag("xlink", "href"), f"#{plan_xml_ids[plan_value['identifier']]}"
+                    )
     iso_catalog_mapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in (
@@ -2292,7 +2324,10 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 f"metadata_extensions.opengeo.distributions[{index}].accessUrl"
             )
     for index, value in enumerate(quality):
-        if value.get("unit") is not None:
+        if value.get("unit") is not None and (
+            isinstance(value["result"], str | bool)
+            or not _iso_quality_unit_label_supported(value["unit"])
+        ):
             iso_catalog_unmapped.append(f"metadata_extensions.opengeo.quality[{index}].unit")
     document_text = ET.tostring(root, encoding="unicode", xml_declaration=True)
     return {

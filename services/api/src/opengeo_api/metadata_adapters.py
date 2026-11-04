@@ -9,7 +9,11 @@ from uuid import UUID
 
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.metadata_catalog import CatalogMetadataInvalid, validate_catalog_extensions
-from opengeo_api.metadata_profiles import _ISO_COUNTRY_CODELIST, _iso_primary_locale
+from opengeo_api.metadata_profiles import (
+    _ISO_COUNTRY_CODELIST,
+    _iso_primary_locale,
+    _iso_quality_unit_label_supported,
+)
 from opengeo_api.resources import (
     MetadataResourceImportPlan,
     MetadataSourceFormat,
@@ -1951,6 +1955,8 @@ def _iso_catalog_extension(
             distributions.append(distribution)
 
     quality: list[dict[str, Any]] = []
+    quality_unit_mapped: list[str] = []
+    quality_unit_unmapped: list[str] = []
     for index, quality_scope in enumerate(_direct_children(root, "dataQualityInfo")):
         for report in (
             element for element in quality_scope.iter() if _local_name(element.tag) == "report"
@@ -1989,6 +1995,26 @@ def _iso_catalog_extension(
                     1_000,
                     f"ISO quality measurement {index} description",
                 )
+            unit_scopes = [
+                element
+                for element in quality_element.iter()
+                if _local_name(element.tag) == "valueUnit"
+            ]
+            if unit_scopes:
+                unit = (
+                    _iso_quality_unit(root, quality_element, quantitative, unit_scopes)
+                    if isinstance(result, int | float) and not isinstance(result, bool)
+                    else None
+                )
+                if unit is None:
+                    quality_unit_unmapped.append(
+                        f"dataQualityInfo.quality[{len(quality)}].valueUnit[unsupported]"
+                    )
+                else:
+                    record["unit"] = unit
+                    quality_unit_mapped.append(
+                        f"mdq:valueUnit->metadata_extensions.opengeo.quality[{len(quality)}].unit"
+                    )
             quality.append(record)
 
     lineage: dict[str, Any] | None = None
@@ -2024,6 +2050,24 @@ def _iso_catalog_extension(
     objective_xml_ids: dict[str, str] = {}
     platform_pass_xml_ids: dict[str, str] = {}
     event_xml_ids: dict[str, str] = {}
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    mdb = "{http://standards.iso.org/iso/19115/-3/mdb/2.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    mcc = "{http://standards.iso.org/iso/19115/-3/mcc/1.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    href_attribute = "{http://www.w3.org/1999/xlink}href"
+    xml_id_nodes: dict[str, list[ET.Element]] = {}
+    for node in root.iter():
+        for attribute in (
+            "id",
+            "{http://www.opengis.net/gml/3.2}id",
+            "{http://www.w3.org/XML/1998/namespace}id",
+        ):
+            if xml_id := node.get(attribute):
+                xml_id_nodes.setdefault(xml_id, []).append(node)
+    inverse_plan_records: dict[ET.Element, dict[str, Any]] = {}
+    inverse_plan_references: list[tuple[ET.Element, str, str, bool]] = []
+    inverse_plan_mapped = False
 
     def acquisition_instrument(element: ET.Element, path: str) -> dict[str, str] | None:
         acquisition_unmapped.extend(
@@ -2458,6 +2502,20 @@ def _iso_catalog_extension(
                     if references:
                         plan[field] = list(dict.fromkeys(references))
                 plans.append(plan)
+                citation_titles = plan_element.findall(
+                    f"{mac}citation/{cit}CI_Citation/{cit}title/{gco}CharacterString"
+                )
+                if (
+                    acquisition_scope.tag == f"{mdb}acquisitionInformation"
+                    and information.tag == f"{mac}MI_AcquisitionInformation"
+                    and child_scope.tag == f"{mac}acquisitionPlan"
+                    and not child_scope.attrib
+                    and list(child_scope) == [plan_element]
+                    and plan_element.tag == f"{mac}MI_Plan"
+                    and len(citation_titles) == 1
+                    and (citation_titles[0].text or "").strip() == plan["identifier"]
+                ):
+                    inverse_plan_records[plan_element] = plan
             elif child_name == "objective":
                 objective_element = _first_element(child_scope, "MI_Objective")
                 if objective_element is None:
@@ -2593,6 +2651,7 @@ def _iso_catalog_extension(
                                 "priority",
                                 "requestedDate",
                                 "expiryDate",
+                                "satisifiedPlan",
                             }
                         }
                     )
@@ -2660,8 +2719,47 @@ def _iso_catalog_extension(
                         "expiryDate": _bounded_string(expiry_date, 1, 100, f"{path} expiry date"),
                     }
                 )
+                identifier_codes = requirement_element.findall(
+                    f"{mac}identifier/{mcc}MD_Identifier/{mcc}code/{gco}CharacterString"
+                )
+                canonical_requirement = (
+                    acquisition_scope.tag == f"{mdb}acquisitionInformation"
+                    and information.tag == f"{mac}MI_AcquisitionInformation"
+                    and child_scope.tag == f"{mac}acquisitionRequirement"
+                    and not child_scope.attrib
+                    and list(child_scope) == [requirement_element]
+                    and requirement_element.tag == f"{mac}MI_Requirement"
+                    and len(identifier_codes) == 1
+                    and (identifier_codes[0].text or "").strip() == requirements[-1]["identifier"]
+                )
+                inverse_plan_references.extend(
+                    (scope, requirements[-1]["identifier"], path, canonical_requirement)
+                    for scope in requirement_element
+                    if _local_name(scope.tag) == "satisifiedPlan"
+                )
             else:
                 acquisition_unmapped.append(path)
+
+    for scope, requirement_identifier, path, canonical_requirement in inverse_plan_references:
+        href = scope.get(href_attribute)
+        targets = xml_id_nodes.get(href[1:], []) if href and href.startswith("#") else []
+        plan_record = inverse_plan_records.get(targets[0]) if len(targets) == 1 else None
+        if (
+            canonical_requirement
+            and scope.tag == f"{mac}satisifiedPlan"
+            and scope.attrib == {href_attribute: href}
+            and href is not None
+            and re.fullmatch(r"#[A-Za-z_][A-Za-z0-9_.-]*", href) is not None
+            and not len(scope)
+            and not (scope.text or "").strip()
+            and plan_record is not None
+        ):
+            references = plan_record.setdefault("requirementIdentifiers", [])
+            if requirement_identifier not in references:
+                references.append(requirement_identifier)
+            inverse_plan_mapped = True
+        else:
+            acquisition_unmapped.append(f"{path}.satisifiedPlan[unsupported]")
 
     if (
         instruments
@@ -2709,10 +2807,66 @@ def _iso_catalog_extension(
         else:
             catalog["schemaVersion"] = "1.1.0"
     unmapped = ["distributionInfo[unsupported]"] if distribution_unmapped else []
+    mapped.extend(quality_unit_mapped)
+    if inverse_plan_mapped:
+        mapped.append(
+            "mac:satisifiedPlan->metadata_extensions.opengeo.acquisition.plans.requirementIdentifiers"
+        )
+    unmapped.extend(quality_unit_unmapped)
     unmapped.extend(acquisition_unmapped)
     if len(lineage_scopes) > 1:
         unmapped.append("resourceLineage[1:]")
     return (catalog if len(catalog) > 1 else None), mapped, unmapped
+
+
+def _iso_quality_unit(
+    root: ET.Element,
+    quality_element: ET.Element,
+    quantitative: ET.Element | None,
+    unit_scopes: list[ET.Element],
+) -> str | None:
+    """Read only an unreferenced simple unit label, without assigning a unit system."""
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    gml = "{http://www.opengis.net/gml/3.2}"
+    if (
+        quantitative is None
+        or quantitative.tag != f"{mdq}DQ_QuantitativeResult"
+        or quality_element.findall(f"{mdq}result/{mdq}DQ_QuantitativeResult") != [quantitative]
+        or len(unit_scopes) != 1
+        or quantitative.findall(f"{mdq}valueUnit") != unit_scopes
+    ):
+        return None
+    unit_scope = unit_scopes[0]
+    if unit_scope.attrib or (unit_scope.text or "").strip() or len(unit_scope) != 1:
+        return None
+    definition = unit_scope[0]
+    identifier_id = definition.get(f"{gml}id")
+    if (
+        definition.tag != f"{gml}UnitDefinition"
+        or set(definition.attrib) != {f"{gml}id"}
+        or identifier_id is None
+        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", identifier_id) is None
+        or sum(node.get(f"{gml}id") == identifier_id for node in root.iter()) != 1
+        or (definition.text or "").strip()
+        or len(definition) != 1
+    ):
+        return None
+    identifier = definition[0]
+    label = identifier.text
+    if (
+        identifier.tag != f"{gml}identifier"
+        or identifier.attrib != {"codeSpace": ""}
+        or len(identifier)
+        or label is None
+        or not 1 <= len(label) <= 1_000
+        or label != label.strip()
+        or not label
+        or not _iso_quality_unit_label_supported(label)
+        or (identifier.tail or "").strip()
+        or (definition.tail or "").strip()
+    ):
+        return None
+    return label
 
 
 def _iso_quality_scalar(value: str | None) -> str | int | float | bool | None:
