@@ -5,6 +5,8 @@ guide describes the supported operations, their limits and what has been tested.
 
 GeoMoose print/responsive meets its original criteria in the declared desktop and 390px emulated-touch profile: reliable layout gestures, persistent conversion details, and source-pinned PDF/PNG with credits, scale and accessible HTML. Imported widthless titles/dates retain their text. Five pinned 3.15.2 layouts retain fourteen explicit element losses; full device coverage, WCAG certification and lossless native rendering are not claimed. See the [criterion report](../parity/reports/geomoose-print-responsive.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/27) for exact acceptance and release identities.
 
+GeoNode Catalog/discovery meets its original three criteria in the declared profiles: authorized filtered search with stable identities, public previews and metadata disclosures, and collision-safe migration. Actual published Studio acceptance uses two synthetic CC0 points and one existing public Artifact; local two-tenant, Map/document and pinned GeoNode 5.1 evidence are explicitly distinguished. The added production Map-bound Artifact and document-sample methods remain unperformed. See the [criterion report](../parity/reports/geonode-catalog-discovery.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/2).
+
 The [Baseline guide](community-baseline.md) describes locally implemented source
 suitability, cached raster inventory/comparison/reference agreement/patches,
 stratified whole-cell reference review with conditional class-area uncertainty,

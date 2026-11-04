@@ -1,0 +1,44 @@
+{
+  "$schema": "../../schemas/parity-evidence.schema.json",
+  "schemaVersion": "1.0.0",
+  "evidence": [
+    {
+      "id": "geonode.catalog-discovery.current-workflow",
+      "kind": "independent_client",
+      "result": "pass",
+      "observedAt": "2026-11-04",
+      "environment": {
+        "kind": "production",
+        "description": "Actual published Studio Dataset preview and public Artifact reader, combined with explicitly local two-tenant RLS, representation and pinned migration evidence.",
+        "limitations": [
+          "One hosted organization; no positive second-tenant or live GeoNode server claim.",
+          "Dataset preview uses 2 synthetic Point features and neutral styling; broader Map/document profiles remain local.",
+          "Added Map-bound production edition/descriptor and deployed document sample methods remain unperformed; pending upload outcome unknown."
+        ]
+      },
+      "commands": [
+        "GET /api/projects/{project_id}/resources with text, bbox, temporal, kind, state and visibility filters",
+        "GET /api/public/organizations/{organization_id}/resources with public facets",
+        "GET /api/public/organizations/{organization_id}/projects/{project_id}/resources/{resource_id}/spatial-preview",
+        "GET /api/public/organizations/{organization_id}/artifact-releases/{release_id}/map"
+      ],
+      "artifacts": [
+        {
+          "path": "parity/reports/geonode-catalog-discovery.json",
+          "description": "Original C01-C03, source/runtime identities, exact receipt hashes and declared hosted/local boundaries."
+        }
+      ],
+      "assertions": [
+        "Original search/isolation, preview/disclosure and migration criteria pass in the declared composite profiles.",
+        "Actual source merges and API/Studio delivery are verified; failed helpers, unknown upload outcome and exceeded CI cost remain explicit.",
+        "This evidence does not promote other families or imply whole-product completion."
+      ],
+      "rowIds": [
+        "geonode.catalog-discovery"
+      ],
+      "fixtureIds": [
+        "geonode-001.resource-migration"
+      ]
+    }
+  ]
+}
