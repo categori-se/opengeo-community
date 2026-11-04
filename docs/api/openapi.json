@@ -10335,9 +10335,16 @@
             "title": "Perms"
           },
           "pk": {
-            "minimum": 1.0,
-            "title": "Pk",
-            "type": "integer"
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pk"
           },
           "resource_type": {
             "enum": [
@@ -10428,7 +10435,6 @@
           }
         },
         "required": [
-          "pk",
           "uuid",
           "resource_type",
           "title"

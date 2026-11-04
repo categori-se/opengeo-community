@@ -37,6 +37,18 @@ inspect the conversion report before sharing an export. A `not_applicable`
 result is possible for the wrong resource kind. Unknown terms stay unknown:
 dataset-level licenses do not automatically become distribution licenses.
 
+## GeoNode 5.1 portable metadata
+
+The resource adapter reports mapped, normalized and preserved fields individually.
+Portable documents retain translations, source metadata, unknown extensions and
+identifier checksums; a native resource may have no GeoNode numeric primary key.
+Reimport uses normal metadata validation, gives incoming source edits precedence,
+and retains bounded first/current evidence. Source identity, content, permissions,
+Styles and profile/publication assertions do not confer native authority.
+Reports are limited to 16 KiB, combined extensions to 8 KiB and translations to
+16 KiB; oversized evidence is rejected rather than truncated. Local adapter and
+HTTP checks pass. API deployment and fresh hosted reimport remain pending.
+
 ## Discover a public CKAN dataset
 
 The [CKAN adapter](../services/api/src/opengeo_api/ckan.py) uses public Action
