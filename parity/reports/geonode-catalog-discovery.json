@@ -1,0 +1,76 @@
+{
+  "schemaVersion": "1.0.0",
+  "observedAt": "2026-11-04",
+  "family": "geonode.catalog-discovery",
+  "result": "pass",
+  "originalAcceptanceCriteria": [
+    "Authorized text, spatial, temporal, and faceted search returns stable resource identities without tenant leakage.",
+    "Results expose previews, relationships, provenance, freshness, and public or restricted discovery state.",
+    "GeoNode identifiers and links migrate without silent collision."
+  ],
+  "criteria": [
+    {
+      "id": "geonode.catalog-discovery:C01",
+      "result": "pass",
+      "assertions": [
+        "Actual owner text/bbox/time/kind/state/visibility positive and repeat preserve identity; separate text, spatial and temporal negatives exclude it.",
+        "Public kind/license/project filters and facets preserve identity; excluded search has no matches/facets. Anonymous restricted detail returns404.",
+        "Unchanged local two-tenant PostgreSQL RLS/collision fixtures and deployed query/authority source binding supplement the hosted single-organization sample."
+      ]
+    },
+    {
+      "id": "geonode.catalog-discovery:C02",
+      "result": "pass",
+      "assertions": [
+        "Normal published Studio detail renders 2 of 2 synthetic CC0 Point features from exact Dataset version1, with neutral-style/sample caption and accessible SVG label.",
+        "Public relationship count/detail link, catalog freshness and explicitly unknown source identity/version are disclosed; authenticated related Resource has a derived_from link.",
+        "One existing dataset-backed public portable Artifact HTML matches 2,097,187 bytes and exact checksum. Qualified local Map/style/image/portable and authored/PDF/ODT preview profiles remain explicitly local."
+      ]
+    },
+    {
+      "id": "geonode.catalog-discovery:C03",
+      "result": "pass",
+      "assertions": [
+        "Pinned GeoNode 5.1 deterministic identifiers/links and collision/unresolved-link rejection are reused against unchanged deployed adapter and selected repository import helpers."
+      ]
+    }
+  ],
+  "reference": {
+    "product": "GeoNode",
+    "version": "5.1.0",
+    "commit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+    "fixture": "parity/fixtures/geonode-5.1-resources.json",
+    "fixtureDataSHA256": "150f7f4aae39919d3b96a887d193350c753e74fdb75929a435591bc480a0f05b",
+    "adapterSHA256": "165e5069bdee410449e879109730e19664dc778fdacec1ffdafd4550aa0e3d82",
+    "boundary": "Source-contract/fixture comparison; no live GeoNode/Django/GeoServer/MapStore or migration replay.",
+    "fixtureDataPath": "parity/fixtures/data/geonode-5.1-resources.json"
+  },
+  "source": {
+    "privatePR": 32,
+    "privateMerge": "f4c82d0c3f836248262d1a4ee49b962198d1b1b8",
+    "publicPR": 85,
+    "publicMerge": "5a749ff026ce8306627416d5d0331a619f22cb95",
+    "normalPRChecks": "9 private / 2 public PASS; actual merged runtime identities bound.",
+    "apiImageSHA256": "b5ff76a4e3c231245f2a48bd2044bd3d77f32a3891bc9dfac6c4b11dd536b8d1",
+    "studioReleaseDigest": "199ca3ea4d60e49f61ec114a6d346c429378db69163445a92b28527d12d76211",
+    "studioSealedManifestSHA256": "cf58e4c83420533cacfe10496de53e5b8881602a14b50052e9fa3dbe40e20f61",
+    "apiClientSHA256": "109036eefd678712755233e6ae59c7e4b7ab4ffe34c4c3b7583e5bab15e77f36",
+    "platformDirectorySHA256": "5b66d7e22f4cd8814a54dca2454a0406ea5099eb257d351ceda2399feca64288",
+    "runtimeClosureSHA256": "6a65faa32dffd4a49b07537416689fae55e6023d47d6b2d814845864bd324e61"
+  },
+  "verification": {
+    "hostedReceiptSHA256": "d9652e70dd0cb412415a3b77c47c7433d0ed6a21a473e3c5ef28f08355240d5a",
+    "completedC01ReceiptSHA256": "16783ccde79ade6ccaa10180a499a608ae85118932143922885d4ee58f4e9b16",
+    "independentReviewSHA256": "af72279e9398cf355e02a21a48c6705a4745b7c25d82ba3167d7a6a20ad8dbb5",
+    "focusedChecks": 140,
+    "scope": "Actual hosted read-only preview/reader plus reused local authorization, representation and migration profiles; no response replacements."
+  },
+  "limits": [
+    "Catalog 100 rows / offset 10,000; five public facets expose at most 50 values from a disclosed 10,000-record sample. No latency SLA or concurrency certification.",
+    "Neutral bounded Dataset preview does not apply saved map Styles. Local document profiles retain semantic ODT and bounded PDF visual fidelity, not original-layout/pixel identity.",
+    "Map-bound production Artifact/descriptor roundtrip and deployed document sample added batch methods remain UNPERFORMED. No claim that their workflows completed.",
+    "No hosted positive second-tenant journey; local two-tenant evidence is labeled local. Unknown provenance/source dates remain unknown.",
+    "Earlier helpers remain failed and pending upload outcome UNKNOWN. Source CI cost exceeded its ceiling: 7,571 / 7,000; acceptance is not an in-budget claim.",
+    "Only this family is accepted. Public metadata publication/issue closure and queued private baseline update are separate; other families remain unfinished."
+  ]
+}
