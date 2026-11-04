@@ -191,3 +191,5 @@ metadata remain preserved under the existing 1 MiB limit and credential redactio
 Unsupported category profiles retain their settings with a conversion warning.
 Nineteen owning cases and the actual compiled export controls pass locally; full
 upstream desktop operation and current-release parity remain unverified.
+
+Native catalog metadata 1.4 adds bounded objective and platform-pass extents, environmental conditions, and plan/requirement citations with separate plan identity. ISO exchange preserves supported fields and reciprocal references; unsupported shapes, unsafe XML text and context omitted to respect the 48 KiB XML source limit are reported explicitly. This subset does not claim full ISO, Schematron or metadata-family conformance.

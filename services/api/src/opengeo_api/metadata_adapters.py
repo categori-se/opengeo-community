@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -2068,6 +2069,447 @@ def _iso_catalog_extension(
     inverse_plan_records: dict[ET.Element, dict[str, Any]] = {}
     inverse_plan_references: list[tuple[ET.Element, str, str, bool]] = []
     inverse_plan_mapped = False
+    acquisition_context_mapped: list[str] = []
+    acquisition_context_entries: list[tuple[str, str]] = []
+    acquisition_context_blocks: list[tuple[dict[str, Any], str, list[tuple[str, str]]]] = []
+    acquisition_context_owner: dict[str, Any] = {}
+    environmental_conditions: dict[str, Any] | None = None
+    gex = "{http://standards.iso.org/iso/19115/-3/gex/1.0}"
+    gml = "{http://www.opengis.net/gml/3.2}"
+    plan_identity_space = "urn:opengeo:catalog:acquisition-plan"
+    parent_nodes = {child: parent for parent in root.iter() for child in parent}
+
+    def context_loss(path: str) -> None:
+        acquisition_unmapped.append(f"{path}[unsupported]")
+
+    def context_owner(element: ET.Element, name: str) -> bool:
+        if element.tag != f"{mac}{name}":
+            return False
+        node = element
+        while (parent := parent_nodes.get(node)) is not None:
+            if parent is root:
+                return node.tag == f"{mdb}acquisitionInformation"
+            if parent.tag == f"{mdb}acquisitionInformation":
+                if parent.attrib or list(parent) != [node]:
+                    return False
+            elif not parent.tag.startswith(mac) or (
+                not _local_name(parent.tag).startswith("MI_")
+                and (parent.attrib or list(parent) != [node])
+            ):
+                return False
+            node = parent
+        return False
+
+    def context_properties(element: ET.Element, name: str) -> list[ET.Element]:
+        return [child for child in element if _local_name(child.tag) == name]
+
+    def context_property(element: ET.Element, tag: str, path: str) -> ET.Element | None:
+        properties = context_properties(element, _local_name(tag))
+        if not properties:
+            return None
+        if len(properties) != 1 or properties[0].tag != tag:
+            context_loss(path)
+            return None
+        return properties[0]
+
+    def context_embedded(
+        scope: ET.Element | None,
+        tag: str,
+        path: str,
+        attributes: set[str] | None = None,
+    ) -> ET.Element | None:
+        if (
+            scope is None
+            or scope.attrib
+            or (scope.text or "").strip()
+            or len(scope) != 1
+            or (scope[0].tail or "").strip()
+            or scope[0].tag != tag
+            or set(scope[0].attrib) - (attributes or set())
+        ):
+            context_loss(path)
+            return None
+        return scope[0]
+
+    def context_unknown(element: ET.Element, tags: set[str], path: str) -> None:
+        if (element.text or "").strip():
+            context_loss(f"{path}.text")
+        for index, child in enumerate(element):
+            if child.tag not in tags:
+                context_loss(f"{path}.{_local_name(child.tag)}[{index}]")
+
+    def context_text(
+        element: ET.Element, property_tag: str, value_tag: str, path: str, maximum: int
+    ) -> str | None:
+        scope = context_property(element, property_tag, path)
+        if scope is None:
+            return None
+        value = context_embedded(scope, value_tag, path)
+        raw = value.text if value is not None else None
+        if (
+            value is None
+            or len(value)
+            or raw is None
+            or raw != raw.strip()
+            or not 1 <= len(raw) <= maximum
+            or not _iso_quality_unit_label_supported(raw)
+        ):
+            context_loss(path)
+            return None
+        return raw
+
+    def context_number(
+        element: ET.Element, property_tag: str, value_tag: str, path: str
+    ) -> int | float | None:
+        raw = context_text(element, property_tag, value_tag, path, 16_384)
+        if raw is None:
+            return None
+        number_pattern = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+        if value_tag == f"{gco}Real":
+            number_pattern += r"(?:[eE][+-]?\d+)?"
+        if re.fullmatch(number_pattern, raw) is None:
+            context_loss(path)
+            return None
+        try:
+            value = float(raw)
+        except ValueError:
+            context_loss(path)
+            return None
+        if not math.isfinite(value):
+            context_loss(path)
+            return None
+        try:
+            exact = Decimal(raw)
+            if re.fullmatch(r"[+-]?\d+", raw) is not None:
+                return int(exact)
+            lossless = Decimal(str(value)) == exact
+            if not lossless and exact == exact.to_integral_value():
+                return int(exact)
+        except InvalidOperation:
+            lossless = False
+        if not lossless:
+            context_loss(path)
+            return None
+        return value
+
+    def context_datetime(raw: str | None, path: str) -> str | None:
+        if raw is None:
+            return None
+        if len(raw) > 100:
+            context_loss(path)
+            return None
+        pattern = (
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?"
+            r"(?:Z|[+-](?:0\d|1[0-4]):[0-5]\d)"
+        )
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            offset = parsed.utcoffset()
+            valid = (
+                re.fullmatch(pattern, raw) is not None
+                and offset is not None
+                and abs(offset.total_seconds()) <= 14 * 60 * 60
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            context_loss(path)
+            return None
+        return raw
+
+    def context_time_key(value: str) -> tuple[datetime, str]:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        fraction = re.search(r"\.(\d+)", value)
+        return parsed.replace(microsecond=0), (fraction.group(1) if fraction else "").rstrip("0")
+
+    def context_mapped(
+        value: Any,
+        path: str,
+        target: str,
+        *,
+        owner: dict[str, Any] | None = None,
+        key: str | None = None,
+    ) -> None:
+        start = len(acquisition_context_entries)
+        if isinstance(value, dict):
+            for field, child in value.items():
+                context_mapped(child, f"{path}.{field}", f"{target}.{field}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                context_mapped(child, f"{path}[{index}]", f"{target}[{index}]")
+        else:
+            acquisition_context_mapped.append(f"{path}->{target}")
+            acquisition_context_entries.append((path, target))
+        if owner is not None and key is not None:
+            entries = acquisition_context_entries[start:]
+            for block_owner, block_key, block_entries in acquisition_context_blocks:
+                if block_owner is owner and block_key == key:
+                    block_entries.extend(entries)
+                    break
+            else:
+                acquisition_context_blocks.append((owner, key, entries))
+
+    def context_extent(scope: ET.Element, path: str) -> dict[str, Any] | None:
+        extent = context_embedded(scope, f"{gex}EX_Extent", path)
+        if extent is None:
+            return None
+        context_unknown(
+            extent,
+            {f"{gex}description", f"{gex}geographicElement", f"{gex}temporalElement"},
+            path,
+        )
+        record: dict[str, Any] = {}
+        description = context_text(
+            extent, f"{gex}description", f"{gco}CharacterString", f"{path}.description", 1000
+        )
+        if description is not None:
+            record["description"] = description
+        boxes: list[dict[str, Any]] = []
+        for index, geographic in enumerate(context_properties(extent, "geographicElement")):
+            box_path = f"{path}.geographicElement[{index}]"
+            if index >= 4 or geographic.tag != f"{gex}geographicElement":
+                context_loss(box_path)
+                continue
+            box = context_embedded(geographic, f"{gex}EX_GeographicBoundingBox", box_path)
+            if box is None:
+                continue
+            names = {
+                "west": ("westBoundLongitude", -180, 180),
+                "east": ("eastBoundLongitude", -180, 180),
+                "south": ("southBoundLatitude", -90, 90),
+                "north": ("northBoundLatitude", -90, 90),
+            }
+            context_unknown(
+                box,
+                {f"{gex}{v[0]}" for v in names.values()} | {f"{gex}extentTypeCode"},
+                box_path,
+            )
+            bounds: dict[str, Any] = {}
+            for key, (name, minimum, maximum) in names.items():
+                number = context_number(box, f"{gex}{name}", f"{gco}Decimal", f"{box_path}.{name}")
+                if number is not None and minimum <= number <= maximum:
+                    bounds[key] = number
+                else:
+                    context_loss(f"{box_path}.{name}")
+            if len(bounds) != 4 or bounds["south"] > bounds["north"]:
+                context_loss(box_path)
+                continue
+            inclusion = context_text(
+                box, f"{gex}extentTypeCode", f"{gco}Boolean", f"{box_path}.extentTypeCode", 5
+            )
+            if inclusion in {"true", "false", "1", "0"}:
+                bounds["extentTypeCode"] = inclusion in {"true", "1"}
+            elif inclusion is not None:
+                context_loss(f"{box_path}.extentTypeCode")
+            boxes.append(bounds)
+        if boxes:
+            record["geographicBounds"] = boxes
+        temporal_scopes = context_properties(extent, "temporalElement")
+        if temporal_scopes:
+            temporal_path = f"{path}.temporalElement"
+            temporal = (
+                context_embedded(temporal_scopes[0], f"{gex}EX_TemporalExtent", temporal_path)
+                if len(temporal_scopes) == 1 and temporal_scopes[0].tag == f"{gex}temporalElement"
+                else None
+            )
+            period = None
+            if (
+                temporal is not None
+                and len(temporal) == 1
+                and not (temporal.text or "").strip()
+                and not (temporal[0].tail or "").strip()
+            ):
+                period_scope = context_property(temporal, f"{gex}extent", temporal_path)
+                period = context_embedded(
+                    period_scope, f"{gml}TimePeriod", temporal_path, {f"{gml}id"}
+                )
+            if period is not None:
+                period_id = period.get(f"{gml}id")
+                if (
+                    not period_id
+                    or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", period_id) is None
+                    or len(xml_id_nodes.get(period_id, [])) != 1
+                    or (period.text or "").strip()
+                    or any((child.tail or "").strip() for child in period)
+                    or len(period) != 2
+                    or {child.tag for child in period}
+                    != {f"{gml}beginPosition", f"{gml}endPosition"}
+                ):
+                    period = None
+            dates: dict[str, str] = {}
+            if period is not None:
+                for key, tag in (("start", "beginPosition"), ("end", "endPosition")):
+                    nodes = period.findall(f"{gml}{tag}")
+                    node = nodes[0] if len(nodes) == 1 else None
+                    raw = (
+                        node.text
+                        if node is not None and not node.attrib and not len(node)
+                        else None
+                    )
+                    date = context_datetime(raw, f"{temporal_path}.{tag}")
+                    if date is not None:
+                        dates[key] = date
+            if len(dates) == 2 and context_time_key(dates["start"]) <= context_time_key(
+                dates["end"]
+            ):
+                record["temporal"] = dates
+            else:
+                context_loss(temporal_path)
+        if not record:
+            context_loss(path)
+        return record or None
+
+    def context_citation(
+        element: ET.Element, path: str, *, plan: bool = False
+    ) -> tuple[dict[str, Any] | None, str | None, bool]:
+        scope = context_property(element, f"{mac}citation", path)
+        if scope is None:
+            return None, None, bool(context_properties(element, "citation"))
+        citation = context_embedded(scope, f"{cit}CI_Citation", path)
+        if citation is None:
+            return None, None, True
+        context_unknown(
+            citation,
+            {
+                f"{cit}{name}"
+                for name in (
+                    "title",
+                    "alternateTitle",
+                    "date",
+                    "edition",
+                    "editionDate",
+                    "identifier",
+                )
+            },
+            path,
+        )
+        title = context_text(
+            citation, f"{cit}title", f"{gco}CharacterString", f"{path}.title", 1000
+        )
+        if title is None:
+            context_loss(f"{path}.title")
+            return None, None, True
+        record: dict[str, Any] = {"title": title}
+        alternatives: list[str] = []
+        for index, alternate in enumerate(context_properties(citation, "alternateTitle")):
+            alternate_path = f"{path}.alternateTitle[{index}]"
+            value = context_embedded(alternate, f"{gco}CharacterString", alternate_path)
+            raw = value.text if value is not None and not len(value) else None
+            if (
+                index >= 8
+                or alternate.tag != f"{cit}alternateTitle"
+                or raw is None
+                or raw != raw.strip()
+                or not 1 <= len(raw) <= 1000
+                or not _iso_quality_unit_label_supported(raw)
+            ):
+                context_loss(alternate_path)
+            else:
+                alternatives.append(raw)
+        if alternatives:
+            record["alternateTitles"] = alternatives
+        dates: list[dict[str, str]] = []
+        for index, date_scope in enumerate(context_properties(citation, "date")):
+            date_path = f"{path}.date[{index}]"
+            date = context_embedded(date_scope, f"{cit}CI_Date", date_path)
+            if index >= 8 or date_scope.tag != f"{cit}date" or date is None:
+                context_loss(date_path)
+                continue
+            context_unknown(date, {f"{cit}date", f"{cit}dateType"}, date_path)
+            raw = context_text(date, f"{cit}date", f"{gco}Date", f"{date_path}.date", 10)
+            type_scope = context_property(date, f"{cit}dateType", f"{date_path}.dateType")
+            type_node = context_embedded(
+                type_scope,
+                f"{cit}CI_DateTypeCode",
+                f"{date_path}.dateType",
+                {"codeList", "codeListValue"},
+            )
+            date_type = type_node.get("codeListValue") if type_node is not None else None
+            try:
+                valid_date = raw is not None and re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw) is not None
+                if valid_date:
+                    datetime.fromisoformat(raw)
+            except ValueError:
+                valid_date = False
+            if (
+                not valid_date
+                or date_type not in {"creation", "publication", "revision"}
+                or type_node is None
+                or len(type_node)
+                or (type_node.text or "").strip() not in {"", date_type}
+            ):
+                context_loss(date_path)
+            elif raw is not None and date_type is not None:
+                dates.append({"date": raw, "dateType": date_type})
+        if dates:
+            record["dates"] = dates
+        edition = context_text(
+            citation, f"{cit}edition", f"{gco}CharacterString", f"{path}.edition", 300
+        )
+        if edition is not None:
+            record["edition"] = edition
+        edition_date = context_datetime(
+            context_text(
+                citation, f"{cit}editionDate", f"{gco}DateTime", f"{path}.editionDate", 100
+            ),
+            f"{path}.editionDate",
+        )
+        if edition_date is not None:
+            record["editionDate"] = edition_date
+        identifiers: list[dict[str, str]] = []
+        carriers: list[str] = []
+        invalid_carrier = False
+        for index, identifier_scope in enumerate(context_properties(citation, "identifier")):
+            identifier_path = f"{path}.identifier[{index}]"
+            carrier_shape = any(
+                _local_name(child.tag) == "codeSpace"
+                and any((node.text or "").strip() == plan_identity_space for node in child.iter())
+                for child in identifier_scope.iter()
+            )
+            identifier = context_embedded(identifier_scope, f"{mcc}MD_Identifier", identifier_path)
+            value: dict[str, str] = {}
+            if identifier_scope.tag == f"{cit}identifier" and identifier is not None:
+                context_unknown(identifier, {f"{mcc}code", f"{mcc}codeSpace"}, identifier_path)
+                code = context_text(
+                    identifier,
+                    f"{mcc}code",
+                    f"{gco}CharacterString",
+                    f"{identifier_path}.code",
+                    300,
+                )
+                code_space = context_text(
+                    identifier,
+                    f"{mcc}codeSpace",
+                    f"{gco}CharacterString",
+                    f"{identifier_path}.codeSpace",
+                    300,
+                )
+                if code is not None:
+                    value["code"] = code
+                if code_space is not None:
+                    value["codeSpace"] = code_space
+            if carrier_shape:
+                if (
+                    not plan
+                    or set(value) != {"code", "codeSpace"}
+                    or value["codeSpace"] != plan_identity_space
+                    or identifier is None
+                    or len(identifier) != 2
+                ):
+                    invalid_carrier = True
+                    context_loss(f"{identifier_path}.planIdentity")
+                else:
+                    carriers.append(value["code"])
+            elif "code" not in value or len(identifiers) >= 8 or value in identifiers:
+                context_loss(identifier_path)
+            else:
+                identifiers.append(value)
+        if len(carriers) > 1:
+            invalid_carrier = True
+            context_loss(f"{path}.planIdentity[ambiguous]")
+        if identifiers:
+            record["identifiers"] = identifiers
+        return record, carriers[0] if len(carriers) == 1 else None, invalid_carrier
 
     def acquisition_instrument(element: ET.Element, path: str) -> dict[str, str] | None:
         acquisition_unmapped.extend(
@@ -2201,7 +2643,7 @@ def _iso_catalog_extension(
         return record
 
     def acquisition_platform_pass(element: ET.Element, path: str) -> dict[str, Any] | None:
-        supported = {"identifier", "relatedEvent"}
+        supported = {"identifier", "relatedEvent", "extent"}
         acquisition_unmapped.extend(
             f"{path}.{name}"
             for name in sorted(
@@ -2219,6 +2661,31 @@ def _iso_catalog_extension(
         record: dict[str, Any] = {
             "identifier": _bounded_string(identifier, 1, 300, f"{path} identifier")
         }
+        extent_scopes = context_properties(element, "extent")
+        if extent_scopes:
+            extent = (
+                context_extent(extent_scopes[0], f"{path}.extent")
+                if context_owner(element, "MI_PlatformPass")
+                and len(extent_scopes) == 1
+                and extent_scopes[0].tag == f"{mac}extent"
+                else None
+            )
+            if extent is None:
+                context_loss(f"{path}.extent")
+            elif not any(
+                existing["identifier"] == record["identifier"] for existing in platform_passes
+            ):
+                record["extent"] = extent
+                context_mapped(
+                    extent,
+                    f"{path}.extent",
+                    "metadata_extensions.opengeo.acquisition.platformPasses"
+                    f"[{len(platform_passes)}].extent",
+                    owner=record,
+                    key="extent",
+                )
+            else:
+                context_loss(f"{path}.extent[duplicate-pass]")
         references: list[str] = []
         for event_scope in _direct_children(element, "relatedEvent"):
             href = event_scope.attrib.get("{http://www.w3.org/1999/xlink}href")
@@ -2449,9 +2916,17 @@ def _iso_catalog_extension(
                         }
                     )
                 )
-                identifier = _first_text(_direct_child(plan_element, "citation"), "CharacterString")
+                citation, carrier, invalid_identity = context_citation(
+                    plan_element, f"{path}.citation", plan=True
+                )
+                if invalid_identity:
+                    context_loss(f"{path}.planIdentity")
+                    continue
+                identifier = carrier or (citation["title"] if citation is not None else None)
                 status = acquisition_code(plan_element, "status", "MD_ProgressCode")
-                if identifier is None or status is None:
+                if identifier is None or status is None or len(identifier) > 300:
+                    if identifier is not None and len(identifier) > 300:
+                        context_loss(f"{path}.citation.title[plan-identity-too-long]")
                     acquisition_unmapped.append(f"{path}[missing-required]")
                     continue
                 plan: dict[str, Any] = {
@@ -2461,6 +2936,26 @@ def _iso_catalog_extension(
                 plan_type = acquisition_code(plan_element, "type", "MI_GeometryTypeCode")
                 if plan_type:
                     plan["type"] = _bounded_string(plan_type, 1, 300, f"{path} type")
+                if citation is not None and (carrier is not None or len(citation) > 1):
+                    if context_owner(plan_element, "MI_Plan"):
+                        plan["citation"] = citation
+                        context_mapped(
+                            citation,
+                            f"{path}.citation",
+                            f"metadata_extensions.opengeo.acquisition.plans[{len(plans)}].citation",
+                            owner=plan,
+                            key="citation",
+                        )
+                        if carrier is not None:
+                            acquisition_context_mapped.append(
+                                f"{path}.citation.identifier[planIdentity]->"
+                                f"metadata_extensions.opengeo.acquisition.plans[{len(plans)}].identifier"
+                            )
+                    else:
+                        context_loss(f"{path}.citation")
+                        if carrier is not None:
+                            context_loss(f"{path}.planIdentity")
+                            continue
                 for property_name, field, reference_map, embedded_name in (
                     (
                         "operation",
@@ -2513,7 +3008,8 @@ def _iso_catalog_extension(
                     and list(child_scope) == [plan_element]
                     and plan_element.tag == f"{mac}MI_Plan"
                     and len(citation_titles) == 1
-                    and (citation_titles[0].text or "").strip() == plan["identifier"]
+                    and citation is not None
+                    and (citation_titles[0].text or "").strip() == citation["title"]
                 ):
                     inverse_plan_records[plan_element] = plan
             elif child_name == "objective":
@@ -2533,6 +3029,7 @@ def _iso_catalog_extension(
                                 "priority",
                                 "type",
                                 "function",
+                                "extent",
                                 "sensingInstrument",
                                 "pass",
                                 "objectiveOccurence",
@@ -2553,6 +3050,32 @@ def _iso_catalog_extension(
                 objective: dict[str, Any] = {
                     "identifier": _bounded_string(identifiers[0], 1, 300, f"{path} identifier")
                 }
+                extents: list[dict[str, Any]] = []
+                for extent_index, extent_scope in enumerate(
+                    context_properties(objective_element, "extent")
+                ):
+                    extent_path = f"{path}.extent[{extent_index}]"
+                    extent = (
+                        context_extent(extent_scope, extent_path)
+                        if extent_index < 4
+                        and context_owner(objective_element, "MI_Objective")
+                        and extent_scope.tag == f"{mac}extent"
+                        else None
+                    )
+                    if extent is None:
+                        context_loss(extent_path)
+                    else:
+                        context_mapped(
+                            extent,
+                            extent_path,
+                            f"metadata_extensions.opengeo.acquisition.objectives[{len(objectives)}]"
+                            f".extents[{len(extents)}]",
+                            owner=objective,
+                            key="extents",
+                        )
+                        extents.append(extent)
+                if extents:
+                    objective["extents"] = extents
                 priority = _first_text(
                     _direct_child(objective_element, "priority"), "CharacterString"
                 )
@@ -2645,6 +3168,7 @@ def _iso_catalog_extension(
                             for child in requirement_element
                             if _local_name(child.tag)
                             not in {
+                                "citation",
                                 "identifier",
                                 "requestor",
                                 "recipient",
@@ -2719,6 +3243,22 @@ def _iso_catalog_extension(
                         "expiryDate": _bounded_string(expiry_date, 1, 100, f"{path} expiry date"),
                     }
                 )
+                if context_properties(requirement_element, "citation"):
+                    citation, _, _ = context_citation(requirement_element, f"{path}.citation")
+                    if citation is not None and context_owner(
+                        requirement_element, "MI_Requirement"
+                    ):
+                        requirements[-1]["citation"] = citation
+                        context_mapped(
+                            citation,
+                            f"{path}.citation",
+                            "metadata_extensions.opengeo.acquisition.requirements"
+                            f"[{len(requirements) - 1}].citation",
+                            owner=requirements[-1],
+                            key="citation",
+                        )
+                    else:
+                        context_loss(f"{path}.citation")
                 identifier_codes = requirement_element.findall(
                     f"{mac}identifier/{mcc}MD_Identifier/{mcc}code/{gco}CharacterString"
                 )
@@ -2737,6 +3277,64 @@ def _iso_catalog_extension(
                     for scope in requirement_element
                     if _local_name(scope.tag) == "satisifiedPlan"
                 )
+            elif child_name == "environmentalConditions":
+                environment_path = f"{path}.MI_EnvironmentalRecord"
+                candidates = [
+                    child
+                    for scope in acquisition_scopes
+                    for info in scope
+                    if scope.tag == f"{mdb}acquisitionInformation"
+                    and info.tag == f"{mac}MI_AcquisitionInformation"
+                    for child in info
+                    if _local_name(child.tag) == "environmentalConditions"
+                ]
+                environment = (
+                    context_embedded(child_scope, f"{mac}MI_EnvironmentalRecord", environment_path)
+                    if len(candidates) == 1
+                    and child_scope.tag == f"{mac}environmentalConditions"
+                    and acquisition_scope.tag == f"{mdb}acquisitionInformation"
+                    and context_owner(information, "MI_AcquisitionInformation")
+                    else None
+                )
+                if environment is None:
+                    context_loss(environment_path)
+                    continue
+                names = (
+                    "averageAirTemperature",
+                    "maxRelativeHumidity",
+                    "maxAltitude",
+                    "meterologicalConditions",
+                    "solarAzimuth",
+                    "solarElevation",
+                )
+                context_unknown(environment, {f"{mac}{name}" for name in names}, environment_path)
+                values: dict[str, Any] = {}
+                for name in names:
+                    value_path = f"{environment_path}.{name}"
+                    if name == "meterologicalConditions":
+                        value: Any = context_text(
+                            environment, f"{mac}{name}", f"{gco}CharacterString", value_path, 1000
+                        )
+                        native_name = "meteorologicalConditions"
+                    else:
+                        value = context_number(
+                            environment, f"{mac}{name}", f"{gco}Real", value_path
+                        )
+                        native_name = name
+                    if value is not None:
+                        values[native_name] = value
+                if values:
+                    environmental_conditions = values
+                    acquisition_context_owner["environmentalConditions"] = values
+                    context_mapped(
+                        values,
+                        environment_path,
+                        "metadata_extensions.opengeo.acquisition.environmentalConditions",
+                        owner=acquisition_context_owner,
+                        key="environmentalConditions",
+                    )
+                else:
+                    context_loss(environment_path)
             else:
                 acquisition_unmapped.append(path)
 
@@ -2770,21 +3368,25 @@ def _iso_catalog_extension(
         or requirements
         or platform_passes
         or events
+        or environmental_conditions
     ):
-        acquisition = {
-            key: value
-            for key, value in (
-                ("instruments", instruments),
-                ("platformPasses", platform_passes),
-                ("events", events),
-                ("operations", operations),
-                ("platforms", platforms),
-                ("plans", plans),
-                ("objectives", objectives),
-                ("requirements", requirements),
-            )
-            if value
-        }
+        acquisition = acquisition_context_owner
+        acquisition.update(
+            {
+                key: value
+                for key, value in (
+                    ("instruments", instruments),
+                    ("platformPasses", platform_passes),
+                    ("events", events),
+                    ("operations", operations),
+                    ("platforms", platforms),
+                    ("plans", plans),
+                    ("objectives", objectives),
+                    ("requirements", requirements),
+                )
+                if value
+            }
+        )
 
     catalog: dict[str, Any] = {"schemaVersion": "1.0.0"}
     mapped: list[str] = []
@@ -2800,14 +3402,42 @@ def _iso_catalog_extension(
             catalog[target] = catalog_value
             mapped.append(f"{source}->metadata_extensions.opengeo.{target}")
     if acquisition:
-        if platform_passes or events:
+        if acquisition_context_mapped:
+            catalog["schemaVersion"] = "1.4.0"
+        elif platform_passes or events:
             catalog["schemaVersion"] = "1.3.0"
         elif plans or objectives or requirements:
             catalog["schemaVersion"] = "1.2.0"
         else:
             catalog["schemaVersion"] = "1.1.0"
+    for owner, key, entries in reversed(acquisition_context_blocks):
+        if len(canonical_json_bytes({"opengeo": catalog})) <= 8_192:
+            break
+        if key not in owner:
+            continue
+        del owner[key]
+        dropped = {f"{source}->{target}" for source, target in entries}
+        acquisition_context_mapped[:] = [
+            entry for entry in acquisition_context_mapped if entry not in dropped
+        ]
+        acquisition_unmapped.extend(f"{source}[size-limit]" for source, _ in entries)
+        if not acquisition:
+            catalog.pop("acquisition", None)
+            mapped.remove("mdb:acquisitionInformation->metadata_extensions.opengeo.acquisition")
+            catalog["schemaVersion"] = "1.0.0"
+        elif not any(
+            block_key in block_owner for block_owner, block_key, _ in acquisition_context_blocks
+        ):
+            catalog["schemaVersion"] = (
+                "1.3.0"
+                if platform_passes or events
+                else "1.2.0"
+                if plans or objectives or requirements
+                else "1.1.0"
+            )
     unmapped = ["distributionInfo[unsupported]"] if distribution_unmapped else []
     mapped.extend(quality_unit_mapped)
+    mapped.extend(acquisition_context_mapped)
     if inverse_plan_mapped:
         mapped.append(
             "mac:satisifiedPlan->metadata_extensions.opengeo.acquisition.plans.requirementIdentifiers"
