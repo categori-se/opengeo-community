@@ -687,6 +687,98 @@ def test_iso_localized_metadata_survives_xml_export_and_fresh_import() -> None:
     assert reopened.draft.metadata.keywords == plan.draft.metadata.keywords
 
 
+@pytest.mark.parametrize("language", ["fr-CA", "fr-ca"])
+def test_iso_primary_language_country_survives_export_and_fresh_import(language: str) -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.summary.language = language
+    exported = export_iso_19115_3(resource)
+    root = ET.fromstring(exported["documentText"])
+    lan = "{http://standards.iso.org/iso/19115/-3/lan/1.0}"
+    mdb = "{http://standards.iso.org/iso/19115/-3/mdb/2.0}"
+    locale = root.find(f"{mdb}defaultLocale/{lan}PT_Locale")
+    assert locale is not None
+    assert [node.tag for node in locale] == [
+        f"{lan}language",
+        f"{lan}country",
+        f"{lan}characterEncoding",
+    ]
+    code = locale.find(f"{lan}language/{lan}LanguageCode")
+    country = locale.find(f"{lan}country/{lan}CountryCode")
+    assert code is not None and code.get("codeListValue") == code.text == "fr"
+    assert country is not None
+    assert country.get("codeList") == "ISO3166Part1"
+    assert country.get("codeListValue") == country.text == "CA"
+    assert "language.case->ISO_lowercase_language_uppercase_country" in exported["report"]["mapped"]
+    reopened = iso_import(exported["documentText"])
+    assert reopened.draft.metadata.language == "fr-ca"
+    assert reopened.draft.metadata.translations == resource.translations
+    assert "mdb:defaultLocale.CountryCode->language.region" in reopened.conversion_report["mapped"]
+    assert reopened.source_document == exported["documentText"]
+    assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(
+        exported["documentText"]
+    )
+    assert resource.summary.language == language
+
+
+@pytest.mark.parametrize("language", ["sr-Latn", "fr-ZZ"])
+def test_iso_primary_unsupported_tags_are_explicit_without_fake_codes(language: str) -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.summary.language = language
+    exported = export_iso_19115_3(resource)
+    assert exported["status"] == "not_exportable_missing_required_metadata"
+    assert exported["documentText"] is None
+    assert exported["report"]["missingRequired"] == ["language"]
+    assert exported["report"]["unmappedValues"] == {"language": language}
+    assert "language" in exported["report"]["unmapped"]
+    assert exported["report"]["conformanceClaimed"] is False
+    assert resource.summary.language == language
+
+
+@pytest.mark.parametrize("invalid_country", ["foreign-code-list", "duplicate-code"])
+def test_iso_primary_untrusted_country_is_retained_without_guessing(invalid_country: str) -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.summary.language = "fr-CA"
+    root = ET.fromstring(export_iso_19115_3(resource)["documentText"])
+    lan = "{http://standards.iso.org/iso/19115/-3/lan/1.0}"
+    mdb = "{http://standards.iso.org/iso/19115/-3/mdb/2.0}"
+    country_scope = root.find(f"{mdb}defaultLocale/{lan}PT_Locale/{lan}country")
+    assert country_scope is not None
+    if invalid_country == "foreign-code-list":
+        country_scope[0].set("codeList", "https://example.invalid/foreign-countries")
+    else:
+        ET.SubElement(
+            country_scope, f"{lan}CountryCode", {"codeList": "ISO3166Part1", "codeListValue": "US"}
+        ).text = "US"
+    document = ET.tostring(root, encoding="unicode")
+    plan = iso_import(document)
+    assert plan.draft.metadata.language == "fr"
+    assert "mdb:defaultLocale.country" in plan.conversion_report["unmapped"]
+    assert plan.source_document == document
+    assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+
+
+def test_iso_primary_legacy_compound_code_retains_source_and_reexports_country() -> None:
+    root = ET.fromstring(localized_iso_document())
+    lan = "{http://standards.iso.org/iso/19115/-3/lan/1.0}"
+    mdb = "{http://standards.iso.org/iso/19115/-3/mdb/2.0}"
+    code = root.find(f"{mdb}defaultLocale/{lan}PT_Locale/{lan}language/{lan}LanguageCode")
+    assert code is not None
+    code.text = "fr-CA"
+    code.set("codeListValue", "fr-CA")
+    document = ET.tostring(root, encoding="unicode")
+    plan = iso_import(document)
+    assert plan.draft.metadata.language == "fr-ca"
+    assert (
+        "mdb:defaultLocale.LanguageCode[compound-tag-preserved]"
+        in plan.conversion_report["unmapped"]
+    )
+    assert plan.source_document == document
+    exported = export_iso_19115_3(resource_from_plan(plan))
+    reopened = iso_import(exported["documentText"])
+    assert reopened.draft.metadata.language == "fr-ca"
+    assert "mdb:defaultLocale.CountryCode->language.region" in reopened.conversion_report["mapped"]
+
+
 def test_iso_export_retains_native_region_and_script_locales_as_explicit_losses() -> None:
     resource = resource_from_plan(iso_import(localized_iso_document()))
     resource.translations = {
