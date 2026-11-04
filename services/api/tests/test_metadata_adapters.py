@@ -509,6 +509,7 @@ def test_iso_19115_3_exact_xml_import_and_semantic_export_are_bounded() -> None:
         {
             "measure": "completeness",
             "result": 0.98,
+            "unit": "ratio",
             "description": "Sampled against imagery.",
         }
     ]
@@ -522,7 +523,7 @@ def test_iso_19115_3_exact_xml_import_and_semantic_export_are_bounded() -> None:
         "metadata_extensions.opengeo.distributions[0].checksumSha256"
         in exported["report"]["unmapped"]
     )
-    assert "metadata_extensions.opengeo.quality[0].unit" in exported["report"]["unmapped"]
+    assert "metadata_extensions.opengeo.quality[0].unit" not in exported["report"]["unmapped"]
     assert reparsed.draft.metadata.title == plan.draft.metadata.title
     assert reparsed.draft.metadata.temporal_end == plan.draft.metadata.temporal_end
     assert exported["report"]["schemaValidated"] is False
@@ -535,6 +536,198 @@ def test_iso_19115_3_exact_xml_import_and_semantic_export_are_bounded() -> None:
         assert_safe_metadata_source(
             '<mdb:MD_Metadata xmlns:mdb="http://standards.iso.org/iso/19115/-3/mdb/1.0" />'
         )
+
+
+def test_iso_quantitative_quality_units_round_trip_exact_labels_and_unique_ids() -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    quality = [
+        {"measure": "concentration", "result": 3.5, "unit": "µg & m⁻³"},
+        {"measure": "completeness", "result": 1, "unit": "ratio"},
+        {"measure": "observations", "result": 12},
+    ]
+    resource.metadata_extensions["opengeo"]["quality"] = quality
+    exported = export_iso_19115_3(resource)
+    assert export_iso_19115_3(resource)["documentText"] == exported["documentText"]
+    assert "µg &amp; m⁻³" in exported["documentText"]
+    root = ET.fromstring(exported["documentText"])
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    gml = "{http://www.opengis.net/gml/3.2}"
+    results = list(root.iter(f"{mdq}DQ_QuantitativeResult"))
+    assert len(results) == 3
+    assert [[node.tag for node in result] for result in results] == [
+        [f"{mdq}value", f"{mdq}valueUnit"],
+        [f"{mdq}value", f"{mdq}valueUnit"],
+        [f"{mdq}value"],
+    ]
+    definitions = list(root.iter(f"{gml}UnitDefinition"))
+    assert [node.get(f"{gml}id") for node in definitions] == ["quality-unit-0", "quality-unit-1"]
+    assert [node[0].text for node in definitions] == ["µg & m⁻³", "ratio"]
+    assert all(node[0].attrib == {"codeSpace": ""} for node in definitions)
+    assert not any(
+        "quality[" in path and path.endswith(".unit") for path in exported["report"]["unmapped"]
+    )
+    reopened = iso_import(exported["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["quality"] == quality
+    assert resource.metadata_extensions["opengeo"]["quality"] == quality
+    assert (
+        "mdq:valueUnit->metadata_extensions.opengeo.quality[0].unit"
+        in reopened.conversion_report["mapped"]
+    )
+    assert reopened.source_document == exported["documentText"]
+
+
+@pytest.mark.parametrize(
+    "invalid_character",
+    ["\x00", "\x1f", "\r", "\ud800", "\ufffe", "\uffff"],
+    ids=["nul", "control", "cr", "surrogate", "fffe", "ffff"],
+)
+def test_iso_quality_unit_unsupported_labels_remain_explicit_losses(
+    invalid_character: str,
+) -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    unit = f"native{invalid_character}unit"
+    resource.metadata_extensions["opengeo"]["quality"] = [
+        {"measure": "completeness", "result": 0.98, "unit": unit}
+    ]
+    exported = export_iso_19115_3(resource)
+    root = ET.fromstring(exported["documentText"])
+    assert not list(root.iter("{http://www.opengis.net/gml/3.2}UnitDefinition"))
+    assert "metadata_extensions.opengeo.quality[0].unit" in exported["report"]["unmapped"]
+    reopened = iso_import(exported["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["quality"] == [
+        {"measure": "completeness", "result": 0.98}
+    ]
+    assert resource.metadata_extensions["opengeo"]["quality"][0]["unit"] == unit
+
+
+def test_iso_descriptive_quality_unit_remains_an_explicit_loss() -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"]["quality"] = [
+        {"measure": "review", "result": "Accepted with caveats", "unit": "category"}
+    ]
+    exported = export_iso_19115_3(resource)
+    assert "valueUnit" not in exported["documentText"]
+    assert "metadata_extensions.opengeo.quality[0].unit" in exported["report"]["unmapped"]
+    reopened = iso_import(exported["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["quality"] == [
+        {"measure": "review", "result": "Accepted with caveats"}
+    ]
+    assert resource.metadata_extensions["opengeo"]["quality"][0]["unit"] == "category"
+
+
+@pytest.mark.parametrize("unsupported", ["reference", "complex", "foreign", "ambiguous"])
+def test_iso_unsupported_quality_unit_shapes_preserve_source_and_report_loss(
+    unsupported: str,
+) -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"]["quality"] = [
+        {"measure": "completeness", "result": 0.98, "unit": "ratio"}
+    ]
+    root = ET.fromstring(export_iso_19115_3(resource)["documentText"])
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    gml = "{http://www.opengis.net/gml/3.2}"
+    unit_scope = next(root.iter(f"{mdq}valueUnit"))
+    definition = unit_scope[0]
+    if unsupported == "reference":
+        unit_scope.clear()
+        unit_scope.set("{http://www.w3.org/1999/xlink}href", "https://example.invalid/unit/ratio")
+    elif unsupported == "complex":
+        ET.SubElement(definition, f"{gml}quantityType").text = "dimensionless"
+    elif unsupported == "foreign":
+        definition.tag = "{https://example.invalid/foreign}UnitDefinition"
+    else:
+        ET.SubElement(definition, f"{gml}identifier", {"codeSpace": ""}).text = "percent"
+    document = ET.tostring(root, encoding="unicode")
+    plan = iso_import(document)
+    assert plan.draft.metadata.extensions["opengeo"]["quality"] == [
+        {"measure": "completeness", "result": 0.98}
+    ]
+    assert "dataQualityInfo.quality[0].valueUnit[unsupported]" in plan.conversion_report["unmapped"]
+    assert plan.source_document == document
+    assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+
+
+@pytest.mark.parametrize("reciprocal_forward", [False, True])
+def test_iso_acquisition_reverse_links_restore_graph_and_dedupe_reciprocals(
+    reciprocal_forward: bool,
+) -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    catalog = fixture("metadata-012-opengeo-acquisition-planning.json")
+    second_plan = dict(catalog["acquisition"]["plans"][0], identifier="PLAN-SECOND")
+    catalog["acquisition"]["plans"].append(second_plan)
+    resource.metadata_extensions["opengeo"] = catalog
+    exported = export_iso_19115_3(resource)
+    root = ET.fromstring(exported["documentText"])
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    href_attribute = "{http://www.w3.org/1999/xlink}href"
+    requirement = next(root.iter(f"{mac}MI_Requirement"))
+    assert [node.tag for node in requirement][-3:] == [
+        f"{mac}expiryDate",
+        f"{mac}satisifiedPlan",
+        f"{mac}satisifiedPlan",
+    ]
+    assert [node.get(href_attribute) for node in requirement.findall(f"{mac}satisifiedPlan")] == [
+        "#opengeo-plan-1",
+        "#opengeo-plan-2",
+    ]
+    if not reciprocal_forward:
+        for plan in root.iter(f"{mac}MI_Plan"):
+            for reference in plan.findall(f"{mac}satisfiedRequirement"):
+                plan.remove(reference)
+    document = ET.tostring(root, encoding="unicode")
+    reopened = iso_import(document)
+    assert (
+        reopened.draft.metadata.extensions["opengeo"]["acquisition"]["plans"]
+        == catalog["acquisition"]["plans"]
+    )
+    assert (
+        "mac:satisifiedPlan->metadata_extensions.opengeo.acquisition.plans.requirementIdentifiers"
+        in reopened.conversion_report["mapped"]
+    )
+    assert not any("satisifiedPlan" in path for path in reopened.conversion_report["unmapped"])
+    assert reopened.source_document == document
+    assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+
+
+@pytest.mark.parametrize("unsupported", ["external", "unresolved", "foreign", "ambiguous"])
+def test_iso_acquisition_reverse_unsupported_refs_preserve_source_without_joins(
+    unsupported: str,
+) -> None:
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    catalog = fixture("metadata-012-opengeo-acquisition-planning.json")
+    catalog["acquisition"]["plans"].append(
+        dict(catalog["acquisition"]["plans"][0], identifier="PLAN-SECOND")
+    )
+    resource.metadata_extensions["opengeo"] = catalog
+    root = ET.fromstring(export_iso_19115_3(resource)["documentText"])
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    href_attribute = "{http://www.w3.org/1999/xlink}href"
+    plans = list(root.iter(f"{mac}MI_Plan"))
+    for plan in plans:
+        for reference in plan.findall(f"{mac}satisfiedRequirement"):
+            plan.remove(reference)
+    requirement = next(root.iter(f"{mac}MI_Requirement"))
+    references = requirement.findall(f"{mac}satisifiedPlan")
+    reference = references[0]
+    requirement.remove(references[1])
+    if unsupported == "external":
+        reference.set(href_attribute, "https://example.invalid/plan.xml#opengeo-plan-1")
+    elif unsupported == "unresolved":
+        reference.set(href_attribute, "#absent-plan")
+    elif unsupported == "foreign":
+        reference.tag = "{https://example.invalid/foreign}satisifiedPlan"
+    else:
+        plans[1].set("id", plans[0].get("id"))
+    document = ET.tostring(root, encoding="unicode")
+    reopened = iso_import(document)
+    imported_plans = reopened.draft.metadata.extensions["opengeo"]["acquisition"]["plans"]
+    assert all("requirementIdentifiers" not in plan for plan in imported_plans)
+    assert any(
+        path.endswith(".satisifiedPlan[unsupported]")
+        for path in reopened.conversion_report["unmapped"]
+    )
+    assert reopened.source_document == document
+    assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
 
 
 def localized_iso_document() -> str:
