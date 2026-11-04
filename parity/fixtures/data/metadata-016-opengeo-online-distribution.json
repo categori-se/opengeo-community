@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.5.0",
+  "distributions": [
+    {
+      "identifier": "roads",
+      "title": "Roads",
+      "accessUrl": "https://data.example.test/roads",
+      "downloadUrl": "https://data.example.test/roads.geojson",
+      "format": "GeoJSON",
+      "mediaType": "application/geo+json",
+      "byteSize": 32,
+      "checksumSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "license": "CC-BY-4.0",
+      "isoTransfer": {
+        "unitsOfDistribution": "features",
+        "transferSizeMegabytes": 2.5,
+        "transferFrequency": "P1D",
+        "formats": [
+          {
+            "citation": {
+              "title": "GeoJSON",
+              "alternateTitles": [
+                "JSON features"
+              ],
+              "edition": "2016",
+              "editionDate": "2016-08-01T00:00:00Z",
+              "dates": [
+                {
+                  "date": "2016-08-01",
+                  "dateType": "publication"
+                }
+              ],
+              "identifiers": [
+                {
+                  "code": "RFC7946",
+                  "codeSpace": "urn:ietf:rfc"
+                }
+              ]
+            },
+            "amendmentNumber": "1",
+            "fileDecompressionTechnique": "gzip"
+          },
+          {
+            "citation": {
+              "title": "CSV",
+              "edition": "1"
+            }
+          }
+        ],
+        "onlineResources": [
+          {
+            "linkage": "https://data.example.test/roads",
+            "protocol": "OGC API Features",
+            "applicationProfile": "https://example.test/features",
+            "name": "Roads",
+            "description": "Feature inspection",
+            "function": "information",
+            "protocolRequest": "GET /collections/roads/items"
+          },
+          {
+            "linkage": "https://data.example.test/roads.geojson",
+            "protocol": "HTTP GET",
+            "name": "Download copy",
+            "function": "download"
+          }
+        ],
+        "projections": {
+          "accessUrl": 0,
+          "downloadUrl": 1,
+          "title": 0,
+          "format": 0
+        }
+      }
+    },
+    {
+      "title": "Secondary",
+      "accessUrl": "https://data.example.test/both",
+      "downloadUrl": "https://data.example.test/both",
+      "format": "CSV",
+      "isoTransfer": {
+        "unitsOfDistribution": "rows",
+        "transferSizeMegabytes": 0.25,
+        "transferFrequency": "P1M",
+        "formats": [
+          {
+            "citation": {
+              "title": "CSV"
+            }
+          }
+        ],
+        "onlineResources": [
+          {
+            "linkage": "https://data.example.test/both",
+            "name": "Secondary",
+            "function": "information"
+          },
+          {
+            "linkage": "https://data.example.test/both",
+            "name": "Direct copy",
+            "function": "download"
+          }
+        ],
+        "projections": {
+          "accessUrl": 0,
+          "downloadUrl": 1,
+          "title": 0,
+          "format": 0
+        }
+      }
+    }
+  ]
+}
