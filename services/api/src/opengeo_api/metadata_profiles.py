@@ -1013,6 +1013,256 @@ def export_schema_org_dataset(resource: Any) -> dict[str, Any]:
     }
 
 
+def _datacite_registration_fields(
+    source: dict[str, Any], attributes: dict[str, Any], mapped: list[str], losses: list[str]
+) -> None:
+    """Project only bounded bibliographic values; they never establish authority."""
+    parsed: Any
+    contributor_types = {
+        "ContactPerson",
+        "DataCollector",
+        "DataCurator",
+        "DataManager",
+        "Distributor",
+        "Editor",
+        "HostingInstitution",
+        "Other",
+        "Producer",
+        "ProjectLeader",
+        "ProjectManager",
+        "ProjectMember",
+        "RegistrationAgency",
+        "RegistrationAuthority",
+        "RelatedPerson",
+        "Researcher",
+        "ResearchGroup",
+        "RightsHolder",
+        "Sponsor",
+        "Supervisor",
+        "WorkPackageLeader",
+    }
+
+    def text(value: Any, path: str, maximum: int = 1000, *, attribute: bool = False) -> str | None:
+        if (
+            not isinstance(value, str)
+            or not 1 <= len(value) <= maximum
+            or value != value.strip()
+            or not _iso_quality_unit_label_supported(value)
+            or (attribute and any(character in "\t\n" for character in value))
+        ):
+            losses.append(path)
+            return None
+        mapped.append(path)
+        return value
+
+    def record(
+        value: Any, path: str, required: set[str], allowed: set[str]
+    ) -> dict[str, Any] | None:
+        if not isinstance(value, dict) or not required <= value.keys():
+            losses.append(path)
+            return None
+        for key in value.keys() - allowed:
+            losses.append(f"{path}.{key}")
+        return value
+
+    def objects(value: Any, path: str, maximum: int) -> list[Any]:
+        if not isinstance(value, list) or not 1 <= len(value) <= maximum:
+            losses.append(path)
+            return []
+        return value
+
+    def person(value: Any, path: str, contributor: bool) -> dict[str, Any] | None:
+        allowed = {
+            "name",
+            "creatorName",
+            "nameType",
+            "givenName",
+            "familyName",
+            "lang",
+            "nameIdentifiers",
+            "affiliation",
+        } | ({"contributorType"} if contributor else set())
+        raw = record(value, path, set(), allowed)
+        if raw is None:
+            return None
+        name_key = "name" if "name" in raw else "creatorName"
+        name = text(raw.get(name_key), f"{path}.{name_key}", 500)
+        if name is None:
+            return None
+        result: dict[str, Any] = {name_key: name}
+        for key in ("nameType", "givenName", "familyName", "lang"):
+            if key not in raw:
+                continue
+            candidate = raw[key]
+            if (
+                key == "nameType"
+                and (
+                    not isinstance(candidate, str)
+                    or candidate not in {"Personal", "Organizational"}
+                )
+            ) or (
+                key == "lang"
+                and (
+                    not isinstance(candidate, str)
+                    or re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", candidate) is None
+                )
+            ):
+                losses.append(f"{path}.{key}")
+            elif (parsed := text(candidate, f"{path}.{key}", 300)) is not None:
+                result[key] = parsed
+        if contributor:
+            if (
+                not isinstance(raw.get("contributorType"), str)
+                or raw["contributorType"] not in contributor_types
+            ):
+                losses.append(f"{path}.contributorType")
+                return None
+            result["contributorType"] = raw["contributorType"]
+            mapped.append(f"{path}.contributorType")
+        for field, required, allowed_fields, maximum in (
+            (
+                "nameIdentifiers",
+                {"nameIdentifier", "nameIdentifierScheme"},
+                {"nameIdentifier", "nameIdentifierScheme", "schemeUri"},
+                8,
+            ),
+            (
+                "affiliation",
+                {"name"},
+                {"name", "affiliationIdentifier", "affiliationIdentifierScheme", "schemeUri"},
+                16,
+            ),
+        ):
+            if field not in raw:
+                continue
+            items: list[Any] = []
+            for index, item in enumerate(objects(raw[field], f"{path}.{field}", maximum)):
+                item_path = f"{path}.{field}[{index}]"
+                if field == "affiliation" and isinstance(item, str):
+                    parsed_text = text(item, item_path)
+                    if parsed_text is not None:
+                        items.append(parsed_text)
+                    continue
+                value_record = record(item, item_path, required, allowed_fields)
+                if value_record is None:
+                    continue
+                parsed_record = {}
+                for key in allowed_fields & value_record.keys():
+                    parsed_text = text(
+                        value_record[key],
+                        f"{item_path}.{key}",
+                        2048,
+                        attribute=key not in {"name", "nameIdentifier"},
+                    )
+                    if parsed_text is not None:
+                        parsed_record[key] = parsed_text
+                if required <= parsed_record.keys():
+                    items.append(parsed_record)
+                else:
+                    mapped[:] = [entry for entry in mapped if not entry.startswith(item_path + ".")]
+            if items:
+                result[field] = items
+        return result
+
+    publisher = attributes["publisher"]
+    if isinstance(publisher, dict):
+        raw_publisher = record(
+            publisher,
+            "publisher",
+            {"name"},
+            {"name", "publisherIdentifier", "publisherIdentifierScheme", "schemeUri", "lang"},
+        )
+        projected_publisher = {}
+        if raw_publisher is not None:
+            for key in sorted(
+                raw_publisher.keys()
+                & {"name", "publisherIdentifier", "publisherIdentifierScheme", "schemeUri", "lang"}
+            ):
+                value = raw_publisher[key]
+                if key == "lang" and (
+                    not isinstance(value, str)
+                    or re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", value) is None
+                ):
+                    losses.append("publisher.lang")
+                    continue
+                parsed = text(value, f"publisher.{key}", 2048, attribute=key != "name")
+                if parsed is not None:
+                    projected_publisher[key] = parsed
+        attributes["publisher"] = projected_publisher if "name" in projected_publisher else None
+    else:
+        attributes["publisher"] = text(publisher, "publisher", 2000)
+
+    creators = []
+    for index, value in enumerate(attributes["creators"]):
+        previous = len(mapped)
+        parsed = person(value, f"creators[{index}]", False)
+        if parsed is not None:
+            creators.append(parsed)
+        else:
+            del mapped[previous:]
+    attributes["creators"] = creators
+    for field in ("contributors", "alternateIdentifiers", "formats", "sizes", "relatedIdentifiers"):
+        if field not in source:
+            continue
+        projected = []
+        for index, value in enumerate(
+            objects(source[field], field, 100 if field == "contributors" else 32)
+        ):
+            path = f"{field}[{index}]"
+            previous = len(mapped)
+            if field in {"formats", "sizes"}:
+                parsed = text(value, path)
+            elif field == "contributors":
+                parsed = person(value, path, True)
+            else:
+                required = (
+                    {"alternateIdentifier", "alternateIdentifierType"}
+                    if field == "alternateIdentifiers"
+                    else {"relatedIdentifier", "relatedIdentifierType", "relationType"}
+                )
+                raw = record(value, path, required, required)
+                parsed = {}
+                if raw is not None:
+                    for key in sorted(required):
+                        part = text(
+                            raw[key],
+                            f"{path}.{key}",
+                            2048,
+                            attribute=key not in {"alternateIdentifier", "relatedIdentifier"},
+                        )
+                        if part is not None:
+                            parsed[key] = part
+                if field == "relatedIdentifiers" and (
+                    parsed.get("relatedIdentifierType") not in {"DOI", "URL", "URN"}
+                    or parsed.get("relationType")
+                    not in {
+                        "IsDerivedFrom",
+                        "IsSourceOf",
+                        "References",
+                        "IsReferencedBy",
+                        "IsPartOf",
+                        "HasPart",
+                        "IsIdenticalTo",
+                        "IsSupplementTo",
+                        "IsSupplementedBy",
+                    }
+                ):
+                    losses.append(path)
+                    parsed = None
+                elif not required <= parsed.keys():
+                    parsed = None
+            if parsed is not None:
+                projected.append(parsed)
+            else:
+                del mapped[previous:]
+        if projected:
+            if field == "relatedIdentifiers":
+                for native in attributes.get(field, []):
+                    if native not in projected:
+                        projected.append(native)
+            attributes[field] = projected
+
+
 def export_datacite_4_7(resource: Any) -> dict[str, Any]:
     summary = resource.summary
     if summary.kind != "dataset":
@@ -1054,7 +1304,13 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
         ),
         None,
     )
-    publisher_value = datacite.get("publisher") or catalog_publisher or summary.attribution
+    retained_publisher = datacite.get("publisher")
+    publisher_value = (
+        retained_publisher
+        if isinstance(retained_publisher, dict)
+        and retained_publisher.get("name") == catalog_publisher
+        else catalog_publisher or retained_publisher or summary.attribution
+    )
     publisher = (
         publisher_value.get("name") if isinstance(publisher_value, dict) else publisher_value
     )
@@ -1150,7 +1406,26 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
     funding = cast(list[dict[str, str]], catalog.get("funding", []))
     if funding:
         attributes["fundingReferences"] = funding
-    return {
+    registration_mapped: list[str] = []
+    registration_losses: list[str] = []
+    native_creators = [
+        {"name": contact.get("name") or contact.get("organization")}
+        for contact in catalog.get("contacts", [])
+        if contact.get("role") in {"author", "creator", "principalInvestigator"}
+    ]
+    if native_creators and [entry["name"] for entry in native_creators] != [
+        entry.get("name") or entry.get("creatorName") for entry in creators
+    ]:
+        attributes["creators"] = native_creators
+        registration_losses.append("creators[retained-source-conflicts-with-native-creators]")
+    _datacite_registration_fields(datacite, attributes, registration_mapped, registration_losses)
+    if (
+        catalog_publisher
+        and publisher_value != retained_publisher
+        and retained_publisher is not None
+    ):
+        registration_losses.append("publisher[retained-source-conflicts-with-native-publisher]")
+    result = {
         "target": "datacite_4_7",
         "targetVersion": "4.7",
         "mediaType": "application/vnd.api+json",
@@ -1172,6 +1447,7 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
                 "relationships.derived_from",
                 "metadata_extensions.datacite/research/opengeo.contacts",
                 *(["metadata_extensions.opengeo.funding"] if funding else []),
+                *registration_mapped,
             ],
             "defaulted": (
                 ["publicationYear=created_at.year"] if "publicationYear" not in datacite else []
@@ -1181,6 +1457,7 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
             "unmapped": [
                 "content",
                 "provenance",
+                *registration_losses,
                 *(
                     ["metadata_extensions.opengeo.acquisition"]
                     if catalog.get("acquisition")
@@ -1190,6 +1467,19 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
             "conformanceClaimed": False,
         },
     }
+    if (
+        not attributes["creators"]
+        or not attributes["publisher"]
+        or len(canonical_metadata_json(result["report"])) > 16_384
+        or len(canonical_metadata_json(result["document"])) > 49_152
+    ):
+        result.update(status="not_exportable_registration_limits", document=None)
+        result["report"] = {
+            "unmapped": ["registration values unsupported or conversion report exceeds16384bytes"],
+            "preservedExtensions": sorted(resource.metadata_extensions),
+            "conformanceClaimed": False,
+        }
+    return result
 
 
 def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
@@ -1247,6 +1537,24 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
             if isinstance(creator.get(source_name), str):
                 child(creator_element, target_name, creator[source_name])
 
+        for value in creator.get("nameIdentifiers", []):
+            element = child(creator_element, "nameIdentifier", value["nameIdentifier"])
+            element.set("nameIdentifierScheme", value["nameIdentifierScheme"])
+            if "schemeUri" in value:
+                element.set("schemeURI", value["schemeUri"])
+        for value in creator.get("affiliation", []):
+            element = child(
+                creator_element, "affiliation", value if isinstance(value, str) else value["name"]
+            )
+            if isinstance(value, dict):
+                for key, target in (
+                    ("affiliationIdentifier", "affiliationIdentifier"),
+                    ("affiliationIdentifierScheme", "affiliationIdentifierScheme"),
+                    ("schemeUri", "schemeURI"),
+                ):
+                    if key in value:
+                        element.set(target, value[key])
+
     titles_element = child(root, "titles")
     for value in cast(list[dict[str, Any]], attributes["titles"]):
         title = child(titles_element, "title", value["title"])
@@ -1280,6 +1588,45 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
             if isinstance(value.get("lang"), str):
                 subject.set(f"{{{xml}}}lang", value["lang"])
 
+    if attributes.get("contributors"):
+        contributors_element = child(root, "contributors")
+        for value in attributes["contributors"]:
+            element = child(contributors_element, "contributor")
+            element.set("contributorType", value["contributorType"])
+            name = child(element, "contributorName", value.get("name") or value.get("creatorName"))
+            if "nameType" in value:
+                name.set("nameType", value["nameType"])
+            if "lang" in value:
+                name.set(f"{{{xml}}}lang", value["lang"])
+            for key in ("givenName", "familyName"):
+                if key in value:
+                    child(element, key, value[key])
+            for identifier_value in value.get("nameIdentifiers", []):
+                identifier_element = child(
+                    element, "nameIdentifier", identifier_value["nameIdentifier"]
+                )
+                identifier_element.set(
+                    "nameIdentifierScheme", identifier_value["nameIdentifierScheme"]
+                )
+                if "schemeUri" in identifier_value:
+                    identifier_element.set("schemeURI", identifier_value["schemeUri"])
+            for affiliation_value in value.get("affiliation", []):
+                affiliation = child(
+                    element,
+                    "affiliation",
+                    affiliation_value
+                    if isinstance(affiliation_value, str)
+                    else affiliation_value["name"],
+                )
+                if isinstance(affiliation_value, dict):
+                    for key, target in (
+                        ("affiliationIdentifier", "affiliationIdentifier"),
+                        ("affiliationIdentifierScheme", "affiliationIdentifierScheme"),
+                        ("schemeUri", "schemeURI"),
+                    ):
+                        if key in affiliation_value:
+                            affiliation.set(target, affiliation_value[key])
+
     dates = cast(list[dict[str, Any]], attributes.get("dates", []))
     if dates:
         dates_element = child(root, "dates")
@@ -1289,6 +1636,12 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
     if attributes.get("language"):
         child(root, "language", attributes["language"])
 
+    if attributes.get("alternateIdentifiers"):
+        alternate_element = child(root, "alternateIdentifiers")
+        for value in attributes["alternateIdentifiers"]:
+            element = child(alternate_element, "alternateIdentifier", value["alternateIdentifier"])
+            element.set("alternateIdentifierType", value["alternateIdentifierType"])
+
     related_identifiers = cast(list[dict[str, Any]], attributes.get("relatedIdentifiers", []))
     if related_identifiers:
         related_element = child(root, "relatedIdentifiers")
@@ -1296,6 +1649,12 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
             related = child(related_element, "relatedIdentifier", value["relatedIdentifier"])
             related.set("relatedIdentifierType", value["relatedIdentifierType"])
             related.set("relationType", value["relationType"])
+
+    for field, singular in (("sizes", "size"), ("formats", "format")):
+        if attributes.get(field):
+            group = child(root, field)
+            for value in attributes[field]:
+                child(group, singular, value)
 
     if attributes.get("version"):
         child(root, "version", attributes["version"])
