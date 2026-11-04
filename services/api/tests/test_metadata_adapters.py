@@ -503,6 +503,17 @@ def test_iso_19115_3_exact_xml_import_and_semantic_export_are_bounded() -> None:
             "title": "Roads GeoJSON",
             "downloadUrl": "https://data.example.test/roads.geojson",
             "format": "GeoJSON",
+            "isoTransfer": {
+                "formats": [{"citation": {"title": "GeoJSON"}}],
+                "onlineResources": [
+                    {
+                        "linkage": "https://data.example.test/roads.geojson",
+                        "function": "download",
+                        "name": "Roads GeoJSON",
+                    }
+                ],
+                "projections": {"downloadUrl": 0, "title": 0, "format": 0},
+            },
         }
     ]
     assert reparsed.draft.metadata.extensions["opengeo"]["quality"] == [
@@ -513,7 +524,7 @@ def test_iso_19115_3_exact_xml_import_and_semantic_export_are_bounded() -> None:
             "description": "Sampled against imagery.",
         }
     ]
-    assert reparsed.draft.metadata.extensions["opengeo"]["schemaVersion"] == "1.3.0"
+    assert reparsed.draft.metadata.extensions["opengeo"]["schemaVersion"] == "1.5.0"
     assert (
         reparsed.draft.metadata.extensions["opengeo"]["acquisition"]
         == (plan.draft.metadata.extensions["opengeo"]["acquisition"])
@@ -2022,3 +2033,181 @@ def test_datacite_complete_native_contact_funding_clears_do_not_restore_source()
         assert result["document"] is not None
         assert not result["document"]["data"]["attributes"].get("fundingReferences")
         assert resource.metadata_extensions["datacite"]["fundingReferences"]
+
+
+def iso_online_distribution_resource():
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        fixture("metadata-016-opengeo-online-distribution.json")
+    )
+    return resource
+
+
+def test_iso_online_distribution_round_trip_owns_dto_contexts() -> None:
+    resource = iso_online_distribution_resource()
+    original = json.loads(json.dumps(resource.metadata_extensions["opengeo"]))
+    exported = export_iso_19115_3(resource)
+    document = exported["documentText"]
+    xml = ET.fromstring(document)
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    assert len(xml.findall(f".//{mrd}MD_DigitalTransferOptions")) == 2
+    reopened = iso_import(document)
+    actual = reopened.draft.metadata.extensions["opengeo"]
+    assert actual["schemaVersion"] == "1.5.0"
+    assert len(actual["distributions"]) == 2
+    for index, value in enumerate(actual["distributions"]):
+        assert value["isoTransfer"] == original["distributions"][index]["isoTransfer"]
+        assert value["accessUrl"] == original["distributions"][index]["accessUrl"]
+        assert value["downloadUrl"] == original["distributions"][index]["downloadUrl"]
+    assert "byteSize" not in actual["distributions"][0]
+    assert actual["distributions"][0]["isoTransfer"]["transferSizeMegabytes"] == 2.5
+    assert resource.metadata_extensions["opengeo"] == original
+    assert reopened.source_document == document
+
+
+def test_iso_online_distribution_native_edits_and_clears_override_bound_leaves() -> None:
+    resource = iso_online_distribution_resource()
+    first = resource.metadata_extensions["opengeo"]["distributions"][0]
+    first.update(accessUrl="https://data.example.test/edited", title="Curated", format="Updated")
+    reopened = iso_import(export_iso_19115_3(resource)["documentText"])
+    context = reopened.draft.metadata.extensions["opengeo"]["distributions"][0]["isoTransfer"]
+    assert context["onlineResources"][0]["linkage"] == "https://data.example.test/edited"
+    assert context["onlineResources"][0]["name"] == "Curated"
+    assert context["formats"][0]["citation"]["title"] == "Updated"
+    assert context["onlineResources"][1]["name"] == "Download copy"
+    assert context["formats"][1]["citation"]["title"] == "CSV"
+    for field in ("accessUrl", "title", "format"):
+        first.pop(field)
+    exported = export_iso_19115_3(resource)
+    context = iso_import(exported["documentText"]).draft.metadata.extensions["opengeo"][
+        "distributions"
+    ][0]["isoTransfer"]
+    assert not any(
+        value["linkage"] == "https://data.example.test/roads"
+        for value in context["onlineResources"]
+    )
+    assert not any(value.get("name") == "Roads" for value in context["onlineResources"])
+    assert [value["citation"]["title"] for value in context["formats"]] == ["CSV"]
+    assert context["onlineResources"][0]["name"] == "Download copy"
+
+
+def test_iso_online_distribution_same_url_functions_remain_distinct() -> None:
+    document = export_iso_19115_3(iso_online_distribution_resource())["documentText"]
+    distributions = iso_import(document).draft.metadata.extensions["opengeo"]["distributions"]
+    secondary = distributions[1]
+    assert secondary["accessUrl"] == secondary["downloadUrl"] == "https://data.example.test/both"
+    values = secondary["isoTransfer"]["onlineResources"]
+    assert [value["function"] for value in values] == ["information", "download"]
+    assert secondary["isoTransfer"]["transferSizeMegabytes"] == 0.25
+
+
+def test_iso_online_distribution_unsafe_and_unknown_source_values_keep_source() -> None:
+    xml = ET.fromstring(export_iso_19115_3(iso_online_distribution_resource())["documentText"])
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    dto = xml.find(f".//{mrd}MD_DigitalTransferOptions")
+    online = ET.SubElement(ET.SubElement(dto, f"{mrd}onLine"), f"{cit}CI_OnlineResource")
+    ET.SubElement(
+        ET.SubElement(online, f"{cit}linkage"), f"{gco}CharacterString"
+    ).text = "http://data.example.test/insecure"
+    ET.SubElement(dto, f"{mrd}unknownTransfer").text = "retained source"
+    dto.find(f"{mrd}unitsOfDistribution").tail = "unmapped property tail"
+    document = ET.tostring(xml, encoding="unicode")
+    plan = iso_import(document)
+    assert plan.source_document == document
+    assert (
+        "http://data.example.test/insecure"
+        not in canonical_json_bytes(plan.draft.metadata.extensions).decode()
+    )
+    assert any("unknownTransfer" in path for path in plan.conversion_report["unmapped"])
+    assert any("tail" in path for path in plan.conversion_report["unmapped"])
+    assert any("onLine" in path or "linkage" in path for path in plan.conversion_report["unmapped"])
+
+    xml = ET.fromstring(export_iso_19115_3(iso_online_distribution_resource())["documentText"])
+    size = xml.find(f".//{mrd}transferSize/{gco}Real")
+    assert size is not None
+    size.text = "1.234567890123456789"
+    document = ET.tostring(xml, encoding="unicode")
+    plan = iso_import(document)
+    first = plan.draft.metadata.extensions["opengeo"]["distributions"][0]
+    assert "transferSizeMegabytes" not in first["isoTransfer"]
+    assert plan.source_document == document
+    assert "1.234567890123456789" in plan.source_document
+    assert any("transferSize" in path for path in plan.conversion_report["unmapped"])
+
+    xml = ET.fromstring(export_iso_19115_3(iso_online_distribution_resource())["documentText"])
+    function = xml.find(
+        f".//{mrd}MD_DigitalTransferOptions/{mrd}onLine/{cit}CI_OnlineResource/{cit}function"
+    )
+    assert function is not None
+    for child in list(function):
+        function.remove(child)
+    ET.SubElement(function, "{urn:foreign}CI_OnLineFunctionCode").text = "information"
+    document = ET.tostring(xml, encoding="unicode")
+    plan = iso_import(document)
+    first = plan.draft.metadata.extensions["opengeo"]["distributions"][0]
+    assert "accessUrl" not in first
+    assert "accessUrl" not in first["isoTransfer"]["projections"]
+    assert first["downloadUrl"] == "https://data.example.test/roads.geojson"
+    assert plan.source_document == document
+    assert any("function" in path for path in plan.conversion_report["unmapped"])
+
+
+def test_iso_online_distribution_foreign_and_distributor_descendants_are_not_owned() -> None:
+    xml = ET.fromstring(export_iso_19115_3(iso_online_distribution_resource())["documentText"])
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    distribution = xml.find(f".//{mrd}MD_Distribution")
+    distributor = ET.SubElement(
+        ET.SubElement(distribution, f"{mrd}distributor"), f"{mrd}MD_Distributor"
+    )
+    nested = ET.SubElement(
+        ET.SubElement(distributor, f"{mrd}distributorTransferOptions"),
+        f"{mrd}MD_DigitalTransferOptions",
+    )
+    dto = xml.find(f".//{mrd}MD_DigitalTransferOptions")
+    for parent, wrapper in ((nested, f"{mrd}onLine"), (dto, "{urn:foreign}onLine")):
+        online = ET.SubElement(ET.SubElement(parent, wrapper), f"{cit}CI_OnlineResource")
+        ET.SubElement(
+            ET.SubElement(online, f"{cit}linkage"), f"{gco}CharacterString"
+        ).text = "https://data.example.test/not-owned"
+    document = ET.tostring(xml, encoding="unicode")
+    plan = iso_import(document)
+    distributions = plan.draft.metadata.extensions["opengeo"]["distributions"]
+    assert len(distributions) == 2
+    assert "https://data.example.test/not-owned" not in canonical_json_bytes(distributions).decode()
+    assert plan.source_document == document
+    assert any("distributor" in path for path in plan.conversion_report["unmapped"])
+
+
+def test_iso_online_distribution_canonical_budget_keeps_source_and_native_urls() -> None:
+    xml = ET.fromstring(export_iso_19115_3(iso_online_distribution_resource())["documentText"])
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    dto = xml.find(f".//{mrd}MD_DigitalTransferOptions")
+    for child in list(dto):
+        if child.tag == f"{mrd}distributionFormat":
+            dto.remove(child)
+    for _ in range(8):
+        value = ET.SubElement(ET.SubElement(dto, f"{mrd}distributionFormat"), f"{mrd}MD_Format")
+        citation = ET.SubElement(
+            ET.SubElement(value, f"{mrd}formatSpecificationCitation"), f"{cit}CI_Citation"
+        )
+        ET.SubElement(ET.SubElement(citation, f"{cit}title"), f"{gco}CharacterString").text = (
+            "é" * 700
+        )
+    document = ET.tostring(xml, encoding="unicode")
+    assert len(document.encode()) <= 49152
+    plan = iso_import(document)
+    assert plan.source_document == document
+    assert len(canonical_json_bytes(plan.draft.metadata.extensions)) <= 8192
+    assert (
+        plan.draft.metadata.extensions["opengeo"]["distributions"][0]["downloadUrl"]
+        == "https://data.example.test/roads.geojson"
+    )
+    assert any("size-limit" in path for path in plan.conversion_report["unmapped"])

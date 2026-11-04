@@ -66,6 +66,156 @@ def native_catalog() -> dict[str, Any]:
     }
 
 
+def iso_transfer() -> dict[str, Any]:
+    return {
+        "unitsOfDistribution": "files",
+        "transferSizeMegabytes": 0.125,
+        "transferFrequency": "P1DT2H3M4.5S",
+        "formats": [
+            {
+                "citation": {
+                    "title": "GeoJSON",
+                    "dates": [{"date": "2026-11-04", "dateType": "revision"}],
+                    "edition": "RFC 7946",
+                    "identifiers": [{"code": "7946", "codeSpace": "RFC"}],
+                },
+                "amendmentNumber": "1",
+                "fileDecompressionTechnique": "gzip",
+            }
+        ],
+        "onlineResources": [
+            {
+                "linkage": "https://data.example.test/roads",
+                "protocol": "HTTPS",
+                "applicationProfile": "OGC API",
+                "name": "Roads information",
+                "description": "Access and documentation",
+                "function": "information",
+                "protocolRequest": "GET",
+            },
+            {
+                "linkage": "https://data.example.test/roads.geojson",
+                "function": "download",
+            },
+        ],
+        "projections": {"accessUrl": 0, "downloadUrl": 1, "title": 0, "format": 0},
+    }
+
+
+def test_native_catalog_15_accepts_typed_transfer_and_all_acquisition_context() -> None:
+    value = acquisition_context()
+    value["schemaVersion"] = "1.5.0"
+    value["distributions"] = native_catalog()["distributions"]
+    value["distributions"][0].update(
+        {"accessUrl": "https://data.example.test/roads", "isoTransfer": iso_transfer()}
+    )
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.5.0.schema.json").read_text())
+
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(value)
+    request = ResourceMetadataRequest(title="Survey", extensions={"opengeo": value})
+    assert request.extensions["opengeo"] == value
+
+    # Independent rich context does not require inferred projection bindings.
+    del value["distributions"][0]["isoTransfer"]["projections"]
+    assert validate_catalog_metadata(value) == value
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"])
+def test_native_catalog_15_preserves_old_versions_and_rejects_transfer(version: str) -> None:
+    value = native_catalog()
+    value["schemaVersion"] = version
+    assert validate_catalog_metadata(value) == value
+    value["distributions"][0]["isoTransfer"] = iso_transfer()
+    with pytest.raises(CatalogMetadataInvalid, match="unknown field isoTransfer"):
+        validate_catalog_metadata(value)
+    if version == "1.4.0":
+        schema = json.loads(
+            (ROOT / "schemas/opengeo-catalog-metadata-1.4.0.schema.json").read_text()
+        )
+        assert not Draft202012Validator(schema).is_valid(value)
+
+
+@pytest.mark.parametrize(
+    "transfer",
+    [
+        None,
+        [],
+        {},
+        {"unknown": "value"},
+        {"unitsOfDistribution": ""},
+        {"unitsOfDistribution": "x" * 1001},
+        {"transferSizeMegabytes": 0},
+        {"transferSizeMegabytes": -1},
+        {"transferSizeMegabytes": True},
+        {"transferSizeMegabytes": float("inf")},
+        {"transferSizeMegabytes": float("nan")},
+        {"formats": []},
+        {"formats": [{"citation": {"title": "Format"}}] * 9},
+        {"formats": [{}]},
+        {"formats": [{"citation": {}}]},
+        {"formats": [{"citation": {"title": "Format"}, "amendmentNumber": "x" * 1001}]},
+        {"onlineResources": []},
+        {"onlineResources": [{"linkage": "https://data.example.test"}] * 9},
+        {"onlineResources": [{}]},
+        {"onlineResources": [{"linkage": "http://data.example.test"}]},
+        {"onlineResources": [{"linkage": "https://[invalid"}]},
+        {"onlineResources": [{"linkage": "https://127.0.0.1/data"}]},
+        {"onlineResources": [{"linkage": "https://user:pass@data.example.test"}]},
+        {"onlineResources": [{"linkage": "https://data.example.test/#fragment"}]},
+        {"onlineResources": [{"linkage": "https://data.example.test", "function": "x" * 301}]},
+        {"onlineResources": [{"linkage": "https://data.example.test", "protocol": "x" * 1001}]},
+        {"projections": {}},
+        {"projections": {"accessUrl": 0}},
+        {
+            "onlineResources": [{"linkage": "https://data.example.test"}],
+            "projections": {"title": 1},
+        },
+        {
+            "onlineResources": [{"linkage": "https://data.example.test"}],
+            "projections": {"title": True},
+        },
+        {"formats": [{"citation": {"title": "Format"}}], "projections": {"format": -1}},
+        {"formats": [{"citation": {"title": "Format"}}], "projections": {"format": 8}},
+        {"formats": [{"citation": {"title": "Format"}}], "projections": {"format": 0.0}},
+        {"formats": [{"citation": {"title": "Format"}}], "projections": {"unknown": 0}},
+    ],
+)
+def test_native_catalog_15_rejects_invalid_transfer_shapes_and_bindings(transfer: Any) -> None:
+    value = native_catalog()
+    value["schemaVersion"] = "1.5.0"
+    value["distributions"][0]["isoTransfer"] = transfer
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+
+
+@pytest.mark.parametrize(
+    ("duration", "valid"),
+    [(v, True) for v in ("P1Y2M3DT4H5M6.7S", "P1D", "PT1H", "PT0.5S", "P0D", "-P1D")]
+    + [(v, False) for v in ("P", "PT", "P1DT", "P1W", "P1.5D", "P1H", "P1DT1.5H", "daily")],
+)
+def test_native_catalog_15_transfer_frequency_uses_xsd_duration(duration: str, valid: bool) -> None:
+    value = native_catalog()
+    value["schemaVersion"] = "1.5.0"
+    value["distributions"][0]["isoTransfer"] = {"transferFrequency": duration}
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.5.0.schema.json").read_text())
+    assert Draft202012Validator(schema).is_valid(value) is valid
+    if valid:
+        assert validate_catalog_metadata(value) == value
+    else:
+        with pytest.raises(CatalogMetadataInvalid, match="ISO duration"):
+            validate_catalog_metadata(value)
+
+
+def test_native_catalog_15_retains_simple_url_and_distribution_bounds() -> None:
+    value = {"schemaVersion": "1.5.0", "distributions": [{"isoTransfer": iso_transfer()}]}
+    with pytest.raises(CatalogMetadataInvalid, match="requires accessUrl or downloadUrl"):
+        validate_catalog_metadata(value)
+    value["distributions"] = native_catalog()["distributions"] * 33
+    with pytest.raises(CatalogMetadataInvalid, match="at most 32"):
+        validate_catalog_metadata(value)
+
+
 def test_native_catalog_contract_accepts_bounded_interoperable_fields() -> None:
     value = native_catalog()
 

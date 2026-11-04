@@ -1977,45 +1977,7 @@ def _iso_catalog_extension(
         reference_systems.append(reference)
 
     distributions: list[dict[str, Any]] = []
-    distribution_unmapped = False
-    for distribution_scope in _direct_children(root, "distributionInfo"):
-        online_resources = [
-            element
-            for element in distribution_scope.iter()
-            if _local_name(element.tag) == "CI_OnlineResource"
-        ]
-        if not online_resources:
-            distribution_unmapped = True
-            continue
-        for index, online in enumerate(online_resources):
-            linkage_scope = _first_scope(online, "linkage")
-            linkage = _first_text(linkage_scope, "CharacterString")
-            if linkage is None or not linkage.startswith("https://"):
-                distribution_unmapped = True
-                continue
-            function_element = _first_element(online, "CI_OnLineFunctionCode")
-            function = (
-                function_element.attrib.get("codeListValue") or function_element.text
-                if function_element is not None
-                else None
-            )
-            target = "downloadUrl" if function == "download" else "accessUrl"
-            distribution: dict[str, Any] = {
-                target: _bounded_string(linkage, 1, 2_048, f"ISO distribution {index} URL")
-            }
-            title_scope = _first_scope(online, "name")
-            title = _first_text(title_scope, "CharacterString")
-            if title:
-                distribution["title"] = _bounded_string(
-                    title, 1, 1_000, f"ISO distribution {index} name"
-                )
-            protocol_scope = _first_scope(online, "protocol")
-            protocol = _first_text(protocol_scope, "CharacterString")
-            if protocol:
-                distribution["format"] = _bounded_string(
-                    protocol, 1, 1_000, f"ISO distribution {index} protocol"
-                )
-            distributions.append(distribution)
+    distribution_unmapped: list[str] = []
 
     quality: list[dict[str, Any]] = []
     quality_unit_mapped: list[str] = []
@@ -2141,8 +2103,10 @@ def _iso_catalog_extension(
     plan_identity_space = "urn:opengeo:catalog:acquisition-plan"
     parent_nodes = {child: parent for parent in root.iter() for child in parent}
 
+    context_unmapped = acquisition_unmapped
+
     def context_loss(path: str) -> None:
-        acquisition_unmapped.append(f"{path}[unsupported]")
+        context_unmapped.append(f"{path}[unsupported]")
 
     def context_owner(element: ET.Element, name: str) -> bool:
         if element.tag != f"{mac}{name}":
@@ -2199,6 +2163,8 @@ def _iso_catalog_extension(
         for index, child in enumerate(element):
             if child.tag not in tags:
                 context_loss(f"{path}.{_local_name(child.tag)}[{index}]")
+            if (child.tail or "").strip():
+                context_loss(f"{path}.{_local_name(child.tag)}[{index}].tail")
 
     def context_text(
         element: ET.Element, property_tag: str, value_tag: str, path: str, maximum: int
@@ -2422,11 +2388,12 @@ def _iso_catalog_extension(
         return record or None
 
     def context_citation(
-        element: ET.Element, path: str, *, plan: bool = False
+        element: ET.Element, path: str, *, plan: bool = False, property_tag: str | None = None
     ) -> tuple[dict[str, Any] | None, str | None, bool]:
-        scope = context_property(element, f"{mac}citation", path)
+        citation_tag = property_tag or f"{mac}citation"
+        scope = context_property(element, citation_tag, path)
         if scope is None:
-            return None, None, bool(context_properties(element, "citation"))
+            return None, None, bool(context_properties(element, _local_name(citation_tag)))
         citation = context_embedded(scope, f"{cit}CI_Citation", path)
         if citation is None:
             return None, None, True
@@ -3450,6 +3417,264 @@ def _iso_catalog_extension(
             }
         )
 
+    # Distribution and acquisition share strict citation/scalar readers. Keep losses
+    # with their owning domain rather than guessing associations by descendant order.
+    context_unmapped = distribution_unmapped
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    for distribution_index, distribution_scope in enumerate(
+        context_properties(root, "distributionInfo")
+    ):
+        distribution_path = f"mdb:distributionInfo[{distribution_index}]"
+        owner = (
+            context_embedded(distribution_scope, f"{mrd}MD_Distribution", distribution_path)
+            if distribution_scope.tag == f"{mdb}distributionInfo"
+            else None
+        )
+        if owner is None:
+            context_loss(distribution_path)
+            continue
+        context_unknown(owner, {f"{mrd}transferOptions"}, distribution_path)
+        for transfer_index, transfer_scope in enumerate(
+            context_properties(owner, "transferOptions")
+        ):
+            path = f"{distribution_path}.transferOptions[{transfer_index}]"
+            transfer = (
+                context_embedded(transfer_scope, f"{mrd}MD_DigitalTransferOptions", path)
+                if transfer_scope.tag == f"{mrd}transferOptions"
+                else None
+            )
+            if transfer is None or len(distributions) >= 32:
+                context_loss(path)
+                continue
+            context_unknown(
+                transfer,
+                {
+                    f"{mrd}{name}"
+                    for name in (
+                        "unitsOfDistribution",
+                        "transferSize",
+                        "onLine",
+                        "transferFrequency",
+                        "distributionFormat",
+                    )
+                },
+                path,
+            )
+            retained: dict[str, Any] = {}
+            for name, target, scalar, maximum in (
+                ("unitsOfDistribution", "unitsOfDistribution", "CharacterString", 1000),
+                ("transferSize", "transferSizeMegabytes", "Real", 100),
+                ("transferFrequency", "transferFrequency", "TM_PeriodDuration", 100),
+            ):
+                raw = context_text(
+                    transfer, f"{mrd}{name}", f"{gco}{scalar}", f"{path}.{name}", maximum
+                )
+                if raw is None:
+                    continue
+                if name == "transferSize":
+                    numeric = context_number(
+                        transfer, f"{mrd}{name}", f"{gco}Real", f"{path}.{name}"
+                    )
+                    if numeric is None or numeric <= 0:
+                        context_loss(f"{path}.{name}")
+                        continue
+                    retained[target] = numeric
+                else:
+                    try:
+                        validate_catalog_extensions(
+                            {
+                                "opengeo": {
+                                    "schemaVersion": "1.5.0",
+                                    "distributions": [
+                                        {
+                                            "accessUrl": "https://example.test/",
+                                            "isoTransfer": {target: raw},
+                                        }
+                                    ],
+                                }
+                            }
+                        )
+                    except CatalogMetadataInvalid:
+                        context_loss(f"{path}.{name}")
+                        continue
+                    retained[target] = raw
+            online_records: list[dict[str, Any]] = []
+            for online_index, scope in enumerate(context_properties(transfer, "onLine")):
+                online_path = f"{path}.onLine[{online_index}]"
+                online = (
+                    context_embedded(scope, f"{cit}CI_OnlineResource", online_path)
+                    if scope.tag == f"{mrd}onLine"
+                    else None
+                )
+                if online is None or len(online_records) >= 8:
+                    context_loss(online_path)
+                    continue
+                context_unknown(
+                    online,
+                    {
+                        f"{cit}{name}"
+                        for name in (
+                            "linkage",
+                            "protocol",
+                            "applicationProfile",
+                            "name",
+                            "description",
+                            "function",
+                            "protocolRequest",
+                        )
+                    },
+                    online_path,
+                )
+                record = {}
+                for name in (
+                    "linkage",
+                    "protocol",
+                    "applicationProfile",
+                    "name",
+                    "description",
+                    "protocolRequest",
+                ):
+                    raw = context_text(
+                        online,
+                        f"{cit}{name}",
+                        f"{gco}CharacterString",
+                        f"{online_path}.{name}",
+                        2048 if name == "linkage" else 1000,
+                    )
+                    if raw is not None:
+                        record[name] = raw
+                function_scope = context_property(
+                    online, f"{cit}function", f"{online_path}.function"
+                )
+                if function_scope is None and context_properties(online, "function"):
+                    context_loss(f"{online_path}.function")
+                    continue
+                if function_scope is not None:
+                    node = context_embedded(
+                        function_scope,
+                        f"{cit}CI_OnLineFunctionCode",
+                        f"{online_path}.function",
+                        {"codeList", "codeListValue"},
+                    )
+                    code = node.get("codeListValue") if node is not None else None
+                    if (
+                        node is None
+                        or len(node)
+                        or not code
+                        or len(code) > 300
+                        or code != code.strip()
+                        or (node.text or "").strip() not in {"", code}
+                        or not _iso_quality_unit_label_supported(code)
+                    ):
+                        context_loss(f"{online_path}.function")
+                        continue
+                    else:
+                        record["function"] = code
+                if "linkage" not in record:
+                    context_loss(f"{online_path}.linkage")
+                    continue
+                try:
+                    validate_catalog_extensions(
+                        {
+                            "opengeo": {
+                                "schemaVersion": "1.5.0",
+                                "distributions": [
+                                    {
+                                        "accessUrl": record["linkage"],
+                                        "isoTransfer": {"onlineResources": [record]},
+                                    }
+                                ],
+                            }
+                        }
+                    )
+                except CatalogMetadataInvalid:
+                    context_loss(online_path)
+                    continue
+                online_records.append(record)
+            if online_records:
+                retained["onlineResources"] = online_records
+            format_records: list[dict[str, Any]] = []
+            for format_index, scope in enumerate(
+                context_properties(transfer, "distributionFormat")
+            ):
+                format_path = f"{path}.distributionFormat[{format_index}]"
+                format_element = (
+                    context_embedded(scope, f"{mrd}MD_Format", format_path)
+                    if scope.tag == f"{mrd}distributionFormat"
+                    else None
+                )
+                if format_element is None or len(format_records) >= 8:
+                    context_loss(format_path)
+                    continue
+                context_unknown(
+                    format_element,
+                    {
+                        f"{mrd}{name}"
+                        for name in (
+                            "formatSpecificationCitation",
+                            "amendmentNumber",
+                            "fileDecompressionTechnique",
+                        )
+                    },
+                    format_path,
+                )
+                citation, _, _ = context_citation(
+                    format_element,
+                    f"{format_path}.citation",
+                    property_tag=f"{mrd}formatSpecificationCitation",
+                )
+                if citation is None:
+                    context_loss(format_path)
+                    continue
+                format_record: dict[str, Any] = {"citation": citation}
+                for name in ("amendmentNumber", "fileDecompressionTechnique"):
+                    raw = context_text(
+                        format_element,
+                        f"{mrd}{name}",
+                        f"{gco}CharacterString",
+                        f"{format_path}.{name}",
+                        1000,
+                    )
+                    if raw is not None:
+                        format_record[name] = raw
+                format_records.append(format_record)
+            if format_records:
+                retained["formats"] = format_records
+            distribution: dict[str, Any] = {}
+            bindings: dict[str, int] = {}
+            for online_index, online_record in enumerate(online_records):
+                function = online_record.get("function")
+                target = (
+                    "downloadUrl"
+                    if function == "download"
+                    else "accessUrl"
+                    if function in {None, "information"}
+                    else None
+                )
+                if target is not None and target not in distribution:
+                    distribution[target] = online_record["linkage"]
+                    bindings[target] = online_index
+            if not distribution:
+                context_loss(f"{path}[no-supported-access-projection]")
+                continue
+            title_index = bindings.get("accessUrl", bindings.get("downloadUrl"))
+            if title_index is not None and "name" in online_records[title_index]:
+                distribution["title"] = online_records[title_index]["name"]
+                bindings["title"] = title_index
+            if format_records:
+                distribution["format"] = format_records[0]["citation"]["title"]
+                bindings["format"] = 0
+            retained["projections"] = bindings
+            distribution["isoTransfer"] = retained
+            try:
+                normalized = validate_catalog_extensions(
+                    {"opengeo": {"schemaVersion": "1.5.0", "distributions": [distribution]}}
+                )
+            except CatalogMetadataInvalid:
+                context_loss(path)
+                continue
+            distributions.extend(normalized["opengeo"]["distributions"])
+
     catalog: dict[str, Any] = {"schemaVersion": "1.0.0"}
     mapped: list[str] = []
     for catalog_value, target, source in (
@@ -3497,7 +3722,17 @@ def _iso_catalog_extension(
                 if plans or objectives or requirements
                 else "1.1.0"
             )
-    unmapped = ["distributionInfo[unsupported]"] if distribution_unmapped else []
+    for index in reversed(range(len(distributions))):
+        if len(canonical_json_bytes({"opengeo": catalog})) <= 8_192:
+            break
+        if "isoTransfer" in distributions[index]:
+            del distributions[index]["isoTransfer"]
+            distribution_unmapped.append(
+                f"mdb:distributionInfo->distributions[{index}].isoTransfer[size-limit]"
+            )
+    if any("isoTransfer" in value for value in distributions):
+        catalog["schemaVersion"] = "1.5.0"
+    unmapped = distribution_unmapped
     mapped.extend(quality_unit_mapped)
     mapped.extend(acquisition_context_mapped)
     if inverse_plan_mapped:

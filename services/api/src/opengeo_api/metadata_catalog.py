@@ -5,12 +5,13 @@ from datetime import date, datetime
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.4.0"
+OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.5.0"
 OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.0.0",
     "1.1.0",
     "1.2.0",
     "1.3.0",
+    "1.4.0",
     OPEN_GEO_CATALOG_SCHEMA_VERSION,
 }
 OPEN_GEO_CATALOG_NAMESPACE = "opengeo"
@@ -72,6 +73,10 @@ _CONTEXT_DATE_TIME = re.compile(
     r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.(\d+))?"
     r"(?:Z|[+-](?:(?:0\d|1[0-3]):[0-5]\d|14:00))"
 )
+_ISO_TRANSFER_DURATION = re.compile(
+    r"-?P(?=[0-9]|T[0-9])(?:[0-9]+Y)?(?:[0-9]+M)?(?:[0-9]+D)?"
+    r"(?:T(?=[0-9])(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\.[0-9]+)?S)?)?"
+)
 
 
 class CatalogMetadataInvalid(ValueError):
@@ -102,7 +107,8 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     schema_version = value.get("schemaVersion")
     if schema_version not in OPEN_GEO_CATALOG_SCHEMA_VERSIONS:
         raise CatalogMetadataInvalid(
-            "metadata extensions.opengeo.schemaVersion must be 1.0.0, 1.1.0, 1.2.0, 1.3.0, or 1.4.0"
+            "metadata extensions.opengeo.schemaVersion must be "
+            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, or 1.5.0"
         )
     allowed = _CATALOG_FIELDS_1_1 if schema_version != "1.0.0" else _CATALOG_FIELDS_1_0
     unknown = set(value) - allowed
@@ -115,7 +121,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "contacts" in value:
         result["contacts"] = _contacts(value["contacts"])
     if "distributions" in value:
-        result["distributions"] = _distributions(value["distributions"])
+        result["distributions"] = _distributions(
+            value["distributions"], iso_transfer=schema_version == "1.5.0"
+        )
     if "referenceSystems" in value:
         result["referenceSystems"] = _reference_systems(value["referenceSystems"])
     if "lineage" in value:
@@ -139,9 +147,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "acquisition" in value:
         result["acquisition"] = _acquisition(
             value["acquisition"],
-            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0"},
-            event_graph=schema_version in {"1.3.0", "1.4.0"},
-            context=schema_version == "1.4.0",
+            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0"},
+            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0"},
+            context=schema_version in {"1.4.0", "1.5.0"},
         )
     return result
 
@@ -167,7 +175,7 @@ def _contacts(value: Any) -> list[dict[str, str]]:
     return result
 
 
-def _distributions(value: Any) -> list[dict[str, Any]]:
+def _distributions(value: Any, *, iso_transfer: bool = False) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.distributions")
     allowed = {
         "identifier",
@@ -180,13 +188,17 @@ def _distributions(value: Any) -> list[dict[str, Any]]:
         "checksumSha256",
         "license",
     }
+    if iso_transfer:
+        allowed.add("isoTransfer")
     result: list[dict[str, Any]] = []
     for index, record in enumerate(records):
         path = f"opengeo.distributions[{index}]"
         _known_fields(record, allowed, path)
         distribution: dict[str, Any] = {}
         for field, raw in record.items():
-            if field == "byteSize":
+            if field == "isoTransfer":
+                distribution[field] = _iso_transfer(raw, f"{path}.isoTransfer")
+            elif field == "byteSize":
                 if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= 10**18:
                     raise CatalogMetadataInvalid(f"metadata {path}.byteSize is invalid")
                 distribution[field] = raw
@@ -205,6 +217,109 @@ def _distributions(value: Any) -> list[dict[str, Any]]:
         if isinstance(checksum, str) and _SHA256.fullmatch(checksum) is None:
             raise CatalogMetadataInvalid(f"metadata {path}.checksumSha256 is invalid")
         result.append(distribution)
+    return result
+
+
+def _iso_transfer(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        raise CatalogMetadataInvalid(f"metadata {path} must be a nonempty transfer object")
+    _known_fields(
+        value,
+        {
+            "unitsOfDistribution",
+            "transferSizeMegabytes",
+            "transferFrequency",
+            "formats",
+            "onlineResources",
+            "projections",
+        },
+        path,
+    )
+    result: dict[str, Any] = {}
+    if "unitsOfDistribution" in value:
+        result["unitsOfDistribution"] = _string(
+            value["unitsOfDistribution"], 1, 1_000, f"{path}.unitsOfDistribution"
+        )
+    if "transferSizeMegabytes" in value:
+        size = _finite_number(value["transferSizeMegabytes"], f"{path}.transferSizeMegabytes")
+        if size <= 0:
+            raise CatalogMetadataInvalid(f"metadata {path}.transferSizeMegabytes must be positive")
+        result["transferSizeMegabytes"] = size
+    if "transferFrequency" in value:
+        frequency = _string(value["transferFrequency"], 1, 100, f"{path}.transferFrequency")
+        if _ISO_TRANSFER_DURATION.fullmatch(frequency) is None:
+            raise CatalogMetadataInvalid(
+                f"metadata {path}.transferFrequency must be an ISO duration"
+            )
+        result["transferFrequency"] = frequency
+    if "formats" in value:
+        formats: list[dict[str, Any]] = []
+        for index, record in enumerate(_bounded_objects(value["formats"], 8, f"{path}.formats")):
+            item_path = f"{path}.formats[{index}]"
+            _known_fields(
+                record, {"citation", "amendmentNumber", "fileDecompressionTechnique"}, item_path
+            )
+            item: dict[str, Any] = {
+                "citation": _acquisition_citation(record.get("citation"), f"{item_path}.citation")
+            }
+            for field in ("amendmentNumber", "fileDecompressionTechnique"):
+                if field in record:
+                    item[field] = _string(record[field], 1, 1_000, f"{item_path}.{field}")
+            formats.append(item)
+        result["formats"] = formats
+    if "onlineResources" in value:
+        resources: list[dict[str, Any]] = []
+        records = _bounded_objects(value["onlineResources"], 8, f"{path}.onlineResources")
+        allowed = {
+            "linkage",
+            "protocol",
+            "applicationProfile",
+            "name",
+            "description",
+            "function",
+            "protocolRequest",
+        }
+        for index, record in enumerate(records):
+            item_path = f"{path}.onlineResources[{index}]"
+            _known_fields(record, allowed, item_path)
+            linkage = _string(record.get("linkage"), 1, 2_048, f"{item_path}.linkage")
+            try:
+                _public_https_url(linkage, f"{item_path}.linkage")
+            except ValueError:
+                raise CatalogMetadataInvalid(
+                    f"metadata {item_path}.linkage must be a public HTTPS URL "
+                    "without credentials or fragments"
+                ) from None
+            item = {"linkage": linkage}
+            for field in allowed - {"linkage"}:
+                if field in record:
+                    item[field] = _string(
+                        record[field],
+                        1,
+                        300 if field == "function" else 1_000,
+                        f"{item_path}.{field}",
+                    )
+            resources.append(item)
+        result["onlineResources"] = resources
+    if "projections" in value:
+        projections = value["projections"]
+        projection_path = f"{path}.projections"
+        if not isinstance(projections, dict) or not projections:
+            raise CatalogMetadataInvalid(f"metadata {projection_path} must be a nonempty object")
+        _known_fields(projections, {"accessUrl", "downloadUrl", "title", "format"}, projection_path)
+        for field, index in projections.items():
+            collection = "formats" if field == "format" else "onlineResources"
+            if (
+                isinstance(index, bool)
+                or not isinstance(index, int)
+                or not 0 <= index <= 7
+                or index >= len(result.get(collection, []))
+            ):
+                raise CatalogMetadataInvalid(
+                    f"metadata {projection_path}.{field} must reference "
+                    f"an existing {collection} index"
+                )
+        result["projections"] = dict(projections)
     return result
 
 

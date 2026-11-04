@@ -2939,44 +2939,260 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         scoped_name = child(service_type, "gco", "ScopedName", "service")
         scoped_name.set("codeSpace", "https://schemas.isotc211.org/19115/-3/srv/2.0")
     distributions = cast(list[dict[str, Any]], catalog.get("distributions", []))
+    distribution_mapped: list[str] = []
+    distribution_unmapped: list[str] = []
+    distribution_blocks: list[tuple[ET.Element, ET.Element, str]] = []
+
+    def distribution_text(
+        parent: ET.Element,
+        prefix: str,
+        name: str,
+        value: str,
+        path: str,
+        xml_type: str = "CharacterString",
+    ) -> bool:
+        if not _iso_quality_unit_label_supported(value):
+            distribution_unmapped.append(path)
+            return False
+        child(child(parent, prefix, name), "gco", xml_type, value)
+        distribution_mapped.append(path)
+        return True
+
+    def distribution_citation(parent: ET.Element, value: dict[str, Any], path: str) -> bool:
+        if not _iso_quality_unit_label_supported(value["title"]):
+            distribution_unmapped.append(path)
+            return False
+        citation = child(child(parent, "mrd", "formatSpecificationCitation"), "cit", "CI_Citation")
+        distribution_text(citation, "cit", "title", value["title"], f"{path}.title")
+        for index, alternate in enumerate(value.get("alternateTitles", [])):
+            distribution_text(
+                citation, "cit", "alternateTitle", alternate, f"{path}.alternateTitles[{index}]"
+            )
+        for index, date_value in enumerate(value.get("dates", [])):
+            date_path = f"{path}.dates[{index}]"
+            if not all(
+                _iso_quality_unit_label_supported(date_value[key]) for key in ("date", "dateType")
+            ):
+                distribution_unmapped.append(date_path)
+                continue
+            date = child(child(citation, "cit", "date"), "cit", "CI_Date")
+            child(child(date, "cit", "date"), "gco", "Date", date_value["date"])
+            code = child(
+                child(date, "cit", "dateType"), "cit", "CI_DateTypeCode", date_value["dateType"]
+            )
+            code.set(
+                "codeList",
+                "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_DateTypeCode",
+            )
+            code.set("codeListValue", date_value["dateType"])
+            distribution_mapped.append(date_path)
+        for field, xml_type in (("edition", "CharacterString"), ("editionDate", "DateTime")):
+            if field in value:
+                distribution_text(citation, "cit", field, value[field], f"{path}.{field}", xml_type)
+        for index, identifier_value in enumerate(value.get("identifiers", [])):
+            identifier_path = f"{path}.identifiers[{index}]"
+            if not all(_iso_quality_unit_label_supported(v) for v in identifier_value.values()):
+                distribution_unmapped.append(identifier_path)
+                continue
+            identifier = child(child(citation, "cit", "identifier"), "mcc", "MD_Identifier")
+            child(
+                child(identifier, "mcc", "code"), "gco", "CharacterString", identifier_value["code"]
+            )
+            if "codeSpace" in identifier_value:
+                child(
+                    child(identifier, "mcc", "codeSpace"),
+                    "gco",
+                    "CharacterString",
+                    identifier_value["codeSpace"],
+                )
+            distribution_mapped.append(identifier_path)
+        return True
+
     if distributions:
         distribution_info = child(root, "mdb", "distributionInfo")
         distribution_value = child(distribution_info, "mrd", "MD_Distribution")
-        for value in distributions:
+        for distribution_index, value in enumerate(distributions):
+            path = f"metadata_extensions.opengeo.distributions[{distribution_index}]"
+            context = cast(dict[str, Any], value.get("isoTransfer", {}))
+            bindings = cast(dict[str, int], context.get("projections", {}))
+            online_values: list[dict[str, Any] | None] = deepcopy(
+                context.get("onlineResources", [])
+            )
+            format_values: list[dict[str, Any] | None] = deepcopy(context.get("formats", []))
+            for field in ("accessUrl", "downloadUrl"):
+                function = "information" if field == "accessUrl" else "download"
+                index = bindings.get(field)
+                if index is not None:
+                    record = online_values[index]
+                    if record is not None:
+                        if field in value:
+                            record["linkage"] = value[field]
+                        else:
+                            online_values[index] = None
+                            distribution_unmapped.append(
+                                f"{path}.isoTransfer.onlineResources[{index}][native-clear]"
+                            )
+                elif field in value:
+                    record = {"linkage": value[field], "function": function}
+                    if "title" in value:
+                        record["name"] = value["title"]
+                    if not any(
+                        existing is not None
+                        and all(
+                            existing.get(key) == record.get(key)
+                            for key in ("linkage", "function", "name")
+                        )
+                        for existing in online_values
+                    ):
+                        online_values.append(record)
+            title_index = bindings.get("title")
+            if title_index is not None and online_values[title_index] is not None:
+                title_record = cast(dict[str, Any], online_values[title_index])
+                if "title" in value:
+                    title_record["name"] = value["title"]
+                else:
+                    title_record.pop("name", None)
+            format_index = bindings.get("format")
+            if format_index is not None:
+                format_record = format_values[format_index]
+                if format_record is not None:
+                    if "format" in value:
+                        format_record["citation"]["title"] = value["format"]
+                    else:
+                        format_values[format_index] = None
+                        distribution_unmapped.append(
+                            f"{path}.isoTransfer.formats[{format_index}][native-clear]"
+                        )
+            elif "format" in value:
+                record = {"citation": {"title": value["format"]}}
+                if not any(
+                    existing is not None and existing["citation"]["title"] == value["format"]
+                    for existing in format_values
+                ):
+                    format_values.append(record)
             transfer_options = child(distribution_value, "mrd", "transferOptions")
-            transfer_value = child(transfer_options, "mrd", "MD_DigitalTransferOptions")
-            online = child(transfer_value, "mrd", "onLine")
-            online_value = child(online, "cit", "CI_OnlineResource")
-            is_download = bool(value.get("downloadUrl"))
-            linkage_value = value.get("downloadUrl") or value["accessUrl"]
-            child(
-                child(online_value, "cit", "linkage"),
-                "gco",
-                "CharacterString",
-                linkage_value,
-            )
-            if value.get("format"):
-                child(
-                    child(online_value, "cit", "protocol"),
-                    "gco",
-                    "CharacterString",
-                    value["format"],
+            transfer = child(transfer_options, "mrd", "MD_DigitalTransferOptions")
+            distribution_blocks.append((distribution_value, transfer_options, path))
+            for field, xml_name, xml_type in (
+                ("unitsOfDistribution", "unitsOfDistribution", "CharacterString"),
+                ("transferSizeMegabytes", "transferSize", "Real"),
+            ):
+                if field in context:
+                    distribution_text(
+                        transfer,
+                        "mrd",
+                        xml_name,
+                        str(context[field]),
+                        f"{path}.isoTransfer.{field}",
+                        xml_type,
+                    )
+            for online_index, record in enumerate(online_values):
+                online_mapped_start = len(distribution_mapped)
+                online_unmapped_start = len(distribution_unmapped)
+                if record is None:
+                    continue
+                online_path = f"{path}.isoTransfer.onlineResources[{online_index}]"
+                if not _iso_quality_unit_label_supported(record["linkage"]):
+                    if online_index < len(context.get("onlineResources", [])):
+                        distribution_unmapped.append(online_path)
+                    continue
+                online = child(child(transfer, "mrd", "onLine"), "cit", "CI_OnlineResource")
+                for field in ("linkage", "protocol", "applicationProfile", "name", "description"):
+                    if field in record:
+                        distribution_text(
+                            online, "cit", field, record[field], f"{online_path}.{field}"
+                        )
+                if "function" in record:
+                    function_value = record["function"]
+                    if _iso_quality_unit_label_supported(function_value) and not any(
+                        c in function_value for c in "\t\n"
+                    ):
+                        function_code = child(
+                            child(online, "cit", "function"),
+                            "cit",
+                            "CI_OnLineFunctionCode",
+                            function_value,
+                        )
+                        function_code.set(
+                            "codeList",
+                            "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_OnLineFunctionCode",
+                        )
+                        function_code.set("codeListValue", function_value)
+                        distribution_mapped.append(f"{online_path}.function")
+                    else:
+                        distribution_unmapped.append(f"{online_path}.function")
+                if "protocolRequest" in record:
+                    distribution_text(
+                        online,
+                        "cit",
+                        "protocolRequest",
+                        record["protocolRequest"],
+                        f"{online_path}.protocolRequest",
+                    )
+                if online_index >= len(context.get("onlineResources", [])):
+                    del distribution_mapped[online_mapped_start:]
+                    del distribution_unmapped[online_unmapped_start:]
+            if "transferFrequency" in context:
+                distribution_text(
+                    transfer,
+                    "mrd",
+                    "transferFrequency",
+                    context["transferFrequency"],
+                    f"{path}.isoTransfer.transferFrequency",
+                    "TM_PeriodDuration",
                 )
-            if value.get("title"):
-                child(
-                    child(online_value, "cit", "name"),
-                    "gco",
-                    "CharacterString",
-                    value["title"],
+            for format_record_index, record in enumerate(format_values):
+                format_mapped_start = len(distribution_mapped)
+                format_unmapped_start = len(distribution_unmapped)
+                if record is None:
+                    continue
+                format_path = f"{path}.isoTransfer.formats[{format_record_index}]"
+                format_property = child(transfer, "mrd", "distributionFormat")
+                format_element = child(format_property, "mrd", "MD_Format")
+                if not distribution_citation(
+                    format_element, record["citation"], f"{format_path}.citation"
+                ):
+                    transfer.remove(format_property)
+                    if format_record_index < len(context.get("formats", [])):
+                        distribution_unmapped.append(format_path)
+                    else:
+                        del distribution_unmapped[format_unmapped_start:]
+                    continue
+                for field in ("amendmentNumber", "fileDecompressionTechnique"):
+                    if field in record:
+                        distribution_text(
+                            format_element, "mrd", field, record[field], f"{format_path}.{field}"
+                        )
+                if format_record_index >= len(context.get("formats", [])):
+                    del distribution_mapped[format_mapped_start:]
+                    del distribution_unmapped[format_unmapped_start:]
+            for field in ("accessUrl", "downloadUrl", "title", "format"):
+                if field not in value:
+                    continue
+                supported = _iso_quality_unit_label_supported(value[field])
+                if field in {"accessUrl", "downloadUrl"}:
+                    function = "information" if field == "accessUrl" else "download"
+                    supported = supported and any(
+                        record is not None
+                        and record.get("linkage") == value[field]
+                        and record.get("function") == function
+                        for record in online_values
+                    )
+                elif field == "title":
+                    supported = supported and any(
+                        record is not None and record.get("name") == value[field]
+                        for record in online_values
+                    )
+                else:
+                    supported = supported and any(
+                        record is not None and record["citation"]["title"] == value[field]
+                        for record in format_values
+                    )
+                (distribution_mapped if supported else distribution_unmapped).append(
+                    f"{path}.{field}"
                 )
-            function = child(online_value, "cit", "function")
-            function_value = "download" if is_download else "information"
-            function_code = child(function, "cit", "CI_OnLineFunctionCode", function_value)
-            function_code.set(
-                "codeList",
-                "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_OnLineFunctionCode",
-            )
-            function_code.set("codeListValue", function_value)
+            if bindings:
+                distribution_mapped.append(f"{path}.isoTransfer.projections")
     quality = cast(list[dict[str, Any]], catalog.get("quality", []))
     if quality:
         quality_info = child(root, "mdb", "dataQualityInfo")
@@ -3687,7 +3903,18 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         if not acquisition_emitted:
             root.remove(acquisition_info)
             xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
-    context_size_blocked = context_was_emitted and xml_size > 49_152
+    distribution_was_emitted = bool(distribution_blocks)
+    while xml_size > 49_152 and distribution_blocks:
+        parent, element, path = distribution_blocks.pop()
+        parent.remove(element)
+        removed = [p for p in distribution_mapped if p == path or p.startswith(path + ".")]
+        distribution_mapped = [p for p in distribution_mapped if p not in removed]
+        distribution_unmapped.extend([*removed, f"{path}[size-limit]"])
+        xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    if distributions and not len(distribution_value):
+        root.remove(distribution_info)
+        xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    context_size_blocked = (context_was_emitted or distribution_was_emitted) and xml_size > 49_152
     iso_catalog_mapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in (
@@ -3698,13 +3925,17 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             "lineage",
             "acquisition",
         )
-        if catalog.get(field) and (field != "acquisition" or acquisition_emitted)
+        if catalog.get(field)
+        and (field != "acquisition" or acquisition_emitted)
+        and (field != "distributions" or bool(distribution_blocks))
     ]
     iso_catalog_unmapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in ("updateFrequency", "sensitivity", "funding")
         if catalog.get(field)
     ]
+    iso_catalog_mapped.extend(distribution_mapped)
+    iso_catalog_unmapped.extend(distribution_unmapped)
     iso_catalog_mapped.extend(acquisition_context_mapped)
     iso_catalog_unmapped.extend(acquisition_context_unmapped)
     if isinstance(acquisition, dict):
@@ -3736,10 +3967,6 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 iso_catalog_unmapped.append(
                     f"metadata_extensions.opengeo.distributions[{index}].{field}"
                 )
-        if value.get("downloadUrl") and value.get("accessUrl"):
-            iso_catalog_unmapped.append(
-                f"metadata_extensions.opengeo.distributions[{index}].accessUrl"
-            )
     for index, value in enumerate(quality):
         if value.get("unit") is not None and (
             isinstance(value["result"], str | bool)
@@ -3805,11 +4032,29 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         result["documentText"] = None
         result["report"]["mapped"] = []
         result["report"]["warnings"] = [
-            "The document exceeds the 49152-byte import limit after omitting new acquisition "
-            "context. Native metadata is unchanged."
+            "The document exceeds the 49152-byte import limit after omitting acquisition "
+            "and distribution context. Native metadata is unchanged."
         ]
         result["report"]["sizeLimitBytes"] = 49_152
         result["report"]["documentBytes"] = xml_size
+    if (
+        distributions
+        and len(json.dumps(result["report"], ensure_ascii=False).encode("utf-8")) > 16_384
+    ):
+        result["status"] = "not_exportable_size_limit"
+        result["documentText"] = None
+        result["report"]["mapped"] = []
+        # An omitted whole array is one explicit loss; keep the native array intact.
+        result["report"]["unmapped"] = [
+            path
+            for path in result["report"]["unmapped"]
+            if not path.startswith("metadata_extensions.opengeo.distributions")
+        ] + ["metadata_extensions.opengeo.distributions[report-size-limit]"]
+        result["report"]["warnings"] = [
+            "The distribution mapping report exceeds 16384 UTF-8 bytes. "
+            "No ISO document is exported; all native metadata is unchanged."
+        ]
+        result["report"]["reportSizeLimitBytes"] = 16_384
     return result
 
 
