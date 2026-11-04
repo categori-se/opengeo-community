@@ -6804,6 +6804,8 @@ body:has(.opengeo-workbench) #observablehq-center {
 
 .gis-basemap-runtime-alert {
   position: absolute;
+  /* Recovery actions stay above the independently scrollable map controls. */
+  z-index: 6;
   right: 5rem;
   bottom: 0.75rem;
   left: 0.75rem;
