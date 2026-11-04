@@ -1,11 +1,23 @@
+import json
+from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import ValidationError
 
 from opengeo_api.metadata_catalog import CatalogMetadataInvalid, validate_catalog_metadata
 from opengeo_api.metadata_profiles import validate_metadata_document
 from opengeo_api.resource_routes import ResourceMetadataRequest
+
+ROOT = Path(__file__).parents[3]
+
+
+def acquisition_context() -> dict[str, Any]:
+    return json.loads(
+        (ROOT / "parity/fixtures/data/metadata-014-opengeo-acquisition-context.json").read_text()
+    )
 
 
 def native_catalog() -> dict[str, Any]:
@@ -204,6 +216,170 @@ def test_native_catalog_13_adds_relational_events_and_platform_passes() -> None:
     )
 
     assert validate_catalog_metadata(value) == value
+
+
+def test_native_catalog_14_accepts_context_schema_and_environment_only() -> None:
+    value = acquisition_context()
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.4.0.schema.json").read_text())
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+
+    assert validate_catalog_metadata(value) == value
+    request = ResourceMetadataRequest(title="Survey", extensions={"opengeo": value})
+    assert request.extensions["opengeo"] == value
+    validator.validate(value)
+    environmental_only = {
+        "schemaVersion": "1.4.0",
+        "acquisition": {"environmentalConditions": {"averageAirTemperature": 0}},
+    }
+    assert validate_catalog_metadata(environmental_only) == environmental_only
+    validator.validate(environmental_only)
+
+    # Preserve separate boxes, the antimeridian and absent versus false inclusion.
+    boxes = value["acquisition"]["objectives"][0]["extents"][0]["geographicBounds"]
+    assert boxes[0]["west"] > boxes[0]["east"]
+    assert boxes[0]["extentTypeCode"] is False
+    assert "extentTypeCode" not in boxes[1]
+    plan = value["acquisition"]["plans"][0]
+    assert plan["identifier"] != plan["citation"]["title"]
+    assert len(plan["citation"]["identifiers"]) == 2
+
+
+def test_native_catalog_14_preserves_old_versions_and_gates_new_fields() -> None:
+    for version in ("1.0.0", "1.1.0", "1.2.0", "1.3.0"):
+        value = native_catalog()
+        value["schemaVersion"] = version
+        assert validate_catalog_metadata(value) == value
+        value["acquisition"] = {"environmentalConditions": {"solarElevation": 0}}
+        with pytest.raises(CatalogMetadataInvalid, match="unknown field"):
+            validate_catalog_metadata(value)
+
+    for collection, records in (
+        ("objectives", [{"identifier": "objective", "extents": [{"description": "Area"}]}]),
+        ("platformPasses", [{"identifier": "pass", "extent": {"description": "Area"}}]),
+        ("plans", [{"identifier": "plan", "status": "planned", "citation": {"title": "Guide"}}]),
+    ):
+        with pytest.raises(CatalogMetadataInvalid, match="unknown field"):
+            validate_catalog_metadata(
+                {"schemaVersion": "1.3.0", "acquisition": {collection: records}}
+            )
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement", "message"),
+    [
+        (("objectives", 0, "extents"), [], "at least one"),
+        (("objectives", 0, "extents"), [{"description": "Area"}] * 5, "at most 4"),
+        (("platformPasses", 0, "extent"), {}, "nonempty extent"),
+        (("platformPasses", 0, "extent"), {"vertical": 20}, "unknown field"),
+        (("platformPasses", 0, "extent", "geographicBounds"), [], "at least one"),
+        (
+            ("platformPasses", 0, "extent", "geographicBounds"),
+            [{"west": 0, "east": 1, "south": 0, "north": 1}] * 5,
+            "at most 4",
+        ),
+        (("platformPasses", 0, "extent", "geographicBounds", 0, "west"), True, "finite number"),
+        (("platformPasses", 0, "extent", "geographicBounds", 0, "east"), 181, "out of range"),
+        (("platformPasses", 0, "extent", "geographicBounds", 0, "south"), 40, "south <= north"),
+        (
+            ("platformPasses", 0, "extent", "geographicBounds", 0, "extentTypeCode"),
+            "false",
+            "must be a boolean",
+        ),
+        (
+            ("platformPasses", 0, "extent", "temporal"),
+            {"start": "2026-07-01T09:00:00Z"},
+            "start and end",
+        ),
+        (
+            ("platformPasses", 0, "extent", "temporal", "end"),
+            "2026-07-01T08:00:00Z",
+            "start <= end",
+        ),
+        (
+            ("platformPasses", 0, "extent", "temporal"),
+            {"start": "2026-07-01T09:00:00.0000002Z", "end": "2026-07-01T09:00:00.0000001Z"},
+            "start <= end",
+        ),
+        (
+            ("platformPasses", 0, "extent", "temporal", "start"),
+            "2026-02-30T09:00:00Z",
+            "ISO 8601",
+        ),
+        (
+            ("platformPasses", 0, "extent", "temporal", "start"),
+            "2026-07-01 09:00:00Z",
+            "full date-time",
+        ),
+        (("environmentalConditions",), {}, "nonempty"),
+        (("environmentalConditions", "averageAirTemperature"), float("nan"), "finite number"),
+        (("environmentalConditions", "maxAltitude"), True, "finite number"),
+        (("environmentalConditions", "solarAzimuth"), float("inf"), "finite number"),
+        (("plans", 0, "citation"), {}, "title must be a string"),
+        (("plans", 0, "citation", "alternateTitles"), ["Title"] * 9, "1 to 8"),
+        (("plans", 0, "citation", "dates"), [], "at least one"),
+        (("plans", 0, "citation", "dates", 0, "date"), "2026-02-30", "valid YYYY-MM-DD"),
+        (("plans", 0, "citation", "dates", 0, "dateType"), "unknown", "unsupported"),
+        (("plans", 0, "citation", "editionDate"), "2026-07-01T09:00:00+14:01", "full date-time"),
+        (("plans", 0, "citation", "identifiers"), [{"code": "same"}] * 2, "must be unique"),
+        (("plans", 0, "citation", "identifiers"), [{"code": "id"}] * 9, "at most 8"),
+        (
+            ("plans", 0, "citation", "identifiers"),
+            [{"code": "id", "codeSpace": "urn:opengeo:catalog:acquisition-plan"}],
+            "reserved for plan identity",
+        ),
+        (
+            ("requirements", 0, "citation", "identifiers"),
+            [{"code": "id", "codeSpace": " urn:opengeo:catalog:acquisition-plan "}],
+            "reserved for plan identity",
+        ),
+        (("requirements", 0, "citation", "identifiers", 0, "codeSpace"), "", "length is invalid"),
+    ],
+    ids=[
+        "empty-objective-extents",
+        "too-many-objective-extents",
+        "empty-pass-extent",
+        "unknown-extent",
+        "empty-bounds",
+        "too-many-bounds",
+        "boolean-coordinate",
+        "longitude-range",
+        "latitude-order",
+        "inclusion-type",
+        "open-time",
+        "reversed-time",
+        "reversed-submicrosecond-time",
+        "invalid-calendar-time",
+        "nonstandard-time",
+        "empty-environment",
+        "nonfinite-temperature",
+        "boolean-altitude",
+        "nonfinite-azimuth",
+        "missing-citation-title",
+        "too-many-titles",
+        "empty-citation-dates",
+        "invalid-citation-date",
+        "unknown-date-type",
+        "invalid-edition-offset",
+        "duplicate-citation-identity",
+        "too-many-citation-identities",
+        "reserved-plan-carrier",
+        "normalized-reserved-carrier",
+        "empty-citation-code-space",
+    ],
+)
+def test_native_catalog_14_rejects_invalid_context(
+    path: tuple[str | int, ...], replacement: Any, message: str
+) -> None:
+    value = deepcopy(acquisition_context())
+    current = value["acquisition"]
+    for component in path[:-1]:
+        current = current[component]
+    current[path[-1]] = replacement
+
+    with pytest.raises(CatalogMetadataInvalid, match=message):
+        validate_catalog_metadata(value)
+    with pytest.raises(ValidationError):
+        ResourceMetadataRequest(title="Survey", extensions={"opengeo": value})
 
 
 @pytest.mark.parametrize(

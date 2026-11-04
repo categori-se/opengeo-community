@@ -1211,3 +1211,313 @@ def test_canonical_json_uses_code_point_order_plain_decimals_and_json_types_only
     )
     with pytest.raises(TypeError, match="not JSON serializable"):
         canonical_json_bytes(("not", "a", "JSON", "array"))
+
+
+def acquisition_context_resource():
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        fixture("metadata-014-opengeo-acquisition-context.json")
+    )
+    return resource
+
+
+@pytest.mark.parametrize(
+    "precision", ["representative", "integer-and-nanosecond", "finite-large-float"]
+)
+def test_iso_acquisition_context_round_trip_preserves_fields_identity_and_graph(
+    precision: str,
+) -> None:
+    resource = acquisition_context_resource()
+    if precision == "integer-and-nanosecond":
+        acquisition = resource.metadata_extensions["opengeo"]["acquisition"]
+        acquisition["environmentalConditions"]["maxAltitude"] = 9_007_199_254_740_993
+        acquisition["platformPasses"][0]["extent"]["temporal"] = {
+            "start": "2026-07-01T09:00:00.000000001Z",
+            "end": "2026-07-01T09:00:00.000000002Z",
+        }
+    elif precision == "finite-large-float":
+        environmental = resource.metadata_extensions["opengeo"]["acquisition"][
+            "environmentalConditions"
+        ]
+        environmental["maxAltitude"] = 1e308
+        environmental["maxRelativeHumidity"] = 1e-308
+    expected = resource.metadata_extensions["opengeo"]
+    exported = export_iso_19115_3(resource)
+    document = exported["documentText"]
+    reopened = iso_import(document)
+    actual = reopened.draft.metadata.extensions["opengeo"]
+
+    assert actual["schemaVersion"] == "1.4.0"
+    assert actual["acquisition"] == expected["acquisition"]
+    assert actual["acquisition"]["plans"][0]["identifier"] == "PLAN-2026-07"
+    assert actual["acquisition"]["plans"][0]["citation"]["title"] != "PLAN-2026-07"
+    assert reopened.draft.metadata.spatial_extent == resource.summary.spatial_extent
+    assert reopened.draft.metadata.temporal_start == resource.summary.temporal_start
+    assert reopened.draft.metadata.temporal_end == resource.summary.temporal_end
+    assert reopened.source_document == document
+    assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+    assert not any("acquisition" in path for path in exported["report"]["unmapped"])
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    environment = next(ET.fromstring(document).iter(f"{mac}MI_EnvironmentalRecord"))
+    assert [child.tag for child in environment] == [
+        f"{mac}{name}"
+        for name in (
+            "averageAirTemperature",
+            "maxRelativeHumidity",
+            "maxAltitude",
+            "meterologicalConditions",
+            "solarAzimuth",
+            "solarElevation",
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "unsupported", ["polygon", "time-instant", "foreign", "reversed-submicrosecond"]
+)
+def test_iso_acquisition_context_unsupported_extents_preserve_source_and_resource_bounds(
+    unsupported: str,
+) -> None:
+    resource = acquisition_context_resource()
+    root = ET.fromstring(export_iso_19115_3(resource)["documentText"])
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    gex = "{http://standards.iso.org/iso/19115/-3/gex/1.0}"
+    gml = "{http://www.opengis.net/gml/3.2}"
+    objective = next(root.iter(f"{mac}MI_Objective"))
+    extents = objective.findall(f"{mac}extent/{gex}EX_Extent")
+    if unsupported == "polygon":
+        geographic = ET.SubElement(extents[0], f"{gex}geographicElement")
+        ET.SubElement(geographic, f"{gex}EX_BoundingPolygon")
+    elif unsupported == "time-instant":
+        period = next(extents[1].iter(f"{gml}TimePeriod"))
+        period.tag = f"{gml}TimeInstant"
+    elif unsupported == "foreign":
+        extents[0].tag = "{https://example.invalid/foreign}EX_Extent"
+    else:
+        period = next(extents[1].iter(f"{gml}TimePeriod"))
+        begin = period.find(f"{gml}beginPosition")
+        end = period.find(f"{gml}endPosition")
+        assert begin is not None and end is not None
+        begin.text = "2026-07-01T09:00:00.000000002Z"
+        end.text = "2026-07-01T09:00:00.000000001Z"
+    document = ET.tostring(root, encoding="unicode")
+    reopened = iso_import(document)
+
+    assert reopened.source_document == document
+    assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+    assert reopened.draft.metadata.spatial_extent == resource.summary.spatial_extent
+    assert reopened.draft.metadata.temporal_start == resource.summary.temporal_start
+    assert any("extent" in path.lower() for path in reopened.conversion_report["unmapped"])
+    assert (
+        reopened.draft.metadata.extensions["opengeo"]["acquisition"]["plans"][0]["identifier"]
+        == "PLAN-2026-07"
+    )
+
+
+@pytest.mark.parametrize("unsupported", ["duplicate", "malformed"])
+def test_iso_acquisition_context_bad_plan_carrier_cannot_reassign_graph(
+    unsupported: str,
+) -> None:
+    resource = acquisition_context_resource()
+    root = ET.fromstring(export_iso_19115_3(resource)["documentText"])
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    mcc = "{http://standards.iso.org/iso/19115/-3/mcc/1.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    plan = next(root.iter(f"{mac}MI_Plan"))
+    citation = plan.find(f"{mac}citation/{cit}CI_Citation")
+    assert citation is not None
+    carriers = [
+        item
+        for item in citation.findall(f"{cit}identifier")
+        if item.findtext(f"{mcc}MD_Identifier/{mcc}codeSpace/{gco}CharacterString")
+        == "urn:opengeo:catalog:acquisition-plan"
+    ]
+    assert len(carriers) == 1
+    if unsupported == "duplicate":
+        duplicate = ET.fromstring(ET.tostring(carriers[0]))
+        code = duplicate.find(f"{mcc}MD_Identifier/{mcc}code/{gco}CharacterString")
+        assert code is not None
+        code.text = "OTHER-PLAN"
+        citation.append(duplicate)
+    else:
+        carriers[0].set("unexpected", "malformed")
+    document = ET.tostring(root, encoding="unicode")
+    reopened = iso_import(document)
+
+    assert not reopened.draft.metadata.extensions["opengeo"]["acquisition"].get("plans")
+    assert reopened.source_document == document
+    assert any("citation" in path.lower() for path in reopened.conversion_report["unmapped"])
+
+
+@pytest.mark.parametrize("unsupported", ["foreign", "carriage-return"])
+def test_iso_acquisition_context_environment_unsupported_values_are_not_silently_changed(
+    unsupported: str,
+) -> None:
+    resource = acquisition_context_resource()
+    root = ET.fromstring(export_iso_19115_3(resource)["documentText"])
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    environment = next(root.iter(f"{mac}MI_EnvironmentalRecord"))
+    meteorology = environment.find(f"{mac}meterologicalConditions")
+    assert meteorology is not None
+    if unsupported == "foreign":
+        meteorology.tag = "{https://example.invalid/foreign}meterologicalConditions"
+    else:
+        text = meteorology.find(f"{gco}CharacterString")
+        assert text is not None
+        text.text = "OPEN_GEO_CR_MARKER"
+    document = ET.tostring(root, encoding="unicode").replace("OPEN_GEO_CR_MARKER", "clear&#13;calm")
+    reopened = iso_import(document)
+    actual = reopened.draft.metadata.extensions["opengeo"]["acquisition"]["environmentalConditions"]
+
+    assert "meteorologicalConditions" not in actual
+    assert actual["averageAirTemperature"] == actual["solarAzimuth"] == 0
+    assert reopened.source_document == document
+    assert any(
+        "meterological" in path or "meteorological" in path
+        for path in reopened.conversion_report["unmapped"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "unsafe"),
+    [
+        ("environment", "clear\rcalm"),
+        ("environment", "clear\x01calm"),
+        ("extent", "survey\rcorridor"),
+        ("citation", "survey\ufffeplan"),
+    ],
+)
+def test_iso_acquisition_context_unsafe_native_text_keeps_native_value_with_loss(
+    field: str,
+    unsafe: str,
+) -> None:
+    resource = acquisition_context_resource()
+    acquisition = resource.metadata_extensions["opengeo"]["acquisition"]
+    if field == "environment":
+        record, key = acquisition["environmentalConditions"], "meteorologicalConditions"
+    elif field == "extent":
+        record, key = acquisition["objectives"][0]["extents"][0], "description"
+    else:
+        record, key = acquisition["plans"][0]["citation"], "title"
+    record[key] = unsafe
+    exported = export_iso_19115_3(resource)
+
+    ET.fromstring(exported["documentText"])
+    assert record[key] == unsafe
+    assert unsafe not in exported["documentText"]
+    assert any(key in path for path in exported["report"]["unmapped"])
+
+
+def test_iso_acquisition_context_xml_expansion_stays_bounded_with_explicit_losses() -> None:
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+    from opengeo_api.resource_routes import ResourceMetadataRequest
+
+    box = {key: 5e-324 for key in ("west", "east", "south", "north")}
+    native = {
+        "schemaVersion": "1.4.0",
+        "acquisition": {
+            "instruments": [{"identifier": "CAM-BOUND", "type": "camera"}],
+            "objectives": [
+                {
+                    "identifier": f"OBJECTIVE-{index}",
+                    "extents": [
+                        {"geographicBounds": [dict(box) for _ in range(4)]} for _ in range(4)
+                    ],
+                }
+                for index in range(4)
+            ],
+        },
+    }
+    request = ResourceMetadataRequest(title="Survey", extensions={"opengeo": native})
+    resource = acquisition_context_resource()
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        request.extensions["opengeo"]
+    )
+    exported = export_iso_19115_3(resource)
+    document = exported["documentText"]
+
+    assert len(document.encode("utf-8")) <= 49_152
+    ET.fromstring(document)
+    assert resource.metadata_extensions["opengeo"] == native
+    assert any(".extents[" in path for path in exported["report"]["unmapped"])
+    reopened = iso_import(document)
+    assert reopened.source_document == document
+    assert len(canonical_json_bytes(reopened.draft.metadata.extensions)) <= 8_192
+    assert any("size-limit" in path for path in reopened.conversion_report["unmapped"])
+    assert reopened.draft.metadata.extensions["opengeo"]["acquisition"]["instruments"] == [
+        {"identifier": "CAM-BOUND", "type": "camera"}
+    ]
+
+
+def test_iso_acquisition_context_large_citation_reports_canonical_loss_keeps_graph() -> None:
+    resource = acquisition_context_resource()
+    acquisition = resource.metadata_extensions["opengeo"]["acquisition"]
+    acquisition["plans"][0]["citation"]["alternateTitles"] = [
+        f"Alternative {index}: " + "x" * 980 for index in range(8)
+    ]
+    document = export_iso_19115_3(resource)["documentText"]
+    assert len(document.encode("utf-8")) <= 49_152
+    reopened = iso_import(document)
+    plan = reopened.draft.metadata.extensions["opengeo"]["acquisition"]["plans"][0]
+
+    assert plan["identifier"] == "PLAN-2026-07"
+    assert plan["operationIdentifiers"] == ["MISSION-2026-07"]
+    assert plan["requirementIdentifiers"] == ["REQUIREMENT-2026-07"]
+    assert "citation" not in plan
+    assert reopened.source_document == document
+    assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+    assert len(canonical_json_bytes(reopened.draft.metadata.extensions)) <= 8_192
+    assert any(
+        "citation" in path and "size-limit" in path
+        for path in reopened.conversion_report["unmapped"]
+    )
+    assert not any(
+        "->metadata_extensions.opengeo.acquisition.plans[0].citation" in path
+        for path in reopened.conversion_report["mapped"]
+    )
+
+
+def test_iso_acquisition_context_env_only_budget_loss_removes_empty_acquisition() -> None:
+    from opengeo_api.resource_routes import ResourceMetadataRequest
+
+    native = {
+        "schemaVersion": "1.4.0",
+        "contacts": [
+            {"organization": f"Contact {index:02d} " + "x" * 280, "role": "pointOfContact"}
+            for index in range(21)
+        ],
+        "acquisition": {
+            "environmentalConditions": {
+                name: 1e308
+                for name in (
+                    "averageAirTemperature",
+                    "maxRelativeHumidity",
+                    "maxAltitude",
+                    "solarAzimuth",
+                    "solarElevation",
+                )
+            }
+        },
+    }
+    request = ResourceMetadataRequest(title="Survey", extensions={"opengeo": native})
+    resource = acquisition_context_resource()
+    resource.metadata_extensions["opengeo"] = request.extensions["opengeo"]
+    document = export_iso_19115_3(resource)["documentText"]
+    reopened = iso_import(document)
+    actual = reopened.draft.metadata.extensions["opengeo"]
+
+    assert actual["schemaVersion"] == "1.0.0"
+    assert "acquisition" not in actual
+    assert actual["contacts"] == native["contacts"]
+    assert resource.metadata_extensions["opengeo"] == native
+    assert reopened.source_document == document
+    assert len(canonical_json_bytes(reopened.draft.metadata.extensions)) <= 8_192
+    assert any("size-limit" in path for path in reopened.conversion_report["unmapped"])
+    assert not any(
+        "->metadata_extensions.opengeo.acquisition" in path
+        for path in reopened.conversion_report["mapped"]
+    )

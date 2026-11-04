@@ -5,6 +5,7 @@ from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from hashlib import sha256
 from typing import Any, Literal, Protocol, TypeVar, cast
 from uuid import UUID, uuid4
@@ -1916,9 +1917,176 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 source,
             )
     acquisition = catalog.get("acquisition")
+    acquisition_context_mapped: list[str] = []
+    acquisition_context_unmapped: list[str] = []
+    acquisition_context_blocks: list[tuple[ET.Element, ET.Element, str, str | None]] = []
+    acquisition_emitted = False
     if isinstance(acquisition, dict):
         acquisition_info = child(root, "mdb", "acquisitionInformation")
         acquisition_value = child(acquisition_info, "mac", "MI_AcquisitionInformation")
+        extent_period_index = 0
+
+        def omit_citation(value: dict[str, Any], path: str) -> None:
+            for field, content in value.items():
+                if isinstance(content, list):
+                    acquisition_context_unmapped.extend(
+                        f"{path}.{field}[{index}]" for index in range(len(content))
+                    )
+                else:
+                    acquisition_context_unmapped.append(f"{path}.{field}")
+
+        def emit_context_extent(parent: ET.Element, value: dict[str, Any], path: str) -> None:
+            nonlocal extent_period_index
+            extent_value = ET.Element(tag("gex", "EX_Extent"))
+            if "description" in value:
+                if _iso_quality_unit_label_supported(value["description"]):
+                    child(
+                        child(extent_value, "gex", "description"),
+                        "gco",
+                        "CharacterString",
+                        value["description"],
+                    )
+                    acquisition_context_mapped.append(f"{path}.description")
+                else:
+                    acquisition_context_unmapped.append(f"{path}.description")
+            for index, bounds in enumerate(value.get("geographicBounds", [])):
+                geographic = child(extent_value, "gex", "geographicElement")
+                box = child(geographic, "gex", "EX_GeographicBoundingBox")
+                if "extentTypeCode" in bounds:
+                    child(
+                        child(box, "gex", "extentTypeCode"),
+                        "gco",
+                        "Boolean",
+                        str(bounds["extentTypeCode"]).lower(),
+                    )
+                for field, name in (
+                    ("west", "westBoundLongitude"),
+                    ("east", "eastBoundLongitude"),
+                    ("south", "southBoundLatitude"),
+                    ("north", "northBoundLatitude"),
+                ):
+                    child(
+                        child(box, "gex", name),
+                        "gco",
+                        "Decimal",
+                        format(Decimal(str(bounds[field])), "f"),
+                    )
+                acquisition_context_mapped.append(f"{path}.geographicBounds[{index}]")
+            temporal_value = value.get("temporal")
+            if isinstance(temporal_value, dict):
+                if all(
+                    _iso_quality_unit_label_supported(temporal_value[field])
+                    for field in ("start", "end")
+                ):
+                    temporal = child(extent_value, "gex", "temporalElement")
+                    temporal_extent = child(temporal, "gex", "EX_TemporalExtent")
+                    period_property = child(temporal_extent, "gex", "extent")
+                    period = child(period_property, "gml", "TimePeriod")
+                    extent_period_index += 1
+                    period.set(tag("gml", "id"), f"acquisition-extent-period-{extent_period_index}")
+                    child(period, "gml", "beginPosition", temporal_value["start"])
+                    child(period, "gml", "endPosition", temporal_value["end"])
+                    acquisition_context_mapped.append(f"{path}.temporal")
+                else:
+                    acquisition_context_unmapped.append(f"{path}.temporal")
+            if len(extent_value):
+                extent_property = child(parent, "mac", "extent")
+                extent_property.append(extent_value)
+                acquisition_context_blocks.append((parent, extent_property, path, None))
+            else:
+                acquisition_context_unmapped.append(path)
+
+        def emit_context_citation(
+            parent: ET.Element,
+            value: dict[str, Any],
+            path: str,
+            *,
+            plan_identifier: str | None = None,
+        ) -> bool:
+            if not _iso_quality_unit_label_supported(value["title"]):
+                omit_citation(value, path)
+                return False
+            if plan_identifier is not None and not _iso_quality_unit_label_supported(
+                plan_identifier
+            ):
+                omit_citation(value, path)
+                return False
+            citation_property = child(parent, "mac", "citation")
+            citation = child(citation_property, "cit", "CI_Citation")
+            child(child(citation, "cit", "title"), "gco", "CharacterString", value["title"])
+            acquisition_context_mapped.append(f"{path}.title")
+            for index, alternate in enumerate(value.get("alternateTitles", [])):
+                if _iso_quality_unit_label_supported(alternate):
+                    child(
+                        child(citation, "cit", "alternateTitle"),
+                        "gco",
+                        "CharacterString",
+                        alternate,
+                    )
+                    acquisition_context_mapped.append(f"{path}.alternateTitles[{index}]")
+                else:
+                    acquisition_context_unmapped.append(f"{path}.alternateTitles[{index}]")
+            for index, citation_date in enumerate(value.get("dates", [])):
+                if all(
+                    _iso_quality_unit_label_supported(citation_date[field])
+                    for field in ("date", "dateType")
+                ):
+                    date = child(child(citation, "cit", "date"), "cit", "CI_Date")
+                    child(child(date, "cit", "date"), "gco", "Date", citation_date["date"])
+                    date_code = child(
+                        child(date, "cit", "dateType"),
+                        "cit",
+                        "CI_DateTypeCode",
+                        citation_date["dateType"],
+                    )
+                    date_code.set(
+                        "codeList",
+                        "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_DateTypeCode",
+                    )
+                    date_code.set("codeListValue", citation_date["dateType"])
+                    acquisition_context_mapped.append(f"{path}.dates[{index}]")
+                else:
+                    acquisition_context_unmapped.append(f"{path}.dates[{index}]")
+            for field, xml_type in (("edition", "CharacterString"), ("editionDate", "DateTime")):
+                if field in value:
+                    if _iso_quality_unit_label_supported(value[field]):
+                        child(child(citation, "cit", field), "gco", xml_type, value[field])
+                        acquisition_context_mapped.append(f"{path}.{field}")
+                    else:
+                        acquisition_context_unmapped.append(f"{path}.{field}")
+
+            def citation_identifier(identifier_value: dict[str, str]) -> None:
+                identifier = child(child(citation, "cit", "identifier"), "mcc", "MD_Identifier")
+                child(
+                    child(identifier, "mcc", "code"),
+                    "gco",
+                    "CharacterString",
+                    identifier_value["code"],
+                )
+                if "codeSpace" in identifier_value:
+                    child(
+                        child(identifier, "mcc", "codeSpace"),
+                        "gco",
+                        "CharacterString",
+                        identifier_value["codeSpace"],
+                    )
+
+            if plan_identifier is not None:
+                citation_identifier(
+                    {"code": plan_identifier, "codeSpace": "urn:opengeo:catalog:acquisition-plan"}
+                )
+            for index, identifier_value in enumerate(value.get("identifiers", [])):
+                if all(
+                    _iso_quality_unit_label_supported(content)
+                    for content in identifier_value.values()
+                ):
+                    citation_identifier(identifier_value)
+                    acquisition_context_mapped.append(f"{path}.identifiers[{index}]")
+                else:
+                    acquisition_context_unmapped.append(f"{path}.identifiers[{index}]")
+            acquisition_context_blocks.append((parent, citation_property, path, plan_identifier))
+            return True
+
         instrument_xml_ids: dict[str, str] = {}
         for index, value in enumerate(
             cast(list[dict[str, str]], acquisition.get("instruments", [])), start=1
@@ -1962,6 +2130,9 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         platform_pass_records = cast(list[dict[str, Any]], acquisition.get("platformPasses", []))
         platform_pass_by_identifier = {
             value["identifier"]: value for value in platform_pass_records
+        }
+        platform_pass_indices = {
+            value["identifier"]: index for index, value in enumerate(platform_pass_records)
         }
         platform_pass_xml_ids = {
             value["identifier"]: f"opengeo-platform-pass-{index}"
@@ -2027,6 +2198,13 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             platform_pass = child(property_element, "mac", "MI_PlatformPass")
             platform_pass.set("id", platform_pass_xml_ids[identifier])
             acquisition_identifier(platform_pass, "identifier", identifier)
+            if isinstance(value.get("extent"), dict):
+                emit_context_extent(
+                    platform_pass,
+                    value["extent"],
+                    "metadata_extensions.opengeo.acquisition.platformPasses"
+                    f"[{platform_pass_indices[identifier]}].extent",
+                )
             for event_identifier in cast(list[str], value.get("eventIdentifiers", [])):
                 event_reference = child(platform_pass, "mac", "relatedEvent")
                 if event_identifier in emitted_events:
@@ -2109,10 +2287,17 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             value["identifier"]: f"opengeo-plan-{index}"
             for index, value in enumerate(plan_records, start=1)
         }
-        for value in plan_records:
+        emitted_plan_identifiers: set[str] = set()
+        for plan_index, value in enumerate(plan_records):
+            if not _iso_quality_unit_label_supported(value["identifier"]):
+                acquisition_context_unmapped.append(
+                    f"metadata_extensions.opengeo.acquisition.plans[{plan_index}]"
+                )
+                continue
             plan_info = child(acquisition_value, "mac", "acquisitionPlan")
             plan = child(plan_info, "mac", "MI_Plan")
             plan.set("id", plan_xml_ids[value["identifier"]])
+            emitted_plan_identifiers.add(value["identifier"])
             if value.get("type"):
                 plan_type = child(plan, "mac", "type")
                 plan_type_code = child(plan_type, "mac", "MI_GeometryTypeCode", value["type"])
@@ -2128,14 +2313,21 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_ProgressCode",
             )
             plan_status_code.set("codeListValue", value["status"])
-            plan_citation = child(plan, "mac", "citation")
-            plan_citation_value = child(plan_citation, "cit", "CI_Citation")
-            child(
-                child(plan_citation_value, "cit", "title"),
-                "gco",
-                "CharacterString",
-                value["identifier"],
-            )
+            citation_value = value.get("citation")
+            if not isinstance(citation_value, dict) or not emit_context_citation(
+                plan,
+                citation_value,
+                f"metadata_extensions.opengeo.acquisition.plans[{plan_index}].citation",
+                plan_identifier=value["identifier"],
+            ):
+                plan_citation = child(plan, "mac", "citation")
+                plan_citation_value = child(plan_citation, "cit", "CI_Citation")
+                child(
+                    child(plan_citation_value, "cit", "title"),
+                    "gco",
+                    "CharacterString",
+                    value["identifier"],
+                )
             for referenced_operation in cast(list[str], value.get("operationIdentifiers", [])):
                 operation_reference = child(plan, "mac", "operation")
                 operation_reference.set(
@@ -2148,7 +2340,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     tag("xlink", "href"),
                     f"#{requirement_xml_ids[requirement_identifier]}",
                 )
-        for value in objective_records:
+        for objective_index, value in enumerate(objective_records):
             objective_info = child(acquisition_value, "mac", "objective")
             objective = child(objective_info, "mac", "MI_Objective")
             objective.set("id", objective_xml_ids[value["identifier"]])
@@ -2187,6 +2379,13 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     "CharacterString",
                     function_value,
                 )
+            for extent_index, extent_value in enumerate(value.get("extents", [])):
+                emit_context_extent(
+                    objective,
+                    extent_value,
+                    "metadata_extensions.opengeo.acquisition.objectives"
+                    f"[{objective_index}].extents[{extent_index}]",
+                )
             for referenced_instrument in cast(list[str], value.get("instrumentIdentifiers", [])):
                 instrument_reference = child(objective, "mac", "sensingInstrument")
                 instrument_reference.set(
@@ -2207,10 +2406,17 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     event_reference.set(tag("xlink", "href"), f"#{event_xml_ids[event_identifier]}")
                 else:
                     emit_event(event_reference, event_by_identifier[event_identifier])
-        for value in requirement_records:
+        for requirement_index, value in enumerate(requirement_records):
             requirement_info = child(acquisition_value, "mac", "acquisitionRequirement")
             requirement = child(requirement_info, "mac", "MI_Requirement")
             requirement.set("id", requirement_xml_ids[value["identifier"]])
+            if isinstance(value.get("citation"), dict):
+                emit_context_citation(
+                    requirement,
+                    value["citation"],
+                    "metadata_extensions.opengeo.acquisition.requirements"
+                    f"[{requirement_index}].citation",
+                )
             requirement_identifier_info = child(requirement, "mac", "identifier")
             requirement_identifier_value = child(
                 requirement_identifier_info, "mcc", "MD_Identifier"
@@ -2271,12 +2477,76 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 value["expiryDate"],
             )
             for plan_value in plan_records:
-                if value["identifier"] in plan_value.get("requirementIdentifiers", []):
+                if plan_value["identifier"] in emitted_plan_identifiers and value[
+                    "identifier"
+                ] in plan_value.get("requirementIdentifiers", []):
                     # The pinned ISO schema deliberately spells this property satisifiedPlan.
                     inverse_plan = child(requirement, "mac", "satisifiedPlan")
                     inverse_plan.set(
                         tag("xlink", "href"), f"#{plan_xml_ids[plan_value['identifier']]}"
                     )
+        environmental_value = acquisition.get("environmentalConditions")
+        if isinstance(environmental_value, dict):
+            environmental = ET.Element(tag("mac", "MI_EnvironmentalRecord"))
+            for field, xml_name in (
+                ("averageAirTemperature", "averageAirTemperature"),
+                ("maxRelativeHumidity", "maxRelativeHumidity"),
+                ("maxAltitude", "maxAltitude"),
+                ("meteorologicalConditions", "meterologicalConditions"),
+                ("solarAzimuth", "solarAzimuth"),
+                ("solarElevation", "solarElevation"),
+            ):
+                if field not in environmental_value:
+                    continue
+                path = f"metadata_extensions.opengeo.acquisition.environmentalConditions.{field}"
+                field_value = environmental_value[field]
+                if isinstance(field_value, str) and not _iso_quality_unit_label_supported(
+                    field_value
+                ):
+                    acquisition_context_unmapped.append(path)
+                    continue
+                child(
+                    child(environmental, "mac", xml_name),
+                    "gco",
+                    "CharacterString" if field == "meteorologicalConditions" else "Real",
+                    str(field_value),
+                )
+                acquisition_context_mapped.append(path)
+            if len(environmental):
+                environmental_property = child(acquisition_value, "mac", "environmentalConditions")
+                environmental_property.append(environmental)
+                acquisition_context_blocks.append(
+                    (
+                        acquisition_value,
+                        environmental_property,
+                        "metadata_extensions.opengeo.acquisition.environmentalConditions",
+                        None,
+                    )
+                )
+        acquisition_emitted = bool(len(acquisition_value))
+    # New context can expand compact native numbers into much larger XML decimals.
+    # Keep the existing source-import bound and report every removed native field.
+    context_was_emitted = bool(acquisition_context_blocks)
+    xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    while xml_size > 49_152 and acquisition_context_blocks:
+        parent, element, path, plan_identifier = acquisition_context_blocks.pop()
+        position = list(parent).index(element)
+        parent.remove(element)
+        if plan_identifier is not None:
+            fallback = ET.Element(tag("mac", "citation"))
+            citation = child(fallback, "cit", "CI_Citation")
+            child(child(citation, "cit", "title"), "gco", "CharacterString", plan_identifier)
+            parent.insert(position, fallback)
+        removed = [p for p in acquisition_context_mapped if p == path or p.startswith(path + ".")]
+        acquisition_context_mapped = [p for p in acquisition_context_mapped if p not in removed]
+        acquisition_context_unmapped.extend([*removed, f"{path}[size-limit]"])
+        xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    if isinstance(acquisition, dict):
+        acquisition_emitted = bool(len(acquisition_value))
+        if not acquisition_emitted:
+            root.remove(acquisition_info)
+            xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    context_size_blocked = context_was_emitted and xml_size > 49_152
     iso_catalog_mapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in (
@@ -2287,13 +2557,15 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             "lineage",
             "acquisition",
         )
-        if catalog.get(field)
+        if catalog.get(field) and (field != "acquisition" or acquisition_emitted)
     ]
     iso_catalog_unmapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in ("updateFrequency", "sensitivity", "funding")
         if catalog.get(field)
     ]
+    iso_catalog_mapped.extend(acquisition_context_mapped)
+    iso_catalog_unmapped.extend(acquisition_context_unmapped)
     if isinstance(acquisition, dict):
         for index, value in enumerate(cast(list[dict[str, Any]], acquisition.get("events", []))):
             if value["identifier"] not in emitted_events:
@@ -2307,6 +2579,10 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 iso_catalog_unmapped.append(
                     f"metadata_extensions.opengeo.acquisition.platformPasses[{index}][unreferenced]"
                 )
+                if "extent" in value:
+                    iso_catalog_unmapped.append(
+                        f"metadata_extensions.opengeo.acquisition.platformPasses[{index}].extent"
+                    )
     for index, value in enumerate(distributions):
         for field in (
             "identifier",
@@ -2330,7 +2606,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         ):
             iso_catalog_unmapped.append(f"metadata_extensions.opengeo.quality[{index}].unit")
     document_text = ET.tostring(root, encoding="unicode", xml_declaration=True)
-    return {
+    result = {
         "target": "iso_19115_3",
         "targetVersion": "ISO 19115-3:2023",
         "mediaType": "application/xml",
@@ -2383,6 +2659,17 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             "conformanceClaimed": False,
         },
     }
+    if context_size_blocked:
+        result["status"] = "not_exportable_size_limit"
+        result["documentText"] = None
+        result["report"]["mapped"] = []
+        result["report"]["warnings"] = [
+            "The document exceeds the 49152-byte import limit after omitting new acquisition "
+            "context. Native metadata is unchanged."
+        ]
+        result["report"]["sizeLimitBytes"] = 49_152
+        result["report"]["documentBytes"] = xml_size
+    return result
 
 
 def _not_applicable_export(

@@ -1,15 +1,16 @@
 import ipaddress
 import math
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.3.0"
+OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.4.0"
 OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.0.0",
     "1.1.0",
     "1.2.0",
+    "1.3.0",
     OPEN_GEO_CATALOG_SCHEMA_VERSION,
 }
 OPEN_GEO_CATALOG_NAMESPACE = "opengeo"
@@ -65,6 +66,12 @@ _ACQUISITION_PRIORITIES = {
 _ACQUISITION_EVENT_TRIGGERS = {"automatic", "manual", "PreProgrammed"}
 _ACQUISITION_EVENT_CONTEXTS = {"acquisition", "pass", "wayPoint"}
 _ACQUISITION_EVENT_SEQUENCES = {"start", "end", "instantaneous"}
+_ACQUISITION_PLAN_ID_CODE_SPACE = "urn:opengeo:catalog:acquisition-plan"
+_CITATION_DATE_TYPES = {"creation", "publication", "revision"}
+_CONTEXT_DATE_TIME = re.compile(
+    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.(\d+))?"
+    r"(?:Z|[+-](?:(?:0\d|1[0-3]):[0-5]\d|14:00))"
+)
 
 
 class CatalogMetadataInvalid(ValueError):
@@ -95,7 +102,7 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     schema_version = value.get("schemaVersion")
     if schema_version not in OPEN_GEO_CATALOG_SCHEMA_VERSIONS:
         raise CatalogMetadataInvalid(
-            "metadata extensions.opengeo.schemaVersion must be 1.0.0, 1.1.0, 1.2.0, or 1.3.0"
+            "metadata extensions.opengeo.schemaVersion must be 1.0.0, 1.1.0, 1.2.0, 1.3.0, or 1.4.0"
         )
     allowed = _CATALOG_FIELDS_1_1 if schema_version != "1.0.0" else _CATALOG_FIELDS_1_0
     unknown = set(value) - allowed
@@ -132,8 +139,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "acquisition" in value:
         result["acquisition"] = _acquisition(
             value["acquisition"],
-            planning=schema_version in {"1.2.0", "1.3.0"},
-            event_graph=schema_version == "1.3.0",
+            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0"},
+            event_graph=schema_version in {"1.3.0", "1.4.0"},
+            context=schema_version == "1.4.0",
         )
     return result
 
@@ -311,7 +319,7 @@ def _funding(value: Any) -> list[dict[str, str]]:
     return result
 
 
-def _acquisition(value: Any, *, planning: bool, event_graph: bool) -> dict[str, Any]:
+def _acquisition(value: Any, *, planning: bool, event_graph: bool, context: bool) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CatalogMetadataInvalid("metadata opengeo.acquisition must be an object")
     allowed = {"instruments", "platforms", "operations"}
@@ -319,6 +327,8 @@ def _acquisition(value: Any, *, planning: bool, event_graph: bool) -> dict[str, 
         allowed.update({"plans", "objectives", "requirements"})
     if event_graph:
         allowed.update({"events", "platformPasses"})
+    if context:
+        allowed.add("environmentalConditions")
     _known_fields(value, allowed, "opengeo.acquisition")
     result: dict[str, Any] = {}
     instruments = _acquisition_records(
@@ -367,7 +377,7 @@ def _acquisition(value: Any, *, planning: bool, event_graph: bool) -> dict[str, 
     if normalized_platforms:
         result["platforms"] = normalized_platforms
     platform_passes = _acquisition_platform_passes(
-        value.get("platformPasses", []) if event_graph else []
+        value.get("platformPasses", []) if event_graph else [], context=context
     )
     if platform_passes:
         result["platformPasses"] = platform_passes
@@ -377,6 +387,7 @@ def _acquisition(value: Any, *, planning: bool, event_graph: bool) -> dict[str, 
         instrument_identifiers,
         pass_identifiers,
         event_graph=event_graph,
+        context=context,
     )
     if objectives:
         result["objectives"] = objectives
@@ -404,15 +415,19 @@ def _acquisition(value: Any, *, planning: bool, event_graph: bool) -> dict[str, 
     if operations:
         result["operations"] = operations
     operation_identifiers = {record["identifier"] for record in operations}
-    requirements = _acquisition_requirements(value.get("requirements", []))
+    requirements = _acquisition_requirements(value.get("requirements", []), context=context)
     if requirements:
         result["requirements"] = requirements
     requirement_identifiers = {record["identifier"] for record in requirements}
     plans = _acquisition_plans(
-        value.get("plans", []), operation_identifiers, requirement_identifiers
+        value.get("plans", []), operation_identifiers, requirement_identifiers, context=context
     )
     if plans:
         result["plans"] = plans
+    if "environmentalConditions" in value:
+        result["environmentalConditions"] = _acquisition_environment(
+            value["environmentalConditions"]
+        )
     if not result:
         raise CatalogMetadataInvalid(
             "metadata opengeo.acquisition requires an instrument, platform, or operation"
@@ -426,6 +441,7 @@ def _acquisition_objectives(
     pass_identifiers: set[str],
     *,
     event_graph: bool,
+    context: bool,
 ) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.acquisition.objectives")
     result: list[dict[str, Any]] = []
@@ -434,12 +450,20 @@ def _acquisition_objectives(
         allowed = {"identifier", "priority", "types", "functions", "instrumentIdentifiers"}
         if event_graph:
             allowed.update({"passIdentifiers", "eventIdentifiers"})
+        if context:
+            allowed.add("extents")
         _known_fields(record, allowed, path)
         objective: dict[str, Any] = {
             "identifier": _string(record.get("identifier"), 1, 300, f"{path}.identifier")
         }
         if "priority" in record:
             objective["priority"] = _string(record["priority"], 1, 300, f"{path}.priority")
+        if "extents" in record:
+            extents = _bounded_objects(record["extents"], 4, f"{path}.extents")
+            objective["extents"] = [
+                _acquisition_extent(extent, f"{path}.extents[{extent_index}]")
+                for extent_index, extent in enumerate(extents)
+            ]
         if "types" in record:
             types = _string_list(record["types"], 8, 300, f"{path}.types")
             unsupported = set(types) - _ACQUISITION_OBJECTIVE_TYPES
@@ -483,15 +507,20 @@ def _acquisition_objectives(
     return result
 
 
-def _acquisition_platform_passes(value: Any) -> list[dict[str, Any]]:
+def _acquisition_platform_passes(value: Any, *, context: bool) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.acquisition.platformPasses")
     result: list[dict[str, Any]] = []
     for index, record in enumerate(records):
         path = f"opengeo.acquisition.platformPasses[{index}]"
-        _known_fields(record, {"identifier", "eventIdentifiers"}, path)
+        allowed = {"identifier", "eventIdentifiers"}
+        if context:
+            allowed.add("extent")
+        _known_fields(record, allowed, path)
         platform_pass: dict[str, Any] = {
             "identifier": _string(record.get("identifier"), 1, 300, f"{path}.identifier")
         }
+        if "extent" in record:
+            platform_pass["extent"] = _acquisition_extent(record["extent"], f"{path}.extent")
         if "eventIdentifiers" in record:
             platform_pass["eventIdentifiers"] = _string_list(
                 record["eventIdentifiers"], 32, 300, f"{path}.eventIdentifiers"
@@ -605,7 +634,7 @@ def _acquisition_operations(
     return result
 
 
-def _acquisition_requirements(value: Any) -> list[dict[str, Any]]:
+def _acquisition_requirements(value: Any, *, context: bool) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.acquisition.requirements")
     result: list[dict[str, Any]] = []
     required = {
@@ -618,7 +647,7 @@ def _acquisition_requirements(value: Any) -> list[dict[str, Any]]:
     }
     for index, record in enumerate(records):
         path = f"opengeo.acquisition.requirements[{index}]"
-        _known_fields(record, required, path)
+        _known_fields(record, required | ({"citation"} if context else set()), path)
         missing = required - set(record)
         if missing:
             raise CatalogMetadataInvalid(f"metadata {path} requires {sorted(missing)[0]}")
@@ -672,6 +701,8 @@ def _acquisition_requirements(value: Any) -> list[dict[str, Any]]:
                 "expiryDate": expiry_value,
             }
         )
+        if "citation" in record:
+            result[-1]["citation"] = _acquisition_citation(record["citation"], f"{path}.citation")
     _unique_identifiers(result, "opengeo.acquisition.requirements")
     return result
 
@@ -680,28 +711,31 @@ def _acquisition_plans(
     value: Any,
     operation_identifiers: set[str],
     requirement_identifiers: set[str],
+    *,
+    context: bool,
 ) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.acquisition.plans")
     result: list[dict[str, Any]] = []
     for index, record in enumerate(records):
         path = f"opengeo.acquisition.plans[{index}]"
-        _known_fields(
-            record,
-            {
-                "identifier",
-                "status",
-                "type",
-                "operationIdentifiers",
-                "requirementIdentifiers",
-            },
-            path,
-        )
+        allowed = {
+            "identifier",
+            "status",
+            "type",
+            "operationIdentifiers",
+            "requirementIdentifiers",
+        }
+        if context:
+            allowed.add("citation")
+        _known_fields(record, allowed, path)
         plan: dict[str, Any] = {
             "identifier": _string(record.get("identifier"), 1, 300, f"{path}.identifier"),
             "status": _string(record.get("status"), 1, 300, f"{path}.status"),
         }
         if plan["status"] not in _ACQUISITION_STATUSES:
             raise CatalogMetadataInvalid(f"metadata {path}.status is unsupported")
+        if "citation" in record:
+            plan["citation"] = _acquisition_citation(record["citation"], f"{path}.citation")
         if "type" in record:
             plan_type = _string(record["type"], 1, 300, f"{path}.type")
             if plan_type not in _ACQUISITION_GEOMETRY_TYPES:
@@ -722,6 +756,175 @@ def _acquisition_plans(
                 plan[field] = references
         result.append(plan)
     _unique_identifiers(result, "opengeo.acquisition.plans")
+    return result
+
+
+def _bounded_objects(value: Any, maximum: int, path: str) -> list[dict[str, Any]]:
+    records = _object_list(value, maximum, path)
+    if not records:
+        raise CatalogMetadataInvalid(f"metadata {path} requires at least one object")
+    return records
+
+
+def _finite_number(value: Any, path: str) -> int | float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise CatalogMetadataInvalid(f"metadata {path} must be a finite number")
+    try:
+        finite = math.isfinite(value)
+    except OverflowError:
+        finite = False
+    if not finite:
+        raise CatalogMetadataInvalid(f"metadata {path} must be a finite number")
+    return value
+
+
+def _context_date_time(value: Any, path: str) -> tuple[tuple[datetime, str], str]:
+    normalized = _string(value, 1, 100, path)
+    match = _CONTEXT_DATE_TIME.fullmatch(normalized)
+    if match is None:
+        raise CatalogMetadataInvalid(
+            f"metadata {path} must be a full date-time with a timezone offset up to 14:00"
+        )
+    parsed, normalized = _date_time(normalized, path)
+    # Compare arbitrary fractional precision without datetime's microsecond truncation.
+    key = (parsed.replace(microsecond=0), (match.group(1) or "").rstrip("0"))
+    return key, normalized
+
+
+def _acquisition_extent(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict) or not value:
+        raise CatalogMetadataInvalid(f"metadata {path} must be a nonempty extent object")
+    _known_fields(value, {"description", "geographicBounds", "temporal"}, path)
+    result: dict[str, Any] = {}
+    if "description" in value:
+        result["description"] = _string(value["description"], 1, 1_000, f"{path}.description")
+    if "geographicBounds" in value:
+        bounds = _bounded_objects(value["geographicBounds"], 4, f"{path}.geographicBounds")
+        boxes: list[dict[str, Any]] = []
+        for index, box in enumerate(bounds):
+            box_path = f"{path}.geographicBounds[{index}]"
+            required = {"west", "east", "south", "north"}
+            _known_fields(box, required | {"extentTypeCode"}, box_path)
+            missing = required - set(box)
+            if missing:
+                raise CatalogMetadataInvalid(f"metadata {box_path} requires {sorted(missing)[0]}")
+            normalized: dict[str, Any] = {}
+            for field, maximum in (("west", 180), ("east", 180), ("south", 90), ("north", 90)):
+                coordinate = _finite_number(box[field], f"{box_path}.{field}")
+                if not -maximum <= coordinate <= maximum:
+                    raise CatalogMetadataInvalid(f"metadata {box_path}.{field} is out of range")
+                normalized[field] = coordinate
+            if normalized["south"] > normalized["north"]:
+                raise CatalogMetadataInvalid(f"metadata {box_path} requires south <= north")
+            if "extentTypeCode" in box:
+                if not isinstance(box["extentTypeCode"], bool):
+                    raise CatalogMetadataInvalid(
+                        f"metadata {box_path}.extentTypeCode must be a boolean"
+                    )
+                normalized["extentTypeCode"] = box["extentTypeCode"]
+            boxes.append(normalized)
+        result["geographicBounds"] = boxes
+    if "temporal" in value:
+        temporal = value["temporal"]
+        temporal_path = f"{path}.temporal"
+        if not isinstance(temporal, dict):
+            raise CatalogMetadataInvalid(f"metadata {temporal_path} must be an object")
+        _known_fields(temporal, {"start", "end"}, temporal_path)
+        if set(temporal) != {"start", "end"}:
+            raise CatalogMetadataInvalid(f"metadata {temporal_path} requires start and end")
+        start, start_value = _context_date_time(temporal["start"], f"{temporal_path}.start")
+        end, end_value = _context_date_time(temporal["end"], f"{temporal_path}.end")
+        if start > end:
+            raise CatalogMetadataInvalid(f"metadata {temporal_path} requires start <= end")
+        result["temporal"] = {"start": start_value, "end": end_value}
+    return result
+
+
+def _acquisition_environment(value: Any) -> dict[str, Any]:
+    path = "opengeo.acquisition.environmentalConditions"
+    if not isinstance(value, dict) or not value:
+        raise CatalogMetadataInvalid(f"metadata {path} must be a nonempty object")
+    numeric = {
+        "averageAirTemperature",
+        "maxRelativeHumidity",
+        "maxAltitude",
+        "solarAzimuth",
+        "solarElevation",
+    }
+    _known_fields(value, numeric | {"meteorologicalConditions"}, path)
+    return {
+        field: (
+            _finite_number(raw, f"{path}.{field}")
+            if field in numeric
+            else _string(raw, 1, 1_000, f"{path}.{field}")
+        )
+        for field, raw in value.items()
+    }
+
+
+def _acquisition_citation(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise CatalogMetadataInvalid(f"metadata {path} must be an object")
+    _known_fields(
+        value,
+        {"title", "alternateTitles", "dates", "edition", "editionDate", "identifiers"},
+        path,
+    )
+    result: dict[str, Any] = {"title": _string(value.get("title"), 1, 1_000, f"{path}.title")}
+    if "alternateTitles" in value:
+        titles = value["alternateTitles"]
+        if not isinstance(titles, list) or not 1 <= len(titles) <= 8:
+            raise CatalogMetadataInvalid(f"metadata {path}.alternateTitles requires 1 to 8 strings")
+        result["alternateTitles"] = [
+            _string(title, 1, 1_000, f"{path}.alternateTitles[{index}]")
+            for index, title in enumerate(titles)
+        ]
+    if "dates" in value:
+        dates: list[dict[str, str]] = []
+        for index, record in enumerate(_bounded_objects(value["dates"], 8, f"{path}.dates")):
+            date_path = f"{path}.dates[{index}]"
+            _known_fields(record, {"date", "dateType"}, date_path)
+            raw_date = _string(record.get("date"), 10, 10, f"{date_path}.date")
+            try:
+                if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", raw_date) is None:
+                    raise ValueError
+                date.fromisoformat(raw_date)
+            except ValueError:
+                raise CatalogMetadataInvalid(
+                    f"metadata {date_path}.date must be a valid YYYY-MM-DD calendar date"
+                ) from None
+            date_type = _string(record.get("dateType"), 1, 300, f"{date_path}.dateType")
+            if date_type not in _CITATION_DATE_TYPES:
+                raise CatalogMetadataInvalid(f"metadata {date_path}.dateType is unsupported")
+            dates.append({"date": raw_date, "dateType": date_type})
+        result["dates"] = dates
+    if "edition" in value:
+        result["edition"] = _string(value["edition"], 1, 300, f"{path}.edition")
+    if "editionDate" in value:
+        _, result["editionDate"] = _context_date_time(value["editionDate"], f"{path}.editionDate")
+    if "identifiers" in value:
+        identifiers: list[dict[str, str]] = []
+        identities: set[tuple[str | None, str]] = set()
+        for index, record in enumerate(
+            _bounded_objects(value["identifiers"], 8, f"{path}.identifiers")
+        ):
+            identifier_path = f"{path}.identifiers[{index}]"
+            _known_fields(record, {"code", "codeSpace"}, identifier_path)
+            identifier = {"code": _string(record.get("code"), 1, 300, f"{identifier_path}.code")}
+            if "codeSpace" in record:
+                identifier["codeSpace"] = _string(
+                    record["codeSpace"], 1, 300, f"{identifier_path}.codeSpace"
+                )
+                if identifier["codeSpace"] == _ACQUISITION_PLAN_ID_CODE_SPACE:
+                    raise CatalogMetadataInvalid(
+                        f"metadata {identifier_path}.codeSpace is reserved for plan identity"
+                    )
+            identity = (identifier.get("codeSpace"), identifier["code"])
+            if identity in identities:
+                raise CatalogMetadataInvalid(f"metadata {path}.identifiers must be unique")
+            identities.add(identity)
+            identifiers.append(identifier)
+        result["identifiers"] = identifiers
     return result
 
 
