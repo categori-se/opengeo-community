@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any, Literal, Protocol, TypeVar, cast
@@ -1013,12 +1013,9 @@ def export_schema_org_dataset(resource: Any) -> dict[str, Any]:
     }
 
 
-def _datacite_registration_fields(
-    source: dict[str, Any], attributes: dict[str, Any], mapped: list[str], losses: list[str]
-) -> None:
-    """Project only bounded bibliographic values; they never establish authority."""
-    parsed: Any
-    contributor_types = {
+# DataCite4.7, datacite/schema@b7713dd7fc399c864b34ebaedbe0e60ce25ab34e.
+_DATACITE_REGISTRATION_VOCABULARIES: dict[str, tuple[str, ...]] = {
+    "contributorType": (
         "ContactPerson",
         "DataCollector",
         "DataCurator",
@@ -1034,13 +1031,151 @@ def _datacite_registration_fields(
         "RegistrationAgency",
         "RegistrationAuthority",
         "RelatedPerson",
-        "Researcher",
         "ResearchGroup",
         "RightsHolder",
+        "Researcher",
         "Sponsor",
         "Supervisor",
+        "Translator",
         "WorkPackageLeader",
-    }
+    ),
+    "dateType": (
+        "Accepted",
+        "Available",
+        "Collected",
+        "Copyrighted",
+        "Coverage",
+        "Created",
+        "Issued",
+        "Other",
+        "Submitted",
+        "Updated",
+        "Valid",
+        "Withdrawn",
+    ),
+    "descriptionType": (
+        "Abstract",
+        "Methods",
+        "SeriesInformation",
+        "TableOfContents",
+        "TechnicalInfo",
+        "Other",
+    ),
+    "funderIdentifierType": ("ISNI", "GRID", "ROR", "Crossref Funder ID", "Other"),
+    "nameType": ("Organizational", "Personal"),
+    "numberType": ("Article", "Chapter", "Report", "Other"),
+    "relatedIdentifierType": (
+        "ARK",
+        "arXiv",
+        "bibcode",
+        "CSTR",
+        "DOI",
+        "EAN13",
+        "EISSN",
+        "Handle",
+        "IGSN",
+        "ISBN",
+        "ISSN",
+        "ISTC",
+        "LISSN",
+        "LSID",
+        "PMID",
+        "PURL",
+        "RAiD",
+        "RRID",
+        "SWHID",
+        "UPC",
+        "URL",
+        "URN",
+        "w3id",
+    ),
+    "relationType": (
+        "IsCitedBy",
+        "Cites",
+        "IsSupplementTo",
+        "IsSupplementedBy",
+        "IsContinuedBy",
+        "Continues",
+        "IsNewVersionOf",
+        "IsPreviousVersionOf",
+        "IsPartOf",
+        "HasPart",
+        "IsPublishedIn",
+        "IsReferencedBy",
+        "References",
+        "IsDocumentedBy",
+        "Documents",
+        "IsCompiledBy",
+        "Compiles",
+        "IsVariantFormOf",
+        "IsOriginalFormOf",
+        "IsIdenticalTo",
+        "HasMetadata",
+        "IsMetadataFor",
+        "Reviews",
+        "IsReviewedBy",
+        "IsDerivedFrom",
+        "IsSourceOf",
+        "Describes",
+        "IsDescribedBy",
+        "HasVersion",
+        "IsVersionOf",
+        "Requires",
+        "IsRequiredBy",
+        "Obsoletes",
+        "IsObsoletedBy",
+        "Collects",
+        "IsCollectedBy",
+        "HasTranslation",
+        "IsTranslationOf",
+        "Other",
+    ),
+    "resourceType": (
+        "Audiovisual",
+        "Award",
+        "Book",
+        "BookChapter",
+        "Collection",
+        "ComputationalNotebook",
+        "ConferencePaper",
+        "ConferenceProceeding",
+        "DataPaper",
+        "Dataset",
+        "Dissertation",
+        "Event",
+        "Image",
+        "Instrument",
+        "InteractiveResource",
+        "Journal",
+        "JournalArticle",
+        "Model",
+        "OutputManagementPlan",
+        "PeerReview",
+        "PhysicalObject",
+        "Poster",
+        "Preprint",
+        "Presentation",
+        "Project",
+        "Report",
+        "Service",
+        "Software",
+        "Sound",
+        "Standard",
+        "StudyRegistration",
+        "Text",
+        "Workflow",
+        "Other",
+    ),
+    "titleType": ("AlternativeTitle", "Subtitle", "TranslatedTitle", "Other"),
+}
+
+
+def _datacite_registration_fields(
+    source: dict[str, Any], attributes: dict[str, Any], mapped: list[str], losses: list[str]
+) -> None:
+    """Project only bounded bibliographic values; they never establish authority."""
+    parsed: Any
+    contributor_types = _DATACITE_REGISTRATION_VOCABULARIES["contributorType"]
 
     def text(value: Any, path: str, maximum: int = 1000, *, attribute: bool = False) -> str | None:
         if (
@@ -1104,7 +1239,7 @@ def _datacite_registration_fields(
                 key == "lang"
                 and (
                     not isinstance(candidate, str)
-                    or re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", candidate) is None
+                    or re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", candidate) is None
                 )
             ):
                 losses.append(f"{path}.{key}")
@@ -1181,7 +1316,7 @@ def _datacite_registration_fields(
                 value = raw_publisher[key]
                 if key == "lang" and (
                     not isinstance(value, str)
-                    or re.fullmatch(r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", value) is None
+                    or re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", value) is None
                 ):
                     losses.append("publisher.lang")
                     continue
@@ -1201,7 +1336,7 @@ def _datacite_registration_fields(
         else:
             del mapped[previous:]
     attributes["creators"] = creators
-    for field in ("contributors", "alternateIdentifiers", "formats", "sizes", "relatedIdentifiers"):
+    for field in ("contributors", "alternateIdentifiers", "formats", "sizes"):
         if field not in source:
             continue
         projected = []
@@ -1233,19 +1368,10 @@ def _datacite_registration_fields(
                         if part is not None:
                             parsed[key] = part
                 if field == "relatedIdentifiers" and (
-                    parsed.get("relatedIdentifierType") not in {"DOI", "URL", "URN"}
+                    parsed.get("relatedIdentifierType")
+                    not in _DATACITE_REGISTRATION_VOCABULARIES["relatedIdentifierType"]
                     or parsed.get("relationType")
-                    not in {
-                        "IsDerivedFrom",
-                        "IsSourceOf",
-                        "References",
-                        "IsReferencedBy",
-                        "IsPartOf",
-                        "HasPart",
-                        "IsIdenticalTo",
-                        "IsSupplementTo",
-                        "IsSupplementedBy",
-                    }
+                    not in _DATACITE_REGISTRATION_VOCABULARIES["relationType"]
                 ):
                     losses.append(path)
                     parsed = None
@@ -1263,9 +1389,481 @@ def _datacite_registration_fields(
             attributes[field] = projected
 
 
+def _datacite_complete_registration_fields(
+    source: dict[str, Any], attributes: dict[str, Any], mapped: list[str], losses: list[str]
+) -> None:
+    """Project the remaining fixed DataCite4.7 registration shapes, without I/O."""
+    invalid = object()
+    accepted: list[str] = []
+    locations: dict[int, str] = {}
+    vocab = _DATACITE_REGISTRATION_VOCABULARIES
+    Parser = Callable[[Any, str], Any]
+
+    def string(enum: str | None = None, *, attribute: bool = False) -> Parser:
+        def parse(value: Any, path: str) -> Any:
+            if (
+                not isinstance(value, str)
+                or len(value) > 8000
+                or not _iso_quality_unit_label_supported(value)
+                or (attribute and any(character in "\t\n" for character in value))
+                or (enum is not None and value not in vocab[enum])
+            ):
+                losses.append(path)
+                return invalid
+            accepted.append(path)
+            return value
+
+        return parse
+
+    text = string()
+    attribute_text = string(attribute=True)
+
+    def language(value: Any, path: str) -> Any:
+        if (
+            not isinstance(value, str)
+            or re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", value) is None
+        ):
+            losses.append(path)
+            return invalid
+        accepted.append(path)
+        return value
+
+    def record(
+        value: Any, path: str, fields: dict[str, Parser], required: tuple[str, ...] = ()
+    ) -> Any:
+        if not isinstance(value, dict):
+            losses.append(path)
+            return invalid
+        previous = len(accepted)
+        result = {}
+        for key, raw in value.items():
+            if key not in fields:
+                losses.append(f"{path}.{key}")
+                continue
+            parsed = fields[key](raw, f"{path}.{key}")
+            if parsed is not invalid:
+                result[key] = parsed
+        if any(key not in result for key in required):
+            losses.extend(accepted[previous:])
+            del accepted[previous:]
+            losses.append(path)
+            return invalid
+        locations[id(result)] = path
+        return result
+
+    def array(parser: Parser, minimum: int = 0, maximum: int = 100) -> Parser:
+        def parse(value: Any, path: str) -> Any:
+            if not isinstance(value, list) or not minimum <= len(value) <= maximum:
+                losses.append(path)
+                return invalid
+            previous = len(accepted)
+            result = []
+            for index, item in enumerate(value):
+                parsed = parser(item, f"{path}[{index}]")
+                if parsed is not invalid:
+                    result.append(parsed)
+            if len(result) < minimum:
+                losses.extend(accepted[previous:])
+                del accepted[previous:]
+                losses.append(path)
+                return invalid
+            locations[id(result)] = path
+            return result
+
+        return parse
+
+    def object_parser(fields: dict[str, Parser], required: tuple[str, ...] = ()) -> Parser:
+        return lambda value, path: record(value, path, fields, required)
+
+    def year(value: Any, path: str) -> Any:
+        if (isinstance(value, int) and not isinstance(value, bool) and 1000 <= value <= 9999) or (
+            isinstance(value, str) and re.fullmatch(r"[0-9]{4}", value) is not None
+        ):
+            accepted.append(path)
+            return value
+        losses.append(path)
+        return invalid
+
+    def coordinate(bound: int) -> Parser:
+        def parse(value: Any, path: str) -> Any:
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not -bound <= value <= bound
+            ):
+                losses.append(path)
+                return invalid
+            accepted.append(path)
+            return value
+
+        return parse
+
+    title = object_parser(
+        {"title": text, "titleType": string("titleType", attribute=True), "lang": language},
+        ("title",),
+    )
+    point = object_parser(
+        {"pointLongitude": coordinate(180), "pointLatitude": coordinate(90)},
+        ("pointLongitude", "pointLatitude"),
+    )
+    box = object_parser(
+        {
+            key: coordinate(180 if "Longitude" in key else 90)
+            for key in (
+                "westBoundLongitude",
+                "eastBoundLongitude",
+                "southBoundLatitude",
+                "northBoundLatitude",
+            )
+        },
+        ("westBoundLongitude", "eastBoundLongitude", "southBoundLatitude", "northBoundLatitude"),
+    )
+
+    def polygon(value: Any, path: str) -> Any:
+        if not isinstance(value, dict) or ("polygonPoint" in value) == ("polygonPoints" in value):
+            losses.append(path)
+            return invalid
+        key = "polygonPoint" if "polygonPoint" in value else "polygonPoints"
+        previous = len(accepted)
+        result = record(value, path, {key: array(point, 4, 256), "inPolygonPoint": point}, (key,))
+        if result is not invalid and result[key][0] != result[key][-1]:
+            losses.extend(accepted[previous:])
+            del accepted[previous:]
+            losses.append(path + ".[unclosed-ring]")
+            return invalid
+        return result
+
+    geography = object_parser(
+        {
+            "geoLocationPlace": text,
+            "geoLocationPoint": point,
+            "geoLocationBox": box,
+            "geoLocationPolygon": array(polygon, 0, 16),
+        }
+    )
+    related_identifier_fields = {
+        "relatedIdentifier": text,
+        "relatedIdentifierType": string("relatedIdentifierType", attribute=True),
+        "relationType": string("relationType", attribute=True),
+        "relatedMetadataScheme": attribute_text,
+        "schemeUri": attribute_text,
+        "schemeType": attribute_text,
+        "resourceTypeGeneral": string("resourceType", attribute=True),
+        "relationTypeInformation": attribute_text,
+    }
+    related_person_fields = {
+        "name": text,
+        "nameType": string("nameType", attribute=True),
+        "givenName": text,
+        "familyName": text,
+        "lang": language,
+    }
+    related_creator = object_parser(related_person_fields, ("name",))
+    related_contributor = object_parser(
+        {**related_person_fields, "contributorType": string("contributorType", attribute=True)},
+        ("name", "contributorType"),
+    )
+    related_item_fields = {
+        "relatedItemType": string("resourceType", attribute=True),
+        "relationType": string("relationType", attribute=True),
+        "relationTypeInformation": attribute_text,
+        "relatedItemIdentifier": object_parser(
+            {
+                "relatedItemIdentifier": text,
+                "relatedItemIdentifierType": string("relatedIdentifierType", attribute=True),
+                "relatedMetadataScheme": attribute_text,
+                "schemeURI": attribute_text,
+                "schemeType": attribute_text,
+            },
+            ("relatedItemIdentifier",),
+        ),
+        "creators": array(related_creator),
+        "titles": array(title),
+        "publicationYear": year,
+        "volume": text,
+        "issue": text,
+        "number": text,
+        "numberType": string("numberType", attribute=True),
+        "firstPage": text,
+        "lastPage": text,
+        "publisher": text,
+        "edition": text,
+        "contributors": array(related_contributor),
+    }
+
+    def related_item(value: Any, path: str) -> Any:
+        result = record(value, path, related_item_fields, ("relatedItemType", "relationType"))
+        if result is not invalid and "numberType" in result and "number" not in result:
+            del result["numberType"]
+            losses.append(path + ".numberType")
+            accepted[:] = [entry for entry in accepted if entry != path + ".numberType"]
+        return result
+
+    def funding(value: Any, path: str) -> Any:
+        fields = {
+            "funderName": text,
+            "funderIdentifier": text,
+            "funderIdentifierType": string("funderIdentifierType", attribute=True),
+            "schemeUri": attribute_text,
+            "awardNumber": text,
+            "awardUri": attribute_text,
+            "awardTitle": text,
+        }
+        result = record(value, path, fields, ("funderName",))
+        if result is invalid:
+            return result
+        for key, dependency in (
+            ("funderIdentifier", "funderIdentifierType"),
+            ("funderIdentifierType", "funderIdentifier"),
+            ("schemeUri", "funderIdentifier"),
+            ("awardUri", "awardNumber"),
+        ):
+            if key in result and dependency not in result:
+                del result[key]
+                losses.append(path + "." + key)
+                accepted[:] = [entry for entry in accepted if entry != path + "." + key]
+        return result
+
+    schemas = {
+        "titles": array(title, 1),
+        "subjects": array(
+            object_parser(
+                {
+                    "subject": text,
+                    "subjectScheme": attribute_text,
+                    "schemeUri": attribute_text,
+                    "valueUri": attribute_text,
+                    "classificationCode": attribute_text,
+                    "lang": language,
+                },
+                ("subject",),
+            )
+        ),
+        "dates": array(
+            object_parser(
+                {
+                    "date": text,
+                    "dateType": string("dateType", attribute=True),
+                    "dateInformation": attribute_text,
+                },
+                ("date", "dateType"),
+            )
+        ),
+        "rightsList": array(
+            object_parser(
+                {
+                    "rights": text,
+                    "rightsUri": attribute_text,
+                    "rightsIdentifier": attribute_text,
+                    "rightsIdentifierScheme": attribute_text,
+                    "schemeUri": attribute_text,
+                    "lang": language,
+                },
+                ("rights",),
+            )
+        ),
+        "descriptions": array(
+            object_parser(
+                {
+                    "description": text,
+                    "descriptionType": string("descriptionType", attribute=True),
+                    "lang": language,
+                },
+                ("description", "descriptionType"),
+            )
+        ),
+        "geoLocations": array(geography),
+        "relatedIdentifiers": array(
+            object_parser(
+                related_identifier_fields,
+                ("relatedIdentifier", "relatedIdentifierType", "relationType"),
+            )
+        ),
+        "relatedItems": array(related_item),
+        "types": object_parser(
+            {"resourceTypeGeneral": string("resourceType", attribute=True), "resourceType": text},
+            ("resourceTypeGeneral",),
+        ),
+        "version": text,
+        "fundingReferences": array(funding),
+    }
+
+    def paths(value: Any, path: str) -> list[str]:
+        if isinstance(value, dict):
+            return [leaf for key, child in value.items() for leaf in paths(child, f"{path}.{key}")]
+        if isinstance(value, list):
+            return [
+                leaf
+                for index, child in enumerate(value)
+                for leaf in paths(child, f"{path}[{index}]")
+            ]
+        return [path]
+
+    def reject(value: Any, path: str) -> None:
+        path = locations.get(id(value), path)
+        removed = [
+            entry
+            for entry in accepted
+            if entry == path or entry.startswith(path + ".") or entry.startswith(path + "[")
+        ]
+        losses.extend(removed or paths(value, path))
+        accepted[:] = [entry for entry in accepted if entry not in removed]
+
+    def lang(value: dict[str, Any]) -> str:
+        return str(value.get("lang", attributes.get("language", "en"))).lower()
+
+    def dates_equal(first: Any, second: Any) -> bool:
+        def bounds(value: Any) -> Any:
+            if value is None:
+                return None
+            try:
+                result: list[datetime | None] = []
+                for part in str(value).split("/"):
+                    if part in {"", ".."}:
+                        result.append(None)
+                    else:
+                        stamp = datetime.fromisoformat(part.replace("Z", "+00:00"))
+                        result.append(
+                            stamp.replace(tzinfo=UTC)
+                            if stamp.tzinfo is None
+                            else stamp.astimezone(UTC)
+                        )
+                return tuple(result)
+            except ValueError:
+                return None
+
+        return bounds(first) == bounds(second)
+
+    for field, parser in schemas.items():
+        if field not in source:
+            continue
+        previous = len(accepted)
+        clean = parser(source[field], field)
+        if clean is invalid:
+            continue
+        native = attributes.get(field)
+        if field in {"titles", "subjects", "descriptions"}:
+            current = native or []
+            key = {"titles": "title", "subjects": "subject", "descriptions": "description"}[field]
+            projected = []
+            baselines: dict[str, tuple[int, str]] = {}
+            for raw in source[field]:
+                if not isinstance(raw, dict) or not isinstance(raw.get(key), str):
+                    continue
+                primary = field == "descriptions" and raw.get("descriptionType") == "Abstract"
+                title_kind = raw.get("titleType")
+                title_primary = field == "titles" and (
+                    title_kind is None or title_kind == "TranslatedTitle"
+                )
+                if primary or title_primary:
+                    priority = 1 if title_kind == "TranslatedTitle" else 0
+                    language_key = lang(raw)
+                    if language_key not in baselines or priority < baselines[language_key][0]:
+                        baselines[language_key] = (priority, raw[key])
+            for index, value in enumerate(clean):
+                controlled = (
+                    field == "subjects"
+                    or (
+                        field == "titles"
+                        and value.get("titleType") not in {"AlternativeTitle", "Subtitle", "Other"}
+                    )
+                    or (field == "descriptions" and value["descriptionType"] == "Abstract")
+                )
+                expected = (
+                    baselines.get(lang(value), (0, value[key]))[1]
+                    if controlled and field != "subjects"
+                    else value[key]
+                )
+                matches = [
+                    item
+                    for item in current
+                    if item[key] == expected and (field == "subjects" or lang(item) == lang(value))
+                ]
+                if controlled and not matches:
+                    reject(value, f"{field}[{index}]")
+                else:
+                    projected.append(value)
+            missing_native = [
+                item
+                for item in current
+                if not any(
+                    value[key] == item[key] and (field == "subjects" or lang(value) == lang(item))
+                    for value in projected
+                )
+            ]
+            clean = missing_native + projected
+        elif field == "rightsList":
+            raw_first = (
+                source[field][0] if source[field] and isinstance(source[field][0], dict) else {}
+            )
+            baseline = (
+                raw_first.get("rightsIdentifier")
+                or raw_first.get("rightsUri")
+                or raw_first.get("rights")
+            )
+            native_license = native[0].get("rights") if native else None
+            if native_license != baseline:
+                reject(clean, field)
+                continue
+        elif field == "dates":
+            coverage = next(
+                (value["date"] for value in native or [] if value.get("dateType") == "Coverage"),
+                None,
+            )
+            retained_dates = []
+            for value in clean:
+                if value["dateType"] != "Coverage" or dates_equal(value["date"], coverage):
+                    retained_dates.append(value)
+                else:
+                    reject(value, "dates.Coverage")
+            clean = retained_dates
+            for value in native or []:
+                if value not in clean and value.get("dateType") != "Coverage":
+                    clean.append(value)
+            if coverage is not None and not any(value["dateType"] == "Coverage" for value in clean):
+                clean.extend(value for value in native if value.get("dateType") == "Coverage")
+        elif (
+            field == "types"
+            and clean.get("resourceTypeGeneral") != attributes["types"]["resourceTypeGeneral"]
+        ):
+            reject(clean, field)
+            continue
+        elif field == "geoLocations":
+            boxes = [value["geoLocationBox"] for value in clean if "geoLocationBox" in value]
+            baseline = (
+                {
+                    key: (min if key.startswith(("west", "south")) else max)(
+                        value[key] for value in boxes
+                    )
+                    for key in boxes[0]
+                }
+                if boxes
+                else None
+            )
+            current_box = (native or [{}])[0].get("geoLocationBox")
+            if current_box != baseline:
+                reject(clean, field)
+                continue
+        elif field == "fundingReferences" and native is not None and clean != native:
+            reject(clean, field)
+            continue
+        if field == "relatedIdentifiers":
+            clean.extend(value for value in native or [] if value not in clean)
+        attributes[field] = clean
+        mapped.extend(accepted[previous:])
+
+
 def export_datacite_4_7(resource: Any) -> dict[str, Any]:
     summary = resource.summary
-    if summary.kind != "dataset":
+    native_types = {
+        "dataset": "Dataset",
+        "service": "Service",
+        "document": "Text",
+        "map": "Image",
+        "story": "InteractiveResource",
+        "dashboard": "InteractiveResource",
+    }
+    if summary.kind not in native_types:
         return _not_applicable_export("datacite_4_7", "4.7", "application/vnd.api+json", resource)
     extensions = resource.metadata_extensions
     datacite = extensions.get("datacite", {})
@@ -1296,6 +1894,15 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
         if isinstance(creator, dict)
         and isinstance(creator.get("name") or creator.get("creatorName"), str)
     ]
+    imported_datacite = getattr(resource, "provenance", {}).get("sourceFormat") == "datacite_4_7"
+    native_contacts_explicit = "contacts" in catalog or (
+        imported_datacite and "opengeo" in extensions
+    )
+    if native_contacts_explicit and not any(
+        contact.get("role") in {"author", "creator", "principalInvestigator"}
+        for contact in catalog.get("contacts", [])
+    ):
+        creators = []
     catalog_publisher = next(
         (
             contact.get("organization") or contact.get("name")
@@ -1311,6 +1918,8 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
         and retained_publisher.get("name") == catalog_publisher
         else catalog_publisher or retained_publisher or summary.attribution
     )
+    if native_contacts_explicit and catalog_publisher is None:
+        publisher_value = None
     publisher = (
         publisher_value.get("name") if isinstance(publisher_value, dict) else publisher_value
     )
@@ -1338,6 +1947,24 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
         result["report"]["missingRequired"] = missing
         result["report"]["conformanceClaimed"] = False
         return result
+    general = native_types[summary.kind]
+    retained_types = datacite.get("types")
+    retained_general = (
+        retained_types.get("resourceTypeGeneral") if isinstance(retained_types, dict) else None
+    )
+    if (
+        isinstance(retained_general, str)
+        and retained_general in _DATACITE_REGISTRATION_VOCABULARIES["resourceType"]
+    ):
+        retained_kind = (
+            "dataset"
+            if retained_general in {"Dataset", "Collection"}
+            else "service"
+            if retained_general == "Service"
+            else "document"
+        )
+        if retained_kind == summary.kind:
+            general = retained_general
     translations = getattr(resource, "translations", {})
     titles = [{"title": summary.title, "lang": summary.language.lower()}]
     descriptions = (
@@ -1368,7 +1995,7 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
         "creators": creators,
         "publisher": publisher_value,
         "publicationYear": publication_year,
-        "types": {"resourceTypeGeneral": "Dataset"},
+        "types": {"resourceTypeGeneral": general},
         "subjects": [{"subject": value} for value in summary.keywords],
         "language": summary.language.lower(),
         "version": str(summary.version_number),
@@ -1406,6 +2033,8 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
     funding = cast(list[dict[str, str]], catalog.get("funding", []))
     if funding:
         attributes["fundingReferences"] = funding
+    elif "funding" in catalog or (imported_datacite and "fundingReferences" in datacite):
+        attributes["fundingReferences"] = []
     registration_mapped: list[str] = []
     registration_losses: list[str] = []
     native_creators = [
@@ -1419,6 +2048,9 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
         attributes["creators"] = native_creators
         registration_losses.append("creators[retained-source-conflicts-with-native-creators]")
     _datacite_registration_fields(datacite, attributes, registration_mapped, registration_losses)
+    _datacite_complete_registration_fields(
+        datacite, attributes, registration_mapped, registration_losses
+    )
     if (
         catalog_publisher
         and publisher_value != retained_publisher
@@ -1480,6 +2112,234 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
             "conformanceClaimed": False,
         }
     return result
+
+
+def _datacite_complete_registration_xml(
+    root: ET.Element, attributes: dict[str, Any], namespace: str
+) -> None:
+    """Serialize clean registration values; validation and custody stay with the projector."""
+    xml_lang = "{http://www.w3.org/XML/1998/namespace}lang"
+
+    def tag(name: str) -> str:
+        return f"{{{namespace}}}{name}"
+
+    def child(parent: ET.Element, name: str, value: Any = None) -> ET.Element:
+        element = ET.SubElement(parent, tag(name))
+        if value is not None:
+            element.text = str(value)
+        return element
+
+    def set_attributes(
+        element: ET.Element, value: dict[str, Any], fields: tuple[tuple[str, str], ...]
+    ) -> None:
+        for source, target in fields:
+            if source in value:
+                element.set(target, str(value[source]))
+
+    def title(parent: ET.Element, value: dict[str, Any]) -> None:
+        element = child(parent, "title", value["title"])
+        set_attributes(element, value, (("titleType", "titleType"), ("lang", xml_lang)))
+
+    def limited_person(
+        parent: ET.Element, value: dict[str, Any], contributor: bool = False
+    ) -> None:
+        element = child(parent, "contributor" if contributor else "creator")
+        if contributor:
+            element.set("contributorType", value["contributorType"])
+        name = value.get("name", value.get("creatorName", value.get("contributorName")))
+        name_element = child(element, "contributorName" if contributor else "creatorName", name)
+        set_attributes(name_element, value, (("nameType", "nameType"), ("lang", xml_lang)))
+        for field in ("givenName", "familyName"):
+            if field in value:
+                child(element, field, value[field])
+
+    rebuilt = {
+        "titles",
+        "subjects",
+        "dates",
+        "rightsList",
+        "descriptions",
+        "geoLocations",
+        "relatedIdentifiers",
+        "relatedItems",
+        "fundingReferences",
+        "resourceType",
+        "version",
+    }
+    for element in list(root):
+        if element.tag in {tag(name) for name in rebuilt}:
+            root.remove(element)
+
+    if "titles" in attributes:
+        titles = child(root, "titles")
+        for value in attributes["titles"]:
+            title(titles, value)
+    if "subjects" in attributes:
+        subjects = child(root, "subjects")
+        for value in attributes["subjects"]:
+            element = child(subjects, "subject", value["subject"])
+            set_attributes(
+                element,
+                value,
+                (
+                    ("subjectScheme", "subjectScheme"),
+                    ("schemeUri", "schemeURI"),
+                    ("valueUri", "valueURI"),
+                    ("classificationCode", "classificationCode"),
+                    ("lang", xml_lang),
+                ),
+            )
+    if "dates" in attributes:
+        dates = child(root, "dates")
+        for value in attributes["dates"]:
+            element = child(dates, "date", value["date"])
+            set_attributes(
+                element, value, (("dateType", "dateType"), ("dateInformation", "dateInformation"))
+            )
+    if "rightsList" in attributes:
+        rights = child(root, "rightsList")
+        for value in attributes["rightsList"]:
+            element = child(rights, "rights", value.get("rights"))
+            set_attributes(
+                element,
+                value,
+                (
+                    ("rightsUri", "rightsURI"),
+                    ("rightsIdentifier", "rightsIdentifier"),
+                    ("rightsIdentifierScheme", "rightsIdentifierScheme"),
+                    ("schemeUri", "schemeURI"),
+                    ("lang", xml_lang),
+                ),
+            )
+    if "descriptions" in attributes:
+        descriptions = child(root, "descriptions")
+        for value in attributes["descriptions"]:
+            element = child(descriptions, "description", value["description"])
+            set_attributes(
+                element, value, (("descriptionType", "descriptionType"), ("lang", xml_lang))
+            )
+    resource_type = attributes["types"]
+    element = child(root, "resourceType", resource_type.get("resourceType"))
+    element.set("resourceTypeGeneral", resource_type["resourceTypeGeneral"])
+    if "version" in attributes:
+        child(root, "version", attributes["version"])
+    if "relatedIdentifiers" in attributes:
+        group = child(root, "relatedIdentifiers")
+        for value in attributes["relatedIdentifiers"]:
+            element = child(group, "relatedIdentifier", value["relatedIdentifier"])
+            set_attributes(
+                element,
+                value,
+                (
+                    ("relatedIdentifierType", "relatedIdentifierType"),
+                    ("relationType", "relationType"),
+                    ("relatedMetadataScheme", "relatedMetadataScheme"),
+                    ("schemeUri", "schemeURI"),
+                    ("schemeType", "schemeType"),
+                    ("resourceTypeGeneral", "resourceTypeGeneral"),
+                    ("relationTypeInformation", "relationTypeInformation"),
+                ),
+            )
+
+    def point(parent: ET.Element, name: str, value: dict[str, Any]) -> None:
+        element = child(parent, name)
+        for coordinate in ("pointLongitude", "pointLatitude"):
+            child(element, coordinate, value[coordinate])
+
+    if "geoLocations" in attributes:
+        group = child(root, "geoLocations")
+        for value in attributes["geoLocations"]:
+            element = child(group, "geoLocation")
+            if "geoLocationPlace" in value:
+                child(element, "geoLocationPlace", value["geoLocationPlace"])
+            if "geoLocationPoint" in value:
+                point(element, "geoLocationPoint", value["geoLocationPoint"])
+            if "geoLocationBox" in value:
+                box = child(element, "geoLocationBox")
+                for key in (
+                    "westBoundLongitude",
+                    "eastBoundLongitude",
+                    "southBoundLatitude",
+                    "northBoundLatitude",
+                ):
+                    child(box, key, value["geoLocationBox"][key])
+            for polygon in value.get("geoLocationPolygon", []):
+                ring = child(element, "geoLocationPolygon")
+                for vertex in polygon.get("polygonPoint", polygon.get("polygonPoints", [])):
+                    point(ring, "polygonPoint", vertex)
+                if "inPolygonPoint" in polygon:
+                    point(ring, "inPolygonPoint", polygon["inPolygonPoint"])
+    if "relatedItems" in attributes:
+        group = child(root, "relatedItems")
+        for value in attributes["relatedItems"]:
+            element = child(group, "relatedItem")
+            set_attributes(
+                element,
+                value,
+                (
+                    ("relatedItemType", "relatedItemType"),
+                    ("relationType", "relationType"),
+                    ("relationTypeInformation", "relationTypeInformation"),
+                ),
+            )
+            if "relatedItemIdentifier" in value:
+                identifier = value["relatedItemIdentifier"]
+                identifier_element = child(
+                    element, "relatedItemIdentifier", identifier["relatedItemIdentifier"]
+                )
+                set_attributes(
+                    identifier_element,
+                    identifier,
+                    (
+                        ("relatedItemIdentifierType", "relatedItemIdentifierType"),
+                        ("relatedMetadataScheme", "relatedMetadataScheme"),
+                        ("schemeURI", "schemeURI"),
+                        ("schemeType", "schemeType"),
+                    ),
+                )
+            if "creators" in value:
+                creators = child(element, "creators")
+                for person in value["creators"]:
+                    limited_person(creators, person)
+            if "titles" in value:
+                titles = child(element, "titles")
+                for title_value in value["titles"]:
+                    title(titles, title_value)
+            for key in (
+                "publicationYear",
+                "volume",
+                "issue",
+                "number",
+                "firstPage",
+                "lastPage",
+                "publisher",
+                "edition",
+            ):
+                if key in value:
+                    item = child(element, key, value[key])
+                    if key == "number" and "numberType" in value:
+                        item.set("numberType", value["numberType"])
+            if "contributors" in value:
+                contributors = child(element, "contributors")
+                for person in value["contributors"]:
+                    limited_person(contributors, person, True)
+    if "fundingReferences" in attributes:
+        group = child(root, "fundingReferences")
+        for value in attributes["fundingReferences"]:
+            element = child(group, "fundingReference")
+            child(element, "funderName", value["funderName"])
+            if "funderIdentifier" in value:
+                identifier_element = child(element, "funderIdentifier", value["funderIdentifier"])
+                set_attributes(
+                    identifier_element,
+                    value,
+                    (("funderIdentifierType", "funderIdentifierType"), ("schemeUri", "schemeURI")),
+                )
+            if "awardNumber" in value:
+                award = child(element, "awardNumber", value["awardNumber"])
+                set_attributes(award, value, (("awardUri", "awardURI"),))
+            if "awardTitle" in value:
+                child(element, "awardTitle", value["awardTitle"])
 
 
 def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
@@ -1555,12 +2415,6 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
                     if key in value:
                         element.set(target, value[key])
 
-    titles_element = child(root, "titles")
-    for value in cast(list[dict[str, Any]], attributes["titles"]):
-        title = child(titles_element, "title", value["title"])
-        if isinstance(value.get("lang"), str):
-            title.set(f"{{{xml}}}lang", value["lang"])
-
     publisher_value = attributes["publisher"]
     publisher_name = (
         publisher_value.get("name") if isinstance(publisher_value, dict) else publisher_value
@@ -1577,16 +2431,6 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
             if isinstance(publisher_value.get(source_name), str):
                 publisher.set(target_name, publisher_value[source_name])
     child(root, "publicationYear", attributes["publicationYear"])
-    resource_type = child(root, "resourceType", attributes.get("types", {}).get("resourceType"))
-    resource_type.set("resourceTypeGeneral", "Dataset")
-
-    subjects = cast(list[dict[str, Any]], attributes.get("subjects", []))
-    if subjects:
-        subjects_element = child(root, "subjects")
-        for value in subjects:
-            subject = child(subjects_element, "subject", value["subject"])
-            if isinstance(value.get("lang"), str):
-                subject.set(f"{{{xml}}}lang", value["lang"])
 
     if attributes.get("contributors"):
         contributors_element = child(root, "contributors")
@@ -1627,12 +2471,6 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
                         if key in affiliation_value:
                             affiliation.set(target, affiliation_value[key])
 
-    dates = cast(list[dict[str, Any]], attributes.get("dates", []))
-    if dates:
-        dates_element = child(root, "dates")
-        for value in dates:
-            date = child(dates_element, "date", value["date"])
-            date.set("dateType", value["dateType"])
     if attributes.get("language"):
         child(root, "language", attributes["language"])
 
@@ -1642,92 +2480,36 @@ def export_datacite_4_7_xml(resource: Any) -> dict[str, Any]:
             element = child(alternate_element, "alternateIdentifier", value["alternateIdentifier"])
             element.set("alternateIdentifierType", value["alternateIdentifierType"])
 
-    related_identifiers = cast(list[dict[str, Any]], attributes.get("relatedIdentifiers", []))
-    if related_identifiers:
-        related_element = child(root, "relatedIdentifiers")
-        for value in related_identifiers:
-            related = child(related_element, "relatedIdentifier", value["relatedIdentifier"])
-            related.set("relatedIdentifierType", value["relatedIdentifierType"])
-            related.set("relationType", value["relationType"])
-
     for field, singular in (("sizes", "size"), ("formats", "format")):
         if attributes.get(field):
             group = child(root, field)
             for value in attributes[field]:
                 child(group, singular, value)
 
-    if attributes.get("version"):
-        child(root, "version", attributes["version"])
-    rights_values = cast(list[dict[str, Any]], attributes.get("rightsList", []))
-    if rights_values:
-        rights_element = child(root, "rightsList")
-        for value in rights_values:
-            rights = child(rights_element, "rights", value["rights"])
-            if isinstance(value.get("rightsUri"), str):
-                rights.set("rightsURI", value["rightsUri"])
-            if isinstance(value.get("rightsIdentifier"), str):
-                rights.set("rightsIdentifier", value["rightsIdentifier"])
-
-    descriptions = cast(list[dict[str, Any]], attributes.get("descriptions", []))
-    if descriptions:
-        descriptions_element = child(root, "descriptions")
-        for value in descriptions:
-            description = child(descriptions_element, "description", value["description"])
-            description.set("descriptionType", value["descriptionType"])
-            if isinstance(value.get("lang"), str):
-                description.set(f"{{{xml}}}lang", value["lang"])
-
-    geo_locations = cast(list[dict[str, Any]], attributes.get("geoLocations", []))
-    if geo_locations:
-        locations_element = child(root, "geoLocations")
-        for value in geo_locations:
-            location = child(locations_element, "geoLocation")
-            box_value = value.get("geoLocationBox")
-            if isinstance(box_value, dict):
-                box = child(location, "geoLocationBox")
-                for bound in (
-                    "westBoundLongitude",
-                    "eastBoundLongitude",
-                    "southBoundLatitude",
-                    "northBoundLatitude",
-                ):
-                    child(box, bound, box_value[bound])
-
-    funding_references = cast(list[dict[str, str]], attributes.get("fundingReferences", []))
-    if funding_references:
-        funding_element = child(root, "fundingReferences")
-        for value in funding_references:
-            funding_reference = child(funding_element, "fundingReference")
-            child(funding_reference, "funderName", value["funderName"])
-            if value.get("funderIdentifier"):
-                funder_identifier = child(
-                    funding_reference,
-                    "funderIdentifier",
-                    value["funderIdentifier"],
-                )
-                funder_identifier.set("funderIdentifierType", value["funderIdentifierType"])
-                if value.get("schemeUri"):
-                    funder_identifier.set("schemeURI", value["schemeUri"])
-            if value.get("awardNumber"):
-                award_number = child(funding_reference, "awardNumber", value["awardNumber"])
-                if value.get("awardUri"):
-                    award_number.set("awardURI", value["awardUri"])
-            if value.get("awardTitle"):
-                child(funding_reference, "awardTitle", value["awardTitle"])
-
+    _datacite_complete_registration_xml(root, attributes, namespace)
+    document_text = ET.tostring(root, encoding="unicode", xml_declaration=True)
     result = dict(json_result)
     result.update(
         {
             "target": "datacite_4_7_xml",
             "mediaType": "application/xml",
             "document": None,
-            "documentText": ET.tostring(root, encoding="unicode", xml_declaration=True),
+            "documentText": document_text,
         }
     )
     report = dict(cast(dict[str, Any], json_result["report"]))
     report["normativeRepresentation"] = "DataCite Metadata Schema 4.7 XML"
     report["schemaValidated"] = False
     result["report"] = report
+    if len(document_text.encode("utf-8")) > 49_152 or len(canonical_metadata_json(report)) > 16_384:
+        result.update(status="not_exportable_registration_limits", documentText=None)
+        result["report"] = {
+            "unmapped": [
+                "DataCite export exceeds 49152 UTF-8 bytes or its report exceeds 16384 bytes"
+            ],
+            "preservedExtensions": sorted(resource.metadata_extensions),
+            "conformanceClaimed": False,
+        }
     return result
 
 
