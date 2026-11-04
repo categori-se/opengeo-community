@@ -165,13 +165,16 @@ it("Catalog preview preserves data when its basemap fails or stalls and installs
     for (const outcome of ["ready", "failed", "stalled"]) {
       const view = MapView({geojson, geometryType: "Point"}); document.body.append(view); await tick();
       const map = maps.at(-1), status = view.querySelector('[role="status"]');
+      const action = label => [...view.querySelectorAll("button")].find(button => button.textContent === label) ?? null;
+      assert.equal(action("Overview")?.getAttribute("aria-expanded"), "false", "Overview remains an accessible collapsed control");
       assert.equal(view.__opengeoMap, map); assert.equal(map.sources.length, 0);
       if (outcome === "failed") map.emit("error");
-      if (outcome === "stalled") view.querySelector("button").click();
+      if (outcome === "stalled") action("Use blank basemap").click();
       assert.equal(map.styles.length, outcome === "ready" ? 0 : 1);
       map.emit("load"); map.emit("load"); map.emit("idle");
       assert.equal(map.sources.length, 1); assert.deepEqual(map.sources[0], {id: "preview", source: {type: "geojson", data: geojson}});
-      assert.equal(map.layers.length, 1); assert.equal(view.querySelector("button"), null);
+      assert.equal(map.layers.length, 1); assert.equal(action("Use blank basemap"), null);
+      assert.equal(action("Overview")?.getAttribute("aria-expanded"), "false");
       assert.match(status.textContent, /Layer view ready/);
       if (outcome === "failed") assert.match(status.textContent, /Basemap unavailable/);
       if (outcome === "stalled") assert.match(status.textContent, /Blank basemap selected/);
