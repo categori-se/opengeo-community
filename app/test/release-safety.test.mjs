@@ -86,6 +86,8 @@ describe("dedicated demo release boundary", () => {
       "utf8"
     );
     assert.match(builder, /\["lib\/browserPlatform\.js", "lib\/browserPlatform\.js"\]/);
+    assert.match(builder, /\["components\/OverviewControl\.js", "components\/OverviewControl\.js"\]/);
+    assert.match(builder, /\["geographic overview control", \/\^_import\\\/components\\\/OverviewControl/);
     assert.match(builder, /\["governed browser-platform contract", \/\^_import\\\/lib\\\/browserPlatform/);
   });
 

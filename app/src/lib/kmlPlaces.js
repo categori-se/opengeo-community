@@ -1959,7 +1959,10 @@ function normalizeKmzResources(value) {
   return value.map((resource) => {
     const path = boundedOptionalText(resource?.path);
     const mediaType = boundedOptionalText(resource?.mediaType);
-    const dataBase64 = boundedOptionalText(resource?.dataBase64);
+    const raw = resource?.dataBase64;
+    if (typeof raw !== "string") throw kmlError("kmz_resource_invalid");
+    const dataBase64 = raw.trim();
+    if (dataBase64.length > 4 * Math.ceil(KML_PLACES_LIMITS.maximumKmzResourceBytes / 3)) throw kmlError("kmz_resource_too_large");
     if (!path || unsafeArchivePath(path) || paths.has(path) || !KML_RESOURCE_MEDIA.has(extension(path))
       || KML_RESOURCE_MEDIA.get(extension(path)) !== mediaType || !dataBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) {
       throw kmlError("kmz_resource_invalid");

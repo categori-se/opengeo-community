@@ -13811,3 +13811,31 @@ a.platform-site-switcher-item:focus-visible {
 @media (max-width: 720px) {
   .opengeo-workbench .gis-save-state { max-width: 12rem; font-size: .68rem; }
 }
+
+/* Session-only, request-free geographic overview. Attribution stays outside it. */
+.gis-overview { max-width: 260px; }
+.gis-overview > button, .gis-overview-directions button { min-width: 44px; min-height: 44px; }
+.gis-overview-panel { background: var(--theme-background, white); color: var(--theme-foreground, #172435); padding: .4rem; border: 1px solid currentColor; }
+.gis-overview-panel[hidden] { display: none; }
+.gis-overview svg { display: block; width: 100%; height: 140px; touch-action: none; border: 1px solid currentColor; }
+.gis-overview-water { fill: #e5eef3; }
+.gis-overview-grid { stroke: #778b9b; stroke-width: .5; fill: none; }
+.gis-overview-feature { stroke: #234e38; stroke-width: 1.4; }
+.gis-overview-extent { fill: #185db1; fill-opacity: .12; stroke: #174d91; stroke-width: 2; }
+.gis-overview-directions { display: flex; flex-wrap: wrap; gap: .2rem; }
+.gis-overview-panel p { font-size: .75rem; line-height: 1.3; margin: .3rem 0; }
+.gis-preview-overview { position: absolute; top: .5rem; right: .5rem; z-index: 3; }
+.gis-overview button:focus-visible { outline: 3px solid #2168d5; outline-offset: 2px; }
+
+.gis-map-control-stack > .gis-overview { grid-column: 1 / -1; min-width: 0; width: 100%; }
+.opengeo-workbench .gis-map-control-stack:has(.gis-overview > button[aria-expanded="true"]) { width: min(300px, calc(100% - 1.5rem)); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gis-preview-overview { bottom: 3rem; max-width: min(260px, calc(100% - 1rem)); display: flex; flex-direction: column; pointer-events: none; }
+.gis-preview-overview > button { flex-shrink: 0; }
+.gis-preview-overview > button, .gis-preview-overview > .gis-overview-panel { pointer-events: auto; }
+.gis-preview-overview > .gis-overview-panel { min-height: 0; overflow: auto; }
+
+.gis-overview-frame { position: relative; height: 140px; flex-shrink: 0; }
+.gis-overview-frame > svg { position: absolute; inset: 0; z-index: 1; }
+.gis-overview-map { position: absolute; inset: 0; overflow: hidden; }
+.gis-overview-map .maplibregl-ctrl-bottom-right, .gis-overview-map .mapboxgl-ctrl-bottom-right { position: absolute; bottom: 0; right: 0; z-index: 3; max-width: 100%; pointer-events: auto; }
+.gis-overview-map .maplibregl-ctrl-attrib, .gis-overview-map .mapboxgl-ctrl-attrib { background: var(--theme-background, white); font-size: .65rem; }

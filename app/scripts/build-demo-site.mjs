@@ -63,6 +63,7 @@ await writeThirdPartyNotices({appRoot, outputRoot});
 
 const artifactTree = await snapshotTree(outputRoot);
 const requiredDemoArtifacts = [
+  ["geographic overview control", /^_import\/components\/OverviewControl\.[A-Za-z0-9_-]+\.js$/],
   ["MassGIS configuration", /^_file\/data\/massgis-enviroscreen\.[A-Za-z0-9_-]+\.json$/],
   ["MassGIS loader", /^_import\/lib\/massgisDemo\.[A-Za-z0-9_-]+\.js$/],
   ["bounded live feature reader", /^_import\/lib\/liveFeatureSource\.[A-Za-z0-9_-]+\.js$/],
@@ -328,6 +329,7 @@ async function stageDemoSource() {
     ["components/ShapeEditor.js", "components/ShapeEditor.js"],
     ["components/ResizablePanels.js", "components/ResizablePanels.js"],
     ["components/CameraControls.js", "components/CameraControls.js"],
+    ["components/OverviewControl.js", "components/OverviewControl.js"],
     ["components/EsriBasemapOptions.js", "components/EsriBasemapOptions.js"],
     ["lib/esriBasemaps.js", "lib/esriBasemaps.js"],
     ["lib/webMapContext.js", "lib/webMapContext.js"],

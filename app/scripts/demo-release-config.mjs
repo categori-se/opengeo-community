@@ -6,13 +6,12 @@ import {CESIUM_FONT_ROOT, CESIUM_FONT_SHA256} from '../src/lib/cesiumLabels.js';
 import {MAPBOX_RUNTIME} from '../src/lib/mapboxRuntime.js';
 import {withoutRendererFrameBehavior} from './studio-edge-boundary.mjs';
 
-// The 250 staged public files include the local Assistant and shared WMS modules alongside
-// the previously qualified KML/Tour/raster helpers and locked dependencies.
-// The 428-file cap adds those three modules to the measured 425-file core.
+// The accepted Overview adds its JavaScript and gzip to the measured 427-file core.
+// The 429-file cap matches that corrected core; renderer inventory is separate.
 // The core cap is 24 MiB; exact renderer inventory/14 MiB and PWA/startup
 // budgets are unchanged.
 export const BROWSER_DEMO_LIMITS = Object.freeze({
-  coreFiles: 428, coreBytes: 24 * 1024 * 1024,
+  coreFiles: 429, coreBytes: 24 * 1024 * 1024,
   rendererFiles: 400, rendererBytes: 14 * 1024 * 1024
 });
 

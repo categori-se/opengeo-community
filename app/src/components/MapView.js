@@ -1,3 +1,4 @@
+import {OverviewControl} from "./OverviewControl.js";
 import {mapServerTileUrl} from "../lib/mapServer.js";
 import {imageServerTileUrl} from "../lib/imageServer.js";
 import maplibregl from "../lib/mapRenderer.js";
@@ -26,6 +27,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
   let basemapNote = "";
   const setStatus = message => {status.textContent = basemapNote + message;};
   container.append(status);
+  let overview = null;
   let renderer = null, disposed = false, observer = null, styleGeneration = 0, styleAttempt = null;
   let paintLayerIds = [], ownedImageIds = new Set(), resolveReady, rejectReady;
   const ready = new Promise((resolve, reject) => {resolveReady = resolve; rejectReady = reject;});
@@ -78,6 +80,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
     rejectReady(staleStyle());
     delete container.__opengeoMap; delete container.__resize; delete container.__view;
     container.__cogSession?.dispose(); delete container.__cogSession;
+    overview?.dispose(); overview = null;
     renderer?.remove(); renderer = null;
   };
   // Allow an asynchronously constructed preview panel to attach before WebGL
@@ -99,6 +102,13 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
     container.__view = () => ({center: map.getCenter().toArray(), zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing()});
     map.addControl(new maplibregl.NavigationControl({showCompass: false}), "top-left");
     map.addControl(new maplibregl.ScaleControl());
+    overview = OverviewControl(() => disposed ? null : renderer, {
+      getGeography: () => geojson ? [geojson] : [],
+      createMap: options => new maplibregl.Map({...options, transformRequest: url => ({url, credentials: "omit"})}),
+      disposeMap: map => map.remove()
+    });
+    overview.element.classList.add("gis-preview-overview");
+    container.append(overview.element);
     let previewStarted = false, blankBasemap = false;
     const blank = document.createElement("button");
     blank.type = "button"; blank.className = "platform-button secondary";

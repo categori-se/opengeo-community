@@ -80,6 +80,7 @@ import {bindResizablePanels} from "./ResizablePanels.js";
 import {StudioAccountControls} from "./StudioAccountControls.js";
 import {directoryHref, compositionHref} from "../lib/applicationRoutes.js";
 import {CameraControls} from "./CameraControls.js";
+import {OverviewControl} from "./OverviewControl.js";
 import {EsriBasemapOptions} from "./EsriBasemapOptions.js";
 import {createEsriBasemapSession, esriTileConfiguration} from "../lib/esriBasemaps.js";
 import {
@@ -1034,6 +1035,8 @@ function createWorkbenchView({
     return !context.rendererSuspended && Boolean(state.map);
   };
   const accountNavigation = () => {
+    context.overviewControl?.dispose(); context.overviewControl = null;
+    state.overviewOpen = false;
     state.projectDatasetLiveCollectionsOpen.clear();
     context.assistantPanel?.dispose();
     context.assistantPanel = null;
@@ -1064,6 +1067,7 @@ function createWorkbenchView({
   shell.dispose = () => {
     if (context.disposed) return;
     context.disposed = true;
+    context.overviewControl?.dispose(); context.overviewControl = null;
     disposeHistoricalComparison(context);
     context.disposeSaveShortcut?.();
     context.browserCatalogPanel?.dispose?.();
@@ -1349,6 +1353,7 @@ function mapGraphicsUnavailable(container, context) {
   catch { /* An incomplete renderer may not have a readable camera. */ }
   let released = false;
   try { cleanup?.(); released = Boolean(cleanup); } catch { /* Continue closing a failed renderer. */ }
+  context.overviewControl?.dispose(); context.overviewControl = null;
   context.state.map = null;
   context.shell.__opengeoMap = null;
   if (!released) try { context.rendererAdapter.disposeMap(map); } catch { /* Partial SDK setup. */ }
@@ -1596,6 +1601,7 @@ function releaseRendererCredentials(context) {
     handle.needsInteractionRebind = Boolean(handle.mapEventHandlers?.length);
     handle.mapEventHandlers = [];
   }
+  context.overviewControl?.dispose(); context.overviewControl = null;
   state.map = null; context.shell.__opengeoMap = null;
   context.rendererAdapter.disposeMap(map);
   context.mapSurface.replaceChildren();
@@ -1721,6 +1727,7 @@ async function switchRenderingEngine(context, engineId, {resume = false, automat
     };
     disposeHistoricalComparison(context);
     context.disposeMapEvents?.();
+    context.overviewControl?.dispose(); context.overviewControl = null;
     state.map = candidate; context.rendererAdapter = adapter; context.mapSurface = surface;
     if (!resume) context.rendererPreference = engineId;
     context.rendererSky = retainedSky;
@@ -5965,6 +5972,9 @@ function setMapOnly(context, enabled) {
 function renderMapChrome(chrome, context) {
   const {state} = context;
   if (context.cameraControls?.isInteracting()) return;
+  if (context.overviewControl && (!context.overviewControl.isCurrentMap() || state.mapOnly || !state.mapControlsOpen)) {
+    context.overviewControl.dispose(); context.overviewControl = null;
+  }
   if (state.queryResult && state.queryDraft?.datasetId !== activeLayer(context)?.datasetId) {
     state.queryResult = null;
     state.querySelectedFeatureId = null;
@@ -6012,8 +6022,22 @@ function renderMapChrome(chrome, context) {
     button.setAttribute("aria-pressed", String(Boolean(state[key])));
     return button;
   };
+  if (!context.overviewControl) {
+    const overviewAdapter = context.rendererAdapter;
+    context.overviewControl = OverviewControl(() => context.disposed || context.queryLocationScopeInvalid ? null : state.map, {
+      open: Boolean(state.overviewOpen), onOpenChange: open => {state.overviewOpen = open;},
+      getGeography: () => context.layers.filter(layer => layer.visible !== false).map(layer => context.dataByLayerId.get(layer.layerId)).filter(Boolean),
+      createMap: options => {
+        overviewAdapter.initialize();
+        return overviewAdapter.createMap({...options, style: rendererStyle(options.style, overviewAdapter.id),
+          transformRequest: (url,type) => state.mapFontSession.transformRequest(url,type,context.esriBasemapSession.transformRequest,overviewAdapter.id)});
+      },
+      disposeMap: map => overviewAdapter.disposeMap(map)
+    });
+  }
   right.append(
     camera.element,
+    context.overviewControl.element,
     iconButton("Zoom in", "+", () => state.map?.zoomIn()),
     iconButton("Zoom out", "-", () => state.map?.zoomOut()),
     modeButton("globe", state.globe ? "Mercator projection" : "Globe projection", "Globe", () => toggleProjection(context)),
@@ -6069,6 +6093,7 @@ function renderMapChrome(chrome, context) {
 
   const plugins = activePluginOverlay(context);
   chrome.append(right);
+  context.overviewControl?.update();
   const basemapAlert = basemapRuntimeAlert(context);
   if (basemapAlert) chrome.append(basemapAlert);
   if (state.mapAuthoring) chrome.append(mapAuthoringGuide(context));
