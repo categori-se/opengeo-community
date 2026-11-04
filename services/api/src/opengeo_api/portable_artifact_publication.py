@@ -251,7 +251,7 @@ async def public_portable_seal(
     except (ValueError, TypeError, KeyError) as error:
         raise RenderConflict("artifact_public_origin_invalid") from error
     requested, referenced, _ = _requested_sources(manifest, definition)
-    style_dependencies = []
+    style_dependencies: list[dict[str, Any]] = []
     if any(layer.get("styleReference") is not None for layer in definition.get("layers", [])):
         try:
             _, style_dependencies = await resolve_public_saved_map_styles(tx, context, definition)
