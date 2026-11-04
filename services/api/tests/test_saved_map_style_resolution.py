@@ -95,3 +95,90 @@ def test_resolution_rechecks_access_and_dataset_and_deduplicates_exact_reference
                 )
             )
         assert error.value.code == "saved_map_style_unavailable"
+
+
+def test_public_style_resolution_uses_no_caller_roles_and_deduplicates_exact_pins():
+    from copy import deepcopy
+
+    from opengeo_api.saved_map_style_resolution import resolve_public_saved_map_styles
+    from test_saved_map_jobs import CONTEXT
+    from test_saved_map_publication import public_style_row, style_bound_rows
+
+    binding, rows, style, reference = style_bound_rows()
+    definition = deepcopy(binding[5])
+    definition["layers"].append({**definition["layers"][0], "layerId": "second"})
+    publication = public_style_row(style, reference, rows[0][3])
+
+    class Transaction:
+        def __init__(self):
+            self.calls = []
+
+        async def fetch_one(self, sql, parameters):
+            self.calls.append((sql, parameters))
+            return publication
+
+    tx = Transaction()
+    resolved, dependencies = asyncio.run(resolve_public_saved_map_styles(tx, CONTEXT, definition))
+    assert set(resolved) == {"areas", "second"} and len(dependencies) == 2
+    assert len(tx.calls) == 1
+    assert "resource.state = 'published'" in tx.calls[0][0]
+    assert "metadata.metadata_extensions" in tx.calls[0][0]
+    assert dependencies[0]["publication"] == dependencies[1]["publication"]
+
+
+def test_public_style_resolution_supports_deployed_thirteen_column_style_parser(monkeypatch):
+    from types import SimpleNamespace
+
+    from opengeo_api.resources import PostgresResourceRepository
+    from opengeo_api.saved_map_style_resolution import resolve_public_saved_map_styles
+    from test_saved_map_jobs import CONTEXT
+    from test_saved_map_publication import public_style_row, style_bound_rows
+
+    binding, rows, style, reference = style_bound_rows()
+    publication = public_style_row(style, reference, rows[0][3])[:-1]
+    selected = PostgresResourceRepository._style_select(current=False).replace(
+        ", style.archived_at IS NOT NULL", ""
+    )
+    fields = (
+        "style_id",
+        "resource_id",
+        "slug",
+        "format",
+        "version_number",
+        "title",
+        "media_type",
+        "definition",
+        "checksum_sha256",
+        "change_message",
+        "created_by",
+        "created_at",
+        "updated_at",
+    )
+    parsed = []
+
+    def deployed_parser(row):
+        assert len(row) == 13
+        value = SimpleNamespace(**dict(zip(fields, row, strict=True)))
+        assert not hasattr(value, "archived")
+        parsed.append(value)
+        return value
+
+    monkeypatch.setattr(
+        PostgresResourceRepository, "_style_select", staticmethod(lambda *, current=True: selected)
+    )
+    monkeypatch.setattr(PostgresResourceRepository, "_style", staticmethod(deployed_parser))
+
+    class Transaction:
+        async def fetch_one(self, sql, parameters):
+            assert "style.archived_at IS NULL" in sql
+            assert "style.archived_at IS NOT NULL" not in sql
+            assert "resource.state = 'published'" in sql
+            assert "resource.visibility = 'public'" in sql
+            return publication
+
+    resolved, dependencies = asyncio.run(
+        resolve_public_saved_map_styles(Transaction(), CONTEXT, binding[5])
+    )
+    assert resolved["areas"] is parsed[0]
+    assert dependencies[0]["reference"] == reference
+    assert dependencies[0]["publication"]["metadataVersionNumber"] == 4

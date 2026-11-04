@@ -1,10 +1,11 @@
 import asyncio
 import json
+import re
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 from uuid import UUID
 
 from opengeo_api.document_previews import (
@@ -36,6 +37,10 @@ from opengeo_api.tenant_database import (
     TenantTransaction,
     TenantTransactionExecutor,
 )
+
+if TYPE_CHECKING:
+    from opengeo_api.rendering import PostgresRenderRepository
+
 
 PUBLIC_CATALOG_MAXIMUM_FACET_SAMPLE = 10_000
 MAX_PUBLIC_DOCUMENT_CONTENT_BYTES = 16 * 1024
@@ -245,6 +250,29 @@ class PublicMapPreview:
     layers: tuple[PublicMapPreviewLayer, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class PublicMapArtifact:
+    artifact_id: UUID
+    release_id: UUID
+    version_number: int
+    representation: Literal["saved-map-image", "portable-map-html"]
+    media_type: Literal["image/png", "image/jpeg", "text/html"]
+    size_bytes: int
+    checksum_sha256: str
+    preview_href: str
+    license: Literal["CC0-1.0", "CC-BY-4.0", "PDDL-1.0"]
+    attribution: str
+
+
+@dataclass(frozen=True, slots=True)
+class PublicMapArtifactPreview:
+    resource_id: UUID
+    resource_version_number: int
+    map_version: int
+    status: Literal["available", "unavailable"]
+    artifact: PublicMapArtifact | None
+
+
 class PublicCatalogRepository(Protocol):
     async def list_public_resources(
         self,
@@ -286,6 +314,15 @@ class PublicCatalogRepository(Protocol):
         project_id: UUID,
         resource_id: UUID,
     ) -> PublicMapPreview | None: ...
+
+    async def get_public_map_artifact_preview(
+        self,
+        organization_id: UUID,
+        project_id: UUID,
+        resource_id: UUID,
+        *,
+        artifact_repository: "PostgresRenderRepository",
+    ) -> PublicMapArtifactPreview | None: ...
 
 
 class PostgresPublicCatalogRepository:
@@ -674,6 +711,174 @@ class PostgresPublicCatalogRepository:
             projection=target.projection,
             color_mode=target.color_mode,
             layers=tuple(layers),
+        )
+
+    async def get_public_map_artifact_preview(
+        self,
+        organization_id: UUID,
+        project_id: UUID,
+        resource_id: UUID,
+        *,
+        artifact_repository: "PostgresRenderRepository",
+    ) -> PublicMapArtifactPreview | None:
+        async def resolve(
+            transaction: TenantTransaction,
+        ) -> tuple[PublicMapArtifactPreview, UUID, tuple[Any, ...] | None] | None:
+            return await self._public_map_artifact_preview_target(
+                transaction, organization_id, project_id, resource_id, artifact_repository
+            )
+
+        target = await self._run(organization_id, resolve)
+        if target is None:
+            return None
+        # Descriptor reads do not fetch objects or create work. Still revalidate
+        # current map/release/dependency policy before handing out a public path.
+        checked = await self._run(organization_id, resolve)
+        if checked != target:
+            raise PublicCatalogPreviewConflict("public_map_artifact_preview_target_changed")
+        return cast(PublicMapArtifactPreview, target[0])
+
+    @staticmethod
+    async def _public_map_artifact_preview_target(
+        transaction: TenantTransaction,
+        organization_id: UUID,
+        project_id: UUID,
+        resource_id: UUID,
+        artifact_repository: "PostgresRenderRepository",
+    ) -> tuple[PublicMapArtifactPreview, UUID, tuple[Any, ...] | None] | None:
+        from opengeo_api.artifact_releases import read_release
+        from opengeo_api.rendering import RenderConflict, RenderNotFound
+
+        resource = await transaction.fetch_one(
+            """SELECT resource.current_version_id, version.version_number,
+                      resource.map_id, binding.map_version, binding.map_id
+               FROM app.governed_resources resource
+               JOIN app.governed_resource_versions version
+                 ON version.organization_id=resource.organization_id
+                AND version.resource_id=resource.id AND version.id=resource.current_version_id
+               LEFT JOIN app.map_resource_version_bindings binding
+                 ON binding.organization_id=resource.organization_id
+                AND binding.project_id=resource.project_id AND binding.resource_id=resource.id
+                AND binding.resource_version_id=resource.current_version_id
+               JOIN app.maps map ON map.organization_id=resource.organization_id
+                AND map.project_id=resource.project_id AND map.id=resource.map_id
+                AND map.status='active'
+               WHERE resource.organization_id=%s AND resource.project_id=%s AND resource.id=%s
+                 AND resource.kind='map' AND resource.state='published'
+                 AND resource.visibility='public'""",
+            (organization_id, project_id, resource_id),
+        )
+        if resource is None:
+            return None
+        map_id, map_version = resource[2], resource[3]
+        if (
+            resource[4] != map_id
+            or isinstance(map_version, bool)
+            or not isinstance(map_version, int)
+            or map_version < 1
+        ):
+            raise PublicCatalogPreviewConflict("public_map_artifact_preview_not_sealed")
+        empty = PublicMapArtifactPreview(resource_id, resource[1], map_version, "unavailable", None)
+        # Only explicit releases of an exact edition qualify. Artifact current
+        # selection and arbitrary authored URLs never grant public eligibility.
+        release = await transaction.fetch_one(
+            """SELECT release.id, artifact.id, edition.version_number, artifact.representation
+               FROM app.project_artifacts artifact
+               JOIN app.project_artifact_versions edition
+                 ON edition.organization_id=artifact.organization_id
+                AND edition.artifact_id=artifact.id
+               JOIN app.project_artifact_releases release
+                 ON release.organization_id=edition.organization_id
+                AND release.artifact_id=edition.artifact_id
+                AND release.version_number=edition.version_number AND release.revoked_at IS NULL
+               LEFT JOIN app.map_render_job_bindings rendered
+                 ON rendered.organization_id=edition.organization_id
+                AND rendered.render_job_id=edition.render_job_id
+                AND rendered.resource_id=artifact.resource_id
+               LEFT JOIN app.map_resource_version_bindings saved
+                 ON saved.organization_id=rendered.organization_id
+                AND saved.resource_id=rendered.resource_id
+                AND saved.resource_version_id=rendered.resource_version_id
+               WHERE artifact.organization_id=%s AND artifact.resource_id=%s AND artifact.map_id=%s
+                 AND ((artifact.representation='saved-map-image'
+                       AND rendered.resource_version_id=%s
+                       AND saved.map_id=%s AND saved.map_version=%s)
+                   OR (artifact.representation='portable-map-html'
+                       AND edition.origin_map_id=%s AND edition.origin_map_version=%s))
+               ORDER BY release.created_at DESC, release.id DESC LIMIT 1""",
+            (
+                organization_id,
+                resource_id,
+                map_id,
+                resource[0],
+                map_id,
+                map_version,
+                map_id,
+                map_version,
+            ),
+        )
+        if release is None:
+            return empty, resource[0], None
+        release_id, artifact_id, version_number, representation = release
+        try:
+            # This is the maintained PUBLIC reader with an anonymous context,
+            # even when the incoming request happens to carry an owner's token.
+            record, target = await read_release(
+                artifact_repository, organization_id, release_id, transaction=transaction
+            )
+        except (RenderConflict, RenderNotFound):
+            return empty, resource[0], None
+        if (target[0], target[1], target[2]) != (resource_id, map_id, project_id) or (
+            record.get("artifact_id") != str(artifact_id)
+            or record.get("version_number") != version_number
+            or (representation == "saved-map-image" and target[4] != resource[0])
+            or (
+                representation == "portable-map-html"
+                and (len(target) < 16 or target[14] != map_version)
+            )
+        ):
+            raise PublicCatalogPreviewConflict("public_map_artifact_preview_mismatch")
+        media_type, size_bytes, checksum = target[10:13]
+        supported = {
+            "saved-map-image": ({"image/png", "image/jpeg"}, 16 * 1024 * 1024, "image"),
+            "portable-map-html": ({"text/html"}, 4 * 1024 * 1024, "map"),
+        }
+        if representation not in supported:
+            return empty, resource[0], None
+        media_types, maximum_bytes, action = supported[representation]
+        license = record.get("license")
+        attribution = record.get("attribution")
+        if (
+            media_type not in media_types
+            or isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, int)
+            or not 0 < size_bytes <= maximum_bytes
+            or not isinstance(checksum, str)
+            or re.fullmatch(r"[0-9a-f]{64}", checksum) is None
+            or isinstance(version_number, bool)
+            or not isinstance(version_number, int)
+            or version_number < 1
+            or license not in {"CC0-1.0", "CC-BY-4.0", "PDDL-1.0"}
+            or not isinstance(attribution, str)
+            or not 1 <= len(attribution.strip()) <= 2000
+        ):
+            raise PublicCatalogPreviewConflict("public_map_artifact_preview_invalid")
+        artifact = PublicMapArtifact(
+            artifact_id,
+            release_id,
+            version_number,
+            representation,
+            media_type,
+            size_bytes,
+            checksum,
+            f"/public/organizations/{organization_id}/artifact-releases/{release_id}/{action}",
+            license,
+            attribution.strip(),
+        )
+        return (
+            PublicMapArtifactPreview(resource_id, resource[1], map_version, "available", artifact),
+            resource[0],
+            target,
         )
 
     @classmethod

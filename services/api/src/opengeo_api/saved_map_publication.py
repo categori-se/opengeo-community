@@ -16,12 +16,16 @@ from opengeo_api.saved_map_render_passes import (
     compile_saved_map_passes,
 )
 from opengeo_api.saved_map_rendering import SavedMapRenderUnsupported, compile_saved_map
-from opengeo_api.saved_map_style_resolution import resolve_saved_map_styles
+from opengeo_api.saved_map_style_resolution import (
+    PUBLIC_STYLE_PUBLICATION_LICENSES,
+    resolve_public_saved_map_styles,
+    resolve_saved_map_styles,
+)
 from opengeo_api.tenant_database import TenantContext, TenantTransaction
 
 # The same allowlist governs page/reference publication. A public source is not
 # inferred from its URL, a map's visibility, or a dataset's title.
-PUBLIC_SAVED_MAP_LICENSES = frozenset({"CC-BY-4.0", "CC0-1.0", "PDDL-1.0"})
+PUBLIC_SAVED_MAP_LICENSES = PUBLIC_STYLE_PUBLICATION_LICENSES
 
 
 async def load_saved_map_seal(
@@ -72,14 +76,15 @@ async def load_saved_map_seal(
         for layer in definition.get("layers", [])
         if "styleReference" in layer
     ]
-    # Public distribution requires its own Style rights/audience contract. A
-    # successful requesting-user lookup cannot authorize an anonymous edition.
-    if style_dependencies and public:
-        raise RenderConflict("saved_map_style_publication_unsupported")
-    if style_dependencies and repository is None:
+    if style_dependencies and not public and repository is None:
         raise RenderNotFound("resource")
     try:
-        resolved_styles = await resolve_saved_map_styles(transaction, context, definition)
+        if public and style_dependencies:
+            resolved_styles, style_dependencies = await resolve_public_saved_map_styles(
+                transaction, context, definition
+            )
+        else:
+            resolved_styles = await resolve_saved_map_styles(transaction, context, definition)
         recipe = compile_saved_map(definition, resolved_styles=resolved_styles)
         passes = compile_saved_map_passes(recipe)
         if (

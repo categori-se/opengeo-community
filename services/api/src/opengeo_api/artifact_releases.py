@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from opengeo_api.authorization import Action
+from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.project_artifacts import _edition_manifest
 from opengeo_api.rendering import RenderConflict, RenderNotFound
 from opengeo_api.saved_map_publication import load_saved_map_seal
@@ -82,13 +83,14 @@ async def _target(
 
 async def _public_seal(
     tx: TenantTransaction, context: TenantContext, target: tuple[Any, ...]
-) -> None:
+) -> dict[str, Any]:
     if target[10] == "text/html":
         from opengeo_api.portable_artifact_publication import public_portable_seal
 
-        await public_portable_seal(tx, context, target)
-        return
-    await load_saved_map_seal(tx, context, target[2], target[0], target[4], target[3], public=True)
+        return await public_portable_seal(tx, context, target)
+    return await load_saved_map_seal(
+        tx, context, target[2], target[0], target[4], target[3], public=True
+    )
 
 
 async def create_release(
@@ -202,7 +204,11 @@ async def read_release(
         if row is None:
             raise RenderNotFound("artifact_release")
         target = await _target(tx, context, row[0], row[1])
-        await _public_seal(tx, context, target)
+        publication_seal = await _public_seal(tx, context, target)
+        # Preserve all existing output/portable tuple positions. The final
+        # internal canonical seal lets readers detect changed public metadata,
+        # Style terms or source eligibility across a bounded object read.
+        target = (*target, canonical_json_bytes(publication_seal).decode("utf-8"))
         return (
             {
                 "id": str(release_id),

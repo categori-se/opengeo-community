@@ -18116,6 +18116,140 @@
         "title": "PublicDocumentPreviewResponse",
         "type": "object"
       },
+      "PublicMapArtifactPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicMapArtifactResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "map_version": {
+            "minimum": 1.0,
+            "title": "Map Version",
+            "type": "integer"
+          },
+          "resource_id": {
+            "format": "uuid",
+            "title": "Resource Id",
+            "type": "string"
+          },
+          "resource_version_number": {
+            "minimum": 1.0,
+            "title": "Resource Version Number",
+            "type": "integer"
+          },
+          "schema_version": {
+            "const": "opengeo.public-map-artifact-preview.1.0.0",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "available",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "resource_id",
+          "resource_version_number",
+          "map_version",
+          "status",
+          "artifact"
+        ],
+        "title": "PublicMapArtifactPreviewResponse",
+        "type": "object"
+      },
+      "PublicMapArtifactResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "artifact_id": {
+            "format": "uuid",
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "attribution": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Attribution",
+            "type": "string"
+          },
+          "checksum_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Checksum Sha256",
+            "type": "string"
+          },
+          "license": {
+            "enum": [
+              "CC0-1.0",
+              "CC-BY-4.0",
+              "PDDL-1.0"
+            ],
+            "title": "License",
+            "type": "string"
+          },
+          "media_type": {
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "text/html"
+            ],
+            "title": "Media Type",
+            "type": "string"
+          },
+          "preview_href": {
+            "title": "Preview Href",
+            "type": "string"
+          },
+          "release_id": {
+            "format": "uuid",
+            "title": "Release Id",
+            "type": "string"
+          },
+          "representation": {
+            "enum": [
+              "saved-map-image",
+              "portable-map-html"
+            ],
+            "title": "Representation",
+            "type": "string"
+          },
+          "size_bytes": {
+            "maximum": 16777216.0,
+            "minimum": 1.0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "version_number": {
+            "minimum": 1.0,
+            "title": "Version Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "release_id",
+          "version_number",
+          "representation",
+          "media_type",
+          "size_bytes",
+          "checksum_sha256",
+          "preview_href",
+          "license",
+          "attribution"
+        ],
+        "title": "PublicMapArtifactResponse",
+        "type": "object"
+      },
       "PublicMapPreviewLayerResponse": {
         "additionalProperties": false,
         "properties": {
@@ -67719,6 +67853,69 @@
           }
         },
         "summary": "Get Public Document Preview",
+        "tags": [
+          "public catalog"
+        ]
+      }
+    },
+    "/public/organizations/{organization_id}/projects/{project_id}/resources/{resource_id}/map-artifact-preview": {
+      "get": {
+        "operationId": "get_public_map_artifact_preview_public_organizations__organization_id__projects__project_id__resources__resource_id__map_artifact_preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "organization_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Organization Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Resource Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicMapArtifactPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Public Map Artifact Preview",
         "tags": [
           "public catalog"
         ]

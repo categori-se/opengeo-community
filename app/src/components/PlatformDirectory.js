@@ -1,3 +1,5 @@
+import {graduatedLegendEntries} from "../lib/thematicStyle.js";
+import {publicMapArtifactPreviewUrl} from "../lib/apiClient.js";
 import {StyleLibrary} from "./StyleLibrary.js";
 import {AccountNavigation} from "./AccountNavigation.js";
 import {AccountWorkDownload} from "./AccountWorkDownload.js";
@@ -2612,6 +2614,9 @@ function labeledField(label, control, className = "") {
 export function organizationCatalog(state, {autoload = false, publicResourceTarget = null} = {}) {
   const section = document.createElement("section");
   section.className = "platform-catalog-search";
+  let disposed = false;
+  const publicController = new AbortController();
+  const openingAdapter = state.adapter, openingOrganization = state.organization.id;
   const registration = CatalogSourceRegistration({adapter: state.adapter, projects: state.projects, organization: state.organization});
   if (registration) section.append(registration);
   section.append(
@@ -2909,7 +2914,7 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
     adapter: state.adapter, projects: state.projects, organization: state.organization
   }) : null;
   if (ckan) section.append(ckan);
-  section.dispose = () => {searchGeneration++; loadPreview?.dispose?.(); disposeResults(); staticSearch?.dispose(); stacSearch?.dispose(); ckan?.dispose();};
+  section.dispose = () => {disposed = true; publicController.abort(); searchGeneration++; loadPreview?.dispose?.(); disposeResults(); staticSearch?.dispose(); stacSearch?.dispose(); ckan?.dispose();};
   section.shouldBlockNavigation = options => Boolean(ckan?.shouldBlockNavigation(options));
   if(state.directoryDetailsLoading) {
     form.inert=true;
@@ -2935,7 +2940,10 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
         target: publicResourceTarget,
         results,
         feedback,
-        controls: [mode, query, client, project, classification, publicKind, submit]
+        controls: [mode, query, client, project, classification, publicKind, submit],
+        signal: publicController.signal,
+        isCurrent: (() => {const generation = searchGeneration; return () => !disposed && generation === searchGeneration
+          && state.adapter === openingAdapter && state.organization.id === openingOrganization;})()
       });
     } else {
       feedback.textContent = "Loading authorized datasets…";
@@ -2945,9 +2953,23 @@ export function organizationCatalog(state, {autoload = false, publicResourceTarg
   return section;
 }
 
-async function loadPublicResourceDetail({state, target, results, feedback, controls}) {
+async function loadPublicResourceDetail({state, target, results, feedback, controls, signal, isCurrent}) {
+  const adapter = state.adapter, organizationId = state.organization.id;
+  const opening = {baseUrl: adapter.baseUrl, tokenProvider: adapter.tokenProvider, organizationProvider: adapter.organizationProvider,
+    projectId: target.projectId, resourceId: target.resourceId};
+  // Anonymous discovery never invokes an authentication provider. Snapshot only
+  // the mounted context; every public request remains independently anonymous.
+  const guard = () => {
+    if (!isCurrent() || signal.aborted || state.adapter !== adapter || state.organization.id !== organizationId
+      || adapter.baseUrl !== opening.baseUrl || adapter.tokenProvider !== opening.tokenProvider
+      || adapter.organizationProvider !== opening.organizationProvider
+      || target.projectId !== opening.projectId || target.resourceId !== opening.resourceId) {
+      throw new DOMException("Public resource context changed", "AbortError");
+    }
+  };
   for (const control of controls) control.disabled = true;
   try {
+    guard();
     if (typeof state.adapter.getPublicResource !== "function") {
       throw Object.assign(new Error("public resource unavailable"), {
         code: "public_resource_unavailable"
@@ -2956,8 +2978,9 @@ async function loadPublicResourceDetail({state, target, results, feedback, contr
     const record = await state.adapter.getPublicResource(
       state.organization.id,
       target.projectId,
-      target.resourceId
+      target.resourceId, {signal}
     );
+    guard();
     if (record.community.organizationId !== state.organization.id
       || record.community.projectId !== target.projectId
       || record.id !== target.resourceId) {
@@ -2966,6 +2989,11 @@ async function loadPublicResourceDetail({state, target, results, feedback, contr
       });
     }
     const detail = publicResourceDetail(record, state.adapter);
+    const renderPreview = async (preview, error = null) => {
+      guard(); const previous = detail.querySelector(".platform-public-resource-preview");
+      previous?.dispose?.(); previous?.replaceWith(publicResourcePreview(record, preview, error));
+    };
+    let mapVersion = null;
     results.replaceChildren(detail);
     feedback.textContent = `Published ${record.kind} · version ${record.versionNumber}`;
     if (record.preview.kind === "map"
@@ -2974,20 +3002,21 @@ async function loadPublicResourceDetail({state, target, results, feedback, contr
         const preview = await state.adapter.getPublicMapPreview(
           state.organization.id,
           target.projectId,
-          target.resourceId
+          target.resourceId, {signal}
         );
+        guard();
         if (preview.resourceId !== record.id
           || preview.resourceVersionNumber !== record.versionNumber) {
           throw Object.assign(new Error("public preview identity changed"), {
             code: "public_map_preview_identity_changed"
           });
         }
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, preview));
+        mapVersion = preview.mapVersion;
+        await renderPreview(preview);
         feedback.textContent = `Published map · version ${record.versionNumber} · ${preview.layers.length} layer composition ready`;
       } catch (error) {
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, null, error?.code ?? "unavailable"));
+        guard();
+        await renderPreview(null, error?.code ?? "unavailable");
         feedback.textContent = `Published map · version ${record.versionNumber} · composition preview unavailable`;
       }
     } else if (record.preview.kind === "dataset"
@@ -2996,20 +3025,20 @@ async function loadPublicResourceDetail({state, target, results, feedback, contr
         const preview = await state.adapter.getPublicSpatialPreview(
           state.organization.id,
           target.projectId,
-          target.resourceId
+          target.resourceId, {signal}
         );
+        guard();
         if (preview.resourceId !== record.id
           || preview.resourceVersionNumber !== record.versionNumber) {
           throw Object.assign(new Error("public preview identity changed"), {
             code: "public_spatial_preview_identity_changed"
           });
         }
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, preview));
+        await renderPreview(preview);
         feedback.textContent = `Published ${record.kind} · version ${record.versionNumber} · feature preview ready`;
       } catch (error) {
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, null, error?.code ?? "unavailable"));
+        guard();
+        await renderPreview(null, error?.code ?? "unavailable");
         feedback.textContent = `Published ${record.kind} · version ${record.versionNumber} · feature preview unavailable`;
       }
     } else if (record.preview.kind === "dataset-document"
@@ -3018,20 +3047,20 @@ async function loadPublicResourceDetail({state, target, results, feedback, contr
         const preview = await state.adapter.getPublicDatasetDocumentPreview(
           state.organization.id,
           target.projectId,
-          target.resourceId
+          target.resourceId, {signal}
         );
+        guard();
         if (preview.resourceId !== record.id
           || preview.resourceVersionNumber !== record.versionNumber) {
           throw Object.assign(new Error("public preview identity changed"), {
             code: "public_dataset_document_preview_identity_changed"
           });
         }
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, preview));
+        await renderPreview(preview);
         feedback.textContent = `Published dataset · version ${record.versionNumber} · ${preview.sourceFormat.toUpperCase()} preview ready`;
       } catch (error) {
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, null, error?.code ?? "unavailable"));
+        guard();
+        await renderPreview(null, error?.code ?? "unavailable");
         feedback.textContent = `Published dataset · version ${record.versionNumber} · document preview unavailable`;
       }
     } else if (record.preview.kind === "document"
@@ -3040,8 +3069,9 @@ async function loadPublicResourceDetail({state, target, results, feedback, contr
         const preview = await state.adapter.getPublicDocumentPreview(
           state.organization.id,
           target.projectId,
-          target.resourceId
+          target.resourceId, {signal}
         );
+        guard();
         if (preview.resourceId !== record.id
           || preview.resourceVersionNumber !== record.versionNumber
           || preview.resourceKind !== record.kind) {
@@ -3049,21 +3079,71 @@ async function loadPublicResourceDetail({state, target, results, feedback, contr
             code: "public_document_preview_identity_changed"
           });
         }
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, preview));
+        await renderPreview(preview);
         feedback.textContent = `Published ${record.kind} · version ${record.versionNumber} · content preview ready`;
       } catch (error) {
-        detail.querySelector(".platform-public-resource-preview")
-          ?.replaceWith(publicResourcePreview(record, null, error?.code ?? "unavailable"));
+        guard();
+        await renderPreview(null, error?.code ?? "unavailable");
         feedback.textContent = `Published ${record.kind} · version ${record.versionNumber} · content preview unavailable`;
       }
     }
+    if (record.kind === "map" && typeof adapter.getPublicMapArtifactPreview === "function") {
+      guard();
+      const artifactPreview = publicMapArtifactPreviewAction({record, adapter, mapVersion, guard, signal});
+      detail.append(artifactPreview);
+      const dispose = detail.dispose; detail.dispose = () => {artifactPreview.dispose(); dispose?.();};
+    }
   } catch (error) {
+    try {guard();} catch {return;}
     results.replaceChildren(publicResourceUnavailable(state.adapter?.kind));
     feedback.textContent = `Published resource could not be opened (${error?.code ?? "unexpected_error"}).`;
   } finally {
-    for (const control of controls) control.disabled = false;
+    try {guard(); for (const control of controls) control.disabled = false;} catch { /* A stale detail must not update its controls. */ }
   }
+}
+
+function publicMapArtifactPreviewAction({record, adapter, mapVersion, guard, signal}) {
+  const section = document.createElement("section"); section.className = "platform-public-map-artifact-preview";
+  const status = text("p", "Open an existing published preview to see its sealed map presentation. Catalog details remain available.", "platform-note");
+  status.setAttribute("role", "status");
+  const presentation = document.createElement("figure");
+  let disposed = false, generation = 0, pending = null;
+  const clear = () => {
+    for (const media of presentation.querySelectorAll("iframe, img")) media.removeAttribute("src");
+    presentation.replaceChildren();
+  };
+  const close = () => {generation++; pending?.abort(); pending = null; clear(); closeButton.hidden = true; open.disabled = false; status.textContent = "Published preview closed. Catalog details remain available.";};
+  const closeButton = action("Close published preview", () => {close(); open.focus();}); closeButton.hidden = true;
+  const open = action("Preview published map", () => {void (async () => {
+    const attempt = ++generation; pending = new AbortController();
+    const requestSignal = AbortSignal.any([signal, pending.signal]);
+    const current = () => {if (disposed || attempt !== generation || requestSignal.aborted) throw new DOMException("Public preview closed", "AbortError"); guard(); if (disposed || attempt !== generation || requestSignal.aborted) throw new DOMException("Public preview closed", "AbortError");};
+    const stillCurrent = () => {try {current(); return true;} catch {return false;}};
+    try {
+      current(); open.disabled = true; closeButton.hidden = false; status.textContent = "Checking the current published map preview…";
+      const preview = await adapter.getPublicMapArtifactPreview(record.community.organizationId, record.community.projectId, record.id, {signal: requestSignal});
+      current();
+      if (preview.resourceId !== record.id || preview.resourceVersionNumber !== record.versionNumber
+        || mapVersion !== null && preview.mapVersion !== mapVersion) throw Error("Published preview identity changed");
+      if (preview.status === "unavailable") {clear(); status.textContent = "No published Artifact is available for this exact map version. Catalog details remain available."; return;}
+      if (preview.status !== "available" || !preview.artifact) throw Error("Invalid published preview");
+      const artifact = preview.artifact, url = publicMapArtifactPreviewUrl(adapter.baseUrl, artifact, record.community.organizationId);
+      current();
+      const media = document.createElement(artifact.representation === "saved-map-image" ? "img" : "iframe");
+      if (media.tagName === "IMG") {media.alt = `${record.title} · published map version ${preview.mapVersion}`; media.crossOrigin = "anonymous"; media.style.maxWidth = "100%";}
+      else {media.title = `${record.title} · published map version ${preview.mapVersion}`; media.setAttribute("sandbox", "allow-scripts"); media.setAttribute("credentialless", ""); media.className = "platform-public-resource-document-frame";}
+      media.referrerPolicy = "no-referrer";
+      media.addEventListener("error", () => {if (stillCurrent()) {clear(); status.textContent = "The published preview could not load. Catalog details remain available.";}});
+      clear(); media.src = url; presentation.append(media, text("figcaption", `Exact map v${preview.mapVersion} · Artifact v${artifact.versionNumber} · ${artifact.license} · ${artifact.attribution}`));
+      status.textContent = "Published preview opened. Exploring it does not save or create a Project.";
+    } catch (error) {
+      if (stillCurrent()) {clear(); status.textContent = "The current published preview could not be verified. Catalog details remain available.";}
+    } finally {if (stillCurrent()) {pending = null; open.disabled = false;}}
+  })();});
+  section.append(open, closeButton, status, presentation);
+  section.dispose = () => {if (disposed) return; disposed = true; generation++; pending?.abort(); clear();};
+  signal.addEventListener("abort", section.dispose, {once: true});
+  return section;
 }
 
 function publicCatalogTable(page, adapter) {
@@ -3141,6 +3221,7 @@ function publicResourceUnavailable(adapterKind = null) {
 function publicResourceDetail(record, adapter) {
   const article = document.createElement("article");
   article.className = "platform-public-resource-detail";
+  article.dispose = () => {for (const frame of article.querySelectorAll("iframe")) {frame.removeAttribute("src"); frame.removeAttribute("srcdoc");}};
   article.dataset.resourceKind = record.kind;
   const heading = document.createElement("header");
   heading.className = "platform-public-resource-heading";
@@ -3236,7 +3317,7 @@ function publicResourcePreview(record, preview = null, previewError = null) {
     const returned = preview.layers.reduce((sum, layer) => sum + layer.numberReturned, 0);
     figure.append(text(
       "figcaption",
-      `Published map v${preview.mapVersion} with ${preview.layers.length} exact-version ${preview.layers.length === 1 ? "layer" : "layers"}; ${visible} visible and ${returned.toLocaleString()} preview features rendered in saved draw order.`
+      `Published map v${preview.mapVersion} with ${preview.layers.length} exact-version ${preview.layers.length === 1 ? "layer" : "layers"}; ${visible} visible and ${returned.toLocaleString()} preview features rendered in saved draw order. This bounded vector view does not reproduce all label, symbol or projection effects; an existing published preview uses its sealed presentation.`
     ));
     return figure;
   }
@@ -3444,36 +3525,39 @@ function publicMapPreviewGraphic(record, preview) {
     .sort((left, right) => right.order - left.order || right.layerId.localeCompare(left.layerId));
   drawOrder.forEach((layer) => {
     if (budget.positions >= maximumPositions) return;
-    const paths = {points: [], lines: [], polygons: []};
+    let graduated = null;
+    if (layer.style?.renderer === "graduated") {
+      try {graduated = graduatedLegendEntries(layer.style.graduated);} catch { /* Keep the verified vector fallback when a richer style is unsupported. */ }
+    }
+    const groups = new Map();
     for (const feature of layer.geojson.features) {
       if (budget.positions >= maximumPositions) break;
-      if (feature.geometry !== null) {
-        publicSpatialGeometryPath(
-          feature.geometry,
-          projected,
-          paths,
-          budget,
-          maximumPositions
-        );
+      const colors = publicMapLayerColors(layer.style, preview.layers.indexOf(layer));
+      if (graduated) {
+        const value = feature.properties?.[layer.style.graduated.field];
+        const entry = typeof value === "number" && Number.isFinite(value)
+          ? graduated.find(row => row.kind === "range" && (row.minimum === null || value >= row.minimum) && (row.maximum === null || value < row.maximum))
+          : graduated.find(row => row.kind === "no-data");
+        if (entry) {colors.fill = colors.point = entry.color; if (!feature.geometry?.type.includes("Polygon")) colors.stroke = entry.color;}
       }
+      const key = JSON.stringify(colors);
+      if (!groups.has(key)) groups.set(key, {colors, paths: {points: [], lines: [], polygons: []}});
+      if (feature.geometry !== null) publicSpatialGeometryPath(feature.geometry, projected, groups.get(key).paths, budget, maximumPositions, colors.radius);
     }
     const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
     group.dataset.layerId = layer.layerId;
     group.setAttribute("opacity", String(layer.opacity));
-    const colors = publicMapLayerColors(layer.style, preview.layers.indexOf(layer));
-    for (const [kind, values] of Object.entries(paths)) {
+    for (const {colors, paths} of groups.values()) for (const [kind, values] of Object.entries(paths)) {
       if (!values.length) continue;
       const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
       path.setAttribute("class", `platform-public-resource-feature-${kind}`);
       path.setAttribute("d", values.join(" "));
-      path.setAttribute("stroke", colors.stroke);
-      path.setAttribute("stroke-width", String(colors.strokeWidth));
-      if (kind === "polygons") {
-        path.setAttribute("fill", colors.fill);
-        path.setAttribute("fill-rule", "evenodd");
-      } else if (kind === "points") {
-        path.setAttribute("fill", colors.point);
-      }
+      const fill = kind === "polygons" ? (layer.style?.polygonMode === "line" ? "none" : colors.fill) : kind === "points" ? colors.point : "none";
+      const stroke = kind === "polygons" && layer.style?.polygonMode === "line" ? colors.fill : colors.stroke;
+      path.setAttribute("stroke", stroke); path.style.stroke = stroke;
+      path.setAttribute("stroke-width", String(colors.strokeWidth)); path.style.strokeWidth = String(colors.strokeWidth);
+      path.setAttribute("fill", fill); path.style.fill = fill;
+      if (kind === "polygons") {path.setAttribute("fill-rule", "evenodd"); path.style.fillOpacity = String(colors.fillOpacity);}
       group.append(path);
     }
     svg.append(group);
@@ -3526,7 +3610,9 @@ function publicMapLayerColors(style, index) {
     fill: color(style?.fill ?? style?.fillColor, fallback),
     stroke: color(style?.stroke ?? style?.lineColor, fallback),
     point: color(style?.circleColor ?? style?.color, fallback),
-    strokeWidth: Number.isFinite(width) && width >= 0 && width <= 12 ? width : 1.5
+    strokeWidth: Number.isFinite(width) && width >= 0 && width <= 12 ? width : 1.5,
+    radius: typeof style?.circleRadius === "number" && style.circleRadius >= 0 && style.circleRadius <= 40 ? style.circleRadius : 6,
+    fillOpacity: typeof style?.fillOpacityFactor === "number" && style.fillOpacityFactor >= 0 && style.fillOpacityFactor <= 1 ? style.fillOpacityFactor : 0.45
   };
 }
 
@@ -3624,7 +3710,7 @@ function nonzeroSpatialBounds([west, south, east, north]) {
   ];
 }
 
-function publicSpatialGeometryPath(geometry, project, paths, budget, maximumPositions) {
+function publicSpatialGeometryPath(geometry, project, paths, budget, maximumPositions, pointRadius = 2) {
   const coordinate = (position) => {
     if (budget.positions >= maximumPositions) return null;
     budget.positions += 1;
@@ -3634,7 +3720,7 @@ function publicSpatialGeometryPath(geometry, project, paths, budget, maximumPosi
     const value = coordinate(position);
     if (!value) return false;
     const [x, y] = value;
-    paths.points.push(`M${x},${y}m-2,0a2,2 0 1,0 4,0a2,2 0 1,0 -4,0`);
+    paths.points.push(`M${x},${y}m-${pointRadius},0a${pointRadius},${pointRadius} 0 1,0 ${pointRadius * 2},0a${pointRadius},${pointRadius} 0 1,0 -${pointRadius * 2},0`);
     return true;
   };
   const line = (positions, target, close = false) => {
@@ -3664,7 +3750,7 @@ function publicSpatialGeometryPath(geometry, project, paths, budget, maximumPosi
       .map((ring) => line(ring, paths.polygons, true)).some(Boolean);
   }
   return geometry.geometries
-    .map((child) => publicSpatialGeometryPath(child, project, paths, budget, maximumPositions))
+    .map((child) => publicSpatialGeometryPath(child, project, paths, budget, maximumPositions, pointRadius))
     .some(Boolean);
 }
 

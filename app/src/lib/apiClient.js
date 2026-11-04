@@ -2213,51 +2213,61 @@ export class OpenGeoApiClient {
   }
 
   /** @returns {Promise<PublicCatalogRecord>} */
-  async getPublicResource(organizationId, projectId, resourceId) {
+  async getPublicResource(organizationId, projectId, resourceId, {signal} = {}) {
     return parsePublicCatalogRecord(
       await this.request(
         `/public/organizations/${pathUuid(organizationId, "organization id")}/projects/${pathUuid(projectId, "project id")}/resources/${pathUuid(resourceId, "resource id")}`,
-        {anonymous: true}
+        {anonymous: true, signal}
       )
     );
   }
 
   /** @returns {Promise<PublicSpatialPreview>} */
-  async getPublicSpatialPreview(organizationId, projectId, resourceId) {
+  async getPublicSpatialPreview(organizationId, projectId, resourceId, {signal} = {}) {
     return parsePublicSpatialPreview(
       await this.request(
         `/public/organizations/${pathUuid(organizationId, "organization id")}/projects/${pathUuid(projectId, "project id")}/resources/${pathUuid(resourceId, "resource id")}/spatial-preview`,
-        {anonymous: true}
+        {anonymous: true, signal}
       )
     );
   }
 
   /** @returns {Promise<PublicDocumentPreview>} */
-  async getPublicDocumentPreview(organizationId, projectId, resourceId) {
+  async getPublicDocumentPreview(organizationId, projectId, resourceId, {signal} = {}) {
     return parsePublicDocumentPreview(
       await this.request(
         `/public/organizations/${pathUuid(organizationId, "organization id")}/projects/${pathUuid(projectId, "project id")}/resources/${pathUuid(resourceId, "resource id")}/document-preview`,
-        {anonymous: true}
+        {anonymous: true, signal}
       )
     );
   }
 
   /** @returns {Promise<PublicDatasetDocumentPreview>} */
-  async getPublicDatasetDocumentPreview(organizationId, projectId, resourceId) {
+  async getPublicDatasetDocumentPreview(organizationId, projectId, resourceId, {signal} = {}) {
     return parsePublicDatasetDocumentPreview(
       await this.request(
         `/public/organizations/${pathUuid(organizationId, "organization id")}/projects/${pathUuid(projectId, "project id")}/resources/${pathUuid(resourceId, "resource id")}/dataset-document-preview`,
-        {anonymous: true}
+        {anonymous: true, signal}
       )
     );
   }
 
+  async getPublicMapArtifactPreview(organizationId, projectId, resourceId, {signal} = {}) {
+    const organization = pathUuid(organizationId, "organization id");
+    const value = parsePublicMapArtifactPreview(await this.request(
+      `/public/organizations/${organization}/projects/${pathUuid(projectId, "project id")}/resources/${pathUuid(resourceId, "resource id")}/map-artifact-preview`,
+      {anonymous: true, signal}
+    ), organization);
+    if (value.resourceId !== resourceId) contract("public map Artifact resource identity changed");
+    return value;
+  }
+
   /** @returns {Promise<PublicMapPreview>} */
-  async getPublicMapPreview(organizationId, projectId, resourceId) {
+  async getPublicMapPreview(organizationId, projectId, resourceId, {signal} = {}) {
     return parsePublicMapPreview(
       await this.request(
         `/public/organizations/${pathUuid(organizationId, "organization id")}/projects/${pathUuid(projectId, "project id")}/resources/${pathUuid(resourceId, "resource id")}/map-preview`,
-        {anonymous: true}
+        {anonymous: true, signal}
       )
     );
   }
@@ -9031,6 +9041,49 @@ export function parsePublicDatasetDocumentPreview(value) {
     presentationKind,
     presentation
   };
+}
+
+export function parsePublicMapArtifactPreview(value, organizationId) {
+  const record = boundedObject(value, 8_192, "public map Artifact preview");
+  exactKeys(record, ["schema_version", "resource_id", "resource_version_number", "map_version", "status", "artifact"], "public map Artifact preview");
+  if (record.schema_version !== "opengeo.public-map-artifact-preview.1.0.0") contract("Unsupported public map Artifact preview");
+  const status = oneOf(record.status, ["available", "unavailable"], "public map Artifact status");
+  let artifact = null;
+  if (status === "unavailable") {
+    if (record.artifact !== null) contract("Unavailable public map Artifact must omit its release");
+  } else {
+    const item = object(record.artifact, "public map Artifact");
+    exactKeys(item, ["artifact_id", "release_id", "version_number", "representation", "media_type", "size_bytes", "checksum_sha256", "preview_href", "license", "attribution"], "public map Artifact");
+    const representation = oneOf(item.representation, ["saved-map-image", "portable-map-html"], "public map Artifact representation");
+    const mediaType = oneOf(item.media_type, representation === "saved-map-image" ? ["image/png", "image/jpeg"] : ["text/html"], "public map Artifact media type");
+    const checksumSha256 = boundedString(item.checksum_sha256, 64, "public map Artifact checksum");
+    if (!/^[0-9a-f]{64}$/.test(checksumSha256)) contract("Invalid public map Artifact checksum");
+    artifact = {artifactId: uuid(item.artifact_id, "public Artifact id"), releaseId: uuid(item.release_id, "public Artifact release"),
+      versionNumber: positiveInteger(item.version_number, "public Artifact version"), representation, mediaType,
+      sizeBytes: integerBetween(item.size_bytes, 1, representation === "saved-map-image" ? 16 * 1024 * 1024 : 4 * 1024 * 1024, "public Artifact size"),
+      checksumSha256, previewHref: boundedString(item.preview_href, 300, "public Artifact preview path"),
+      license: oneOf(item.license, ["CC0-1.0", "CC-BY-4.0", "PDDL-1.0"], "public Artifact license"),
+      attribution: boundedString(item.attribution, 2_000, "public Artifact attribution")};
+    if (!artifact.attribution.trim()) contract("Public Artifact attribution is required");
+    publicMapArtifactPreviewUrl("/api", artifact, organizationId);
+  }
+  return {schemaVersion: record.schema_version, resourceId: uuid(record.resource_id, "public map Artifact resource"),
+    resourceVersionNumber: positiveInteger(record.resource_version_number, "public map Artifact resource version"),
+    mapVersion: positiveInteger(record.map_version, "public map Artifact map version"), status, artifact};
+}
+
+// Use the existing public Artifact routes, never a response-supplied origin or signed URL.
+export function publicMapArtifactPreviewUrl(baseUrl, artifact, organizationId) {
+  const organization = pathUuid(organizationId, "public Artifact organization");
+  const release = pathUuid(artifact.releaseId, "public Artifact release");
+  const suffix = artifact.representation === "saved-map-image" ? "image" : artifact.representation === "portable-map-html" ? "map" : null;
+  if (!suffix || artifact.previewHref !== `/public/organizations/${organization}/artifact-releases/${release}/${suffix}`) contract("Public Artifact preview path does not match its identity");
+  const base = typeof baseUrl === "string" ? baseUrl.replace(/\/$/, "") : "/api";
+  const result = `${base}${artifact.previewHref}`;
+  const url = new URL(result, globalThis.location?.origin ?? "https://studio.opengeo.tools");
+  if ((url.protocol !== "https:" && !(url.protocol === "http:" && ["127.0.0.1", "localhost"].includes(url.hostname)))
+    || url.username || url.password || url.search || url.hash) contract("Invalid public Artifact URL");
+  return result;
 }
 
 export function parsePublicMapPreview(value) {
