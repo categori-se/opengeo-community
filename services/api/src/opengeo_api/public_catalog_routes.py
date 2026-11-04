@@ -1,7 +1,7 @@
 import math
 from collections.abc import Awaitable
 from datetime import datetime
-from typing import Annotated, Any, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -16,10 +16,15 @@ from opengeo_api.public_catalog import (
     PublicCatalogStoreUnavailable,
     PublicDatasetDocumentPreview,
     PublicDocumentPreview,
+    PublicMapArtifactPreview,
     PublicMapPreview,
     PublicSpatialPreview,
 )
 from opengeo_api.resources import ResourceKind
+
+if TYPE_CHECKING:
+    from opengeo_api.rendering import PostgresRenderRepository
+
 
 router = APIRouter(tags=["public catalog"])
 
@@ -156,6 +161,28 @@ class PublicMapPreviewResponse(ResponseModel):
     projection: Literal["mercator", "globe"]
     color_mode: Literal["light", "dark"]
     layers: list[PublicMapPreviewLayerResponse] = Field(max_length=64)
+
+
+class PublicMapArtifactResponse(ResponseModel):
+    artifact_id: UUID
+    release_id: UUID
+    version_number: int = Field(ge=1)
+    representation: Literal["saved-map-image", "portable-map-html"]
+    media_type: Literal["image/png", "image/jpeg", "text/html"]
+    size_bytes: int = Field(ge=1, le=16 * 1024 * 1024)
+    checksum_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    preview_href: str
+    license: Literal["CC0-1.0", "CC-BY-4.0", "PDDL-1.0"]
+    attribution: str = Field(min_length=1, max_length=2000)
+
+
+class PublicMapArtifactPreviewResponse(ResponseModel):
+    schema_version: Literal["opengeo.public-map-artifact-preview.1.0.0"]
+    resource_id: UUID
+    resource_version_number: int = Field(ge=1)
+    map_version: int = Field(ge=1)
+    status: Literal["available", "unavailable"]
+    artifact: PublicMapArtifactResponse | None
 
 
 def repository_from_request(request: Request) -> PublicCatalogRepository:
@@ -434,6 +461,43 @@ async def get_public_dataset_document_preview(
         source_format=preview.source_format,
         presentation_kind=preview.presentation_kind,
         presentation=preview.presentation,
+    )
+
+
+@router.get(
+    "/public/organizations/{organization_id}/projects/{project_id}/resources/"
+    "{resource_id}/map-artifact-preview",
+    response_model=PublicMapArtifactPreviewResponse,
+)
+async def get_public_map_artifact_preview(
+    organization_id: UUID,
+    project_id: UUID,
+    resource_id: UUID,
+    request: Request,
+    repository: Annotated[PublicCatalogRepository, Depends(repository_from_request)],
+) -> PublicMapArtifactPreviewResponse:
+    preview: PublicMapArtifactPreview | None = await _execute(
+        repository.get_public_map_artifact_preview(
+            organization_id, project_id, resource_id,
+            artifact_repository=cast("PostgresRenderRepository", request.app.state.render_repository),
+        )
+    )
+    if preview is None:
+        raise HTTPException(status_code=404, detail={"code": "public_map_artifact_preview_not_found"})
+    artifact = preview.artifact
+    return PublicMapArtifactPreviewResponse(
+        schema_version="opengeo.public-map-artifact-preview.1.0.0",
+        resource_id=preview.resource_id,
+        resource_version_number=preview.resource_version_number,
+        map_version=preview.map_version,
+        status=preview.status,
+        artifact=None if artifact is None else PublicMapArtifactResponse(
+            artifact_id=artifact.artifact_id, release_id=artifact.release_id,
+            version_number=artifact.version_number, representation=artifact.representation,
+            media_type=artifact.media_type, size_bytes=artifact.size_bytes,
+            checksum_sha256=artifact.checksum_sha256, preview_href=artifact.preview_href,
+            license=artifact.license, attribution=artifact.attribution,
+        ),
     )
 
 

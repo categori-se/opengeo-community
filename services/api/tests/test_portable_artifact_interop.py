@@ -80,26 +80,32 @@ def test_browser_manifest_hashes_match_server_canonical_bytes(browser_artifact):
 
 @pytest.fixture(
     scope="module",
-    params=[("xyz", None), ("imageserver", None), ("imageserver", [2])],
-    ids=["xyz", "imageserver", "imageserver-record"],
+    params=[("xyz", None), ("imageserver", None), ("imageserver", [2]), ("wms-1.3.0", None), ("wms-1.1.1", None)],
+    ids=["xyz", "imageserver", "imageserver-record", "wms-1.3.0", "wms-1.1.1"],
 )
 def browser_raster_artifact(request):
     root = Path(__file__).resolve().parents[3]
     script = r"""
 import {compilePortableMapArtifact} from './app/src/lib/portableMapArtifact.js';
 import {imageServerTileUrl} from './app/src/lib/imageServer.js';
+import {wmsTileUrl} from './app/src/lib/wmsSource.js';
 const kind=process.argv[1];
+const sourceKind=kind.startsWith('wms-') ? 'wms' : kind;
 const rasterIds=JSON.parse(process.argv[2]);
-const configuration=kind==='xyz'
+const configuration=sourceKind==='wms'
+ ? {version:kind.slice(4),layers:['roads','water'],styles:['',''],imageFormat:'image/png',transparent:true,
+    crs:'EPSG:3857',tileSize:256,attribution:'Public WMS publisher'}
+ : kind==='xyz'
  ? {minZoom:0,maxZoom:15,tileSize:256,scheme:'xyz',attribution:'NOAA'}
  : {serviceKind:'imageserver',tileSize:256,imageFormat:'png32',interpolation:'RSP_NearestNeighbor',
     bandIds:[],minZoom:0,maxZoom:15,attribution:'NOAA',...(rasterIds ? {rasterIds} : {})};
-const sourceUrl=kind==='xyz'
+const sourceUrl=sourceKind==='wms' ? 'https://maps.example.org/wms' : kind==='xyz'
  ? 'https://coast.noaa.gov/arcgis/rest/services/dc_slr/slr_2ft/MapServer/tile/{z}/{y}/{x}'
  : 'https://gis.nnvl.noaa.gov/arcgis/rest/services/HINDZ/Morning_Heat_Index_in_Cities/ImageServer';
-const tileUrl=kind==='xyz' ? sourceUrl : imageServerTileUrl(sourceUrl,configuration);
+const tileUrl=sourceKind==='wms' ? wmsTileUrl(sourceUrl,configuration)
+ : kind==='xyz' ? sourceUrl : imageServerTileUrl(sourceUrl,configuration);
 const layer={layerId:'coastal',datasetId:'22222222-2222-4222-8222-222222222222',sourceVersion:1,
- sourceType:`${kind}-raster`,sourceUrl,sourceConfiguration:configuration,tileUrl};
+ sourceType:`${sourceKind}-raster`,sourceUrl,sourceConfiguration:configuration,tileUrl};
 const definition={layers:[layer]};
 const result=await compilePortableMapArtifact({title:'NOAA',mode:'live',runtimeJs:'/* test */',
  runtimeCss:'body{}',runtimeLicense:'BSD',candidates:[{id:'coastal',sourceId:'coastal-source',
@@ -151,6 +157,10 @@ def test_live_publication_requires_exact_public_external_revision(browser_raster
     )
     if layer["sourceConfiguration"].get("rasterIds"):
         raw_config["raster_ids"] = layer["sourceConfiguration"]["rasterIds"]
+    if payload["kind"].startswith("wms-"):
+        raw_config = {"version": payload["kind"][4:], "layers": ["roads", "water"], "styles": ["", ""],
+                      "format": "image/png", "transparent": True, "crs": "EPSG:3857",
+                      "tile_size": 256, "attribution": "Public WMS publisher"}
     target = [None] * 16
     target[1], target[2] = UUID("11111111-1111-4111-8111-111111111111"), UUID(int=2)
     target[13:] = [manifest, 1, payload["definition"]]
@@ -174,6 +184,9 @@ def test_live_publication_requires_exact_public_external_revision(browser_raster
                 "externalSourceUrl",
             ):
                 assert required in sql
+            if payload["kind"].startswith("wms-"):
+                assert "metadata.license=ANY" in sql
+                assert set(params[-1]) == {"CC-BY-4.0", "CC0-1.0", "PDDL-1.0"}
             return self.rows
 
     def check(rows, changed=None):
@@ -186,12 +199,15 @@ def test_live_publication_requires_exact_public_external_revision(browser_raster
     assert tx.calls[0][1][0].obj[0]["version_number"] == 1
     assert tx.calls[0][1][0].obj[0]["configuration"] == layer["sourceConfiguration"]
     assert public_portable_origins(manifest, payload["definition"]) == [
-        "https://coast.noaa.gov" if payload["kind"] == "xyz" else "https://gis.nnvl.noaa.gov"
+        "https://maps.example.org" if payload["kind"].startswith("wms-")
+        else "https://coast.noaa.gov" if payload["kind"] == "xyz" else "https://gis.nnvl.noaa.gov"
     ]
     invalid_rows = [
         [],
         [(UUID(layer["datasetId"]), 2, raw_config)],
-        [(UUID(layer["datasetId"]), 1, {**raw_config, "max_zoom": 14})],
+        [(UUID(layer["datasetId"]), 1, {**raw_config, **(
+            {"layers": ["changed"]} if payload["kind"].startswith("wms-") else {"max_zoom": 14}
+        )})],
     ]
     if payload["kind"] == "imageserver":
         invalid_rows.append([(UUID(layer["datasetId"]), 1, {**raw_config, "raster_ids": [3]})])
@@ -213,6 +229,74 @@ def test_live_publication_requires_exact_public_external_revision(browser_raster
         changed_definition["layers"][0]["sourceConfiguration"]["rasterIds"] = [3]
         with pytest.raises(RenderConflict, match="artifact_public_sources_unsupported"):
             public_portable_origins(manifest, changed_definition)
+    if payload["kind"].startswith("wms-"):
+        for field, value in [("crs", "EPSG:4326"), ("version", "1.2.0"),
+                             ("layers", ["roads", "roads"]), ("transparent", "true")]:
+            changed_definition = copy.deepcopy(payload["definition"])
+            changed_definition["layers"][0]["sourceConfiguration"][field] = value
+            with pytest.raises(RenderConflict, match="artifact_public_sources_unsupported"):
+                public_portable_origins(manifest, changed_definition)
+
+
+@pytest.fixture(scope="module")
+def browser_public_style_artifact():
+    from test_saved_map_publication import public_style_row, style_bound_rows
+
+    binding, rows, style, reference = style_bound_rows()
+    definition = binding[5]
+    script = r"""
+import {compilePortableMapArtifact} from './app/src/lib/portableMapArtifact.js';
+const definition=JSON.parse(process.argv[1]),layer=definition.layers[0];
+const sourceId=`dataset_${layer.datasetId}_version_${layer.datasetVersionId}-source`;
+const result=await compilePortableMapArtifact({title:'Published Style fixture',runtimeJs:'/*test*/',
+ runtimeCss:'body{}',runtimeLicense:'BSD',candidates:[{id:layer.layerId,sourceId,title:layer.title,
+ visible:true,source:{type:'geojson',data:{type:'FeatureCollection',features:[]}},
+ paints:[{id:'roads',type:'line',source:sourceId,paint:{'line-color':'#123456','line-width':3}}],
+ paintOrder:{roads:0}}],selectedIds:[layer.layerId],
+ savedProjectOrigin:{id:'11111111-1111-4111-8111-111111111111',version:1,definition}});
+console.log(JSON.stringify(result.manifest));
+"""
+    manifest = json.loads(subprocess.run(
+        ["node", "--input-type=module", "-e", script, json.dumps(definition)],
+        cwd=Path(__file__).resolve().parents[3], check=True, capture_output=True, text=True, timeout=20,
+    ).stdout)
+    return manifest, definition, public_style_row(style, reference, rows[0][3])
+
+
+def test_portable_public_style_requires_explicit_terms_and_seals_current_metadata(browser_public_style_artifact):
+    from opengeo_api.portable_artifact_publication import public_portable_seal
+    from opengeo_api.rendering import RenderConflict
+    from test_saved_map_jobs import CONTEXT
+
+    manifest, definition, publication = browser_public_style_artifact
+    layer = definition["layers"][0]
+    target = [None] * 16
+    target[1], target[2] = UUID("11111111-1111-4111-8111-111111111111"), UUID(int=2)
+    target[13:] = [manifest, 1, definition]
+
+    class Transaction:
+        def __init__(self, row): self.row, self.source_reads = row, 0
+        async def fetch_one(self, sql, params):
+            assert "resource.visibility = 'public'" in sql
+            return self.row
+        async def fetch_all(self, sql, params):
+            self.source_reads += 1
+            assert "dataset.classification='public'" in sql
+            return [(UUID(layer["datasetId"]), UUID(layer["datasetVersionId"]))]
+
+    tx = Transaction(publication)
+    sealed = asyncio.run(public_portable_seal(tx, CONTEXT, tuple(target)))
+    assert sealed["styleDependencies"][0]["publication"]["metadataVersionNumber"] == 4
+    assert tx.source_reads == 1
+    changed = list(copy.deepcopy(publication))
+    changed[0], changed[1] = UUID(int=913), 5
+    reread = asyncio.run(public_portable_seal(Transaction(tuple(changed)), CONTEXT, tuple(target)))
+    assert reread != sealed  # Existing before/after target comparison detects changed policy.
+    changed[2] = {}  # A public dataset and caller access do not publish its Style.
+    refused = Transaction(tuple(changed))
+    with pytest.raises(RenderConflict, match="artifact_style_not_public"):
+        asyncio.run(public_portable_seal(refused, CONTEXT, tuple(target)))
+    assert refused.source_reads == 0
 
 
 @pytest.mark.parametrize(

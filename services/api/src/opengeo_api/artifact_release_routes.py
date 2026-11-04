@@ -362,7 +362,9 @@ async def _read_release_output(
     except DownloadStorageUnavailable as error:
         raise HTTPException(503, "artifact_release_object_unavailable", headers=HEADERS) from error
     # Recheck revocation/source eligibility after the bounded object read.
-    await _public(request, organization_id, release_id)
+    _, checked_target = await _public(request, organization_id, release_id)
+    if checked_target != target:
+        raise HTTPException(409, "artifact_release_target_changed", headers=HEADERS)
     return record, target, exact
 
 
