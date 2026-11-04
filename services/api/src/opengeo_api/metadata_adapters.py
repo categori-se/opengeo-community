@@ -1,8 +1,8 @@
-from decimal import Decimal, InvalidOperation
 import math
 import re
 import xml.etree.ElementTree as ET
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from typing import Any, cast
 from urllib.parse import parse_qsl, urlsplit
@@ -11,6 +11,7 @@ from uuid import UUID
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.metadata_catalog import CatalogMetadataInvalid, validate_catalog_extensions
 from opengeo_api.metadata_profiles import (
+    _DATACITE_REGISTRATION_VOCABULARIES,
     _ISO_COUNTRY_CODELIST,
     _iso_primary_locale,
     _iso_quality_unit_label_supported,
@@ -618,35 +619,66 @@ def _datacite_plan(
     titles = attributes.get("titles")
     if not isinstance(titles, list) or not 1 <= len(titles) <= 9:
         raise MetadataImportInvalid("DataCite titles must contain 1 to 9 values")
+    title_candidates: list[tuple[int, str, str | None, Any]] = []
+    unmapped_titles: list[str] = []
+    for index, item in enumerate(titles):
+        if not isinstance(item, dict):
+            raise MetadataImportInvalid("DataCite titles must be objects")
+        value = _bounded_string(item.get("title"), 1, 16_384, "DataCite retained title")
+        item_language = _language(item["lang"]).lower() if "lang" in item else None
+        title_type = item.get("titleType")
+        title_candidates.append((index, value, item_language, title_type))
+        if title_type is not None and title_type != "TranslatedTitle":
+            unmapped_titles.append(
+                f"data.attributes.titles[{index}].titleType[retained-not-native-main]"
+            )
+    selected_titles: dict[str | None, tuple[int, str]] = {}
+    for wanted_type in (None, "TranslatedTitle"):
+        for index, value, item_language, title_type in title_candidates:
+            if title_type != wanted_type:
+                continue
+            if item_language not in selected_titles:
+                selected_titles[item_language] = (index, value)
+            else:
+                unmapped_titles.append(
+                    f"data.attributes.titles[{index}][retained-native-title-variant]"
+                )
+    title_fallback = not selected_titles
+    if title_fallback:
+        index, value, item_language, _ = title_candidates[0]
+        selected_titles[item_language] = (index, value)
+        unmapped_titles.append(f"data.attributes.titles[{index}][legacy-first-title-fallback]")
     title_values = [
-        (
-            _bounded_string(item.get("title"), 1, 300, "DataCite title"),
-            _language(item["lang"]).lower() if "lang" in item else None,
+        (_bounded_string(value, 1, 300, "DataCite native title"), item_language)
+        for item_language, (_, value) in sorted(
+            selected_titles.items(), key=lambda item: item[1][0]
         )
-        for item in titles
-        if isinstance(item, dict)
     ]
-    if len(title_values) != len(titles):
-        raise MetadataImportInvalid("DataCite titles must be objects")
-    _unique_localized_languages(title_values, "DataCite titles")
     descriptions = attributes.get("descriptions", [])
     if not isinstance(descriptions, list) or len(descriptions) > 9:
         raise MetadataImportInvalid("DataCite descriptions must contain at most 9 values")
     description_values: list[tuple[str, str | None]] = []
     unmapped_descriptions: list[str] = []
+    description_languages: set[str | None] = set()
     for index, item in enumerate(descriptions):
         if not isinstance(item, dict):
             raise MetadataImportInvalid("DataCite descriptions must be objects")
         if item.get("descriptionType") != "Abstract":
             unmapped_descriptions.append(f"data.attributes.descriptions[{index}]")
             continue
+        item_language = _language(item["lang"]).lower() if "lang" in item else None
+        if item_language in description_languages:
+            unmapped_descriptions.append(
+                f"data.attributes.descriptions[{index}][retained-native-abstract-variant]"
+            )
+            continue
         description_values.append(
             (
                 _bounded_string(item.get("description"), 1, 8_000, "DataCite abstract"),
-                _language(item["lang"]).lower() if "lang" in item else None,
+                item_language,
             )
         )
-    _unique_localized_languages(description_values, "DataCite abstracts")
+        description_languages.add(item_language)
     language = _source_primary_language(attributes.get("language"), title_values)
     title, abstract, translations, multilingual_unmapped = _localized_metadata(
         title_values,
@@ -705,18 +737,36 @@ def _datacite_plan(
     ):
         raise MetadataImportInvalid("DataCite publicationYear is invalid")
     spatial_extent = _datacite_spatial(attributes.get("geoLocations", []))
-    temporal_start, temporal_end = _datacite_temporal(attributes.get("dates", []))
+    native_date_unmapped: list[str] = []
+    try:
+        temporal_start, temporal_end = _datacite_temporal(attributes.get("dates", []))
+    except MetadataImportInvalid:
+        temporal_start, temporal_end = None, None
+        raw_dates = attributes.get("dates")
+        if isinstance(raw_dates, list):
+            native_date_unmapped.extend(
+                f"data.attributes.dates[{index}].date[native-temporal-projection-unsupported]"
+                for index, value in enumerate(raw_dates)
+                if isinstance(value, dict) and value.get("dateType") == "Coverage"
+            )
+        if not native_date_unmapped:
+            native_date_unmapped.append(
+                "data.attributes.dates[native-temporal-projection-unsupported]"
+            )
     resource_type = attributes.get("types")
     general = resource_type.get("resourceTypeGeneral") if isinstance(resource_type, dict) else None
-    kind_by_type: dict[str, ResourceKind] = {
-        "Dataset": "dataset",
-        "Collection": "dataset",
-        "Project": "document",
-        "Service": "service",
-        "Text": "document",
-    }
-    if general not in kind_by_type:
+    if (
+        not isinstance(general, str)
+        or general not in _DATACITE_REGISTRATION_VOCABULARIES["resourceType"]
+    ):
         raise MetadataImportInvalid("DataCite resourceTypeGeneral is unsupported")
+    native_kind: ResourceKind = (
+        "dataset"
+        if general in {"Dataset", "Collection"}
+        else "service"
+        if general == "Service"
+        else "document"
+    )
     known_attributes = {
         "doi",
         "titles",
@@ -733,6 +783,7 @@ def _datacite_plan(
         "geoLocations",
         "dates",
         "relatedIdentifiers",
+        "relatedItems",
         "alternateIdentifiers",
         "formats",
         "sizes",
@@ -740,22 +791,7 @@ def _datacite_plan(
         "schemaVersion",
     }
     extensions = {
-        "datacite": {
-            key: attributes[key]
-            for key in (
-                "doi",
-                "creators",
-                "contributors",
-                "publisher",
-                "publicationYear",
-                "relatedIdentifiers",
-                "alternateIdentifiers",
-                "formats",
-                "sizes",
-                "fundingReferences",
-            )
-            if key in attributes
-        }
+        "datacite": {key: attributes[key] for key in sorted(known_attributes) if key in attributes}
     }
     catalog_contacts, catalog_contact_unmapped = _datacite_catalog_contacts(
         creators, attributes.get("contributors"), attributes.get("publisher")
@@ -788,23 +824,49 @@ def _datacite_plan(
         )
     if catalog_funding:
         mapped.append("data.attributes.fundingReferences->metadata_extensions.opengeo.funding")
-    for source, target in (
-        ("descriptions", "abstract/translations"),
-        ("rightsList", "license"),
-        ("geoLocations", "spatial_extent"),
-        ("dates", "temporal_extent"),
+    for source, target, actually_mapped in (
+        (
+            "descriptions",
+            "abstract/translations",
+            abstract is not None or any("abstract" in value for value in translations.values()),
+        ),
+        ("rightsList", "license", license_value is not None),
+        ("geoLocations", "spatial_extent", spatial_extent is not None),
+        ("dates", "temporal_extent", temporal_start is not None or temporal_end is not None),
     ):
-        if source in attributes:
+        if source in attributes and actually_mapped:
             mapped.append(f"data.attributes.{source}->{target}")
     unmapped = [
         *(f"data.{key}" for key in sorted(set(data) - {"id", "type", "attributes"})),
         *(f"data.attributes.{key}" for key in sorted(set(attributes) - known_attributes)),
         *unmapped_descriptions,
+        *native_date_unmapped,
+        *unmapped_titles,
         *multilingual_unmapped,
         *catalog_contact_unmapped,
         *catalog_funding_unmapped,
     ]
     defaulted = [] if attributes.get("language") or title_values[0][1] else ["language=en"]
+    if title_fallback:
+        defaulted.append("native.title=first-retained-title (no main or TranslatedTitle)")
+    for key in sorted(known_attributes & attributes.keys()):
+        mapped.append(f"data.attributes.{key}->metadata_extensions.datacite.{key}")
+    primary_title_index = (
+        selected_titles[language][0]
+        if language in selected_titles
+        else selected_titles[None][0]
+        if None in selected_titles
+        else min(index for index, _ in selected_titles.values())
+    )
+    for item_language, (index, _) in selected_titles.items():
+        if index == primary_title_index:
+            mapped.append(f"data.attributes.titles[{index}].title->title")
+        elif item_language is not None and item_language != language:
+            mapped.append(
+                f"data.attributes.titles[{index}].title->translations.{item_language}.title"
+            )
+        else:
+            unmapped.append(f"data.attributes.titles[{index}][retained-not-selected-native-title]")
     report = _report("datacite_4_7", mapped, defaulted, sorted(unmapped), [])
     return _plan(
         source_format="datacite_4_7",
@@ -814,7 +876,7 @@ def _datacite_plan(
         checksum=checksum,
         document=document,
         report=report,
-        kind=kind_by_type[cast(str, general)],
+        kind=native_kind,
         slug=slug,
         visibility=visibility,
         title=title,

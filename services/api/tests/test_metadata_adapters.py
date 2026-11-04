@@ -1710,7 +1710,8 @@ def test_datacite_registration_organization_creator_and_unsafe_publisher() -> No
 
     _, resource = datacite_registration_resource()
     resource.metadata_extensions["opengeo"]["contacts"] = [
-        {"organization": "Curated institute", "role": "creator"}
+        {"organization": "Curated institute", "role": "creator"},
+        {"name": "Open Research Press", "organization": "Open Research Press", "role": "publisher"},
     ]
     resource.metadata_extensions["datacite"]["publisher"]["lang"] = "\x00"
     result = export_datacite_4_7(resource)
@@ -1737,3 +1738,287 @@ def test_datacite_registration_attribute_whitespace_cannot_silently_normalize() 
         path.startswith("creators[0].nameIdentifiers[0].") for path in result["report"]["mapped"]
     )
     ET.fromstring(export_datacite_4_7_xml(resource)["documentText"])
+
+
+def datacite_complete_document() -> dict:
+    return fixture("metadata-015-datacite47-complete.json")
+
+
+def datacite_complete_resource(document=None):
+    document = datacite_complete_document() if document is None else document
+    plan = build_metadata_import_plan(
+        "datacite_4_7",
+        "example.datacite",
+        "complete-registration",
+        "restricted",
+        document,
+        metadata_source_checksum(document),
+    )
+    return plan, resource_from_plan(plan)
+
+
+def test_datacite_complete_registration_fresh_json_reimport() -> None:
+    document = datacite_complete_document()
+    plan, resource = datacite_complete_resource(document)
+    exported = export_datacite_4_7(resource)
+    attributes = exported["document"]["data"]["attributes"]
+    for name in (
+        "titles",
+        "subjects",
+        "contributors",
+        "dates",
+        "alternateIdentifiers",
+        "relatedIdentifiers",
+        "sizes",
+        "formats",
+        "version",
+        "rightsList",
+        "descriptions",
+        "geoLocations",
+        "fundingReferences",
+        "relatedItems",
+        "types",
+    ):
+        assert attributes[name] == document["data"]["attributes"][name], name
+    fresh, _ = datacite_complete_resource(exported["document"])
+    for name in ("titles", "descriptions", "rightsList", "relatedItems", "geoLocations"):
+        assert fresh.draft.metadata.extensions["datacite"][name] == attributes[name]
+    assert plan.source_document == document
+    assert len(canonical_json_bytes(plan.draft.metadata.extensions)) <= 8192
+    assert len(canonical_json_bytes(exported["report"])) <= 16384
+
+
+def test_datacite_complete_registration_has_all_normative_xml_groups() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    _, resource = datacite_complete_resource()
+    xml = ET.fromstring(export_datacite_4_7_xml(resource)["documentText"])
+    ns = {"d": "http://datacite.org/schema/kernel-4"}
+    assert {node.tag.rsplit("}", 1)[-1] for node in xml} == {
+        "identifier",
+        "creators",
+        "titles",
+        "publisher",
+        "publicationYear",
+        "resourceType",
+        "subjects",
+        "contributors",
+        "dates",
+        "language",
+        "alternateIdentifiers",
+        "relatedIdentifiers",
+        "sizes",
+        "formats",
+        "version",
+        "rightsList",
+        "descriptions",
+        "geoLocations",
+        "fundingReferences",
+        "relatedItems",
+    }
+    assert xml.find("d:contributors/d:contributor", ns).get("contributorType") == "Translator"
+    assert (
+        xml.find("d:creators/d:creator/d:nameIdentifier", ns).get("schemeURI") == "https://ror.org"
+    )
+    identifier = xml.find("d:relatedItems/d:relatedItem/d:relatedItemIdentifier", ns)
+    assert identifier.get("schemeURI") == "https://example.test/ddi"
+    assert xml.find("d:relatedItems/d:relatedItem/d:number", ns).get("numberType") == "Chapter"
+    assert (
+        xml.find("d:geoLocations/d:geoLocation/d:geoLocationPolygon/d:inPolygonPoint", ns)
+        is not None
+    )
+
+
+def test_datacite_complete_resource_types_and_translator_are_pinned() -> None:
+    from opengeo_api.metadata_profiles import _DATACITE_REGISTRATION_VOCABULARIES
+
+    vocabularies = _DATACITE_REGISTRATION_VOCABULARIES
+    assert len(vocabularies["resourceType"]) == 34
+    assert len(vocabularies["contributorType"]) == 22
+    assert "Translator" in vocabularies["contributorType"]
+    for general in vocabularies["resourceType"]:
+        document = datacite_complete_document()
+        document["data"]["attributes"]["types"]["resourceTypeGeneral"] = general
+        plan, _ = datacite_complete_resource(document)
+        expected = (
+            "dataset"
+            if general in {"Dataset", "Collection"}
+            else ("service" if general == "Service" else "document")
+        )
+        assert plan.draft.kind == expected, general
+        exported = export_datacite_4_7(resource_from_plan(plan))
+        assert exported["document"]["data"]["attributes"]["types"]["resourceTypeGeneral"] == general
+        fresh, _ = datacite_complete_resource(exported["document"])
+        assert fresh.draft.kind == expected
+    document["data"]["attributes"]["types"]["resourceTypeGeneral"] = "FutureUnknownType"
+    with pytest.raises(MetadataImportInvalid, match="resourceTypeGeneral"):
+        datacite_complete_resource(document)
+
+
+def test_datacite_complete_native_edits_and_clears_override_retained_core() -> None:
+    document = datacite_complete_document()
+    plan, resource = datacite_complete_resource(document)
+    resource.summary.title = "Curated road survey"
+    resource.summary.abstract = None
+    resource.summary.license = None
+    resource.summary.keywords = ()
+    resource.summary.spatial_extent = None
+    resource.summary.temporal_start = None
+    resource.summary.temporal_end = None
+    resource.summary.version_number = 9
+    resource.translations = {}
+    attributes = export_datacite_4_7(resource)["document"]["data"]["attributes"]
+    assert attributes["titles"][0]["title"] == "Curated road survey"
+    assert not any(value.get("lang") == "fr" for value in attributes["titles"])
+    assert not any(
+        value.get("descriptionType") == "Abstract" for value in attributes.get("descriptions", [])
+    )
+    assert any(value["descriptionType"] == "Methods" for value in attributes["descriptions"])
+    assert not attributes.get("subjects")
+    assert not attributes.get("rightsList")
+    assert not attributes.get("geoLocations")
+    assert not any(value["dateType"] == "Coverage" for value in attributes.get("dates", []))
+    assert any(value["dateType"] == "Created" for value in attributes["dates"])
+    assert attributes["version"] == "release-2"
+    assert plan.source_document == document
+
+
+def test_datacite_complete_malformed_values_and_unsafe_attributes_fail_closed() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    document = datacite_complete_document()
+    document["data"]["attributes"]["titles"][2]["titleType"] = {"future": []}
+    plan, resource = datacite_complete_resource(document)
+    retained = json.loads(json.dumps(resource.metadata_extensions["datacite"]))
+    retained["contributors"][0]["contributorType"] = {"unexpected": []}
+    retained["relatedItems"][0]["relatedItemIdentifier"]["schemeURI"] = (
+        "https://example.test/\nunsafe"
+    )
+    resource.metadata_extensions["datacite"] = retained
+    result = export_datacite_4_7(resource)
+    attributes = result["document"]["data"]["attributes"]
+    assert attributes["titles"][0]["title"] == "Road access survey"
+    assert not attributes.get("contributors")
+    assert any("titleType" in path for path in result["report"]["unmapped"])
+    assert any("contributorType" in path for path in result["report"]["unmapped"])
+    assert any("schemeURI" in path for path in result["report"]["unmapped"])
+    xml = ET.fromstring(export_datacite_4_7_xml(resource)["documentText"])
+    assert all(
+        not any(character in value for character in "\r\n\t")
+        for node in xml.iter()
+        for value in node.attrib.values()
+    )
+    assert len(canonical_json_bytes(result["report"])) <= 16384
+    assert plan.source_document == document
+
+
+def test_datacite_complete_polygon_alias_and_existing_size_gate() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    document = datacite_complete_document()
+    polygon = document["data"]["attributes"]["geoLocations"][0]["geoLocationPolygon"][0]
+    polygon["polygonPoint"] = polygon.pop("polygonPoints")
+    _, resource = datacite_complete_resource(document)
+    attributes = export_datacite_4_7(resource)["document"]["data"]["attributes"]
+    assert attributes["geoLocations"] == document["data"]["attributes"]["geoLocations"]
+    xml = ET.fromstring(export_datacite_4_7_xml(resource)["documentText"])
+    assert len(xml.findall(".//{http://datacite.org/schema/kernel-4}polygonPoint")) == 4
+    polygon["polygonPoints"] = polygon["polygonPoint"]
+    _, resource = datacite_complete_resource(document)
+    result = export_datacite_4_7(resource)
+    assert any("geoLocationPolygon" in path for path in result["report"]["unmapped"])
+    document = datacite_complete_document()
+    document["data"]["attributes"]["relatedItems"][0]["titles"][0]["title"] = "x" * 8192
+    with pytest.raises(MetadataImportInvalid, match="8192"):
+        datacite_complete_resource(document)
+
+
+def test_datacite_complete_coarse_coverage_source_preserved() -> None:
+    document = datacite_complete_document()
+    document["data"]["attributes"]["dates"][0] = {
+        "date": "2026",
+        "dateType": "Coverage",
+        "dateInformation": "Year precision",
+    }
+    plan, resource = datacite_complete_resource(document)
+    assert plan.draft.metadata.temporal_start is None
+    assert plan.draft.metadata.temporal_end is None
+    assert any("dates[0]" in path for path in plan.conversion_report["unmapped"])
+    assert "data.attributes.dates->temporal_extent" not in plan.conversion_report["mapped"]
+    exported = export_datacite_4_7(resource)
+    assert (
+        exported["document"]["data"]["attributes"]["dates"]
+        == document["data"]["attributes"]["dates"]
+    )
+    fresh, _ = datacite_complete_resource(exported["document"])
+    assert (
+        fresh.draft.metadata.extensions["datacite"]["dates"]
+        == document["data"]["attributes"]["dates"]
+    )
+    assert plan.source_document == document
+
+
+def test_datacite_complete_same_language_variants_survive_unchanged() -> None:
+    document = datacite_complete_document()
+    attributes = document["data"]["attributes"]
+    attributes["titles"].extend(
+        [
+            {"title": "Second main", "lang": "en"},
+            {"title": "English translation", "titleType": "TranslatedTitle", "lang": "en"},
+            {"title": "French variant", "titleType": "TranslatedTitle", "lang": "fr"},
+        ]
+    )
+    attributes["descriptions"].append(
+        {
+            "description": "Second abstract",
+            "descriptionType": "Abstract",
+            "lang": "en",
+        }
+    )
+    plan, resource = datacite_complete_resource(document)
+    assert resource.summary.title == "Road access survey"
+    assert resource.summary.abstract == "Verified roads metadata."
+    unchanged = export_datacite_4_7(resource)["document"]["data"]["attributes"]
+    assert unchanged["titles"] == attributes["titles"]
+    assert unchanged["descriptions"] == attributes["descriptions"]
+    resource.summary.title = "Edited primary title"
+    resource.summary.abstract = None
+    resource.translations = {}
+    edited = export_datacite_4_7(resource)["document"]["data"]["attributes"]
+    assert edited["titles"][0]["title"] == "Edited primary title"
+    assert not any(
+        value["title"] in {"Second main", "English translation", "French variant"}
+        for value in edited["titles"]
+    )
+    assert not any(value.get("lang") == "fr" for value in edited["titles"])
+    assert not any(
+        value["descriptionType"] == "Abstract" for value in edited.get("descriptions", [])
+    )
+    assert plan.source_document == document
+
+
+def test_datacite_complete_native_contact_funding_clears_do_not_restore_source() -> None:
+    for remove_key in (False, True):
+        _, resource = datacite_complete_resource()
+        catalog = resource.metadata_extensions["opengeo"]
+        if remove_key:
+            catalog.pop("contacts")
+        else:
+            catalog["contacts"] = []
+        result = export_datacite_4_7(resource)
+        assert result["document"] is None
+        assert {"creators", "publisher"} <= set(result["report"]["missingRequired"])
+        assert resource.metadata_extensions["datacite"]["creators"]
+        assert resource.metadata_extensions["datacite"]["publisher"]
+
+        _, resource = datacite_complete_resource()
+        catalog = resource.metadata_extensions["opengeo"]
+        assert catalog["contacts"]
+        if remove_key:
+            catalog.pop("funding")
+        else:
+            catalog["funding"] = []
+        result = export_datacite_4_7(resource)
+        assert result["document"] is not None
+        assert not result["document"]["data"]["attributes"].get("fundingReferences")
+        assert resource.metadata_extensions["datacite"]["fundingReferences"]

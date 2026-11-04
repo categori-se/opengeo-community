@@ -31,6 +31,8 @@ the original document.
 | DataCite 4.7 | Import one JSON API `data` object of type `dois`, with a valid DOI and kernel-4 declaration; export DataCite JSON and XML. | [DataCite citation/extent test](../services/api/tests/test_metadata_adapters.py) and [extended export tests](../services/api/tests/test_metadata_profiles.py) cover mapped fields and required-field refusal. This does not register or mint a DOI; XML import is not advertised. |
 | GeoDCAT-AP 3.1.0 | Import/export the supported JSON-LD DCAT profile with the declared `930` namespace. | [GeoDCAT round-trip/catalog tests](../services/api/tests/test_metadata_adapters.py) cover selected contact, provenance, quality and distribution semantics without a conformance claim. Controlled-vocabulary and other unmapped values remain explicit. |
 
+DataCite 4.7 registration retains the 20 normative groups, including title and description variants, typed relationships, related items and spatial geometry. JSON import/export and fresh reimport share cleaned values with XML export. Native edits and clears take precedence; unsupported native date projections retain their source with field-level losses. The existing 8 KiB extensions, 48 KiB source/export and 16 KiB report limits apply. XML import, DOI deposit and standards conformance are not claimed.
+
 All six families use the import/export implementations linked above. Resource
 content, provenance, relationships or translations may lack a target mapping;
 inspect the conversion report before sharing an export. A `not_applicable`
