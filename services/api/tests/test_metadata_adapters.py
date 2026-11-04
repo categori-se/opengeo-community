@@ -1521,3 +1521,219 @@ def test_iso_acquisition_context_env_only_budget_loss_removes_empty_acquisition(
         "->metadata_extensions.opengeo.acquisition" in path
         for path in reopened.conversion_report["mapped"]
     )
+
+
+def datacite_registration_document() -> dict:
+    document = fixture("metadata-004-datacite47.json")
+    attributes = document["data"]["attributes"]
+    attributes["creators"][0].update(
+        {
+            "nameIdentifiers": [
+                {
+                    "nameIdentifier": "https://orcid.org/0000-0002-1825-0097",
+                    "nameIdentifierScheme": "ORCID",
+                    "schemeUri": "https://orcid.org",
+                }
+            ],
+            "affiliation": [
+                {
+                    "name": "Open Research",
+                    "affiliationIdentifier": "https://ror.org/03yrm5c26",
+                    "affiliationIdentifierScheme": "ROR",
+                    "schemeUri": "https://ror.org",
+                }
+            ],
+        }
+    )
+    attributes.update(
+        {
+            "contributors": [
+                {
+                    "name": "Curator, Marie",
+                    "nameType": "Personal",
+                    "givenName": "Marie",
+                    "familyName": "Curator",
+                    "lang": "fr",
+                    "contributorType": "DataCurator",
+                    "nameIdentifiers": [
+                        {"nameIdentifier": "curator-42", "nameIdentifierScheme": "Local"}
+                    ],
+                    "affiliation": ["Open Research"],
+                }
+            ],
+            "alternateIdentifiers": [
+                {"alternateIdentifier": "archive:roads-2026", "alternateIdentifierType": "Local"}
+            ],
+            "formats": ["application/geo+json"],
+            "sizes": ["42 MB"],
+            "relatedIdentifiers": [
+                {
+                    "relatedIdentifier": "https://example.test/source",
+                    "relatedIdentifierType": "URL",
+                    "relationType": "IsDerivedFrom",
+                }
+            ],
+        }
+    )
+    return document
+
+
+def datacite_registration_resource(document=None):
+    document = datacite_registration_document() if document is None else document
+    plan = build_metadata_import_plan(
+        "datacite_4_7",
+        "example.datacite",
+        "registration",
+        "restricted",
+        document,
+        metadata_source_checksum(document),
+    )
+    return plan, resource_from_plan(plan)
+
+
+def test_datacite_registration_json_survives_fresh_reimport() -> None:
+    original = datacite_registration_document()
+    plan, resource = datacite_registration_resource(original)
+    exported = export_datacite_4_7(resource)
+    attributes = exported["document"]["data"]["attributes"]
+    for key in (
+        "creators",
+        "contributors",
+        "alternateIdentifiers",
+        "formats",
+        "sizes",
+        "relatedIdentifiers",
+    ):
+        assert attributes[key] == original["data"]["attributes"][key]
+    fresh, _ = datacite_registration_resource(exported["document"])
+    for key in ("contributors", "alternateIdentifiers", "formats", "sizes", "relatedIdentifiers"):
+        assert fresh.draft.metadata.extensions["datacite"][key] == attributes[key]
+    assert plan.source_document == original
+    assert resource.summary.kind == "dataset"
+
+
+def test_datacite_registration_xml_emits_bibliographic_values() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    _, resource = datacite_registration_resource()
+    root = ET.fromstring(export_datacite_4_7_xml(resource)["documentText"])
+    ns = {"d": "http://datacite.org/schema/kernel-4"}
+    identifier = root.find("d:creators/d:creator/d:nameIdentifier", ns)
+    assert identifier.text == "https://orcid.org/0000-0002-1825-0097"
+    assert identifier.attrib == {"nameIdentifierScheme": "ORCID", "schemeURI": "https://orcid.org"}
+    assert (
+        root.find("d:creators/d:creator/d:affiliation", ns).get("affiliationIdentifierScheme")
+        == "ROR"
+    )
+    contributor = root.find("d:contributors/d:contributor", ns)
+    assert contributor.get("contributorType") == "DataCurator"
+    assert (
+        contributor.find("d:contributorName", ns).get("{http://www.w3.org/XML/1998/namespace}lang")
+        == "fr"
+    )
+    for path, value in [
+        ("d:alternateIdentifiers/d:alternateIdentifier", "archive:roads-2026"),
+        ("d:formats/d:format", "application/geo+json"),
+        ("d:sizes/d:size", "42 MB"),
+    ]:
+        assert root.find(path, ns).text == value
+
+
+def test_datacite_registration_native_creators_and_publisher_win_conflicts() -> None:
+    _, resource = datacite_registration_resource()
+    for contact in resource.metadata_extensions["opengeo"]["contacts"]:
+        if contact["role"] == "creator":
+            contact["name"] = "Curated creator"
+        if contact["role"] == "publisher":
+            contact["name"] = "Curated press"
+            contact["organization"] = "Curated press"
+    exported = export_datacite_4_7(resource)
+    attributes = exported["document"]["data"]["attributes"]
+    assert attributes["creators"] == [{"name": "Curated creator"}]
+    assert attributes["publisher"] == "Curated press"
+    assert any(
+        "retained-source-conflicts-with-native-creators" in path
+        for path in exported["report"]["unmapped"]
+    )
+    assert any(
+        "retained-source-conflicts-with-native-publisher" in path
+        for path in exported["report"]["unmapped"]
+    )
+
+
+def test_datacite_registration_rejected_records_have_no_false_mappings() -> None:
+    document = datacite_registration_document()
+    values = document["data"]["attributes"]
+    values["contributors"][0]["contributorType"] = {}
+    values["creators"][0]["nameType"] = []
+    values["creators"][0]["nameIdentifiers"] = [{"nameIdentifier": "orphan"}]
+    plan, resource = datacite_registration_resource(document)
+    exported = export_datacite_4_7(resource)
+    assert exported["document"] is not None
+    assert "contributors" not in exported["document"]["data"]["attributes"]
+    assert not any(path.startswith("contributors[") for path in exported["report"]["mapped"])
+    assert "contributors[0].contributorType" in exported["report"]["unmapped"]
+    assert "creators[0].nameType" in exported["report"]["unmapped"]
+    assert plan.source_document == document
+
+
+def test_datacite_registration_merges_native_relationships_without_replacing_source() -> None:
+    _, resource = datacite_registration_resource()
+    resource.relationships = (
+        SimpleNamespace(
+            source_resource_id=RESOURCE_ID,
+            target_resource_id=UUID("a0000000-0000-4000-8000-0000000000b2"),
+            relation="derived_from",
+        ),
+    )
+    attributes = export_datacite_4_7(resource)["document"]["data"]["attributes"]
+    assert attributes["relatedIdentifiers"][0]["relatedIdentifier"] == "https://example.test/source"
+    assert (
+        attributes["relatedIdentifiers"][1]["relatedIdentifier"]
+        == "urn:uuid:a0000000-0000-4000-8000-0000000000b2"
+    )
+
+
+def test_datacite_registration_unsupported_text_is_preserved_and_reported() -> None:
+    document = datacite_registration_document()
+    document["data"]["attributes"]["formats"] = ["bad\rformat", "application/geo+json"]
+    plan, resource = datacite_registration_resource(document)
+    exported = export_datacite_4_7(resource)
+    assert exported["document"]["data"]["attributes"]["formats"] == ["application/geo+json"]
+    assert "formats[0]" in exported["report"]["unmapped"]
+    assert "formats[0]" not in exported["report"]["mapped"]
+    assert plan.source_document == document
+
+
+def test_datacite_registration_organization_creator_and_unsafe_publisher() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    _, resource = datacite_registration_resource()
+    resource.metadata_extensions["opengeo"]["contacts"] = [
+        {"organization": "Curated institute", "role": "creator"}
+    ]
+    resource.metadata_extensions["datacite"]["publisher"]["lang"] = "\x00"
+    result = export_datacite_4_7(resource)
+    assert result["document"]["data"]["attributes"]["creators"] == [{"name": "Curated institute"}]
+    assert "lang" not in result["document"]["data"]["attributes"]["publisher"]
+    assert "publisher.lang" in result["report"]["unmapped"]
+    ET.fromstring(export_datacite_4_7_xml(resource)["documentText"])
+
+
+def test_datacite_registration_attribute_whitespace_cannot_silently_normalize() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    document = datacite_registration_document()
+    attributes = document["data"]["attributes"]
+    attributes["creators"][0]["nameIdentifiers"][0]["nameIdentifierScheme"] = "Local\nname"
+    attributes["publisher"]["publisherIdentifier"] = "local\tvalue"
+    _, resource = datacite_registration_resource(document)
+    result = export_datacite_4_7(resource)
+    exported = result["document"]["data"]["attributes"]
+    assert "nameIdentifiers" not in exported["creators"][0]
+    assert "publisherIdentifier" not in exported["publisher"]
+    assert "publisher.publisherIdentifier" in result["report"]["unmapped"]
+    assert not any(
+        path.startswith("creators[0].nameIdentifiers[0].") for path in result["report"]["mapped"]
+    )
+    ET.fromstring(export_datacite_4_7_xml(resource)["documentText"])
