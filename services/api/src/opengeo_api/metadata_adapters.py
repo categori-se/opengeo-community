@@ -9,6 +9,7 @@ from uuid import UUID
 
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.metadata_catalog import CatalogMetadataInvalid, validate_catalog_extensions
+from opengeo_api.metadata_profiles import _ISO_COUNTRY_CODELIST, _iso_primary_locale
 from opengeo_api.resources import (
     MetadataResourceImportPlan,
     MetadataSourceFormat,
@@ -900,6 +901,56 @@ def _iso_plan(
         else None
     )
     language = _language(language_value or "en").lower()
+    primary_locale_mapped: list[str] = []
+    primary_locale_unmapped: list[str] = []
+    if "-" in language:
+        # Keep legacy/native compound tags exact; never call a script a country.
+        primary_locale_unmapped.append("mdb:defaultLocale.LanguageCode[compound-tag-preserved]")
+    mdb = "{http://standards.iso.org/iso/19115/-3/mdb/2.0}"
+    lan = "{http://standards.iso.org/iso/19115/-3/lan/1.0}"
+    primary_locales = root.findall(f"{mdb}defaultLocale/{lan}PT_Locale")
+    country_scopes = [
+        country
+        for locale in primary_locales
+        for country in locale
+        if _local_name(country.tag) == "country"
+    ]
+    if country_scopes:
+        country_codes = list(country_scopes[0])
+        primary_codes = (
+            primary_locales[0].findall(f"{lan}language/{lan}LanguageCode")
+            if len(primary_locales) == 1
+            else []
+        )
+        country_code = (
+            country_codes[0]
+            if len(primary_locales) == 1
+            and len(primary_codes) == 1
+            and primary_codes[0] is language_code
+            and len(country_scopes) == 1
+            and country_scopes[0].tag == f"{lan}country"
+            and len(country_codes) == 1
+            and country_codes[0].tag == f"{lan}CountryCode"
+            else None
+        )
+        country_value = (
+            country_code.get("codeListValue") or country_code.text
+            if country_code is not None
+            else None
+        )
+        mapped_locale = (
+            _iso_primary_locale(f"{language}-{country_value}")
+            if language_value is not None
+            and country_code is not None
+            and country_code.get("codeList") == _ISO_COUNTRY_CODELIST
+            else None
+        )
+        if mapped_locale is not None and mapped_locale[1] is not None:
+            language = f"{mapped_locale[0]}-{mapped_locale[1].lower()}"
+            primary_locale_mapped.append("mdb:defaultLocale.CountryCode->language.region")
+            primary_locale_mapped.append("language.case->lowercase_native_tag")
+        else:
+            primary_locale_unmapped.append("mdb:defaultLocale.country")
     keywords = tuple(
         _bounded_string(value, 1, 100, "ISO keyword")
         for value in _texts_in_scopes(identification, "keyword", "CharacterString")[:64]
@@ -925,6 +976,7 @@ def _iso_plan(
         "mdb:defaultLocale.LanguageCode->language",
     ]
     mapped.extend(catalog_mapped)
+    mapped.extend(primary_locale_mapped)
     if translations:
         mapped.append("lan:PT_FreeText->translations")
     for source, target, condition in (
@@ -967,6 +1019,7 @@ def _iso_plan(
     ]
     explicitly_unmapped.extend(catalog_unmapped)
     explicitly_unmapped.extend(localized_unmapped)
+    explicitly_unmapped.extend(primary_locale_unmapped)
     report = _report(
         "iso_19115_3",
         mapped,

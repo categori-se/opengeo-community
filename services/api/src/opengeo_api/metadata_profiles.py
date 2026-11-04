@@ -39,6 +39,276 @@ _DOI = re.compile(r"^10\.[0-9]{4,9}/\S+$")
 _PUBLIC_HTTPS = re.compile(r"^https://[^\s/?#]+(?:/[^\s]*)?$")
 _SPDX_LIKE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+() -]{0,199}$")
 
+# Frozen ISO 3166-1 alpha-2 set from the existing public-domain IANA
+# iso3166.tab (ISO/TC 46 N1127, 2024-02-29). No runtime registry/dependency lookup.
+_ISO_PRIMARY_COUNTRIES = frozenset(
+    [
+        "AD",
+        "AE",
+        "AF",
+        "AG",
+        "AI",
+        "AL",
+        "AM",
+        "AO",
+        "AQ",
+        "AR",
+        "AS",
+        "AT",
+        "AU",
+        "AW",
+        "AX",
+        "AZ",
+        "BA",
+        "BB",
+        "BD",
+        "BE",
+        "BF",
+        "BG",
+        "BH",
+        "BI",
+        "BJ",
+        "BL",
+        "BM",
+        "BN",
+        "BO",
+        "BQ",
+        "BR",
+        "BS",
+        "BT",
+        "BV",
+        "BW",
+        "BY",
+        "BZ",
+        "CA",
+        "CC",
+        "CD",
+        "CF",
+        "CG",
+        "CH",
+        "CI",
+        "CK",
+        "CL",
+        "CM",
+        "CN",
+        "CO",
+        "CR",
+        "CU",
+        "CV",
+        "CW",
+        "CX",
+        "CY",
+        "CZ",
+        "DE",
+        "DJ",
+        "DK",
+        "DM",
+        "DO",
+        "DZ",
+        "EC",
+        "EE",
+        "EG",
+        "EH",
+        "ER",
+        "ES",
+        "ET",
+        "FI",
+        "FJ",
+        "FK",
+        "FM",
+        "FO",
+        "FR",
+        "GA",
+        "GB",
+        "GD",
+        "GE",
+        "GF",
+        "GG",
+        "GH",
+        "GI",
+        "GL",
+        "GM",
+        "GN",
+        "GP",
+        "GQ",
+        "GR",
+        "GS",
+        "GT",
+        "GU",
+        "GW",
+        "GY",
+        "HK",
+        "HM",
+        "HN",
+        "HR",
+        "HT",
+        "HU",
+        "ID",
+        "IE",
+        "IL",
+        "IM",
+        "IN",
+        "IO",
+        "IQ",
+        "IR",
+        "IS",
+        "IT",
+        "JE",
+        "JM",
+        "JO",
+        "JP",
+        "KE",
+        "KG",
+        "KH",
+        "KI",
+        "KM",
+        "KN",
+        "KP",
+        "KR",
+        "KW",
+        "KY",
+        "KZ",
+        "LA",
+        "LB",
+        "LC",
+        "LI",
+        "LK",
+        "LR",
+        "LS",
+        "LT",
+        "LU",
+        "LV",
+        "LY",
+        "MA",
+        "MC",
+        "MD",
+        "ME",
+        "MF",
+        "MG",
+        "MH",
+        "MK",
+        "ML",
+        "MM",
+        "MN",
+        "MO",
+        "MP",
+        "MQ",
+        "MR",
+        "MS",
+        "MT",
+        "MU",
+        "MV",
+        "MW",
+        "MX",
+        "MY",
+        "MZ",
+        "NA",
+        "NC",
+        "NE",
+        "NF",
+        "NG",
+        "NI",
+        "NL",
+        "NO",
+        "NP",
+        "NR",
+        "NU",
+        "NZ",
+        "OM",
+        "PA",
+        "PE",
+        "PF",
+        "PG",
+        "PH",
+        "PK",
+        "PL",
+        "PM",
+        "PN",
+        "PR",
+        "PS",
+        "PT",
+        "PW",
+        "PY",
+        "QA",
+        "RE",
+        "RO",
+        "RS",
+        "RU",
+        "RW",
+        "SA",
+        "SB",
+        "SC",
+        "SD",
+        "SE",
+        "SG",
+        "SH",
+        "SI",
+        "SJ",
+        "SK",
+        "SL",
+        "SM",
+        "SN",
+        "SO",
+        "SR",
+        "SS",
+        "ST",
+        "SV",
+        "SX",
+        "SY",
+        "SZ",
+        "TC",
+        "TD",
+        "TF",
+        "TG",
+        "TH",
+        "TJ",
+        "TK",
+        "TL",
+        "TM",
+        "TN",
+        "TO",
+        "TR",
+        "TT",
+        "TV",
+        "TW",
+        "TZ",
+        "UA",
+        "UG",
+        "UM",
+        "US",
+        "UY",
+        "UZ",
+        "VA",
+        "VC",
+        "VE",
+        "VG",
+        "VI",
+        "VN",
+        "VU",
+        "WF",
+        "WS",
+        "YE",
+        "YT",
+        "ZA",
+        "ZM",
+        "ZW",
+    ]
+)
+# External ISO 3166-1 code-list identifier used by the pinned ISO/TC 211
+# FullishV0.0.4 example. CountryCode is not an ISO 19115 hosted code list.
+_ISO_COUNTRY_CODELIST = "ISO3166Part1"
+
+
+def _iso_primary_locale(value: str) -> tuple[str, str | None] | None:
+    """Map only a language or explicit language/registered alpha-2 country pair."""
+    match = re.fullmatch(r"([A-Za-z]{2,3})(?:-([A-Za-z]{2}))?", value)
+    if match is None:
+        return None
+    language, country = match.groups()
+    if country is not None and country.upper() not in _ISO_PRIMARY_COUNTRIES:
+        return None
+    return language.lower(), country.upper() if country else None
+
 
 class MetadataStoreUnavailable(RuntimeError):
     pass
@@ -1249,6 +1519,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         return _not_applicable_export(
             "iso_19115_3", "ISO 19115-3:2023", "application/xml", resource
         )
+    primary_locale = _iso_primary_locale(summary.language)
     catalog = catalog_metadata(resource.metadata_extensions)
     research = resource.metadata_extensions.get("research", {})
     contacts = catalog.get("contacts")
@@ -1271,16 +1542,28 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         for name, value in (("abstract", summary.abstract), ("contact", contact_name))
         if not value
     ]
+    if primary_locale is None:
+        missing.append("language")
     if missing:
         result = _not_applicable_export(
             "iso_19115_3", "ISO 19115-3:2023", "application/xml", resource
         )
         result["status"] = "not_exportable_missing_required_metadata"
         result["report"]["missingRequired"] = missing
+        if primary_locale is None:
+            result["report"]["unmapped"] = ["language"]
+            result["report"]["unmappedValues"] = {"language": summary.language}
+            result["report"]["warnings"] = [
+                "ISO primary locale requires a plain language or a language with a registered "
+                "alpha-2 country; script, numeric-region and variant subtags are not mapped. "
+                "The exact native language tag is unchanged."
+            ]
         result["report"]["schemaValidated"] = False
         result["report"]["schematronValidated"] = False
         result["report"]["conformanceClaimed"] = False
         return result
+    assert primary_locale is not None
+    primary_language, primary_country = primary_locale
     namespaces = {
         "mdb": "http://standards.iso.org/iso/19115/-3/mdb/2.0",
         "mcc": "http://standards.iso.org/iso/19115/-3/mcc/1.0",
@@ -1339,11 +1622,16 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     default_locale = child(root, "mdb", "defaultLocale")
     locale = child(default_locale, "lan", "PT_Locale")
     language = child(locale, "lan", "language")
-    language_code = child(language, "lan", "LanguageCode", summary.language.lower())
+    language_code = child(language, "lan", "LanguageCode", primary_language)
     language_code.set(
         "codeList", "https://schemas.isotc211.org/19115/resources/Codelist/lan/LanguageCode.xml"
     )
-    language_code.set("codeListValue", summary.language.lower())
+    language_code.set("codeListValue", primary_language)
+    if primary_country is not None:
+        country = child(locale, "lan", "country")
+        country_code = child(country, "lan", "CountryCode", primary_country)
+        country_code.set("codeList", _ISO_COUNTRY_CODELIST)
+        country_code.set("codeListValue", primary_country)
     character_encoding = child(locale, "lan", "characterEncoding")
     character_encoding_code = child(character_encoding, "lan", "MD_CharacterSetCode", "utf8")
     character_encoding_code.set(
@@ -2026,6 +2314,14 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 "spatial_extent",
                 "temporal_extent",
                 "updated_at",
+                *(
+                    [
+                        "language.region->defaultLocale.CountryCode",
+                        "language.case->ISO_lowercase_language_uppercase_country",
+                    ]
+                    if primary_country
+                    else []
+                ),
                 *mapped_translations,
                 *iso_catalog_mapped,
             ],
