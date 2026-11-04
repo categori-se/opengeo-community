@@ -502,6 +502,35 @@ describe("bounded KML/KMZ Places interchange", () => {
     assert.deepEqual(roundTrip.document, parsed.document);
   });
 
+  it("accepts bounded KMZ binary resources beyond the text limit while enforcing resource protections", async () => {
+    const bytes = Uint8Array.from({length:11750}, (_, index) => (index * 73 + (index >> 3)) % 256);
+    const resource = (path, data) => ({path, mediaType:"image/png", dataBase64:Buffer.from(data).toString("base64")});
+    const valid = resource("icons/pin.png", bytes);
+    assert.ok(valid.dataBase64.length > KML_PLACES_LIMITS.maximumTextCharacters);
+    const normalize = resources => normalizePlacesDocument({...createPlacesDocument(), resources});
+    assert.deepEqual(Buffer.from(normalize([valid]).resources[0].dataBase64,"base64"), Buffer.from(bytes));
+    assert.deepEqual(Buffer.from(normalize([{...valid,dataBase64:` \n${valid.dataBase64}\t `}]).resources[0].dataBase64,"base64"),Buffer.from(bytes),"surrounding whitespace remains compatible");
+    const archive = zipSync({"maps/doc.kml":strToU8(SHARED_KML),"maps/icons/pin.png":bytes});
+    const parsed = await parseKmlFile({name:"large-icon.kmz",arrayBuffer:async()=>archive.buffer.slice(archive.byteOffset,archive.byteOffset+archive.byteLength)}, {DOMParser});
+    const roundTrip = exportKmz(parsed.document);
+    const reopened = await parseKmlFile({name:"round-trip.kmz",arrayBuffer:async()=>roundTrip.buffer.slice(roundTrip.byteOffset,roundTrip.byteOffset+roundTrip.byteLength)}, {DOMParser});
+    assert.deepEqual(reopened.document.resources, parsed.document.resources);
+    assert.deepEqual(Buffer.from(reopened.document.resources[0].dataBase64,"base64"),Buffer.from(bytes));
+    for (const size of [KML_PLACES_LIMITS.maximumKmzResourceBytes+1,KML_PLACES_LIMITS.maximumKmzResourceBytes+3]) {
+      assert.throws(()=>normalize([resource("icons/huge.png",new Uint8Array(size))]), error=>error.code==="kmz_resource_too_large");
+    }
+    const full = new Uint8Array(KML_PLACES_LIMITS.maximumKmzResourceBytes);
+    assert.throws(()=>normalize([resource("icons/a.png",full),resource("icons/b.png",full)]),error=>error.code==="kmz_resources_too_large");
+    for (const dataBase64 of [42,null,"", "%%%", "Y===", "YW Jj"]) {
+      assert.throws(()=>normalize([{...valid,dataBase64}]),error=>error.code==="kmz_resource_invalid");
+    }
+    assert.throws(()=>normalize([{...valid,dataBase64:"a"}]),error=>error.code==="kmz_resource_base64_invalid");
+    assert.throws(()=>normalize([{...valid,path:"../escape.png"}]),error=>error.code==="kmz_resource_invalid");
+    assert.throws(()=>normalize([valid,valid]),error=>error.code==="kmz_resource_invalid");
+    assert.throws(()=>normalize([{...valid,byteLength:1}]),error=>error.code==="kmz_resource_size_mismatch");
+    assert.throws(()=>normalizePlacesDocument({...createPlacesDocument(),description:"x".repeat(KML_PLACES_LIMITS.maximumTextCharacters+1)}),error=>error.code==="kml_text_too_long");
+  });
+
   it("round-trips Ground, Screen, and Photo overlays with inherited Region/LOD semantics", () => {
     const parsed = parseKml(OVERLAY_KML, {DOMParser});
     const [ground, screen, photo] = parsed.document.children[0].children;
