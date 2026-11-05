@@ -71,6 +71,7 @@ import {mapGraticule} from "../lib/mapGraticule.js";
 import {installLoadedMapLayers, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../lib/loadedLayerInstallation.js";
 import {PINNED_MAP_FONT, createMapFontSession, isRegisteredMapFont, validateMapFontRef} from "../lib/mapFonts.js";
 import {exportGeoLibreProject, importGeoLibreProject} from "../lib/geolibreProject.js";
+import {applyGeoLibreReturnCameraChoice} from "../lib/geolibreHandoff.js";
 import {exportGeoMooseMapbook, importGeoMooseMapbook} from "../lib/geomooseMapbook.js";
 import {exportWebMapContext, importWebMapContext} from "../lib/webMapContext.js";
 import {fitImageOverlay, pointInImageOverlay} from "../lib/imageOverlayEditing.js";
@@ -19934,7 +19935,8 @@ function openGeoLibreHandoff(context) {
   if (typeof dialog.showModal === "function") dialog.showModal(); else dialog.open = true;
 }
 
-function showGeoLibreReturnReview(context, file, {conversion, review}, sourceText) {
+function showGeoLibreReturnReview(context, file, result, sourceText) {
+  const {conversion, review, cameraChanges = []} = result;
   const dialog = document.createElement("dialog");
   dialog.className = "browser-project-open-dialog browser-layer-registration";
   dialog.setAttribute("aria-label", "Review GeoLibre results");
@@ -19954,6 +19956,32 @@ function showGeoLibreReturnReview(context, file, {conversion, review}, sourceTex
   ]) changes.append(textElement("li", message));
   dialog.append(changes,
     textElement("p", "Saved outputs retain the reported processing history and conversion limits. They do not establish a reproducible analysis when exact parameters or execution details are missing. Publication review and access remain separate."));
+  let cameraChoice = null;
+  if (cameraChanges.length && result.cameraChoices) {
+    const cameraFieldset = document.createElement("fieldset");
+    cameraFieldset.append(textElement("legend", "View cameras"),
+      textElement("p", "Saved OpenGeo view identities, order and cameras are kept. GeoLibre changed these camera values:"));
+    const cameraDetails = document.createElement("ul");
+    for (const change of cameraChanges) {
+      cameraDetails.append(textElement("li", `${change.viewId} · ${change.field}: ${JSON.stringify(change.before) ?? "absent"} → ${JSON.stringify(change.returned) ?? "absent"}`));
+    }
+    const cameraLabel = document.createElement("label");
+    cameraChoice = document.createElement("input");
+    cameraChoice.type = "checkbox";
+    cameraChoice.ariaLabel = "Use GeoLibre camera changes";
+    cameraChoice.checked = false;
+    cameraChoice.disabled = !canPersist(context);
+    cameraLabel.append(cameraChoice, document.createTextNode(" Use GeoLibre camera changes"));
+    const cameraStatus = textElement("p", "Keep saved OpenGeo cameras when saving.");
+    cameraStatus.setAttribute("role", "status");
+    cameraChoice.onchange = () => {
+      cameraStatus.textContent = cameraChoice.checked
+        ? "Use returned cameras for matching saved views when saving. View identities and order remain unchanged."
+        : "Keep saved OpenGeo cameras when saving.";
+    };
+    cameraFieldset.append(cameraDetails, cameraLabel, cameraStatus);
+    dialog.append(cameraFieldset);
+  }
   const returnRecord = conversion.map.definition.extensions?.opengeoGeoLibreReturn;
   const inputSelections = [];
   if (returnRecord?.outputs?.length && returnRecord.inputs?.length) {
@@ -19989,6 +20017,10 @@ function showGeoLibreReturnReview(context, file, {conversion, review}, sourceTex
     context.shell.dataset.importState = "running";
     try {
       if (!submitted) {
+        if (cameraChoice) {
+          applyGeoLibreReturnCameraChoice(result, cameraChoice.checked);
+          cameraChoice.disabled = true;
+        }
         for (const {output, select} of inputSelections) {
           output.inputLayerIds = [...select.selectedOptions].map(option => option.value);
           output.inputLinkMethod = "user-declared";
@@ -19998,14 +20030,14 @@ function showGeoLibreReturnReview(context, file, {conversion, review}, sourceTex
         submittedMapName = asNewMapName;
         submitted = true;
       }
-      const result = await context.applyGeoLibreImport({conversion,
+      const savedResult = await context.applyGeoLibreImport({conversion,
         sourceText,
         filename: file.name, review, ...(submittedMapName ? {asNewMapName: submittedMapName} : {})});
       context.shell.dataset.importState = "completed";
       closeProjectFileDialog(dialog);
       if (context.disposed) return;
-      setStatus(context, `GeoLibre results saved at revision ${result.operation.finalMapVersion}. Reopen the saved map to continue or publish its reviewed edition.`);
-      if (result.mapId) location.href = compositionHref(result.mapId, {adapterKind: context.persistenceMode});
+      setStatus(context, `GeoLibre results saved at revision ${savedResult.operation.finalMapVersion}. Reopen the saved map to continue or publish its reviewed edition.`);
+      if (savedResult.mapId) location.href = compositionHref(savedResult.mapId, {adapterKind: context.persistenceMode});
     } catch (error) {
       saving = false;
       cancel.disabled = false;

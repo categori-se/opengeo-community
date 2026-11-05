@@ -4,6 +4,7 @@ import {exportGeoLibreProject, GEOLIBRE_IMPORT_LIMITS, importGeoLibreProject} fr
 const HANDOFF_VERSION = "opengeo.geolibre-handoff.1.0.0";
 const RETURN_VERSION = "opengeo.geolibre-return.1.0.0";
 const REVIEW_VERSION = "opengeo.geolibre-return-review.1.0.0";
+const CAMERA_FIELDS = ["center", "zoom", "bearing", "pitch", "bbox"];
 const ROOT_MAPPINGS = {
   styles: "styles", preferences: "preferences", models: "models",
   processingHistory: "processingHistory", layerGroups: "layerGroups",
@@ -158,10 +159,8 @@ export async function reviewGeoLibreReturn({conversion, projectId, baseMap, curr
     if (Object.hasOwn(importedDefinition, key)) definition[key] = clone(importedDefinition[key]);
     else delete definition[key];
   }
-  if (!equal(exportedBase.project.mapView, returnedProject.mapView)
-    || !equal(exportedBase.project.secondaryMapViews, returnedProject.secondaryMapViews)) {
-    definition.mapViews = clone(importedDefinition.mapViews);
-  }
+  const {cameraChanges, cameraChoices} = reviewCameras(baseMap.definition.mapViews,
+    exportedBase.project, returnedProject, importedDefinition.mapViews);
   if (!equal(basemapContent(exportedBase.project), basemapContent(returnedProject))) {
     definition.basemaps = clone(importedDefinition.basemaps);
   }
@@ -204,7 +203,95 @@ export async function reviewGeoLibreReturn({conversion, projectId, baseMap, curr
       review.limits.push("New GeoLibre Layers have no verified input lineage. Declare their input Layers during review; their original GeoLibre project and processing history are retained.");
     }
   }
-  return {conversion: converted, review};
+  cameraChoices.baseLimits = clone(review.limits);
+  cameraChoices.baseLosses = clone(converted.report.losses);
+  return applyGeoLibreReturnCameraChoice({conversion: converted, review, cameraChanges, cameraChoices}, false);
+}
+
+// This choice changes only cameras in an already authorized review. Neither a
+// file's view identities nor its order can replace the canonical saved views.
+export function applyGeoLibreReturnCameraChoice(result, useReturnedCameras = false) {
+  if (typeof useReturnedCameras !== "boolean") throw new TypeError("Choose whether to use returned GeoLibre cameras.");
+  const {conversion, review, cameraChanges, cameraChoices} = result ?? {};
+  if (!conversion?.map?.definition || !review || !Array.isArray(cameraChanges)
+    || !Array.isArray(cameraChoices?.canonicalViews) || !Array.isArray(cameraChoices.incomingPatches)) {
+    throw new TypeError("A reviewed GeoLibre return with camera choices is required.");
+  }
+  const views = clone(cameraChoices.mappedViews ?? cameraChoices.canonicalViews);
+  cameraChoices.baseLimits ??= clone(review.limits ?? []);
+  cameraChoices.baseLosses ??= clone(conversion.report.losses ?? []);
+  if (useReturnedCameras) {
+    for (const {index, camera} of cameraChoices.incomingPatches) {
+      for (const field of CAMERA_FIELDS) {
+        if (!Object.hasOwn(camera, field)) continue;
+        if (camera[field] === null) delete views[index][field];
+        else views[index][field] = clone(camera[field]);
+      }
+    }
+  }
+  conversion.map.definition.mapViews = views;
+  review.cameraChoice = useReturnedCameras ? "returned" : "canonical";
+  const messages = cameraChanges.map(({viewId, field, before, returned}) =>
+    `View ${JSON.stringify(viewId)} ${field} changed in GeoLibre from ${JSON.stringify(before)} to ${JSON.stringify(returned)}; ${useReturnedCameras ? "the returned camera change was explicitly selected" : "the canonical saved camera is retained"}.`);
+  const limits = [...(cameraChoices.notices ?? []), ...messages];
+  review.limits = [...cameraChoices.baseLimits, ...limits];
+  conversion.report.losses = [...cameraChoices.baseLosses, ...limits];
+  const summary = conversion.report.summary;
+  summary.status = summary.rejected || conversion.report.losses.length ? "lossy"
+    : summary.preserved || summary.unsupported ? "preserved_with_extensions" : "lossless";
+  return result;
+}
+
+function reviewCameras(canonicalViews, exported, returned, importedViews) {
+  const cameraChanges = [];
+  const cameraChoices = {canonicalViews: clone(canonicalViews ?? []), mappedViews: clone(canonicalViews ?? []),
+    incomingPatches: [], notices: []};
+  const baseSecondary = exported.secondaryMapViews ?? [];
+  const returnedSecondary = returned.secondaryMapViews ?? [];
+  const expectedIds = baseSecondary.map(view => view.id);
+  const returnedIds = returnedSecondary.map(view => view?.id);
+  for (const [index, view] of cameraChoices.canonicalViews.entries()) {
+    const id = index === 0 ? view.viewId ?? view.id ?? "primary" : baseSecondary[index - 1]?.id;
+    const viewId = view.viewId ?? view.id ?? id;
+    const matches = index === 0 ? [importedViews[0]] : returnedSecondary.filter(item => item?.id === id);
+    const incoming = index === 0 ? importedViews[0]
+      : importedViews.slice(1).find(item => item.viewId === id);
+    if (matches.length !== 1 || !incoming) {
+      cameraChoices.notices.push(`View ${JSON.stringify(viewId)} is missing or ambiguous in the GeoLibre return; its canonical identity, order and camera are retained.`);
+      continue;
+    }
+    if (index > 0) {
+      const baseline = baseSecondary[index - 1];
+      const native = matches[0];
+      const mapped = cameraChoices.mappedViews[index];
+      for (const field of ["label", "viewKind", "layerVisibility"]) {
+        if (equal(baseline[field], native[field])) continue;
+        if (Object.hasOwn(native, field) && !Object.hasOwn(incoming, field)) {
+          cameraChoices.notices.push(`View ${JSON.stringify(viewId)} returned an unsupported ${field} value; its canonical value is retained and the raw value remains in the GeoLibre compatibility envelope.`);
+          continue;
+        }
+        if (Object.hasOwn(incoming, field)) mapped[field] = clone(incoming[field]);
+        else delete mapped[field];
+        // The exporter uses a saved title as the native label when present.
+        // Keep that alias consistent so a subsequent handoff retains the edit.
+        if (field === "label" && Object.hasOwn(view, "title")) {
+          if (Object.hasOwn(incoming, field)) mapped.title = incoming[field];
+          else delete mapped.title;
+        }
+      }
+    }
+    const camera = {};
+    for (const field of CAMERA_FIELDS) {
+      if (equal(view[field], incoming[field])) continue;
+      camera[field] = incoming[field] === undefined ? null : clone(incoming[field]);
+      cameraChanges.push({viewId, field, before: view[field] === undefined ? null : clone(view[field]), returned: clone(camera[field])});
+    }
+    if (Object.keys(camera).length) cameraChoices.incomingPatches.push({index, viewId, camera});
+  }
+  if (!equal(expectedIds, returnedIds)) {
+    cameraChoices.notices.push("GeoLibre changed the saved view identities or order; canonical view identities and order are retained. Returned view records remain in the GeoLibre compatibility envelope.");
+  }
+  return {cameraChanges, cameraChoices};
 }
 
 function assertCompleteManagedData(map, entries) {
