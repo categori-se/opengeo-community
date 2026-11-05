@@ -586,6 +586,47 @@ def _contacts_valid(value: Any) -> bool:
     return True
 
 
+def _iso_contact_unit_losses(catalog: dict[str, Any]) -> list[str]:
+    """Name new ISO-only leaves without following graph or external references."""
+    losses: list[str] = []
+
+    def visit(value: Any, path: str) -> None:
+        if isinstance(value, dict):
+            if value.get("type") in {"individual", "organisation"}:
+                for index, contact in enumerate(value.get("contacts", [])):
+                    contact_path = f"{path}.contacts[{index}]"
+                    for field in (
+                        "phones",
+                        "onlineResources",
+                        "hoursOfService",
+                        "contactInstructions",
+                        "contactType",
+                    ):
+                        if field in contact:
+                            losses.append(f"{contact_path}.{field}")
+                    for address_index, address in enumerate(contact.get("addresses", [])):
+                        for field in (
+                            "deliveryPoints",
+                            "city",
+                            "administrativeArea",
+                            "postalCode",
+                            "country",
+                        ):
+                            if field in address:
+                                losses.append(f"{contact_path}.addresses[{address_index}].{field}")
+            if value.get("type") == "DQ_QuantitativeResult" and "unitReference" in value:
+                losses.append(f"{path}.unitReference")
+            for key, item in value.items():
+                visit(item, f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                visit(item, f"{path}[{index}]")
+
+    for field in ("isoDistributionGroups", "qualityReports"):
+        visit(catalog.get(field), f"metadata_extensions.opengeo.{field}")
+    return losses
+
+
 def export_dcat_3(resource: Any) -> dict[str, Any]:
     summary = resource.summary
     translations = getattr(resource, "translations", {})
@@ -784,7 +825,7 @@ def export_dcat_3(resource: Any) -> dict[str, Any]:
             "defaulted": [],
             "multilingualLanguages": sorted({summary.language.lower(), *translations}),
             "preservedExtensions": sorted(set(resource.metadata_extensions) - {"opengeo"}),
-            "unmapped": ["content", *opengeo_unmapped]
+            "unmapped": ["content", *opengeo_unmapped, *_iso_contact_unit_losses(catalog)]
             + (["provenance"] if resource.provenance else []),
         },
     }
@@ -1028,7 +1069,12 @@ def export_schema_org_dataset(resource: Any) -> dict[str, Any]:
             "defaulted": [],
             "multilingualLanguages": sorted({summary.language.lower(), *translations}),
             "preservedExtensions": sorted(set(resource.metadata_extensions) - {"opengeo"}),
-            "unmapped": ["content", "provenance", *catalog_unmapped]
+            "unmapped": [
+                "content",
+                "provenance",
+                *catalog_unmapped,
+                *_iso_contact_unit_losses(catalog),
+            ]
             + (["translations.keywords"] if translations else []),
             "conformanceClaimed": False,
         },
@@ -2109,6 +2155,7 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
             "multilingualLanguages": sorted({summary.language.lower(), *translations}),
             "preservedExtensions": sorted(resource.metadata_extensions),
             "unmapped": [
+                *_iso_contact_unit_losses(catalog),
                 "content",
                 "provenance",
                 *registration_losses,
@@ -3163,9 +3210,14 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                         )
 
     def distribution_online_fields(
-        parent: ET.Element, record: dict[str, Any], online_path: str
+        parent: ET.Element,
+        record: dict[str, Any],
+        online_path: str,
+        *,
+        prefix: str = "mrd",
+        name: str = "onLine",
     ) -> None:
-        online = child(child(parent, "mrd", "onLine"), "cit", "CI_OnlineResource")
+        online = child(child(parent, prefix, name), "cit", "CI_OnlineResource")
         for field in ("linkage", "protocol", "applicationProfile", "name", "description"):
             if field in record:
                 distribution_text(online, "cit", field, record[field], f"{online_path}.{field}")
@@ -3395,9 +3447,41 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         for contact_index, contact_value in enumerate(value.get("contacts", [])):
             contact_path = f"{path}.contacts[{contact_index}]"
             contact_element = child(child(party, "cit", "contactInfo"), "cit", "CI_Contact")
+            for phone_index, phone in enumerate(contact_value.get("phones", [])):
+                phone_path = f"{contact_path}.phones[{phone_index}]"
+                telephone = child(child(contact_element, "cit", "phone"), "cit", "CI_Telephone")
+                distribution_text(
+                    telephone, "cit", "number", phone["number"], f"{phone_path}.number"
+                )
+                if "numberType" in phone:
+                    code = child(
+                        child(telephone, "cit", "numberType"),
+                        "cit",
+                        "CI_TelephoneTypeCode",
+                        phone["numberType"],
+                    )
+                    code.set(
+                        "codeList",
+                        "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_TelephoneTypeCode",
+                    )
+                    code.set("codeListValue", phone["numberType"])
+                    distribution_mapped.append(f"{phone_path}.numberType")
             for address_index, address_value in enumerate(contact_value.get("addresses", [])):
                 address_path = f"{contact_path}.addresses[{address_index}]"
                 address = child(child(contact_element, "cit", "address"), "cit", "CI_Address")
+                for point_index, point in enumerate(address_value.get("deliveryPoints", [])):
+                    distribution_text(
+                        address,
+                        "cit",
+                        "deliveryPoint",
+                        point,
+                        f"{address_path}.deliveryPoints[{point_index}]",
+                    )
+                for field in ("city", "administrativeArea", "postalCode", "country"):
+                    if field in address_value:
+                        distribution_text(
+                            address, "cit", field, address_value[field], f"{address_path}.{field}"
+                        )
                 for email_index, email in enumerate(address_value.get("emails", [])):
                     distribution_text(
                         address,
@@ -3405,6 +3489,31 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                         "electronicMailAddress",
                         email,
                         f"{address_path}.emails[{email_index}]",
+                    )
+            for online_index, online in enumerate(contact_value.get("onlineResources", [])):
+                distribution_online_fields(
+                    contact_element,
+                    online,
+                    f"{contact_path}.onlineResources[{online_index}]",
+                    prefix="cit",
+                    name="onlineResource",
+                )
+            for hours_index, hours in enumerate(contact_value.get("hoursOfService", [])):
+                distribution_text(
+                    contact_element,
+                    "cit",
+                    "hoursOfService",
+                    hours,
+                    f"{contact_path}.hoursOfService[{hours_index}]",
+                )
+            for field in ("contactInstructions", "contactType"):
+                if field in contact_value:
+                    distribution_text(
+                        contact_element,
+                        "cit",
+                        field,
+                        contact_value[field],
+                        f"{contact_path}.{field}",
                     )
         if value["type"] == "individual" and "positionName" in value:
             distribution_text(
@@ -3864,6 +3973,14 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                         )
                         identifier = child(definition, "gml", "identifier", result_value["unit"])
                         identifier.set("codeSpace", "")
+                    elif "unitReference" in result_value:
+                        unit = child(result_element, "mdq", "valueUnit")
+                        for attribute, attribute_value in result_value["unitReference"].items():
+                            unit.set(
+                                attribute if attribute == "uuidref" else tag("xlink", attribute),
+                                attribute_value,
+                            )
+                        quality_mapped.append(f"{result_path}.unitReference")
                     if "recordType" in result_value:
                         child(
                             child(result_element, "mdq", "valueRecordType"),

@@ -650,10 +650,35 @@ def test_iso_unsupported_quality_unit_shapes_preserve_source_and_report_loss(
         ET.SubElement(definition, f"{gml}identifier", {"codeSpace": ""}).text = "percent"
     document = ET.tostring(root, encoding="unicode")
     plan = iso_import(document)
-    assert plan.draft.metadata.extensions["opengeo"]["quality"] == [
-        {"measure": "completeness", "result": 0.98}
-    ]
-    assert "dataQualityInfo.quality[0].valueUnit[unsupported]" in plan.conversion_report["unmapped"]
+    catalog = plan.draft.metadata.extensions["opengeo"]
+    if unsupported == "reference":
+        assert catalog["schemaVersion"] == "1.9.0"
+        assert not catalog.get("quality")
+        report = catalog["qualityReports"][0]["reports"][0]
+        assert report["type"] == "DQ_UsabilityElement"
+        assert report["measure"]["names"] == ["completeness"]
+        assert report["results"] == [
+            {
+                "type": "DQ_QuantitativeResult",
+                "values": ["0.98"],
+                "unitReference": {"href": "https://example.invalid/unit/ratio"},
+            }
+        ]
+        assert "unit" not in report["results"][0]
+        assert (
+            "mdb:dataQualityInfo->metadata_extensions.opengeo.qualityReports"
+            in plan.conversion_report["mapped"]
+        )
+        assert (
+            "dataQualityInfo.quality[0].valueUnit[unsupported]"
+            not in plan.conversion_report["unmapped"]
+        )
+    else:
+        assert catalog["quality"] == [{"measure": "completeness", "result": 0.98}]
+        assert (
+            "dataQualityInfo.quality[0].valueUnit[unsupported]"
+            in plan.conversion_report["unmapped"]
+        )
     assert plan.source_document == document
     assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
 
@@ -2271,6 +2296,270 @@ def test_iso_offline_distribution_non_iso_loss_and_stac_exact_preservation() -> 
     assert stac["document"]["opengeo:metadataExtensions"]["opengeo"] == expected
     assert not stac["document"].get("assets")
     assert resource.metadata_extensions["opengeo"] == expected
+
+
+def iso_contact_unit_resource():
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        fixture("metadata-020-opengeo-contact-unit-references.json")
+    )
+    return resource
+
+
+def test_iso_contact_unit_fresh_round_trip_preserves_raw_text_all_attributes_and_owners() -> None:
+    resource = iso_contact_unit_resource()
+    original = json.loads(json.dumps(resource.metadata_extensions["opengeo"]))
+    document = export_iso_19115_3(resource)["documentText"]
+    assert export_iso_19115_3(resource)["documentText"] == document
+    plan = iso_import(document)
+    actual = plan.draft.metadata.extensions["opengeo"]
+    assert actual["schemaVersion"] == "1.9.0"
+    for field in ("isoDistributionGroups", "qualityReports"):
+        assert actual[field] == original[field]
+    assert not actual.get("distributions")
+    global_contacts = canonical_json_bytes(actual.get("contacts", [])).decode()
+    assert "primary@example.test" not in global_contacts
+    assert "secondary@example.test" not in global_contacts
+    contact = actual["isoDistributionGroups"][0]["distributors"][0]["contact"]["parties"][0][
+        "contacts"
+    ][0]
+    assert [phone["number"] for phone in contact["phones"]] == [" +1 (202) 555-0100 ", "", " \t "]
+    assert contact["addresses"][0]["deliveryPoints"] == [" 10 Archive Road ", "", " \t "]
+    assert contact["hoursOfService"] == [" 09:00\u201317:00 UTC ", "", " \t "]
+    assert plan.source_document == document
+    assert resource.metadata_extensions["opengeo"] == original
+
+
+def test_iso_contact_unit_curator_edits_clears_and_label_reference_switches_win() -> None:
+    resource = resource_from_plan(
+        iso_import(export_iso_19115_3(iso_contact_unit_resource())["documentText"])
+    )
+    catalog = resource.metadata_extensions["opengeo"]
+    contact = catalog["isoDistributionGroups"][0]["distributors"][0]["contact"]["parties"][0][
+        "contacts"
+    ][0]
+    contact["addresses"][0]["city"] = " Edited city "
+    contact["addresses"][0].pop("country")
+    contact.pop("phones")
+    contact.pop("hoursOfService")
+    contact.pop("contactInstructions")
+    contact["contactType"] = ""
+    results = catalog["qualityReports"][0]["reports"][0]["results"]
+    results[0].pop("unitReference")
+    results[0]["unit"] = "curated unit label"
+    results[1].pop("unit")
+    results[1]["unitReference"] = {"href": "urn:example:curated-unit", "title": " "}
+    results[2].pop("unitReference")
+    actual = iso_import(export_iso_19115_3(resource)["documentText"]).draft.metadata.extensions[
+        "opengeo"
+    ]
+    for field in ("isoDistributionGroups", "qualityReports"):
+        assert actual[field] == catalog[field]
+
+
+def test_iso_contact_unit_invalid_required_and_foreign_contact_leaves_preserve_source() -> None:
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    source = export_iso_19115_3(iso_contact_unit_resource())["documentText"]
+    for mutation in (
+        "missing-number",
+        "duplicate-number",
+        "foreign-number",
+        "duplicate-city",
+        "foreign-country",
+        "unknown-contact",
+        "foreign-phone-code",
+        "unsafe-phone-code",
+    ):
+        xml = ET.fromstring(source)
+        distributor = next(xml.iter(f"{mrd}MD_Distributor"))
+        phone = next(distributor.iter(f"{cit}CI_Telephone"))
+        contact = next(distributor.iter(f"{cit}CI_Contact"))
+        address = next(distributor.iter(f"{cit}CI_Address"))
+        if mutation == "missing-number":
+            phone.remove(phone.find(f"{cit}number"))
+            marker = "number"
+        elif mutation == "duplicate-number":
+            phone.append(ET.fromstring(ET.tostring(phone.find(f"{cit}number"))))
+            marker = "number"
+        elif mutation == "foreign-number":
+            phone.find(f"{cit}number").tag = "{urn:foreign}number"
+            marker = "number"
+        elif mutation == "duplicate-city":
+            address.append(ET.fromstring(ET.tostring(address.find(f"{cit}city"))))
+            marker = "city"
+        elif mutation == "foreign-country":
+            address.find(f"{cit}country").tag = "{urn:foreign}country"
+            marker = "country"
+        elif mutation == "unknown-contact":
+            ET.SubElement(
+                ET.SubElement(contact, f"{cit}unsupportedContact"), f"{gco}CharacterString"
+            ).text = "UNOWNED CONTACT VALUE"
+            marker = "unsupportedContact"
+        elif mutation == "foreign-phone-code":
+            next(phone.iter(f"{cit}CI_TelephoneTypeCode")).set(
+                "codeList", "https://example.invalid/foreign-phone-codes"
+            )
+            marker = "numberType"
+        else:
+            code = next(phone.iter(f"{cit}CI_TelephoneTypeCode"))
+            code.set("codeListValue", "voice\nfax")
+            code.text = ""
+            marker = "numberType"
+        document = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(document)
+        actual = plan.draft.metadata.extensions["opengeo"]
+        validate_catalog_metadata(actual)
+        assert plan.source_document == document
+        assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+        assert any(marker in path for path in plan.conversion_report["unmapped"])
+        assert "UNOWNED CONTACT VALUE" not in canonical_json_bytes(actual).decode()
+        owned_contact = actual["isoDistributionGroups"][0]["distributors"][0]["contact"]["parties"][
+            0
+        ]["contacts"][0]
+        if mutation in {"missing-number", "duplicate-number", "foreign-number"}:
+            assert [item["number"] for item in owned_contact["phones"]] == ["", " \t "]
+        if mutation in {"foreign-phone-code", "unsafe-phone-code"}:
+            assert owned_contact["phones"][0] == {"number": " +1 (202) 555-0100 "}
+
+
+def test_iso_contact_unit_unsafe_online_contact_is_not_reassigned_or_fetched() -> None:
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    xml = ET.fromstring(export_iso_19115_3(iso_contact_unit_resource())["documentText"])
+    distributor = next(xml.iter(f"{mrd}MD_Distributor"))
+    next(distributor.iter(f"{cit}linkage"))[0].text = "http://data.example.test/unsafe-contact"
+    document = ET.tostring(xml, encoding="unicode")
+    plan = iso_import(document)
+    groups = plan.draft.metadata.extensions["opengeo"]["isoDistributionGroups"]
+    first = groups[0]["distributors"][0]["contact"]["parties"][0]["contacts"][0]
+    assert [item["linkage"] for item in first["onlineResources"]] == [
+        "https://data.example.test/contact-secondary"
+    ]
+    assert "unsafe-contact" not in canonical_json_bytes(groups).decode()
+    assert any("onlineResource" in path for path in plan.conversion_report["unmapped"])
+    assert plan.source_document == document
+
+
+def test_iso_contact_unit_ambiguous_mixed_or_unsupported_unit_references_keep_source() -> None:
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    xlink = "{http://www.w3.org/1999/xlink}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    source = export_iso_19115_3(iso_contact_unit_resource())["documentText"]
+    for mutation in (
+        "relative",
+        "credentials",
+        "unknown-attribute",
+        "nilReason",
+        "mixed",
+        "duplicate",
+        "foreign-href",
+        "nonwhitespace",
+    ):
+        xml = ET.fromstring(source)
+        result = next(xml.iter(f"{mdq}DQ_QuantitativeResult"))
+        unit = result.find(f"{mdq}valueUnit")
+        if mutation == "relative":
+            unit.set(f"{xlink}href", "#unresolved-unit")
+        elif mutation == "credentials":
+            unit.set(f"{xlink}href", "https://user:secret@example.test/unit")
+        elif mutation == "unknown-attribute":
+            unit.set("unknown", "retained")
+        elif mutation == "nilReason":
+            unit.set(f"{gco}nilReason", "missing")
+        elif mutation == "mixed":
+            ET.SubElement(unit, "{http://www.opengis.net/gml/3.2}UnitDefinition")
+        elif mutation == "duplicate":
+            result.append(ET.fromstring(ET.tostring(unit)))
+        elif mutation == "foreign-href":
+            unit.attrib.pop(f"{xlink}href")
+            unit.set("{urn:foreign}href", "https://example.test/unit")
+        else:
+            unit.text = "unsupported mixed text"
+        document = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(document)
+        actual = plan.draft.metadata.extensions["opengeo"]["qualityReports"][0]["reports"][0][
+            "results"
+        ][0]
+        assert "unitReference" not in actual and "unit" not in actual
+        assert any("valueUnit" in path for path in plan.conversion_report["unmapped"])
+        assert plan.source_document == document
+
+
+def test_iso_contact_unit_limits_preserve_source_and_valid_surviving_owners() -> None:
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    xml = ET.fromstring(export_iso_19115_3(iso_contact_unit_resource())["documentText"])
+    distributor = next(xml.iter(f"{mrd}MD_Distributor"))
+    address = next(distributor.iter(f"{cit}CI_Address"))
+    for child in list(address):
+        address.remove(child)
+    for _ in range(8):
+        ET.SubElement(
+            ET.SubElement(address, f"{cit}deliveryPoint"), f"{gco}CharacterString"
+        ).text = "é" * 1000
+    document = ET.tostring(xml, encoding="unicode")
+    assert len(document.encode()) <= 49152
+    plan = iso_import(document)
+    assert plan.source_document == document
+    assert len(canonical_json_bytes(plan.draft.metadata.extensions)) <= 8192
+    assert any("size-limit" in path for path in plan.conversion_report["unmapped"])
+    actual = plan.draft.metadata.extensions["opengeo"]
+    validate_catalog_metadata(actual)
+    assert "isoDistributionGroups" not in actual
+
+
+def test_iso_contact_unit_version_selection_uses_only_accepted_new_data() -> None:
+    old = iso_distributor_order_resource()
+    old.metadata_extensions["opengeo"]["schemaVersion"] = "1.9.0"
+    reopened = iso_import(export_iso_19115_3(old)["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["schemaVersion"] == "1.8.0"
+    quality = quality_reports_resource()
+    quality.metadata_extensions["opengeo"]["schemaVersion"] = "1.9.0"
+    reopened = iso_import(export_iso_19115_3(quality)["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["schemaVersion"] == "1.6.0"
+
+
+def test_iso_contact_unit_non_iso_profiles_disclose_nested_losses_and_stac_preserves() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    _, resource = datacite_complete_resource()
+    catalog = resource.metadata_extensions.setdefault("opengeo", {})
+    catalog.update(fixture("metadata-020-opengeo-contact-unit-references.json"))
+    original = json.loads(json.dumps(catalog))
+    for exporter in (
+        export_dcat_3,
+        export_geodcat_ap_3_1,
+        export_schema_org_dataset,
+        export_datacite_4_7,
+        export_datacite_4_7_xml,
+    ):
+        result = exporter(resource)
+        assert result["status"] in {
+            "mapped",
+            "mapped_with_preserved_extensions",
+            "mapped_with_explicit_losses",
+            "mapped_with_defaults",
+        }
+        losses = result["report"]["unmapped"]
+        assert any(path.endswith(".deliveryPoints") for path in losses)
+        assert any(path.endswith(".phones") for path in losses)
+        assert any(path.endswith(".unitReference") for path in losses)
+        if exporter is export_datacite_4_7_xml:
+            ET.fromstring(result["documentText"])
+        else:
+            assert isinstance(result["document"], dict)
+    stac = export_stac_1_1(resource)
+    assert stac["document"]["opengeo:metadataExtensions"]["opengeo"] == original
+    assert resource.metadata_extensions["opengeo"] == original
 
 
 def iso_distributor_order_resource():
