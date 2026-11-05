@@ -5,13 +5,14 @@ from datetime import date, datetime
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.5.0"
+OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.6.0"
 OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.0.0",
     "1.1.0",
     "1.2.0",
     "1.3.0",
     "1.4.0",
+    "1.5.0",
     OPEN_GEO_CATALOG_SCHEMA_VERSION,
 }
 OPEN_GEO_CATALOG_NAMESPACE = "opengeo"
@@ -79,6 +80,50 @@ _ISO_TRANSFER_DURATION = re.compile(
 )
 
 
+ISO_QUALITY_REPORT_TYPES = frozenset(
+    {
+        "DQ_AbsoluteExternalPositionalAccuracy",
+        "DQ_AccuracyOfATimeMeasurement",
+        "DQ_CompletenessCommission",
+        "DQ_CompletenessOmission",
+        "DQ_ConceptualConsistency",
+        "DQ_DomainConsistency",
+        "DQ_FormatConsistency",
+        "DQ_GriddedDataPositionalAccuracy",
+        "DQ_NonQuantitativeAttributeCorrectness",
+        "DQ_QuantitativeAttributeAccuracy",
+        "DQ_RelativeInternalPositionalAccuracy",
+        "DQ_TemporalConsistency",
+        "DQ_TemporalValidity",
+        "DQ_ThematicClassificationCorrectness",
+        "DQ_TopologicalConsistency",
+        "DQ_UsabilityElement",
+        "DQ_Confidence",
+        "DQ_Homogeneity",
+        "DQ_Representativity",
+    }
+)
+ISO_QUALITY_EVALUATION_TYPES = frozenset(
+    {
+        "DQ_EvaluationMethod",
+        "DQ_AggregationDerivation",
+        "DQ_FullInspection",
+        "DQ_IndirectEvaluation",
+        "DQ_SampleBasedInspection",
+    }
+)
+_QUALITY_METAQUALITY_TYPES = {"DQ_Confidence", "DQ_Homogeneity", "DQ_Representativity"}
+# XML 1.0 Fifth Edition NCName (Name without colon), including non-ASCII names.
+_QUALITY_NAME_START = (
+    "A-Z_a-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u02ff\u0370-\u037d"
+    "\u037f-\u1fff\u200c-\u200d\u2070-\u218f\u2c00-\u2fef"
+    "\u3001-\ud7ff\uf900-\ufdcf\ufdf0-\ufffd\U00010000-\U000effff"
+)
+_QUALITY_XML_ID = re.compile(
+    f"[{_QUALITY_NAME_START}][{_QUALITY_NAME_START}\\.0-9\\-\u00b7\u0300-\u036f\u203f-\u2040]*"
+)
+
+
 class CatalogMetadataInvalid(ValueError):
     pass
 
@@ -108,9 +153,11 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if schema_version not in OPEN_GEO_CATALOG_SCHEMA_VERSIONS:
         raise CatalogMetadataInvalid(
             "metadata extensions.opengeo.schemaVersion must be "
-            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, or 1.5.0"
+            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, or 1.6.0"
         )
     allowed = _CATALOG_FIELDS_1_1 if schema_version != "1.0.0" else _CATALOG_FIELDS_1_0
+    if schema_version == "1.6.0":
+        allowed = {*allowed, "qualityReports"}
     unknown = set(value) - allowed
     if unknown:
         raise CatalogMetadataInvalid(
@@ -122,7 +169,7 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
         result["contacts"] = _contacts(value["contacts"])
     if "distributions" in value:
         result["distributions"] = _distributions(
-            value["distributions"], iso_transfer=schema_version == "1.5.0"
+            value["distributions"], iso_transfer=schema_version in {"1.5.0", "1.6.0"}
         )
     if "referenceSystems" in value:
         result["referenceSystems"] = _reference_systems(value["referenceSystems"])
@@ -130,6 +177,8 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
         result["lineage"] = _lineage(value["lineage"])
     if "quality" in value:
         result["quality"] = _quality(value["quality"])
+    if "qualityReports" in value:
+        result["qualityReports"] = _quality_reports(value["qualityReports"])
     if "updateFrequency" in value:
         result["updateFrequency"] = _string(
             value["updateFrequency"], 1, 300, "opengeo.updateFrequency"
@@ -147,9 +196,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "acquisition" in value:
         result["acquisition"] = _acquisition(
             value["acquisition"],
-            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0"},
-            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0"},
-            context=schema_version in {"1.4.0", "1.5.0"},
+            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0"},
+            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0"},
+            context=schema_version in {"1.4.0", "1.5.0", "1.6.0"},
         )
     return result
 
@@ -382,6 +431,211 @@ def _quality(value: Any) -> list[dict[str, Any]]:
             if field in record:
                 quality[field] = _string(record[field], 1, 1_000, f"{path}.{field}")
         result.append(quality)
+    return result
+
+
+def _quality_strings(value: Any, maximum: int, path: str) -> list[str]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 8:
+        raise CatalogMetadataInvalid(f"metadata {path} requires 1 to 8 strings")
+    return [_string(item, 1, maximum, f"{path}[{i}]") for i, item in enumerate(value)]
+
+
+def _quality_id(value: Any, path: str) -> str:
+    identifier = _string(value, 1, 100, path)
+    if _QUALITY_XML_ID.fullmatch(identifier) is None:
+        raise CatalogMetadataInvalid(f"metadata {path} must be an XML NCName")
+    return identifier
+
+
+def _quality_scope(value: Any, path: str) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise CatalogMetadataInvalid(f"metadata {path} must be an object")
+    _known_fields(value, {"level"}, path)
+    return {"level": _string(value.get("level"), 1, 300, f"{path}.level")}
+
+
+def _quality_measure(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise CatalogMetadataInvalid(f"metadata {path} must be an object")
+    _known_fields(value, {"identifier", "names", "description"}, path)
+    result: dict[str, Any] = {}
+    if "identifier" in value:
+        identifier = value["identifier"]
+        if not isinstance(identifier, dict):
+            raise CatalogMetadataInvalid(f"metadata {path}.identifier must be an object")
+        _known_fields(identifier, {"code", "codeSpace"}, f"{path}.identifier")
+        result["identifier"] = {
+            "code": _string(identifier.get("code"), 1, 300, f"{path}.identifier.code")
+        }
+        if "codeSpace" in identifier:
+            result["identifier"]["codeSpace"] = _string(
+                identifier["codeSpace"], 1, 300, f"{path}.identifier.codeSpace"
+            )
+    if "names" in value:
+        result["names"] = _quality_strings(value["names"], 300, f"{path}.names")
+    if "identifier" not in result and "names" not in result:
+        raise CatalogMetadataInvalid(f"metadata {path} requires identifier or names")
+    if "description" in value:
+        result["description"] = _string(value["description"], 1, 1_000, f"{path}.description")
+    return result
+
+
+def _quality_evaluation(value: Any, path: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise CatalogMetadataInvalid(f"metadata {path} must be an object")
+    kind = _string(value.get("type"), 1, 100, f"{path}.type")
+    if kind not in ISO_QUALITY_EVALUATION_TYPES:
+        raise CatalogMetadataInvalid(f"metadata {path}.type is unsupported")
+    allowed = {"type", "methodType", "description", "procedure", "referenceDocuments", "dateTimes"}
+    required_strings: tuple[str, ...] = ()
+    if kind == "DQ_IndirectEvaluation":
+        allowed.add("deductiveSources")
+    if kind == "DQ_SampleBasedInspection":
+        required_strings = ("samplingScheme", "lotDescription", "samplingRatio")
+        allowed.update(required_strings)
+    _known_fields(value, allowed, path)
+    result: dict[str, Any] = {"type": kind}
+    if "methodType" in value:
+        method = _string(value["methodType"], 1, 100, f"{path}.methodType")
+        if method not in {"directInternal", "directExternal", "indirect"}:
+            raise CatalogMetadataInvalid(f"metadata {path}.methodType is unsupported")
+        result["methodType"] = method
+    for field in (*required_strings, "description"):
+        if field in value or field in required_strings:
+            result[field] = _string(value.get(field), 1, 1_000, f"{path}.{field}")
+    if "procedure" in value:
+        result["procedure"] = _acquisition_citation(value["procedure"], f"{path}.procedure")
+    if "referenceDocuments" in value:
+        result["referenceDocuments"] = [
+            _acquisition_citation(record, f"{path}.referenceDocuments[{i}]")
+            for i, record in enumerate(
+                _bounded_objects(value["referenceDocuments"], 8, f"{path}.referenceDocuments")
+            )
+        ]
+    if "dateTimes" in value:
+        result["dateTimes"] = [
+            _context_date_time(raw, f"{path}.dateTimes[{i}]")[1]
+            for i, raw in enumerate(_quality_strings(value["dateTimes"], 100, f"{path}.dateTimes"))
+        ]
+    if kind == "DQ_IndirectEvaluation":
+        result["deductiveSources"] = _quality_strings(
+            value.get("deductiveSources"), 1_000, f"{path}.deductiveSources"
+        )
+    return result
+
+
+def _quality_result(value: dict[str, Any], path: str) -> dict[str, Any]:
+    kind = _string(value.get("type"), 1, 100, f"{path}.type")
+    variants = {
+        "DQ_QuantitativeResult": {"values", "unit", "recordType"},
+        "DQ_DescriptiveResult": {"statement"},
+        "DQ_ConformanceResult": {"specification", "explanation", "pass"},
+    }
+    if kind not in variants:
+        raise CatalogMetadataInvalid(f"metadata {path}.type is unsupported")
+    _known_fields(value, {"type", "dateTime", "scope", *variants[kind]}, path)
+    result: dict[str, Any] = {"type": kind}
+    if "dateTime" in value:
+        result["dateTime"] = _context_date_time(value["dateTime"], f"{path}.dateTime")[1]
+    if "scope" in value:
+        result["scope"] = _quality_scope(value["scope"], f"{path}.scope")
+    if kind == "DQ_QuantitativeResult":
+        result["values"] = _quality_strings(value.get("values"), 1_000, f"{path}.values")
+        for field in ("unit", "recordType"):
+            if field in value:
+                result[field] = _string(value[field], 1, 1_000, f"{path}.{field}")
+    elif kind == "DQ_DescriptiveResult":
+        result["statement"] = _string(value.get("statement"), 1, 1_000, f"{path}.statement")
+    else:
+        result["specification"] = _acquisition_citation(
+            value.get("specification"), f"{path}.specification"
+        )
+        if type(value.get("pass")) is not bool:
+            raise CatalogMetadataInvalid(f"metadata {path}.pass must be a boolean")
+        result["pass"] = value["pass"]
+        if "explanation" in value:
+            result["explanation"] = _string(value["explanation"], 1, 1_000, f"{path}.explanation")
+    return result
+
+
+def _quality_reports(value: Any) -> list[dict[str, Any]]:
+    groups = _bounded_objects(value, 8, "opengeo.qualityReports")
+    result: list[dict[str, Any]] = []
+    declared: set[str] = set()
+    references: list[tuple[str, list[str]]] = []
+    total = 0
+    for group_index, group in enumerate(groups):
+        path = f"opengeo.qualityReports[{group_index}]"
+        _known_fields(group, {"scope", "reports"}, path)
+        scope = _quality_scope(group.get("scope"), f"{path}.scope")
+        reports = _bounded_objects(group.get("reports"), 32, f"{path}.reports")
+        total += len(reports)
+        if total > 32:
+            raise CatalogMetadataInvalid(
+                "metadata opengeo.qualityReports requires at most 32 total reports"
+            )
+        normalized: list[dict[str, Any]] = []
+        for report_index, report in enumerate(reports):
+            report_path = f"{path}.reports[{report_index}]"
+            _known_fields(
+                report,
+                {
+                    "id",
+                    "type",
+                    "standaloneDetails",
+                    "measure",
+                    "evaluation",
+                    "results",
+                    "derivedReports",
+                    "relatedReports",
+                },
+                report_path,
+            )
+            kind = _string(report.get("type"), 1, 100, f"{report_path}.type")
+            if kind not in ISO_QUALITY_REPORT_TYPES:
+                raise CatalogMetadataInvalid(f"metadata {report_path}.type is unsupported")
+            item: dict[str, Any] = {"type": kind}
+            if "id" in report:
+                identifier = _quality_id(report["id"], f"{report_path}.id")
+                if identifier in declared:
+                    raise CatalogMetadataInvalid(
+                        f"metadata {report_path}.id must be globally unique"
+                    )
+                declared.add(identifier)
+                item["id"] = identifier
+            if "standaloneDetails" in report:
+                item["standaloneDetails"] = _string(
+                    report["standaloneDetails"], 1, 1_000, f"{report_path}.standaloneDetails"
+                )
+            if "measure" in report:
+                item["measure"] = _quality_measure(report["measure"], f"{report_path}.measure")
+            if "evaluation" in report:
+                item["evaluation"] = _quality_evaluation(
+                    report["evaluation"], f"{report_path}.evaluation"
+                )
+            item["results"] = [
+                _quality_result(record, f"{report_path}.results[{i}]")
+                for i, record in enumerate(
+                    _bounded_objects(report.get("results"), 8, f"{report_path}.results")
+                )
+            ]
+            for field in ("derivedReports", "relatedReports"):
+                if field in report:
+                    if field == "relatedReports" and kind not in _QUALITY_METAQUALITY_TYPES:
+                        raise CatalogMetadataInvalid(
+                            f"metadata {report_path}.relatedReports requires a metaquality report"
+                        )
+                    refs = _quality_strings(report[field], 100, f"{report_path}.{field}")
+                    item[field] = [
+                        _quality_id(ref, f"{report_path}.{field}[{i}]")
+                        for i, ref in enumerate(refs)
+                    ]
+                    references.append((f"{report_path}.{field}", item[field]))
+            normalized.append(item)
+        result.append({"scope": scope, "reports": normalized})
+    for path, refs in references:
+        if any(ref not in declared for ref in refs):
+            raise CatalogMetadataInvalid(f"metadata {path} references an undeclared report id")
     return result
 
 

@@ -2045,6 +2045,238 @@ def iso_online_distribution_resource():
     return resource
 
 
+def quality_reports_resource(document=None):
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    resource = resource_from_plan(iso_import(document or localized_iso_document()))
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        fixture("metadata-017-opengeo-quality-reports.json")
+    )
+    return resource
+
+
+def test_iso_quality_reports_round_trip_preserves_groups_results_and_local_links() -> None:
+    resource = quality_reports_resource()
+    original = json.loads(json.dumps(resource.metadata_extensions["opengeo"]))
+    exported = export_iso_19115_3(resource)
+    document = exported["documentText"]
+    assert export_iso_19115_3(resource)["documentText"] == document
+    reopened = iso_import(document)
+    actual = reopened.draft.metadata.extensions["opengeo"]
+    assert actual["schemaVersion"] == "1.6.0"
+    assert actual["qualityReports"] == original["qualityReports"]
+    assert not actual.get("quality")
+    results = actual["qualityReports"][0]["reports"][0]["results"]
+    assert results[0]["values"][0] == "0.123456789012345678901234567890"
+    assert actual["qualityReports"][0]["reports"][1]["results"][0]["pass"] is False
+    assert resource.metadata_extensions["opengeo"] == original
+    assert reopened.source_document == document
+    assert exported["report"]["schemaValidated"] is False
+
+
+def test_iso_quality_reports_curator_changes_and_clears_override_retained_source() -> None:
+    document = export_iso_19115_3(quality_reports_resource())["documentText"]
+    resource = resource_from_plan(iso_import(document))
+    groups = resource.metadata_extensions["opengeo"]["qualityReports"]
+    first = groups[0]["reports"][0]
+    first.pop("measure")
+    first.pop("evaluation")
+    first.pop("derivedReports")
+    first["results"] = [{"type": "DQ_DescriptiveResult", "statement": "Curator revision"}]
+    groups[0]["reports"][1]["results"][0]["pass"] = True
+    groups[1]["scope"]["level"] = "collection"
+    reopened = iso_import(export_iso_19115_3(resource)["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["qualityReports"] == groups
+    resource.metadata_extensions["opengeo"].pop("qualityReports")
+    cleared = iso_import(export_iso_19115_3(resource)["documentText"])
+    assert not cleared.draft.metadata.extensions["opengeo"].get("qualityReports")
+
+
+def test_iso_quality_reports_all_concrete_types_and_evaluations_round_trip() -> None:
+    report_types = (
+        "DQ_CompletenessCommission",
+        "DQ_CompletenessOmission",
+        "DQ_ConceptualConsistency",
+        "DQ_DomainConsistency",
+        "DQ_FormatConsistency",
+        "DQ_TopologicalConsistency",
+        "DQ_AbsoluteExternalPositionalAccuracy",
+        "DQ_RelativeInternalPositionalAccuracy",
+        "DQ_GriddedDataPositionalAccuracy",
+        "DQ_AccuracyOfATimeMeasurement",
+        "DQ_TemporalConsistency",
+        "DQ_TemporalValidity",
+        "DQ_ThematicClassificationCorrectness",
+        "DQ_NonQuantitativeAttributeCorrectness",
+        "DQ_QuantitativeAttributeAccuracy",
+        "DQ_UsabilityElement",
+        "DQ_Confidence",
+        "DQ_Homogeneity",
+        "DQ_Representativity",
+    )
+    evaluations = [
+        {"type": "DQ_EvaluationMethod", "methodType": "directInternal"},
+        {"type": "DQ_AggregationDerivation", "description": "Aggregate the observations"},
+        {"type": "DQ_FullInspection", "methodType": "directExternal"},
+        {"type": "DQ_IndirectEvaluation", "deductiveSources": ["Survey register"]},
+        {
+            "type": "DQ_SampleBasedInspection",
+            "samplingScheme": "Every tenth row",
+            "lotDescription": "2026 observations",
+            "samplingRatio": "1:10",
+        },
+    ]
+    assert len(set(report_types)) == 19
+    for index, report_type in enumerate(report_types):
+        resource = quality_reports_resource()
+        groups = [
+            {
+                "scope": {"level": "dataset"},
+                "reports": [
+                    {
+                        "id": f"quality-kind-{index}",
+                        "type": report_type,
+                        "measure": {"identifier": {"code": f"measure-{index}"}},
+                        "evaluation": evaluations[index % len(evaluations)],
+                        "results": [
+                            {"type": "DQ_QuantitativeResult", "values": ["1.00000000000000000001"]},
+                            {"type": "DQ_DescriptiveResult", "statement": "Separate second result"},
+                        ],
+                    }
+                ],
+            }
+        ]
+        resource.metadata_extensions["opengeo"]["qualityReports"] = groups
+        document = export_iso_19115_3(resource)["documentText"]
+        assert f"{report_type}" in document
+        reopened = iso_import(document)
+        assert reopened.draft.metadata.extensions["opengeo"]["qualityReports"] == groups
+        assert not reopened.draft.metadata.extensions["opengeo"].get("quality")
+
+
+def test_iso_quality_reports_foreign_and_nested_properties_are_not_owned() -> None:
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    document = export_iso_19115_3(quality_reports_resource())["documentText"]
+    for mutation in ("foreign-result", "nested-report", "mixed-tail"):
+        xml = ET.fromstring(document)
+        report = next(xml.iter(f"{mdq}DQ_CompletenessCommission"))
+        if mutation == "foreign-result":
+            result = report.find(f"{mdq}result")
+            result.tag = "{urn:foreign}result"
+        elif mutation == "nested-report":
+            wrapper = ET.SubElement(report, "{urn:foreign}unowned")
+            nested = ET.SubElement(
+                ET.SubElement(wrapper, f"{mdq}report"), f"{mdq}DQ_UsabilityElement"
+            )
+            result = ET.SubElement(
+                ET.SubElement(nested, f"{mdq}result"), f"{mdq}DQ_DescriptiveResult"
+            )
+            ET.SubElement(
+                ET.SubElement(result, f"{mdq}statement"), f"{gco}CharacterString"
+            ).text = "FOREIGN REPORT MUST NOT PROJECT"
+        else:
+            report.find(f"{mdq}result").tail = "retained mixed-content text"
+        source = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(source)
+        assert plan.source_document == source
+        assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(source)
+        assert (
+            "FOREIGN REPORT MUST NOT PROJECT"
+            not in canonical_json_bytes(plan.draft.metadata.extensions).decode()
+        )
+        assert plan.conversion_report["unmapped"]
+        loss_marker = {
+            "foreign-result": "result",
+            "nested-report": "unowned",
+            "mixed-tail": "tail",
+        }[mutation]
+        assert any(loss_marker in path for path in plan.conversion_report["unmapped"])
+        if mutation == "foreign-result":
+            typed = plan.draft.metadata.extensions["opengeo"]["qualityReports"]
+            assert not any(
+                value["type"] == "DQ_QuantitativeResult"
+                for group in typed
+                for item in group["reports"]
+                for value in item["results"]
+            )
+
+
+def test_iso_quality_reports_duplicate_ids_and_dangling_refs_are_not_joined() -> None:
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    href = "{http://www.w3.org/1999/xlink}href"
+    document = export_iso_19115_3(quality_reports_resource())["documentText"]
+    for mutation in ("duplicate-id", "dangling-ref", "remote-ref"):
+        xml = ET.fromstring(document)
+        if mutation == "duplicate-id":
+            next(xml.iter(f"{mdq}DQ_Confidence")).set("id", "completeness")
+        else:
+            reference = next(xml.iter(f"{mdq}derivedElement"))
+            reference.set(
+                href,
+                "#missing-report"
+                if mutation == "dangling-ref"
+                else "https://example.invalid/report",
+            )
+        source = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(source)
+        groups = plan.draft.metadata.extensions["opengeo"].get("qualityReports", [])
+        reports = [item for group in groups for item in group["reports"]]
+        ids = [item["id"] for item in reports if "id" in item]
+        assert len(ids) == len(set(ids))
+        for item in reports:
+            assert all(value in ids for value in item.get("derivedReports", []))
+            assert all(value in ids for value in item.get("relatedReports", []))
+        assert plan.source_document == source
+        assert plan.conversion_report["unmapped"]
+        assert any(
+            "id" in path.lower() or "derived" in path.lower()
+            for path in plan.conversion_report["unmapped"]
+        )
+        assert "missing-report" not in canonical_json_bytes(groups).decode()
+        assert "https://example.invalid/report" not in canonical_json_bytes(groups).decode()
+
+
+def test_iso_quality_reports_canonical_budget_retains_source_and_explicit_loss() -> None:
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    xml = ET.fromstring(export_iso_19115_3(quality_reports_resource())["documentText"])
+    group = next(xml.iter(f"{mdq}DQ_DataQuality"))
+    for child in list(group):
+        if child.tag == f"{mdq}report":
+            group.remove(child)
+    for index in range(12):
+        report = ET.SubElement(
+            ET.SubElement(group, f"{mdq}report"),
+            f"{mdq}DQ_CompletenessCommission",
+            {"id": f"budget-report-{index}"},
+        )
+        ET.SubElement(
+            ET.SubElement(report, f"{mdq}standaloneQualityReportDetails"), f"{gco}CharacterString"
+        ).text = "é" * 500
+        result = ET.SubElement(ET.SubElement(report, f"{mdq}result"), f"{mdq}DQ_DescriptiveResult")
+        ET.SubElement(
+            ET.SubElement(result, f"{mdq}statement"), f"{gco}CharacterString"
+        ).text = "Retain original source"
+    source = ET.tostring(xml, encoding="unicode")
+    assert len(source.encode()) <= 49152
+    plan = iso_import(source)
+    assert plan.source_document == source
+    assert len(canonical_json_bytes(plan.draft.metadata.extensions)) <= 8192
+    assert any("size-limit" in path for path in plan.conversion_report["unmapped"])
+
+
+def test_iso_quality_reports_legacy_scalar_group_stays_legacy_without_duplication() -> None:
+    resource = quality_reports_resource()
+    legacy = [{"measure": "completeness", "result": 0.98, "unit": "ratio"}]
+    resource.metadata_extensions["opengeo"] = {"schemaVersion": "1.6.0", "quality": legacy}
+    document = export_iso_19115_3(resource)["documentText"]
+    plan = iso_import(document)
+    assert plan.draft.metadata.extensions["opengeo"]["quality"] == legacy
+    assert not plan.draft.metadata.extensions["opengeo"].get("qualityReports")
+    assert plan.source_document == document
+
+
 def test_iso_online_distribution_round_trip_owns_dto_contexts() -> None:
     resource = iso_online_distribution_resource()
     original = json.loads(json.dumps(resource.metadata_extensions["opengeo"]))
@@ -2211,3 +2443,40 @@ def test_iso_online_distribution_canonical_budget_keeps_source_and_native_urls()
         == "https://data.example.test/roads.geojson"
     )
     assert any("size-limit" in path for path in plan.conversion_report["unmapped"])
+
+
+def test_iso_quality_reports_legacy_fallback_keeps_lexical_type_units_and_reference_multiplicity():
+    for raw in ("001", "unavailable", "1.00", "-0", "true"):
+        resource = quality_reports_resource()
+        result = {"type": "DQ_QuantitativeResult", "values": [raw]}
+        if raw == "true":
+            result["unit"] = "ratio"
+        groups = [
+            {
+                "scope": {"level": "dataset"},
+                "reports": [
+                    {
+                        "type": "DQ_UsabilityElement",
+                        "measure": {"names": ["sample"]},
+                        "results": [result],
+                    }
+                ],
+            }
+        ]
+        resource.metadata_extensions["opengeo"] = {
+            "schemaVersion": "1.6.0",
+            "qualityReports": groups,
+        }
+        reopened = iso_import(export_iso_19115_3(resource)["documentText"])
+        actual = reopened.draft.metadata.extensions["opengeo"]
+        assert actual["qualityReports"] == groups
+        assert not actual.get("quality")
+
+    resource = quality_reports_resource()
+    groups = resource.metadata_extensions["opengeo"]["qualityReports"]
+    groups[0]["reports"][0]["derivedReports"] = ["conformance", "conformance"]
+    groups[1]["reports"][0]["relatedReports"] = ["completeness", "completeness"]
+    reopened = iso_import(export_iso_19115_3(resource)["documentText"])
+    actual = reopened.draft.metadata.extensions["opengeo"]
+    assert actual["qualityReports"] == groups
+    assert not actual.get("quality")

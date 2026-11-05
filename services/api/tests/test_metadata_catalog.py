@@ -679,3 +679,248 @@ def test_native_catalog_contract_rejects_unsafe_or_ambiguous_values(
         validate_catalog_metadata(value)
     with pytest.raises(ValidationError, match=message):
         ResourceMetadataRequest(title="Roads", extensions={"opengeo": value})
+
+
+def quality_reports_catalog() -> dict[str, Any]:
+    value = native_catalog()
+    value["schemaVersion"] = "1.6.0"
+    value["qualityReports"] = [
+        {
+            "scope": {"level": "dataset"},
+            "reports": [
+                {
+                    "id": "accuracy",
+                    "type": "DQ_AbsoluteExternalPositionalAccuracy",
+                    "standaloneDetails": "Independent survey assessment",
+                    "measure": {
+                        "identifier": {"code": "RMSE", "codeSpace": "survey"},
+                        "names": ["Root mean square error", "RMSE"],
+                        "description": "Against surveyed control points",
+                    },
+                    "evaluation": {
+                        "type": "DQ_FullInspection",
+                        "methodType": "directExternal",
+                        "description": "Compare every control point",
+                        "procedure": {"title": "Survey procedure"},
+                        "referenceDocuments": [{"title": "Survey handbook"}],
+                        "dateTimes": ["2026-11-04T18:00:00-05:00"],
+                    },
+                    "results": [
+                        {
+                            "type": "DQ_QuantitativeResult",
+                            "values": ["001.2300", "1.2e-03", "001.2300"],
+                            "unit": "metre",
+                            "recordType": "decimal",
+                            "dateTime": "2026-11-04T23:00:00.123456789Z",
+                            "scope": {"level": "sample"},
+                        },
+                        {"type": "DQ_DescriptiveResult", "statement": "Control points checked"},
+                        {
+                            "type": "DQ_ConformanceResult",
+                            "specification": {"title": "Survey standard"},
+                            "explanation": "Tolerance exceeded",
+                            "pass": False,
+                        },
+                    ],
+                    "derivedReports": ["confidence"],
+                },
+                {
+                    "id": "confidence",
+                    "type": "DQ_Confidence",
+                    "results": [{"type": "DQ_DescriptiveResult", "statement": "Low confidence"}],
+                    "relatedReports": ["accuracy"],
+                },
+            ],
+        }
+    ]
+    return value
+
+
+def quality_schema() -> dict[str, Any]:
+    return json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.6.0.schema.json").read_text())
+
+
+def test_native_catalog_16_preserves_rich_quality_lexical_values_false_and_legacy() -> None:
+    value = quality_reports_catalog()
+    value["acquisition"] = acquisition_context()["acquisition"]
+    value["distributions"][0]["isoTransfer"] = iso_transfer()
+    normalized = validate_catalog_metadata(value)
+    assert normalized == value
+    assert normalized["qualityReports"][0]["reports"][0]["results"][2]["pass"] is False
+    assert normalized["quality"] == native_catalog()["quality"]
+    Draft202012Validator(quality_schema(), format_checker=FormatChecker()).validate(value)
+
+
+def test_native_catalog_16_report_and_evaluation_types_match_schema() -> None:
+    from opengeo_api.metadata_catalog import (
+        ISO_QUALITY_EVALUATION_TYPES,
+        ISO_QUALITY_REPORT_TYPES,
+    )
+
+    schema = quality_schema()
+    assert len(ISO_QUALITY_REPORT_TYPES) == 19
+    assert len(ISO_QUALITY_EVALUATION_TYPES) == 5
+    assert set(schema["$defs"]["qualityReport"]["properties"]["type"]["enum"]) == set(
+        ISO_QUALITY_REPORT_TYPES
+    )
+    assert set(schema["$defs"]["qualityEvaluation"]["properties"]["type"]["enum"]) == set(
+        ISO_QUALITY_EVALUATION_TYPES
+    )
+    for kind in ISO_QUALITY_REPORT_TYPES:
+        value = quality_reports_catalog()
+        report = value["qualityReports"][0]["reports"][0]
+        report["type"] = kind
+        assert validate_catalog_metadata(value) == value
+        Draft202012Validator(schema).validate(value)
+
+
+@pytest.mark.parametrize(
+    "evaluation",
+    [
+        {"type": "DQ_EvaluationMethod"},
+        {"type": "DQ_AggregationDerivation"},
+        {"type": "DQ_FullInspection"},
+        {"type": "DQ_IndirectEvaluation", "deductiveSources": ["Source observations"]},
+        {
+            "type": "DQ_SampleBasedInspection",
+            "samplingScheme": "Stratified random sample",
+            "lotDescription": "Road observations",
+            "samplingRatio": "1:10",
+        },
+    ],
+)
+def test_native_catalog_16_all_concrete_evaluations(evaluation: dict[str, Any]) -> None:
+    value = quality_reports_catalog()
+    value["qualityReports"][0]["reports"][0]["evaluation"] = evaluation
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(quality_schema()).validate(value)
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0"])
+def test_native_catalog_16_quality_reports_are_version_gated(version: str) -> None:
+    value = native_catalog()
+    value["schemaVersion"] = version
+    assert validate_catalog_metadata(value) == value
+    schema = json.loads(
+        (ROOT / f"schemas/opengeo-catalog-metadata-{version}.schema.json").read_text()
+    )
+    value["qualityReports"] = quality_reports_catalog()["qualityReports"]
+    with pytest.raises(CatalogMetadataInvalid, match="unknown field qualityReports"):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(schema).is_valid(value)
+
+
+@pytest.mark.parametrize("invalid_pass", [0, 1, "false", "true", None, [], {}])
+def test_native_catalog_16_conformance_requires_strict_boolean(invalid_pass: Any) -> None:
+    value = quality_reports_catalog()
+    value["qualityReports"][0]["reports"][0]["results"][2]["pass"] = invalid_pass
+    with pytest.raises(CatalogMetadataInvalid, match="pass must be a boolean"):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(quality_schema()).is_valid(value)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("type", "AbstractDQ_Element"),
+        ("id", "contains:colon"),
+        ("id", "1startsWithDigit"),
+        ("id", "has space"),
+        ("id", "x" * 101),
+        ("standaloneDetails", "x" * 1001),
+        ("measure", {}),
+        ("measure", {"identifier": {"codeSpace": "survey"}}),
+        ("measure", {"names": []}),
+        ("measure", {"names": ["x"] * 9}),
+        ("evaluation", {"type": "AbstractDQ_DataEvaluation"}),
+        ("evaluation", {"type": "DQ_IndirectEvaluation"}),
+        ("evaluation", {"type": "DQ_SampleBasedInspection", "samplingScheme": "random"}),
+        ("evaluation", {"type": "DQ_FullInspection", "deductiveSources": ["source"]}),
+        ("evaluation", {"type": "DQ_EvaluationMethod", "samplingRatio": "1:10"}),
+        ("evaluation", {"type": "DQ_EvaluationMethod", "methodType": "unknown"}),
+        ("evaluation", {"type": "DQ_EvaluationMethod", "dateTimes": []}),
+        ("evaluation", {"type": "DQ_EvaluationMethod", "dateTimes": ["2026-11-04"]}),
+        ("evaluation", {"type": "DQ_EvaluationMethod", "dateTimes": ["2026-11-04T23:00:00+14:01"]}),
+        ("evaluation", {"type": "DQ_EvaluationMethod", "referenceDocuments": []}),
+        ("results", []),
+        ("results", [{"type": "DQ_DescriptiveResult", "statement": "ok"}] * 9),
+        ("results", [{"type": "DQ_QuantitativeResult", "values": [1.23]}]),
+        ("results", [{"type": "DQ_QuantitativeResult", "values": []}]),
+        ("results", [{"type": "DQ_QuantitativeResult", "values": ["x"] * 9}]),
+        ("results", [{"type": "DQ_QuantitativeResult", "values": ["x" * 1001]}]),
+        ("results", [{"type": "DQ_DescriptiveResult"}]),
+        ("results", [{"type": "DQ_DescriptiveResult", "statement": "ok", "values": ["1"]}]),
+        ("results", [{"type": "DQ_ConformanceResult", "pass": False}]),
+        ("results", [{"type": "DQ_ConformanceResult", "specification": {"title": "Standard"}}]),
+        ("derivedReports", []),
+        ("derivedReports", ["accuracy"] * 9),
+        ("relatedReports", ["accuracy"]),
+        ("unknown", "unrecognized"),
+    ],
+)
+def test_native_catalog_16_invalid_local_report_shapes_match_schema(
+    field: str, invalid: Any
+) -> None:
+    value = quality_reports_catalog()
+    value["qualityReports"][0]["reports"][0][field] = invalid
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(quality_schema(), format_checker=FormatChecker()).is_valid(
+        value
+    )
+
+
+@pytest.mark.parametrize(
+    "groups", [None, {}, [], [{}], [{"scope": {"level": "dataset"}, "reports": []}]]
+)
+def test_native_catalog_16_requires_owned_nonempty_groups(groups: Any) -> None:
+    value = {"schemaVersion": "1.6.0", "qualityReports": groups}
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(quality_schema()).is_valid(value)
+
+
+def test_native_catalog_16_group_and_total_report_cardinality() -> None:
+    report = {
+        "type": "DQ_UsabilityElement",
+        "results": [{"type": "DQ_DescriptiveResult", "statement": "ok"}],
+    }
+    group = {"scope": {"level": "dataset"}, "reports": [report]}
+    value = {"schemaVersion": "1.6.0", "qualityReports": [group] * 9}
+    with pytest.raises(CatalogMetadataInvalid, match="at most 8"):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(quality_schema()).is_valid(value)
+    value["qualityReports"] = [{"scope": group["scope"], "reports": [report] * 32}]
+    assert validate_catalog_metadata(value) == value
+    value["qualityReports"].append(group)
+    # JSON Schema checks local shape; the API checks the cross-group sum.
+    assert Draft202012Validator(quality_schema()).is_valid(value)
+    with pytest.raises(CatalogMetadataInvalid, match="32 total reports"):
+        validate_catalog_metadata(value)
+
+
+@pytest.mark.parametrize("graph_error", ["duplicate", "derivedMissing", "relatedMissing"])
+def test_native_catalog_16_runtime_checks_global_report_references(graph_error: str) -> None:
+    value = quality_reports_catalog()
+    reports = value["qualityReports"][0]["reports"]
+    if graph_error == "duplicate":
+        reports[1]["id"] = reports[0]["id"]
+    elif graph_error == "derivedMissing":
+        reports[0]["derivedReports"] = ["missing"]
+    else:
+        reports[1]["relatedReports"] = ["missing"]
+    # Dynamic identity resolution is intentionally an API validation rule.
+    assert Draft202012Validator(quality_schema()).is_valid(value)
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+
+
+def test_native_catalog_16_references_cross_groups_and_unicode_xml_ids() -> None:
+    value = quality_reports_catalog()
+    group = value["qualityReports"][0]
+    second = group["reports"].pop()
+    second["id"] = "\u0394\U00010400.report-1"
+    group["reports"][0]["derivedReports"] = [second["id"]]
+    value["qualityReports"].append({"scope": {"level": "series"}, "reports": [second]})
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(quality_schema()).validate(value)
