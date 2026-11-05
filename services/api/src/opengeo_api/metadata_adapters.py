@@ -13,6 +13,7 @@ from opengeo_api.metadata_catalog import (
     ISO_QUALITY_EVALUATION_TYPES,
     ISO_QUALITY_REPORT_TYPES,
     CatalogMetadataInvalid,
+    _iso_medium,
     _quality_id,
     validate_catalog_extensions,
 )
@@ -3402,6 +3403,7 @@ def _iso_catalog_extension(
                         "unitsOfDistribution",
                         "transferSize",
                         "onLine",
+                        "offLine",
                         "transferFrequency",
                         "distributionFormat",
                     )
@@ -3541,6 +3543,128 @@ def _iso_catalog_extension(
                 online_records.append(record)
             if online_records:
                 retained["onlineResources"] = online_records
+            offline_records: list[dict[str, Any]] = []
+            for media_index, media_scope in enumerate(context_properties(transfer, "offLine")):
+                media_path = f"{path}.offLine[{media_index}]"
+                medium = (
+                    context_embedded(media_scope, f"{mrd}MD_Medium", media_path)
+                    if media_scope.tag == f"{mrd}offLine"
+                    else None
+                )
+                if medium is None or media_index >= 8:
+                    context_loss(media_path)
+                    continue
+                context_unknown(
+                    medium,
+                    {
+                        f"{mrd}{name}"
+                        for name in (
+                            "name",
+                            "density",
+                            "densityUnits",
+                            "volumes",
+                            "mediumFormat",
+                            "mediumNote",
+                            "identifier",
+                        )
+                    },
+                    media_path,
+                )
+                media_record: dict[str, Any] = {}
+                media_name, _, _ = context_citation(
+                    medium, f"{media_path}.name", property_tag=f"{mrd}name"
+                )
+                if media_name is not None:
+                    media_record["name"] = media_name
+                for field, scalar, maximum in (
+                    ("density", "Real", 100),
+                    ("densityUnits", "CharacterString", 1000),
+                    ("volumes", "Integer", 100),
+                    ("mediumNote", "CharacterString", 1000),
+                ):
+                    field_path = f"{media_path}.{field}"
+                    raw = context_text(
+                        medium, f"{mrd}{field}", f"{gco}{scalar}", field_path, maximum
+                    )
+                    if raw is None:
+                        continue
+                    media_value: str | int = raw
+                    if field == "volumes":
+                        if re.fullmatch(r"[+-]?[0-9]+", raw) is None:
+                            context_loss(field_path)
+                            continue
+                        media_value = int(raw)
+                    try:
+                        media_record.update(_iso_medium({field: media_value}, media_path))
+                    except CatalogMetadataInvalid:
+                        context_loss(field_path)
+                media_formats: list[str] = []
+                for code_index, code_scope in enumerate(context_properties(medium, "mediumFormat")):
+                    code_path = f"{media_path}.mediumFormat[{code_index}]"
+                    code_node = (
+                        context_embedded(
+                            code_scope,
+                            f"{mrd}MD_MediumFormatCode",
+                            code_path,
+                            {"codeList", "codeListValue"},
+                        )
+                        if code_scope.tag == f"{mrd}mediumFormat"
+                        else None
+                    )
+                    code = code_node.get("codeListValue") if code_node is not None else None
+                    if (
+                        code_index >= 8
+                        or code_node is None
+                        or len(code_node)
+                        or code_node.get("codeList")
+                        != "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_MediumFormatCode"
+                        or not code
+                        or code != code.strip()
+                        or (code_node.text or "").strip() not in {"", code}
+                    ):
+                        context_loss(code_path)
+                        continue
+                    try:
+                        _iso_medium({"mediumFormats": [code]}, media_path)
+                    except CatalogMetadataInvalid:
+                        context_loss(code_path)
+                        continue
+                    media_formats.append(code)
+                if media_formats:
+                    media_record["mediumFormats"] = media_formats
+                identifier_scope = context_property(
+                    medium, f"{mrd}identifier", f"{media_path}.identifier"
+                )
+                if identifier_scope is not None:
+                    identifier_node = context_embedded(
+                        identifier_scope, f"{mcc}MD_Identifier", f"{media_path}.identifier"
+                    )
+                    if identifier_node is not None:
+                        identifier_path = f"{media_path}.identifier"
+                        context_unknown(
+                            identifier_node, {f"{mcc}code", f"{mcc}codeSpace"}, identifier_path
+                        )
+                        identifier: dict[str, str] = {}
+                        for field in ("code", "codeSpace"):
+                            raw = context_text(
+                                identifier_node,
+                                f"{mcc}{field}",
+                                f"{gco}CharacterString",
+                                f"{identifier_path}.{field}",
+                                300,
+                            )
+                            if raw is not None:
+                                identifier[field] = raw
+                        try:
+                            media_record.update(_iso_medium({"identifier": identifier}, media_path))
+                        except CatalogMetadataInvalid:
+                            context_loss(identifier_path)
+                if media_record:
+                    offline_records.append(media_record)
+                else:
+                    context_loss(media_path)
+            if offline_records:
+                retained["offlineMedia"] = offline_records
             format_records: list[dict[str, Any]] = []
             for format_index, scope in enumerate(
                 context_properties(transfer, "distributionFormat")
@@ -3602,7 +3726,7 @@ def _iso_catalog_extension(
                 if target is not None and target not in distribution:
                     distribution[target] = online_record["linkage"]
                     bindings[target] = online_index
-            if not distribution:
+            if not distribution and not offline_records:
                 context_loss(f"{path}[no-supported-access-projection]")
                 continue
             title_index = bindings.get("accessUrl", bindings.get("downloadUrl"))
@@ -3612,11 +3736,17 @@ def _iso_catalog_extension(
             if format_records:
                 distribution["format"] = format_records[0]["citation"]["title"]
                 bindings["format"] = 0
-            retained["projections"] = bindings
+            if bindings:
+                retained["projections"] = bindings
             distribution["isoTransfer"] = retained
             try:
                 normalized = validate_catalog_extensions(
-                    {"opengeo": {"schemaVersion": "1.5.0", "distributions": [distribution]}}
+                    {
+                        "opengeo": {
+                            "schemaVersion": "1.7.0" if offline_records else "1.5.0",
+                            "distributions": [distribution],
+                        }
+                    }
                 )
             except CatalogMetadataInvalid:
                 context_loss(path)
@@ -4191,10 +4321,16 @@ def _iso_catalog_extension(
         if len(canonical_json_bytes({"opengeo": catalog})) <= 8_192:
             break
         if "isoTransfer" in distributions[index]:
-            del distributions[index]["isoTransfer"]
-            distribution_unmapped.append(
-                f"mdb:distributionInfo->distributions[{index}].isoTransfer[size-limit]"
-            )
+            if not any(key in distributions[index] for key in ("accessUrl", "downloadUrl")):
+                distributions.pop(index)
+                distribution_unmapped.append(
+                    f"mdb:distributionInfo->distributions[{index}][size-limit]"
+                )
+            else:
+                del distributions[index]["isoTransfer"]
+                distribution_unmapped.append(
+                    f"mdb:distributionInfo->distributions[{index}].isoTransfer[size-limit]"
+                )
     if any("isoTransfer" in value for value in distributions):
         catalog["schemaVersion"] = "1.5.0"
     while quality_groups and len(canonical_json_bytes({"opengeo": catalog})) > 8_192:
@@ -4226,6 +4362,11 @@ def _iso_catalog_extension(
                         del report[field]
     if quality_groups:
         catalog["schemaVersion"] = "1.6.0"
+    if any(value.get("isoTransfer", {}).get("offlineMedia") for value in distributions):
+        catalog["schemaVersion"] = "1.7.0"
+    if not distributions and "distributions" in catalog:
+        del catalog["distributions"]
+        mapped.remove("mdb:distributionInfo->metadata_extensions.opengeo.distributions")
     unmapped = distribution_unmapped
     mapped.extend(quality_unit_mapped)
     mapped.extend(acquisition_context_mapped)

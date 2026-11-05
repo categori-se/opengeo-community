@@ -5,7 +5,7 @@ from datetime import date, datetime
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.6.0"
+OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.7.0"
 OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.0.0",
     "1.1.0",
@@ -13,6 +13,7 @@ OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.3.0",
     "1.4.0",
     "1.5.0",
+    "1.6.0",
     OPEN_GEO_CATALOG_SCHEMA_VERSION,
 }
 OPEN_GEO_CATALOG_NAMESPACE = "opengeo"
@@ -78,6 +79,8 @@ _ISO_TRANSFER_DURATION = re.compile(
     r"-?P(?=[0-9]|T[0-9])(?:[0-9]+Y)?(?:[0-9]+M)?(?:[0-9]+D)?"
     r"(?:T(?=[0-9])(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\.[0-9]+)?S)?)?"
 )
+
+_ISO_MEDIUM_DENSITY = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
 
 
 ISO_QUALITY_REPORT_TYPES = frozenset(
@@ -153,10 +156,10 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if schema_version not in OPEN_GEO_CATALOG_SCHEMA_VERSIONS:
         raise CatalogMetadataInvalid(
             "metadata extensions.opengeo.schemaVersion must be "
-            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, or 1.6.0"
+            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, 1.6.0, or 1.7.0"
         )
     allowed = _CATALOG_FIELDS_1_1 if schema_version != "1.0.0" else _CATALOG_FIELDS_1_0
-    if schema_version == "1.6.0":
+    if schema_version in {"1.6.0", "1.7.0"}:
         allowed = {*allowed, "qualityReports"}
     unknown = set(value) - allowed
     if unknown:
@@ -169,7 +172,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
         result["contacts"] = _contacts(value["contacts"])
     if "distributions" in value:
         result["distributions"] = _distributions(
-            value["distributions"], iso_transfer=schema_version in {"1.5.0", "1.6.0"}
+            value["distributions"],
+            iso_transfer=schema_version in {"1.5.0", "1.6.0", "1.7.0"},
+            offline_media=schema_version == "1.7.0",
         )
     if "referenceSystems" in value:
         result["referenceSystems"] = _reference_systems(value["referenceSystems"])
@@ -196,9 +201,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "acquisition" in value:
         result["acquisition"] = _acquisition(
             value["acquisition"],
-            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0"},
-            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0"},
-            context=schema_version in {"1.4.0", "1.5.0", "1.6.0"},
+            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0"},
+            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0"},
+            context=schema_version in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"},
         )
     return result
 
@@ -224,7 +229,9 @@ def _contacts(value: Any) -> list[dict[str, str]]:
     return result
 
 
-def _distributions(value: Any, *, iso_transfer: bool = False) -> list[dict[str, Any]]:
+def _distributions(
+    value: Any, *, iso_transfer: bool = False, offline_media: bool = False
+) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.distributions")
     allowed = {
         "identifier",
@@ -246,7 +253,9 @@ def _distributions(value: Any, *, iso_transfer: bool = False) -> list[dict[str, 
         distribution: dict[str, Any] = {}
         for field, raw in record.items():
             if field == "isoTransfer":
-                distribution[field] = _iso_transfer(raw, f"{path}.isoTransfer")
+                distribution[field] = _iso_transfer(
+                    raw, f"{path}.isoTransfer", offline_media=offline_media
+                )
             elif field == "byteSize":
                 if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= 10**18:
                     raise CatalogMetadataInvalid(f"metadata {path}.byteSize is invalid")
@@ -254,7 +263,11 @@ def _distributions(value: Any, *, iso_transfer: bool = False) -> list[dict[str, 
             else:
                 maximum = 2_048 if field in {"accessUrl", "downloadUrl"} else 1_000
                 distribution[field] = _string(raw, 1, maximum, f"{path}.{field}")
-        if "accessUrl" not in distribution and "downloadUrl" not in distribution:
+        if (
+            "accessUrl" not in distribution
+            and "downloadUrl" not in distribution
+            and not (offline_media and distribution.get("isoTransfer", {}).get("offlineMedia"))
+        ):
             raise CatalogMetadataInvalid(f"metadata {path} requires accessUrl or downloadUrl")
         for field in ("accessUrl", "downloadUrl"):
             if field in distribution:
@@ -269,21 +282,20 @@ def _distributions(value: Any, *, iso_transfer: bool = False) -> list[dict[str, 
     return result
 
 
-def _iso_transfer(value: Any, path: str) -> dict[str, Any]:
+def _iso_transfer(value: Any, path: str, *, offline_media: bool = False) -> dict[str, Any]:
     if not isinstance(value, dict) or not value:
         raise CatalogMetadataInvalid(f"metadata {path} must be a nonempty transfer object")
-    _known_fields(
-        value,
-        {
-            "unitsOfDistribution",
-            "transferSizeMegabytes",
-            "transferFrequency",
-            "formats",
-            "onlineResources",
-            "projections",
-        },
-        path,
-    )
+    allowed = {
+        "unitsOfDistribution",
+        "transferSizeMegabytes",
+        "transferFrequency",
+        "formats",
+        "onlineResources",
+        "projections",
+    }
+    if offline_media:
+        allowed.add("offlineMedia")
+    _known_fields(value, allowed, path)
     result: dict[str, Any] = {}
     if "unitsOfDistribution" in value:
         result["unitsOfDistribution"] = _string(
@@ -350,6 +362,13 @@ def _iso_transfer(value: Any, path: str) -> dict[str, Any]:
                     )
             resources.append(item)
         result["onlineResources"] = resources
+    if "offlineMedia" in value:
+        result["offlineMedia"] = [
+            _iso_medium(record, f"{path}.offlineMedia[{index}]")
+            for index, record in enumerate(
+                _bounded_objects(value["offlineMedia"], 8, f"{path}.offlineMedia")
+            )
+        ]
     if "projections" in value:
         projections = value["projections"]
         projection_path = f"{path}.projections"
@@ -369,6 +388,65 @@ def _iso_transfer(value: Any, path: str) -> dict[str, Any]:
                     f"an existing {collection} index"
                 )
         result["projections"] = dict(projections)
+    return result
+
+
+def _iso_medium(value: Any, path: str) -> dict[str, Any]:
+    """Validate the bounded, directly owned ISO MD_Medium subset."""
+    if not isinstance(value, dict) or not value:
+        raise CatalogMetadataInvalid(f"metadata {path} must be a nonempty medium object")
+    _known_fields(
+        value,
+        {"name", "density", "densityUnits", "volumes", "mediumFormats", "mediumNote", "identifier"},
+        path,
+    )
+    result: dict[str, Any] = {}
+    if "name" in value:
+        result["name"] = _acquisition_citation(value["name"], f"{path}.name")
+    if "density" in value:
+        density = value["density"]
+        if (
+            not isinstance(density, str)
+            or not 1 <= len(density) <= 100
+            or _ISO_MEDIUM_DENSITY.fullmatch(density) is None
+            or not math.isfinite(float(density))
+        ):
+            raise CatalogMetadataInvalid(
+                f"metadata {path}.density must be a finite xs:double lexical string"
+            )
+        result["density"] = density
+    for field in ("densityUnits", "mediumNote"):
+        if field in value:
+            result[field] = _string(value[field], 1, 1_000, f"{path}.{field}")
+    if "volumes" in value:
+        volumes = value["volumes"]
+        if (
+            isinstance(volumes, bool)
+            or not isinstance(volumes, int)
+            or not -(10**18) <= volumes <= 10**18
+        ):
+            raise CatalogMetadataInvalid(f"metadata {path}.volumes must be a bounded integer")
+        result["volumes"] = volumes
+    if "mediumFormats" in value:
+        formats = value["mediumFormats"]
+        if not isinstance(formats, list) or not 1 <= len(formats) <= 8:
+            raise CatalogMetadataInvalid(f"metadata {path}.mediumFormats requires 1 to 8 strings")
+        result["mediumFormats"] = [
+            _string(raw, 1, 300, f"{path}.mediumFormats[{index}]")
+            for index, raw in enumerate(formats)
+        ]
+    if "identifier" in value:
+        identifier = value["identifier"]
+        if not isinstance(identifier, dict):
+            raise CatalogMetadataInvalid(f"metadata {path}.identifier must be an object")
+        _known_fields(identifier, {"code", "codeSpace"}, f"{path}.identifier")
+        result["identifier"] = {
+            "code": _string(identifier.get("code"), 1, 300, f"{path}.identifier.code")
+        }
+        if "codeSpace" in identifier:
+            result["identifier"]["codeSpace"] = _string(
+                identifier["codeSpace"], 1, 300, f"{path}.identifier.codeSpace"
+            )
     return result
 
 
