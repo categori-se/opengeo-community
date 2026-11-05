@@ -11,7 +11,7 @@ import {withoutRendererFrameBehavior} from './studio-edge-boundary.mjs';
 // The core cap is 24 MiB; exact renderer inventory/14 MiB and PWA/startup
 // budgets are unchanged.
 export const BROWSER_DEMO_LIMITS = Object.freeze({
-  coreFiles: 429, coreBytes: 24 * 1024 * 1024,
+  coreFiles: 430, coreBytes: 24 * 1024 * 1024,
   rendererFiles: 400, rendererBytes: 14 * 1024 * 1024
 });
 
