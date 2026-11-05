@@ -351,6 +351,7 @@ async function stageDemoSource() {
     ["lib/basemapSource.js", "lib/basemapSource.js"],
     ["lib/reviewedBasemapSources.js", "lib/reviewedBasemapSources.js"],
     ["lib/geolibreProject.js", "lib/geolibreProject.js"],
+    ["lib/geolibreHandoff.js", "lib/geolibreHandoff.js"],
     ["lib/geomooseMapbook.js", "lib/geomooseMapbook.js"],
     ["lib/portalConfiguration.js", "lib/portalConfiguration.js"],
     ["lib/portalCatalog.js", "lib/portalCatalog.js"],
