@@ -753,7 +753,7 @@ def export_dcat_3(resource: Any) -> dict[str, Any]:
         mapped.append("metadata_extensions.opengeo.sensitivity")
     opengeo_unmapped = [
         f"metadata_extensions.opengeo.{field}"
-        for field in ("referenceSystems", "funding", "acquisition")
+        for field in ("referenceSystems", "funding", "acquisition", "qualityReports")
         if catalog.get(field)
     ]
     return {
@@ -987,6 +987,7 @@ def export_schema_org_dataset(resource: Any) -> dict[str, Any]:
         for field in (
             "referenceSystems",
             "quality",
+            "qualityReports",
             "updateFrequency",
             "sensitivity",
             "funding",
@@ -2097,6 +2098,11 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
                 *(
                     ["metadata_extensions.opengeo.acquisition"]
                     if catalog.get("acquisition")
+                    else []
+                ),
+                *(
+                    ["metadata_extensions.opengeo.qualityReports"]
+                    if catalog.get("qualityReports")
                     else []
                 ),
             ],

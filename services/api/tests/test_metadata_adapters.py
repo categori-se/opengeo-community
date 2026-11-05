@@ -2055,6 +2055,37 @@ def quality_reports_resource(document=None):
     return resource
 
 
+def test_quality_reports_non_iso_preservation_or_explicit_loss() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    _, resource = datacite_complete_resource()
+    catalog = resource.metadata_extensions.setdefault("opengeo", {})
+    catalog.update(fixture("metadata-017-opengeo-quality-reports.json"))
+    expected = json.loads(json.dumps(catalog["qualityReports"]))
+    loss_path = "metadata_extensions.opengeo.qualityReports"
+    for exporter in (
+        export_dcat_3,
+        export_geodcat_ap_3_1,
+        export_schema_org_dataset,
+        export_datacite_4_7,
+        export_datacite_4_7_xml,
+    ):
+        exported = exporter(resource)
+        assert exported["status"] in {
+            "mapped_with_preserved_extensions",
+            "mapped_with_explicit_losses",
+        }
+        assert loss_path in exported["report"]["unmapped"]
+        if exporter is export_datacite_4_7_xml:
+            ET.fromstring(exported["documentText"])
+        else:
+            assert isinstance(exported["document"], dict)
+    stac = export_stac_1_1(resource)
+    assert stac["status"] in {"mapped", "mapped_with_defaults"}
+    assert stac["document"]["opengeo:metadataExtensions"]["opengeo"]["qualityReports"] == expected
+    assert resource.metadata_extensions["opengeo"]["qualityReports"] == expected
+
+
 def test_iso_quality_reports_round_trip_preserves_groups_results_and_local_links() -> None:
     resource = quality_reports_resource()
     original = json.loads(json.dumps(resource.metadata_extensions["opengeo"]))
