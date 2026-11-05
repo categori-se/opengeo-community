@@ -924,3 +924,224 @@ def test_native_catalog_16_references_cross_groups_and_unicode_xml_ids() -> None
     value["qualityReports"].append({"scope": {"level": "series"}, "reports": [second]})
     assert validate_catalog_metadata(value) == value
     Draft202012Validator(quality_schema()).validate(value)
+
+
+def iso_medium() -> dict[str, Any]:
+    return {
+        "name": {
+            "title": "DVD archive",
+            "dates": [{"date": "2026-11-05", "dateType": "publication"}],
+            "identifiers": [{"code": "DVD", "codeSpace": "archive"}],
+        },
+        "density": "+001.2300e+02",
+        "densityUnits": "megabytes per square centimetre",
+        "volumes": -2,
+        "mediumFormats": ["iso9660", "tar", "iso9660", "providerDefinedFormat"],
+        "mediumNote": "Read with an optical drive",
+        "identifier": {"code": "archive-001", "codeSpace": "media"},
+    }
+
+
+def offline_catalog() -> dict[str, Any]:
+    return {
+        "schemaVersion": "1.7.0",
+        "distributions": [{"isoTransfer": {"offlineMedia": [iso_medium()]}}],
+    }
+
+
+def offline_schema() -> dict[str, Any]:
+    return json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.7.0.schema.json").read_text())
+
+
+def test_native_catalog_17_offline_only_and_mixed_preserve_all_existing_features() -> None:
+    value = quality_reports_catalog()
+    value["schemaVersion"] = "1.7.0"
+    value["acquisition"] = acquisition_context()["acquisition"]
+    value["distributions"][0]["isoTransfer"] = iso_transfer()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = [iso_medium()]
+    value["distributions"].extend(offline_catalog()["distributions"])
+    assert validate_catalog_metadata(value) == value
+    assert value["distributions"][1]["isoTransfer"]["offlineMedia"][0]["density"] == "+001.2300e+02"
+    Draft202012Validator(offline_schema(), format_checker=FormatChecker()).validate(value)
+
+
+@pytest.mark.parametrize("field", list(iso_medium()))
+def test_native_catalog_17_each_medium_field_is_independently_usable(field: str) -> None:
+    value = offline_catalog()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = [{field: iso_medium()[field]}]
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(offline_schema(), format_checker=FormatChecker()).validate(value)
+
+
+@pytest.mark.parametrize("version", ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0"])
+def test_native_catalog_17_old_versions_keep_urls_and_reject_offline_media(version: str) -> None:
+    value = native_catalog()
+    value["schemaVersion"] = version
+    assert validate_catalog_metadata(value) == value
+    schema = json.loads(
+        (ROOT / f"schemas/opengeo-catalog-metadata-{version}.schema.json").read_text()
+    )
+    value["distributions"][0]["isoTransfer"] = {"offlineMedia": [iso_medium()]}
+    with pytest.raises(CatalogMetadataInvalid, match="unknown field"):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(schema).is_valid(value)
+    value["distributions"] = [{"title": "No URL"}]
+    with pytest.raises(CatalogMetadataInvalid, match="requires accessUrl or downloadUrl"):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(schema).is_valid(value)
+
+
+@pytest.mark.parametrize(
+    "transfer",
+    [{}, {"unitsOfDistribution": "files"}, {"offlineMedia": []}, {"offlineMedia": [{}]}],
+)
+def test_native_catalog_17_url_exception_requires_nonempty_valid_media(
+    transfer: dict[str, Any],
+) -> None:
+    value = {"schemaVersion": "1.7.0", "distributions": [{"isoTransfer": transfer}]}
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(offline_schema()).is_valid(value)
+
+
+@pytest.mark.parametrize(
+    "density",
+    [
+        "-1",
+        "+001.2300e+02",
+        "-0",
+        "0",
+        "+0",
+        ".1",
+        "1.",
+        "1E-3",
+        "1e308",
+        "0e999999999",
+        "1.7976931348623157e308",
+    ],
+)
+def test_native_catalog_17_density_preserves_finite_xsd_double_lexemes(density: str) -> None:
+    value = offline_catalog()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = [{"density": density}]
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(offline_schema()).validate(value)
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid"),
+    [
+        ("name", "DVD"),
+        ("name", {}),
+        ("name", {"title": "x" * 1001}),
+        ("name", {"title": "DVD", "unknown": "x"}),
+        ("density", True),
+        ("density", False),
+        ("density", 1),
+        ("density", 1.2),
+        ("density", None),
+        ("density", ""),
+        ("density", " 1"),
+        ("density", "1 "),
+        ("density", "1\n"),
+        ("density", "NaN"),
+        ("density", "INF"),
+        ("density", "-INF"),
+        ("density", "Infinity"),
+        ("density", "1_000"),
+        ("density", "1,000"),
+        ("density", "1d3"),
+        ("density", "1e"),
+        ("density", "1e+"),
+        ("density", "\u0661.\u0662"),
+        ("density", "1" * 101),
+        ("densityUnits", ""),
+        ("densityUnits", True),
+        ("densityUnits", "x" * 1001),
+        ("volumes", True),
+        ("volumes", False),
+        ("volumes", "2"),
+        ("volumes", 1.5),
+        ("volumes", -(10**18) - 1),
+        ("volumes", 10**18 + 1),
+        ("mediumFormats", []),
+        ("mediumFormats", ["tar"] * 9),
+        ("mediumFormats", [""]),
+        ("mediumFormats", [True]),
+        ("mediumFormats", ["x" * 301]),
+        ("mediumNote", ""),
+        ("mediumNote", "x" * 1001),
+        ("identifier", {}),
+        ("identifier", "archive-001"),
+        ("identifier", {"code": ""}),
+        ("identifier", {"code": "x" * 301}),
+        ("identifier", {"code": "x", "codeSpace": "x" * 301}),
+        ("identifier", {"code": "x", "authority": {"title": "Authority"}}),
+        ("identifier", {"code": "x", "version": "1"}),
+        ("identifier", {"code": "x", "description": "Unsupported"}),
+        ("unknown", "unrecognized"),
+    ],
+)
+def test_native_catalog_17_invalid_medium_local_shapes_match_schema(
+    field: str, invalid: Any
+) -> None:
+    value = offline_catalog()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = [{field: invalid}]
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(offline_schema(), format_checker=FormatChecker()).is_valid(
+        value
+    )
+
+
+@pytest.mark.parametrize(
+    "density", ["1e309", "-1e309", "1.7976931348623159e308", "9" * 95 + "e999"]
+)
+def test_native_catalog_17_density_runtime_rejects_double_overflow(density: str) -> None:
+    value = offline_catalog()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = [{"density": density}]
+    # JSON Schema enforces lexical shape; conversion to a finite double is an API rule.
+    assert Draft202012Validator(offline_schema()).is_valid(value)
+    with pytest.raises(CatalogMetadataInvalid, match="finite xs:double lexical string"):
+        validate_catalog_metadata(value)
+
+
+@pytest.mark.parametrize("media", [None, {}, [], [None], [{}], [{"mediumNote": "DVD"}] * 9])
+def test_native_catalog_17_offline_media_requires_one_to_eight_nonempty_objects(media: Any) -> None:
+    value = offline_catalog()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = media
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(offline_schema()).is_valid(value)
+
+
+@pytest.mark.parametrize("volumes", [-(10**18), -1, 0, 1, 10**18])
+def test_native_catalog_17_signed_volume_bounds_and_media_format_multiplicity(volumes: int) -> None:
+    value = offline_catalog()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = [
+        {"volumes": volumes, "mediumFormats": ["providerFormat", "tar", "tar"]}
+    ] * 8
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(offline_schema()).validate(value)
+
+
+def test_native_catalog_17_accepts_scalar_limits_and_retains_distribution_cap() -> None:
+    value = offline_catalog()
+    value["distributions"][0]["isoTransfer"]["offlineMedia"] = [
+        {
+            "name": {"title": "x" * 1000},
+            "density": "0" * 100,
+            "densityUnits": "x" * 1000,
+            "mediumNote": "x" * 1000,
+            "mediumFormats": ["x" * 300] * 8,
+            "identifier": {"code": "x" * 300, "codeSpace": "x" * 300},
+        }
+    ]
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(offline_schema()).validate(value)
+    value["distributions"] = [{"isoTransfer": {"offlineMedia": [{"mediumNote": "DVD"}]}}] * 32
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(offline_schema()).validate(value)
+    value["distributions"].append(value["distributions"][0])
+    with pytest.raises(CatalogMetadataInvalid, match="at most 32"):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(offline_schema()).is_valid(value)

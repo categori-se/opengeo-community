@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "1.7.0",
+  "distributions": [
+    {
+      "isoTransfer": {
+        "unitsOfDistribution": "archive volumes",
+        "offlineMedia": [
+          {
+            "name": {
+              "title": "Survey archive DVD",
+              "edition": "2026",
+              "dates": [{"date": "2026-06-01", "dateType": "publication"}],
+              "identifiers": [{"code": "ARCHIVE-2026"}]
+            },
+            "density": "-1.00",
+            "densityUnits": "records per archive volume",
+            "volumes": -2,
+            "mediumFormats": ["iso9660", "example-custom-format", "iso9660"],
+            "mediumNote": "Preserve the source's finite negative value and repeated format codes without inventing a download URL.",
+            "identifier": {"code": "DVD-001", "codeSpace": "https://example.test/archive"}
+          },
+          {
+            "name": {"title": "Supplementary survey archive"},
+            "density": "1.00",
+            "volumes": 0,
+            "mediumNote": "Second medium owned by the first transfer options record."
+          }
+        ]
+      }
+    },
+    {
+      "accessUrl": "https://data.example.test/survey",
+      "isoTransfer": {
+        "onlineResources": [
+          {"linkage": "https://data.example.test/survey", "function": "information"}
+        ],
+        "projections": {"accessUrl": 0},
+        "offlineMedia": [
+          {
+            "name": {"title": "Reference survey disk"},
+            "density": "2.50E+1",
+            "densityUnits": "observations per disk",
+            "volumes": 1,
+            "mediumFormats": ["udf"],
+            "identifier": {"code": "MIXED-001"}
+          }
+        ]
+      }
+    },
+    {
+      "isoTransfer": {
+        "offlineMedia": [
+          {
+            "name": {"title": "Independent archive owner"},
+            "mediumNote": "This medium belongs to the third transfer options record.",
+            "identifier": {"code": "ARCHIVE-SECOND", "codeSpace": "urn:dfc:archive"}
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -2045,6 +2045,234 @@ def iso_online_distribution_resource():
     return resource
 
 
+def iso_offline_distribution_resource():
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        fixture("metadata-018-opengeo-offline-distribution.json")
+    )
+    return resource
+
+
+def test_iso_offline_distribution_round_trip_preserves_owned_media_and_lexical_values() -> None:
+    resource = iso_offline_distribution_resource()
+    expected = json.loads(json.dumps(resource.metadata_extensions["opengeo"]))
+    exported = export_iso_19115_3(resource)
+    document = exported["documentText"]
+    assert export_iso_19115_3(resource)["documentText"] == document
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    dtos = list(ET.fromstring(document).iter(f"{mrd}MD_DigitalTransferOptions"))
+    assert [len(dto.findall(f"{mrd}offLine")) for dto in dtos] == [2, 1, 1]
+    assert [len(dto.findall(f"{mrd}onLine")) for dto in dtos] == [0, 1, 0]
+    reopened = iso_import(document)
+    actual = reopened.draft.metadata.extensions["opengeo"]
+    assert actual["schemaVersion"] == "1.7.0"
+    assert len(actual["distributions"]) == 3
+    for index, distribution in enumerate(actual["distributions"]):
+        assert distribution["isoTransfer"] == expected["distributions"][index]["isoTransfer"]
+    first = actual["distributions"][0]["isoTransfer"]["offlineMedia"][0]
+    assert set(first) == {
+        "name",
+        "density",
+        "densityUnits",
+        "volumes",
+        "mediumFormats",
+        "mediumNote",
+        "identifier",
+    }
+    assert first["density"] == "-1.00" and first["volumes"] == -2
+    assert first["mediumFormats"] == ["iso9660", "example-custom-format", "iso9660"]
+    assert actual["distributions"][0]["isoTransfer"]["offlineMedia"][1]["density"] == "1.00"
+    for index in (0, 2):
+        assert not actual["distributions"][index].get("accessUrl")
+        assert not actual["distributions"][index].get("downloadUrl")
+    assert reopened.source_document == document
+    assert resource.metadata_extensions["opengeo"] == expected
+
+
+def test_iso_offline_distribution_native_edits_and_clears_do_not_restore_source() -> None:
+    source = export_iso_19115_3(iso_offline_distribution_resource())["documentText"]
+    resource = resource_from_plan(iso_import(source))
+    distributions = resource.metadata_extensions["opengeo"]["distributions"]
+    media = distributions[0]["isoTransfer"]["offlineMedia"]
+    media[0]["name"]["title"] = "Curated archive"
+    media[0]["density"] = "-2.00"
+    media[0]["mediumFormats"] = ["curated-format", "curated-format"]
+    media[0].pop("mediumNote")
+    media.pop(1)
+    distributions[1]["isoTransfer"].pop("offlineMedia")
+    distributions.pop(2)
+    document = export_iso_19115_3(resource)["documentText"]
+    actual = iso_import(document).draft.metadata.extensions["opengeo"]["distributions"]
+    assert len(actual) == 2
+    assert actual[0]["isoTransfer"]["offlineMedia"] == media
+    assert "offlineMedia" not in actual[1]["isoTransfer"]
+    assert actual[1]["accessUrl"] == "https://data.example.test/survey"
+    assert "Supplementary survey archive" not in document
+    assert "Independent archive owner" not in document
+
+
+def test_iso_offline_distribution_unsupported_owned_shapes_preserve_source_and_loss() -> None:
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    mcc = "{http://standards.iso.org/iso/19115/-3/mcc/1.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    href = "{http://www.w3.org/1999/xlink}href"
+    source = export_iso_19115_3(iso_offline_distribution_resource())["documentText"]
+    for mutation in ("foreign", "nested", "duplicate", "codeList", "identifier", "href", "tail"):
+        xml = ET.fromstring(source)
+        medium = next(xml.iter(f"{mrd}MD_Medium"))
+        if mutation == "foreign":
+            medium.find(f"{mrd}densityUnits").tag = "{urn:foreign}densityUnits"
+        elif mutation == "nested":
+            wrapper = ET.SubElement(medium, "{urn:foreign}unowned")
+            nested = ET.SubElement(ET.SubElement(wrapper, f"{mrd}offLine"), f"{mrd}MD_Medium")
+            ET.SubElement(
+                ET.SubElement(nested, f"{mrd}mediumNote"), f"{gco}CharacterString"
+            ).text = "UNOWNED MEDIUM"
+        elif mutation == "duplicate":
+            duplicate = ET.fromstring(ET.tostring(medium.find(f"{mrd}density")))
+            medium.append(duplicate)
+        elif mutation == "codeList":
+            next(medium.iter(f"{mrd}MD_MediumFormatCode")).set(
+                "codeList", "https://example.invalid/foreign-code-list"
+            )
+        elif mutation == "identifier":
+            identifier = next(medium.iter(f"{mcc}MD_Identifier"))
+            ET.SubElement(
+                ET.SubElement(identifier, f"{mcc}description"), f"{gco}CharacterString"
+            ).text = "Unsupported identifier detail"
+        elif mutation == "href":
+            note = medium.find(f"{mrd}mediumNote")
+            note.clear()
+            note.set(href, "https://example.invalid/remote-note")
+        else:
+            medium.find(f"{mrd}density").tail = "retained mixed property tail"
+        document = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(document)
+        assert plan.source_document == document
+        assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+        actual = plan.draft.metadata.extensions["opengeo"]["distributions"]
+        assert len(actual) == 3
+        assert "UNOWNED MEDIUM" not in canonical_json_bytes(actual).decode()
+        marker = {
+            "foreign": "densityUnits",
+            "nested": "unowned",
+            "duplicate": "density",
+            "codeList": "mediumFormat",
+            "identifier": "identifier",
+            "href": "mediumNote",
+            "tail": "tail",
+        }[mutation]
+        assert any(marker in path for path in plan.conversion_report["unmapped"])
+        first = actual[0]["isoTransfer"]["offlineMedia"][0]
+        if mutation in {"foreign", "duplicate", "href"}:
+            field = {"foreign": "densityUnits", "duplicate": "density", "href": "mediumNote"}[
+                mutation
+            ]
+            assert field not in first
+        if mutation == "codeList":
+            assert first["mediumFormats"] == ["example-custom-format", "iso9660"]
+        if mutation == "identifier":
+            assert first.get("identifier", {}).get("description") is None
+
+
+def test_iso_offline_distribution_nonfinite_and_invalid_integer_source_are_explicit_losses() -> (
+    None
+):
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    source = export_iso_19115_3(iso_offline_distribution_resource())["documentText"]
+    for field, value in (
+        ("density", "NaN"),
+        ("density", "INF"),
+        ("density", "1e9999"),
+        ("volumes", "1.5"),
+        ("volumes", "true"),
+        ("volumes", "1000000000000000001"),
+    ):
+        xml = ET.fromstring(source)
+        medium = next(xml.iter(f"{mrd}MD_Medium"))
+        medium.find(f"{mrd}{field}")[0].text = value
+        document = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(document)
+        media = plan.draft.metadata.extensions["opengeo"]["distributions"][0]["isoTransfer"][
+            "offlineMedia"
+        ]
+        assert field not in media[0]
+        assert any(field in path for path in plan.conversion_report["unmapped"])
+        assert plan.source_document == document
+
+
+def test_iso_offline_distribution_byte_limit_does_not_fabricate_online_records() -> None:
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    xml = ET.fromstring(export_iso_19115_3(iso_offline_distribution_resource())["documentText"])
+    dtos = list(xml.iter(f"{mrd}MD_DigitalTransferOptions"))
+    for dto in dtos:
+        for item in list(dto):
+            if item.tag == f"{mrd}offLine":
+                dto.remove(item)
+        for _ in range(8):
+            medium = ET.SubElement(ET.SubElement(dto, f"{mrd}offLine"), f"{mrd}MD_Medium")
+            ET.SubElement(
+                ET.SubElement(medium, f"{mrd}mediumNote"), f"{gco}CharacterString"
+            ).text = "é" * 700
+    document = ET.tostring(xml, encoding="unicode")
+    assert len(document.encode()) <= 49152
+    plan = iso_import(document)
+    assert plan.source_document == document
+    assert len(canonical_json_bytes(plan.draft.metadata.extensions)) <= 8192
+    assert any("size-limit" in path for path in plan.conversion_report["unmapped"])
+    distributions = plan.draft.metadata.extensions["opengeo"].get("distributions", [])
+    assert all(
+        value.get("accessUrl")
+        or value.get("downloadUrl")
+        or value.get("isoTransfer", {}).get("offlineMedia")
+        for value in distributions
+    )
+    assert all(
+        not value.get("accessUrl") or value["accessUrl"] == "https://data.example.test/survey"
+        for value in distributions
+    )
+
+
+def test_iso_offline_distribution_non_iso_loss_and_stac_exact_preservation() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    _, resource = datacite_complete_resource()
+    catalog = resource.metadata_extensions.setdefault("opengeo", {})
+    catalog.update(fixture("metadata-018-opengeo-offline-distribution.json"))
+    expected = json.loads(json.dumps(catalog))
+    for exporter in (
+        export_dcat_3,
+        export_geodcat_ap_3_1,
+        export_schema_org_dataset,
+        export_datacite_4_7,
+        export_datacite_4_7_xml,
+    ):
+        result = exporter(resource)
+        assert result["status"] in {
+            "mapped",
+            "mapped_with_preserved_extensions",
+            "mapped_with_explicit_losses",
+            "mapped_with_defaults",
+        }
+        assert any(
+            path.startswith("metadata_extensions.opengeo.distributions")
+            and path.endswith(".isoTransfer.offlineMedia")
+            for path in result["report"]["unmapped"]
+        )
+        if exporter is export_datacite_4_7_xml:
+            ET.fromstring(result["documentText"])
+        else:
+            assert isinstance(result["document"], dict)
+    stac = export_stac_1_1(resource)
+    assert stac["status"] in {"mapped", "mapped_with_defaults"}
+    assert stac["document"]["opengeo:metadataExtensions"]["opengeo"] == expected
+    assert not stac["document"].get("assets")
+    assert resource.metadata_extensions["opengeo"] == expected
+
+
 def quality_reports_resource(document=None):
     from opengeo_api.metadata_catalog import validate_catalog_metadata
 

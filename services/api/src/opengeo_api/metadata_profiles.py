@@ -756,6 +756,11 @@ def export_dcat_3(resource: Any) -> dict[str, Any]:
         for field in ("referenceSystems", "funding", "acquisition", "qualityReports")
         if catalog.get(field)
     ]
+    opengeo_unmapped.extend(
+        f"metadata_extensions.opengeo.distributions[{index}].isoTransfer.offlineMedia"
+        for index, distribution in enumerate(distributions)
+        if distribution.get("isoTransfer", {}).get("offlineMedia")
+    )
     return {
         "target": "dcat_3",
         "targetVersion": "W3C Recommendation 2024-08-22",
@@ -999,6 +1004,11 @@ def export_schema_org_dataset(resource: Any) -> dict[str, Any]:
             or (field != "lineage.statement" and catalog.get(field))
         )
     ]
+    catalog_unmapped.extend(
+        f"metadata_extensions.opengeo.distributions[{index}].isoTransfer.offlineMedia"
+        for index, distribution in enumerate(distributions)
+        if distribution.get("isoTransfer", {}).get("offlineMedia")
+    )
     return {
         "target": "schema_org_dataset",
         "targetVersion": "30.0",
@@ -2096,6 +2106,11 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
                 "provenance",
                 *registration_losses,
                 *(
+                    f"metadata_extensions.opengeo.distributions[{index}].isoTransfer.offlineMedia"
+                    for index, distribution in enumerate(catalog.get("distributions", []))
+                    if distribution.get("isoTransfer", {}).get("offlineMedia")
+                ),
+                *(
                     ["metadata_extensions.opengeo.acquisition"]
                     if catalog.get("acquisition")
                     else []
@@ -2949,6 +2964,9 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         scoped_name = child(service_type, "gco", "ScopedName", "service")
         scoped_name.set("codeSpace", "https://schemas.isotc211.org/19115/-3/srv/2.0")
     distributions = cast(list[dict[str, Any]], catalog.get("distributions", []))
+    offline_media_present = any(
+        value.get("isoTransfer", {}).get("offlineMedia") for value in distributions
+    )
     distribution_mapped: list[str] = []
     distribution_unmapped: list[str] = []
     distribution_blocks: list[tuple[ET.Element, ET.Element, str]] = []
@@ -3177,6 +3195,89 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 if online_index >= len(context.get("onlineResources", [])):
                     del distribution_mapped[online_mapped_start:]
                     del distribution_unmapped[online_unmapped_start:]
+            for medium_index, medium_value in enumerate(context.get("offlineMedia", [])):
+                medium_path = f"{path}.isoTransfer.offlineMedia[{medium_index}]"
+                medium_property = child(transfer, "mrd", "offLine")
+                medium_element = child(medium_property, "mrd", "MD_Medium")
+                # The pinned MD_Medium sequence uses a citation, not MD_MediumNameCode.
+                if "name" in medium_value:
+                    distribution_citation(
+                        medium_element,
+                        medium_value["name"],
+                        f"{medium_path}.name",
+                        name="name",
+                    )
+                for medium_field, medium_xml_type in (
+                    ("density", "Real"),
+                    ("densityUnits", "CharacterString"),
+                    ("volumes", "Integer"),
+                ):
+                    if medium_field in medium_value:
+                        # Density is already a validated finite lexical xs:double.
+                        # Only the native integer volume count needs string rendering.
+                        medium_text = medium_value[medium_field]
+                        if medium_field == "volumes":
+                            medium_text = str(medium_text)
+                        distribution_text(
+                            medium_element,
+                            "mrd",
+                            medium_field,
+                            medium_text,
+                            f"{medium_path}.{medium_field}",
+                            medium_xml_type,
+                        )
+                for medium_format_index, medium_format in enumerate(
+                    medium_value.get("mediumFormats", [])
+                ):
+                    medium_format_path = f"{medium_path}.mediumFormats[{medium_format_index}]"
+                    if not _iso_quality_unit_label_supported(medium_format) or any(
+                        character in medium_format for character in "\t\n"
+                    ):
+                        distribution_unmapped.append(medium_format_path)
+                        continue
+                    medium_format_code = child(
+                        child(medium_element, "mrd", "mediumFormat"),
+                        "mrd",
+                        "MD_MediumFormatCode",
+                        medium_format,
+                    )
+                    medium_format_code.set(
+                        "codeList",
+                        "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_MediumFormatCode",
+                    )
+                    medium_format_code.set("codeListValue", medium_format)
+                    distribution_mapped.append(medium_format_path)
+                if "mediumNote" in medium_value:
+                    distribution_text(
+                        medium_element,
+                        "mrd",
+                        "mediumNote",
+                        medium_value["mediumNote"],
+                        f"{medium_path}.mediumNote",
+                    )
+                if "identifier" in medium_value:
+                    medium_identifier_value = medium_value["identifier"]
+                    medium_identifier_path = f"{medium_path}.identifier"
+                    if not _iso_quality_unit_label_supported(medium_identifier_value["code"]):
+                        distribution_unmapped.append(medium_identifier_path)
+                    else:
+                        medium_identifier = child(
+                            child(medium_element, "mrd", "identifier"),
+                            "mcc",
+                            "MD_Identifier",
+                        )
+                        for identifier_field in ("code", "codeSpace"):
+                            if identifier_field in medium_identifier_value:
+                                distribution_text(
+                                    medium_identifier,
+                                    "mcc",
+                                    identifier_field,
+                                    medium_identifier_value[identifier_field],
+                                    f"{medium_identifier_path}.{identifier_field}",
+                                )
+                if not len(medium_element):
+                    transfer.remove(medium_property)
+                    distribution_unmapped.append(medium_path)
             if "transferFrequency" in context:
                 distribution_text(
                     transfer,
@@ -4241,7 +4342,9 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             root.remove(acquisition_info)
             xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
     distribution_was_emitted = bool(distribution_blocks)
-    while xml_size > 49_152 and distribution_blocks:
+    while distribution_blocks and (
+        xml_size > 49_152 or (offline_media_present and not quality_xml_within_bounds())
+    ):
         parent, element, path = distribution_blocks.pop()
         parent.remove(element)
         removed = [p for p in distribution_mapped if p == path or p.startswith(path + ".")]
@@ -4257,7 +4360,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
     context_size_blocked = (
         (context_was_emitted or distribution_was_emitted) and xml_size > 49_152
-    ) or (bool(quality_reports) and not quality_xml_within_bounds())
+    ) or (bool(quality_reports or offline_media_present) and not quality_xml_within_bounds())
     iso_catalog_mapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in (
@@ -4404,6 +4507,13 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         ]
         result["report"]["sizeLimitBytes"] = 49_152
         result["report"]["documentBytes"] = xml_size
+    if offline_media_present and context_size_blocked and xml_size <= 49_152:
+        result["report"]["warnings"] = [
+            "The ISO document exceeds the 2000-node or 32-level source limit after "
+            "omitting optional context. Native metadata is unchanged."
+        ]
+        result["report"]["nodeLimit"] = 2000
+        result["report"]["depthLimit"] = 32
     if (distributions or quality_reports) and len(
         json.dumps(result["report"], ensure_ascii=False).encode("utf-8")
     ) > 16_384:
