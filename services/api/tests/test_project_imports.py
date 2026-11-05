@@ -7,14 +7,18 @@ from uuid import UUID
 import pytest
 
 from opengeo_api.project_imports import (
+    EmbeddedImportCandidate,
+    ExternalImportCandidate,
     PostgresProjectImportRepository,
     ProjectImportConflict,
+    ProjectImportDraft,
     _legacy_geolibre_json,
     geolibre_return_metadata,
     rewrite_import_definition,
     upgrade_import_map_definition,
     validate_geolibre_return,
 )
+from opengeo_api.rds_data import compile_data_api_statement
 from test_map_definitions import definition as valid_definition
 from test_workspaces import (
     DATASET_ID,
@@ -124,6 +128,103 @@ def import_row(*, completed: bool = False) -> tuple:
         NOW,
         NOW if completed else None,
     )
+
+
+def test_create_import_casts_bound_enums_for_data_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    ids = iter((IMPORT_ID, OUTPUT_ID))
+    monkeypatch.setattr("opengeo_api.project_imports.uuid4", lambda: next(ids))
+    external = ExternalImportCandidate(
+        import_ref="geolibre:public-xyz",
+        name="Public XYZ context",
+        description=None,
+        classification="internal",
+        source_type="xyz",
+        source_url="https://tiles.example.test/{z}/{x}/{y}.png",
+        configuration={"tileSize": 256},
+        tags=(),
+    )
+    embedded = EmbeddedImportCandidate(
+        import_ref="geolibre:field-sites",
+        name="Field sites",
+        description=None,
+        classification="internal",
+        format="geojson",
+        filename="field-sites.geojson",
+        content_type="application/geo+json",
+        size_bytes=100,
+        checksum_sha256="c" * 64,
+        tags=(),
+    )
+    draft = ProjectImportDraft(
+        idempotency_key=IMPORT_ID,
+        map_id=MAP_ID,
+        expected_map_version=3,
+        source_product="geolibre",
+        source_version="3.0.0",
+        source_sha256="a" * 64,
+        plan_digest="b" * 64,
+        map_definition=valid_definition(),
+        conversion_report={},
+        external_sources=(external,),
+        embedded_datasets=(embedded,),
+    )
+    transaction = FakeTransaction(
+        one=[("member",), (PROJECT_ID, "owner"), None, (3,), import_row()],
+        all_rows=[
+            [
+                (
+                    external.import_ref,
+                    "external_source",
+                    "xyz",
+                    "xyz",
+                    {},
+                    "bound",
+                    OUTPUT_ID,
+                    NOW,
+                ),
+                (
+                    embedded.import_ref,
+                    "embedded_dataset",
+                    "upload",
+                    "geojson",
+                    {},
+                    "pending",
+                    None,
+                    None,
+                ),
+            ]
+        ],
+    )
+    created = asyncio.run(
+        PostgresProjectImportRepository(FakeExecutor(transaction)).create_import(
+            context(), PROJECT_ID, draft, "data-api-enum-regression"
+        )
+    )
+    assert len(created.items) == 2
+
+    def compiled_insert(table: str, marker: str = "") -> tuple[str, list[dict]]:
+        call = next(
+            call
+            for call in transaction.calls
+            if f"INSERT INTO app.{table}" in call[1] and marker in call[1]
+        )
+        return compile_data_api_statement(call[1], call[2])
+
+    sql, parameters = compiled_insert("datasets")
+    assert ":p4::app.dataset_classification" in sql
+    assert ":p5::app.dataset_source_type" in sql
+    assert ":p6::app.dataset_format" in sql
+    assert parameters[4] == {"name": "p4", "value": {"stringValue": "internal"}}
+    assert parameters[5] == {"name": "p5", "value": {"stringValue": "xyz"}}
+    assert parameters[6] == {"name": "p6", "value": {"stringValue": "xyz"}}
+
+    sql, _ = compiled_insert("external_sources")
+    assert ":p2::app.dataset_source_type" in sql
+    sql, _ = compiled_insert("project_import_items", "'external_source'")
+    assert ":p3::app.dataset_source_type" in sql
+    assert ":p4::app.dataset_format" in sql
+    sql, _ = compiled_insert("project_import_items", "'embedded_dataset'")
+    assert ":p3::app.dataset_format" in sql
 
 
 def test_upgrade_import_definition_adds_processing_state_without_mutating_legacy() -> None:

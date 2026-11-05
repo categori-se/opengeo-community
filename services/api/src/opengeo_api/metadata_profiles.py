@@ -1418,11 +1418,7 @@ def _datacite_registration_fields(
             elif field == "contributors":
                 parsed = person(value, path, True)
             else:
-                required = (
-                    {"alternateIdentifier", "alternateIdentifierType"}
-                    if field == "alternateIdentifiers"
-                    else {"relatedIdentifier", "relatedIdentifierType", "relationType"}
-                )
+                required = {"alternateIdentifier", "alternateIdentifierType"}
                 raw = record(value, path, required, required)
                 parsed = {}
                 if raw is not None:
@@ -1431,29 +1427,17 @@ def _datacite_registration_fields(
                             raw[key],
                             f"{path}.{key}",
                             2048,
-                            attribute=key not in {"alternateIdentifier", "relatedIdentifier"},
+                            attribute=key != "alternateIdentifier",
                         )
                         if part is not None:
                             parsed[key] = part
-                if field == "relatedIdentifiers" and (
-                    parsed.get("relatedIdentifierType")
-                    not in _DATACITE_REGISTRATION_VOCABULARIES["relatedIdentifierType"]
-                    or parsed.get("relationType")
-                    not in _DATACITE_REGISTRATION_VOCABULARIES["relationType"]
-                ):
-                    losses.append(path)
-                    parsed = None
-                elif not required <= parsed.keys():
+                if not required <= parsed.keys():
                     parsed = None
             if parsed is not None:
                 projected.append(parsed)
             else:
                 del mapped[previous:]
         if projected:
-            if field == "relatedIdentifiers":
-                for native in attributes.get(field, []):
-                    if native not in projected:
-                        projected.append(native)
             attributes[field] = projected
 
 
@@ -1781,7 +1765,7 @@ def _datacite_complete_registration_fields(
         return str(value.get("lang", attributes.get("language", "en"))).lower()
 
     def dates_equal(first: Any, second: Any) -> bool:
-        def bounds(value: Any) -> Any:
+        def bounds(value: Any) -> tuple[datetime | None, ...] | None:
             if value is None:
                 return None
             try:
@@ -1889,7 +1873,7 @@ def _datacite_complete_registration_fields(
                 if value not in clean and value.get("dateType") != "Coverage":
                     clean.append(value)
             if coverage is not None and not any(value["dateType"] == "Coverage" for value in clean):
-                clean.extend(value for value in native if value.get("dateType") == "Coverage")
+                clean.extend(value for value in native or [] if value.get("dateType") == "Coverage")
         elif (
             field == "types"
             and clean.get("resourceTypeGeneral") != attributes["types"]["resourceTypeGeneral"]
@@ -4439,10 +4423,10 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_ProgressCode",
             )
             plan_status_code.set("codeListValue", value["status"])
-            citation_value = value.get("citation")
-            if not isinstance(citation_value, dict) or not emit_context_citation(
+            plan_citation_record = value.get("citation")
+            if not isinstance(plan_citation_record, dict) or not emit_context_citation(
                 plan,
-                citation_value,
+                plan_citation_record,
                 f"metadata_extensions.opengeo.acquisition.plans[{plan_index}].citation",
                 plan_identifier=value["identifier"],
             ):
@@ -4657,9 +4641,9 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         xml_id_counts: dict[str, int] = {}
         for element in root.iter():
             for attribute in ("id", tag("gml", "id")):
-                identifier = element.get(attribute)
-                if identifier is not None:
-                    xml_id_counts[identifier] = xml_id_counts.get(identifier, 0) + 1
+                xml_identifier = element.get(attribute)
+                if xml_identifier is not None:
+                    xml_id_counts[xml_identifier] = xml_id_counts.get(xml_identifier, 0) + 1
         emitted_id_paths = {**quality_id_paths, **graph_id_paths}
         quality_id_collisions = [
             emitted_id_paths.get(

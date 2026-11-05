@@ -283,7 +283,8 @@ class PostgresProjectImportRepository:
                       (organization_id, import_id, import_ref, kind,
                        expected_source_type, expected_format, candidate,
                        state, dataset_id, bound_at)
-                    VALUES (%s, %s, %s, 'external_source', %s, %s, %s,
+                    VALUES (%s, %s, %s, 'external_source',
+                            %s::app.dataset_source_type, %s::app.dataset_format, %s,
                             'bound', %s, clock_timestamp())
                     """,
                     (
@@ -302,7 +303,8 @@ class PostgresProjectImportRepository:
                     INSERT INTO app.project_import_items
                       (organization_id, import_id, import_ref, kind,
                        expected_source_type, expected_format, candidate)
-                    VALUES (%s, %s, %s, 'embedded_dataset', 'upload', %s, %s)
+                    VALUES (%s, %s, %s, 'embedded_dataset', 'upload',
+                            %s::app.dataset_format, %s)
                     """,
                     (
                         context.organization_id,
@@ -660,7 +662,9 @@ class PostgresProjectImportRepository:
             INSERT INTO app.datasets
               (id, organization_id, name, description, classification,
                source_type, format, status, owner_user_id, created_by, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, 'active', %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s::app.dataset_classification,
+                    %s::app.dataset_source_type, %s::app.dataset_format,
+                    'active', %s, %s, %s)
             """,
             (
                 dataset_id,
@@ -688,7 +692,7 @@ class PostgresProjectImportRepository:
             """
             INSERT INTO app.external_sources
               (organization_id, dataset_id, source_type, created_by)
-            VALUES (%s, %s, %s, %s)
+            VALUES (%s, %s, %s::app.dataset_source_type, %s)
             """,
             (context.organization_id, dataset_id, candidate.source_type, context.user_id),
         )

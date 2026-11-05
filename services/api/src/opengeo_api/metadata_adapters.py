@@ -2412,8 +2412,12 @@ def _iso_catalog_extension(
         alternatives: list[str] = []
         for index, alternate in enumerate(context_properties(citation, "alternateTitle")):
             alternate_path = f"{path}.alternateTitle[{index}]"
-            value = context_embedded(alternate, f"{gco}CharacterString", alternate_path)
-            raw = value.text if value is not None and not len(value) else None
+            alternate_node = context_embedded(alternate, f"{gco}CharacterString", alternate_path)
+            raw = (
+                alternate_node.text
+                if alternate_node is not None and not len(alternate_node)
+                else None
+            )
             if (
                 index >= 8
                 or alternate.tag != f"{cit}alternateTitle"
@@ -2446,7 +2450,7 @@ def _iso_catalog_extension(
             date_type = type_node.get("codeListValue") if type_node is not None else None
             try:
                 valid_date = raw is not None and re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw) is not None
-                if valid_date:
+                if valid_date and raw is not None:
                     datetime.fromisoformat(raw)
             except ValueError:
                 valid_date = False
@@ -3331,17 +3335,17 @@ def _iso_catalog_extension(
                 for name in names:
                     value_path = f"{environment_path}.{name}"
                     if name == "meterologicalConditions":
-                        value: Any = context_text(
+                        environment_value: Any = context_text(
                             environment, f"{mac}{name}", f"{gco}CharacterString", value_path, 1000
                         )
                         native_name = "meteorologicalConditions"
                     else:
-                        value = context_number(
+                        environment_value = context_number(
                             environment, f"{mac}{name}", f"{gco}Real", value_path
                         )
                         native_name = name
-                    if value is not None:
-                        values[native_name] = value
+                    if environment_value is not None:
+                        values[native_name] = environment_value
                 if values:
                     environmental_conditions = values
                     acquisition_context_owner["environmentalConditions"] = values
@@ -3805,7 +3809,10 @@ def _iso_catalog_extension(
             if function is not None:
                 result["function"] = function
         try:
-            return _iso_transfer({"onlineResources": [result]}, path)["onlineResources"][0]
+            return cast(
+                dict[str, Any],
+                _iso_transfer({"onlineResources": [result]}, path)["onlineResources"][0],
+            )
         except CatalogMetadataInvalid:
             context_loss(path)
             return None
@@ -3909,20 +3916,20 @@ def _iso_catalog_extension(
         for field, scalar in scalars.items():
             field_path = f"{path}.{field}"
             if field in {"orderOptionsType", "orderOptions"}:
-                scope = context_property(node, f"{mrd}{field}", field_path)
-                if scope is None:
+                record_scope = context_property(node, f"{mrd}{field}", field_path)
+                if record_scope is None:
                     continue
-                record_node = context_embedded(scope, f"{gco}{scalar}", field_path)
-                text = record_node.text or "" if record_node is not None else ""
+                record_node = context_embedded(record_scope, f"{gco}{scalar}", field_path)
+                record_text = record_node.text or "" if record_node is not None else ""
                 if (
                     record_node is None
                     or len(record_node)
-                    or len(text) > 1000
-                    or not _iso_quality_unit_label_supported(text)
+                    or len(record_text) > 1000
+                    or not _iso_quality_unit_label_supported(record_text)
                 ):
                     context_loss(field_path)
                 else:
-                    result[field] = text
+                    result[field] = record_text
                 continue
             text = context_text(
                 node,
@@ -4044,9 +4051,10 @@ def _iso_catalog_extension(
             return value
 
         graph_groups = [
-            value
+            pruned_group
             for index, group in enumerate(graph_groups)
-            if (value := graph_prune("Group", group, f"mdb:distributionInfo[{index}]")) is not None
+            if (pruned_group := graph_prune("Group", group, f"mdb:distributionInfo[{index}]"))
+            is not None
         ]
         try:
             graph_groups = _iso_distribution_groups(graph_groups, rich_contacts=True)
@@ -4185,20 +4193,20 @@ def _iso_catalog_extension(
                     context_loss(f"{online_path}.function")
                     continue
                 if function_scope is not None:
-                    node = context_embedded(
+                    function_node = context_embedded(
                         function_scope,
                         f"{cit}CI_OnLineFunctionCode",
                         f"{online_path}.function",
                         {"codeList", "codeListValue"},
                     )
-                    code = node.get("codeListValue") if node is not None else None
+                    code = function_node.get("codeListValue") if function_node is not None else None
                     if (
-                        node is None
-                        or len(node)
+                        function_node is None
+                        or len(function_node)
                         or not code
                         or len(code) > 300
                         or code != code.strip()
-                        or (node.text or "").strip() not in {"", code}
+                        or (function_node.text or "").strip() not in {"", code}
                         or not _iso_quality_unit_label_supported(code)
                     ):
                         context_loss(f"{online_path}.function")
@@ -4297,16 +4305,16 @@ def _iso_catalog_extension(
             bindings: dict[str, int] = {}
             for online_index, online_record in enumerate(online_records):
                 function = online_record.get("function")
-                target = (
+                access_target = (
                     "downloadUrl"
                     if function == "download"
                     else "accessUrl"
                     if function in {None, "information"}
                     else None
                 )
-                if target is not None and target not in distribution:
-                    distribution[target] = online_record["linkage"]
-                    bindings[target] = online_index
+                if access_target is not None and access_target not in distribution:
+                    distribution[access_target] = online_record["linkage"]
+                    bindings[access_target] = online_index
             if not distribution and not offline_records:
                 context_loss(f"{path}[no-supported-access-projection]")
                 continue
@@ -4677,8 +4685,8 @@ def _iso_catalog_extension(
             context_loss(path)
             continue
         context_unknown(quality_node, {f"{mdq}scope", f"{mdq}report"}, path)
-        scope = quality_scope(quality_node, "scope", path)
-        if scope is None:
+        quality_scope_record = quality_scope(quality_node, "scope", path)
+        if quality_scope_record is None:
             context_loss(f"{path}.scope")
             continue
         reports: list[dict[str, Any]] = []
@@ -4794,7 +4802,7 @@ def _iso_catalog_extension(
             reports.append(typed)
             quality_report_nodes[id(typed)] = report_node
         if reports:
-            quality_groups.append({"scope": scope, "reports": reports})
+            quality_groups.append({"scope": quality_scope_record, "reports": reports})
 
     accepted_ids = {
         report["id"] for group in quality_groups for report in group["reports"] if "id" in report
@@ -4803,8 +4811,8 @@ def _iso_catalog_extension(
         if identifier not in accepted_ids:
             context_loss(f"{path}[dangling-or-ambiguous]")
         else:
-            values = report.setdefault(field, [])
-            values.append(identifier)
+            report_reference_values = report.setdefault(field, [])
+            report_reference_values.append(identifier)
 
     # Only the exact old scalar profile projects to legacy quality, without duplication.
     rich_groups: list[dict[str, Any]] = []
@@ -4834,22 +4842,26 @@ def _iso_catalog_extension(
                     "type",
                     "statement",
                 }:
-                    scalar: Any = result["statement"]
+                    legacy_scalar: Any = result["statement"]
                 elif (
                     result["type"] == "DQ_QuantitativeResult"
                     and set(result) <= {"type", "values", "unit"}
                     and len(result["values"]) == 1
                 ):
                     raw = result["values"][0]
-                    scalar = _iso_quality_scalar(raw)
-                    rendered = str(scalar).lower() if isinstance(scalar, bool) else str(scalar)
-                    if scalar is None or isinstance(scalar, str) or rendered != raw:
+                    legacy_scalar = _iso_quality_scalar(raw)
+                    rendered = (
+                        str(legacy_scalar).lower()
+                        if isinstance(legacy_scalar, bool)
+                        else str(legacy_scalar)
+                    )
+                    if legacy_scalar is None or isinstance(legacy_scalar, str) or rendered != raw:
                         break
-                    if "unit" in result and isinstance(scalar, bool):
+                    if "unit" in result and isinstance(legacy_scalar, bool):
                         break
                 else:
                     break
-                entry: dict[str, Any] = {"measure": measure["names"][0], "result": scalar}
+                entry: dict[str, Any] = {"measure": measure["names"][0], "result": legacy_scalar}
                 if "description" in measure:
                     entry["description"] = measure["description"]
                 legacy_index = len(quality) + len(legacy)
@@ -4901,12 +4913,12 @@ def _iso_catalog_extension(
             catalog["schemaVersion"] = "1.2.0"
         else:
             catalog["schemaVersion"] = "1.1.0"
-    for owner, key, entries in reversed(acquisition_context_blocks):
+    for context_block_owner, key, entries in reversed(acquisition_context_blocks):
         if len(canonical_json_bytes({"opengeo": catalog})) <= 8_192:
             break
-        if key not in owner:
+        if key not in context_block_owner:
             continue
-        del owner[key]
+        del context_block_owner[key]
         dropped = {f"{source}->{target}" for source, target in entries}
         acquisition_context_mapped[:] = [
             entry for entry in acquisition_context_mapped if entry not in dropped
