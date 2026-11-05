@@ -1,11 +1,12 @@
 import ipaddress
 import math
 import re
+from collections.abc import Collection
 from datetime import date, datetime
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.7.0"
+OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.8.0"
 OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.0.0",
     "1.1.0",
@@ -14,6 +15,7 @@ OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.4.0",
     "1.5.0",
     "1.6.0",
+    "1.7.0",
     OPEN_GEO_CATALOG_SCHEMA_VERSION,
 }
 OPEN_GEO_CATALOG_NAMESPACE = "opengeo"
@@ -81,6 +83,12 @@ _ISO_TRANSFER_DURATION = re.compile(
 )
 
 _ISO_MEDIUM_DENSITY = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+
+_ISO_ORDER_DATE_TIME = re.compile(
+    r"[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+    r"(?:[0-2][0-9]:[0-5][0-9]:[0-5][0-9](?:\.[0-9]+)?)"
+    r"(?:Z|[+-](?:(?:0[0-9]|1[0-3]):[0-5][0-9]|14:00))?"
+)
 
 
 ISO_QUALITY_REPORT_TYPES = frozenset(
@@ -156,11 +164,13 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if schema_version not in OPEN_GEO_CATALOG_SCHEMA_VERSIONS:
         raise CatalogMetadataInvalid(
             "metadata extensions.opengeo.schemaVersion must be "
-            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, 1.6.0, or 1.7.0"
+            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, 1.6.0, 1.7.0, or 1.8.0"
         )
     allowed = _CATALOG_FIELDS_1_1 if schema_version != "1.0.0" else _CATALOG_FIELDS_1_0
-    if schema_version in {"1.6.0", "1.7.0"}:
+    if schema_version in {"1.6.0", "1.7.0", "1.8.0"}:
         allowed = {*allowed, "qualityReports"}
+    if schema_version == "1.8.0":
+        allowed = {*allowed, "isoDistributionGroups"}
     unknown = set(value) - allowed
     if unknown:
         raise CatalogMetadataInvalid(
@@ -173,8 +183,8 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "distributions" in value:
         result["distributions"] = _distributions(
             value["distributions"],
-            iso_transfer=schema_version in {"1.5.0", "1.6.0", "1.7.0"},
-            offline_media=schema_version == "1.7.0",
+            iso_transfer=schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0"},
+            offline_media=schema_version in {"1.7.0", "1.8.0"},
         )
     if "referenceSystems" in value:
         result["referenceSystems"] = _reference_systems(value["referenceSystems"])
@@ -184,6 +194,16 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
         result["quality"] = _quality(value["quality"])
     if "qualityReports" in value:
         result["qualityReports"] = _quality_reports(value["qualityReports"])
+    if "isoDistributionGroups" in value:
+        quality_ids = {
+            report["id"]
+            for group in result.get("qualityReports", [])
+            for report in group["reports"]
+            if "id" in report
+        }
+        result["isoDistributionGroups"] = _iso_distribution_groups(
+            value["isoDistributionGroups"], reserved_ids=quality_ids
+        )
     if "updateFrequency" in value:
         result["updateFrequency"] = _string(
             value["updateFrequency"], 1, 300, "opengeo.updateFrequency"
@@ -201,9 +221,10 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "acquisition" in value:
         result["acquisition"] = _acquisition(
             value["acquisition"],
-            planning=schema_version in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0"},
-            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0"},
-            context=schema_version in {"1.4.0", "1.5.0", "1.6.0", "1.7.0"},
+            planning=schema_version
+            in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"},
+            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"},
+            context=schema_version in {"1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"},
         )
     return result
 
@@ -447,6 +468,212 @@ def _iso_medium(value: Any, path: str) -> dict[str, Any]:
             result["identifier"]["codeSpace"] = _string(
                 identifier["codeSpace"], 1, 300, f"{path}.identifier.codeSpace"
             )
+    return result
+
+
+def _iso_order_date_time(value: Any, path: str) -> str:
+    if (
+        not isinstance(value, str)
+        or not 1 <= len(value) <= 100
+        or _ISO_ORDER_DATE_TIME.fullmatch(value) is None
+    ):
+        raise CatalogMetadataInvalid(f"metadata {path} must be an ISO date-time")
+    try:
+        if value[11:13] == "24":
+            date.fromisoformat(value[:10])
+            if re.fullmatch(r"24:00:00(?:\.0+)?(?:Z|[+-][0-9]{2}:[0-9]{2})?", value[11:]) is None:
+                raise ValueError
+        else:
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise CatalogMetadataInvalid(
+            f"metadata {path} must be a valid calendar date-time"
+        ) from None
+    return value
+
+
+def _iso_distribution_groups(
+    value: Any,
+    path: str = "opengeo.isoDistributionGroups",
+    *,
+    reserved_ids: Collection[str] = (),
+) -> list[dict[str, Any]]:
+    """Validate owned graph nodes without expanding declared local references."""
+    identities: dict[str, str] = {}
+    references: list[tuple[str, str, str]] = []
+    total = 0
+
+    def objects(raw: Any, location: str) -> list[dict[str, Any]]:
+        return _bounded_objects(raw, 8, location)
+
+    def party(raw: Any, location: str, *, individual: bool = False) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            raise CatalogMetadataInvalid(f"metadata {location} must be an object")
+        kind = _string(raw.get("type"), 1, 100, f"{location}.type")
+        if kind not in {"individual", "organisation"} or (individual and kind != "individual"):
+            raise CatalogMetadataInvalid(f"metadata {location}.type is unsupported")
+        allowed = {"type", "name", "contacts"}
+        allowed.add("positionName" if kind == "individual" else "individuals")
+        _known_fields(raw, allowed, location)
+        result: dict[str, Any] = {"type": kind}
+        for field in ("name", "positionName"):
+            if field in raw:
+                result[field] = _string(raw[field], 1, 1_000, f"{location}.{field}")
+        if "individuals" in raw:
+            result["individuals"] = [
+                party(record, f"{location}.individuals[{i}]", individual=True)
+                for i, record in enumerate(objects(raw["individuals"], f"{location}.individuals"))
+            ]
+        if "contacts" in raw:
+            contacts: list[dict[str, Any]] = []
+            for i, contact in enumerate(objects(raw["contacts"], f"{location}.contacts")):
+                contact_path = f"{location}.contacts[{i}]"
+                _known_fields(contact, {"addresses"}, contact_path)
+                normalized: dict[str, Any] = {}
+                if "addresses" in contact:
+                    addresses: list[dict[str, Any]] = []
+                    for j, address in enumerate(
+                        objects(contact["addresses"], f"{contact_path}.addresses")
+                    ):
+                        address_path = f"{contact_path}.addresses[{j}]"
+                        _known_fields(address, {"emails"}, address_path)
+                        normalized_address: dict[str, Any] = {}
+                        if "emails" in address:
+                            emails = address["emails"]
+                            if not isinstance(emails, list) or not 1 <= len(emails) <= 8:
+                                raise CatalogMetadataInvalid(
+                                    f"metadata {address_path}.emails requires 1 to 8 strings"
+                                )
+                            normalized_emails: list[str] = []
+                            for k, raw_email in enumerate(emails):
+                                email_path = f"{address_path}.emails[{k}]"
+                                email = _string(raw_email, 1, 300, email_path)
+                                if _EMAIL.fullmatch(email) is None:
+                                    raise CatalogMetadataInvalid(
+                                        f"metadata {email_path} is invalid"
+                                    )
+                                normalized_emails.append(email)
+                            normalized_address["emails"] = normalized_emails
+                        addresses.append(normalized_address)
+                    normalized["addresses"] = addresses
+                contacts.append(normalized)
+            result["contacts"] = contacts
+        return result
+
+    def responsibility(raw: Any, location: str) -> dict[str, Any]:
+        if not isinstance(raw, dict):
+            raise CatalogMetadataInvalid(f"metadata {location} must be an object")
+        _known_fields(raw, {"role", "parties"}, location)
+        return {
+            "role": _string(raw.get("role"), 1, 300, f"{location}.role"),
+            "parties": [
+                party(record, f"{location}.parties[{i}]")
+                for i, record in enumerate(objects(raw.get("parties"), f"{location}.parties"))
+            ],
+        }
+
+    children = {
+        "Group": {"formats": "Format", "distributors": "Distributor", "transferOptions": "DTO"},
+        "Format": {"media": "Medium", "distributors": "Distributor"},
+        "Distributor": {"orders": "Order", "formats": "Format", "transferOptions": "DTO"},
+        "DTO": {"formats": "Format", "offlineMedia": "Medium"},
+        "Medium": {},
+        "Order": {},
+    }
+    scalar_fields = {
+        "Group": {"description"},
+        "Format": {"citation", "amendmentNumber", "fileDecompressionTechnique"},
+        "Distributor": {"contact"},
+        "DTO": {
+            "unitsOfDistribution",
+            "transferSizeMegabytes",
+            "transferFrequency",
+            "onlineResources",
+        },
+        "Medium": {
+            "name",
+            "density",
+            "densityUnits",
+            "volumes",
+            "mediumFormats",
+            "mediumNote",
+            "identifier",
+        },
+        "Order": {
+            "fees",
+            "plannedAvailableDateTime",
+            "orderingInstructions",
+            "turnaround",
+            "orderOptionsType",
+            "orderOptions",
+        },
+    }
+
+    def node(raw: Any, kind: str, location: str, depth: int) -> dict[str, Any]:
+        nonlocal total
+        if not isinstance(raw, dict):
+            raise CatalogMetadataInvalid(f"metadata {location} must be an object")
+        if "ref" in raw:
+            _known_fields(raw, {"ref"}, location)
+            identifier = _quality_id(raw["ref"], f"{location}.ref")
+            references.append((identifier, kind, f"{location}.ref"))
+            return {"ref": identifier}
+        total += 1
+        if total > 64:
+            raise CatalogMetadataInvalid(f"metadata {location} exceeds 64 embedded graph nodes")
+        if depth > 16:
+            raise CatalogMetadataInvalid(f"metadata {location} exceeds 16 nested typed graph nodes")
+        _known_fields(raw, {"id", *scalar_fields[kind], *children[kind]}, location)
+        result: dict[str, Any] = {}
+        if "id" in raw:
+            identifier = _quality_id(raw["id"], f"{location}.id")
+            if identifier in identities or identifier in reserved_ids:
+                raise CatalogMetadataInvalid(f"metadata {location}.id must be globally unique")
+            identities[identifier] = kind
+            result["id"] = identifier
+        base = {key: raw[key] for key in scalar_fields[kind] if key in raw}
+        if kind == "Format":
+            result["citation"] = _acquisition_citation(base.get("citation"), f"{location}.citation")
+            for field in ("amendmentNumber", "fileDecompressionTechnique"):
+                if field in base:
+                    result[field] = _string(base[field], 1, 1_000, f"{location}.{field}")
+        elif kind == "Distributor":
+            result["contact"] = responsibility(base.get("contact"), f"{location}.contact")
+        elif kind == "DTO":
+            if base:
+                result.update(_iso_transfer(base, location, offline_media=True))
+        elif kind == "Medium":
+            if base:
+                result.update(_iso_medium(base, location))
+        elif kind == "Order":
+            for field, raw_field in base.items():
+                if field == "plannedAvailableDateTime":
+                    result[field] = _iso_order_date_time(raw_field, f"{location}.{field}")
+                elif field in {"orderOptionsType", "orderOptions"}:
+                    if not isinstance(raw_field, str) or len(raw_field) > 1_000:
+                        raise CatalogMetadataInvalid(
+                            f"metadata {location}.{field} must be a plaintext string "
+                            "up to 1000 characters"
+                        )
+                    result[field] = raw_field
+                else:
+                    result[field] = _string(raw_field, 1, 1_000, f"{location}.{field}")
+        elif "description" in base:
+            result["description"] = _string(
+                base["description"], 1, 1_000, f"{location}.description"
+            )
+        for field, child_kind in children[kind].items():
+            if field in raw:
+                result[field] = [
+                    node(record, child_kind, f"{location}.{field}[{i}]", depth + 1)
+                    for i, record in enumerate(objects(raw[field], f"{location}.{field}"))
+                ]
+        return result
+
+    result = [node(raw, "Group", f"{path}[{i}]", 1) for i, raw in enumerate(objects(value, path))]
+    for identifier, kind, location in references:
+        if identities.get(identifier) != kind:
+            raise CatalogMetadataInvalid(f"metadata {location} requires a declared {kind} graph id")
     return result
 
 

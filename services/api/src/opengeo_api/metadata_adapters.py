@@ -10,10 +10,14 @@ from uuid import UUID
 
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.metadata_catalog import (
+    _EMAIL,
     ISO_QUALITY_EVALUATION_TYPES,
     ISO_QUALITY_REPORT_TYPES,
     CatalogMetadataInvalid,
+    _iso_distribution_groups,
     _iso_medium,
+    _iso_order_date_time,
+    _iso_transfer,
     _quality_id,
     validate_catalog_extensions,
 )
@@ -3370,8 +3374,561 @@ def _iso_catalog_extension(
     # with their owning domain rather than guessing associations by descendant order.
     context_unmapped = distribution_unmapped
     mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+
+    def distribution_medium(medium: ET.Element, media_path: str) -> dict[str, Any]:
+        context_unknown(
+            medium,
+            {
+                f"{mrd}{name}"
+                for name in (
+                    "name",
+                    "density",
+                    "densityUnits",
+                    "volumes",
+                    "mediumFormat",
+                    "mediumNote",
+                    "identifier",
+                )
+            },
+            media_path,
+        )
+        media_record: dict[str, Any] = {}
+        media_name, _, _ = context_citation(medium, f"{media_path}.name", property_tag=f"{mrd}name")
+        if media_name is not None:
+            media_record["name"] = media_name
+        for field, scalar, maximum in (
+            ("density", "Real", 100),
+            ("densityUnits", "CharacterString", 1000),
+            ("volumes", "Integer", 100),
+            ("mediumNote", "CharacterString", 1000),
+        ):
+            field_path = f"{media_path}.{field}"
+            raw = context_text(medium, f"{mrd}{field}", f"{gco}{scalar}", field_path, maximum)
+            if raw is None:
+                continue
+            media_value: str | int = raw
+            if field == "volumes":
+                if re.fullmatch(r"[+-]?[0-9]+", raw) is None:
+                    context_loss(field_path)
+                    continue
+                media_value = int(raw)
+            try:
+                media_record.update(_iso_medium({field: media_value}, media_path))
+            except CatalogMetadataInvalid:
+                context_loss(field_path)
+        media_formats: list[str] = []
+        for code_index, code_scope in enumerate(context_properties(medium, "mediumFormat")):
+            code_path = f"{media_path}.mediumFormat[{code_index}]"
+            code_node = (
+                context_embedded(
+                    code_scope,
+                    f"{mrd}MD_MediumFormatCode",
+                    code_path,
+                    {"codeList", "codeListValue"},
+                )
+                if code_scope.tag == f"{mrd}mediumFormat"
+                else None
+            )
+            code = code_node.get("codeListValue") if code_node is not None else None
+            if (
+                code_index >= 8
+                or code_node is None
+                or len(code_node)
+                or code_node.get("codeList")
+                != "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_MediumFormatCode"
+                or not code
+                or code != code.strip()
+                or (code_node.text or "").strip() not in {"", code}
+            ):
+                context_loss(code_path)
+                continue
+            try:
+                _iso_medium({"mediumFormats": [code]}, media_path)
+            except CatalogMetadataInvalid:
+                context_loss(code_path)
+                continue
+            media_formats.append(code)
+        if media_formats:
+            media_record["mediumFormats"] = media_formats
+        identifier_scope = context_property(medium, f"{mrd}identifier", f"{media_path}.identifier")
+        if identifier_scope is not None:
+            identifier_node = context_embedded(
+                identifier_scope, f"{mcc}MD_Identifier", f"{media_path}.identifier"
+            )
+            if identifier_node is not None:
+                identifier_path = f"{media_path}.identifier"
+                context_unknown(identifier_node, {f"{mcc}code", f"{mcc}codeSpace"}, identifier_path)
+                identifier: dict[str, str] = {}
+                for field in ("code", "codeSpace"):
+                    raw = context_text(
+                        identifier_node,
+                        f"{mcc}{field}",
+                        f"{gco}CharacterString",
+                        f"{identifier_path}.{field}",
+                        300,
+                    )
+                    if raw is not None:
+                        identifier[field] = raw
+                try:
+                    media_record.update(_iso_medium({"identifier": identifier}, media_path))
+                except CatalogMetadataInvalid:
+                    context_loss(identifier_path)
+        return media_record
+
+    graph_tags = {
+        "Group": f"{mrd}MD_Distribution",
+        "Format": f"{mrd}MD_Format",
+        "Distributor": f"{mrd}MD_Distributor",
+        "DTO": f"{mrd}MD_DigitalTransferOptions",
+        "Medium": f"{mrd}MD_Medium",
+        "Order": f"{mrd}MD_StandardOrderProcess",
+    }
+    graph_children = {
+        "Group": {
+            "formats": ("distributionFormat", "Format"),
+            "distributors": ("distributor", "Distributor"),
+            "transferOptions": ("transferOptions", "DTO"),
+        },
+        "Format": {
+            "media": ("medium", "Medium"),
+            "distributors": ("formatDistributor", "Distributor"),
+        },
+        "Distributor": {
+            "orders": ("distributionOrderProcess", "Order"),
+            "formats": ("distributorFormat", "Format"),
+            "transferOptions": ("distributorTransferOptions", "DTO"),
+        },
+        "DTO": {"formats": ("distributionFormat", "Format"), "offlineMedia": ("offLine", "Medium")},
+    }
+    graph_source_ids = xml_id_nodes
+    graph_seen_nodes = 0
+    graph_href = "{http://www.w3.org/1999/xlink}href"
+
+    def graph_code(element: ET.Element, name: str, path: str) -> str | None:
+        prop = context_property(element, f"{cit}{name}", path)
+        if prop is None:
+            return None
+        code_tag = "CI_RoleCode" if name == "role" else "CI_OnLineFunctionCode"
+        node = context_embedded(prop, f"{cit}{code_tag}", path, {"codeList", "codeListValue"})
+        code = node.get("codeListValue") if node is not None else None
+        if (
+            node is None
+            or len(node)
+            or not code
+            or len(code) > 300
+            or code != code.strip()
+            or not _iso_quality_unit_label_supported(code)
+            or (node.text or "").strip() not in {"", code}
+            or node.get("codeList")
+            != f"https://schemas.isotc211.org/resources/codelists/codelists.xml#{code_tag}"
+        ):
+            context_loss(path)
+            return None
+        return code
+
+    def graph_party(
+        prop: ET.Element, path: str, *, individual: bool = False
+    ) -> dict[str, Any] | None:
+        tag = prop[0].tag if len(prop) == 1 else ""
+        permitted = (
+            {f"{cit}CI_Individual"}
+            if individual
+            else {f"{cit}CI_Individual", f"{cit}CI_Organisation"}
+        )
+        if tag not in permitted:
+            context_loss(path)
+            return None
+        node = context_embedded(prop, tag, path)
+        if node is None:
+            return None
+        is_individual = tag == f"{cit}CI_Individual"
+        permitted_children = {
+            f"{cit}name",
+            f"{cit}contactInfo",
+            f"{cit}positionName" if is_individual else f"{cit}individual",
+        }
+        context_unknown(node, permitted_children, path)
+        result: dict[str, Any] = {"type": "individual" if is_individual else "organisation"}
+        for field in ("name", "positionName") if is_individual else ("name",):
+            text = context_text(
+                node, f"{cit}{field}", f"{gco}CharacterString", f"{path}.{field}", 1000
+            )
+            if text is not None:
+                result[field] = text
+        contacts: list[dict[str, Any]] = []
+        for index, scope in enumerate(context_properties(node, "contactInfo")):
+            contact_path = f"{path}.contactInfo[{index}]"
+            contact = (
+                context_embedded(scope, f"{cit}CI_Contact", contact_path)
+                if scope.tag == f"{cit}contactInfo" and index < 8
+                else None
+            )
+            if contact is None:
+                context_loss(contact_path)
+                continue
+            context_unknown(contact, {f"{cit}address"}, contact_path)
+            addresses: list[dict[str, Any]] = []
+            for address_index, address_scope in enumerate(context_properties(contact, "address")):
+                address_path = f"{contact_path}.address[{address_index}]"
+                address = (
+                    context_embedded(address_scope, f"{cit}CI_Address", address_path)
+                    if address_scope.tag == f"{cit}address" and address_index < 8
+                    else None
+                )
+                if address is None:
+                    context_loss(address_path)
+                    continue
+                context_unknown(address, {f"{cit}electronicMailAddress"}, address_path)
+                emails: list[str] = []
+                for email_index, email_scope in enumerate(
+                    context_properties(address, "electronicMailAddress")
+                ):
+                    email_path = f"{address_path}.electronicMailAddress[{email_index}]"
+                    email_node = (
+                        context_embedded(email_scope, f"{gco}CharacterString", email_path)
+                        if email_scope.tag == f"{cit}electronicMailAddress" and email_index < 8
+                        else None
+                    )
+                    email = email_node.text if email_node is not None else None
+                    if (
+                        email_node is None
+                        or len(email_node)
+                        or not email
+                        or email != email.strip()
+                        or len(email) > 300
+                        or _EMAIL.fullmatch(email) is None
+                    ):
+                        context_loss(email_path)
+                    else:
+                        emails.append(email)
+                addresses.append({"emails": emails} if emails else {})
+            contacts.append({"addresses": addresses} if addresses else {})
+        if contacts:
+            result["contacts"] = contacts
+        if not is_individual:
+            people: list[dict[str, Any]] = []
+            for index, scope in enumerate(context_properties(node, "individual")):
+                person_path = f"{path}.individual[{index}]"
+                person = (
+                    graph_party(scope, person_path, individual=True)
+                    if scope.tag == f"{cit}individual" and index < 8
+                    else None
+                )
+                if person is not None:
+                    people.append(person)
+                else:
+                    context_loss(person_path)
+            if people:
+                result["individuals"] = people
+        return result
+
+    def graph_responsibility(element: ET.Element, path: str) -> dict[str, Any] | None:
+        prop = context_property(element, f"{mrd}distributorContact", path)
+        if prop is None:
+            context_loss(path)
+            return None
+        node = context_embedded(prop, f"{cit}CI_Responsibility", path)
+        if node is None:
+            return None
+        context_unknown(node, {f"{cit}role", f"{cit}party"}, path)
+        role = graph_code(node, "role", f"{path}.role")
+        parties: list[dict[str, Any]] = []
+        for index, scope in enumerate(context_properties(node, "party")):
+            party_path = f"{path}.party[{index}]"
+            party = (
+                graph_party(scope, party_path) if scope.tag == f"{cit}party" and index < 8 else None
+            )
+            if party is not None:
+                parties.append(party)
+            else:
+                context_loss(party_path)
+        if role is None or not parties:
+            context_loss(path)
+            return None
+        return {"role": role, "parties": parties}
+
+    def graph_online(prop: ET.Element, path: str) -> dict[str, Any] | None:
+        node = context_embedded(prop, f"{cit}CI_OnlineResource", path)
+        if node is None:
+            return None
+        fields = {
+            "linkage",
+            "protocol",
+            "applicationProfile",
+            "name",
+            "description",
+            "function",
+            "protocolRequest",
+        }
+        context_unknown(node, {f"{cit}{field}" for field in fields}, path)
+        result: dict[str, Any] = {}
+        for field in fields - {"function"}:
+            text = context_text(
+                node,
+                f"{cit}{field}",
+                f"{gco}CharacterString",
+                f"{path}.{field}",
+                2048 if field == "linkage" else 1000,
+            )
+            if text is not None:
+                result[field] = text
+        if context_properties(node, "function"):
+            function = graph_code(node, "function", f"{path}.function")
+            if function is not None:
+                result["function"] = function
+        try:
+            return _iso_transfer({"onlineResources": [result]}, path)["onlineResources"][0]
+        except CatalogMetadataInvalid:
+            context_loss(path)
+            return None
+
+    def graph_read(kind: str, prop: ET.Element, path: str, depth: int = 1) -> dict[str, Any] | None:
+        nonlocal graph_seen_nodes
+        if graph_href in prop.attrib:
+            identifier = prop.get(graph_href, "")[1:]
+            targets = graph_source_ids.get(identifier, [])
+            if (
+                set(prop.attrib) == {graph_href}
+                and prop.get(graph_href, "").startswith("#")
+                and len(prop) == 0
+                and not (prop.text or "").strip()
+                and len(targets) == 1
+                and targets[0].tag == graph_tags[kind]
+            ):
+                try:
+                    _quality_id(identifier, path)
+                    return {"ref": identifier}
+                except CatalogMetadataInvalid:
+                    pass
+            context_loss(f"{path}[local-reference]")
+            return None
+        node = context_embedded(prop, graph_tags[kind], path, {"id"})
+        if node is None:
+            return None
+        graph_seen_nodes += 1
+        if depth > 16 or graph_seen_nodes > 64:
+            context_loss(f"{path}[graph-limit]")
+            return None
+        result: dict[str, Any] = {}
+        if "id" in node.attrib:
+            identifier = node.get("id", "")
+            try:
+                _quality_id(identifier, path)
+                if len(graph_source_ids.get(identifier, [])) != 1:
+                    raise CatalogMetadataInvalid("ambiguous source XML id")
+                result["id"] = identifier
+            except CatalogMetadataInvalid:
+                context_loss(f"{path}.id[ambiguous-or-invalid]")
+        if kind == "Medium":
+            result.update(distribution_medium(node, path))
+            return result
+        allowed: set[str] = {f"{mrd}{name}" for name, _ in graph_children.get(kind, {}).values()}
+        scalars: dict[str, str] = {}
+        if kind == "Group":
+            scalars = {"description": "CharacterString"}
+        elif kind == "Format":
+            allowed.add(f"{mrd}formatSpecificationCitation")
+            citation, _, _ = context_citation(
+                node, f"{path}.citation", property_tag=f"{mrd}formatSpecificationCitation"
+            )
+            if citation is None:
+                context_loss(path)
+                return None
+            result["citation"] = citation
+            scalars = {
+                "amendmentNumber": "CharacterString",
+                "fileDecompressionTechnique": "CharacterString",
+            }
+        elif kind == "Distributor":
+            allowed.add(f"{mrd}distributorContact")
+            contact = graph_responsibility(node, f"{path}.distributorContact")
+            if contact is None:
+                context_loss(path)
+                return None
+            result["contact"] = contact
+        elif kind == "Order":
+            scalars = {
+                "fees": "CharacterString",
+                "plannedAvailableDateTime": "DateTime",
+                "orderingInstructions": "CharacterString",
+                "turnaround": "CharacterString",
+                "orderOptionsType": "RecordType",
+                "orderOptions": "Record",
+            }
+        elif kind == "DTO":
+            allowed.add(f"{mrd}onLine")
+            scalars = {
+                "unitsOfDistribution": "CharacterString",
+                "transferSize": "Real",
+                "transferFrequency": "TM_PeriodDuration",
+            }
+            online: list[dict[str, Any]] = []
+            for index, scope in enumerate(context_properties(node, "onLine")):
+                online_path = f"{path}.onLine[{index}]"
+                record = (
+                    graph_online(scope, online_path)
+                    if scope.tag == f"{mrd}onLine" and index < 8
+                    else None
+                )
+                if record is not None:
+                    online.append(record)
+                else:
+                    context_loss(online_path)
+            if online:
+                result["onlineResources"] = online
+        allowed.update(f"{mrd}{field}" for field in scalars)
+        context_unknown(node, allowed, path)
+        for field, scalar in scalars.items():
+            field_path = f"{path}.{field}"
+            if field in {"orderOptionsType", "orderOptions"}:
+                scope = context_property(node, f"{mrd}{field}", field_path)
+                if scope is None:
+                    continue
+                record_node = context_embedded(scope, f"{gco}{scalar}", field_path)
+                text = record_node.text or "" if record_node is not None else ""
+                if (
+                    record_node is None
+                    or len(record_node)
+                    or len(text) > 1000
+                    or not _iso_quality_unit_label_supported(text)
+                ):
+                    context_loss(field_path)
+                else:
+                    result[field] = text
+                continue
+            text = context_text(
+                node,
+                f"{mrd}{field}",
+                f"{gco}{scalar}",
+                field_path,
+                100 if field in {"plannedAvailableDateTime", "transferFrequency"} else 1000,
+            )
+            if text is None:
+                continue
+            try:
+                if kind == "DTO":
+                    target = "transferSizeMegabytes" if field == "transferSize" else field
+                    value: Any = (
+                        context_number(node, f"{mrd}{field}", f"{gco}{scalar}", field_path)
+                        if field == "transferSize"
+                        else text
+                    )
+                    result.update(_iso_transfer({target: value}, path))
+                elif field == "plannedAvailableDateTime":
+                    result[field] = _iso_order_date_time(text, field_path)
+                else:
+                    result[field] = text
+            except CatalogMetadataInvalid:
+                context_loss(field_path)
+        for field, (xml_name, child_kind) in graph_children.get(kind, {}).items():
+            values: list[dict[str, Any]] = []
+            for index, scope in enumerate(context_properties(node, xml_name)):
+                child_path = f"{path}.{xml_name}[{index}]"
+                value = (
+                    graph_read(child_kind, scope, child_path, depth + 1)
+                    if scope.tag == f"{mrd}{xml_name}" and index < 8
+                    else None
+                )
+                if value is None:
+                    context_loss(child_path)
+                else:
+                    values.append(value)
+            if values:
+                result[field] = values
+        return result
+
+    def graph_requires(kind: str, value: dict[str, Any]) -> bool:
+        if "id" in value or "ref" in value:
+            return True
+        if kind == "Group" and (
+            set(value) & {"description", "formats", "distributors"}
+            or len(value.get("transferOptions", [])) != 1
+        ):
+            return True
+        if kind == "Format" and set(value) & {"media", "distributors"}:
+            return True
+        if kind == "Medium" and not value:
+            return True
+        if (
+            kind == "DTO"
+            and not value.get("offlineMedia")
+            and not any(
+                record.get("function") in {None, "information", "download"}
+                for record in value.get("onlineResources", [])
+            )
+        ):
+            return True
+        return any(
+            graph_requires(child_kind, child)
+            for field, (_, child_kind) in graph_children.get(kind, {}).items()
+            for child in value.get(field, [])
+        )
+
+    graph_loss_start = len(distribution_unmapped)
+    graph_groups: list[dict[str, Any]] = []
+    for index, scope in enumerate(context_properties(root, "distributionInfo")):
+        graph_path = f"mdb:distributionInfo[{index}]"
+        group = (
+            graph_read("Group", scope, graph_path)
+            if scope.tag == f"{mdb}distributionInfo" and index < 8
+            else None
+        )
+        if group is not None:
+            graph_groups.append(group)
+        else:
+            context_loss(graph_path)
+    graph_mode = any(graph_requires("Group", group) for group in graph_groups)
+    if not graph_mode:
+        graph_groups = []
+        del distribution_unmapped[graph_loss_start:]
+    else:
+        accepted_graph_ids: dict[str, str] = {}
+
+        def graph_collect(kind: str, value: dict[str, Any]) -> None:
+            if "id" in value:
+                accepted_graph_ids[value["id"]] = kind
+            for field, (_, child_kind) in graph_children.get(kind, {}).items():
+                for item in value.get(field, []):
+                    graph_collect(child_kind, item)
+
+        for group in graph_groups:
+            graph_collect("Group", group)
+
+        def graph_prune(kind: str, value: dict[str, Any], path: str) -> dict[str, Any] | None:
+            if "ref" in value:
+                if accepted_graph_ids.get(value["ref"]) != kind:
+                    context_loss(f"{path}[dangling-or-unowned-reference]")
+                    return None
+                return value
+            for field, (_, child_kind) in graph_children.get(kind, {}).items():
+                if field not in value:
+                    continue
+                items = [
+                    pruned
+                    for index, item in enumerate(value[field])
+                    if (pruned := graph_prune(child_kind, item, f"{path}.{field}[{index}]"))
+                    is not None
+                ]
+                if items:
+                    value[field] = items
+                else:
+                    del value[field]
+            return value
+
+        graph_groups = [
+            value
+            for index, group in enumerate(graph_groups)
+            if (value := graph_prune("Group", group, f"mdb:distributionInfo[{index}]")) is not None
+        ]
+        try:
+            graph_groups = _iso_distribution_groups(graph_groups)
+        except CatalogMetadataInvalid:
+            for index in range(len(graph_groups)):
+                context_loss(f"mdb:distributionInfo[{index}][graph-validation]")
+            graph_groups = []
+
     for distribution_index, distribution_scope in enumerate(
-        context_properties(root, "distributionInfo")
+        [] if graph_mode else context_properties(root, "distributionInfo")
     ):
         distribution_path = f"mdb:distributionInfo[{distribution_index}]"
         owner = (
@@ -3554,111 +4111,7 @@ def _iso_catalog_extension(
                 if medium is None or media_index >= 8:
                     context_loss(media_path)
                     continue
-                context_unknown(
-                    medium,
-                    {
-                        f"{mrd}{name}"
-                        for name in (
-                            "name",
-                            "density",
-                            "densityUnits",
-                            "volumes",
-                            "mediumFormat",
-                            "mediumNote",
-                            "identifier",
-                        )
-                    },
-                    media_path,
-                )
-                media_record: dict[str, Any] = {}
-                media_name, _, _ = context_citation(
-                    medium, f"{media_path}.name", property_tag=f"{mrd}name"
-                )
-                if media_name is not None:
-                    media_record["name"] = media_name
-                for field, scalar, maximum in (
-                    ("density", "Real", 100),
-                    ("densityUnits", "CharacterString", 1000),
-                    ("volumes", "Integer", 100),
-                    ("mediumNote", "CharacterString", 1000),
-                ):
-                    field_path = f"{media_path}.{field}"
-                    raw = context_text(
-                        medium, f"{mrd}{field}", f"{gco}{scalar}", field_path, maximum
-                    )
-                    if raw is None:
-                        continue
-                    media_value: str | int = raw
-                    if field == "volumes":
-                        if re.fullmatch(r"[+-]?[0-9]+", raw) is None:
-                            context_loss(field_path)
-                            continue
-                        media_value = int(raw)
-                    try:
-                        media_record.update(_iso_medium({field: media_value}, media_path))
-                    except CatalogMetadataInvalid:
-                        context_loss(field_path)
-                media_formats: list[str] = []
-                for code_index, code_scope in enumerate(context_properties(medium, "mediumFormat")):
-                    code_path = f"{media_path}.mediumFormat[{code_index}]"
-                    code_node = (
-                        context_embedded(
-                            code_scope,
-                            f"{mrd}MD_MediumFormatCode",
-                            code_path,
-                            {"codeList", "codeListValue"},
-                        )
-                        if code_scope.tag == f"{mrd}mediumFormat"
-                        else None
-                    )
-                    code = code_node.get("codeListValue") if code_node is not None else None
-                    if (
-                        code_index >= 8
-                        or code_node is None
-                        or len(code_node)
-                        or code_node.get("codeList")
-                        != "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_MediumFormatCode"
-                        or not code
-                        or code != code.strip()
-                        or (code_node.text or "").strip() not in {"", code}
-                    ):
-                        context_loss(code_path)
-                        continue
-                    try:
-                        _iso_medium({"mediumFormats": [code]}, media_path)
-                    except CatalogMetadataInvalid:
-                        context_loss(code_path)
-                        continue
-                    media_formats.append(code)
-                if media_formats:
-                    media_record["mediumFormats"] = media_formats
-                identifier_scope = context_property(
-                    medium, f"{mrd}identifier", f"{media_path}.identifier"
-                )
-                if identifier_scope is not None:
-                    identifier_node = context_embedded(
-                        identifier_scope, f"{mcc}MD_Identifier", f"{media_path}.identifier"
-                    )
-                    if identifier_node is not None:
-                        identifier_path = f"{media_path}.identifier"
-                        context_unknown(
-                            identifier_node, {f"{mcc}code", f"{mcc}codeSpace"}, identifier_path
-                        )
-                        identifier: dict[str, str] = {}
-                        for field in ("code", "codeSpace"):
-                            raw = context_text(
-                                identifier_node,
-                                f"{mcc}{field}",
-                                f"{gco}CharacterString",
-                                f"{identifier_path}.{field}",
-                                300,
-                            )
-                            if raw is not None:
-                                identifier[field] = raw
-                        try:
-                            media_record.update(_iso_medium({"identifier": identifier}, media_path))
-                        except CatalogMetadataInvalid:
-                            context_loss(identifier_path)
+                media_record = distribution_medium(medium, media_path)
                 if media_record:
                     offline_records.append(media_record)
                 else:
@@ -4275,6 +4728,7 @@ def _iso_catalog_extension(
         (contacts, "contacts", "mdb:contact"),
         (reference_systems, "referenceSystems", "mdb:referenceSystemInfo"),
         (distributions, "distributions", "mdb:distributionInfo"),
+        (graph_groups, "isoDistributionGroups", "mdb:distributionInfo"),
         (quality, "quality", "mdb:dataQualityInfo"),
         (quality_groups, "qualityReports", "mdb:dataQualityInfo"),
         (lineage, "lineage", "mdb:resourceLineage"),
@@ -4364,6 +4818,17 @@ def _iso_catalog_extension(
         catalog["schemaVersion"] = "1.6.0"
     if any(value.get("isoTransfer", {}).get("offlineMedia") for value in distributions):
         catalog["schemaVersion"] = "1.7.0"
+    while graph_groups and len(canonical_json_bytes({"opengeo": catalog})) > 8_192:
+        # Cross-group references require an atomic omission, never dangling survivors.
+        for graph_index in range(len(graph_groups)):
+            distribution_unmapped.append(
+                f"mdb:distributionInfo->isoDistributionGroups[{graph_index}][size-limit]"
+            )
+        graph_groups.clear()
+        catalog.pop("isoDistributionGroups", None)
+        mapped.remove("mdb:distributionInfo->metadata_extensions.opengeo.isoDistributionGroups")
+    if graph_groups:
+        catalog["schemaVersion"] = "1.8.0"
     if not distributions and "distributions" in catalog:
         del catalog["distributions"]
         mapped.remove("mdb:distributionInfo->metadata_extensions.opengeo.distributions")

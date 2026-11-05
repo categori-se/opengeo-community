@@ -2273,6 +2273,385 @@ def test_iso_offline_distribution_non_iso_loss_and_stac_exact_preservation() -> 
     assert resource.metadata_extensions["opengeo"] == expected
 
 
+def iso_distributor_order_resource():
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        fixture("metadata-019-opengeo-distributor-order-graph.json")
+    )
+    return resource
+
+
+def test_iso_distributor_order_graph_optional_shapes_and_identity_losses() -> None:
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    for group in (
+        {},
+        {"transferOptions": [{}]},
+        {"transferOptions": [{"unitsOfDistribution": "archive"}]},
+        {"transferOptions": [{"offlineMedia": [{}]}]},
+    ):
+        resource = iso_distributor_order_resource()
+        resource.metadata_extensions["opengeo"]["isoDistributionGroups"] = [group]
+        source = export_iso_19115_3(resource)["documentText"]
+        catalog = iso_import(source).draft.metadata.extensions["opengeo"]
+        assert catalog["isoDistributionGroups"] == [group]
+        assert not catalog.get("distributions")
+        assert "accessUrl" not in canonical_json_bytes(catalog).decode()
+        assert "downloadUrl" not in canonical_json_bytes(catalog).decode()
+
+    resource = iso_distributor_order_resource()
+    groups = resource.metadata_extensions["opengeo"]["isoDistributionGroups"]
+    groups[0]["distributors"][0]["contact"]["parties"][0]["contacts"] = [{}, {"addresses": [{}]}]
+    reopened = iso_import(export_iso_19115_3(resource)["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["isoDistributionGroups"] == groups
+
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    source = export_iso_19115_3(iso_distributor_order_resource())["documentText"]
+    for mutation in ("empty-id", "xml-id-collision", "gml-id-collision"):
+        xml = ET.fromstring(source)
+        if mutation == "empty-id":
+            next(xml.iter(f"{mrd}MD_Format")).set("id", "")
+        else:
+            attribute = (
+                "{http://www.w3.org/XML/1998/namespace}id"
+                if mutation == "xml-id-collision"
+                else "{http://www.opengis.net/gml/3.2}id"
+            )
+            ET.SubElement(xml, "{urn:unowned}identity", {attribute: "format-a"})
+        document = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(document)
+        catalog = plan.draft.metadata.extensions["opengeo"]
+        validate_catalog_metadata(catalog)
+        assert plan.source_document == document
+        assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+        assert any(
+            "id" in path.lower() and "[" in path for path in plan.conversion_report["unmapped"]
+        )
+        pending = [catalog.get("isoDistributionGroups", [])]
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                assert value.get("ref") != "format-a"
+                pending.extend(value.values())
+            elif isinstance(value, list):
+                pending.extend(value)
+
+
+def test_iso_distributor_order_graph_fresh_round_trip_preserves_all_owned_groups() -> None:
+    resource = iso_distributor_order_resource()
+    expected = json.loads(json.dumps(resource.metadata_extensions["opengeo"]))
+    document = export_iso_19115_3(resource)["documentText"]
+    assert export_iso_19115_3(resource)["documentText"] == document
+    plan = iso_import(document)
+    actual = plan.draft.metadata.extensions["opengeo"]
+    assert actual["schemaVersion"] == "1.8.0"
+    assert actual["isoDistributionGroups"] == expected["isoDistributionGroups"]
+    assert not actual.get("distributions")
+    global_contacts = canonical_json_bytes(actual.get("contacts", [])).decode()
+    assert not any(
+        value in global_contacts
+        for value in (
+            "Archive contact",
+            "Repeated office name",
+            "Deputy contact",
+            "Second deputy",
+            "first@example.test",
+            "second@example.test",
+            "third@example.test",
+            "fourth@example.test",
+            "office-a@example.test",
+            "deputy@example.test",
+            "office-b@example.test",
+            "independent@example.test",
+        )
+    )
+    groups = actual["isoDistributionGroups"]
+    assert [group["description"] for group in groups] == ["Repeated owner label"] * 2
+    first, second = [group["distributors"][0] for group in groups]
+    assert first["orders"][0]["plannedAvailableDateTime"] == "2026-12-01T09:30:00"
+    assert second["orders"][0]["plannedAvailableDateTime"] == "2026-12-02T10:45:00Z"
+    assert set(first["orders"][0]) == {
+        "id",
+        "fees",
+        "plannedAvailableDateTime",
+        "orderingInstructions",
+        "turnaround",
+        "orderOptionsType",
+        "orderOptions",
+    }
+    assert first["contact"]["parties"][0]["contacts"][0]["addresses"][0]["emails"] == [
+        "first@example.test",
+        "second@example.test",
+    ]
+    assert groups[0]["transferOptions"] == [{"ref": "dto-a"}, {"ref": "dto-a"}]
+    assert first["formats"][0]["distributors"] == [{"ref": "distributor-a"}]
+    assert plan.source_document == document
+    assert resource.metadata_extensions["opengeo"] == expected
+
+
+def test_iso_distributor_order_graph_curator_changes_and_clears_win() -> None:
+    source = export_iso_19115_3(iso_distributor_order_resource())["documentText"]
+    resource = resource_from_plan(iso_import(source))
+    groups = resource.metadata_extensions["opengeo"]["isoDistributionGroups"]
+    groups[0]["description"] = "Curated first owner"
+    groups[0].pop("formats")
+    groups[0]["transferOptions"].pop()
+    distributor = groups[0]["distributors"][0]
+    distributor["orders"][0]["fees"] = "Curated fee"
+    distributor["orders"][0].pop("orderOptions")
+    distributor["contact"]["parties"][0]["name"] = "Curated contact"
+    distributor["contact"]["parties"][0].pop("contacts")
+    distributor["formats"][0]["media"][0].pop("mediumNote")
+    actual = iso_import(export_iso_19115_3(resource)["documentText"])
+    assert actual.draft.metadata.extensions["opengeo"]["isoDistributionGroups"] == groups
+    resource.metadata_extensions["opengeo"].pop("isoDistributionGroups")
+    cleared = iso_import(export_iso_19115_3(resource)["documentText"])
+    assert not cleared.draft.metadata.extensions["opengeo"].get("isoDistributionGroups")
+    assert not cleared.draft.metadata.extensions["opengeo"].get("distributions")
+
+
+def test_iso_distributor_order_graph_typed_local_refs_do_not_join_invalid_targets() -> None:
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    href = "{http://www.w3.org/1999/xlink}href"
+    source = export_iso_19115_3(iso_distributor_order_resource())["documentText"]
+    for mutation in ("dangling", "kind-mismatch", "duplicate-id", "remote"):
+        xml = ET.fromstring(source)
+        if mutation == "duplicate-id":
+            next(node for node in xml.iter(f"{mrd}MD_Format") if node.get("id") == "format-b").set(
+                "id", "format-a"
+            )
+        else:
+            reference = next(node for node in xml.iter() if node.get(href) == "#format-a")
+            reference.set(
+                href,
+                {
+                    "dangling": "#missing-format",
+                    "kind-mismatch": "#medium-a",
+                    "remote": "https://example.invalid/remote-format",
+                }[mutation],
+            )
+        document = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(document)
+        catalog = plan.draft.metadata.extensions["opengeo"]
+        validate_catalog_metadata(catalog)
+        assert not catalog.get("distributions")
+        assert plan.source_document == document
+        assert plan.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+        assert plan.conversion_report["unmapped"]
+        assert any(
+            "distribution" in path.lower() or "format" in path.lower()
+            for path in plan.conversion_report["unmapped"]
+        )
+        assert "missing-format" not in canonical_json_bytes(catalog).decode()
+        assert "https://example.invalid/remote-format" not in canonical_json_bytes(catalog).decode()
+    resource = iso_distributor_order_resource()
+    groups = resource.metadata_extensions["opengeo"]["isoDistributionGroups"]
+    groups.append({"ref": "group-a"})
+    reopened = iso_import(export_iso_19115_3(resource)["documentText"])
+    assert reopened.draft.metadata.extensions["opengeo"]["isoDistributionGroups"] == groups
+
+
+def test_iso_distributor_order_graph_unsupported_contacts_records_and_ownership_keep_source() -> (
+    None
+):
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    source = export_iso_19115_3(iso_distributor_order_resource())["documentText"]
+    for mutation in ("foreign", "nested", "duplicate", "phone", "record", "role-codeList"):
+        xml = ET.fromstring(source)
+        distributor = next(xml.iter(f"{mrd}MD_Distributor"))
+        if mutation == "foreign":
+            distributor.find(
+                f"{mrd}distributionOrderProcess"
+            ).tag = "{urn:foreign}distributionOrderProcess"
+            marker = "distributionOrderProcess"
+        elif mutation == "nested":
+            wrapper = ET.SubElement(distributor, "{urn:foreign}unowned")
+            order = ET.SubElement(
+                ET.SubElement(wrapper, f"{mrd}distributionOrderProcess"),
+                f"{mrd}MD_StandardOrderProcess",
+            )
+            ET.SubElement(
+                ET.SubElement(order, f"{mrd}fees"), f"{gco}CharacterString"
+            ).text = "UNOWNED ORDER"
+            marker = "unowned"
+        elif mutation == "duplicate":
+            distributor.append(
+                ET.fromstring(ET.tostring(distributor.find(f"{mrd}distributorContact")))
+            )
+            marker = "distributorContact"
+        elif mutation == "phone":
+            contact = next(distributor.iter(f"{cit}CI_Contact"))
+            ET.SubElement(ET.SubElement(contact, f"{cit}phone"), f"{cit}CI_Telephone")
+            marker = "phone"
+        elif mutation == "record":
+            record = next(distributor.iter(f"{gco}Record"))
+            ET.SubElement(record, "{urn:foreign}field").text = "UNSUPPORTED RECORD FIELD"
+            marker = "orderOptions"
+        else:
+            next(distributor.iter(f"{cit}CI_RoleCode")).set(
+                "codeList", "https://example.invalid/foreign-roles"
+            )
+            marker = "role"
+        document = ET.tostring(xml, encoding="unicode")
+        plan = iso_import(document)
+        assert plan.source_document == document
+        catalog = plan.draft.metadata.extensions["opengeo"]
+        global_contacts = canonical_json_bytes(catalog.get("contacts", [])).decode()
+        assert not any(
+            value in global_contacts
+            for value in (
+                "Archive contact",
+                "Repeated office name",
+                "Deputy contact",
+                "Second deputy",
+                "first@example.test",
+                "second@example.test",
+                "third@example.test",
+                "fourth@example.test",
+                "office-a@example.test",
+                "deputy@example.test",
+                "office-b@example.test",
+                "independent@example.test",
+            )
+        )
+        assert not catalog.get("distributions")
+        projected = canonical_json_bytes(catalog).decode()
+        assert "UNOWNED ORDER" not in projected
+        assert "UNSUPPORTED RECORD FIELD" not in projected
+        assert any(marker in path for path in plan.conversion_report["unmapped"])
+
+
+def test_iso_distributor_order_graph_bounds_fail_closed_without_dangling_refs() -> None:
+    from opengeo_api.metadata_catalog import CatalogMetadataInvalid, validate_catalog_metadata
+
+    for mutation in ("depth", "duplicate-id", "wrong-kind"):
+        catalog = fixture("metadata-019-opengeo-distributor-order-graph.json")
+        if mutation == "depth":
+            catalog = {
+                "schemaVersion": "1.8.0",
+                "isoDistributionGroups": [
+                    {
+                        "distributors": [
+                            {
+                                "contact": {
+                                    "role": "distributor",
+                                    "parties": [{"type": "individual", "name": "Nested contact"}],
+                                }
+                            }
+                        ]
+                    }
+                ],
+            }
+            distributor = catalog["isoDistributionGroups"][0]["distributors"][0]
+            for _ in range(18):
+                child = {
+                    "contact": {
+                        "role": "distributor",
+                        "parties": [{"type": "individual", "name": "Nested contact"}],
+                    }
+                }
+                distributor["formats"] = [
+                    {"citation": {"title": "Nested format"}, "distributors": [child]}
+                ]
+                distributor = child
+        elif mutation == "duplicate-id":
+            catalog["isoDistributionGroups"][1]["id"] = "group-a"
+        else:
+            catalog["isoDistributionGroups"][0]["formats"][0] = {"ref": "medium-a"}
+        with pytest.raises(CatalogMetadataInvalid):
+            validate_catalog_metadata(catalog)
+    mrd = "{http://standards.iso.org/iso/19115/-3/mrd/1.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    xml = ET.fromstring(export_iso_19115_3(iso_distributor_order_resource())["documentText"])
+    group = next(xml.iter(f"{mrd}MD_Distribution"))
+    for child in list(group):
+        group.remove(child)
+    for _ in range(8):
+        distributor = ET.SubElement(
+            ET.SubElement(group, f"{mrd}distributor"), f"{mrd}MD_Distributor"
+        )
+        contact = ET.SubElement(
+            ET.SubElement(distributor, f"{mrd}distributorContact"),
+            "{http://standards.iso.org/iso/19115/-3/cit/2.0}CI_Responsibility",
+        )
+        cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+        ET.SubElement(
+            ET.SubElement(contact, f"{cit}role"),
+            f"{cit}CI_RoleCode",
+            {
+                "codeList": "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_RoleCode",
+                "codeListValue": "distributor",
+            },
+        ).text = "distributor"
+        person = ET.SubElement(ET.SubElement(contact, f"{cit}party"), f"{cit}CI_Individual")
+        ET.SubElement(
+            ET.SubElement(person, f"{cit}name"), f"{gco}CharacterString"
+        ).text = "Budget contact"
+        order = ET.SubElement(
+            ET.SubElement(distributor, f"{mrd}distributionOrderProcess"),
+            f"{mrd}MD_StandardOrderProcess",
+        )
+        ET.SubElement(ET.SubElement(order, f"{mrd}fees"), f"{gco}CharacterString").text = "é" * 1000
+    document = ET.tostring(xml, encoding="unicode")
+    assert len(document.encode()) <= 49152
+    plan = iso_import(document)
+    assert plan.source_document == document
+    assert len(canonical_json_bytes(plan.draft.metadata.extensions)) <= 8192
+    assert any("size-limit" in path for path in plan.conversion_report["unmapped"])
+    validate_catalog_metadata(plan.draft.metadata.extensions["opengeo"])
+
+
+def test_iso_distributor_order_graph_legacy_fallback_and_non_iso_losses_stay_explicit() -> None:
+    from opengeo_api.metadata_profiles import export_datacite_4_7_xml
+
+    legacy = iso_import(export_iso_19115_3(iso_offline_distribution_resource())["documentText"])
+    assert legacy.draft.metadata.extensions["opengeo"]["schemaVersion"] == "1.7.0"
+    assert not legacy.draft.metadata.extensions["opengeo"].get("isoDistributionGroups")
+    combined = iso_distributor_order_resource()
+    combined.metadata_extensions["opengeo"]["qualityReports"] = fixture(
+        "metadata-017-opengeo-quality-reports.json"
+    )["qualityReports"]
+    reopened = iso_import(export_iso_19115_3(combined)["documentText"])
+    for field in ("qualityReports", "isoDistributionGroups"):
+        assert (
+            reopened.draft.metadata.extensions["opengeo"][field]
+            == combined.metadata_extensions["opengeo"][field]
+        )
+    _, resource = datacite_complete_resource()
+    catalog = resource.metadata_extensions.setdefault("opengeo", {})
+    catalog.update(fixture("metadata-019-opengeo-distributor-order-graph.json"))
+    expected = json.loads(json.dumps(catalog))
+    for exporter in (
+        export_dcat_3,
+        export_geodcat_ap_3_1,
+        export_schema_org_dataset,
+        export_datacite_4_7,
+        export_datacite_4_7_xml,
+    ):
+        result = exporter(resource)
+        assert result["status"] in {
+            "mapped",
+            "mapped_with_preserved_extensions",
+            "mapped_with_explicit_losses",
+            "mapped_with_defaults",
+        }
+        assert "metadata_extensions.opengeo.isoDistributionGroups" in result["report"]["unmapped"]
+        if exporter is export_datacite_4_7_xml:
+            ET.fromstring(result["documentText"])
+        else:
+            assert isinstance(result["document"], dict)
+    stac = export_stac_1_1(resource)
+    assert stac["status"] in {"mapped", "mapped_with_defaults"}
+    assert stac["document"]["opengeo:metadataExtensions"]["opengeo"] == expected
+    assert resource.metadata_extensions["opengeo"] == expected
+
+
 def quality_reports_resource(document=None):
     from opengeo_api.metadata_catalog import validate_catalog_metadata
 

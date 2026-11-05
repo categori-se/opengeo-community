@@ -1145,3 +1145,396 @@ def test_native_catalog_17_accepts_scalar_limits_and_retains_distribution_cap() 
     with pytest.raises(CatalogMetadataInvalid, match="at most 32"):
         validate_catalog_metadata(value)
     assert not Draft202012Validator(offline_schema()).is_valid(value)
+
+
+def distribution_graph_catalog() -> dict[str, Any]:
+    return {
+        "schemaVersion": "1.8.0",
+        "isoDistributionGroups": [
+            {
+                "id": "group",
+                "description": "Repeated group label",
+                "formats": [
+                    {
+                        "id": "format",
+                        "citation": {"title": "GeoJSON"},
+                        "amendmentNumber": "1",
+                        "fileDecompressionTechnique": "gzip",
+                        "media": [{"id": "medium", **iso_medium()}],
+                        "distributors": [{"ref": "distributor"}],
+                    }
+                ],
+                "distributors": [
+                    {
+                        "id": "distributor",
+                        "contact": {
+                            "role": "distributor",
+                            "parties": [
+                                {
+                                    "type": "organisation",
+                                    "name": "Archive office",
+                                    "contacts": [
+                                        {
+                                            "addresses": [
+                                                {
+                                                    "emails": [
+                                                        "archive@example.test",
+                                                        "archive@example.test",
+                                                    ]
+                                                },
+                                                {},
+                                            ]
+                                        },
+                                        {},
+                                    ],
+                                    "individuals": [
+                                        {
+                                            "type": "individual",
+                                            "name": "Ada",
+                                            "positionName": "Archivist",
+                                        }
+                                    ],
+                                },
+                                {"type": "individual", "name": "Grace"},
+                            ],
+                        },
+                        "orders": [
+                            {"ref": "order"},
+                            {
+                                "id": "order",
+                                "fees": "USD 10",
+                                "plannedAvailableDateTime": "2026-11-05T09:10:11.123456",
+                                "orderingInstructions": "Contact the archive",
+                                "turnaround": "Two business days",
+                                "orderOptionsType": "  plain record type  ",
+                                "orderOptions": "  copy requested  ",
+                            },
+                        ],
+                        "formats": [{"ref": "format"}, {"ref": "format"}],
+                        "transferOptions": [
+                            {
+                                "id": "dto",
+                                "unitsOfDistribution": "archive volumes",
+                                "transferSizeMegabytes": 1.5,
+                                "onlineResources": [
+                                    {"linkage": "https://data.example.test/archive"}
+                                ],
+                                "offlineMedia": [{"ref": "medium"}],
+                                "transferFrequency": "P1D",
+                                "formats": [{"ref": "format"}],
+                            }
+                        ],
+                    }
+                ],
+                "transferOptions": [{"ref": "dto"}],
+            },
+            {
+                "description": "Repeated group label",
+                "formats": [{"ref": "format"}],
+                "transferOptions": [{}],
+            },
+            {"ref": "group"},
+        ],
+    }
+
+
+def distribution_graph_schema() -> dict[str, Any]:
+    return json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.8.0.schema.json").read_text())
+
+
+def test_native_catalog_18_preserves_owned_graph_all_six_node_kinds_and_contact_multiplicity() -> (
+    None
+):
+    value = distribution_graph_catalog()
+    value["qualityReports"] = quality_reports_catalog()["qualityReports"]
+    value["acquisition"] = acquisition_context()["acquisition"]
+    value["distributions"] = offline_catalog()["distributions"]
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(distribution_graph_schema(), format_checker=FormatChecker()).validate(
+        value
+    )
+    assert "contacts" not in value
+    assert (
+        value["isoDistributionGroups"][0]["distributors"][0]["formats"] == [{"ref": "format"}] * 2
+    )
+
+
+@pytest.mark.parametrize(
+    "version", ["1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0"]
+)
+def test_native_catalog_18_graph_is_version_gated_and_old_versions_remain_readable(
+    version: str,
+) -> None:
+    value = native_catalog()
+    value["schemaVersion"] = version
+    assert validate_catalog_metadata(value) == value
+    value["isoDistributionGroups"] = [{}]
+    with pytest.raises(CatalogMetadataInvalid, match="unknown field isoDistributionGroups"):
+        validate_catalog_metadata(value)
+    schema = json.loads(
+        (ROOT / f"schemas/opengeo-catalog-metadata-{version}.schema.json").read_text()
+    )
+    assert not Draft202012Validator(schema).is_valid(value)
+
+
+def test_native_catalog_18_empty_optional_nodes_remain_owned_without_urls_or_defaults() -> None:
+    value = {
+        "schemaVersion": "1.8.0",
+        "isoDistributionGroups": [
+            {},
+            {
+                "transferOptions": [
+                    {},
+                    {
+                        "offlineMedia": [{}],
+                        "formats": [{"citation": {"title": "Format"}, "media": [{}]}],
+                    },
+                ]
+            },
+            {
+                "distributors": [
+                    {
+                        "contact": {"role": "providerCode", "parties": [{"type": "individual"}]},
+                        "orders": [{}],
+                    }
+                ]
+            },
+        ],
+    }
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(distribution_graph_schema()).validate(value)
+
+
+@pytest.mark.parametrize(
+    "groups",
+    [
+        None,
+        {},
+        [],
+        [{}] * 9,
+        [{"unknown": "x"}],
+        [{"id": "bad:id"}],
+        [{"ref": "group", "description": "exclusive"}],
+        [{"formats": []}],
+        [{"formats": [{}]}],
+        [{"formats": [{"citation": {}}]}],
+        [{"distributors": [{}]}],
+        [{"distributors": [{"contact": {"parties": [{"type": "individual"}]}}]}],
+        [{"distributors": [{"contact": {"role": "distributor", "parties": []}}]}],
+        [
+            {
+                "distributors": [
+                    {"contact": {"role": "distributor", "parties": [{"type": "unknown"}]}}
+                ]
+            }
+        ],
+        [
+            {
+                "distributors": [
+                    {
+                        "contact": {
+                            "role": "distributor",
+                            "parties": [
+                                {"type": "individual", "individuals": [{"type": "individual"}]}
+                            ],
+                        }
+                    }
+                ]
+            }
+        ],
+        [
+            {
+                "distributors": [
+                    {
+                        "contact": {
+                            "role": "distributor",
+                            "parties": [{"type": "organisation", "positionName": "Invalid"}],
+                        }
+                    }
+                ]
+            }
+        ],
+        [
+            {
+                "distributors": [
+                    {
+                        "contact": {
+                            "role": "distributor",
+                            "parties": [
+                                {"type": "organisation", "individuals": [{"type": "organisation"}]}
+                            ],
+                        }
+                    }
+                ]
+            }
+        ],
+        [
+            {
+                "distributors": [
+                    {
+                        "contact": {
+                            "role": "distributor",
+                            "parties": [{"type": "individual", "name": "x" * 1001}],
+                        }
+                    }
+                ]
+            }
+        ],
+        [{"transferOptions": [{"projections": {"format": 0}}]}],
+        [{"transferOptions": [{"offlineMedia": [{"volumes": True}]}]}],
+        [{"transferOptions": [{"offlineMedia": [{"density": "INF"}]}]}],
+        [{"transferOptions": [{"formats": [{"citation": {"title": "Format"}, "media": []}]}]}],
+        [{"description": "x" * 1001}],
+    ],
+)
+def test_native_catalog_18_invalid_local_shapes_match_schema(groups: Any) -> None:
+    value = {"schemaVersion": "1.8.0", "isoDistributionGroups": groups}
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(distribution_graph_schema()).is_valid(value)
+
+
+@pytest.mark.parametrize(
+    "party",
+    [
+        {"type": "individual", "contacts": []},
+        {"type": "individual", "contacts": [{"addresses": []}]},
+        {"type": "individual", "contacts": [{"addresses": [{"emails": []}]}]},
+        {"type": "individual", "contacts": [{"addresses": [{"emails": ["bad"]}]}]},
+        {"type": "individual", "contacts": [{"addresses": [{"emails": [False]}]}]},
+        {
+            "type": "individual",
+            "contacts": [{"addresses": [{"emails": ["valid@example.test"] * 9}]}],
+        },
+        {
+            "type": "individual",
+            "contacts": [{"addresses": [{"emails": ["x" * 290 + "@example.test"]}]}],
+        },
+        {"type": "individual", "contacts": [{"phone": "123"}]},
+        {"type": "individual", "contacts": [{"addresses": [{"city": "Boston"}]}]},
+        {"type": "individual", "id": "party-id"},
+    ],
+)
+def test_native_catalog_18_contact_ownership_and_bounds_match_schema(party: dict[str, Any]) -> None:
+    value = {
+        "schemaVersion": "1.8.0",
+        "isoDistributionGroups": [
+            {"distributors": [{"contact": {"role": "distributor", "parties": [party]}}]}
+        ],
+    }
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(distribution_graph_schema()).is_valid(value)
+
+
+@pytest.mark.parametrize("problem", ["dangling", "wrongKind", "duplicateId", "qualityCollision"])
+def test_native_catalog_18_global_typed_references_and_quality_id_reservation(problem: str) -> None:
+    value = distribution_graph_catalog()
+    group = value["isoDistributionGroups"][0]
+    if problem == "dangling":
+        group["transferOptions"] = [{"ref": "missing"}]
+    elif problem == "wrongKind":
+        group["transferOptions"] = [{"ref": "format"}]
+    elif problem == "duplicateId":
+        value["isoDistributionGroups"][1]["id"] = "group"
+    else:
+        value["qualityReports"] = quality_reports_catalog()["qualityReports"]
+        group["formats"][0]["id"] = "accuracy"
+    # Declared IDs and expected target kinds are API checks, not dynamic JSON Schema checks.
+    assert Draft202012Validator(distribution_graph_schema()).is_valid(value)
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+
+
+def test_native_catalog_18_embedded_count_and_depth_are_bounded_without_reference_expansion() -> (
+    None
+):
+    value = {
+        "schemaVersion": "1.8.0",
+        "isoDistributionGroups": [{"transferOptions": [{}] * 7} for _ in range(8)],
+    }
+    assert validate_catalog_metadata(value) == value  # 8 groups + 56 DTOs = 64 embedded nodes.
+    value["isoDistributionGroups"][0]["transferOptions"].append({})
+    assert Draft202012Validator(distribution_graph_schema()).is_valid(value)
+    with pytest.raises(CatalogMetadataInvalid, match="64 embedded graph nodes"):
+        validate_catalog_metadata(value)
+    group: dict[str, Any] = {}
+    parent = group
+    previous_kind = "Group"
+    for _ in range(15):
+        if previous_kind in {"Group", "Distributor"}:
+            child = {"citation": {"title": "Format"}}
+            parent["formats"] = [child]
+            previous_kind = "Format"
+        else:
+            child = {"contact": {"role": "distributor", "parties": [{"type": "individual"}]}}
+            parent["distributors"] = [child]
+            previous_kind = "Distributor"
+        parent = child
+    value["isoDistributionGroups"] = [group]
+    assert validate_catalog_metadata(value) == value
+    parent["distributors"] = [
+        {"contact": {"role": "distributor", "parties": [{"type": "individual"}]}}
+    ]
+    assert Draft202012Validator(distribution_graph_schema()).is_valid(value)
+    with pytest.raises(CatalogMetadataInvalid, match="16 nested typed graph nodes"):
+        validate_catalog_metadata(value)
+
+
+@pytest.mark.parametrize(
+    "timestamp",
+    [
+        "2026-11-05T09:10:11",
+        "2026-11-05T09:10:11.123456Z",
+        "2026-11-05T09:10:11.123456+14:00",
+        "2026-11-05T09:10:11-05:30",
+        "2026-11-05T24:00:00",
+    ],
+)
+def test_native_catalog_18_order_datetime_and_plain_records_preserve_exact_lexemes(
+    timestamp: str,
+) -> None:
+    value = distribution_graph_catalog()
+    order = value["isoDistributionGroups"][0]["distributors"][0]["orders"][1]
+    order["plannedAvailableDateTime"] = timestamp
+    order["orderOptionsType"] = ""
+    order["orderOptions"] = " \n  "
+    assert validate_catalog_metadata(value) == value
+    Draft202012Validator(distribution_graph_schema()).validate(value)
+
+
+@pytest.mark.parametrize(
+    "field,invalid",
+    [
+        ("fees", "x" * 1001),
+        ("fees", ""),
+        ("orderOptions", False),
+        ("orderOptions", "x" * 1001),
+        ("orderOptionsType", {}),
+        ("orderOptionsType", "x" * 1001),
+        ("plannedAvailableDateTime", "2026-11-05"),
+        ("plannedAvailableDateTime", "2026-11-05T25:00:00"),
+        ("plannedAvailableDateTime", "2026-11-05T09:10:11+14:01"),
+    ],
+)
+def test_native_catalog_18_invalid_order_local_shapes_match_schema(
+    field: str, invalid: Any
+) -> None:
+    value = distribution_graph_catalog()
+    value["isoDistributionGroups"][0]["distributors"][0]["orders"][1][field] = invalid
+    with pytest.raises(CatalogMetadataInvalid):
+        validate_catalog_metadata(value)
+    assert not Draft202012Validator(distribution_graph_schema()).is_valid(value)
+
+
+@pytest.mark.parametrize("timestamp", ["2026-02-30T09:10:11", "0000-11-05T09:10:11"])
+def test_native_catalog_18_order_datetime_calendar_validation_is_runtime_rule(
+    timestamp: str,
+) -> None:
+    value = distribution_graph_catalog()
+    value["isoDistributionGroups"][0]["distributors"][0]["orders"][1][
+        "plannedAvailableDateTime"
+    ] = timestamp
+    assert Draft202012Validator(distribution_graph_schema()).is_valid(value)
+    with pytest.raises(CatalogMetadataInvalid, match="valid calendar date-time"):
+        validate_catalog_metadata(value)

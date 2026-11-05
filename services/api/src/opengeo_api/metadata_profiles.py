@@ -753,7 +753,13 @@ def export_dcat_3(resource: Any) -> dict[str, Any]:
         mapped.append("metadata_extensions.opengeo.sensitivity")
     opengeo_unmapped = [
         f"metadata_extensions.opengeo.{field}"
-        for field in ("referenceSystems", "funding", "acquisition", "qualityReports")
+        for field in (
+            "referenceSystems",
+            "funding",
+            "acquisition",
+            "qualityReports",
+            "isoDistributionGroups",
+        )
         if catalog.get(field)
     ]
     opengeo_unmapped.extend(
@@ -993,6 +999,7 @@ def export_schema_org_dataset(resource: Any) -> dict[str, Any]:
             "referenceSystems",
             "quality",
             "qualityReports",
+            "isoDistributionGroups",
             "updateFrequency",
             "sensitivity",
             "funding",
@@ -2106,6 +2113,11 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
                 "provenance",
                 *registration_losses,
                 *(
+                    ["metadata_extensions.opengeo.isoDistributionGroups"]
+                    if catalog.get("isoDistributionGroups")
+                    else []
+                ),
+                *(
                     f"metadata_extensions.opengeo.distributions[{index}].isoTransfer.offlineMedia"
                     for index, distribution in enumerate(catalog.get("distributions", []))
                     if distribution.get("isoTransfer", {}).get("offlineMedia")
@@ -2970,6 +2982,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     distribution_mapped: list[str] = []
     distribution_unmapped: list[str] = []
     distribution_blocks: list[tuple[ET.Element, ET.Element, str]] = []
+    distribution_wrappers: dict[ET.Element, ET.Element] = {}
 
     def distribution_text(
         parent: ET.Element,
@@ -3071,10 +3084,133 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             mapped.append(identifier_path)
         return True
 
+    def distribution_medium_fields(
+        medium_element: ET.Element, medium_value: dict[str, Any], medium_path: str
+    ) -> None:
+        # The pinned MD_Medium sequence uses a citation, not MD_MediumNameCode.
+        if "name" in medium_value:
+            distribution_citation(
+                medium_element,
+                medium_value["name"],
+                f"{medium_path}.name",
+                name="name",
+            )
+        for medium_field, medium_xml_type in (
+            ("density", "Real"),
+            ("densityUnits", "CharacterString"),
+            ("volumes", "Integer"),
+        ):
+            if medium_field in medium_value:
+                # Density is already a validated finite lexical xs:double.
+                # Only the native integer volume count needs string rendering.
+                medium_text = medium_value[medium_field]
+                if medium_field == "volumes":
+                    medium_text = str(medium_text)
+                distribution_text(
+                    medium_element,
+                    "mrd",
+                    medium_field,
+                    medium_text,
+                    f"{medium_path}.{medium_field}",
+                    medium_xml_type,
+                )
+        for medium_format_index, medium_format in enumerate(medium_value.get("mediumFormats", [])):
+            medium_format_path = f"{medium_path}.mediumFormats[{medium_format_index}]"
+            if not _iso_quality_unit_label_supported(medium_format) or any(
+                character in medium_format for character in "\t\n"
+            ):
+                distribution_unmapped.append(medium_format_path)
+                continue
+            medium_format_code = child(
+                child(medium_element, "mrd", "mediumFormat"),
+                "mrd",
+                "MD_MediumFormatCode",
+                medium_format,
+            )
+            medium_format_code.set(
+                "codeList",
+                "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_MediumFormatCode",
+            )
+            medium_format_code.set("codeListValue", medium_format)
+            distribution_mapped.append(medium_format_path)
+        if "mediumNote" in medium_value:
+            distribution_text(
+                medium_element,
+                "mrd",
+                "mediumNote",
+                medium_value["mediumNote"],
+                f"{medium_path}.mediumNote",
+            )
+        if "identifier" in medium_value:
+            medium_identifier_value = medium_value["identifier"]
+            medium_identifier_path = f"{medium_path}.identifier"
+            if not _iso_quality_unit_label_supported(medium_identifier_value["code"]):
+                distribution_unmapped.append(medium_identifier_path)
+            else:
+                medium_identifier = child(
+                    child(medium_element, "mrd", "identifier"),
+                    "mcc",
+                    "MD_Identifier",
+                )
+                for identifier_field in ("code", "codeSpace"):
+                    if identifier_field in medium_identifier_value:
+                        distribution_text(
+                            medium_identifier,
+                            "mcc",
+                            identifier_field,
+                            medium_identifier_value[identifier_field],
+                            f"{medium_identifier_path}.{identifier_field}",
+                        )
+
+    def distribution_online_fields(
+        parent: ET.Element, record: dict[str, Any], online_path: str
+    ) -> None:
+        online = child(child(parent, "mrd", "onLine"), "cit", "CI_OnlineResource")
+        for field in ("linkage", "protocol", "applicationProfile", "name", "description"):
+            if field in record:
+                distribution_text(online, "cit", field, record[field], f"{online_path}.{field}")
+        if "function" in record:
+            function_value = record["function"]
+            if _iso_quality_unit_label_supported(function_value) and not any(
+                c in function_value for c in "\t\n"
+            ):
+                function_code = child(
+                    child(online, "cit", "function"),
+                    "cit",
+                    "CI_OnLineFunctionCode",
+                    function_value,
+                )
+                function_code.set(
+                    "codeList",
+                    "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_OnLineFunctionCode",
+                )
+                function_code.set("codeListValue", function_value)
+                distribution_mapped.append(f"{online_path}.function")
+            else:
+                distribution_unmapped.append(f"{online_path}.function")
+        if "protocolRequest" in record:
+            distribution_text(
+                online,
+                "cit",
+                "protocolRequest",
+                record["protocolRequest"],
+                f"{online_path}.protocolRequest",
+            )
+
+    def distribution_format_fields(element: ET.Element, record: dict[str, Any], path: str) -> bool:
+        if not distribution_citation(element, record["citation"], f"{path}.citation"):
+            return False
+        for field in ("amendmentNumber", "fileDecompressionTechnique"):
+            if field in record:
+                distribution_text(element, "mrd", field, record[field], f"{path}.{field}")
+        return True
+
     if distributions:
-        distribution_info = child(root, "mdb", "distributionInfo")
-        distribution_value = child(distribution_info, "mrd", "MD_Distribution")
         for distribution_index, value in enumerate(distributions):
+            # Native legacy records are independent; preserve one DTO owner per record.
+            distribution_info = child(root, "mdb", "distributionInfo")
+            distribution_value = child(distribution_info, "mrd", "MD_Distribution")
+            distribution_wrappers[distribution_value] = distribution_info
             path = f"metadata_extensions.opengeo.distributions[{distribution_index}]"
             context = cast(dict[str, Any], value.get("isoTransfer", {}))
             bindings = cast(dict[str, int], context.get("projections", {}))
@@ -3159,39 +3295,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     if online_index < len(context.get("onlineResources", [])):
                         distribution_unmapped.append(online_path)
                     continue
-                online = child(child(transfer, "mrd", "onLine"), "cit", "CI_OnlineResource")
-                for field in ("linkage", "protocol", "applicationProfile", "name", "description"):
-                    if field in record:
-                        distribution_text(
-                            online, "cit", field, record[field], f"{online_path}.{field}"
-                        )
-                if "function" in record:
-                    function_value = record["function"]
-                    if _iso_quality_unit_label_supported(function_value) and not any(
-                        c in function_value for c in "\t\n"
-                    ):
-                        function_code = child(
-                            child(online, "cit", "function"),
-                            "cit",
-                            "CI_OnLineFunctionCode",
-                            function_value,
-                        )
-                        function_code.set(
-                            "codeList",
-                            "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_OnLineFunctionCode",
-                        )
-                        function_code.set("codeListValue", function_value)
-                        distribution_mapped.append(f"{online_path}.function")
-                    else:
-                        distribution_unmapped.append(f"{online_path}.function")
-                if "protocolRequest" in record:
-                    distribution_text(
-                        online,
-                        "cit",
-                        "protocolRequest",
-                        record["protocolRequest"],
-                        f"{online_path}.protocolRequest",
-                    )
+                distribution_online_fields(transfer, record, online_path)
                 if online_index >= len(context.get("onlineResources", [])):
                     del distribution_mapped[online_mapped_start:]
                     del distribution_unmapped[online_unmapped_start:]
@@ -3199,82 +3303,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 medium_path = f"{path}.isoTransfer.offlineMedia[{medium_index}]"
                 medium_property = child(transfer, "mrd", "offLine")
                 medium_element = child(medium_property, "mrd", "MD_Medium")
-                # The pinned MD_Medium sequence uses a citation, not MD_MediumNameCode.
-                if "name" in medium_value:
-                    distribution_citation(
-                        medium_element,
-                        medium_value["name"],
-                        f"{medium_path}.name",
-                        name="name",
-                    )
-                for medium_field, medium_xml_type in (
-                    ("density", "Real"),
-                    ("densityUnits", "CharacterString"),
-                    ("volumes", "Integer"),
-                ):
-                    if medium_field in medium_value:
-                        # Density is already a validated finite lexical xs:double.
-                        # Only the native integer volume count needs string rendering.
-                        medium_text = medium_value[medium_field]
-                        if medium_field == "volumes":
-                            medium_text = str(medium_text)
-                        distribution_text(
-                            medium_element,
-                            "mrd",
-                            medium_field,
-                            medium_text,
-                            f"{medium_path}.{medium_field}",
-                            medium_xml_type,
-                        )
-                for medium_format_index, medium_format in enumerate(
-                    medium_value.get("mediumFormats", [])
-                ):
-                    medium_format_path = f"{medium_path}.mediumFormats[{medium_format_index}]"
-                    if not _iso_quality_unit_label_supported(medium_format) or any(
-                        character in medium_format for character in "\t\n"
-                    ):
-                        distribution_unmapped.append(medium_format_path)
-                        continue
-                    medium_format_code = child(
-                        child(medium_element, "mrd", "mediumFormat"),
-                        "mrd",
-                        "MD_MediumFormatCode",
-                        medium_format,
-                    )
-                    medium_format_code.set(
-                        "codeList",
-                        "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_MediumFormatCode",
-                    )
-                    medium_format_code.set("codeListValue", medium_format)
-                    distribution_mapped.append(medium_format_path)
-                if "mediumNote" in medium_value:
-                    distribution_text(
-                        medium_element,
-                        "mrd",
-                        "mediumNote",
-                        medium_value["mediumNote"],
-                        f"{medium_path}.mediumNote",
-                    )
-                if "identifier" in medium_value:
-                    medium_identifier_value = medium_value["identifier"]
-                    medium_identifier_path = f"{medium_path}.identifier"
-                    if not _iso_quality_unit_label_supported(medium_identifier_value["code"]):
-                        distribution_unmapped.append(medium_identifier_path)
-                    else:
-                        medium_identifier = child(
-                            child(medium_element, "mrd", "identifier"),
-                            "mcc",
-                            "MD_Identifier",
-                        )
-                        for identifier_field in ("code", "codeSpace"):
-                            if identifier_field in medium_identifier_value:
-                                distribution_text(
-                                    medium_identifier,
-                                    "mcc",
-                                    identifier_field,
-                                    medium_identifier_value[identifier_field],
-                                    f"{medium_identifier_path}.{identifier_field}",
-                                )
+                distribution_medium_fields(medium_element, medium_value, medium_path)
                 if not len(medium_element):
                     transfer.remove(medium_property)
                     distribution_unmapped.append(medium_path)
@@ -3295,20 +3324,13 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 format_path = f"{path}.isoTransfer.formats[{format_record_index}]"
                 format_property = child(transfer, "mrd", "distributionFormat")
                 format_element = child(format_property, "mrd", "MD_Format")
-                if not distribution_citation(
-                    format_element, record["citation"], f"{format_path}.citation"
-                ):
+                if not distribution_format_fields(format_element, record, format_path):
                     transfer.remove(format_property)
                     if format_record_index < len(context.get("formats", [])):
                         distribution_unmapped.append(format_path)
                     else:
                         del distribution_unmapped[format_unmapped_start:]
                     continue
-                for field in ("amendmentNumber", "fileDecompressionTechnique"):
-                    if field in record:
-                        distribution_text(
-                            format_element, "mrd", field, record[field], f"{format_path}.{field}"
-                        )
                 if format_record_index >= len(context.get("formats", [])):
                     del distribution_mapped[format_mapped_start:]
                     del distribution_unmapped[format_unmapped_start:]
@@ -3339,6 +3361,235 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 )
             if bindings:
                 distribution_mapped.append(f"{path}.isoTransfer.projections")
+    graph_groups = cast(list[dict[str, Any]], catalog.get("isoDistributionGroups", []))
+    graph_blocks: list[tuple[ET.Element, str]] = []
+    graph_id_paths: dict[str, str] = {}
+    graph_failed_groups: set[str] = set()
+    graph_id_owners: dict[str, str] = {}
+    graph_references: list[tuple[str, str]] = []
+    graph_current_owner = ""
+
+    def graph_ownership(value: Any, owner: str) -> None:
+        if isinstance(value, dict):
+            if "id" in value:
+                graph_id_owners[value["id"]] = owner
+            if "ref" in value:
+                graph_references.append((owner, value["ref"]))
+            for nested in value.values():
+                graph_ownership(nested, owner)
+        elif isinstance(value, list):
+            for nested in value:
+                graph_ownership(nested, owner)
+
+    def graph_party(parent: ET.Element, value: dict[str, Any], path: str) -> None:
+        party = child(
+            child(parent, "cit", "party"),
+            "cit",
+            "CI_Individual" if value["type"] == "individual" else "CI_Organisation",
+        )
+        graph_party_fields(party, value, path)
+
+    def graph_party_fields(party: ET.Element, value: dict[str, Any], path: str) -> None:
+        if "name" in value:
+            distribution_text(party, "cit", "name", value["name"], f"{path}.name")
+        for contact_index, contact_value in enumerate(value.get("contacts", [])):
+            contact_path = f"{path}.contacts[{contact_index}]"
+            contact_element = child(child(party, "cit", "contactInfo"), "cit", "CI_Contact")
+            for address_index, address_value in enumerate(contact_value.get("addresses", [])):
+                address_path = f"{contact_path}.addresses[{address_index}]"
+                address = child(child(contact_element, "cit", "address"), "cit", "CI_Address")
+                for email_index, email in enumerate(address_value.get("emails", [])):
+                    distribution_text(
+                        address,
+                        "cit",
+                        "electronicMailAddress",
+                        email,
+                        f"{address_path}.emails[{email_index}]",
+                    )
+        if value["type"] == "individual" and "positionName" in value:
+            distribution_text(
+                party, "cit", "positionName", value["positionName"], f"{path}.positionName"
+            )
+        if value["type"] == "organisation":
+            for individual_index, individual_value in enumerate(value.get("individuals", [])):
+                individual = child(child(party, "cit", "individual"), "cit", "CI_Individual")
+                graph_party_fields(
+                    individual,
+                    {**individual_value, "type": "individual"},
+                    f"{path}.individuals[{individual_index}]",
+                )
+
+    def graph_responsibility(parent: ET.Element, value: dict[str, Any], path: str) -> bool:
+        role_value = value["role"]
+        if not _iso_quality_unit_label_supported(role_value) or any(
+            c in role_value for c in "\t\n"
+        ):
+            distribution_unmapped.append(f"{path}.role")
+            return False
+        responsibility = child(
+            child(parent, "mrd", "distributorContact"), "cit", "CI_Responsibility"
+        )
+        role_code = child(child(responsibility, "cit", "role"), "cit", "CI_RoleCode", role_value)
+        role_code.set(
+            "codeList", "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_RoleCode"
+        )
+        role_code.set("codeListValue", role_value)
+        distribution_mapped.append(f"{path}.role")
+        for party_index, party_value in enumerate(value["parties"]):
+            graph_party(responsibility, party_value, f"{path}.parties[{party_index}]")
+        return True
+
+    def graph_node(
+        parent: ET.Element,
+        property_name: str,
+        kind: str,
+        value: dict[str, Any],
+        path: str,
+        *,
+        prefix: str = "mrd",
+    ) -> None:
+        prop = child(parent, prefix, property_name)
+        if "ref" in value:
+            prop.set(tag("xlink", "href"), f"#{value['ref']}")
+            distribution_mapped.append(f"{path}.ref")
+            return
+        xml_kind = {
+            "group": "MD_Distribution",
+            "format": "MD_Format",
+            "distributor": "MD_Distributor",
+            "dto": "MD_DigitalTransferOptions",
+            "medium": "MD_Medium",
+            "order": "MD_StandardOrderProcess",
+        }[kind]
+        element = child(prop, "mrd", xml_kind)
+        distribution_mapped.append(path)
+        if "id" in value:
+            element.set("id", value["id"])
+            graph_id_paths[value["id"]] = f"{path}.id"
+            distribution_mapped.append(f"{path}.id")
+        if kind == "group":
+            if "description" in value:
+                distribution_text(
+                    element, "mrd", "description", value["description"], f"{path}.description"
+                )
+            for field, property_tag, target_kind in (
+                ("formats", "distributionFormat", "format"),
+                ("distributors", "distributor", "distributor"),
+                ("transferOptions", "transferOptions", "dto"),
+            ):
+                for index, nested in enumerate(value.get(field, [])):
+                    graph_node(
+                        element, property_tag, target_kind, nested, f"{path}.{field}[{index}]"
+                    )
+        elif kind == "format":
+            if not distribution_format_fields(element, value, path):
+                graph_failed_groups.add(graph_current_owner)
+                distribution_unmapped.append(path)
+                return
+            for field, property_tag, target_kind in (
+                ("media", "medium", "medium"),
+                ("distributors", "formatDistributor", "distributor"),
+            ):
+                for index, nested in enumerate(value.get(field, [])):
+                    graph_node(
+                        element, property_tag, target_kind, nested, f"{path}.{field}[{index}]"
+                    )
+        elif kind == "distributor":
+            if not graph_responsibility(element, value["contact"], f"{path}.contact"):
+                graph_failed_groups.add(graph_current_owner)
+                distribution_unmapped.append(path)
+                return
+            for field, property_tag, target_kind in (
+                ("orders", "distributionOrderProcess", "order"),
+                ("formats", "distributorFormat", "format"),
+                ("transferOptions", "distributorTransferOptions", "dto"),
+            ):
+                for index, nested in enumerate(value.get(field, [])):
+                    graph_node(
+                        element, property_tag, target_kind, nested, f"{path}.{field}[{index}]"
+                    )
+        elif kind == "dto":
+            for field, xml_name, xml_type in (
+                ("unitsOfDistribution", "unitsOfDistribution", "CharacterString"),
+                ("transferSizeMegabytes", "transferSize", "Real"),
+            ):
+                if field in value:
+                    distribution_text(
+                        element, "mrd", xml_name, str(value[field]), f"{path}.{field}", xml_type
+                    )
+            for index, online in enumerate(value.get("onlineResources", [])):
+                if _iso_quality_unit_label_supported(online["linkage"]):
+                    distribution_online_fields(element, online, f"{path}.onlineResources[{index}]")
+                else:
+                    distribution_unmapped.append(f"{path}.onlineResources[{index}]")
+            for index, nested in enumerate(value.get("offlineMedia", [])):
+                graph_node(element, "offLine", "medium", nested, f"{path}.offlineMedia[{index}]")
+            if "transferFrequency" in value:
+                distribution_text(
+                    element,
+                    "mrd",
+                    "transferFrequency",
+                    value["transferFrequency"],
+                    f"{path}.transferFrequency",
+                    "TM_PeriodDuration",
+                )
+            for index, nested in enumerate(value.get("formats", [])):
+                graph_node(
+                    element, "distributionFormat", "format", nested, f"{path}.formats[{index}]"
+                )
+        elif kind == "medium":
+            distribution_medium_fields(element, value, path)
+        else:
+            for field, xml_type in (
+                ("fees", "CharacterString"),
+                ("plannedAvailableDateTime", "DateTime"),
+                ("orderingInstructions", "CharacterString"),
+                ("turnaround", "CharacterString"),
+                ("orderOptionsType", "RecordType"),
+                ("orderOptions", "Record"),
+            ):
+                if field in value:
+                    distribution_text(
+                        element, "mrd", field, value[field], f"{path}.{field}", xml_type
+                    )
+
+    def omit_graph_groups(reason: str, owners: set[str] | None = None) -> None:
+        omitted = {path for _, path in graph_blocks} if owners is None else set(owners)
+        # Drop referring groups together with targets, preserving unrelated groups.
+        while True:
+            dependents = {
+                owner
+                for owner, target in graph_references
+                if graph_id_owners.get(target) in omitted
+            }
+            expanded = omitted | dependents
+            if expanded == omitted:
+                break
+            omitted = expanded
+        retained_blocks: list[tuple[ET.Element, str]] = []
+        for element, path in graph_blocks:
+            if path in omitted:
+                root.remove(element)
+                distribution_unmapped.append(f"{path}[{reason}]")
+            else:
+                retained_blocks.append((element, path))
+        graph_blocks[:] = retained_blocks
+        distribution_mapped[:] = [
+            path
+            for path in distribution_mapped
+            if not any(path == owner or path.startswith(owner + ".") for owner in omitted)
+        ]
+
+    for graph_index, graph_group in enumerate(graph_groups):
+        graph_path = f"metadata_extensions.opengeo.isoDistributionGroups[{graph_index}]"
+        graph_ownership(graph_group, graph_path)
+    for graph_index, graph_group in enumerate(graph_groups):
+        graph_path = f"metadata_extensions.opengeo.isoDistributionGroups[{graph_index}]"
+        graph_current_owner = graph_path
+        graph_node(root, "distributionInfo", "group", graph_group, graph_path, prefix="mdb")
+        graph_blocks.append((root[-1], graph_path))
+    if graph_failed_groups:
+        omit_graph_groups("required-owner-unrepresentable", graph_failed_groups)
     quality = cast(list[dict[str, Any]], catalog.get("quality", []))
     if quality:
         quality_info = child(root, "mdb", "dataQualityInfo")
@@ -4285,19 +4536,34 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     # XML IDs share one document-wide namespace, including gml:id and locale IDs.
     # Preserve native report identity exactly; ambiguous joins cannot be exported.
     quality_id_collisions: list[str] = []
-    if quality_reports:
+    if quality_reports or graph_groups:
         xml_id_counts: dict[str, int] = {}
         for element in root.iter():
             for attribute in ("id", tag("gml", "id")):
                 identifier = element.get(attribute)
                 if identifier is not None:
                     xml_id_counts[identifier] = xml_id_counts.get(identifier, 0) + 1
+        emitted_id_paths = {**quality_id_paths, **graph_id_paths}
         quality_id_collisions = [
-            quality_id_paths.get(identifier, "metadata_extensions.opengeo.qualityReports")
+            emitted_id_paths.get(
+                identifier,
+                "metadata_extensions.opengeo.isoDistributionGroups"
+                if graph_groups
+                else "metadata_extensions.opengeo.qualityReports",
+            )
             for identifier, count in xml_id_counts.items()
             if count > 1
         ]
-        quality_unmapped.extend(quality_id_collisions)
+        quality_unmapped.extend(
+            path
+            for path in quality_id_collisions
+            if not path.startswith("metadata_extensions.opengeo.isoDistributionGroups")
+        )
+        distribution_unmapped.extend(
+            path
+            for path in quality_id_collisions
+            if path.startswith("metadata_extensions.opengeo.isoDistributionGroups")
+        )
 
     def quality_xml_within_bounds() -> bool:
         if len(ET.tostring(root, encoding="utf-8", xml_declaration=True)) > 49_152:
@@ -4319,6 +4585,8 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         quality_blocks.clear()
         quality_mapped.clear()
 
+    while graph_blocks and not quality_xml_within_bounds():
+        omit_graph_groups("xml-limit", {graph_blocks[-1][1]})
     # New context can expand compact native numbers into much larger XML decimals.
     # Keep the existing source-import bound and report every removed native field.
     context_was_emitted = bool(acquisition_context_blocks)
@@ -4347,12 +4615,11 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     ):
         parent, element, path = distribution_blocks.pop()
         parent.remove(element)
+        if not len(parent):
+            root.remove(distribution_wrappers.pop(parent))
         removed = [p for p in distribution_mapped if p == path or p.startswith(path + ".")]
         distribution_mapped = [p for p in distribution_mapped if p not in removed]
         distribution_unmapped.extend([*removed, f"{path}[size-limit]"])
-        xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
-    if distributions and not len(distribution_value):
-        root.remove(distribution_info)
         xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
     if quality_reports and not quality_xml_within_bounds():
         # Omit typed groups together so local references never become dangling.
@@ -4360,7 +4627,10 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
     context_size_blocked = (
         (context_was_emitted or distribution_was_emitted) and xml_size > 49_152
-    ) or (bool(quality_reports or offline_media_present) and not quality_xml_within_bounds())
+    ) or (
+        bool(quality_reports or offline_media_present or graph_groups)
+        and not quality_xml_within_bounds()
+    )
     iso_catalog_mapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in (
@@ -4380,6 +4650,8 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         for field in ("updateFrequency", "sensitivity", "funding")
         if catalog.get(field)
     ]
+    if graph_blocks:
+        iso_catalog_mapped.append("metadata_extensions.opengeo.isoDistributionGroups")
     iso_catalog_mapped.extend(quality_mapped)
     iso_catalog_unmapped.extend(quality_unmapped)
     iso_catalog_mapped.extend(distribution_mapped)
@@ -4480,8 +4752,12 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         result["documentText"] = None
         result["report"]["mapped"] = []
         result["report"]["warnings"] = [
-            "An exact quality report ID collides with another emitted XML ID. "
-            "No document is exported; native metadata is unchanged."
+            (
+                "An exact graph or quality report ID collides with another emitted XML ID. "
+                if graph_groups
+                else "An exact quality report ID collides with another emitted XML ID. "
+            )
+            + "No document is exported; native metadata is unchanged."
         ]
     if (
         quality_reports
@@ -4507,14 +4783,28 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         ]
         result["report"]["sizeLimitBytes"] = 49_152
         result["report"]["documentBytes"] = xml_size
-    if offline_media_present and context_size_blocked and xml_size <= 49_152:
+    if (offline_media_present or graph_groups) and context_size_blocked and xml_size <= 49_152:
         result["report"]["warnings"] = [
             "The ISO document exceeds the 2000-node or 32-level source limit after "
             "omitting optional context. Native metadata is unchanged."
         ]
         result["report"]["nodeLimit"] = 2000
         result["report"]["depthLimit"] = 32
-    if (distributions or quality_reports) and len(
+    if (
+        graph_groups
+        and len(json.dumps(result["report"], ensure_ascii=False).encode("utf-8")) > 16_384
+    ):
+        omit_graph_groups("report-size-limit")
+        graph_prefix = "metadata_extensions.opengeo.isoDistributionGroups"
+        result["report"]["mapped"] = [
+            path for path in result["report"]["mapped"] if not path.startswith(graph_prefix)
+        ]
+        result["report"]["unmapped"] = [
+            path for path in result["report"]["unmapped"] if not path.startswith(graph_prefix)
+        ] + [f"{graph_prefix}[{index}][report-size-limit]" for index in range(len(graph_groups))]
+        if result["documentText"] is not None:
+            result["documentText"] = ET.tostring(root, encoding="unicode", xml_declaration=True)
+    if (distributions or quality_reports or graph_groups) and len(
         json.dumps(result["report"], ensure_ascii=False).encode("utf-8")
     ) > 16_384:
         result["status"] = "not_exportable_size_limit"

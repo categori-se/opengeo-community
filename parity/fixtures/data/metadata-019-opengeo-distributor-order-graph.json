@@ -1,0 +1,134 @@
+{
+  "schemaVersion": "1.8.0",
+  "isoDistributionGroups": [
+    {
+      "id": "group-a",
+      "description": "Repeated owner label",
+      "formats": [{"ref": "format-a"}],
+      "distributors": [
+        {
+          "id": "distributor-a",
+          "contact": {
+            "role": "distributor",
+            "parties": [
+              {
+                "type": "individual",
+                "name": "Archive contact",
+                "positionName": "Collection manager",
+                "contacts": [
+                  {"addresses": [{"emails": ["first@example.test", "second@example.test"]}, {"emails": ["third@example.test"]}]},
+                  {"addresses": [{"emails": ["fourth@example.test"]}]}
+                ]
+              },
+              {
+                "type": "organisation",
+                "name": "Repeated office name",
+                "contacts": [{"addresses": [{"emails": ["office-a@example.test"]}]}],
+                "individuals": [
+                  {"type": "individual", "name": "Deputy contact", "positionName": "Deputy manager", "contacts": [{"addresses": [{"emails": ["deputy@example.test"]}]}]},
+                  {"type": "individual", "name": "Second deputy"}
+                ]
+              }
+            ]
+          },
+          "orders": [
+            {
+              "id": "order-a",
+              "fees": "USD 25 per archive volume",
+              "plannedAvailableDateTime": "2026-12-01T09:30:00",
+              "orderingInstructions": "Contact the archive; retain the source order process.",
+              "turnaround": "Five working days",
+              "orderOptionsType": "Plain archive request",
+              "orderOptions": "Copy=A; delivery=collection"
+            }
+          ],
+          "formats": [
+            {
+              "id": "format-a",
+              "citation": {"title": "Repeated format label", "edition": "1", "dates": [{"date": "2026-01-01", "dateType": "publication"}]},
+              "amendmentNumber": "2",
+              "fileDecompressionTechnique": "gzip",
+              "media": [
+                {
+                  "id": "medium-a",
+                  "name": {"title": "Primary archive volume"},
+                  "density": "1.00",
+                  "densityUnits": "records per volume",
+                  "volumes": 2,
+                  "mediumFormats": ["iso9660", "iso9660"],
+                  "mediumNote": "Owned by the first format; reused only by declared local reference.",
+                  "identifier": {"code": "ARCHIVE-A"}
+                }
+              ],
+              "distributors": [{"ref": "distributor-a"}]
+            }
+          ],
+          "transferOptions": [
+            {
+              "id": "dto-a",
+              "unitsOfDistribution": "archive volumes",
+              "transferSizeMegabytes": 1.25,
+              "onlineResources": [{"linkage": "https://data.example.test/archive-a", "function": "information"}],
+              "offlineMedia": [{"ref": "medium-a"}],
+              "transferFrequency": "P1M",
+              "formats": [{"ref": "format-a"}]
+            }
+          ]
+        }
+      ],
+      "transferOptions": [{"ref": "dto-a"}, {"ref": "dto-a"}]
+    },
+    {
+      "id": "group-b",
+      "description": "Repeated owner label",
+      "formats": [
+        {
+          "id": "format-b",
+          "citation": {"title": "Repeated format label"},
+          "media": [{"ref": "medium-a"}],
+          "distributors": [{"ref": "distributor-b"}]
+        }
+      ],
+      "distributors": [
+        {
+          "id": "distributor-b",
+          "contact": {
+            "role": "distributor",
+            "parties": [
+              {"type": "organisation", "name": "Repeated office name", "contacts": [{"addresses": [{"emails": ["office-b@example.test"]}]}]},
+              {"type": "individual", "name": "Archive contact", "contacts": [{"addresses": [{"emails": ["independent@example.test"]}]}]}
+            ]
+          },
+          "orders": [
+            {
+              "id": "order-b",
+              "fees": "No fee",
+              "plannedAvailableDateTime": "2026-12-02T10:45:00Z",
+              "orderingInstructions": "Use the second office's request process.",
+              "turnaround": "Two working days",
+              "orderOptionsType": "Plain second request",
+              "orderOptions": "Copy=B; delivery=mail"
+            },
+            {"ref": "order-a"}
+          ],
+          "formats": [{"ref": "format-b"}],
+          "transferOptions": [
+            {
+              "id": "dto-b",
+              "offlineMedia": [{"id": "medium-b", "name": {"title": "Independent archive volume"}, "identifier": {"code": "ARCHIVE-B"}}],
+              "formats": [{"ref": "format-b"}]
+            }
+          ]
+        }
+      ],
+      "transferOptions": [
+        {
+          "id": "dto-c",
+          "onlineResources": [{"linkage": "https://data.example.test/archive-b", "function": "download"}],
+          "offlineMedia": [{"ref": "medium-b"}],
+          "formats": [{"ref": "format-b"}]
+        }
+      ]
+    }
+  ]
+}
