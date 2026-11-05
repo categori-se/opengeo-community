@@ -9,7 +9,13 @@ from urllib.parse import parse_qsl, urlsplit
 from uuid import UUID
 
 from opengeo_api.json_canonical import canonical_json_bytes
-from opengeo_api.metadata_catalog import CatalogMetadataInvalid, validate_catalog_extensions
+from opengeo_api.metadata_catalog import (
+    ISO_QUALITY_EVALUATION_TYPES,
+    ISO_QUALITY_REPORT_TYPES,
+    CatalogMetadataInvalid,
+    _quality_id,
+    validate_catalog_extensions,
+)
 from opengeo_api.metadata_profiles import (
     _DATACITE_REGISTRATION_VOCABULARIES,
     _ISO_COUNTRY_CODELIST,
@@ -1067,6 +1073,7 @@ def _iso_plan(
             ("referenceSystemInfo", "referenceSystems"),
             ("distributionInfo", "distributions"),
             ("dataQualityInfo", "quality"),
+            ("dataQualityInfo", "qualityReports"),
             ("resourceLineage", "lineage"),
             ("acquisitionInformation", "acquisition"),
         )
@@ -1982,65 +1989,6 @@ def _iso_catalog_extension(
     quality: list[dict[str, Any]] = []
     quality_unit_mapped: list[str] = []
     quality_unit_unmapped: list[str] = []
-    for index, quality_scope in enumerate(_direct_children(root, "dataQualityInfo")):
-        for report in (
-            element for element in quality_scope.iter() if _local_name(element.tag) == "report"
-        ):
-            quality_element = next(iter(report), None)
-            if quality_element is None:
-                continue
-            measure_scope = _first_scope(quality_element, "measure")
-            measure = _first_text(_first_scope(measure_scope, "nameOfMeasure"), "CharacterString")
-            if measure is None:
-                continue
-            quantitative = _first_element(quality_element, "DQ_QuantitativeResult")
-            descriptive = _first_element(quality_element, "DQ_DescriptiveResult")
-            if quantitative is not None:
-                raw_result = _first_text(quantitative, "Record")
-                result = _iso_quality_scalar(raw_result)
-            elif descriptive is not None:
-                result = _first_text(descriptive, "statement", "CharacterString")
-            else:
-                result = None
-            if result is None:
-                continue
-            record: dict[str, Any] = {
-                "measure": _bounded_string(
-                    measure, 1, 300, f"ISO quality measurement {index} name"
-                ),
-                "result": result,
-            }
-            description = _first_text(
-                _first_scope(measure_scope, "measureDescription"), "CharacterString"
-            )
-            if description:
-                record["description"] = _bounded_string(
-                    description,
-                    1,
-                    1_000,
-                    f"ISO quality measurement {index} description",
-                )
-            unit_scopes = [
-                element
-                for element in quality_element.iter()
-                if _local_name(element.tag) == "valueUnit"
-            ]
-            if unit_scopes:
-                unit = (
-                    _iso_quality_unit(root, quality_element, quantitative, unit_scopes)
-                    if isinstance(result, int | float) and not isinstance(result, bool)
-                    else None
-                )
-                if unit is None:
-                    quality_unit_unmapped.append(
-                        f"dataQualityInfo.quality[{len(quality)}].valueUnit[unsupported]"
-                    )
-                else:
-                    record["unit"] = unit
-                    quality_unit_mapped.append(
-                        f"mdq:valueUnit->metadata_extensions.opengeo.quality[{len(quality)}].unit"
-                    )
-            quality.append(record)
 
     lineage: dict[str, Any] | None = None
     lineage_scopes = _direct_children(root, "resourceLineage")
@@ -3675,6 +3623,522 @@ def _iso_catalog_extension(
                 continue
             distributions.extend(normalized["opengeo"]["distributions"])
 
+    # Strict typed quality parsing shares the citation readers and ownership rules.
+    context_unmapped = quality_unit_unmapped
+    mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
+    quality_groups: list[dict[str, Any]] = []
+    quality_refs: list[tuple[dict[str, Any], str, str, str]] = []
+    quality_report_nodes: dict[int, ET.Element] = {}
+
+    def quality_text(
+        element: ET.Element,
+        name: str,
+        path: str,
+        maximum: int = 1000,
+        scalar: str = "CharacterString",
+    ) -> str | None:
+        return context_text(element, f"{mdq}{name}", f"{gco}{scalar}", f"{path}.{name}", maximum)
+
+    def quality_code(
+        element: ET.Element, namespace: str, name: str, code_name: str, path: str
+    ) -> str | None:
+        prop = context_property(element, f"{namespace}{name}", f"{path}.{name}")
+        if prop is None:
+            return None
+        node = context_embedded(
+            prop, f"{namespace}{code_name}", f"{path}.{name}", {"codeList", "codeListValue"}
+        )
+        raw = node.get("codeListValue") if node is not None else None
+        if (
+            node is None
+            or len(node)
+            or not raw
+            or raw != raw.strip()
+            or len(raw) > 300
+            or (node.text or "").strip() not in {"", raw}
+        ):
+            context_loss(f"{path}.{name}")
+            return None
+        return raw
+
+    def quality_scope(element: ET.Element, name: str, path: str) -> dict[str, str] | None:
+        prop = context_property(element, f"{mdq}{name}", f"{path}.{name}")
+        node = context_embedded(prop, f"{mcc}MD_Scope", f"{path}.{name}")
+        if node is None:
+            return None
+        context_unknown(node, {f"{mcc}level"}, f"{path}.{name}")
+        level_value = quality_code(node, mcc, "level", "MD_ScopeCode", f"{path}.{name}")
+        return {"level": level_value} if level_value is not None else None
+
+    def quality_citation(element: ET.Element, name: str, path: str) -> dict[str, Any] | None:
+        value, _, _ = context_citation(element, f"{path}.{name}", property_tag=f"{mdq}{name}")
+        return value
+
+    def quality_result(element: ET.Element, path: str, report: ET.Element) -> dict[str, Any] | None:
+        kind = _local_name(element.tag)
+        if element.tag != f"{mdq}{kind}" or kind not in {
+            "DQ_QuantitativeResult",
+            "DQ_DescriptiveResult",
+            "DQ_ConformanceResult",
+        }:
+            context_loss(path)
+            return None
+        allowed = {"dateTime", "resultScope"} | (
+            {"value", "valueUnit", "valueRecordType"}
+            if kind == "DQ_QuantitativeResult"
+            else {"statement"}
+            if kind == "DQ_DescriptiveResult"
+            else {"specification", "explanation", "pass"}
+        )
+        context_unknown(element, {f"{mdq}{name}" for name in allowed}, path)
+        value: dict[str, Any] = {"type": kind}
+        if context_properties(element, "dateTime"):
+            stamp = context_datetime(
+                quality_text(element, "dateTime", path, 100, "DateTime"), f"{path}.dateTime"
+            )
+            if stamp is not None:
+                value["dateTime"] = stamp
+        if context_properties(element, "resultScope"):
+            scope_value = quality_scope(element, "resultScope", path)
+            if scope_value is not None:
+                value["scope"] = scope_value
+        if kind == "DQ_DescriptiveResult":
+            statement = quality_text(element, "statement", path)
+            if statement is None:
+                context_loss(f"{path}.statement")
+                return None
+            value["statement"] = statement
+        elif kind == "DQ_ConformanceResult":
+            citation = quality_citation(element, "specification", path)
+            raw_pass = quality_text(element, "pass", path, 5, "Boolean")
+            if citation is None or raw_pass not in {"true", "false", "1", "0"}:
+                context_loss(path)
+                return None
+            value.update(specification=citation, **{"pass": raw_pass in {"true", "1"}})
+            explanation = quality_text(element, "explanation", path)
+            if explanation is not None:
+                value["explanation"] = explanation
+        else:
+            records: list[str] = []
+            for index, prop in enumerate(context_properties(element, "value")):
+                record_path = f"{path}.value[{index}]"
+                node = (
+                    context_embedded(prop, f"{gco}Record", record_path)
+                    if prop.tag == f"{mdq}value"
+                    else None
+                )
+                raw = node.text if node is not None and not len(node) else None
+                if (
+                    index >= 8
+                    or raw is None
+                    or raw != raw.strip()
+                    or not 1 <= len(raw) <= 1000
+                    or not _iso_quality_unit_label_supported(raw)
+                ):
+                    context_loss(record_path)
+                else:
+                    records.append(raw)
+            if not records:
+                context_loss(f"{path}.value")
+                return None
+            value["values"] = records
+            units = context_properties(element, "valueUnit")
+            if units:
+                label = _iso_quality_unit(root, report, element, units, allow_multiple=True)
+                if label is None:
+                    context_loss(f"{path}.valueUnit")
+                else:
+                    value["unit"] = label
+            record_type = quality_text(element, "valueRecordType", path, 1000, "RecordType")
+            if record_type is not None:
+                value["recordType"] = record_type
+        return value
+
+    def quality_measure(element: ET.Element, path: str) -> dict[str, Any] | None:
+        prop = context_property(element, f"{mdq}measure", f"{path}.measure")
+        node = context_embedded(prop, f"{mdq}DQ_MeasureReference", f"{path}.measure")
+        if node is None:
+            return None
+        context_unknown(
+            node,
+            {
+                f"{mdq}{name}"
+                for name in ("measureIdentification", "nameOfMeasure", "measureDescription")
+            },
+            f"{path}.measure",
+        )
+        value: dict[str, Any] = {}
+        names: list[str] = []
+        for index, name_scope in enumerate(context_properties(node, "nameOfMeasure")):
+            name_path = f"{path}.measure.nameOfMeasure[{index}]"
+            text_node = (
+                context_embedded(name_scope, f"{gco}CharacterString", name_path)
+                if name_scope.tag == f"{mdq}nameOfMeasure"
+                else None
+            )
+            raw = text_node.text if text_node is not None and not len(text_node) else None
+            if (
+                index >= 8
+                or raw is None
+                or raw != raw.strip()
+                or not 1 <= len(raw) <= 300
+                or not _iso_quality_unit_label_supported(raw)
+            ):
+                context_loss(name_path)
+            else:
+                names.append(raw)
+        if names:
+            value["names"] = names
+        if context_properties(node, "measureIdentification"):
+            prop = context_property(
+                node, f"{mdq}measureIdentification", f"{path}.measure.identifier"
+            )
+            identifier = context_embedded(prop, f"{mcc}MD_Identifier", f"{path}.measure.identifier")
+            if identifier is not None:
+                context_unknown(
+                    identifier, {f"{mcc}code", f"{mcc}codeSpace"}, f"{path}.measure.identifier"
+                )
+                code = context_text(
+                    identifier,
+                    f"{mcc}code",
+                    f"{gco}CharacterString",
+                    f"{path}.measure.identifier.code",
+                    300,
+                )
+                code_space = context_text(
+                    identifier,
+                    f"{mcc}codeSpace",
+                    f"{gco}CharacterString",
+                    f"{path}.measure.identifier.codeSpace",
+                    300,
+                )
+                if code is not None:
+                    value["identifier"] = {
+                        "code": code,
+                        **({"codeSpace": code_space} if code_space is not None else {}),
+                    }
+                else:
+                    context_loss(f"{path}.measure.identifier")
+        description = quality_text(node, "measureDescription", f"{path}.measure")
+        if description is not None:
+            value["description"] = description
+        if not names and "identifier" not in value:
+            context_loss(f"{path}.measure[missing-name-or-code]")
+            return None
+        return value
+
+    def quality_evaluation(element: ET.Element, path: str) -> dict[str, Any] | None:
+        prop = context_property(element, f"{mdq}evaluationMethod", f"{path}.evaluation")
+        if (
+            prop is None
+            or prop.attrib
+            or (prop.text or "").strip()
+            or len(prop) != 1
+            or (prop[0].tail or "").strip()
+        ):
+            context_loss(f"{path}.evaluation")
+            return None
+        node = prop[0]
+        kind = _local_name(node.tag)
+        if node.tag != f"{mdq}{kind}" or kind not in ISO_QUALITY_EVALUATION_TYPES or node.attrib:
+            context_loss(f"{path}.evaluation")
+            return None
+        allowed = {
+            "dateTime",
+            "evaluationMethodDescription",
+            "evaluationProcedure",
+            "referenceDoc",
+            "evaluationMethodType",
+        }
+        if kind == "DQ_IndirectEvaluation":
+            allowed.add("deductiveSource")
+        if kind == "DQ_SampleBasedInspection":
+            allowed.update({"samplingScheme", "lotDescription", "samplingRatio"})
+        context_unknown(node, {f"{mdq}{name}" for name in allowed}, f"{path}.evaluation")
+        value: dict[str, Any] = {"type": kind}
+        description = quality_text(node, "evaluationMethodDescription", f"{path}.evaluation")
+        if description is not None:
+            value["description"] = description
+        method_type = quality_code(
+            node, mdq, "evaluationMethodType", "DQ_EvaluationMethodTypeCode", f"{path}.evaluation"
+        )
+        if method_type in {"directInternal", "directExternal", "indirect"}:
+            value["methodType"] = method_type
+        elif method_type is not None:
+            context_loss(f"{path}.evaluation.methodType")
+        if context_properties(node, "evaluationProcedure"):
+            citation = quality_citation(node, "evaluationProcedure", f"{path}.evaluation")
+            if citation is not None:
+                value["procedure"] = citation
+        dates: list[str] = []
+        for index, date_scope in enumerate(context_properties(node, "dateTime")):
+            date_path = f"{path}.evaluation.dateTime[{index}]"
+            stamp_node = (
+                context_embedded(date_scope, f"{gco}DateTime", date_path)
+                if date_scope.tag == f"{mdq}dateTime"
+                else None
+            )
+            stamp = context_datetime(
+                stamp_node.text if stamp_node is not None and not len(stamp_node) else None,
+                date_path,
+            )
+            if index >= 8 or stamp is None:
+                context_loss(date_path)
+            else:
+                dates.append(stamp)
+        if dates:
+            value["dateTimes"] = dates
+        references: list[dict[str, Any]] = []
+        for index, ref_scope in enumerate(context_properties(node, "referenceDoc")):
+            ref_path = f"{path}.evaluation.referenceDoc[{index}]"
+            # The shared citation reader expects a property owner; preserve this exact wrapper.
+            owner = ET.Element("citation-owner")
+            owner.append(ref_scope)
+            citation = quality_citation(owner, "referenceDoc", ref_path)
+            if index >= 8 or citation is None:
+                context_loss(ref_path)
+            else:
+                references.append(citation)
+        if references:
+            value["referenceDocuments"] = references
+        if kind == "DQ_IndirectEvaluation":
+            sources: list[str] = []
+            for index, source_scope in enumerate(context_properties(node, "deductiveSource")):
+                owner = ET.Element("source-owner")
+                owner.append(source_scope)
+                source = quality_text(
+                    owner, "deductiveSource", f"{path}.evaluation.deductiveSource[{index}]"
+                )
+                if index >= 8 or source is None:
+                    context_loss(f"{path}.evaluation.deductiveSource[{index}]")
+                else:
+                    sources.append(source)
+            if not sources:
+                context_loss(f"{path}.evaluation.deductiveSource")
+                return None
+            value["deductiveSources"] = sources
+        if kind == "DQ_SampleBasedInspection":
+            for name in ("samplingScheme", "lotDescription", "samplingRatio"):
+                raw = quality_text(node, name, f"{path}.evaluation")
+                if raw is None:
+                    context_loss(f"{path}.evaluation.{name}")
+                    return None
+                value[name] = raw
+        return value
+
+    for group_index, quality_scope_wrapper in enumerate(
+        context_properties(root, "dataQualityInfo")
+    ):
+        path = f"mdb:dataQualityInfo[{group_index}]"
+        quality_node = (
+            context_embedded(quality_scope_wrapper, f"{mdq}DQ_DataQuality", path)
+            if quality_scope_wrapper.tag == f"{mdb}dataQualityInfo"
+            else None
+        )
+        if quality_node is None or len(quality_groups) >= 8:
+            context_loss(path)
+            continue
+        context_unknown(quality_node, {f"{mdq}scope", f"{mdq}report"}, path)
+        scope = quality_scope(quality_node, "scope", path)
+        if scope is None:
+            context_loss(f"{path}.scope")
+            continue
+        reports: list[dict[str, Any]] = []
+        for report_index, report_scope in enumerate(context_properties(quality_node, "report")):
+            report_path = f"{path}.report[{report_index}]"
+            if (
+                report_scope.tag != f"{mdq}report"
+                or report_scope.attrib
+                or (report_scope.text or "").strip()
+                or len(report_scope) != 1
+                or (report_scope[0].tail or "").strip()
+            ):
+                context_loss(report_path)
+                continue
+            report_node = report_scope[0]
+            kind = _local_name(report_node.tag)
+            if (
+                report_node.tag != f"{mdq}{kind}"
+                or kind not in ISO_QUALITY_REPORT_TYPES
+                or set(report_node.attrib) - {"id"}
+                or len(reports) + sum(len(group["reports"]) for group in quality_groups) >= 32
+            ):
+                context_loss(report_path)
+                continue
+            raw_id = report_node.get("id")
+            if raw_id is not None and (
+                len(xml_id_nodes.get(raw_id, [])) != 1
+                or raw_id != raw_id.strip()
+                or not 1 <= len(raw_id) <= 100
+            ):
+                context_loss(f"{report_path}.id[ambiguous-or-invalid]")
+                continue
+            if raw_id is not None:
+                try:
+                    _quality_id(raw_id, f"{report_path}.id")
+                except CatalogMetadataInvalid:
+                    context_loss(f"{report_path}.id[invalid]")
+                    continue
+            context_unknown(
+                report_node,
+                {
+                    f"{mdq}{name}"
+                    for name in (
+                        "standaloneQualityReportDetails",
+                        "measure",
+                        "evaluationMethod",
+                        "result",
+                        "derivedElement",
+                        "relatedElement",
+                    )
+                },
+                report_path,
+            )
+            typed: dict[str, Any] = {"type": kind}
+            if raw_id is not None:
+                typed["id"] = raw_id
+            details = quality_text(report_node, "standaloneQualityReportDetails", report_path)
+            if details is not None:
+                typed["standaloneDetails"] = details
+            if context_properties(report_node, "measure"):
+                measure_value = quality_measure(report_node, report_path)
+                if measure_value is not None:
+                    typed["measure"] = measure_value
+            if context_properties(report_node, "evaluationMethod"):
+                evaluation = quality_evaluation(report_node, report_path)
+                if evaluation is not None:
+                    typed["evaluation"] = evaluation
+            results: list[dict[str, Any]] = []
+            for result_index, prop in enumerate(context_properties(report_node, "result")):
+                result_path = f"{report_path}.result[{result_index}]"
+                if (
+                    result_index >= 8
+                    or prop.tag != f"{mdq}result"
+                    or prop.attrib
+                    or (prop.text or "").strip()
+                    or len(prop) != 1
+                    or (prop[0].tail or "").strip()
+                    or prop[0].attrib
+                ):
+                    context_loss(result_path)
+                    continue
+                result = quality_result(prop[0], result_path, report_node)
+                if result is not None:
+                    results.append(result)
+            if not results:
+                context_loss(f"{report_path}.result[missing-supported-result]")
+                continue
+            typed["results"] = results
+            for name, target in (
+                ("derivedElement", "derivedReports"),
+                ("relatedElement", "relatedReports"),
+            ):
+                for ref_index, prop in enumerate(context_properties(report_node, name)):
+                    ref_path = f"{report_path}.{name}[{ref_index}]"
+                    href = prop.get(href_attribute)
+                    if (
+                        ref_index >= 8
+                        or prop.tag != f"{mdq}{name}"
+                        or set(prop.attrib) != {href_attribute}
+                        or len(prop)
+                        or (prop.text or "").strip()
+                        or not href
+                        or not href.startswith("#")
+                        or (
+                            name == "relatedElement"
+                            and kind
+                            not in {"DQ_Confidence", "DQ_Homogeneity", "DQ_Representativity"}
+                        )
+                    ):
+                        context_loss(ref_path)
+                    else:
+                        quality_refs.append((typed, target, href[1:], ref_path))
+            reports.append(typed)
+            quality_report_nodes[id(typed)] = report_node
+        if reports:
+            quality_groups.append({"scope": scope, "reports": reports})
+
+    accepted_ids = {
+        report["id"] for group in quality_groups for report in group["reports"] if "id" in report
+    }
+    for report, field, identifier, path in quality_refs:
+        if identifier not in accepted_ids:
+            context_loss(f"{path}[dangling-or-ambiguous]")
+        else:
+            values = report.setdefault(field, [])
+            values.append(identifier)
+
+    # Only the exact old scalar profile projects to legacy quality, without duplication.
+    rich_groups: list[dict[str, Any]] = []
+    expected_level = (
+        "service"
+        if any(_local_name(node.tag) == "SV_ServiceIdentification" for node in root.iter())
+        else "dataset"
+    )
+    for group in quality_groups:
+        legacy: list[dict[str, Any]] = []
+        legacy_unit_maps: list[str] = []
+        legacy_unit_losses: list[str] = []
+        if group["scope"]["level"] == expected_level:
+            for report in group["reports"]:
+                measure = report.get("measure", {})
+                results = report["results"]
+                if (
+                    set(report) - {"type", "measure", "results"}
+                    or report["type"] != "DQ_UsabilityElement"
+                    or set(measure) - {"names", "description"}
+                    or len(measure.get("names", [])) != 1
+                    or len(results) != 1
+                ):
+                    break
+                result = results[0]
+                if result["type"] == "DQ_DescriptiveResult" and set(result) == {
+                    "type",
+                    "statement",
+                }:
+                    scalar: Any = result["statement"]
+                elif (
+                    result["type"] == "DQ_QuantitativeResult"
+                    and set(result) <= {"type", "values", "unit"}
+                    and len(result["values"]) == 1
+                ):
+                    raw = result["values"][0]
+                    scalar = _iso_quality_scalar(raw)
+                    rendered = str(scalar).lower() if isinstance(scalar, bool) else str(scalar)
+                    if scalar is None or isinstance(scalar, str) or rendered != raw:
+                        break
+                    if "unit" in result and isinstance(scalar, bool):
+                        break
+                else:
+                    break
+                entry: dict[str, Any] = {"measure": measure["names"][0], "result": scalar}
+                if "description" in measure:
+                    entry["description"] = measure["description"]
+                legacy_index = len(quality) + len(legacy)
+                if "unit" in result:
+                    entry["unit"] = result["unit"]
+                    legacy_unit_maps.append(
+                        f"mdq:valueUnit->metadata_extensions.opengeo.quality[{legacy_index}].unit"
+                    )
+                else:
+                    source_quantitative = quality_report_nodes[id(report)].find(
+                        f"{mdq}result/{mdq}DQ_QuantitativeResult"
+                    )
+                    if source_quantitative is not None and context_properties(
+                        source_quantitative, "valueUnit"
+                    ):
+                        legacy_unit_losses.append(
+                            f"dataQualityInfo.quality[{legacy_index}].valueUnit[unsupported]"
+                        )
+                legacy.append(entry)
+        if len(legacy) == len(group["reports"]):
+            quality.extend(legacy)
+            quality_unit_mapped.extend(legacy_unit_maps)
+            quality_unit_unmapped.extend(legacy_unit_losses)
+        else:
+            rich_groups.append(group)
+    quality_groups = rich_groups
+
     catalog: dict[str, Any] = {"schemaVersion": "1.0.0"}
     mapped: list[str] = []
     for catalog_value, target, source in (
@@ -3682,6 +4146,7 @@ def _iso_catalog_extension(
         (reference_systems, "referenceSystems", "mdb:referenceSystemInfo"),
         (distributions, "distributions", "mdb:distributionInfo"),
         (quality, "quality", "mdb:dataQualityInfo"),
+        (quality_groups, "qualityReports", "mdb:dataQualityInfo"),
         (lineage, "lineage", "mdb:resourceLineage"),
         (acquisition, "acquisition", "mdb:acquisitionInformation"),
     ):
@@ -3732,6 +4197,35 @@ def _iso_catalog_extension(
             )
     if any("isoTransfer" in value for value in distributions):
         catalog["schemaVersion"] = "1.5.0"
+    while quality_groups and len(canonical_json_bytes({"opengeo": catalog})) > 8_192:
+        quality_unit_unmapped.append(
+            f"mdb:dataQualityInfo->qualityReports[{len(quality_groups) - 1}][size-limit]"
+        )
+        quality_groups.pop()
+    if not quality_groups and "qualityReports" in catalog:
+        del catalog["qualityReports"]
+        mapped.remove("mdb:dataQualityInfo->metadata_extensions.opengeo.qualityReports")
+    surviving_ids = {
+        report["id"] for group in quality_groups for report in group["reports"] if "id" in report
+    }
+    for group_index, group in enumerate(quality_groups):
+        for report_index, report in enumerate(group["reports"]):
+            for field in ("derivedReports", "relatedReports"):
+                if field in report:
+                    retained_ids = []
+                    for ref_index, identifier in enumerate(report[field]):
+                        if identifier in surviving_ids:
+                            retained_ids.append(identifier)
+                        else:
+                            quality_unit_unmapped.append(
+                                f"metadata_extensions.opengeo.qualityReports[{group_index}].reports[{report_index}].{field}[{ref_index}][size-limit-target]"
+                            )
+                    if retained_ids:
+                        report[field] = retained_ids
+                    else:
+                        del report[field]
+    if quality_groups:
+        catalog["schemaVersion"] = "1.6.0"
     unmapped = distribution_unmapped
     mapped.extend(quality_unit_mapped)
     mapped.extend(acquisition_context_mapped)
@@ -3751,6 +4245,8 @@ def _iso_quality_unit(
     quality_element: ET.Element,
     quantitative: ET.Element | None,
     unit_scopes: list[ET.Element],
+    *,
+    allow_multiple: bool = False,
 ) -> str | None:
     """Read only an unreferenced simple unit label, without assigning a unit system."""
     mdq = "{http://standards.iso.org/iso/19157/-2/mdq/1.0}"
@@ -3758,7 +4254,11 @@ def _iso_quality_unit(
     if (
         quantitative is None
         or quantitative.tag != f"{mdq}DQ_QuantitativeResult"
-        or quality_element.findall(f"{mdq}result/{mdq}DQ_QuantitativeResult") != [quantitative]
+        or (
+            not allow_multiple
+            and quality_element.findall(f"{mdq}result/{mdq}DQ_QuantitativeResult") != [quantitative]
+        )
+        or quantitative not in quality_element.findall(f"{mdq}result/{mdq}DQ_QuantitativeResult")
         or len(unit_scopes) != 1
         or quantitative.findall(f"{mdq}valueUnit") != unit_scopes
     ):

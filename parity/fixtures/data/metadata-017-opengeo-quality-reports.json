@@ -1,0 +1,87 @@
+{
+  "schemaVersion": "1.6.0",
+  "qualityReports": [
+    {
+      "scope": {"level": "dataset"},
+      "reports": [
+        {
+          "id": "completeness",
+          "type": "DQ_CompletenessCommission",
+          "standaloneDetails": "Independent sample of road observations; source and curated results remain distinct.",
+          "measure": {
+            "identifier": {"code": "commission-rate", "codeSpace": "https://example.test/measures"},
+            "names": ["Commission rate", "Additional observations"],
+            "description": "Retain the exact decimal lexical values rather than binary floating point."
+          },
+          "evaluation": {
+            "type": "DQ_SampleBasedInspection",
+            "methodType": "directExternal",
+            "description": "Compare a stratified sample against independently surveyed control points.",
+            "samplingScheme": "Stratified random selection by road class",
+            "lotDescription": "All road observations in the 2026 release",
+            "samplingRatio": "1:20",
+            "procedure": {
+              "title": "Road survey inspection procedure",
+              "edition": "2",
+              "dates": [{"date": "2026-04-03", "dateType": "publication"}]
+            },
+            "referenceDocuments": [{"title": "Control point register", "identifiers": [{"code": "CONTROL-2026"}]}],
+            "dateTimes": ["2026-06-01T10:15:30Z", "2026-06-02T11:15:30Z"]
+          },
+          "results": [
+            {
+              "type": "DQ_QuantitativeResult",
+              "values": ["0.123456789012345678901234567890", "0.000000000000000000000000000001"],
+              "unit": "ratio",
+              "recordType": "Decimal observation",
+              "dateTime": "2026-06-03T12:00:00Z",
+              "scope": {"level": "dataset"}
+            },
+            {"type": "DQ_DescriptiveResult", "statement": "Independent sample accepted with documented caveats."}
+          ],
+          "derivedReports": ["conformance"]
+        },
+        {
+          "id": "conformance",
+          "type": "DQ_ThematicClassificationCorrectness",
+          "measure": {"identifier": {"code": "road-class-conformance"}},
+          "evaluation": {
+            "type": "DQ_IndirectEvaluation",
+            "methodType": "indirect",
+            "deductiveSources": ["Control register", "Published survey notes"]
+          },
+          "results": [
+            {
+              "type": "DQ_ConformanceResult",
+              "specification": {
+                "title": "Road classification specification",
+                "edition": "2026",
+                "dates": [{"date": "2026-01-01", "dateType": "publication"}],
+                "identifiers": [{"code": "ROADS-2026", "codeSpace": "https://example.test/specifications"}]
+              },
+              "explanation": "One class failed the stated acceptance threshold.",
+              "pass": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "scope": {"level": "series"},
+      "reports": [
+        {
+          "id": "confidence",
+          "type": "DQ_Confidence",
+          "measure": {"names": ["Confidence in the combined survey"]},
+          "evaluation": {
+            "type": "DQ_AggregationDerivation",
+            "description": "Combine the two independently reported checks.",
+            "dateTimes": ["2026-06-04T09:00:00Z"]
+          },
+          "results": [{"type": "DQ_DescriptiveResult", "statement": "Confidence is conditional on the failed classification check."}],
+          "relatedReports": ["completeness", "conformance"]
+        }
+      ]
+    }
+  ]
+}

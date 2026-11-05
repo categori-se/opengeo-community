@@ -13,7 +13,11 @@ from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 
 from opengeo_api.authorization import Action, AuthorizationDenied, Roles, authorize
-from opengeo_api.metadata_catalog import catalog_metadata
+from opengeo_api.metadata_catalog import (
+    ISO_QUALITY_EVALUATION_TYPES,
+    ISO_QUALITY_REPORT_TYPES,
+    catalog_metadata,
+)
 from opengeo_api.tenant_database import (
     TenantContext,
     TenantDatabaseConflict,
@@ -749,7 +753,7 @@ def export_dcat_3(resource: Any) -> dict[str, Any]:
         mapped.append("metadata_extensions.opengeo.sensitivity")
     opengeo_unmapped = [
         f"metadata_extensions.opengeo.{field}"
-        for field in ("referenceSystems", "funding", "acquisition")
+        for field in ("referenceSystems", "funding", "acquisition", "qualityReports")
         if catalog.get(field)
     ]
     return {
@@ -983,6 +987,7 @@ def export_schema_org_dataset(resource: Any) -> dict[str, Any]:
         for field in (
             "referenceSystems",
             "quality",
+            "qualityReports",
             "updateFrequency",
             "sensitivity",
             "funding",
@@ -2095,6 +2100,11 @@ def export_datacite_4_7(resource: Any) -> dict[str, Any]:
                     if catalog.get("acquisition")
                     else []
                 ),
+                *(
+                    ["metadata_extensions.opengeo.qualityReports"]
+                    if catalog.get("qualityReports")
+                    else []
+                ),
             ],
             "conformanceClaimed": False,
         },
@@ -2950,30 +2960,56 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         value: str,
         path: str,
         xml_type: str = "CharacterString",
+        *,
+        mapped: list[str] = distribution_mapped,
+        unmapped: list[str] = distribution_unmapped,
     ) -> bool:
         if not _iso_quality_unit_label_supported(value):
-            distribution_unmapped.append(path)
+            unmapped.append(path)
             return False
         child(child(parent, prefix, name), "gco", xml_type, value)
-        distribution_mapped.append(path)
+        mapped.append(path)
         return True
 
-    def distribution_citation(parent: ET.Element, value: dict[str, Any], path: str) -> bool:
+    def distribution_citation(
+        parent: ET.Element,
+        value: dict[str, Any],
+        path: str,
+        *,
+        prefix: str = "mrd",
+        name: str = "formatSpecificationCitation",
+        mapped: list[str] = distribution_mapped,
+        unmapped: list[str] = distribution_unmapped,
+    ) -> bool:
         if not _iso_quality_unit_label_supported(value["title"]):
-            distribution_unmapped.append(path)
+            unmapped.append(path)
             return False
-        citation = child(child(parent, "mrd", "formatSpecificationCitation"), "cit", "CI_Citation")
-        distribution_text(citation, "cit", "title", value["title"], f"{path}.title")
+        citation = child(child(parent, prefix, name), "cit", "CI_Citation")
+        distribution_text(
+            citation,
+            "cit",
+            "title",
+            value["title"],
+            f"{path}.title",
+            mapped=mapped,
+            unmapped=unmapped,
+        )
         for index, alternate in enumerate(value.get("alternateTitles", [])):
             distribution_text(
-                citation, "cit", "alternateTitle", alternate, f"{path}.alternateTitles[{index}]"
+                citation,
+                "cit",
+                "alternateTitle",
+                alternate,
+                f"{path}.alternateTitles[{index}]",
+                mapped=mapped,
+                unmapped=unmapped,
             )
         for index, date_value in enumerate(value.get("dates", [])):
             date_path = f"{path}.dates[{index}]"
             if not all(
                 _iso_quality_unit_label_supported(date_value[key]) for key in ("date", "dateType")
             ):
-                distribution_unmapped.append(date_path)
+                unmapped.append(date_path)
                 continue
             date = child(child(citation, "cit", "date"), "cit", "CI_Date")
             child(child(date, "cit", "date"), "gco", "Date", date_value["date"])
@@ -2985,14 +3021,23 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                 "https://schemas.isotc211.org/resources/codelists/codelists.xml#CI_DateTypeCode",
             )
             code.set("codeListValue", date_value["dateType"])
-            distribution_mapped.append(date_path)
+            mapped.append(date_path)
         for field, xml_type in (("edition", "CharacterString"), ("editionDate", "DateTime")):
             if field in value:
-                distribution_text(citation, "cit", field, value[field], f"{path}.{field}", xml_type)
+                distribution_text(
+                    citation,
+                    "cit",
+                    field,
+                    value[field],
+                    f"{path}.{field}",
+                    xml_type,
+                    mapped=mapped,
+                    unmapped=unmapped,
+                )
         for index, identifier_value in enumerate(value.get("identifiers", [])):
             identifier_path = f"{path}.identifiers[{index}]"
             if not all(_iso_quality_unit_label_supported(v) for v in identifier_value.values()):
-                distribution_unmapped.append(identifier_path)
+                unmapped.append(identifier_path)
                 continue
             identifier = child(child(citation, "cit", "identifier"), "mcc", "MD_Identifier")
             child(
@@ -3005,7 +3050,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     "CharacterString",
                     identifier_value["codeSpace"],
                 )
-            distribution_mapped.append(identifier_path)
+            mapped.append(identifier_path)
         return True
 
     if distributions:
@@ -3254,6 +3299,261 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     unit_identifier = child(unit_definition, "gml", "identifier", value["unit"])
                     # The exact native label carries no asserted unit authority or conversion.
                     unit_identifier.set("codeSpace", "")
+    quality_reports = cast(list[dict[str, Any]], catalog.get("qualityReports", []))
+    quality_mapped: list[str] = []
+    quality_unmapped: list[str] = []
+    quality_blocks: list[tuple[ET.Element, str]] = []
+    quality_id_paths: dict[str, str] = {}
+
+    def quality_scope(parent: ET.Element, name: str, value: dict[str, Any]) -> None:
+        scope_value = child(child(parent, "mdq", name), "mcc", "MD_Scope")
+        code = child(child(scope_value, "mcc", "level"), "mcc", "MD_ScopeCode", value["level"])
+        code.set(
+            "codeList",
+            "https://schemas.isotc211.org/resources/codelists/codelists.xml#MD_ScopeCode",
+        )
+        code.set("codeListValue", value["level"])
+
+    def quality_invalid_text(value: Any, path: str) -> list[str]:
+        if isinstance(value, str):
+            return [] if _iso_quality_unit_label_supported(value) else [path]
+        if isinstance(value, dict):
+            return [
+                item
+                for key, content in value.items()
+                for item in quality_invalid_text(content, f"{path}.{key}")
+            ]
+        if isinstance(value, list):
+            return [
+                item
+                for index, content in enumerate(value)
+                for item in quality_invalid_text(content, f"{path}[{index}]")
+            ]
+        return []
+
+    quality_eligible: set[tuple[int, int]] = set()
+    quality_emitted_ids: set[str] = set()
+    for group_index, group_value in enumerate(quality_reports):
+        group_path = f"metadata_extensions.opengeo.qualityReports[{group_index}]"
+        invalid_scope = quality_invalid_text(group_value["scope"], f"{group_path}.scope")
+        if invalid_scope:
+            quality_unmapped.extend([*invalid_scope, group_path])
+            continue
+        for report_index, native_report in enumerate(group_value["reports"]):
+            path = f"{group_path}.reports[{report_index}]"
+            invalid = quality_invalid_text(native_report, path)
+            if native_report["type"] not in ISO_QUALITY_REPORT_TYPES:
+                invalid.append(f"{path}.type")
+            native_evaluation = native_report.get("evaluation")
+            if native_evaluation and native_evaluation["type"] not in ISO_QUALITY_EVALUATION_TYPES:
+                invalid.append(f"{path}.evaluation.type")
+            if invalid:
+                quality_unmapped.extend([*invalid, path])
+                continue
+            quality_eligible.add((group_index, report_index))
+            if "id" in native_report:
+                quality_emitted_ids.add(native_report["id"])
+                quality_id_paths[native_report["id"]] = f"{path}.id"
+
+    for group_index, group_value in enumerate(quality_reports):
+        group_path = f"metadata_extensions.opengeo.qualityReports[{group_index}]"
+        if not any(
+            (group_index, index) in quality_eligible for index in range(len(group_value["reports"]))
+        ):
+            continue
+        quality_info = child(root, "mdb", "dataQualityInfo")
+        quality_blocks.append((quality_info, group_path))
+        quality_value = child(quality_info, "mdq", "DQ_DataQuality")
+        quality_scope(quality_value, "scope", group_value["scope"])
+        quality_mapped.append(f"{group_path}.scope.level")
+        for report_index, value in enumerate(group_value["reports"]):
+            if (group_index, report_index) not in quality_eligible:
+                continue
+            path = f"{group_path}.reports[{report_index}]"
+            report_value = child(child(quality_value, "mdq", "report"), "mdq", value["type"])
+            quality_mapped.append(f"{path}.type")
+            if "id" in value:
+                report_value.set("id", value["id"])
+                quality_mapped.append(f"{path}.id")
+            if "standaloneDetails" in value:
+                child(
+                    child(report_value, "mdq", "standaloneQualityReportDetails"),
+                    "gco",
+                    "CharacterString",
+                    value["standaloneDetails"],
+                )
+                quality_mapped.append(f"{path}.standaloneDetails")
+            if "measure" in value:
+                measure = child(child(report_value, "mdq", "measure"), "mdq", "DQ_MeasureReference")
+                native_measure = value["measure"]
+                if "identifier" in native_measure:
+                    identifier_value = native_measure["identifier"]
+                    identifier = child(
+                        child(measure, "mdq", "measureIdentification"), "mcc", "MD_Identifier"
+                    )
+                    child(
+                        child(identifier, "mcc", "code"),
+                        "gco",
+                        "CharacterString",
+                        identifier_value["code"],
+                    )
+                    if "codeSpace" in identifier_value:
+                        child(
+                            child(identifier, "mcc", "codeSpace"),
+                            "gco",
+                            "CharacterString",
+                            identifier_value["codeSpace"],
+                        )
+                for name in native_measure.get("names", []):
+                    child(child(measure, "mdq", "nameOfMeasure"), "gco", "CharacterString", name)
+                if "description" in native_measure:
+                    child(
+                        child(measure, "mdq", "measureDescription"),
+                        "gco",
+                        "CharacterString",
+                        native_measure["description"],
+                    )
+                quality_mapped.append(f"{path}.measure")
+            if "evaluation" in value:
+                evaluation_value = value["evaluation"]
+                evaluation_path = f"{path}.evaluation"
+                evaluation = child(
+                    child(report_value, "mdq", "evaluationMethod"), "mdq", evaluation_value["type"]
+                )
+                for date_time in evaluation_value.get("dateTimes", []):
+                    child(child(evaluation, "mdq", "dateTime"), "gco", "DateTime", date_time)
+                if "description" in evaluation_value:
+                    child(
+                        child(evaluation, "mdq", "evaluationMethodDescription"),
+                        "gco",
+                        "CharacterString",
+                        evaluation_value["description"],
+                    )
+                if "procedure" in evaluation_value:
+                    distribution_citation(
+                        evaluation,
+                        evaluation_value["procedure"],
+                        f"{evaluation_path}.procedure",
+                        prefix="mdq",
+                        name="evaluationProcedure",
+                        mapped=quality_mapped,
+                        unmapped=quality_unmapped,
+                    )
+                for index, citation in enumerate(evaluation_value.get("referenceDocuments", [])):
+                    distribution_citation(
+                        evaluation,
+                        citation,
+                        f"{evaluation_path}.referenceDocuments[{index}]",
+                        prefix="mdq",
+                        name="referenceDoc",
+                        mapped=quality_mapped,
+                        unmapped=quality_unmapped,
+                    )
+                if "methodType" in evaluation_value:
+                    code = child(
+                        child(evaluation, "mdq", "evaluationMethodType"),
+                        "mdq",
+                        "DQ_EvaluationMethodTypeCode",
+                        evaluation_value["methodType"],
+                    )
+                    code.set(
+                        "codeList",
+                        "https://schemas.isotc211.org/resources/codelists/codelists.xml#DQ_EvaluationMethodTypeCode",
+                    )
+                    code.set("codeListValue", evaluation_value["methodType"])
+                if evaluation_value["type"] == "DQ_IndirectEvaluation":
+                    for source in evaluation_value["deductiveSources"]:
+                        child(
+                            child(evaluation, "mdq", "deductiveSource"),
+                            "gco",
+                            "CharacterString",
+                            source,
+                        )
+                if evaluation_value["type"] == "DQ_SampleBasedInspection":
+                    for field in ("samplingScheme", "lotDescription", "samplingRatio"):
+                        child(
+                            child(evaluation, "mdq", field),
+                            "gco",
+                            "CharacterString",
+                            evaluation_value[field],
+                        )
+                quality_mapped.append(evaluation_path)
+            for result_index, result_value in enumerate(value["results"]):
+                result_path = f"{path}.results[{result_index}]"
+                result_element = child(
+                    child(report_value, "mdq", "result"), "mdq", result_value["type"]
+                )
+                if "dateTime" in result_value:
+                    child(
+                        child(result_element, "mdq", "dateTime"),
+                        "gco",
+                        "DateTime",
+                        result_value["dateTime"],
+                    )
+                if "scope" in result_value:
+                    quality_scope(result_element, "resultScope", result_value["scope"])
+                if result_value["type"] == "DQ_DescriptiveResult":
+                    child(
+                        child(result_element, "mdq", "statement"),
+                        "gco",
+                        "CharacterString",
+                        result_value["statement"],
+                    )
+                elif result_value["type"] == "DQ_QuantitativeResult":
+                    for lexical_value in result_value["values"]:
+                        child(child(result_element, "mdq", "value"), "gco", "Record", lexical_value)
+                    if "unit" in result_value:
+                        definition = child(
+                            child(result_element, "mdq", "valueUnit"), "gml", "UnitDefinition"
+                        )
+                        definition.set(
+                            tag("gml", "id"),
+                            f"quality-report-unit-{group_index}-{report_index}-{result_index}",
+                        )
+                        identifier = child(definition, "gml", "identifier", result_value["unit"])
+                        identifier.set("codeSpace", "")
+                    if "recordType" in result_value:
+                        child(
+                            child(result_element, "mdq", "valueRecordType"),
+                            "gco",
+                            "RecordType",
+                            result_value["recordType"],
+                        )
+                else:
+                    distribution_citation(
+                        result_element,
+                        result_value["specification"],
+                        f"{result_path}.specification",
+                        prefix="mdq",
+                        name="specification",
+                        mapped=quality_mapped,
+                        unmapped=quality_unmapped,
+                    )
+                    if "explanation" in result_value:
+                        child(
+                            child(result_element, "mdq", "explanation"),
+                            "gco",
+                            "CharacterString",
+                            result_value["explanation"],
+                        )
+                    child(
+                        child(result_element, "mdq", "pass"),
+                        "gco",
+                        "Boolean",
+                        "true" if result_value["pass"] else "false",
+                    )
+                quality_mapped.append(result_path)
+            for field, xml_name in (
+                ("derivedReports", "derivedElement"),
+                ("relatedReports", "relatedElement"),
+            ):
+                for index, reference in enumerate(value.get(field, [])):
+                    reference_path = f"{path}.{field}[{index}]"
+                    if reference not in quality_emitted_ids:
+                        quality_unmapped.append(reference_path)
+                        continue
+                    child(report_value, "mdq", xml_name).set(tag("xlink", "href"), f"#{reference}")
+                    quality_mapped.append(reference_path)
     lineage = catalog.get("lineage")
     if isinstance(lineage, dict):
         lineage_info = child(root, "mdb", "resourceLineage")
@@ -3881,6 +4181,43 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     )
                 )
         acquisition_emitted = bool(len(acquisition_value))
+    # XML IDs share one document-wide namespace, including gml:id and locale IDs.
+    # Preserve native report identity exactly; ambiguous joins cannot be exported.
+    quality_id_collisions: list[str] = []
+    if quality_reports:
+        xml_id_counts: dict[str, int] = {}
+        for element in root.iter():
+            for attribute in ("id", tag("gml", "id")):
+                identifier = element.get(attribute)
+                if identifier is not None:
+                    xml_id_counts[identifier] = xml_id_counts.get(identifier, 0) + 1
+        quality_id_collisions = [
+            quality_id_paths.get(identifier, "metadata_extensions.opengeo.qualityReports")
+            for identifier, count in xml_id_counts.items()
+            if count > 1
+        ]
+        quality_unmapped.extend(quality_id_collisions)
+
+    def quality_xml_within_bounds() -> bool:
+        if len(ET.tostring(root, encoding="utf-8", xml_declaration=True)) > 49_152:
+            return False
+        pending = [(root, 1)]
+        node_count = 0
+        while pending:
+            element, depth = pending.pop()
+            node_count += 1
+            if node_count > 2000 or depth > 32:
+                return False
+            pending.extend((element_child, depth + 1) for element_child in element)
+        return True
+
+    def omit_quality_blocks(reason: str) -> None:
+        for element, path in quality_blocks:
+            root.remove(element)
+            quality_unmapped.append(f"{path}[{reason}]")
+        quality_blocks.clear()
+        quality_mapped.clear()
+
     # New context can expand compact native numbers into much larger XML decimals.
     # Keep the existing source-import bound and report every removed native field.
     context_was_emitted = bool(acquisition_context_blocks)
@@ -3914,7 +4251,13 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     if distributions and not len(distribution_value):
         root.remove(distribution_info)
         xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
-    context_size_blocked = (context_was_emitted or distribution_was_emitted) and xml_size > 49_152
+    if quality_reports and not quality_xml_within_bounds():
+        # Omit typed groups together so local references never become dangling.
+        omit_quality_blocks("xml-limit")
+        xml_size = len(ET.tostring(root, encoding="utf-8", xml_declaration=True))
+    context_size_blocked = (
+        (context_was_emitted or distribution_was_emitted) and xml_size > 49_152
+    ) or (bool(quality_reports) and not quality_xml_within_bounds())
     iso_catalog_mapped = [
         f"metadata_extensions.opengeo.{field}"
         for field in (
@@ -3934,6 +4277,8 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         for field in ("updateFrequency", "sensitivity", "funding")
         if catalog.get(field)
     ]
+    iso_catalog_mapped.extend(quality_mapped)
+    iso_catalog_unmapped.extend(quality_unmapped)
     iso_catalog_mapped.extend(distribution_mapped)
     iso_catalog_unmapped.extend(distribution_unmapped)
     iso_catalog_mapped.extend(acquisition_context_mapped)
@@ -4027,6 +4372,28 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             "conformanceClaimed": False,
         },
     }
+    if quality_id_collisions:
+        result["status"] = "not_exportable_xml_id_collision"
+        result["documentText"] = None
+        result["report"]["mapped"] = []
+        result["report"]["warnings"] = [
+            "An exact quality report ID collides with another emitted XML ID. "
+            "No document is exported; native metadata is unchanged."
+        ]
+    if (
+        quality_reports
+        and len(json.dumps(result["report"], ensure_ascii=False).encode("utf-8")) > 16_384
+    ):
+        omit_quality_blocks("report-size-limit")
+        prefix = "metadata_extensions.opengeo.qualityReports"
+        result["report"]["mapped"] = [
+            path for path in result["report"]["mapped"] if not path.startswith(prefix)
+        ]
+        result["report"]["unmapped"] = [
+            path for path in result["report"]["unmapped"] if not path.startswith(prefix)
+        ] + [f"{prefix}[{index}][report-size-limit]" for index in range(len(quality_reports))]
+        if result["documentText"] is not None:
+            result["documentText"] = ET.tostring(root, encoding="unicode", xml_declaration=True)
     if context_size_blocked:
         result["status"] = "not_exportable_size_limit"
         result["documentText"] = None
@@ -4037,10 +4404,9 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
         ]
         result["report"]["sizeLimitBytes"] = 49_152
         result["report"]["documentBytes"] = xml_size
-    if (
-        distributions
-        and len(json.dumps(result["report"], ensure_ascii=False).encode("utf-8")) > 16_384
-    ):
+    if (distributions or quality_reports) and len(
+        json.dumps(result["report"], ensure_ascii=False).encode("utf-8")
+    ) > 16_384:
         result["status"] = "not_exportable_size_limit"
         result["documentText"] = None
         result["report"]["mapped"] = []
@@ -4051,7 +4417,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
             if not path.startswith("metadata_extensions.opengeo.distributions")
         ] + ["metadata_extensions.opengeo.distributions[report-size-limit]"]
         result["report"]["warnings"] = [
-            "The distribution mapping report exceeds 16384 UTF-8 bytes. "
+            "The ISO mapping report exceeds 16384 UTF-8 bytes. "
             "No ISO document is exported; all native metadata is unchanged."
         ]
         result["report"]["reportSizeLimitBytes"] = 16_384
