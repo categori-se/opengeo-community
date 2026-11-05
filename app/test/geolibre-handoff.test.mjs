@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {describe, it} from "node:test";
-import {createGeoLibreHandoff, reviewGeoLibreReturn} from "../src/lib/geolibreHandoff.js";
+import {applyGeoLibreReturnCameraChoice, createGeoLibreHandoff, reviewGeoLibreReturn} from "../src/lib/geolibreHandoff.js";
 import {importGeoLibreProject} from "../src/lib/geolibreProject.js";
 import {prepareGeoLibreImport} from "../src/lib/geolibreImport.js";
 import {emptyMapDefinition} from "../src/lib/mapDefinition.js";
@@ -30,8 +30,18 @@ function fixture() {
   return {map, data, embeddedDataByLayerId: new Map([["sites", {data, complete: true}]])};
 }
 
-async function exchange(edit = () => {}) {
+function cameraFixture() {
   const f = fixture();
+  f.map.definition.mapViews = [
+    {viewId: "overview", center: [-77.04, 38.91], zoom: 11, bearing: 15, pitch: 20,
+      bbox: [-77.12, 38.84, -76.96, 38.98], title: "Detailed observations"},
+    {viewId: "comparison", center: [-77.04, 38.91], zoom: 9, bearing: 0, pitch: 0,
+      label: "Regional context", viewKind: "maplibre", layerVisibility: {sites: true}}
+  ];
+  return f;
+}
+
+async function exchange(edit = () => {}, f = fixture()) {
   const handoff = await createGeoLibreHandoff({projectId, ...f});
   const returned = structuredClone(handoff.project);
   edit(returned);
@@ -124,6 +134,7 @@ describe("saved-revision GeoLibre handoff and return review", () => {
     Object.assign(f.map.definition, {
       colorMode: "light", bookmarks: [{title: "Study extent"}], measurements: [{id: "measure-1"}],
       metadata: {source: {authoritative: true}}, customState: {keep: [1, 2]},
+      mapViews: [{viewId: "saved-overview", center: [1, 2], zoom: 4, bearing: 0, pitch: 0}],
       basemaps: [{basemapId: "primary", url: "https://maps.example.test/style.json", visible: true}, {basemapId: "alternate", visible: false, url: "https://maps.example.test/alternate.json"}]
     });
     const handoff = await createGeoLibreHandoff({projectId, ...f});
@@ -133,7 +144,188 @@ describe("saved-revision GeoLibre handoff and return review", () => {
     for (const key of ["schemaVersion", "colorMode", "bookmarks", "measurements", "metadata", "customState", "basemaps"]) {
       assert.deepEqual(result.conversion.map.definition[key], f.map.definition[key]);
     }
+    assert.deepEqual(result.conversion.map.definition.mapViews, f.map.definition.mapViews);
+    applyGeoLibreReturnCameraChoice(result, true);
     assert.equal(result.conversion.map.definition.mapViews[0].zoom, 7);
+    assert.equal(result.conversion.map.definition.mapViews[0].viewId, "saved-overview");
+  });
+
+  it("retains canonical cameras after actual-peer camera drift while applying style, legend and layout edits", async () => {
+    const f = cameraFixture();
+    const canonical = structuredClone(f.map.definition);
+    const result = await exchange(returned => {
+      returned.mapView.bbox = [-77.13502037172688, 38.807371736704425, -76.9187397220274, 39.040753881906824];
+      Object.assign(returned.secondaryMapViews[0].view, {zoom: 11, bearing: 15, pitch: 20,
+        bbox: structuredClone(returned.mapView.bbox)});
+      Object.assign(returned.secondaryMapViews[0], {label: "Regional context revised", viewKind: "deckgl",
+        layerVisibility: {sites: false}});
+      returned.layers[0].style.fillColor = "#ef4444";
+      returned.legend = {title: "Reviewed legend", layerIds: ["sites"]};
+      returned.mapLayout = {title: "Reviewed layout", page: {width: 210, height: 297}};
+    }, f);
+    const mappedViews = structuredClone(canonical.mapViews);
+    Object.assign(mappedViews[1], {label: "Regional context revised", viewKind: "deckgl", layerVisibility: {sites: false}});
+    assert.deepEqual(result.conversion.map.definition.mapViews, mappedViews);
+    assert.deepEqual(result.cameraChoices.canonicalViews, canonical.mapViews);
+    assert.equal(result.review.cameraChoice, "canonical");
+    assert.deepEqual(result.cameraChanges.find(change => change.viewId === "comparison" && change.field === "zoom"),
+      {viewId: "comparison", field: "zoom", before: 9, returned: 11});
+    assert.deepEqual(result.cameraChanges.filter(change => change.viewId === "comparison").map(change => change.field),
+      ["zoom", "bearing", "pitch", "bbox"]);
+    assert.ok(result.cameraChanges.some(change => change.viewId === "overview" && change.field === "bbox"));
+    assert.match(result.review.limits.join(" "), /comparison.*zoom.*9.*11.*canonical saved camera is retained/);
+    assert.match(result.conversion.report.losses.join(" "), /comparison.*pitch.*0.*20/);
+    assert.equal(result.conversion.map.definition.layers[0].style.fill, "#ef4444");
+    assert.deepEqual(result.conversion.map.definition.legend, result.returned.legend);
+    assert.deepEqual(result.conversion.map.definition.mapLayout, result.returned.mapLayout);
+    assert.deepEqual(result.conversion.map.definition.extensions.geolibre.project.secondaryMapViews,
+      result.returned.secondaryMapViews);
+    assert.equal(importGeoLibreProject(result.returned).map.definition.mapViews[1].zoom, 11,
+      "A generic raw import still uses its incoming cameras without a trusted saved base");
+    assert.deepEqual(f.map.definition, canonical);
+  });
+
+  it("keeps report status consistent with camera losses without changing conversion counts", async () => {
+    const unchanged = await exchange(() => {}, cameraFixture());
+    assert.equal(unchanged.cameraChanges.length, 0);
+    assert.equal(unchanged.conversion.report.losses.length, 0);
+    assert.equal(unchanged.conversion.report.summary.status, "lossless");
+    const changed = await exchange(returned => {returned.secondaryMapViews[0].view.zoom = 11;}, cameraFixture());
+    const originalSummary = importGeoLibreProject(changed.returned).report.summary;
+    const counts = {...originalSummary};
+    delete counts.status;
+    for (const selected of [false, true, true, false]) {
+      applyGeoLibreReturnCameraChoice(changed, selected);
+      assert.ok(changed.conversion.report.losses.length);
+      assert.equal(changed.conversion.report.summary.status, "lossy");
+      const currentCounts = {...changed.conversion.report.summary};
+      delete currentCounts.status;
+      assert.deepEqual(currentCounts, counts);
+    }
+  });
+
+  it("preserves secondary presentation edits and intentional removals independently of camera choice", async () => {
+    const f = cameraFixture();
+    f.map.definition.mapViews[1].title = "Saved title";
+    const canonical = structuredClone(f.map.definition.mapViews);
+    const unchanged = await exchange(() => {}, f);
+    assert.deepEqual(unchanged.conversion.map.definition.mapViews, canonical,
+      "An unchanged native label must not rewrite the saved title/label aliases");
+
+    const edited = await exchange(returned => {
+      returned.secondaryMapViews[0].label = "Edited title";
+      returned.secondaryMapViews[0].view.zoom = 11;
+    }, f);
+    assert.equal(edited.conversion.map.definition.mapViews[1].label, "Edited title");
+    assert.equal(edited.conversion.map.definition.mapViews[1].title, "Edited title");
+    assert.equal(edited.conversion.map.definition.mapViews[1].zoom, 9);
+
+    const removed = await exchange(returned => {
+      delete returned.secondaryMapViews[0].label;
+      delete returned.secondaryMapViews[0].viewKind;
+      delete returned.secondaryMapViews[0].layerVisibility;
+      returned.secondaryMapViews[0].view.zoom = 11;
+    }, f);
+    for (const selected of [false, true, false]) {
+      applyGeoLibreReturnCameraChoice(removed, selected);
+      const view = removed.conversion.map.definition.mapViews[1];
+      for (const key of ["label", "title", "viewKind", "layerVisibility"]) assert.equal(Object.hasOwn(view, key), false);
+      assert.equal(view.zoom, selected ? 11 : 9);
+      assert.equal(view.viewId, "comparison");
+    }
+    assert.deepEqual(f.map.definition.mapViews, canonical);
+    assert.deepEqual(removed.cameraChoices.canonicalViews, canonical);
+  });
+
+  it("discloses invalid secondary presentation values while retaining canonical values", async () => {
+    const result = await exchange(returned => {
+      returned.secondaryMapViews[0].label = {unmapped: true};
+      returned.secondaryMapViews[0].viewKind = {unmapped: true};
+      returned.secondaryMapViews[0].layerVisibility = "unmapped";
+    }, cameraFixture());
+    assert.deepEqual(result.conversion.map.definition.mapViews, result.map.definition.mapViews);
+    assert.equal(result.cameraChoices.notices.length, 3);
+    assert.match(result.conversion.report.losses.join(" "), /unsupported label.*unsupported viewKind.*unsupported layerVisibility/);
+    assert.deepEqual(result.conversion.map.definition.extensions.geolibre.project.secondaryMapViews,
+      result.returned.secondaryMapViews);
+  });
+
+  it("applies only explicitly selected camera patches and restores the same review deterministically", async () => {
+    const f = cameraFixture();
+    const canonical = structuredClone(f.map.definition.mapViews);
+    const result = await exchange(returned => {
+      returned.mapView.zoom = 7;
+      Object.assign(returned.secondaryMapViews[0].view, {zoom: 11, bearing: 15, pitch: 20});
+    }, f);
+    const conversion = result.conversion;
+    const review = result.review;
+    const layers = conversion.map.definition.layers;
+    const raw = structuredClone(conversion.map.definition.extensions.geolibre.project);
+    const originalLosses = structuredClone(conversion.report.losses);
+    assert.equal(applyGeoLibreReturnCameraChoice(result, true), result);
+    assert.equal(result.conversion, conversion);
+    assert.equal(result.review, review);
+    assert.equal(result.conversion.map.definition.layers, layers);
+    assert.deepEqual(result.conversion.map.definition.mapViews.map(view => view.viewId), ["overview", "comparison"]);
+    assert.equal(result.conversion.map.definition.mapViews[0].zoom, 7);
+    assert.equal(result.conversion.map.definition.mapViews[1].zoom, 11);
+    assert.equal(result.conversion.map.definition.mapViews[1].bearing, 15);
+    assert.equal(result.conversion.map.definition.mapViews[1].pitch, 20);
+    assert.equal(result.conversion.map.definition.mapViews[1].label, canonical[1].label);
+    assert.deepEqual(result.conversion.map.definition.mapViews[1].layerVisibility, canonical[1].layerVisibility);
+    assert.equal(review.cameraChoice, "returned");
+    assert.match(conversion.report.losses.join(" "), /explicitly selected/);
+    const selectedLosses = structuredClone(conversion.report.losses);
+    applyGeoLibreReturnCameraChoice(result, true);
+    assert.deepEqual(conversion.report.losses, selectedLosses, "Retry cannot duplicate camera notices");
+    applyGeoLibreReturnCameraChoice(result, false);
+    assert.deepEqual(conversion.map.definition.mapViews, canonical);
+    assert.deepEqual(conversion.report.losses, originalLosses);
+    assert.deepEqual(conversion.map.definition.extensions.geolibre.project, raw);
+    assert.deepEqual(result.cameraChoices.canonicalViews, canonical);
+    assert.deepEqual(f.map.definition.mapViews, canonical);
+    assert.throws(() => applyGeoLibreReturnCameraChoice(result, "false"), TypeError);
+  });
+
+  it("matches secondary cameras by stable identity and keeps missing, added or reordered views explicit", async () => {
+    const f = cameraFixture();
+    f.map.definition.mapViews.push({viewId: "third", center: [10, 20], zoom: 3, bearing: 0, pitch: 0});
+    const result = await exchange(returned => {
+      returned.secondaryMapViews.reverse();
+      returned.secondaryMapViews[0].view.zoom = 8;
+      returned.secondaryMapViews.push({id: "untrusted-new", view: {center: [30, 40], zoom: 6}});
+    }, f);
+    applyGeoLibreReturnCameraChoice(result, true);
+    assert.deepEqual(result.conversion.map.definition.mapViews.map(view => view.viewId), ["overview", "comparison", "third"]);
+    assert.equal(result.conversion.map.definition.mapViews[1].zoom, 9);
+    assert.equal(result.conversion.map.definition.mapViews[2].zoom, 8);
+    assert.match(result.review.limits.join(" "), /identities or order.*canonical view identities and order are retained/);
+    assert.equal(result.conversion.map.definition.extensions.geolibre.project.secondaryMapViews[2].id, "untrusted-new");
+
+    const missing = await exchange(returned => {returned.secondaryMapViews = [];}, cameraFixture());
+    applyGeoLibreReturnCameraChoice(missing, true);
+    assert.equal(missing.conversion.map.definition.mapViews[1].zoom, 9);
+    assert.match(missing.conversion.report.losses.join(" "), /comparison.*missing or ambiguous/);
+  });
+
+  it("keeps ambiguous secondary cameras and makes selected bbox removal reversible", async () => {
+    const duplicate = await exchange(returned => {
+      returned.secondaryMapViews[0].view.zoom = 18;
+      returned.secondaryMapViews.push(structuredClone(returned.secondaryMapViews[0]));
+    }, cameraFixture());
+    applyGeoLibreReturnCameraChoice(duplicate, true);
+    assert.equal(duplicate.conversion.map.definition.mapViews[1].zoom, 9);
+    assert.match(duplicate.review.limits.join(" "), /comparison.*missing or ambiguous/);
+
+    const f = cameraFixture();
+    const bbox = structuredClone(f.map.definition.mapViews[0].bbox);
+    const removed = await exchange(returned => {delete returned.mapView.bbox;}, f);
+    assert.deepEqual(removed.cameraChanges.find(change => change.field === "bbox"),
+      {viewId: "overview", field: "bbox", before: bbox, returned: null});
+    applyGeoLibreReturnCameraChoice(removed, true);
+    assert.equal(Object.hasOwn(removed.conversion.map.definition.mapViews[0], "bbox"), false);
+    applyGeoLibreReturnCameraChoice(removed, false);
+    assert.deepEqual(removed.conversion.map.definition.mapViews[0].bbox, bbox);
   });
 
   it("retains the original and creates a deterministic derivative for edited geometries and attributes", async () => {

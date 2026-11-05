@@ -6,6 +6,7 @@ import {JSDOM} from "jsdom";
 import {WorkbenchView} from "../src/components/WorkbenchView.js";
 import {emptyMapDefinition} from "../src/lib/mapDefinition.js";
 import {exportGeoLibreProject} from "../src/lib/geolibreProject.js";
+import {applyGeoLibreReturnCameraChoice} from "../src/lib/geolibreHandoff.js";
 
 const PROJECT_ID = "50000000-0000-4000-8000-000000000001";
 const MAP_ID = "50000000-0000-4000-8000-000000000002";
@@ -113,6 +114,60 @@ describe("reviewed GeoLibre handoff", () => {
     assert.equal(calls[0].sourceText, returnedText);
     assert.equal(calls[0].filename, "survey-results.geolibre.json");
     assert.equal(Object.hasOwn(calls[0], "asNewMapName"), false);
+  });
+
+  it("keeps saved cameras by default and shows the incoming changes before saving", async () => {
+    const calls = [];
+    let reviewed;
+    const shell = mountWorkbench({reviewGeoLibreReturn: async ({conversion}) => {
+      reviewed = cameraReviewFixture(conversion);
+      return reviewed;
+    }, applyGeoLibreImport: async request => {calls.push(request); return completedImport();}});
+    const dialog = await inspectReturn(shell);
+    const choice = dialog.querySelector('input[aria-label="Use GeoLibre camera changes"]');
+    assert.ok(choice);
+    assert.equal(choice.checked, false);
+    assert.match(dialog.textContent, /zoom: 5 → 11/);
+    assert.equal(reviewed.conversion.map.definition.mapViews[0].zoom, 5);
+    assert.equal(calls.length, 0);
+    clickButton(dialog, "Save results to OpenGeo");
+    await waitFor(() => calls.length === 1);
+    assert.equal(calls[0].conversion, reviewed.conversion);
+    assert.equal(calls[0].conversion.map.definition.mapViews[0].zoom, 5);
+    assert.equal(calls[0].review.cameraChoice, "canonical");
+    assert.equal(choice.disabled, true);
+  });
+
+  it("applies an explicit camera choice once and retains it during a failed-save retry", async () => {
+    const calls = [];
+    let reviewed;
+    const shell = mountWorkbench({reviewGeoLibreReturn: async ({conversion}) => {
+      reviewed = cameraReviewFixture(conversion);
+      return reviewed;
+    }, applyGeoLibreImport: async request => {
+      calls.push({conversion: request.conversion, review: request.review,
+        views: structuredClone(request.conversion.map.definition.mapViews)});
+      if (calls.length === 1) throw new Error("Save is temporarily unavailable.");
+      return completedImport();
+    }});
+    const dialog = await inspectReturn(shell);
+    const choice = dialog.querySelector('input[aria-label="Use GeoLibre camera changes"]');
+    choice.checked = true;
+    choice.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    assert.equal(reviewed.conversion.map.definition.mapViews[0].zoom, 5, "Selection is applied when Save starts");
+    assert.equal(calls.length, 0);
+    clickButton(dialog, "Save results to OpenGeo");
+    await waitFor(() => calls.length === 1 && !clickableButton(dialog, "Save results to OpenGeo").disabled);
+    assert.equal(choice.disabled, true);
+    assert.equal(calls[0].views[0].zoom, 11);
+    assert.equal(calls[0].views[0].viewId, "saved-primary");
+    assert.equal(calls[0].review.cameraChoice, "returned");
+    choice.checked = false;
+    clickButton(dialog, "Save results to OpenGeo");
+    await waitFor(() => calls.length === 2);
+    assert.deepEqual(calls[1].views, calls[0].views);
+    assert.equal(calls[1].conversion, calls[0].conversion);
+    assert.equal(calls[1].review, calls[0].review);
   });
 
   it("blocks overwrite after a revision conflict and saves a deliberately named separate map", async () => {
@@ -309,6 +364,14 @@ function reviewFixture({conflict = false} = {}) {
     styles: ["public-geojson"],
     limits: ["Unsupported terrain remains preserved."]
   };
+}
+
+function cameraReviewFixture(conversion) {
+  const canonicalViews = [{viewId: "saved-primary", center: [-77, 39], zoom: 5, bearing: 0, pitch: 0}];
+  const result = {conversion, review: reviewFixture(),
+    cameraChanges: [{viewId: "saved-primary", field: "zoom", before: 5, returned: 11}],
+    cameraChoices: {canonicalViews, incomingPatches: [{index: 0, viewId: "saved-primary", camera: {zoom: 11}}]}};
+  return applyGeoLibreReturnCameraChoice(result, false);
 }
 
 function completedImport() {
