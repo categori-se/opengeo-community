@@ -6,7 +6,7 @@ from datetime import date, datetime
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.8.0"
+OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.9.0"
 OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.0.0",
     "1.1.0",
@@ -16,6 +16,7 @@ OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.5.0",
     "1.6.0",
     "1.7.0",
+    "1.8.0",
     OPEN_GEO_CATALOG_SCHEMA_VERSION,
 }
 OPEN_GEO_CATALOG_NAMESPACE = "opengeo"
@@ -164,12 +165,12 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if schema_version not in OPEN_GEO_CATALOG_SCHEMA_VERSIONS:
         raise CatalogMetadataInvalid(
             "metadata extensions.opengeo.schemaVersion must be "
-            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, 1.6.0, 1.7.0, or 1.8.0"
+            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, 1.6.0, 1.7.0, 1.8.0, or 1.9.0"
         )
     allowed = _CATALOG_FIELDS_1_1 if schema_version != "1.0.0" else _CATALOG_FIELDS_1_0
-    if schema_version in {"1.6.0", "1.7.0", "1.8.0"}:
+    if schema_version in {"1.6.0", "1.7.0", "1.8.0", "1.9.0"}:
         allowed = {*allowed, "qualityReports"}
-    if schema_version == "1.8.0":
+    if schema_version in {"1.8.0", "1.9.0"}:
         allowed = {*allowed, "isoDistributionGroups"}
     unknown = set(value) - allowed
     if unknown:
@@ -183,8 +184,8 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "distributions" in value:
         result["distributions"] = _distributions(
             value["distributions"],
-            iso_transfer=schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0"},
-            offline_media=schema_version in {"1.7.0", "1.8.0"},
+            iso_transfer=schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0", "1.9.0"},
+            offline_media=schema_version in {"1.7.0", "1.8.0", "1.9.0"},
         )
     if "referenceSystems" in value:
         result["referenceSystems"] = _reference_systems(value["referenceSystems"])
@@ -193,7 +194,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "quality" in value:
         result["quality"] = _quality(value["quality"])
     if "qualityReports" in value:
-        result["qualityReports"] = _quality_reports(value["qualityReports"])
+        result["qualityReports"] = _quality_reports(
+            value["qualityReports"], unit_references=schema_version == "1.9.0"
+        )
     if "isoDistributionGroups" in value:
         quality_ids = {
             report["id"]
@@ -202,7 +205,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
             if "id" in report
         }
         result["isoDistributionGroups"] = _iso_distribution_groups(
-            value["isoDistributionGroups"], reserved_ids=quality_ids
+            value["isoDistributionGroups"],
+            reserved_ids=quality_ids,
+            rich_contacts=schema_version == "1.9.0",
         )
     if "updateFrequency" in value:
         result["updateFrequency"] = _string(
@@ -492,11 +497,98 @@ def _iso_order_date_time(value: Any, path: str) -> str:
     return value
 
 
+ISO_ADDRESS_FIELDS = {"deliveryPoints", "city", "administrativeArea", "postalCode", "country"}
+ISO_CONTACT_FIELDS = {
+    "phones",
+    "onlineResources",
+    "hoursOfService",
+    "contactInstructions",
+    "contactType",
+}
+ISO_UNIT_REFERENCE_FIELDS = {
+    "href",
+    "uuidref",
+    "type",
+    "role",
+    "arcrole",
+    "title",
+    "show",
+    "actuate",
+}
+
+
+def _iso_raw_text(value: Any, path: str, *, minimum: int = 0, maximum: int = 1_000) -> str:
+    if (
+        not isinstance(value, str)
+        or not minimum <= len(value) <= maximum
+        or not all(
+            c in "\t\n"
+            or 0x20 <= ord(c) <= 0xD7FF
+            or 0xE000 <= ord(c) <= 0xFFFD
+            or 0x10000 <= ord(c) <= 0x10FFFF
+            for c in value
+        )
+    ):
+        raise CatalogMetadataInvalid(f"metadata {path} must be exact XML-safe text")
+    return value
+
+
+def _iso_raw_strings(value: Any, path: str) -> list[str]:
+    if not isinstance(value, list) or not 1 <= len(value) <= 8:
+        raise CatalogMetadataInvalid(f"metadata {path} requires 1 to 8 strings")
+    return [_iso_raw_text(item, f"{path}[{i}]") for i, item in enumerate(value)]
+
+
+def _iso_reference_uri(value: Any, path: str) -> str:
+    raw = _iso_raw_text(value, path, minimum=1, maximum=2_048)
+    try:
+        parsed = urlsplit(raw)
+        valid = (
+            not any(c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in raw)
+            and parsed.scheme in {"http", "https", "urn"}
+            and parsed.username is None
+            and parsed.password is None
+            and (bool(parsed.hostname) if parsed.scheme in {"http", "https"} else bool(parsed.path))
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        raise CatalogMetadataInvalid(
+            f"metadata {path} requires an absolute HTTP/HTTPS/URN identifier"
+        )
+    return raw
+
+
+def _iso_unit_reference(value: Any, path: str) -> dict[str, str]:
+    if not isinstance(value, dict):
+        raise CatalogMetadataInvalid(f"metadata {path} must be an object")
+    _known_fields(value, ISO_UNIT_REFERENCE_FIELDS, path)
+    if not {"href", "uuidref"} & value.keys():
+        raise CatalogMetadataInvalid(f"metadata {path} requires href or uuidref")
+    result: dict[str, str] = {}
+    for field, raw in value.items():
+        field_path = f"{path}.{field}"
+        if field in {"href", "role", "arcrole"}:
+            result[field] = _iso_reference_uri(raw, field_path)
+        else:
+            result[field] = _iso_raw_text(raw, field_path, minimum=0 if field == "title" else 1)
+    enums = {
+        "type": {"simple"},
+        "show": {"new", "replace", "embed", "other", "none"},
+        "actuate": {"onLoad", "onRequest", "other", "none"},
+    }
+    for field, accepted in enums.items():
+        if field in result and result[field] not in accepted:
+            raise CatalogMetadataInvalid(f"metadata {path}.{field} is unsupported")
+    return result
+
+
 def _iso_distribution_groups(
     value: Any,
     path: str = "opengeo.isoDistributionGroups",
     *,
     reserved_ids: Collection[str] = (),
+    rich_contacts: bool = False,
 ) -> list[dict[str, Any]]:
     """Validate owned graph nodes without expanding declared local references."""
     identities: dict[str, str] = {}
@@ -528,7 +620,11 @@ def _iso_distribution_groups(
             contacts: list[dict[str, Any]] = []
             for i, contact in enumerate(objects(raw["contacts"], f"{location}.contacts")):
                 contact_path = f"{location}.contacts[{i}]"
-                _known_fields(contact, {"addresses"}, contact_path)
+                _known_fields(
+                    contact,
+                    {"addresses"} | (ISO_CONTACT_FIELDS if rich_contacts else set()),
+                    contact_path,
+                )
                 normalized: dict[str, Any] = {}
                 if "addresses" in contact:
                     addresses: list[dict[str, Any]] = []
@@ -536,7 +632,11 @@ def _iso_distribution_groups(
                         objects(contact["addresses"], f"{contact_path}.addresses")
                     ):
                         address_path = f"{contact_path}.addresses[{j}]"
-                        _known_fields(address, {"emails"}, address_path)
+                        _known_fields(
+                            address,
+                            {"emails"} | (ISO_ADDRESS_FIELDS if rich_contacts else set()),
+                            address_path,
+                        )
                         normalized_address: dict[str, Any] = {}
                         if "emails" in address:
                             emails = address["emails"]
@@ -554,8 +654,54 @@ def _iso_distribution_groups(
                                     )
                                 normalized_emails.append(email)
                             normalized_address["emails"] = normalized_emails
+                        for field in ISO_ADDRESS_FIELDS & address.keys():
+                            if field == "deliveryPoints":
+                                normalized_address[field] = _iso_raw_strings(
+                                    address[field], f"{address_path}.{field}"
+                                )
+                            else:
+                                normalized_address[field] = _iso_raw_text(
+                                    address[field], f"{address_path}.{field}"
+                                )
                         addresses.append(normalized_address)
                     normalized["addresses"] = addresses
+                if "phones" in contact:
+                    phones: list[dict[str, str]] = []
+                    for phone_index, phone in enumerate(
+                        objects(contact["phones"], f"{contact_path}.phones")
+                    ):
+                        phone_path = f"{contact_path}.phones[{phone_index}]"
+                        _known_fields(phone, {"number", "numberType"}, phone_path)
+                        if "number" not in phone:
+                            raise CatalogMetadataInvalid(
+                                f"metadata {phone_path}.number is required"
+                            )
+                        item = {"number": _iso_raw_text(phone["number"], f"{phone_path}.number")}
+                        if "numberType" in phone:
+                            code = _iso_raw_text(
+                                phone["numberType"],
+                                f"{phone_path}.numberType",
+                                minimum=1,
+                                maximum=300,
+                            )
+                            if code != code.strip() or any(c in code for c in "\t\n"):
+                                raise CatalogMetadataInvalid(
+                                    f"metadata {phone_path}.numberType is invalid"
+                                )
+                            item["numberType"] = code
+                        phones.append(item)
+                    normalized["phones"] = phones
+                if "onlineResources" in contact:
+                    normalized["onlineResources"] = _iso_transfer(
+                        {"onlineResources": contact["onlineResources"]}, contact_path
+                    )["onlineResources"]
+                if "hoursOfService" in contact:
+                    normalized["hoursOfService"] = _iso_raw_strings(
+                        contact["hoursOfService"], f"{contact_path}.hoursOfService"
+                    )
+                for field in ("contactInstructions", "contactType"):
+                    if field in contact:
+                        normalized[field] = _iso_raw_text(contact[field], f"{contact_path}.{field}")
                 contacts.append(normalized)
             result["contacts"] = contacts
         return result
@@ -829,10 +975,13 @@ def _quality_evaluation(value: Any, path: str) -> dict[str, Any]:
     return result
 
 
-def _quality_result(value: dict[str, Any], path: str) -> dict[str, Any]:
+def _quality_result(
+    value: dict[str, Any], path: str, *, unit_references: bool = False
+) -> dict[str, Any]:
     kind = _string(value.get("type"), 1, 100, f"{path}.type")
     variants = {
-        "DQ_QuantitativeResult": {"values", "unit", "recordType"},
+        "DQ_QuantitativeResult": {"values", "unit", "recordType"}
+        | ({"unitReference"} if unit_references else set()),
         "DQ_DescriptiveResult": {"statement"},
         "DQ_ConformanceResult": {"specification", "explanation", "pass"},
     }
@@ -846,6 +995,14 @@ def _quality_result(value: dict[str, Any], path: str) -> dict[str, Any]:
         result["scope"] = _quality_scope(value["scope"], f"{path}.scope")
     if kind == "DQ_QuantitativeResult":
         result["values"] = _quality_strings(value.get("values"), 1_000, f"{path}.values")
+        if "unitReference" in value:
+            if "unit" in value:
+                raise CatalogMetadataInvalid(
+                    f"metadata {path}.unit and unitReference are mutually exclusive"
+                )
+            result["unitReference"] = _iso_unit_reference(
+                value["unitReference"], f"{path}.unitReference"
+            )
         for field in ("unit", "recordType"):
             if field in value:
                 result[field] = _string(value[field], 1, 1_000, f"{path}.{field}")
@@ -863,7 +1020,7 @@ def _quality_result(value: dict[str, Any], path: str) -> dict[str, Any]:
     return result
 
 
-def _quality_reports(value: Any) -> list[dict[str, Any]]:
+def _quality_reports(value: Any, *, unit_references: bool = False) -> list[dict[str, Any]]:
     groups = _bounded_objects(value, 8, "opengeo.qualityReports")
     result: list[dict[str, Any]] = []
     declared: set[str] = set()
@@ -919,7 +1076,9 @@ def _quality_reports(value: Any) -> list[dict[str, Any]]:
                     report["evaluation"], f"{report_path}.evaluation"
                 )
             item["results"] = [
-                _quality_result(record, f"{report_path}.results[{i}]")
+                _quality_result(
+                    record, f"{report_path}.results[{i}]", unit_references=unit_references
+                )
                 for i, record in enumerate(
                     _bounded_objects(report.get("results"), 8, f"{report_path}.results")
                 )

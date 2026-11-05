@@ -1,0 +1,220 @@
+{
+  "schemaVersion": "1.9.0",
+  "isoDistributionGroups": [
+    {
+      "id": "contact-group-a",
+      "description": "Contact owner A",
+      "distributors": [
+        {
+          "id": "contact-distributor-a",
+          "contact": {
+            "role": "distributor",
+            "parties": [
+              {
+                "type": "individual",
+                "name": "Primary contact",
+                "contacts": [
+                  {
+                    "phones": [
+                      {
+                        "number": " +1 (202) 555-0100 ",
+                        "numberType": "voice"
+                      },
+                      {
+                        "number": "",
+                        "numberType": "custom-phone"
+                      },
+                      {
+                        "number": " \t "
+                      }
+                    ],
+                    "addresses": [
+                      {
+                        "deliveryPoints": [
+                          " 10 Archive Road ",
+                          "",
+                          " \t "
+                        ],
+                        "city": " Kathmandu ",
+                        "administrativeArea": "Bagmati",
+                        "postalCode": " ",
+                        "country": "NP",
+                        "emails": [
+                          "primary@example.test",
+                          "archive@example.test"
+                        ]
+                      },
+                      {}
+                    ],
+                    "onlineResources": [
+                      {
+                        "linkage": "https://data.example.test/contact",
+                        "protocol": "HTTPS",
+                        "applicationProfile": "Contact directory",
+                        "name": "Archive contact",
+                        "description": "Official contact",
+                        "function": "information",
+                        "protocolRequest": "GET /contact"
+                      },
+                      {
+                        "linkage": "https://data.example.test/contact-secondary",
+                        "function": "information"
+                      }
+                    ],
+                    "hoursOfService": [
+                      " 09:00–17:00 UTC ",
+                      "",
+                      " \t "
+                    ],
+                    "contactInstructions": " Call before visiting.\nKeep the exact instructions. ",
+                    "contactType": ""
+                  },
+                  {}
+                ]
+              },
+              {
+                "type": "organisation",
+                "name": "Archive office",
+                "contacts": [
+                  {
+                    "addresses": [
+                      {}
+                    ]
+                  }
+                ],
+                "individuals": [
+                  {
+                    "type": "individual",
+                    "name": "Deputy contact",
+                    "contacts": [
+                      {
+                        "phones": [
+                          {
+                            "number": "ext 42"
+                          }
+                        ],
+                        "contactType": "Deputy"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "contact-group-b",
+      "description": "Contact owner B",
+      "distributors": [
+        {
+          "id": "contact-distributor-b",
+          "contact": {
+            "role": "distributor",
+            "parties": [
+              {
+                "type": "organisation",
+                "name": "Independent office",
+                "contacts": [
+                  {
+                    "phones": [
+                      {
+                        "number": "0123 456 789",
+                        "numberType": "facsimile"
+                      }
+                    ],
+                    "addresses": [
+                      {
+                        "deliveryPoints": [
+                          "Independent office"
+                        ],
+                        "city": "Thimphu",
+                        "country": "BT",
+                        "emails": [
+                          "secondary@example.test"
+                        ]
+                      }
+                    ],
+                    "onlineResources": [
+                      {
+                        "linkage": "https://data.example.test/independent-contact"
+                      }
+                    ],
+                    "hoursOfService": [
+                      "By appointment"
+                    ],
+                    "contactInstructions": "Do not use the first office contact.",
+                    "contactType": "Regional office"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "qualityReports": [
+    {
+      "scope": {
+        "level": "dataset"
+      },
+      "reports": [
+        {
+          "id": "unit-reference-report",
+          "type": "DQ_QuantitativeAttributeAccuracy",
+          "measure": {
+            "names": [
+              "Survey precision"
+            ]
+          },
+          "results": [
+            {
+              "type": "DQ_QuantitativeResult",
+              "values": [
+                "1.000000000000000001"
+              ],
+              "unitReference": {
+                "href": "http://units.internal.example.test/metre#definition",
+                "uuidref": "opaque source unit identity",
+                "type": "simple",
+                "role": "urn:example:unit-role",
+                "arcrole": "https://example.test/unit-relation#measure",
+                "title": " Unit reference\tlabel ",
+                "show": "none",
+                "actuate": "onRequest"
+              }
+            },
+            {
+              "type": "DQ_QuantitativeResult",
+              "values": [
+                "2.00"
+              ],
+              "unit": "ratio"
+            },
+            {
+              "type": "DQ_QuantitativeResult",
+              "values": [
+                "3.00"
+              ],
+              "unitReference": {
+                "uuidref": "source-unit-only",
+                "title": ""
+              }
+            },
+            {
+              "type": "DQ_QuantitativeResult",
+              "values": [
+                "4.00"
+              ],
+              "unitReference": {
+                "href": "urn:ogc:def:uom:EPSG::9001"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

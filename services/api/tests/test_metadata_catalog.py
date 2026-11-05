@@ -14,6 +14,162 @@ from opengeo_api.resource_routes import ResourceMetadataRequest
 ROOT = Path(__file__).parents[3]
 
 
+def contact_unit_catalog() -> dict[str, Any]:
+    return json.loads(
+        (
+            ROOT / "parity/fixtures/data/metadata-020-opengeo-contact-unit-references.json"
+        ).read_text()
+    )
+
+
+def test_native_catalog_19_matches_schema_and_preserves_exact_contact_unit_fixture() -> None:
+    value = contact_unit_catalog()
+    original = deepcopy(value)
+    assert validate_catalog_metadata(value) == value
+    assert value == original
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.9.0.schema.json").read_text())
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(value)
+
+
+def test_native_catalog_19_preserves_empty_whitespace_and_maximum_raw_contact_text() -> None:
+    value = contact_unit_catalog()
+    contact = value["isoDistributionGroups"][0]["distributors"][0]["contact"]["parties"][0][
+        "contacts"
+    ][0]
+    contact["phones"] = [{"number": ""}, {"number": " \t "}, {"number": "x" * 1000}]
+    contact["addresses"][0]["deliveryPoints"] = ["", " \n ", "x" * 1000]
+    contact["contactInstructions"] = ""
+    contact["contactType"] = " \t "
+    assert validate_catalog_metadata(value) == value
+
+
+def test_native_catalog_19_requires_phone_number_presence_and_valid_optional_code() -> None:
+    for phone in (
+        {},
+        {"numberType": "voice"},
+        {"number": False},
+        {"number": "", "numberType": ""},
+        {"number": "1", "numberType": " voice "},
+    ):
+        value = contact_unit_catalog()
+        contact = value["isoDistributionGroups"][0]["distributors"][0]["contact"]["parties"][0][
+            "contacts"
+        ][0]
+        contact["phones"] = [phone]
+        with pytest.raises(CatalogMetadataInvalid):
+            validate_catalog_metadata(value)
+
+
+def test_native_catalog_19_bounds_new_ordered_contact_lists() -> None:
+    for field, entry in (
+        ("phones", {"number": "1"}),
+        ("onlineResources", {"linkage": "https://example.test/contact"}),
+        ("hoursOfService", ""),
+        ("deliveryPoints", ""),
+    ):
+        for count in (0, 9):
+            value = contact_unit_catalog()
+            contact = value["isoDistributionGroups"][0]["distributors"][0]["contact"]["parties"][0][
+                "contacts"
+            ][0]
+            target = contact["addresses"][0] if field == "deliveryPoints" else contact
+            target[field] = [deepcopy(entry) for _ in range(count)]
+            with pytest.raises(CatalogMetadataInvalid):
+                validate_catalog_metadata(value)
+
+
+def test_native_catalog_19_rejects_unsafe_or_oversized_raw_contact_text() -> None:
+    for text in ("\x00", "\r", "\ud800", "\ufffe", "x" * 1001):
+        value = contact_unit_catalog()
+        contact = value["isoDistributionGroups"][0]["distributors"][0]["contact"]["parties"][0][
+            "contacts"
+        ][0]
+        contact["addresses"][0]["city"] = text
+        with pytest.raises(CatalogMetadataInvalid):
+            validate_catalog_metadata(value)
+
+
+def test_native_catalog_19_accepts_opaque_absolute_unit_identifiers_without_fetch() -> None:
+    for reference in (
+        {"href": "http://private.internal/unit#metre"},
+        {"href": "https://example.test/unit#metre"},
+        {"href": "urn:ogc:def:uom:EPSG::9001"},
+        {"uuidref": "opaque not-a-UUID"},
+        {
+            "href": "https://example.test/unit",
+            "uuidref": "both are retained",
+            "title": " \t ",
+            "type": "simple",
+            "show": "new",
+            "actuate": "onLoad",
+        },
+    ):
+        value = contact_unit_catalog()
+        value["qualityReports"][0]["reports"][0]["results"][0]["unitReference"] = reference
+        assert validate_catalog_metadata(value) == value
+
+
+def test_native_catalog_19_rejects_invalid_unit_reference_identity_uri_and_attributes() -> None:
+    invalid = [
+        {},
+        {"title": "no identity"},
+        *(
+            {"href": uri}
+            for uri in (
+                "#local",
+                "relative/unit",
+                "ftp://example.test/unit",
+                "http:///unit",
+                "https://user:secret@example.test/unit",
+                "https://example.test/a b",
+                "urn:example:bad\nvalue",
+            )
+        ),
+        {"href": "urn:unit:x", "type": "extended"},
+        {"uuidref": "x", "show": "popup"},
+        {"uuidref": "x", "actuate": "automatic"},
+        {"uuidref": "x", "unknown": "value"},
+    ]
+    for reference in invalid:
+        value = contact_unit_catalog()
+        value["qualityReports"][0]["reports"][0]["results"][0]["unitReference"] = reference
+        with pytest.raises(CatalogMetadataInvalid):
+            validate_catalog_metadata(value)
+
+
+def test_native_catalog_19_reference_and_unit_label_are_mutually_exclusive() -> None:
+    value = contact_unit_catalog()
+    value["qualityReports"][0]["reports"][0]["results"][0]["unit"] = "metre"
+    with pytest.raises(CatalogMetadataInvalid, match="mutually exclusive"):
+        validate_catalog_metadata(value)
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.9.0.schema.json").read_text())
+    assert not Draft202012Validator(schema).is_valid(value)
+
+
+def test_native_catalog_19_old_versions_reject_new_nested_contact_and_unit_fields() -> None:
+    for minor in range(9):
+        for field in ("isoDistributionGroups", "qualityReports"):
+            value = contact_unit_catalog()
+            value = {"schemaVersion": f"1.{minor}.0", field: value[field]}
+            with pytest.raises(CatalogMetadataInvalid):
+                validate_catalog_metadata(value)
+            schema = json.loads(
+                (ROOT / f"schemas/opengeo-catalog-metadata-1.{minor}.0.schema.json").read_text()
+            )
+            assert not Draft202012Validator(schema).is_valid(value)
+
+
+def test_native_catalog_19_retains_prior_graph_and_quality_contracts() -> None:
+    for filename in (
+        "metadata-017-opengeo-quality-reports.json",
+        "metadata-019-opengeo-distributor-order-graph.json",
+    ):
+        value = json.loads((ROOT / "parity/fixtures/data" / filename).read_text())
+        value["schemaVersion"] = "1.9.0"
+        assert validate_catalog_metadata(value) == value
+
+
 def acquisition_context() -> dict[str, Any]:
     return json.loads(
         (ROOT / "parity/fixtures/data/metadata-014-opengeo-acquisition-context.json").read_text()

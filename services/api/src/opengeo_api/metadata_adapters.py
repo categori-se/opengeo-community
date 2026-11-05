@@ -11,13 +11,18 @@ from uuid import UUID
 from opengeo_api.json_canonical import canonical_json_bytes
 from opengeo_api.metadata_catalog import (
     _EMAIL,
+    ISO_ADDRESS_FIELDS,
+    ISO_CONTACT_FIELDS,
     ISO_QUALITY_EVALUATION_TYPES,
     ISO_QUALITY_REPORT_TYPES,
+    ISO_UNIT_REFERENCE_FIELDS,
     CatalogMetadataInvalid,
     _iso_distribution_groups,
     _iso_medium,
     _iso_order_date_time,
+    _iso_raw_text,
     _iso_transfer,
+    _iso_unit_reference,
     _quality_id,
     validate_catalog_extensions,
 )
@@ -2139,6 +2144,38 @@ def _iso_catalog_extension(
             return None
         return raw
 
+    def context_raw_text(element: ET.Element, property_tag: str, path: str) -> str | None:
+        scope = context_property(element, property_tag, path)
+        if scope is None:
+            return None
+        node = context_embedded(scope, f"{gco}CharacterString", path)
+        if node is None or len(node):
+            context_loss(path)
+            return None
+        try:
+            return _iso_raw_text(node.text or "", path)
+        except CatalogMetadataInvalid:
+            context_loss(path)
+            return None
+
+    def graph_raw_list(element: ET.Element, name: str, path: str) -> list[str]:
+        values: list[str] = []
+        for index, prop in enumerate(context_properties(element, name)):
+            item_path = f"{path}[{index}]"
+            node = (
+                context_embedded(prop, f"{gco}CharacterString", item_path)
+                if prop.tag == f"{cit}{name}" and index < 8
+                else None
+            )
+            if node is None or len(node):
+                context_loss(item_path)
+                continue
+            try:
+                values.append(_iso_raw_text(node.text or "", item_path))
+            except CatalogMetadataInvalid:
+                context_loss(item_path)
+        return values
+
     def context_number(
         element: ET.Element, property_tag: str, value_tag: str, path: str
     ) -> int | float | None:
@@ -3508,7 +3545,9 @@ def _iso_catalog_extension(
         prop = context_property(element, f"{cit}{name}", path)
         if prop is None:
             return None
-        code_tag = "CI_RoleCode" if name == "role" else "CI_OnLineFunctionCode"
+        code_tag = {"role": "CI_RoleCode", "numberType": "CI_TelephoneTypeCode"}.get(
+            name, "CI_OnLineFunctionCode"
+        )
         node = context_embedded(prop, f"{cit}{code_tag}", path, {"codeList", "codeListValue"})
         code = node.get("codeListValue") if node is not None else None
         if (
@@ -3517,6 +3556,7 @@ def _iso_catalog_extension(
             or not code
             or len(code) > 300
             or code != code.strip()
+            or (name == "numberType" and any(character in code for character in "\t\n"))
             or not _iso_quality_unit_label_supported(code)
             or (node.text or "").strip() not in {"", code}
             or node.get("codeList")
@@ -3566,7 +3606,46 @@ def _iso_catalog_extension(
             if contact is None:
                 context_loss(contact_path)
                 continue
-            context_unknown(contact, {f"{cit}address"}, contact_path)
+            context_unknown(
+                contact,
+                {
+                    f"{cit}{field}"
+                    for field in (
+                        "phone",
+                        "address",
+                        "onlineResource",
+                        "hoursOfService",
+                        "contactInstructions",
+                        "contactType",
+                    )
+                },
+                contact_path,
+            )
+            retained_contact: dict[str, Any] = {}
+            phones: list[dict[str, str]] = []
+            for phone_index, phone_scope in enumerate(context_properties(contact, "phone")):
+                phone_path = f"{contact_path}.phone[{phone_index}]"
+                phone = (
+                    context_embedded(phone_scope, f"{cit}CI_Telephone", phone_path)
+                    if phone_scope.tag == f"{cit}phone" and phone_index < 8
+                    else None
+                )
+                if phone is None:
+                    context_loss(phone_path)
+                    continue
+                context_unknown(phone, {f"{cit}number", f"{cit}numberType"}, phone_path)
+                number = context_raw_text(phone, f"{cit}number", f"{phone_path}.number")
+                if number is None:
+                    context_loss(f"{phone_path}.number")
+                    continue
+                item = {"number": number}
+                if context_properties(phone, "numberType"):
+                    code = graph_code(phone, "numberType", f"{phone_path}.numberType")
+                    if code is not None:
+                        item["numberType"] = code
+                phones.append(item)
+            if phones:
+                retained_contact["phones"] = phones
             addresses: list[dict[str, Any]] = []
             for address_index, address_scope in enumerate(context_properties(contact, "address")):
                 address_path = f"{contact_path}.address[{address_index}]"
@@ -3578,7 +3657,29 @@ def _iso_catalog_extension(
                 if address is None:
                     context_loss(address_path)
                     continue
-                context_unknown(address, {f"{cit}electronicMailAddress"}, address_path)
+                context_unknown(
+                    address,
+                    {
+                        f"{cit}{name}"
+                        for name in (
+                            "deliveryPoint",
+                            "city",
+                            "administrativeArea",
+                            "postalCode",
+                            "country",
+                            "electronicMailAddress",
+                        )
+                    },
+                    address_path,
+                )
+                retained_address: dict[str, Any] = {}
+                points = graph_raw_list(address, "deliveryPoint", f"{address_path}.deliveryPoint")
+                if points:
+                    retained_address["deliveryPoints"] = points
+                for field in ("city", "administrativeArea", "postalCode", "country"):
+                    raw = context_raw_text(address, f"{cit}{field}", f"{address_path}.{field}")
+                    if raw is not None:
+                        retained_address[field] = raw
                 emails: list[str] = []
                 for email_index, email_scope in enumerate(
                     context_properties(address, "electronicMailAddress")
@@ -3601,8 +3702,35 @@ def _iso_catalog_extension(
                         context_loss(email_path)
                     else:
                         emails.append(email)
-                addresses.append({"emails": emails} if emails else {})
-            contacts.append({"addresses": addresses} if addresses else {})
+                if emails:
+                    retained_address["emails"] = emails
+                addresses.append(retained_address)
+            if addresses:
+                retained_contact["addresses"] = addresses
+            online_values: list[dict[str, Any]] = []
+            for online_index, online_scope in enumerate(
+                context_properties(contact, "onlineResource")
+            ):
+                online_path = f"{contact_path}.onlineResource[{online_index}]"
+                online = (
+                    graph_online(online_scope, online_path)
+                    if online_scope.tag == f"{cit}onlineResource" and online_index < 8
+                    else None
+                )
+                if online is not None:
+                    online_values.append(online)
+                else:
+                    context_loss(online_path)
+            if online_values:
+                retained_contact["onlineResources"] = online_values
+            hours = graph_raw_list(contact, "hoursOfService", f"{contact_path}.hoursOfService")
+            if hours:
+                retained_contact["hoursOfService"] = hours
+            for field in ("contactInstructions", "contactType"):
+                raw = context_raw_text(contact, f"{cit}{field}", f"{contact_path}.{field}")
+                if raw is not None:
+                    retained_contact[field] = raw
+            contacts.append(retained_contact)
         if contacts:
             result["contacts"] = contacts
         if not is_individual:
@@ -3921,7 +4049,7 @@ def _iso_catalog_extension(
             if (value := graph_prune("Group", group, f"mdb:distributionInfo[{index}]")) is not None
         ]
         try:
-            graph_groups = _iso_distribution_groups(graph_groups)
+            graph_groups = _iso_distribution_groups(graph_groups, rich_contacts=True)
         except CatalogMetadataInvalid:
             for index in range(len(graph_groups)):
                 context_loss(f"mdb:distributionInfo[{index}][graph-validation]")
@@ -4327,11 +4455,38 @@ def _iso_catalog_extension(
             value["values"] = records
             units = context_properties(element, "valueUnit")
             if units:
-                label = _iso_quality_unit(root, report, element, units, allow_multiple=True)
-                if label is None:
-                    context_loss(f"{path}.valueUnit")
+                unit_path = f"{path}.valueUnit"
+                prop = units[0]
+                attributes = {
+                    (
+                        "uuidref" if key == "uuidref" else f"{{http://www.w3.org/1999/xlink}}{key}"
+                    ): key
+                    for key in ISO_UNIT_REFERENCE_FIELDS
+                }
+                reference_like = bool(prop.attrib)
+                if reference_like:
+                    if (
+                        len(units) != 1
+                        or prop.tag != f"{mdq}valueUnit"
+                        or len(prop)
+                        or (prop.text or "").strip()
+                        or set(prop.attrib) - attributes.keys()
+                    ):
+                        context_loss(unit_path)
+                    else:
+                        try:
+                            value["unitReference"] = _iso_unit_reference(
+                                {attributes[key]: item for key, item in prop.attrib.items()},
+                                unit_path,
+                            )
+                        except CatalogMetadataInvalid:
+                            context_loss(unit_path)
                 else:
-                    value["unit"] = label
+                    label = _iso_quality_unit(root, report, element, units, allow_multiple=True)
+                    if label is None:
+                        context_loss(unit_path)
+                    else:
+                        value["unit"] = label
             record_type = quality_text(element, "valueRecordType", path, 1000, "RecordType")
             if record_type is not None:
                 value["recordType"] = record_type
@@ -4829,6 +4984,25 @@ def _iso_catalog_extension(
         mapped.remove("mdb:distributionInfo->metadata_extensions.opengeo.isoDistributionGroups")
     if graph_groups:
         catalog["schemaVersion"] = "1.8.0"
+
+    def surviving_contact_unit_fields(value: Any) -> bool:
+        if isinstance(value, dict):
+            if value.get("type") in {"individual", "organisation"}:
+                for contact in value.get("contacts", []):
+                    if ISO_CONTACT_FIELDS & contact.keys() or any(
+                        ISO_ADDRESS_FIELDS & address.keys()
+                        for address in contact.get("addresses", [])
+                    ):
+                        return True
+            if "unitReference" in value:
+                return True
+            return any(surviving_contact_unit_fields(item) for item in value.values())
+        if isinstance(value, list):
+            return any(surviving_contact_unit_fields(item) for item in value)
+        return False
+
+    if surviving_contact_unit_fields(graph_groups) or surviving_contact_unit_fields(quality_groups):
+        catalog["schemaVersion"] = "1.9.0"
     if not distributions and "distributions" in catalog:
         del catalog["distributions"]
         mapped.remove("mdb:distributionInfo->metadata_extensions.opengeo.distributions")
