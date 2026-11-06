@@ -1,6 +1,8 @@
 import math
 import re
 import xml.etree.ElementTree as ET
+from copy import deepcopy
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
@@ -29,6 +31,9 @@ from opengeo_api.metadata_catalog import (
 from opengeo_api.metadata_profiles import (
     _DATACITE_REGISTRATION_VOCABULARIES,
     _ISO_COUNTRY_CODELIST,
+    _geodcat_concept_labels,
+    _geodcat_distribution_owner,
+    _geodcat_explicit_iri,
     _iso_primary_locale,
     _iso_quality_unit_label_supported,
 )
@@ -261,7 +266,11 @@ def _dcat_plan(
         document.get("dct:description"), 8_000, "DCAT description", optional=True
     )
     rights_values = _dcat_localized_values(
-        document.get("dct:rights"), 2_000, "DCAT rights", optional=True
+        document.get("dct:rights"),
+        2_000,
+        "DCAT rights",
+        optional=True,
+        rights_statements=source_format == "geodcat_ap_3_1",
     )
     keyword_values = _dcat_localized_keywords(document.get("dcat:keyword"))
     abstract = _primary_localized_value(description_values, language)
@@ -295,7 +304,9 @@ def _dcat_plan(
             multilingual_unmapped.append(f"dcat:keyword[{item_language}]")
         else:
             translation["keywords"] = localized_keywords
-    spatial_extent = _dcat_extent(document.get("dct:spatial"))
+    spatial_extent = _dcat_extent(
+        document.get("dct:spatial"), typed_geometry=source_format == "geodcat_ap_3_1"
+    )
     temporal_start, temporal_end = _dcat_temporal(document.get("dct:temporal"))
     catalog_extension, catalog_mapped, catalog_derived, catalog_unmapped = _dcat_catalog_extension(
         document
@@ -934,7 +945,7 @@ def _geodcat_plan(
         )
         if key in document
     }
-    return _dcat_plan(
+    plan = _dcat_plan(
         namespace,
         slug,
         visibility,
@@ -948,6 +959,116 @@ def _geodcat_plan(
         source_version=GEODCAT_AP_VERSION,
         known_extensions=set(profile_fields),
     )
+    return _geodcat_labelled_concepts(plan, document)
+
+
+def _geodcat_labelled_concepts(
+    plan: MetadataResourceImportPlan, document: dict[str, Any]
+) -> MetadataResourceImportPlan:
+    """Add bounded identity/label bindings without changing retained source evidence."""
+    extensions = deepcopy(plan.draft.metadata.extensions)
+    catalog = extensions.get("opengeo", {})
+    distributions = cast(list[dict[str, Any]], catalog.get("distributions", []))
+    bindings: dict[str, Any] = {}
+    binding_label_paths: list[str] = []
+    mapped: list[str] = []
+    losses: list[str] = []
+
+    def concept(
+        node: Any, owner: dict[str, Any], field: str, location: str, target: str, maximum: int
+    ) -> dict[str, Any] | None:
+        if not isinstance(node, dict) or "@id" not in node:
+            return None
+        iri = node["@id"]
+        category, class_name = {
+            "updateFrequency": ("frequency", "dct:Frequency"),
+            "format": ("format", "dct:MediaTypeOrExtent"),
+            "license": ("license", "dct:LicenseDocument"),
+        }[field]
+        label = node.get("rdfs:label")
+        if (
+            set(node) == {"@id", "@type", "rdfs:label", "skos:prefLabel"}
+            and node["@type"] == class_name
+            and isinstance(label, str)
+            and not _geodcat_explicit_iri(label)
+            and node["skos:prefLabel"] == label
+            and iri == f"urn:opengeo:{category}:{sha256(label.encode()).hexdigest()[:16]}"
+        ):
+            # This exact own-export form represents a plain label, not an external identity.
+            return None
+        if not _geodcat_explicit_iri(iri) or len(iri) > maximum:
+            losses.append(f"{location}.@id[unsupported-or-canonical-size-limit]")
+            return None
+        previous = owner.get(field)
+        owner[field] = iri
+        if len(canonical_json_bytes(extensions)) > 8_192:
+            if previous is None:
+                owner.pop(field, None)
+            else:
+                owner[field] = previous
+            losses.append(f"{location}.@id[size-limit]")
+            return None
+        mapped.append(f"{location}.@id->{target}")
+        if set(node) - {"@id", "@type", "rdfs:label", "skos:prefLabel"}:
+            losses.append(f"{location}[unsupported-properties]")
+        labels, unsupported = _geodcat_concept_labels(node, maximum)
+        losses.extend(f"{location}.{name}[unsupported]" for name in unsupported)
+        return {"iri": iri, "labels": labels} if labels else None
+
+    frequency = concept(
+        document.get("dct:accrualPeriodicity"), catalog, "updateFrequency",
+        "dct:accrualPeriodicity", "metadata_extensions.opengeo.updateFrequency", 300,
+    )
+    if frequency is not None:
+        bindings["updateFrequency"] = frequency
+        binding_label_paths.append("dct:accrualPeriodicity.labels")
+    distribution_bindings: list[dict[str, Any]] = []
+    for index, (node, distribution) in enumerate(zip(
+        _metadata_items(document.get("dcat:distribution")), distributions, strict=True
+    )):
+        owner = _geodcat_distribution_owner(distribution, distributions)
+        entry: dict[str, Any] = {"owner": owner}
+        for field in ("format", "license"):
+            binding = concept(
+                node.get(f"dct:{field}"), distribution, field,
+                f"dcat:distribution[{index}].dct:{field}",
+                f"metadata_extensions.opengeo.distributions[{index}].{field}", 1_000,
+            )
+            if binding is not None:
+                if owner is None:
+                    losses.append(f"dcat:distribution[{index}].dct:{field}[ambiguous-owner]")
+                else:
+                    entry[field] = binding
+                    binding_label_paths.append(f"dcat:distribution[{index}].dct:{field}.labels")
+        if len(entry) > 1:
+            distribution_bindings.append(entry)
+    if distribution_bindings:
+        bindings["distributions"] = distribution_bindings
+    if bindings:
+        profile = extensions.setdefault("geodcat_ap", {})
+        profile["conceptBindings"] = bindings
+        if len(canonical_json_bytes(extensions)) > 8_192:
+            del profile["conceptBindings"]
+            if not profile:
+                del extensions["geodcat_ap"]
+            losses.extend(
+                f"{location}[conceptBindings-size-limit]" for location in binding_label_paths
+            )
+        else:
+            mapped.append("owned concept labels->metadata_extensions.geodcat_ap.conceptBindings")
+    report = deepcopy(plan.conversion_report)
+    report["mapped"].extend(mapped)
+    report["unmapped"].extend(losses)
+    if len(canonical_json_bytes(report)) > 16_384 and (mapped or losses):
+        report["mapped"] = list(plan.conversion_report["mapped"])
+        report["unmapped"] = [
+            *plan.conversion_report["unmapped"],
+            "geodcat_ap.conceptBindings[report-size-limit; full source preserved]",
+        ]
+    if losses:
+        report["status"] = "mapped_with_explicit_losses"
+    metadata = replace(plan.draft.metadata, extensions=extensions)
+    return replace(plan, conversion_report=report, draft=replace(plan.draft, metadata=metadata))
 
 
 def _iso_plan(
@@ -2398,6 +2519,8 @@ def _iso_catalog_extension(
                     "edition",
                     "editionDate",
                     "identifier",
+                    "ISBN",
+                    "ISSN",
                 )
             },
             path,
@@ -2532,6 +2655,23 @@ def _iso_catalog_extension(
             context_loss(f"{path}.planIdentity[ambiguous]")
         if identifiers:
             record["identifiers"] = identifiers
+        for field, name in (("isbn", "ISBN"), ("issn", "ISSN")):
+            field_path = f"{path}.{field}"
+            prop = context_property(citation, f"{cit}{name}", field_path)
+            if prop is None:
+                continue
+            node = context_embedded(prop, f"{gco}CharacterString", field_path)
+            raw = node.text if node is not None else None
+            if (
+                node is None
+                or len(node)
+                or raw is None
+                or not 1 <= len(raw) <= 300
+                or not _iso_quality_unit_label_supported(raw)
+            ):
+                context_loss(field_path)
+            else:
+                record[field] = raw
         return record, carriers[0] if len(carriers) == 1 else None, invalid_carrier
 
     def acquisition_instrument(element: ET.Element, path: str) -> dict[str, str] | None:
@@ -3454,7 +3594,9 @@ def _iso_catalog_extension(
                     continue
                 media_value = int(raw)
             try:
-                media_record.update(_iso_medium({field: media_value}, media_path))
+                media_record.update(
+                    _iso_medium({field: media_value}, media_path, bibliographic=True)
+                )
             except CatalogMetadataInvalid:
                 context_loss(field_path)
         media_formats: list[str] = []
@@ -3484,7 +3626,7 @@ def _iso_catalog_extension(
                 context_loss(code_path)
                 continue
             try:
-                _iso_medium({"mediumFormats": [code]}, media_path)
+                _iso_medium({"mediumFormats": [code]}, media_path, bibliographic=True)
             except CatalogMetadataInvalid:
                 context_loss(code_path)
                 continue
@@ -3511,7 +3653,9 @@ def _iso_catalog_extension(
                     if raw is not None:
                         identifier[field] = raw
                 try:
-                    media_record.update(_iso_medium({"identifier": identifier}, media_path))
+                    media_record.update(
+                        _iso_medium({"identifier": identifier}, media_path, bibliographic=True)
+                    )
                 except CatalogMetadataInvalid:
                     context_loss(identifier_path)
         return media_record
@@ -3811,7 +3955,9 @@ def _iso_catalog_extension(
         try:
             return cast(
                 dict[str, Any],
-                _iso_transfer({"onlineResources": [result]}, path)["onlineResources"][0],
+                _iso_transfer({"onlineResources": [result]}, path, bibliographic=True)[
+                    "onlineResources"
+                ][0],
             )
         except CatalogMetadataInvalid:
             context_loss(path)
@@ -3948,7 +4094,7 @@ def _iso_catalog_extension(
                         if field == "transferSize"
                         else text
                     )
-                    result.update(_iso_transfer({target: value}, path))
+                    result.update(_iso_transfer({target: value}, path, bibliographic=True))
                 elif field == "plannedAvailableDateTime":
                     result[field] = _iso_order_date_time(text, field_path)
                 else:
@@ -4057,7 +4203,9 @@ def _iso_catalog_extension(
             is not None
         ]
         try:
-            graph_groups = _iso_distribution_groups(graph_groups, rich_contacts=True)
+            graph_groups = _iso_distribution_groups(
+                graph_groups, rich_contacts=True, bibliographic=True
+            )
         except CatalogMetadataInvalid:
             for index in range(len(graph_groups)):
                 context_loss(f"mdb:distributionInfo[{index}][graph-validation]")
@@ -4332,7 +4480,7 @@ def _iso_catalog_extension(
                 normalized = validate_catalog_extensions(
                     {
                         "opengeo": {
-                            "schemaVersion": "1.7.0" if offline_records else "1.5.0",
+                            "schemaVersion": "1.10.0",
                             "distributions": [distribution],
                         }
                     }
@@ -5015,6 +5163,24 @@ def _iso_catalog_extension(
 
     if surviving_contact_unit_fields(graph_groups) or surviving_contact_unit_fields(quality_groups):
         catalog["schemaVersion"] = "1.9.0"
+
+    def surviving_bibliographic_fields(value: Any, path: str) -> bool:
+        found = False
+        if isinstance(value, dict):
+            if "title" in value:
+                for field, name in (("isbn", "ISBN"), ("issn", "ISSN")):
+                    if field in value:
+                        mapped.append(f"cit:{name}->{path}.{field}")
+                        found = True
+            for key, item in value.items():
+                found = surviving_bibliographic_fields(item, f"{path}.{key}") or found
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                found = surviving_bibliographic_fields(item, f"{path}[{index}]") or found
+        return found
+
+    if surviving_bibliographic_fields(catalog, "metadata_extensions.opengeo"):
+        catalog["schemaVersion"] = "1.10.0"
     if not distributions and "distributions" in catalog:
         del catalog["distributions"]
         mapped.remove("mdb:distributionInfo->metadata_extensions.opengeo.distributions")
@@ -5228,7 +5394,12 @@ def _iso_temporal(root: ET.Element | None) -> tuple[datetime | None, datetime | 
 
 
 def _dcat_localized_values(
-    value: Any, maximum: int, label: str, *, optional: bool = False
+    value: Any,
+    maximum: int,
+    label: str,
+    *,
+    optional: bool = False,
+    rights_statements: bool = False,
 ) -> list[tuple[str, str | None]]:
     if value is None and optional:
         return []
@@ -5237,6 +5408,13 @@ def _dcat_localized_values(
         raise MetadataImportInvalid(f"{label} must contain 1 to 9 localized values")
     parsed: list[tuple[str, str | None]] = []
     for item in values:
+        if (
+            rights_statements
+            and isinstance(item, dict)
+            and set(item) == {"@type", "rdfs:label"}
+            and item["@type"] == "dct:RightsStatement"
+        ):
+            item = item["rdfs:label"]
         if isinstance(item, str):
             parsed.append((_bounded_string(item, 1, maximum, label), None))
         elif isinstance(item, dict) and set(item) <= {"@value", "@language"}:
@@ -5256,7 +5434,17 @@ def _dcat_languages(value: Any) -> list[str]:
     values = value if isinstance(value, list) else [value]
     if not 1 <= len(values) <= 9:
         raise MetadataImportInvalid("DCAT languages must contain 1 to 9 values")
-    languages = [_language(item).lower() for item in values]
+    languages: list[str] = []
+    for item in values:
+        if (
+            isinstance(item, dict)
+            and set(item) == {"@id", "@type"}
+            and item["@type"] == "dct:LinguisticSystem"
+            and isinstance(item["@id"], str)
+            and item["@id"].startswith("urn:ietf:bcp47:")
+        ):
+            item = item["@id"][len("urn:ietf:bcp47:") :]
+        languages.append(_language(item).lower())
     if len(languages) != len(set(languages)):
         raise MetadataImportInvalid("DCAT languages must be unique")
     return languages
@@ -5295,12 +5483,21 @@ def _primary_localized_value(values: list[tuple[str, str | None]], language: str
     return selected[0] if selected else None
 
 
-def _dcat_extent(value: Any) -> tuple[float, float, float, float] | None:
+def _dcat_extent(
+    value: Any, *, typed_geometry: bool = False
+) -> tuple[float, float, float, float] | None:
     if value is None:
         return None
     if not isinstance(value, dict) or value.get("@type") != "dct:Location":
         raise MetadataImportInvalid("DCAT spatial extent must be a dct:Location")
     geometry = value.get("locn:geometry")
+    if (
+        typed_geometry
+        and isinstance(geometry, dict)
+        and set(geometry) == {"@type", "rdf:value"}
+        and geometry["@type"] == "locn:Geometry"
+    ):
+        geometry = geometry["rdf:value"]
     if not isinstance(geometry, dict) or not isinstance(geometry.get("@value"), str):
         raise MetadataImportInvalid("DCAT spatial extent must contain WKT geometry")
     match = _WKT_POLYGON.fullmatch(geometry["@value"])

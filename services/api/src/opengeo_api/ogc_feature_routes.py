@@ -1,5 +1,5 @@
 import math
-from typing import Annotated, Any, TypedDict
+from typing import Annotated, Any, TypedDict, cast
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from opengeo_api.auth_models import AuthSession
 from opengeo_api.auth_routes import current_session
+from opengeo_api.config import Settings
 from opengeo_api.cql2_features import scalar_queryables
 from opengeo_api.feature_routes import execute_feature, repository_from_request
 from opengeo_api.features import FeatureCollection, FeatureRepository
@@ -20,6 +21,7 @@ from opengeo_api.ogc_features import (
     feature_document,
     feature_page_document,
     features_api_document,
+    project_dataset_features_base,
 )
 from opengeo_api.resource_routes import tenant_context
 
@@ -42,9 +44,7 @@ async def features_landing(
     repository: Annotated[FeatureRepository, Depends(repository_from_request)],
 ) -> dict[str, Any]:
     await _collection(repository, session, project_id, dataset_id)
-    base = str(
-        request.url_for("features_landing", project_id=project_id, dataset_id=dataset_id)
-    ).rstrip("/")
+    base = _base(request, project_id, dataset_id)
     return {
         "title": "OpenGeo governed dataset features",
         "description": "Authenticated read-only GeoJSON from one authoritative collection.",
@@ -61,12 +61,14 @@ async def features_landing(
 async def features_api_description(
     project_id: UUID,
     dataset_id: UUID,
+    request: Request,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[FeatureRepository, Depends(repository_from_request)],
 ) -> JSONResponse:
     await _collection(repository, session, project_id, dataset_id)
     return JSONResponse(
-        features_api_document(project_id, dataset_id), media_type=OGC_OPENAPI_MEDIA_TYPE
+        features_api_document(project_id, dataset_id, api_base_url=_api_base_url(request)),
+        media_type=OGC_OPENAPI_MEDIA_TYPE,
     )
 
 
@@ -151,8 +153,16 @@ async def feature_queryables(
             expected_generation=expected_generation,
         )
     )
+    identifier = str(request.url)
+    if _api_base_url(request):
+        identifier = (
+            f"{_base(request, project_id, dataset_id)}"
+            f"/collections/{collection_id}/queryables"
+        )
+        if request.url.query:
+            identifier += f"?{request.url.query}"
     document = scalar_queryables(
-        {field.name: field.type for field in page.collection.fields}, str(request.url), spatial=True
+        {field.name: field.type for field in page.collection.fields}, identifier, spatial=True
     )
     document["opengeo:generation"] = page.collection.generation
     return JSONResponse(
@@ -214,7 +224,7 @@ async def feature_items(
         _page_href(request, max(0, parsed_offset - parsed_limit)) if parsed_offset else None
     )
     return JSONResponse(
-        feature_page_document(page, base, str(request.url), next_href, previous_href),
+        feature_page_document(page, base, _items_href(request), next_href, previous_href),
         media_type="application/geo+json",
         headers={"Content-Crs": f"<{OGC_CRS84}>"},
     )
@@ -265,7 +275,14 @@ async def _collection(
     return page.collection
 
 
+def _api_base_url(request: Request) -> str:
+    return cast(Settings, request.app.state.settings).public_api_base_url or ""
+
+
 def _base(request: Request, project_id: UUID, dataset_id: UUID) -> str:
+    api_base = _api_base_url(request)
+    if api_base:
+        return project_dataset_features_base(project_id, dataset_id, api_base_url=api_base)
     return str(
         request.url_for("features_landing", project_id=project_id, dataset_id=dataset_id)
     ).rstrip("/")
@@ -328,10 +345,20 @@ def _parse_bbox(value: str | None) -> tuple[float, float, float, float] | None:
     return minimum_x, minimum_y, maximum_x, maximum_y
 
 
+def _items_href(request: Request) -> str:
+    if not _api_base_url(request):
+        return str(request.url)
+    base = _base(request, request.path_params["project_id"], request.path_params["dataset_id"])
+    query = f"?{request.url.query}" if request.url.query else ""
+    return f"{base}/collections/{FEATURE_COLLECTION_ID}/items{query}"
+
+
 def _page_href(request: Request, offset: int) -> str:
     parameters = list(request.query_params.multi_items())
     parameters = [(name, value) for name, value in parameters if name != "offset"]
     parameters.append(("offset", str(offset)))
     # Native OAPIF clients may consume pagination links without resolving them
     # against the response URL. Match the absolute self/discovery link contract.
+    if _api_base_url(request):
+        return f"{_items_href(request).split('?', 1)[0]}?{urlencode(parameters)}"
     return str(request.url.replace(query=urlencode(parameters)))

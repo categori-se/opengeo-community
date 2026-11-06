@@ -1,0 +1,209 @@
+{
+  "schemaVersion": "1.10.0",
+  "acquisition": {
+    "instruments": [
+      {
+        "identifier": "CAM-01",
+        "type": "multispectral camera",
+        "description": "Field camera used for the 2026 survey."
+      }
+    ],
+    "platforms": [
+      {
+        "identifier": "UAV-01",
+        "description": "Uncrewed aerial survey platform.",
+        "instrumentIdentifiers": [
+          "CAM-01"
+        ]
+      }
+    ],
+    "platformPasses": [
+      {
+        "identifier": "PASS-2026-07-A",
+        "eventIdentifiers": [
+          "EVENT-2026-07-START"
+        ],
+        "extent": {
+          "geographicBounds": [
+            {
+              "west": 84.5,
+              "east": 85.5,
+              "south": 27.5,
+              "north": 28.5,
+              "extentTypeCode": true
+            }
+          ],
+          "temporal": {
+            "start": "2026-07-01T09:00:00Z",
+            "end": "2026-07-01T10:00:00Z"
+          }
+        }
+      }
+    ],
+    "events": [
+      {
+        "identifier": "EVENT-2026-07-START",
+        "trigger": "automatic",
+        "context": "acquisition",
+        "sequence": "start",
+        "time": "2026-07-01T09:00:00Z",
+        "passIdentifier": "PASS-2026-07-A",
+        "instrumentIdentifiers": [
+          "CAM-01"
+        ],
+        "objectiveIdentifiers": [
+          "OBJECTIVE-2026-07"
+        ]
+      }
+    ],
+    "operations": [
+      {
+        "identifier": "MISSION-2026-07",
+        "description": "July 2026 field collection mission.",
+        "status": "completed",
+        "type": "real",
+        "eventIdentifiers": [
+          "EVENT-2026-07-START"
+        ]
+      }
+    ],
+    "objectives": [
+      {
+        "identifier": "OBJECTIVE-2026-07",
+        "priority": "Document post-storm road access.",
+        "types": [
+          "survey"
+        ],
+        "functions": [
+          "damage assessment"
+        ],
+        "instrumentIdentifiers": [
+          "CAM-01"
+        ],
+        "passIdentifiers": [
+          "PASS-2026-07-A"
+        ],
+        "eventIdentifiers": [
+          "EVENT-2026-07-START"
+        ],
+        "extents": [
+          {
+            "description": "Survey corridor & antimeridian context",
+            "geographicBounds": [
+              {
+                "west": 170,
+                "east": -170,
+                "south": -20,
+                "north": 15,
+                "extentTypeCode": false
+              },
+              {
+                "west": 84,
+                "east": 86,
+                "south": 27,
+                "north": 29
+              }
+            ]
+          },
+          {
+            "description": "Closed observation interval",
+            "temporal": {
+              "start": "2026-07-01T09:00:00Z",
+              "end": "2026-07-02T18:00:00Z"
+            }
+          }
+        ]
+      }
+    ],
+    "requirements": [
+      {
+        "identifier": "REQUIREMENT-2026-07",
+        "requestors": [
+          "Investigations desk"
+        ],
+        "recipients": [
+          "Public data team"
+        ],
+        "priority": "highImportance",
+        "requestedDate": {
+          "requestedDateOfCollection": "2026-07-01T09:00:00Z",
+          "latestAcceptableDate": "2026-07-31T18:00:00Z"
+        },
+        "expiryDate": "2026-08-31T18:00:00Z",
+        "citation": {
+          "title": "Post-storm evidence collection requirements",
+          "dates": [
+            {
+              "date": "2026-06-19",
+              "dateType": "creation"
+            }
+          ],
+          "edition": "1",
+          "identifiers": [
+            {
+              "code": "REQ-DOC-42",
+              "codeSpace": "https://example.test/requirements"
+            }
+          ],
+          "isbn": "000-0-0000-0000-0",
+          "issn": "0000-0000"
+        }
+      }
+    ],
+    "plans": [
+      {
+        "identifier": "PLAN-2026-07",
+        "status": "planned",
+        "type": "areal",
+        "operationIdentifiers": [
+          "MISSION-2026-07"
+        ],
+        "requirementIdentifiers": [
+          "REQUIREMENT-2026-07"
+        ],
+        "citation": {
+          "title": "July road survey collection plan",
+          "alternateTitles": [
+            "Field acquisition plan",
+            "Σχέδιο έρευνας"
+          ],
+          "dates": [
+            {
+              "date": "2026-06-20",
+              "dateType": "creation"
+            },
+            {
+              "date": "2026-06-22",
+              "dateType": "publication"
+            },
+            {
+              "date": "2026-06-23",
+              "dateType": "revision"
+            }
+          ],
+          "edition": "2",
+          "editionDate": "2026-06-23T12:00:00Z",
+          "identifiers": [
+            {
+              "code": "SURVEY-PLAN-ED2",
+              "codeSpace": "https://example.test/plans"
+            },
+            {
+              "code": "local-plan-42"
+            }
+          ],
+          "isbn": "978-1-4028-9462-6",
+          "issn": "0378-5955"
+        }
+      }
+    ],
+    "environmentalConditions": {
+      "averageAirTemperature": 0,
+      "maxRelativeHumidity": 87.5,
+      "maxAltitude": 1200,
+      "meteorologicalConditions": "Clear & calm; visibility ≥ 5 km",
+      "solarAzimuth": 0,
+      "solarElevation": 32.5
+    }
+  }
+}

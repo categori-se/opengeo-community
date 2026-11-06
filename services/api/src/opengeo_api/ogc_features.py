@@ -10,13 +10,17 @@ OGC_OPENAPI_MEDIA_TYPE = "application/vnd.oai.openapi+json;version=3.0"
 FEATURE_COLLECTION_ID = "features"
 
 
-def project_dataset_features_base(project_id: Any, dataset_id: Any) -> str:
-    return f"/projects/{project_id}/datasets/{dataset_id}/ogc/features"
+def project_dataset_features_base(
+    project_id: Any, dataset_id: Any, *, api_base_url: str = ""
+) -> str:
+    return f"{api_base_url}/projects/{project_id}/datasets/{dataset_id}/ogc/features"
 
 
-def features_api_document(project_id: Any, dataset_id: Any) -> dict[str, Any]:
+def features_api_document(
+    project_id: Any, dataset_id: Any, *, api_base_url: str = ""
+) -> dict[str, Any]:
     """Describe the authenticated read-only surface without asserting conformance."""
-    base = project_dataset_features_base(project_id, dataset_id)
+    base = project_dataset_features_base(project_id, dataset_id, api_base_url=api_base_url)
     collection_parameter = {
         "name": "collectionId",
         "in": "path",

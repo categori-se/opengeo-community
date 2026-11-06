@@ -192,3 +192,19 @@ def test_record_query_parsers_are_bounded_and_fail_closed() -> None:
     with pytest.raises(HTTPException) as missing:
         _require_collection("unknown")
     assert missing.value.status_code == 404
+
+
+def test_explicit_public_api_base_is_used_only_for_generated_api_links() -> None:
+    base = "https://studio.opengeo.tools/api"
+    catalog = catalog_document(PROJECT_ID, api_base_url=base)
+    record = export_ogc_record(record_resource(), PROJECT_ID, "fr", api_base_url=base)["document"]
+    assert all(
+        link["href"].startswith(f"{base}/projects/{PROJECT_ID}/")
+        for link in catalog["links"] + record["links"]
+        if link["rel"] != "profile"
+    )
+    assert records_api_document(PROJECT_ID, api_base_url=base)["servers"][0]["url"] == (
+        f"{base}/projects/{PROJECT_ID}/records"
+    )
+    assert any(link["href"] == OGC_RECORD_PROFILE for link in record["links"])
+    assert catalog_document(PROJECT_ID)["links"][0]["href"].startswith("/projects/")

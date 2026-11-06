@@ -1694,3 +1694,147 @@ def test_native_catalog_18_order_datetime_calendar_validation_is_runtime_rule(
     assert Draft202012Validator(distribution_graph_schema()).is_valid(value)
     with pytest.raises(CatalogMetadataInvalid, match="valid calendar date-time"):
         validate_catalog_metadata(value)
+
+
+def citation_identifiers_catalog() -> dict[str, Any]:
+    value = acquisition_context()
+    value["schemaVersion"] = "1.10.0"
+    value["distributions"] = [
+        {
+            "downloadUrl": "https://data.example.test/citation-source",
+            "isoTransfer": {
+                "formats": [{"citation": {"title": "Transfer format"}}],
+                "offlineMedia": [{"name": {"title": "Transfer medium"}}],
+            },
+        }
+    ]
+    value["isoDistributionGroups"] = [
+        {
+            "formats": [
+                {
+                    "id": "citation-format",
+                    "citation": {"title": "Graph format"},
+                    "media": [{"name": {"title": "Graph medium"}}],
+                }
+            ]
+        }
+    ]
+    value["qualityReports"] = [
+        {
+            "scope": {"level": "dataset"},
+            "reports": [
+                {
+                    "type": "DQ_UsabilityElement",
+                    "evaluation": {
+                        "type": "DQ_EvaluationMethod",
+                        "procedure": {"title": "Evaluation procedure"},
+                        "referenceDocuments": [{"title": "Evaluation reference"}],
+                    },
+                    "results": [
+                        {
+                            "type": "DQ_ConformanceResult",
+                            "specification": {"title": "Conformance specification"},
+                            "pass": False,
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    for index, citation in enumerate(citation_identifier_targets(value)):
+        citation["isbn"] = f" ISBN lexical / {index} "
+        citation["issn"] = f" ISSN lexical / {index} "
+    return value
+
+
+def citation_identifier_targets(value: dict[str, Any]) -> list[dict[str, Any]]:
+    transfer = value["distributions"][0]["isoTransfer"]
+    graph_format = value["isoDistributionGroups"][0]["formats"][0]
+    report = value["qualityReports"][0]["reports"][0]
+    return [
+        value["acquisition"]["plans"][0]["citation"],
+        value["acquisition"]["requirements"][0]["citation"],
+        transfer["formats"][0]["citation"],
+        transfer["offlineMedia"][0]["name"],
+        graph_format["citation"],
+        graph_format["media"][0]["name"],
+        report["evaluation"]["procedure"],
+        report["evaluation"]["referenceDocuments"][0],
+        report["results"][0]["specification"],
+    ]
+
+
+def test_native_catalog_110_citation_identifiers_preserve_lexical_values_and_owners() -> None:
+    value = citation_identifiers_catalog()
+    citations = citation_identifier_targets(value)
+    citations[0]["isbn"] = "i" * 300
+    citations[1]["issn"] = " " * 300
+    original = deepcopy(value)
+    assert validate_catalog_metadata(value) == value
+    assert value == original
+    assert len({citation["isbn"] for citation in citations}) == len(citations)
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.10.0.schema.json").read_text())
+    Draft202012Validator.check_schema(schema)
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(value)
+
+
+def test_native_catalog_110_citation_identifier_edits_and_clears_keep_identity() -> None:
+    value = citation_identifiers_catalog()
+    original = deepcopy(value)
+    citation = citation_identifier_targets(value)[0]
+    citation["isbn"] = " edited ISBN "
+    del citation["issn"]
+    changed = validate_catalog_metadata(value)
+    assert citation_identifier_targets(changed)[0] == citation
+    assert citation_identifier_targets(changed)[1:] == citation_identifier_targets(original)[1:]
+    del citation["isbn"]
+    cleared = validate_catalog_metadata(value)
+    assert citation_identifier_targets(cleared)[0] == citation
+    assert (
+        cleared["acquisition"]["plans"][0]["identifier"]
+        == original["acquisition"]["plans"][0]["identifier"]
+    )
+    assert citation["identifiers"] == citation_identifier_targets(original)[0]["identifiers"]
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.10.0.schema.json").read_text())
+    Draft202012Validator(schema, format_checker=FormatChecker()).validate(cleared)
+
+
+def test_native_catalog_110_compatibility_preserves_19_and_rejects_older_bibliography() -> None:
+    for version in ("1.9.0", "1.10.0"):
+        value = contact_unit_catalog()
+        value["schemaVersion"] = version
+        value["acquisition"] = acquisition_context()["acquisition"]
+        assert validate_catalog_metadata(value) == value
+        schema = json.loads(
+            (ROOT / f"schemas/opengeo-catalog-metadata-{version}.schema.json").read_text()
+        )
+        Draft202012Validator(schema, format_checker=FormatChecker()).validate(value)
+    for minor in range(10):
+        value = acquisition_context()
+        value["schemaVersion"] = f"1.{minor}.0"
+        if minor >= 4:
+            assert validate_catalog_metadata(value) == value
+        value["acquisition"]["plans"][0]["citation"].update(isbn="ISBN", issn="ISSN")
+        with pytest.raises(CatalogMetadataInvalid):
+            validate_catalog_metadata(value)
+        schema = json.loads(
+            (ROOT / f"schemas/opengeo-catalog-metadata-1.{minor}.0.schema.json").read_text()
+        )
+        assert not Draft202012Validator(schema).is_valid(value)
+
+
+def test_native_catalog_110_citation_identifiers_reject_invalid_bounds_types_and_keys() -> None:
+    schema = json.loads((ROOT / "schemas/opengeo-catalog-metadata-1.10.0.schema.json").read_text())
+    validator = Draft202012Validator(schema)
+    for field in ("isbn", "issn"):
+        for raw in ("", "x" * 301, False, 123, None, []):
+            value = citation_identifiers_catalog()
+            citation_identifier_targets(value)[0][field] = raw
+            with pytest.raises(CatalogMetadataInvalid, match=field):
+                validate_catalog_metadata(value)
+            assert not validator.is_valid(value)
+    value = citation_identifiers_catalog()
+    citation_identifier_targets(value)[0]["isbn13"] = "unsupported alternate key"
+    with pytest.raises(CatalogMetadataInvalid, match="isbn13"):
+        validate_catalog_metadata(value)
+    assert not validator.is_valid(value)

@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -612,10 +613,14 @@ def api_client(
     repository: FakeResourceRepository,
     metadata_repository: FakeMetadataProfileRepository | None = None,
     site_repository: FakeSitePublicationRepository | None = None,
+    *,
+    public_api_base_url: str | None = None,
 ) -> TestClient:
     return TestClient(
         create_app(
-            settings=Settings(env="test", expose_docs=True),
+            settings=Settings(
+                env="test", expose_docs=True, public_api_base_url=public_api_base_url
+            ),
             readiness_probe=PassingProbe(),
             token_verifier=FakeVerifier(),
             principal_repository=FakePrincipalRepository(),
@@ -2111,3 +2116,65 @@ def test_stac_intersects_and_bbox_conflict_and_get_post_paging():
         == 400
     )
     assert client.get(root + "?intersects=invalid", headers=headers()).status_code == 400
+
+
+def test_configured_records_discovery_keeps_public_prefix_filters_and_authentication() -> None:
+    class PagedRecords(FakeResourceRepository):
+        async def list_record_resources(self, context, project_id, filters):
+            page = await super().list_record_resources(context, project_id, filters)
+            return RecordResourcePage(resources=page.resources, number_matched=3)
+
+    base = "https://studio.opengeo.tools/api"
+    repository = PagedRecords()
+    client = api_client(repository, public_api_base_url=base)
+    root = f"/projects/{PROJECT_ID}/records"
+    assert client.get(root).status_code == 401
+    assert repository.calls == []
+    authenticated = {
+        **headers(),
+        "Forwarded": "host=attacker.invalid;proto=http",
+        "X-Forwarded-Host": "attacker.invalid",
+        "X-Forwarded-Prefix": "/untrusted",
+    }
+    landing = client.get(root, headers=authenticated)
+    catalogs = client.get(f"{root}/collections", headers=authenticated)
+    catalog = client.get(f"{root}/collections/resources", headers=authenticated)
+    api = client.get(f"{root}/api", headers=authenticated)
+    params = {
+        "q": "routes,recherche",
+        "type": "story",
+        "ids": str(RESOURCE_ID),
+        "externalIds": f"geonode:{GEONODE_ID}",
+        "bbox": "84,27,86,29",
+        "datetime": "2026-01-01/..",
+        "language": "fr",
+        "limit": "1",
+        "offset": "1",
+    }
+    items = client.get(f"{root}/collections/resources/items", headers=authenticated, params=params)
+    item = client.get(
+        f"{root}/collections/resources/items/{RESOURCE_ID}",
+        headers=authenticated,
+        params={"language": "fr"},
+    )
+    for response in (landing, catalogs, catalog, api, items, item):
+        assert response.status_code == 200
+    documents = [landing.json(), catalogs.json(), catalog.json(), items.json(), item.json()]
+    documents.extend(catalogs.json()["collections"])
+    documents.extend(items.json()["features"])
+    for document in documents:
+        assert all(
+            link["href"].startswith(f"{base}/projects/{PROJECT_ID}/")
+            for link in document["links"]
+            if link["rel"] != "profile"
+        )
+    assert api.json()["servers"][0]["url"] == f"{base}{root}"
+    assert api.json()["security"] == [{"bearerAuth": []}]
+    assert api.json()["x-opengeo-conformance-claimed"] is False
+    for link in items.json()["links"]:
+        if link["rel"] in {"self", "next", "prev"}:
+            query = parse_qs(urlsplit(link["href"]).query)
+            expected = {key: [value] for key, value in params.items()}
+            expected["offset"] = [{"self": "1", "next": "2", "prev": "0"}[link["rel"]]]
+            assert query == expected
+    assert {link["rel"] for link in items.json()["links"]} >= {"self", "next", "prev"}

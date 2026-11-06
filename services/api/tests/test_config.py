@@ -698,3 +698,31 @@ def test_discovery_queue_setting_loads_from_environment(monkeypatch: pytest.Monk
     assert configured.external_source_discovery_queue_url == queue_url
     assert configured.external_source_discovery_dispatch_configured is True
     assert configured.external_source_snapshot_dispatch_configured is False
+
+
+@pytest.mark.parametrize(
+    "base", ["https://studio.opengeo.tools", "https://studio.opengeo.tools/api"]
+)
+def test_public_api_base_url_is_optional_and_explicit(base: str) -> None:
+    assert Settings(env="test").public_api_base_url is None
+    assert Settings(env="test", public_api_base_url=base).public_api_base_url == base
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "http://studio.opengeo.tools/api",
+        "https://user:secret@studio.opengeo.tools/api",
+        "https://studio.opengeo.tools/api?token=value",
+        "https://studio.opengeo.tools/api#fragment",
+        "https://studio.opengeo.tools/api/",
+        "https://studio.opengeo.tools/a/../api",
+        "https://studio.opengeo.tools//api",
+        "https://STUDIO.opengeo.tools/api",
+        "https://studio.opengeo.tools/%61pi",
+        "https://studio.opengeo.tools:443/api",
+    ],
+)
+def test_public_api_base_url_rejects_noncanonical_or_credential_bearing_values(base: str) -> None:
+    with pytest.raises(ValidationError, match="canonical HTTPS API base URL"):
+        Settings(env="test", public_api_base_url=base)

@@ -6,7 +6,7 @@ from datetime import date, datetime
 from typing import Any, cast
 from urllib.parse import urlsplit
 
-OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.9.0"
+OPEN_GEO_CATALOG_SCHEMA_VERSION = "1.10.0"
 OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.0.0",
     "1.1.0",
@@ -17,6 +17,7 @@ OPEN_GEO_CATALOG_SCHEMA_VERSIONS = {
     "1.6.0",
     "1.7.0",
     "1.8.0",
+    "1.9.0",
     OPEN_GEO_CATALOG_SCHEMA_VERSION,
 }
 OPEN_GEO_CATALOG_NAMESPACE = "opengeo"
@@ -165,12 +166,12 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if schema_version not in OPEN_GEO_CATALOG_SCHEMA_VERSIONS:
         raise CatalogMetadataInvalid(
             "metadata extensions.opengeo.schemaVersion must be "
-            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, 1.6.0, 1.7.0, 1.8.0, or 1.9.0"
+            "1.0.0, 1.1.0, 1.2.0, 1.3.0, 1.4.0, 1.5.0, 1.6.0, 1.7.0, 1.8.0, 1.9.0, or 1.10.0"
         )
     allowed = _CATALOG_FIELDS_1_1 if schema_version != "1.0.0" else _CATALOG_FIELDS_1_0
-    if schema_version in {"1.6.0", "1.7.0", "1.8.0", "1.9.0"}:
+    if schema_version in {"1.6.0", "1.7.0", "1.8.0", "1.9.0", "1.10.0"}:
         allowed = {*allowed, "qualityReports"}
-    if schema_version in {"1.8.0", "1.9.0"}:
+    if schema_version in {"1.8.0", "1.9.0", "1.10.0"}:
         allowed = {*allowed, "isoDistributionGroups"}
     unknown = set(value) - allowed
     if unknown:
@@ -184,8 +185,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
     if "distributions" in value:
         result["distributions"] = _distributions(
             value["distributions"],
-            iso_transfer=schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0", "1.9.0"},
-            offline_media=schema_version in {"1.7.0", "1.8.0", "1.9.0"},
+            iso_transfer=schema_version in {"1.5.0", "1.6.0", "1.7.0", "1.8.0", "1.9.0", "1.10.0"},
+            offline_media=schema_version in {"1.7.0", "1.8.0", "1.9.0", "1.10.0"},
+            bibliographic=schema_version == "1.10.0",
         )
     if "referenceSystems" in value:
         result["referenceSystems"] = _reference_systems(value["referenceSystems"])
@@ -195,7 +197,9 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
         result["quality"] = _quality(value["quality"])
     if "qualityReports" in value:
         result["qualityReports"] = _quality_reports(
-            value["qualityReports"], unit_references=schema_version == "1.9.0"
+            value["qualityReports"],
+            unit_references=schema_version in {"1.9.0", "1.10.0"},
+            bibliographic=schema_version == "1.10.0",
         )
     if "isoDistributionGroups" in value:
         quality_ids = {
@@ -207,7 +211,8 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
         result["isoDistributionGroups"] = _iso_distribution_groups(
             value["isoDistributionGroups"],
             reserved_ids=quality_ids,
-            rich_contacts=schema_version == "1.9.0",
+            rich_contacts=schema_version in {"1.9.0", "1.10.0"},
+            bibliographic=schema_version == "1.10.0",
         )
     if "updateFrequency" in value:
         result["updateFrequency"] = _string(
@@ -227,9 +232,12 @@ def validate_catalog_metadata(value: Any) -> dict[str, Any]:
         result["acquisition"] = _acquisition(
             value["acquisition"],
             planning=schema_version
-            in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"},
-            event_graph=schema_version in {"1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"},
-            context=schema_version in {"1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0"},
+            in {"1.2.0", "1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0", "1.9.0", "1.10.0"},
+            event_graph=schema_version
+            in {"1.3.0", "1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0", "1.9.0", "1.10.0"},
+            context=schema_version
+            in {"1.4.0", "1.5.0", "1.6.0", "1.7.0", "1.8.0", "1.9.0", "1.10.0"},
+            bibliographic=schema_version == "1.10.0",
         )
     return result
 
@@ -256,7 +264,11 @@ def _contacts(value: Any) -> list[dict[str, str]]:
 
 
 def _distributions(
-    value: Any, *, iso_transfer: bool = False, offline_media: bool = False
+    value: Any,
+    *,
+    iso_transfer: bool = False,
+    offline_media: bool = False,
+    bibliographic: bool = False,
 ) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.distributions")
     allowed = {
@@ -280,7 +292,10 @@ def _distributions(
         for field, raw in record.items():
             if field == "isoTransfer":
                 distribution[field] = _iso_transfer(
-                    raw, f"{path}.isoTransfer", offline_media=offline_media
+                    raw,
+                    f"{path}.isoTransfer",
+                    offline_media=offline_media,
+                    bibliographic=bibliographic,
                 )
             elif field == "byteSize":
                 if isinstance(raw, bool) or not isinstance(raw, int) or not 0 <= raw <= 10**18:
@@ -308,7 +323,9 @@ def _distributions(
     return result
 
 
-def _iso_transfer(value: Any, path: str, *, offline_media: bool = False) -> dict[str, Any]:
+def _iso_transfer(
+    value: Any, path: str, *, offline_media: bool = False, bibliographic: bool = False
+) -> dict[str, Any]:
     if not isinstance(value, dict) or not value:
         raise CatalogMetadataInvalid(f"metadata {path} must be a nonempty transfer object")
     allowed = {
@@ -347,7 +364,9 @@ def _iso_transfer(value: Any, path: str, *, offline_media: bool = False) -> dict
                 record, {"citation", "amendmentNumber", "fileDecompressionTechnique"}, item_path
             )
             item: dict[str, Any] = {
-                "citation": _acquisition_citation(record.get("citation"), f"{item_path}.citation")
+                "citation": _acquisition_citation(
+                    record.get("citation"), f"{item_path}.citation", bibliographic=bibliographic
+                )
             }
             for field in ("amendmentNumber", "fileDecompressionTechnique"):
                 if field in record:
@@ -390,7 +409,7 @@ def _iso_transfer(value: Any, path: str, *, offline_media: bool = False) -> dict
         result["onlineResources"] = resources
     if "offlineMedia" in value:
         result["offlineMedia"] = [
-            _iso_medium(record, f"{path}.offlineMedia[{index}]")
+            _iso_medium(record, f"{path}.offlineMedia[{index}]", bibliographic=bibliographic)
             for index, record in enumerate(
                 _bounded_objects(value["offlineMedia"], 8, f"{path}.offlineMedia")
             )
@@ -417,7 +436,7 @@ def _iso_transfer(value: Any, path: str, *, offline_media: bool = False) -> dict
     return result
 
 
-def _iso_medium(value: Any, path: str) -> dict[str, Any]:
+def _iso_medium(value: Any, path: str, *, bibliographic: bool = False) -> dict[str, Any]:
     """Validate the bounded, directly owned ISO MD_Medium subset."""
     if not isinstance(value, dict) or not value:
         raise CatalogMetadataInvalid(f"metadata {path} must be a nonempty medium object")
@@ -428,7 +447,9 @@ def _iso_medium(value: Any, path: str) -> dict[str, Any]:
     )
     result: dict[str, Any] = {}
     if "name" in value:
-        result["name"] = _acquisition_citation(value["name"], f"{path}.name")
+        result["name"] = _acquisition_citation(
+            value["name"], f"{path}.name", bibliographic=bibliographic
+        )
     if "density" in value:
         density = value["density"]
         if (
@@ -589,6 +610,7 @@ def _iso_distribution_groups(
     *,
     reserved_ids: Collection[str] = (),
     rich_contacts: bool = False,
+    bibliographic: bool = False,
 ) -> list[dict[str, Any]]:
     """Validate owned graph nodes without expanding declared local references."""
     identities: dict[str, str] = {}
@@ -693,7 +715,9 @@ def _iso_distribution_groups(
                     normalized["phones"] = phones
                 if "onlineResources" in contact:
                     normalized["onlineResources"] = _iso_transfer(
-                        {"onlineResources": contact["onlineResources"]}, contact_path
+                        {"onlineResources": contact["onlineResources"]},
+                        contact_path,
+                        bibliographic=bibliographic,
                     )["onlineResources"]
                 if "hoursOfService" in contact:
                     normalized["hoursOfService"] = _iso_raw_strings(
@@ -779,7 +803,9 @@ def _iso_distribution_groups(
             result["id"] = identifier
         base = {key: raw[key] for key in scalar_fields[kind] if key in raw}
         if kind == "Format":
-            result["citation"] = _acquisition_citation(base.get("citation"), f"{location}.citation")
+            result["citation"] = _acquisition_citation(
+                base.get("citation"), f"{location}.citation", bibliographic=bibliographic
+            )
             for field in ("amendmentNumber", "fileDecompressionTechnique"):
                 if field in base:
                     result[field] = _string(base[field], 1, 1_000, f"{location}.{field}")
@@ -787,10 +813,12 @@ def _iso_distribution_groups(
             result["contact"] = responsibility(base.get("contact"), f"{location}.contact")
         elif kind == "DTO":
             if base:
-                result.update(_iso_transfer(base, location, offline_media=True))
+                result.update(
+                    _iso_transfer(base, location, offline_media=True, bibliographic=bibliographic)
+                )
         elif kind == "Medium":
             if base:
-                result.update(_iso_medium(base, location))
+                result.update(_iso_medium(base, location, bibliographic=bibliographic))
         elif kind == "Order":
             for field, raw_field in base.items():
                 if field == "plannedAvailableDateTime":
@@ -931,7 +959,7 @@ def _quality_measure(value: Any, path: str) -> dict[str, Any]:
     return result
 
 
-def _quality_evaluation(value: Any, path: str) -> dict[str, Any]:
+def _quality_evaluation(value: Any, path: str, *, bibliographic: bool = False) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CatalogMetadataInvalid(f"metadata {path} must be an object")
     kind = _string(value.get("type"), 1, 100, f"{path}.type")
@@ -955,10 +983,14 @@ def _quality_evaluation(value: Any, path: str) -> dict[str, Any]:
         if field in value or field in required_strings:
             result[field] = _string(value.get(field), 1, 1_000, f"{path}.{field}")
     if "procedure" in value:
-        result["procedure"] = _acquisition_citation(value["procedure"], f"{path}.procedure")
+        result["procedure"] = _acquisition_citation(
+            value["procedure"], f"{path}.procedure", bibliographic=bibliographic
+        )
     if "referenceDocuments" in value:
         result["referenceDocuments"] = [
-            _acquisition_citation(record, f"{path}.referenceDocuments[{i}]")
+            _acquisition_citation(
+                record, f"{path}.referenceDocuments[{i}]", bibliographic=bibliographic
+            )
             for i, record in enumerate(
                 _bounded_objects(value["referenceDocuments"], 8, f"{path}.referenceDocuments")
             )
@@ -976,7 +1008,11 @@ def _quality_evaluation(value: Any, path: str) -> dict[str, Any]:
 
 
 def _quality_result(
-    value: dict[str, Any], path: str, *, unit_references: bool = False
+    value: dict[str, Any],
+    path: str,
+    *,
+    unit_references: bool = False,
+    bibliographic: bool = False,
 ) -> dict[str, Any]:
     kind = _string(value.get("type"), 1, 100, f"{path}.type")
     variants = {
@@ -1010,7 +1046,7 @@ def _quality_result(
         result["statement"] = _string(value.get("statement"), 1, 1_000, f"{path}.statement")
     else:
         result["specification"] = _acquisition_citation(
-            value.get("specification"), f"{path}.specification"
+            value.get("specification"), f"{path}.specification", bibliographic=bibliographic
         )
         if type(value.get("pass")) is not bool:
             raise CatalogMetadataInvalid(f"metadata {path}.pass must be a boolean")
@@ -1020,7 +1056,9 @@ def _quality_result(
     return result
 
 
-def _quality_reports(value: Any, *, unit_references: bool = False) -> list[dict[str, Any]]:
+def _quality_reports(
+    value: Any, *, unit_references: bool = False, bibliographic: bool = False
+) -> list[dict[str, Any]]:
     groups = _bounded_objects(value, 8, "opengeo.qualityReports")
     result: list[dict[str, Any]] = []
     declared: set[str] = set()
@@ -1073,11 +1111,14 @@ def _quality_reports(value: Any, *, unit_references: bool = False) -> list[dict[
                 item["measure"] = _quality_measure(report["measure"], f"{report_path}.measure")
             if "evaluation" in report:
                 item["evaluation"] = _quality_evaluation(
-                    report["evaluation"], f"{report_path}.evaluation"
+                    report["evaluation"], f"{report_path}.evaluation", bibliographic=bibliographic
                 )
             item["results"] = [
                 _quality_result(
-                    record, f"{report_path}.results[{i}]", unit_references=unit_references
+                    record,
+                    f"{report_path}.results[{i}]",
+                    unit_references=unit_references,
+                    bibliographic=bibliographic,
                 )
                 for i, record in enumerate(
                     _bounded_objects(report.get("results"), 8, f"{report_path}.results")
@@ -1152,7 +1193,9 @@ def _funding(value: Any) -> list[dict[str, str]]:
     return result
 
 
-def _acquisition(value: Any, *, planning: bool, event_graph: bool, context: bool) -> dict[str, Any]:
+def _acquisition(
+    value: Any, *, planning: bool, event_graph: bool, context: bool, bibliographic: bool = False
+) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CatalogMetadataInvalid("metadata opengeo.acquisition must be an object")
     allowed = {"instruments", "platforms", "operations"}
@@ -1248,12 +1291,18 @@ def _acquisition(value: Any, *, planning: bool, event_graph: bool, context: bool
     if operations:
         result["operations"] = operations
     operation_identifiers = {record["identifier"] for record in operations}
-    requirements = _acquisition_requirements(value.get("requirements", []), context=context)
+    requirements = _acquisition_requirements(
+        value.get("requirements", []), context=context, bibliographic=bibliographic
+    )
     if requirements:
         result["requirements"] = requirements
     requirement_identifiers = {record["identifier"] for record in requirements}
     plans = _acquisition_plans(
-        value.get("plans", []), operation_identifiers, requirement_identifiers, context=context
+        value.get("plans", []),
+        operation_identifiers,
+        requirement_identifiers,
+        context=context,
+        bibliographic=bibliographic,
     )
     if plans:
         result["plans"] = plans
@@ -1467,7 +1516,9 @@ def _acquisition_operations(
     return result
 
 
-def _acquisition_requirements(value: Any, *, context: bool) -> list[dict[str, Any]]:
+def _acquisition_requirements(
+    value: Any, *, context: bool, bibliographic: bool = False
+) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.acquisition.requirements")
     result: list[dict[str, Any]] = []
     required = {
@@ -1535,7 +1586,9 @@ def _acquisition_requirements(value: Any, *, context: bool) -> list[dict[str, An
             }
         )
         if "citation" in record:
-            result[-1]["citation"] = _acquisition_citation(record["citation"], f"{path}.citation")
+            result[-1]["citation"] = _acquisition_citation(
+                record["citation"], f"{path}.citation", bibliographic=bibliographic
+            )
     _unique_identifiers(result, "opengeo.acquisition.requirements")
     return result
 
@@ -1546,6 +1599,7 @@ def _acquisition_plans(
     requirement_identifiers: set[str],
     *,
     context: bool,
+    bibliographic: bool = False,
 ) -> list[dict[str, Any]]:
     records = _object_list(value, 32, "opengeo.acquisition.plans")
     result: list[dict[str, Any]] = []
@@ -1568,7 +1622,9 @@ def _acquisition_plans(
         if plan["status"] not in _ACQUISITION_STATUSES:
             raise CatalogMetadataInvalid(f"metadata {path}.status is unsupported")
         if "citation" in record:
-            plan["citation"] = _acquisition_citation(record["citation"], f"{path}.citation")
+            plan["citation"] = _acquisition_citation(
+                record["citation"], f"{path}.citation", bibliographic=bibliographic
+            )
         if "type" in record:
             plan_type = _string(record["type"], 1, 300, f"{path}.type")
             if plan_type not in _ACQUISITION_GEOMETRY_TYPES:
@@ -1695,15 +1751,24 @@ def _acquisition_environment(value: Any) -> dict[str, Any]:
     }
 
 
-def _acquisition_citation(value: Any, path: str) -> dict[str, Any]:
+def _acquisition_citation(value: Any, path: str, *, bibliographic: bool = False) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CatalogMetadataInvalid(f"metadata {path} must be an object")
     _known_fields(
         value,
-        {"title", "alternateTitles", "dates", "edition", "editionDate", "identifiers"},
+        {"title", "alternateTitles", "dates", "edition", "editionDate", "identifiers"}
+        | ({"isbn", "issn"} if bibliographic else set()),
         path,
     )
     result: dict[str, Any] = {"title": _string(value.get("title"), 1, 1_000, f"{path}.title")}
+    for field in ("isbn", "issn"):
+        if field in value:
+            lexical = value[field]
+            if not isinstance(lexical, str) or not 1 <= len(lexical) <= 300:
+                raise CatalogMetadataInvalid(
+                    f"metadata {path}.{field} must be a string with length 1 to 300"
+                )
+            result[field] = lexical
     if "alternateTitles" in value:
         titles = value["alternateTitles"]
         if not isinstance(titles, list) or not 1 <= len(titles) <= 8:
