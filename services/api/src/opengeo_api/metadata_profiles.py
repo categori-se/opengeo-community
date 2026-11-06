@@ -592,6 +592,8 @@ def _iso_contact_unit_losses(catalog: dict[str, Any]) -> list[str]:
 
     def visit(value: Any, path: str) -> None:
         if isinstance(value, dict):
+            if "title" in value:
+                losses.extend(f"{path}.{field}" for field in ("isbn", "issn") if field in value)
             if value.get("type") in {"individual", "organisation"}:
                 for index, contact in enumerate(value.get("contacts", [])):
                     contact_path = f"{path}.contacts[{index}]"
@@ -622,7 +624,7 @@ def _iso_contact_unit_losses(catalog: dict[str, Any]) -> list[str]:
             for index, item in enumerate(value):
                 visit(item, f"{path}[{index}]")
 
-    for field in ("isoDistributionGroups", "qualityReports"):
+    for field in ("isoDistributionGroups", "qualityReports", "distributions", "acquisition"):
         visit(catalog.get(field), f"metadata_extensions.opengeo.{field}")
     return losses
 
@@ -3045,6 +3047,7 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
     ) -> bool:
         if not _iso_quality_unit_label_supported(value["title"]):
             unmapped.append(path)
+            unmapped.extend(f"{path}.{field}" for field in ("isbn", "issn") if field in value)
             return False
         citation = child(child(parent, prefix, name), "cit", "CI_Citation")
         distribution_text(
@@ -3113,6 +3116,17 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     identifier_value["codeSpace"],
                 )
             mapped.append(identifier_path)
+        for field, name in (("isbn", "ISBN"), ("issn", "ISSN")):
+            if field in value:
+                distribution_text(
+                    citation,
+                    "cit",
+                    name,
+                    value[field],
+                    f"{path}.{field}",
+                    mapped=mapped,
+                    unmapped=unmapped,
+                )
         return True
 
     def distribution_medium_fields(
@@ -4194,6 +4208,13 @@ def export_iso_19115_3(resource: Any) -> dict[str, Any]:
                     acquisition_context_mapped.append(f"{path}.identifiers[{index}]")
                 else:
                     acquisition_context_unmapped.append(f"{path}.identifiers[{index}]")
+            for field, name in (("isbn", "ISBN"), ("issn", "ISSN")):
+                if field in value:
+                    if _iso_quality_unit_label_supported(value[field]):
+                        child(child(citation, "cit", name), "gco", "CharacterString", value[field])
+                        acquisition_context_mapped.append(f"{path}.{field}")
+                    else:
+                        acquisition_context_unmapped.append(f"{path}.{field}")
             acquisition_context_blocks.append((parent, citation_property, path, plan_identifier))
             return True
 

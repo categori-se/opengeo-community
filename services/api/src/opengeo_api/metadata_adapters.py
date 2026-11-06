@@ -2398,6 +2398,8 @@ def _iso_catalog_extension(
                     "edition",
                     "editionDate",
                     "identifier",
+                    "ISBN",
+                    "ISSN",
                 )
             },
             path,
@@ -2532,6 +2534,23 @@ def _iso_catalog_extension(
             context_loss(f"{path}.planIdentity[ambiguous]")
         if identifiers:
             record["identifiers"] = identifiers
+        for field, name in (("isbn", "ISBN"), ("issn", "ISSN")):
+            field_path = f"{path}.{field}"
+            prop = context_property(citation, f"{cit}{name}", field_path)
+            if prop is None:
+                continue
+            node = context_embedded(prop, f"{gco}CharacterString", field_path)
+            raw = node.text if node is not None else None
+            if (
+                node is None
+                or len(node)
+                or raw is None
+                or not 1 <= len(raw) <= 300
+                or not _iso_quality_unit_label_supported(raw)
+            ):
+                context_loss(field_path)
+            else:
+                record[field] = raw
         return record, carriers[0] if len(carriers) == 1 else None, invalid_carrier
 
     def acquisition_instrument(element: ET.Element, path: str) -> dict[str, str] | None:
@@ -3454,7 +3473,9 @@ def _iso_catalog_extension(
                     continue
                 media_value = int(raw)
             try:
-                media_record.update(_iso_medium({field: media_value}, media_path))
+                media_record.update(
+                    _iso_medium({field: media_value}, media_path, bibliographic=True)
+                )
             except CatalogMetadataInvalid:
                 context_loss(field_path)
         media_formats: list[str] = []
@@ -3484,7 +3505,7 @@ def _iso_catalog_extension(
                 context_loss(code_path)
                 continue
             try:
-                _iso_medium({"mediumFormats": [code]}, media_path)
+                _iso_medium({"mediumFormats": [code]}, media_path, bibliographic=True)
             except CatalogMetadataInvalid:
                 context_loss(code_path)
                 continue
@@ -3511,7 +3532,9 @@ def _iso_catalog_extension(
                     if raw is not None:
                         identifier[field] = raw
                 try:
-                    media_record.update(_iso_medium({"identifier": identifier}, media_path))
+                    media_record.update(
+                        _iso_medium({"identifier": identifier}, media_path, bibliographic=True)
+                    )
                 except CatalogMetadataInvalid:
                     context_loss(identifier_path)
         return media_record
@@ -3811,7 +3834,9 @@ def _iso_catalog_extension(
         try:
             return cast(
                 dict[str, Any],
-                _iso_transfer({"onlineResources": [result]}, path)["onlineResources"][0],
+                _iso_transfer({"onlineResources": [result]}, path, bibliographic=True)[
+                    "onlineResources"
+                ][0],
             )
         except CatalogMetadataInvalid:
             context_loss(path)
@@ -3948,7 +3973,7 @@ def _iso_catalog_extension(
                         if field == "transferSize"
                         else text
                     )
-                    result.update(_iso_transfer({target: value}, path))
+                    result.update(_iso_transfer({target: value}, path, bibliographic=True))
                 elif field == "plannedAvailableDateTime":
                     result[field] = _iso_order_date_time(text, field_path)
                 else:
@@ -4057,7 +4082,9 @@ def _iso_catalog_extension(
             is not None
         ]
         try:
-            graph_groups = _iso_distribution_groups(graph_groups, rich_contacts=True)
+            graph_groups = _iso_distribution_groups(
+                graph_groups, rich_contacts=True, bibliographic=True
+            )
         except CatalogMetadataInvalid:
             for index in range(len(graph_groups)):
                 context_loss(f"mdb:distributionInfo[{index}][graph-validation]")
@@ -4332,7 +4359,7 @@ def _iso_catalog_extension(
                 normalized = validate_catalog_extensions(
                     {
                         "opengeo": {
-                            "schemaVersion": "1.7.0" if offline_records else "1.5.0",
+                            "schemaVersion": "1.10.0",
                             "distributions": [distribution],
                         }
                     }
@@ -5015,6 +5042,24 @@ def _iso_catalog_extension(
 
     if surviving_contact_unit_fields(graph_groups) or surviving_contact_unit_fields(quality_groups):
         catalog["schemaVersion"] = "1.9.0"
+
+    def surviving_bibliographic_fields(value: Any, path: str) -> bool:
+        found = False
+        if isinstance(value, dict):
+            if "title" in value:
+                for field, name in (("isbn", "ISBN"), ("issn", "ISSN")):
+                    if field in value:
+                        mapped.append(f"cit:{name}->{path}.{field}")
+                        found = True
+            for key, item in value.items():
+                found = surviving_bibliographic_fields(item, f"{path}.{key}") or found
+        elif isinstance(value, list):
+            for index, item in enumerate(value):
+                found = surviving_bibliographic_fields(item, f"{path}[{index}]") or found
+        return found
+
+    if surviving_bibliographic_fields(catalog, "metadata_extensions.opengeo"):
+        catalog["schemaVersion"] = "1.10.0"
     if not distributions and "distributions" in catalog:
         del catalog["distributions"]
         mapped.remove("mdb:distributionInfo->metadata_extensions.opengeo.distributions")

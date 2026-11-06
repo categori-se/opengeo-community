@@ -1259,6 +1259,131 @@ def acquisition_context_resource():
     return resource
 
 
+def iso_citation_identifier_resource():
+    from opengeo_api.metadata_catalog import validate_catalog_metadata
+
+    resource = resource_from_plan(iso_import(localized_iso_document()))
+    resource.metadata_extensions["opengeo"] = validate_catalog_metadata(
+        fixture("metadata-021-opengeo-citation-identifiers.json")
+    )
+    return resource
+
+
+def test_iso_citation_isbn_issn_round_trip_preserves_lexical_text_and_order() -> None:
+    resource = iso_citation_identifier_resource()
+    expected = resource.metadata_extensions["opengeo"]["acquisition"]
+    exported = export_iso_19115_3(resource)
+    document = exported["documentText"]
+    reopened = iso_import(document)
+    actual = reopened.draft.metadata.extensions["opengeo"]
+    assert actual["schemaVersion"] == "1.10.0"
+    assert actual["acquisition"] == expected
+    assert reopened.source_document == document
+    assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(document)
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    root = ET.fromstring(document)
+    bibliographic_citations = [
+        node for node in root.iter(f"{cit}CI_Citation") if node.find(f"{cit}ISBN") is not None
+    ]
+    assert len(bibliographic_citations) == 2
+    for node in bibliographic_citations:
+        assert [child.tag for child in node][-2:] == [f"{cit}ISBN", f"{cit}ISSN"]
+    for owner in ("plans", "requirements"):
+        for field in ("isbn", "issn"):
+            target = f"metadata_extensions.opengeo.acquisition.{owner}[0].citation.{field}"
+            assert target in exported["report"]["mapped"]
+            assert any(path.endswith(target) for path in reopened.conversion_report["mapped"])
+            assert target in export_dcat_3(resource)["report"]["unmapped"]
+
+    # The same Citation mapping also serves the existing distribution helper.
+    medium_resource = iso_offline_distribution_resource()
+    medium_catalog = medium_resource.metadata_extensions["opengeo"]
+    medium_catalog["schemaVersion"] = "1.10.0"
+    medium = medium_catalog["distributions"][0]["isoTransfer"]["offlineMedia"][0]
+    medium["name"].update(isbn=" 000-lexical-book ", issn=" serial without syntax ")
+    medium_result = iso_import(export_iso_19115_3(medium_resource)["documentText"])
+    medium_actual = medium_result.draft.metadata.extensions["opengeo"]
+    assert medium_actual["schemaVersion"] == "1.10.0"
+    assert (
+        medium_actual["distributions"][0]["isoTransfer"]["offlineMedia"][0]["name"]
+        == (medium["name"])
+    )
+
+
+def test_iso_citation_isbn_issn_edits_and_clears_win_over_source() -> None:
+    reopened = iso_import(export_iso_19115_3(iso_citation_identifier_resource())["documentText"])
+    resource = resource_from_plan(reopened)
+    acquisition = resource.metadata_extensions["opengeo"]["acquisition"]
+    plan_citation = acquisition["plans"][0]["citation"]
+    requirement_citation = acquisition["requirements"][0]["citation"]
+    plan_citation["isbn"] = "  edited book label  "
+    del plan_citation["issn"]
+    del requirement_citation["isbn"]
+    requirement_citation["issn"] = " edited serial label "
+    edited = iso_import(export_iso_19115_3(resource)["documentText"])
+    actual = edited.draft.metadata.extensions["opengeo"]["acquisition"]
+    assert actual["plans"][0]["citation"] == plan_citation
+    assert actual["requirements"][0]["citation"] == requirement_citation
+    del plan_citation["isbn"]
+    del requirement_citation["issn"]
+    cleared_document = export_iso_19115_3(resource)["documentText"]
+    cleared = iso_import(cleared_document).draft.metadata.extensions["opengeo"]
+    assert cleared["schemaVersion"] == "1.4.0"
+    assert cleared["acquisition"] == acquisition
+    assert not any(
+        node.tag.endswith(("}ISBN", "}ISSN")) for node in ET.fromstring(cleared_document).iter()
+    )
+
+
+def test_iso_citation_isbn_issn_unsupported_forms_keep_source_and_report_loss() -> None:
+    document = export_iso_19115_3(iso_citation_identifier_resource())["documentText"]
+    cit = "{http://standards.iso.org/iso/19115/-3/cit/2.0}"
+    gco = "{http://standards.iso.org/iso/19115/-3/gco/1.0}"
+    mac = "{http://standards.iso.org/iso/19115/-3/mac/2.0}"
+    foreign = "{https://example.test/foreign}"
+    for unsupported in ("duplicate", "foreign", "nested", "reference"):
+        root = ET.fromstring(document)
+        for citation in root.iter(f"{cit}CI_Citation"):
+            for node in list(citation):
+                if node.tag in {f"{cit}ISBN", f"{cit}ISSN"}:
+                    citation.remove(node)
+        citation = next(root.iter(f"{mac}MI_Plan")).find(f"{mac}citation/{cit}CI_Citation")
+        assert citation is not None
+        prop = ET.SubElement(citation, f"{foreign if unsupported == 'foreign' else cit}ISBN")
+        value = ET.SubElement(prop, f"{gco}CharacterString")
+        value.text = "unsupported lexical book"
+        if unsupported == "duplicate":
+            duplicate = ET.SubElement(citation, f"{cit}ISBN")
+            ET.SubElement(duplicate, f"{gco}CharacterString").text = "other book"
+        elif unsupported == "nested":
+            ET.SubElement(value, f"{foreign}label").text = "nested book"
+        elif unsupported == "reference":
+            prop.set("{http://www.w3.org/1999/xlink}href", "https://example.test/no-fetch")
+        changed = ET.tostring(root, encoding="unicode")
+        reopened = iso_import(changed)
+        catalog = reopened.draft.metadata.extensions["opengeo"]
+        assert catalog["schemaVersion"] == "1.4.0", unsupported
+        assert "isbn" not in catalog["acquisition"]["plans"][0]["citation"], unsupported
+        assert "issn" not in catalog["acquisition"]["plans"][0]["citation"], unsupported
+        assert any(".citation.isbn" in path for path in reopened.conversion_report["unmapped"])
+        assert reopened.source_document == changed
+        assert reopened.draft.provenance["sourceSha256"] == metadata_source_checksum(changed)
+
+
+def test_iso_citation_isbn_issn_legacy_export_keeps_original_version() -> None:
+    resource = acquisition_context_resource()
+    expected = resource.metadata_extensions["opengeo"]["acquisition"]
+    exported = export_iso_19115_3(resource)
+    catalog = iso_import(exported["documentText"]).draft.metadata.extensions["opengeo"]
+    assert catalog["schemaVersion"] == "1.4.0"
+    assert catalog["acquisition"] == expected
+    assert not any("isbn" in path or "issn" in path for path in exported["report"]["mapped"])
+    assert not any(
+        node.tag.endswith(("}ISBN", "}ISSN"))
+        for node in ET.fromstring(exported["documentText"]).iter()
+    )
+
+
 @pytest.mark.parametrize(
     "precision", ["representative", "integer-and-nanosecond", "finite-large-float"]
 )
