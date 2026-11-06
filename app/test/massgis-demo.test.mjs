@@ -62,7 +62,7 @@ describe("MassGIS MassEnviroScreen demo model", () => {
       region: MASSGIS_ARCHIVE_REGION,
       filename: "massgis-massenviroscreen-2026-04-18-72003a49bbd9.geojson.gz",
       objectKey: "usa/ma/opengeo/reference-archives/massgis/massenviroscreen/2026-04-18/72003a49bbd98780cd4ae6767cb4b45b0951d0f921a5c0e80830db3a2d89dc11/massgis-massenviroscreen-2026-04-18-72003a49bbd9.geojson.gz",
-      storageUri: "s3://example-geodata/usa/ma/opengeo/reference-archives/massgis/massenviroscreen/2026-04-18/72003a49bbd98780cd4ae6767cb4b45b0951d0f921a5c0e80830db3a2d89dc11/massgis-massenviroscreen-2026-04-18-72003a49bbd9.geojson.gz",
+      storageUri: "s3://geospatial.data/usa/ma/opengeo/reference-archives/massgis/massenviroscreen/2026-04-18/72003a49bbd98780cd4ae6767cb4b45b0951d0f921a5c0e80830db3a2d89dc11/massgis-massenviroscreen-2026-04-18-72003a49bbd9.geojson.gz",
       retrievedAt: "2026-08-29T00:16:17.865Z",
       sourceDataLastEditedDate: "2026-04-18",
       pageCount: 6,
