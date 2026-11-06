@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from opengeo_api.auth_models import AuthSession
 from opengeo_api.auth_routes import current_session
+from opengeo_api.config import Settings
 from opengeo_api.ogc_records import (
     OGC_CATALOG_PROFILE,
     OGC_OPENAPI_MEDIA_TYPE,
@@ -56,7 +57,12 @@ async def records_landing(
     await _authorize_catalog(repository, session, project_id)
     # OGC discovery links are absolute so native GIS clients can follow them
     # without having to implement URI-reference resolution themselves.
-    base = str(request.url_for("records_landing", project_id=project_id)).rstrip("/")
+    api_base = _api_base_url(request)
+    base = (
+        project_records_base(project_id, api_base_url=api_base)
+        if api_base
+        else str(request.url_for("records_landing", project_id=project_id)).rstrip("/")
+    )
     return {
         "title": "OpenGeo governed resource records",
         "description": "Authenticated, project-scoped metadata records from immutable resources.",
@@ -85,11 +91,15 @@ async def records_landing(
 @router.get("/projects/{project_id}/records/api")
 async def records_api_description(
     project_id: UUID,
+    request: Request,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[ResourceRepository, Depends(repository_from_request)],
 ) -> JSONResponse:
     await _authorize_catalog(repository, session, project_id)
-    return JSONResponse(records_api_document(project_id), media_type=OGC_OPENAPI_MEDIA_TYPE)
+    return JSONResponse(
+        records_api_document(project_id, api_base_url=_api_base_url(request)),
+        media_type=OGC_OPENAPI_MEDIA_TYPE,
+    )
 
 
 @router.get("/projects/{project_id}/records/conformance")
@@ -118,13 +128,15 @@ async def records_conformance(
 @router.get("/projects/{project_id}/records/collections")
 async def record_catalogs(
     project_id: UUID,
+    request: Request,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[ResourceRepository, Depends(repository_from_request)],
 ) -> dict[str, Any]:
     await _authorize_catalog(repository, session, project_id)
-    base = project_records_base(project_id)
+    api_base = _api_base_url(request)
+    base = project_records_base(project_id, api_base_url=api_base)
     return {
-        "collections": [catalog_document(project_id)],
+        "collections": [catalog_document(project_id, api_base_url=api_base)],
         "links": [{"href": f"{base}/collections", "rel": "self", "type": "application/json"}],
     }
 
@@ -133,13 +145,14 @@ async def record_catalogs(
 async def record_catalog(
     project_id: UUID,
     collection_id: str,
+    request: Request,
     session: Annotated[AuthSession, Depends(current_session)],
     repository: Annotated[ResourceRepository, Depends(repository_from_request)],
 ) -> JSONResponse:
     _require_collection(collection_id)
     await _authorize_catalog(repository, session, project_id)
     return JSONResponse(
-        catalog_document(project_id),
+        catalog_document(project_id, api_base_url=_api_base_url(request)),
         media_type="application/ogc-catalog+json",
         headers={"Link": f'<{OGC_CATALOG_PROFILE}>; rel="profile"'},
     )
@@ -201,9 +214,10 @@ async def record_items(
         project_id,
         requested_language,
         page.number_matched,
-        str(request.url),
+        _items_href(request),
         next_href,
         previous_href,
+        api_base_url=_api_base_url(request),
     )
     return JSONResponse(
         document,
@@ -227,7 +241,9 @@ async def record_item(
     resource = await execute_resource(
         repository.get_resource(tenant_context(session), project_id, resource_id)
     )
-    export = export_ogc_record(resource, project_id, _parse_language(language))
+    export = export_ogc_record(
+        resource, project_id, _parse_language(language), api_base_url=_api_base_url(request)
+    )
     selected = cast(str, export["report"]["selectedLanguage"])
     return JSONResponse(
         export["document"],
@@ -394,4 +410,24 @@ def _validate_query(request: Request, allowed: frozenset[str]) -> None:
 def _page_href(request: Request, offset: int) -> str:
     query = dict(request.query_params)
     query["offset"] = str(offset)
-    return f"{request.url.path}?{urlencode(query)}"
+    api_base = _api_base_url(request)
+    path = (
+        f"{project_records_base(request.path_params['project_id'], api_base_url=api_base)}"
+        "/collections/resources/items"
+        if api_base
+        else request.url.path
+    )
+    return f"{path}?{urlencode(query)}"
+
+
+def _api_base_url(request: Request) -> str:
+    return cast(Settings, request.app.state.settings).public_api_base_url or ""
+
+
+def _items_href(request: Request) -> str:
+    api_base = _api_base_url(request)
+    if not api_base:
+        return str(request.url)
+    base = project_records_base(request.path_params["project_id"], api_base_url=api_base)
+    query = f"?{request.url.query}" if request.url.query else ""
+    return f"{base}/collections/resources/items{query}"

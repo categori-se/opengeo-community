@@ -314,6 +314,128 @@ def test_geodcat_ap_31_round_trip_preserves_fields_without_conformance_claim() -
     assert exported["report"]["conformanceClaimed"] is False
 
 
+def test_geodcat_catalog_concepts_preserve_explicit_iri_identity() -> None:
+    document = fixture("metadata-005-geodcat-ap31.json")
+    frequency = "http://publications.europa.eu/resource/authority/frequency/DAILY"
+    format_iri = "https://example.test/formats/geojson"
+    license_iri = "urn:example:license:research"
+    document["dct:accrualPeriodicity"] = {"@id": frequency}
+    document["dcat:distribution"] = {
+        "@type": "dcat:Distribution",
+        "dcat:accessURL": "https://data.example.test/roads.geojson",
+        "dct:format": {"@id": format_iri},
+        "dct:license": {"@id": license_iri},
+    }
+    plan = build_metadata_import_plan(
+        "geodcat_ap_3_1",
+        "example.geodcat",
+        "concept-iris",
+        "restricted",
+        document,
+        metadata_source_checksum(document),
+    )
+    exported = export_geodcat_ap_3_1(resource_from_plan(plan))["document"]
+
+    assert exported["dct:accrualPeriodicity"]["@id"] == frequency
+    distribution = exported["dcat:distribution"][0]
+    assert distribution["dct:format"]["@id"] == format_iri
+    assert distribution["dct:license"]["@id"] == license_iri
+    reimported_plan = build_metadata_import_plan(
+        "geodcat_ap_3_1",
+        "example.geodcat",
+        "concept-iris-reimported",
+        "restricted",
+        exported,
+        metadata_source_checksum(exported),
+    )
+    reimported = reimported_plan.draft.metadata.extensions["opengeo"]
+    assert reimported_plan.source_document == exported
+    assert reimported_plan.draft.metadata.language == plan.draft.metadata.language
+    assert reimported_plan.draft.metadata.translations == plan.draft.metadata.translations
+    assert reimported_plan.draft.metadata.attribution == plan.draft.metadata.attribution
+    assert reimported_plan.draft.metadata.spatial_extent == plan.draft.metadata.spatial_extent
+    assert reimported["updateFrequency"] == frequency
+    assert reimported["distributions"][0]["format"] == format_iri
+    assert reimported["distributions"][0]["license"] == license_iri
+    foreign_language = {**exported, "dct:language": {"@id": "https://example.test/en"}}
+    with pytest.raises(MetadataImportInvalid):
+        build_metadata_import_plan(
+            "geodcat_ap_3_1",
+            "example.geodcat",
+            "foreign-language",
+            "restricted",
+            foreign_language,
+            metadata_source_checksum(foreign_language),
+        )
+
+
+def test_geodcat_catalog_plain_labels_keep_existing_concept_identifiers() -> None:
+    document = fixture("metadata-005-geodcat-ap31.json")
+    document["dct:accrualPeriodicity"] = "annual"
+    document["dcat:distribution"] = {
+        "@type": "dcat:Distribution",
+        "dcat:accessURL": "https://data.example.test/roads.geojson",
+        "dct:format": "GeoJSON",
+        "dct:license": "CC-BY-4.0",
+    }
+    plan = build_metadata_import_plan(
+        "geodcat_ap_3_1",
+        "example.geodcat",
+        "concept-labels",
+        "restricted",
+        document,
+        metadata_source_checksum(document),
+    )
+    exported = export_geodcat_ap_3_1(resource_from_plan(plan))["document"]
+
+    assert exported["dct:accrualPeriodicity"]["@id"] == (
+        "urn:opengeo:frequency:ee5e2878c48558bc"
+    )
+    distribution = exported["dcat:distribution"][0]
+    assert distribution["dct:format"]["@id"] == "urn:opengeo:format:84fe8f7f1c87eb48"
+    assert distribution["dct:license"]["@id"] == "urn:opengeo:license:7d47300ad7583a7d"
+    assert exported["dct:accrualPeriodicity"]["rdfs:label"] == "annual"
+    assert distribution["dct:format"]["skos:prefLabel"] == "GeoJSON"
+    assert distribution["dct:license"]["rdfs:label"] == "CC-BY-4.0"
+    reimported_plan = build_metadata_import_plan(
+        "geodcat_ap_3_1",
+        "example.geodcat",
+        "concept-labels-reimported",
+        "restricted",
+        exported,
+        metadata_source_checksum(exported),
+    )
+    reimported = reimported_plan.draft.metadata.extensions["opengeo"]
+    assert reimported_plan.source_document == exported
+    assert reimported_plan.draft.metadata.language == "en"
+    assert reimported_plan.draft.metadata.translations == plan.draft.metadata.translations
+    assert reimported_plan.draft.metadata.attribution == plan.draft.metadata.attribution
+    assert reimported_plan.draft.metadata.spatial_extent == plan.draft.metadata.spatial_extent
+    assert reimported["updateFrequency"] == "annual"
+    assert reimported["distributions"][0]["format"] == "GeoJSON"
+    assert reimported["distributions"][0]["license"] == "CC-BY-4.0"
+    foreign_geometry = {
+        **exported,
+        "dct:spatial": {
+            "@type": "dct:Location",
+            "locn:geometry": {
+                "@type": "locn:Geometry",
+                "rdf:value": exported["dct:spatial"]["locn:geometry"]["rdf:value"],
+                "@id": "https://example.test/foreign-geometry",
+            },
+        },
+    }
+    with pytest.raises(MetadataImportInvalid):
+        build_metadata_import_plan(
+            "geodcat_ap_3_1",
+            "example.geodcat",
+            "foreign-geometry",
+            "restricted",
+            foreign_geometry,
+            metadata_source_checksum(foreign_geometry),
+        )
+
+
 def test_geodcat_catalog_fields_map_into_native_metadata_and_back() -> None:
     document = fixture("metadata-005-geodcat-ap31.json")
     document.update(
@@ -3532,3 +3654,309 @@ def test_iso_quality_reports_legacy_fallback_keeps_lexical_type_units_and_refere
     actual = reopened.draft.metadata.extensions["opengeo"]
     assert actual["qualityReports"] == groups
     assert not actual.get("quality")
+
+
+def test_geodcat_labelled_concept_iris_round_trip_owned_localized_labels() -> None:
+    document = fixture("metadata-005-geodcat-ap31.json")
+    frequency = {
+        "@id": "https://example.test/frequency/daily",
+        "rdfs:label": "Daily",
+        "skos:prefLabel": [
+            {"@value": "Daily", "@language": "en"},
+            {"@value": "Chaque jour", "@language": "fr"},
+        ],
+    }
+    distributions = [
+        {
+            "dct:identifier": "roads-original",
+            "dct:title": "Roads",
+            "dcat:accessURL": "https://data.example.test/roads.geojson",
+            "dct:format": {
+                "@id": "https://example.test/format/geojson",
+                "skos:prefLabel": {"@value": "GeoJSON", "@language": "en"},
+            },
+            "dct:license": {
+                "@id": "https://example.test/license/research",
+                "rdfs:label": [
+                    {"@value": "Research", "@language": "en"},
+                    {"@value": "Recherche", "@language": "fr"},
+                ],
+            },
+        },
+        {
+            "dct:title": "Roads CSV",
+            "dcat:accessURL": "https://data.example.test/roads.csv",
+            "dcat:downloadURL": "https://data.example.test/roads.csv",
+            "dct:format": {"@id": "https://example.test/format/csv", "rdfs:label": "CSV"},
+            "dct:license": {
+                "@id": "urn:example:license:open", "skos:prefLabel": {"@value": "Open"}
+            },
+        },
+    ]
+    document["dct:accrualPeriodicity"] = frequency
+    document["dcat:distribution"] = distributions
+    original = canonical_json_bytes(document)
+    checksum = metadata_source_checksum(document)
+    plan = build_metadata_import_plan(
+        "geodcat_ap_3_1", "example.geodcat", "owned-concept-labels", "restricted",
+        document, checksum,
+    )
+    catalog = plan.draft.metadata.extensions["opengeo"]
+    assert catalog["updateFrequency"] == frequency["@id"]
+    bindings = plan.draft.metadata.extensions["geodcat_ap"]["conceptBindings"]
+    assert bindings["updateFrequency"] == {
+        "iri": frequency["@id"],
+        "labels": {key: value for key, value in frequency.items() if key != "@id"},
+    }
+    owners = [entry["owner"] for entry in bindings["distributions"]]
+    assert {"identifier": "roads-original"} in owners
+    fingerprints = [owner["fingerprint"] for owner in owners if "fingerprint" in owner]
+    assert len(fingerprints) == 1 and len(fingerprints[0]) == 64
+    assert all(char in "0123456789abcdef" for char in fingerprints[0])
+    exported = export_geodcat_ap_3_1(resource_from_plan(plan))["document"]
+    for key, value in frequency.items():
+        assert exported["dct:accrualPeriodicity"][key] == value
+    for index, source in enumerate(distributions):
+        for field, native in (("dct:format", "format"), ("dct:license", "license")):
+            assert catalog["distributions"][index][native] == source[field]["@id"]
+            for key, value in source[field].items():
+                assert exported["dcat:distribution"][index][field][key] == value
+    reopened = build_metadata_import_plan(
+        "geodcat_ap_3_1", "example.geodcat", "owned-concept-labels-return", "restricted",
+        exported, metadata_source_checksum(exported),
+    )
+    assert reopened.draft.metadata.extensions["opengeo"] == catalog
+    second = export_geodcat_ap_3_1(resource_from_plan(reopened))["document"]
+    assert second["dct:accrualPeriodicity"] == exported["dct:accrualPeriodicity"]
+    assert second["dcat:distribution"] == exported["dcat:distribution"]
+    assert plan.source_document == json.loads(original)
+    assert canonical_json_bytes(document) == original
+    assert metadata_source_checksum(plan.source_document) == checksum
+
+
+def test_geodcat_concept_label_context_respects_native_edits_clears_and_deletion() -> None:
+    document = fixture("metadata-005-geodcat-ap31.json")
+    document["dct:accrualPeriodicity"] = {
+        "@id": "urn:example:frequency:daily", "rdfs:label": "Original frequency"
+    }
+    document["dcat:distribution"] = {
+        "dct:identifier": "roads",
+        "dcat:accessURL": "https://data.example.test/roads.geojson",
+        "dct:format": {
+            "@id": "urn:example:format:geojson", "skos:prefLabel": "Original format"
+        },
+        "dct:license": {
+            "@id": "urn:example:license:research", "rdfs:label": "Original license"
+        },
+    }
+    checksum = metadata_source_checksum(document)
+    plan = build_metadata_import_plan(
+        "geodcat_ap_3_1", "example.geodcat", "concept-context-edits", "restricted",
+        document, checksum,
+    )
+    for action in ("edit", "clear", "delete-labels", "delete-binding", "delete-context"):
+        resource = resource_from_plan(plan)
+        resource.metadata_extensions = json.loads(json.dumps(plan.draft.metadata.extensions))
+        catalog = resource.metadata_extensions["opengeo"]
+        bindings = resource.metadata_extensions["geodcat_ap"]["conceptBindings"]
+        if action == "edit":
+            catalog["updateFrequency"] = "annual"
+            catalog["distributions"][0].update(format="GeoPackage", license="CC0")
+        elif action == "clear":
+            del catalog["updateFrequency"]
+            del catalog["distributions"][0]["format"]
+            del catalog["distributions"][0]["license"]
+        elif action == "delete-labels":
+            del bindings["updateFrequency"]["labels"]
+            for field in ("format", "license"):
+                del bindings["distributions"][0][field]["labels"]
+        elif action == "delete-binding":
+            bindings.clear()
+        else:
+            del resource.metadata_extensions["geodcat_ap"]["conceptBindings"]
+        exported = export_geodcat_ap_3_1(resource)["document"]
+        if action == "clear":
+            assert "dct:accrualPeriodicity" not in exported
+            assert "dct:format" not in exported["dcat:distribution"][0]
+            assert "dct:license" not in exported["dcat:distribution"][0]
+        elif action == "edit":
+            assert exported["dct:accrualPeriodicity"]["rdfs:label"] == "annual"
+            first = exported["dcat:distribution"][0]
+            assert first["dct:format"]["skos:prefLabel"] == "GeoPackage"
+            assert first["dct:license"]["rdfs:label"] == "CC0"
+        else:
+            first = exported["dcat:distribution"][0]
+            for value in (
+                exported["dct:accrualPeriodicity"], first["dct:format"], first["dct:license"]
+            ):
+                assert "rdfs:label" not in value and "skos:prefLabel" not in value
+    assert plan.source_document == document
+    assert metadata_source_checksum(document) == checksum
+
+
+def test_geodcat_distribution_concept_labels_follow_unique_owners_not_positions() -> None:
+    document = fixture("metadata-005-geodcat-ap31.json")
+    document["dcat:distribution"] = [
+        {
+            "dct:identifier": "roads",
+            "dcat:accessURL": "https://data.example.test/roads.geojson",
+            "dct:format": {
+                "@id": "urn:example:format:geojson", "skos:prefLabel": "Roads format"
+            },
+        },
+        {
+            "dct:identifier": "sites",
+            "dcat:accessURL": "https://data.example.test/sites.csv",
+            "dct:format": {
+                "@id": "urn:example:format:csv", "skos:prefLabel": "Sites format"
+            },
+        },
+        {
+            "dct:title": "No identifier",
+            "dcat:accessURL": "https://data.example.test/anonymous.csv",
+            "dct:format": {
+                "@id": "urn:example:format:anonymous", "skos:prefLabel": "Anonymous format"
+            },
+        },
+    ]
+    checksum = metadata_source_checksum(document)
+    plan = build_metadata_import_plan(
+        "geodcat_ap_3_1", "example.geodcat", "concept-owner-order", "restricted",
+        document, checksum,
+    )
+    resource = resource_from_plan(plan)
+    resource.metadata_extensions = json.loads(json.dumps(plan.draft.metadata.extensions))
+    native = resource.metadata_extensions["opengeo"]["distributions"]
+    native.reverse()
+    exported = export_geodcat_ap_3_1(resource)["document"]["dcat:distribution"]
+    assert [item["dct:format"]["skos:prefLabel"] for item in exported] == [
+        "Anonymous format", "Sites format", "Roads format"
+    ]
+    native[0]["title"] = "Changed anonymous owner"
+    changed = export_geodcat_ap_3_1(resource)
+    assert "skos:prefLabel" not in changed["document"]["dcat:distribution"][0]["dct:format"]
+    assert any("distribution" in path.lower() for path in changed["report"]["unmapped"])
+    native.append(json.loads(json.dumps(native[-1])))
+    ambiguous = export_geodcat_ap_3_1(resource)
+    for item in ambiguous["document"]["dcat:distribution"]:
+        if item.get("dct:identifier") == "roads":
+            assert "skos:prefLabel" not in item["dct:format"]
+    assert any("distribution" in path.lower() for path in ambiguous["report"]["unmapped"])
+    source_duplicate = json.loads(json.dumps(document))
+    source_duplicate["dcat:distribution"][1]["dct:identifier"] = "roads"
+    duplicate = build_metadata_import_plan(
+        "geodcat_ap_3_1", "example.geodcat", "concept-owner-duplicate", "restricted",
+        source_duplicate, metadata_source_checksum(source_duplicate),
+    )
+    bindings = (
+        duplicate.draft.metadata.extensions.get("geodcat_ap", {})
+        .get("conceptBindings", {}).get("distributions", [])
+    )
+    assert len(bindings) == 1
+    assert not any(binding["owner"].get("identifier") == "roads" for binding in bindings)
+    assert any(
+        "distribution" in path.lower() for path in duplicate.conversion_report["unmapped"]
+    )
+    assert duplicate.source_document == source_duplicate
+    assert metadata_source_checksum(plan.source_document) == checksum
+
+
+def test_geodcat_concept_label_losses_keep_source_and_prior_native_budget() -> None:
+    for label in (
+        {"@value": "Daily", "@type": "xsd:string"},
+        [
+            {"@value": "Daily", "@language": "en"},
+            {"@value": "Duplicate", "@language": "en"},
+        ],
+        17,
+    ):
+        document = fixture("metadata-005-geodcat-ap31.json")
+        document["dct:accrualPeriodicity"] = {
+            "@id": "urn:example:frequency:daily", "rdfs:label": label
+        }
+        document["dcat:distribution"] = {
+            "dcat:accessURL": "https://data.example.test/roads.geojson",
+            "dct:format": {"@id": "urn:example:format:geojson", "skos:prefLabel": label},
+        }
+        checksum = metadata_source_checksum(document)
+        plan = build_metadata_import_plan(
+            "geodcat_ap_3_1", "example.geodcat", "concept-malformed-label", "restricted",
+            document, checksum,
+        )
+        assert plan.source_document == document
+        assert metadata_source_checksum(plan.source_document) == checksum
+        assert any(
+            "accrualPeriodicity" in path and "label" in path.lower()
+            for path in plan.conversion_report["unmapped"]
+        )
+        assert any(
+            "distribution" in path.lower() and "label" in path.lower()
+            for path in plan.conversion_report["unmapped"]
+        )
+    document = fixture("metadata-005-geodcat-ap31.json")
+    document["dct:accrualPeriodicity"] = {
+        "@id": "https://example.test/" + "f" * 301, "rdfs:label": "annual"
+    }
+    document["dcat:distribution"] = {
+        "dcat:accessURL": "https://data.example.test/roads.geojson",
+        "dct:format": {
+            "@id": "https://example.test/" + "f" * 1001, "skos:prefLabel": "GeoJSON"
+        },
+        "dct:license": {
+            "@id": "https://example.test/" + "l" * 1001, "rdfs:label": "CC-BY-4.0"
+        },
+    }
+    checksum = metadata_source_checksum(document)
+    plan = build_metadata_import_plan(
+        "geodcat_ap_3_1", "example.geodcat", "concept-long-iri", "restricted",
+        document, checksum,
+    )
+    catalog = plan.draft.metadata.extensions["opengeo"]
+    assert catalog["updateFrequency"] == "annual"
+    assert catalog["distributions"][0]["format"] == "GeoJSON"
+    assert catalog["distributions"][0]["license"] == "CC-BY-4.0"
+    for field in ("accrualPeriodicity", "format", "license"):
+        assert any(field in path for path in plan.conversion_report["unmapped"])
+    assert plan.source_document == document and metadata_source_checksum(document) == checksum
+    document = fixture("metadata-005-geodcat-ap31.json")
+    document["dct:accrualPeriodicity"] = {
+        "@id": "urn:example:frequency:daily", "rdfs:label": "Daily"
+    }
+    labels = [
+        {"@value": "x" * 900, "@language": language}
+        for language in ("en", "fr", "de", "es", "it", "pt")
+    ]
+    document["dcat:distribution"] = {
+        "dct:identifier": "roads",
+        "dct:title": "Retained distribution title",
+        "dcat:accessURL": "https://data.example.test/roads.geojson",
+        "dct:format": {
+            "@id": "urn:example:format:geojson",
+            "rdfs:label": "GeoJSON",
+            "skos:prefLabel": labels,
+        },
+        "dct:license": {
+            "@id": "urn:example:license:research",
+            "rdfs:label": "CC-BY-4.0",
+            "skos:prefLabel": labels,
+        },
+    }
+    checksum = metadata_source_checksum(document)
+    plan = build_metadata_import_plan(
+        "geodcat_ap_3_1", "example.geodcat", "concept-label-budget", "restricted",
+        document, checksum,
+    )
+    extensions = plan.draft.metadata.extensions
+    assert len(canonical_json_bytes(extensions)) <= 8192
+    assert not extensions.get("geodcat_ap", {}).get("conceptBindings")
+    assert extensions["opengeo"]["distributions"][0]["title"] == "Retained distribution title"
+    assert extensions["opengeo"]["distributions"][0]["accessUrl"] == (
+        "https://data.example.test/roads.geojson"
+    )
+    assert extensions["geodcat_ap"]["dcat:theme"] == document["dcat:theme"]
+    assert any(
+        "size" in path.lower() or "budget" in path.lower()
+        for path in plan.conversion_report["unmapped"]
+    )
+    assert plan.source_document == document
+    assert metadata_source_checksum(plan.source_document) == checksum

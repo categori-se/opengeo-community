@@ -50,6 +50,28 @@ def canonical_preview_origin(value: str, *, allow_loopback_http: bool = False) -
     return value
 
 
+def canonical_public_api_base_url(value: str) -> str:
+    """Validate an operator-configured API origin and optional canonical path prefix."""
+    try:
+        parsed = urlsplit(value)
+        origin = canonical_preview_origin(f"{parsed.scheme}://{parsed.netloc}")
+        segments = parsed.path.split("/")[1:]
+        valid = (
+            value == origin + parsed.path
+            and not (parsed.query or parsed.fragment)
+            and all(
+                segment not in {"", ".", ".."}
+                and re.fullmatch(r"[A-Za-z0-9._~-]+", segment)
+                for segment in segments
+            )
+        )
+    except (TypeError, ValueError):
+        valid = False
+    if not valid:
+        raise ValueError("public_api_base_url must be a canonical HTTPS API base URL")
+    return value
+
+
 class Settings(BaseSettings):
     """Runtime settings loaded exclusively from explicit values or OPEN_GEO_* variables."""
 
@@ -65,6 +87,7 @@ class Settings(BaseSettings):
     port: int = Field(default=8080, ge=1, le=65535)
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     expose_docs: bool = False
+    public_api_base_url: str | None = None
 
     database_url: SecretStr | None = None
     db_host: str | None = None
@@ -219,6 +242,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "Saved-font rendering requires an exact runtime checksum and architecture"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_public_api_base_url(self) -> Self:
+        if self.public_api_base_url is not None:
+            canonical_public_api_base_url(self.public_api_base_url)
         return self
 
     @model_validator(mode="after")

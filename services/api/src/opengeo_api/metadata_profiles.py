@@ -2694,6 +2694,7 @@ def export_geodcat_ap_3_1(resource: Any) -> dict[str, Any]:
             unique_references.append(value)
         document["geodcatap:referenceSystem"] = unique_references
     _geodcat_catalog_shapes(document)
+    concept_mapped, concept_losses = _restore_geodcat_concept_bindings(document, catalog, profile)
     result.update(
         {
             "target": "geodcat_ap_3_1",
@@ -2707,6 +2708,7 @@ def export_geodcat_ap_3_1(resource: Any) -> dict[str, Any]:
         *cast(list[str], report["mapped"]),
         "resource_kind",
         *(["metadata_extensions.opengeo.referenceSystems"] if reference_systems else []),
+        *concept_mapped,
     ]
     report["unmapped"] = [
         *[
@@ -2715,7 +2717,14 @@ def export_geodcat_ap_3_1(resource: Any) -> dict[str, Any]:
             if value != "metadata_extensions.opengeo.referenceSystems"
         ],
         "mandatory/recommended controlled vocabularies not present in canonical metadata",
+        *concept_losses,
     ]
+    if len(canonical_metadata_json(report)) > 16_384 and (concept_mapped or concept_losses):
+        report["mapped"] = [value for value in report["mapped"] if value not in concept_mapped]
+        report["unmapped"] = [value for value in report["unmapped"] if value not in concept_losses]
+        report["unmapped"].append(
+            "metadata_extensions.geodcat_ap.conceptBindings[report-size-limit; context preserved]"
+        )
     report["conformanceClaimed"] = False
     return result
 
@@ -5006,6 +5015,172 @@ def _dcat_quality_measurement(value: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _geodcat_explicit_iri(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(
+        r"(?:https?://[^\s/?#]+(?:[/?#]\S*)?|urn:[A-Za-z0-9][A-Za-z0-9-]*:\S+)",
+        value,
+        re.IGNORECASE,
+    ) is not None
+
+
+def _geodcat_concept_labels(
+    value: dict[str, Any], maximum: int
+) -> tuple[dict[str, Any], list[str]]:
+    """Retain only directly owned bounded labels, without resolving a vocabulary."""
+    labels: dict[str, Any] = {}
+    unsupported: list[str] = []
+    for field in ("rdfs:label", "skos:prefLabel"):
+        if field not in value:
+            continue
+        raw = value[field]
+        items = raw if isinstance(raw, list) else [raw]
+        if not 1 <= len(items) <= 9:
+            unsupported.append(field)
+            continue
+        languages: set[str | None] = set()
+        valid = True
+        for item in items:
+            language: str | None = None
+            text = item
+            if isinstance(item, dict):
+                if set(item) - {"@value", "@language"} or "@value" not in item:
+                    valid = False
+                    break
+                text = item["@value"]
+                if "@language" in item:
+                    tag = item["@language"]
+                    if not isinstance(tag, str) or re.fullmatch(
+                        r"[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*", tag
+                    ) is None:
+                        valid = False
+                        break
+                    language = tag.lower()
+            if not isinstance(text, str) or not 1 <= len(text) <= maximum or language in languages:
+                valid = False
+                break
+            languages.add(language)
+        if valid:
+            labels[field] = deepcopy(raw)
+        else:
+            unsupported.append(field)
+    return labels, unsupported
+
+
+def _geodcat_distribution_owner(
+    value: dict[str, Any], distributions: list[dict[str, Any]]
+) -> dict[str, str] | None:
+    identifier = value.get("identifier")
+    if isinstance(identifier, str):
+        if sum(item.get("identifier") == identifier for item in distributions) != 1:
+            return None
+        return {"identifier": identifier}
+
+    def fingerprint(item: dict[str, Any]) -> str:
+        owned = {key: raw for key, raw in item.items() if key not in {"format", "license"}}
+        return sha256(canonical_metadata_json(owned)).hexdigest()
+
+    digest = fingerprint(value)
+    if sum(fingerprint(item) == digest for item in distributions) != 1:
+        return None
+    return {"fingerprint": digest}
+
+
+def _restore_geodcat_concept_bindings(
+    document: dict[str, Any], catalog: dict[str, Any], profile: Any
+) -> tuple[list[str], list[str]]:
+    path = "metadata_extensions.geodcat_ap.conceptBindings"
+    if not isinstance(profile, dict) or "conceptBindings" not in profile:
+        return [], []
+    bindings = profile["conceptBindings"]
+    if not isinstance(bindings, dict) or set(bindings) - {"updateFrequency", "distributions"}:
+        return [], [f"{path}[unsupported]"]
+    mapped: list[str] = []
+    losses: list[str] = []
+
+    def restore(binding: Any, current: Any, target: Any, location: str, maximum: int) -> None:
+        if (
+            not isinstance(binding, dict)
+            or set(binding) != {"iri", "labels"}
+            or not _geodcat_explicit_iri(binding.get("iri"))
+            or len(binding["iri"]) > maximum
+            or not isinstance(binding["labels"], dict)
+            or set(binding["labels"]) - {"rdfs:label", "skos:prefLabel"}
+        ):
+            losses.append(f"{location}[unsupported]")
+            return
+        labels, unsupported = _geodcat_concept_labels(binding["labels"], maximum)
+        if unsupported:
+            losses.extend(f"{location}.labels.{field}[unsupported]" for field in unsupported)
+            return
+        if (
+            current != binding["iri"]
+            or not isinstance(target, dict)
+            or target.get("@id") != current
+        ):
+            losses.append(f"{location}[stale-canonical-binding]")
+            return
+        target.pop("rdfs:label", None)
+        target.pop("skos:prefLabel", None)
+        target.update(labels)
+        if "rdfs:label" in labels:
+            document["@context"]["rdfs"] = "http://www.w3.org/2000/01/rdf-schema#"
+        mapped.append(location)
+
+    if "updateFrequency" in bindings:
+        restore(
+            bindings["updateFrequency"], catalog.get("updateFrequency"),
+            document.get("dct:accrualPeriodicity"), f"{path}.updateFrequency", 300,
+        )
+    entries = bindings.get("distributions", [])
+    if not isinstance(entries, list) or len(entries) > 32:
+        return mapped, [*losses, f"{path}.distributions[unsupported]"]
+    distributions = cast(list[dict[str, Any]], catalog.get("distributions", []))
+    output = document.get("dcat:distribution", [])
+    for index, entry in enumerate(entries):
+        location = f"{path}.distributions[{index}]"
+        if (
+            not isinstance(entry, dict) or set(entry) - {"owner", "format", "license"}
+            or not isinstance(entry.get("owner"), dict)
+            or set(entry["owner"]) not in ({"identifier"}, {"fingerprint"})
+            or not any(field in entry for field in ("format", "license"))
+        ):
+            losses.append(f"{location}[unsupported]")
+            continue
+        owner = entry["owner"]
+        if (
+            ("identifier" in owner and (
+                not isinstance(owner["identifier"], str)
+                or not 1 <= len(owner["identifier"]) <= 1_000
+            ))
+            or ("fingerprint" in owner and (
+                not isinstance(owner["fingerprint"], str)
+                or re.fullmatch(r"[0-9a-f]{64}", owner["fingerprint"]) is None
+            ))
+        ):
+            losses.append(f"{location}.owner[unsupported]")
+            continue
+        matches = [
+            position for position, item in enumerate(distributions)
+            if _geodcat_distribution_owner(item, distributions) == owner
+        ]
+        if len(matches) != 1 or sum(
+            isinstance(other, dict) and other.get("owner") == owner for other in entries
+        ) != 1:
+            losses.append(f"{location}.owner[ambiguous-or-stale]")
+            continue
+        position = matches[0]
+        if not isinstance(output, list) or position >= len(output):
+            losses.append(f"{location}.owner[missing-projection]")
+            continue
+        for field in ("format", "license"):
+            if field in entry:
+                restore(
+                    entry[field], distributions[position].get(field),
+                    output[position].get(f"dct:{field}"), f"{location}.{field}", 1_000,
+                )
+    return mapped, losses
+
+
 def _geodcat_catalog_shapes(document: dict[str, Any]) -> None:
     def values(name: str) -> list[Any]:
         value = document.get(name, [])
@@ -5013,6 +5188,9 @@ def _geodcat_catalog_shapes(document: dict[str, Any]) -> None:
 
     def concept(value: Any, class_name: str, category: str) -> dict[str, Any]:
         label = str(value)
+        explicit_iri = _geodcat_explicit_iri(value)
+        if explicit_iri:
+            return {"@id": label, "@type": class_name}
         return {
             "@id": f"urn:opengeo:{category}:{sha256(label.encode()).hexdigest()[:16]}",
             "@type": class_name,

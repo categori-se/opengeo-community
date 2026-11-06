@@ -11,18 +11,23 @@ OGC_CATALOG_PROFILE = "http://www.opengis.net/def/profile/OGC/0/ogc-catalog"
 OGC_OPENAPI_MEDIA_TYPE = "application/vnd.oai.openapi+json;version=3.0"
 
 
-def project_records_base(project_id: Any) -> str:
-    return f"/projects/{project_id}/records"
+def project_records_base(project_id: Any, *, api_base_url: str = "") -> str:
+    return f"{api_base_url}/projects/{project_id}/records"
 
 
-def project_record_item_path(project_id: Any, resource_id: Any, language: str | None = None) -> str:
-    path = f"{project_records_base(project_id)}/collections/resources/items/{resource_id}"
+def project_record_item_path(
+    project_id: Any, resource_id: Any, language: str | None = None, *, api_base_url: str = ""
+) -> str:
+    path = (
+        f"{project_records_base(project_id, api_base_url=api_base_url)}"
+        f"/collections/resources/items/{resource_id}"
+    )
     return f"{path}?{urlencode({'language': language})}" if language else path
 
 
-def records_api_document(project_id: Any) -> dict[str, Any]:
+def records_api_document(project_id: Any, *, api_base_url: str = "") -> dict[str, Any]:
     """Describe the project-scoped Records surface without asserting conformance."""
-    base = project_records_base(project_id)
+    base = project_records_base(project_id, api_base_url=api_base_url)
     collection_parameter = {
         "name": "collectionId",
         "in": "path",
@@ -199,8 +204,8 @@ def _array_query_parameter(
     }
 
 
-def catalog_document(project_id: Any) -> dict[str, Any]:
-    base = project_records_base(project_id)
+def catalog_document(project_id: Any, *, api_base_url: str = "") -> dict[str, Any]:
+    base = project_records_base(project_id, api_base_url=api_base_url)
     return {
         "id": "resources",
         "type": "Collection",
@@ -228,6 +233,8 @@ def export_ogc_record(
     resource: GovernedResource | RecordResource,
     project_id: Any,
     requested_language: str | None = None,
+    *,
+    api_base_url: str = "",
 ) -> dict[str, Any]:
     summary = resource.summary
     translations = resource.translations
@@ -283,20 +290,25 @@ def export_ogc_record(
 
     links: list[dict[str, Any]] = [
         {
-            "href": project_record_item_path(project_id, summary.resource_id, selected),
+            "href": project_record_item_path(
+                project_id, summary.resource_id, selected, api_base_url=api_base_url
+            ),
             "rel": "self",
             "type": "application/geo+json",
             "hreflang": selected,
             "title": f"Record in {selected}",
         },
         {
-            "href": f"/projects/{project_id}/resources/{summary.resource_id}",
+            "href": f"{api_base_url}/projects/{project_id}/resources/{summary.resource_id}",
             "rel": "describes",
             "type": "application/json",
             "title": "Governed OpenGeo resource",
         },
         {
-            "href": f"{project_records_base(project_id)}/collections/resources",
+            "href": (
+                f"{project_records_base(project_id, api_base_url=api_base_url)}"
+                "/collections/resources"
+            ),
             "rel": "collection",
             "type": "application/ogc-catalog+json",
             "title": "Containing record catalog",
@@ -309,7 +321,9 @@ def export_ogc_record(
     ]
     links.extend(
         {
-            "href": project_record_item_path(project_id, summary.resource_id, language),
+            "href": project_record_item_path(
+                project_id, summary.resource_id, language, api_base_url=api_base_url
+            ),
             "rel": "alternate",
             "type": "application/geo+json",
             "hreflang": language,
@@ -367,9 +381,13 @@ def record_collection(
     self_href: str,
     next_href: str | None,
     previous_href: str | None,
+    *,
+    api_base_url: str = "",
 ) -> dict[str, Any]:
     features = [
-        export_ogc_record(resource, project_id, requested_language)["document"]
+        export_ogc_record(
+            resource, project_id, requested_language, api_base_url=api_base_url
+        )["document"]
         for resource in resources
     ]
     links: list[dict[str, Any]] = [

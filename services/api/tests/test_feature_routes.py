@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 from uuid import UUID
 
 import pytest
@@ -1736,7 +1737,9 @@ def test_read_only_features_openapi_is_bounded_and_explicitly_non_claiming() -> 
     parameters = {parameter["name"]: parameter for parameter in operation["parameters"]}
 
     assert document["openapi"] == "3.0.3"
-    assert document["servers"][0]["url"].endswith(f"/{DATASET_ID}/ogc/features")
+    assert document["servers"][0]["url"] == (
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/ogc/features"
+    )
     assert set(parameters) == {
         "collectionId",
         "bbox",
@@ -1769,6 +1772,7 @@ def test_cql2_route_and_queryables_share_collection_schema():
     schema = client.get(f"{root}/queryables", headers=headers())
     assert schema.status_code == 200
     assert schema.json()["properties"]["name"] == {"type": "string"}
+    assert schema.json()["$id"] == f"http://testserver{root}/queryables"
     assert schema.headers["cache-control"] == "private, no-store"
     response = client.get(f"{root}/items", headers=headers(), params={"filter": "name = 'Station'"})
     assert response.status_code == 200
@@ -1900,3 +1904,143 @@ def test_shared_vertex_route_preserves_repository_authority_and_conflicts(
         json=shared_vertex_payload(),
     )
     assert response.status_code == status_code
+
+
+def test_read_only_features_public_base_controls_discovery_and_openapi() -> None:
+    repository = MemoryFeatureRepository()
+    client = api_client(repository)
+    public_api = "https://catalog.example.test/api"
+    client.app.state.settings = Settings(
+        env="test", expose_docs=True, public_api_base_url=public_api
+    )
+    base = f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/ogc/features"
+    published = public_api + base
+    supplied_headers = {
+        **headers(),
+        "Host": "internal.invalid",
+        "Forwarded": "host=attacker.invalid;proto=http",
+        "X-Forwarded-Host": "attacker.invalid",
+        "X-Forwarded-Proto": "http",
+        "X-Forwarded-Prefix": "/other",
+    }
+    created = client.post(
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/feature-collection",
+        headers=headers(),
+        json=collection_payload(),
+    )
+    assert created.status_code == 201
+    for suffix in ("", "/api", "/collections", "/collections/features"):
+        assert client.get(base + suffix).status_code == 401
+    landing = client.get(base, headers=supplied_headers)
+    assert landing.status_code == 200
+    assert {link["rel"]: link["href"] for link in landing.json()["links"]} == {
+        "self": published,
+        "service-desc": published + "/api",
+        "conformance": published + "/conformance",
+        "data": published + "/collections",
+    }
+    collections = client.get(base + "/collections", headers=supplied_headers)
+    collection = client.get(base + "/collections/features", headers=supplied_headers)
+    assert collections.status_code == collection.status_code == 200
+    assert collections.json()["links"][0]["href"] == published + "/collections"
+    assert collections.json()["collections"][0] == collection.json()
+    assert {link["rel"]: link["href"] for link in collection.json()["links"]} == {
+        "http://www.opengis.net/def/rel/ogc/1.0/queryables": (
+            published + "/collections/features/queryables"
+        ),
+        "self": published + "/collections/features",
+        "items": published + "/collections/features/items",
+    }
+    api = client.get(base + "/api", headers=supplied_headers)
+    assert api.status_code == 200
+    assert api.json()["servers"] == [
+        {"url": published, "description": "Dataset-scoped Features API"}
+    ]
+    assert api.json()["security"] == [{"bearerAuth": []}]
+    assert api.json()["x-opengeo-conformance-claimed"] is False
+    conformance = client.get(base + "/conformance", headers=supplied_headers)
+    assert conformance.status_code == 200
+    assert conformance.json()["conformsTo"] == []
+    assert conformance.json()["opengeoStatus"]["readOnly"] is True
+
+
+def test_read_only_features_public_base_controls_items_queryables_and_paging() -> None:
+    repository = MemoryFeatureRepository()
+    client = api_client(repository)
+    public_api = "https://catalog.example.test/api"
+    client.app.state.settings = Settings(
+        env="test", expose_docs=True, public_api_base_url=public_api
+    )
+    created = client.post(
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/feature-collection",
+        headers=headers(),
+        json=collection_payload(),
+    )
+    assert created.status_code == 201
+    repository.features[FEATURE_ID_2] = replace(
+        repository.features[FEATURE_ID], feature_id=FEATURE_ID_2
+    )
+    base = (
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/ogc/features"
+        f"/collections/{FEATURE_COLLECTION_ID}"
+    )
+    items = base + "/items"
+    published_items = public_api + items
+    supplied_headers = {
+        **headers(),
+        "Host": "internal.invalid",
+        "X-Forwarded-Host": "attacker.invalid",
+        "X-Forwarded-Proto": "http",
+    }
+    parameters = {
+        "bbox": "-78,38,-76,40",
+        "limit": "1",
+        "expected_generation": "1",
+        "filter": "name = 'Station'",
+        "filter-lang": "cql2-text",
+    }
+    for path in (items, items + f"/{FEATURE_ID}", base + "/queryables"):
+        assert client.get(path).status_code == 401
+    first = client.get(items, headers=supplied_headers, params=parameters)
+    assert first.status_code == 200
+    assert first.headers["content-crs"] == f"<{OGC_CRS84}>"
+    links = {link["rel"]: link["href"] for link in first.json()["links"]}
+    assert links["self"] == published_items + "?" + urlencode(parameters)
+    assert links["next"] == published_items + "?" + urlencode({**parameters, "offset": "1"})
+    assert links["collection"] == public_api + base
+    assert first.json()["features"][0]["links"] == [
+        {
+            "href": published_items + f"/{FEATURE_ID}",
+            "rel": "self",
+            "type": "application/geo+json",
+        },
+        {"href": public_api + base, "rel": "collection", "type": "application/json"},
+    ]
+    assert repository.last_cql2_filter == ("name = 'Station'", "cql2-text")
+    second = client.get(
+        items, headers=supplied_headers, params={**parameters, "offset": "1"}
+    )
+    assert second.status_code == 200
+    second_links = {link["rel"]: link["href"] for link in second.json()["links"]}
+    assert second_links["prev"] == (
+        published_items + "?" + urlencode({**parameters, "offset": "0"})
+    )
+    assert "next" not in second_links
+    item = client.get(
+        items + f"/{FEATURE_ID}", headers=supplied_headers, params={"expected_generation": 1}
+    )
+    assert item.status_code == 200
+    assert item.json()["links"] == first.json()["features"][0]["links"]
+    queryables = client.get(
+        base + "/queryables", headers=supplied_headers, params={"expected_generation": 1}
+    )
+    assert queryables.status_code == 200
+    assert queryables.json()["$id"] == (
+        public_api + base + "/queryables?expected_generation=1"
+    )
+    assert queryables.json()["properties"]["name"] == {"type": "string"}
+    assert queryables.headers["cache-control"] == "private, no-store"
+    stale = client.get(
+        base + "/queryables", headers=supplied_headers, params={"expected_generation": 2}
+    )
+    assert stale.status_code == 409
