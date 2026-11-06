@@ -4,7 +4,7 @@ export const MASSGIS_ATTRIBUTION = "MassGIS (Bureau of Geographic Information), 
 
 export const MASSGIS_FEATURE_LAYER_URL = "https://services1.arcgis.com/7iJyYTjCtKsZS1LR/arcgis/rest/services/MassEnviroScreen20260227_gdb/FeatureServer/0";
 
-export const MASSGIS_ARCHIVE_BUCKET = "example-geodata";
+export const MASSGIS_ARCHIVE_BUCKET = "geospatial.data";
 export const MASSGIS_ARCHIVE_REGION = "us-east-1";
 export const MASSGIS_ARCHIVE_PREFIX = "usa/ma/opengeo/reference-archives/massgis/massenviroscreen";
 
