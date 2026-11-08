@@ -5,12 +5,18 @@ import struct
 import textwrap
 import zlib
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import escape
 from itertools import pairwise
 from typing import cast
 from uuid import UUID
 
+from opengeo_api.pdf_print_documents import (
+    PdfPrintDocumentError,
+    VectorPagePlacement,
+    compose_vector_pages,
+    describe_vector_documents,
+)
 from opengeo_api.print_fonts import BitmapGlyph, PrintFontError, configured_unifont
 from opengeo_api.print_text import (
     PrintTextError,
@@ -82,6 +88,8 @@ class _PrintPage:
     image: _PdfImage | None = None
     reference: PublishedResourceReference | None = None
     layout_page: PrintLayoutPage | None = None
+    vector_object_id: str | None = None
+    vector_page_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,24 +218,46 @@ def build_print_pdf(
     map_images: dict[UUID, bytes],
     site_assets: dict[UUID, bytes] | None = None,
 ) -> bytes:
-    """Build a deterministic, dependency-free PDF from one sealed site edition."""
+    """Build a deterministic PDF from one sealed site edition."""
 
     options = resolve_print_options(publication)
     decoded = _decoded_map_images(publication, map_images)
-    decoded_assets = _decoded_site_assets(publication, site_assets or {}, decoded)
+    asset_images, vector_documents = _split_print_assets(publication, site_assets or {})
+    decoded_assets = _decoded_site_assets(publication, asset_images, decoded)
+    try:
+        vector_pages = describe_vector_documents(vector_documents)
+    except PdfPrintDocumentError as error:
+        raise SitePrintError(str(error)) from error
     try:
         layout = parse_print_layout(publication.site.print_layout)
     except SiteLayoutError as error:
         raise SitePrintError(str(error)) from error
     layout_by_slug = {page.site_page_slug: page for page in layout.pages}
-    pages = [
-        (
-            _PrintPage(title=page.resource_title, lines=(), layout_page=layout_by_slug[page.slug])
-            if page.slug in layout_by_slug
-            else _content_page(publication, page, options)
-        )
-        for page in publication.site.pages
-    ]
+    pages: list[_PrintPage] = []
+    for page in publication.site.pages:
+        if page.slug in layout_by_slug:
+            pages.append(
+                _PrintPage(
+                    title=page.resource_title, lines=(), layout_page=layout_by_slug[page.slug]
+                )
+            )
+            # Imported full pages follow the fixed sheet, like unplaced map appendices.
+            blocks = page.resource_content.get("blocks")
+            if isinstance(blocks, list):
+                for block in blocks:
+                    object_id = _vector_block_id(block)
+                    if object_id is not None and object_id in vector_pages:
+                        pages.extend(
+                            _PrintPage(
+                                title=page.resource_title,
+                                lines=(),
+                                vector_object_id=object_id,
+                                vector_page_index=index,
+                            )
+                            for index in range(len(vector_pages[object_id]))
+                        )
+        else:
+            pages.extend(_flow_print_pages(publication, page, options, vector_pages))
     placed_resource_ids = {
         element.resource_id
         for layout_page in layout.pages
@@ -240,7 +270,24 @@ def build_print_pdf(
             pages.append(_map_page(reference, appendix_image))
     if not pages:
         raise SitePrintError("site_has_no_printable_pages")
-    return _pdf(publication, pages, options, decoded, decoded_assets)
+    if vector_documents and len(pages) > 200:
+        raise SitePrintError("site_print_vector_page_budget_exceeded")
+    document = _pdf(publication, pages, options, decoded, decoded_assets)
+    if not vector_documents:
+        return document
+    placements: list[VectorPagePlacement] = [
+        {
+            "targetPageIndex": index,
+            "objectID": page.vector_object_id,
+            "sourcePageIndex": page.vector_page_index,
+        }
+        for index, page in enumerate(pages)
+        if page.vector_object_id is not None
+    ]
+    try:
+        return compose_vector_pages(document, vector_documents, placements)
+    except PdfPrintDocumentError as error:
+        raise SitePrintError(str(error)) from error
 
 
 def build_print_page_png(
@@ -531,6 +578,95 @@ def _image_frame_object_id(
         return UUID(str(block["object_id"]))
     except (KeyError, TypeError, ValueError) as error:
         raise SitePrintError("site_print_layout_image_not_sealed") from error
+
+
+def _vector_block_id(block: object) -> str | None:
+    if not isinstance(block, dict) or block.get("type") not in {"file", "document"}:
+        return None
+    try:
+        return str(UUID(str(block.get("object_id"))))
+    except (TypeError, ValueError):
+        return None
+
+
+def _split_print_assets(
+    publication: PublishedSite, assets: dict[UUID, bytes]
+) -> tuple[dict[UUID, bytes], dict[str, bytes]]:
+    sealed = {asset.object_id: asset for asset in publication.assets}
+    images: dict[UUID, bytes] = {}
+    documents: dict[str, bytes] = {}
+    for object_id, body in assets.items():
+        parent = sealed.get(object_id)
+        if parent is not None and parent.kind == "image":
+            images[object_id] = body
+            continue
+        asset = parent.print_document or parent if parent is not None else None
+        if (
+            asset is not None
+            and asset.kind == "file"
+            and asset.content_type == "application/pdf"
+            and asset.object_key.endswith("/document/print-vector.pdf")
+            and len(body) == asset.size_bytes
+            and _sha256(body) == asset.checksum_sha256
+            and parent is not None
+            and parent.kind in {"file", "document"}
+            and asset.dataset_id == parent.dataset_id
+            and asset.dataset_version_id == parent.dataset_version_id
+            and asset.print_document is None
+        ):
+            documents[str(object_id)] = body
+        else:
+            code = (
+                "site_print_vector_document_not_sealed"
+                if parent is not None and parent.kind in {"file", "document"}
+                else "site_print_layout_image_not_sealed"
+            )
+            raise SitePrintError(code)
+    return images, documents
+
+
+def _flow_print_pages(
+    publication: PublishedSite,
+    page: SitePage,
+    options: PrintOptions,
+    vector_pages: dict[str, list[dict[str, object]]],
+) -> list[_PrintPage]:
+    blocks = page.resource_content.get("blocks")
+    if not isinstance(blocks, list):
+        return [_content_page(publication, page, options)]
+    pages: list[_PrintPage] = []
+    segment: list[object] = []
+    abstract = page.resource_abstract
+    for block in blocks:
+        segment.append(block)
+        object_id = _vector_block_id(block)
+        if object_id is None or object_id not in vector_pages:
+            continue
+        chunk = replace(
+            page,
+            resource_abstract=abstract,
+            resource_content={**page.resource_content, "blocks": segment},
+        )
+        pages.append(_content_page(publication, chunk, options))
+        abstract = None
+        segment = []
+        pages.extend(
+            _PrintPage(
+                title=page.resource_title,
+                lines=(),
+                vector_object_id=object_id,
+                vector_page_index=index,
+            )
+            for index in range(len(vector_pages[object_id]))
+        )
+    if segment or abstract or not pages:
+        chunk = replace(
+            page,
+            resource_abstract=abstract,
+            resource_content={**page.resource_content, "blocks": segment},
+        )
+        pages.append(_content_page(publication, chunk, options))
+    return pages
 
 
 def _content_page(publication: PublishedSite, page: SitePage, options: PrintOptions) -> _PrintPage:
@@ -934,6 +1070,8 @@ def _page_stream(
     image_names: dict[str, str],
     fonts: _PdfFontCatalog,
 ) -> bytes:
+    if page.vector_object_id is not None:
+        return b""
     page_width, page_height = options.page_points
     if page.layout_page is not None:
         commands = _pdf_positioned_page(

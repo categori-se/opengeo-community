@@ -47,6 +47,7 @@ class CommandRunner:
                 "pdftoppm": "/usr/bin/pdftoppm",
                 "pdftotext": "/usr/bin/pdftotext",
                 "pdf-tagged-text": sys.executable,
+                "pdf-print-vectors": sys.executable,
                 "tesseract": "/usr/bin/tesseract",
             }
         )

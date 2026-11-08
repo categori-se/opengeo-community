@@ -773,9 +773,10 @@
       "version": "7.0.0",
       "dependencyKind": "runtime",
       "usedBy": [
-        "services/worker/pyproject.toml"
+        "services/worker/pyproject.toml",
+        "services/api/pyproject.toml"
       ],
-      "purpose": "Validated source-tag ActualText ordering for bounded imported PDF previews in isolated workers.",
+      "purpose": "Bounded source-tag reading, vector/text-preserving PDF preparation and page composition in isolated worker/API children.",
       "licenseExpression": "BSD-3-Clause",
       "sourceUrl": "https://github.com/py-pdf/pypdf",
       "licenseEvidence": {

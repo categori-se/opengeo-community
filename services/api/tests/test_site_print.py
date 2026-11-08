@@ -15,8 +15,8 @@ from opengeo_api.site_export import build_static_package
 from opengeo_api.site_print import (
     MAX_PRINT_COMPOSITE_BITMAPS,
     SitePrintError,
-    _PdfFontCatalog,
     _decode_png,
+    _PdfFontCatalog,
     build_map_sheet_svg,
     build_print_page_png,
     build_print_pdf,
@@ -600,9 +600,7 @@ def test_canonical_text_composes_visual_glyphs_and_preserves_exact_logical_unico
     selected = with_text(logical)
     pdf = build_print_pdf(selected, {MAP_RESOURCE_ID: body})
     raster = build_print_page_png(selected, "findings", {MAP_RESOURCE_ID: body})
-    composed_raster = build_print_page_png(
-        with_text(composed), "findings", {MAP_RESOURCE_ID: body}
-    )
+    composed_raster = build_print_page_png(with_text(composed), "findings", {MAP_RESOURCE_ID: body})
     assert _decode_png(raster).rgb == _decode_png(composed_raster).rgb
     encoded = logical.encode("utf-16-be").hex().upper().encode("ascii")
     assert b"/ActualText <FEFF" + encoded + b">" in pdf
@@ -626,11 +624,7 @@ def test_canonical_text_reuses_cluster_glyphs_within_existing_bitmap_budget() ->
         for fonts, value in ((decomposed_fonts, logical), (composed_fonts, composed)):
             layout = fonts.layout(value)
             encoded = fonts.encode_layout(layout)
-            glyphs = [
-                fonts.banks[bank][code - 1]
-                for bank, codes in encoded
-                for code in codes
-            ]
+            glyphs = [fonts.banks[bank][code - 1] for bank, codes in encoded for code in codes]
             assert "".join(glyph.unicode_text for glyph in glyphs) == value
             assert layout.visual == composed
         assert decomposed_fonts.text_advance(logical) == composed_fonts.text_advance(composed)
@@ -802,3 +796,95 @@ def test_pdf_rejects_more_than_the_bounded_distinct_glyph_budget() -> None:
 
     with pytest.raises(SitePrintError, match="site_print_unicode_glyph_limit_exceeded"):
         build_print_pdf(publication, {MAP_RESOURCE_ID: body})
+
+
+def _publication_with_vector_document(body: bytes):
+    from test_site_export import ASSET_DATASET_ID, ASSET_VERSION_ID, FILE_OBJECT_ID
+
+    publication = published_site()
+    asset = PublishedSiteAsset(
+        kind="file",
+        dataset_id=ASSET_DATASET_ID,
+        dataset_version_id=ASSET_VERSION_ID,
+        object_id=FILE_OBJECT_ID,
+        bucket="opengeo-test-geodata",
+        object_key="organizations/o/derived/document/print-vector.pdf",
+        storage_version_id="sealed-vector-version-1",
+        content_type="application/pdf",
+        size_bytes=len(body),
+        checksum_sha256=sha256(body).hexdigest(),
+        filename="print-vector.pdf",
+    )
+    content = {
+        "blocks": [
+            {"id": "before", "type": "heading", "level": 2, "text": "Before imported pages"},
+            {
+                "id": "document",
+                "type": "file",
+                "object_id": str(FILE_OBJECT_ID),
+                "label": "Original source pages",
+            },
+            {"id": "after", "type": "heading", "level": 2, "text": "After imported pages"},
+        ]
+    }
+    return replace(
+        publication,
+        references=(),
+        assets=(asset,),
+        site=replace(
+            publication.site,
+            print_layout={"schemaVersion": "opengeo.print-layout.1.1.0", "pages": []},
+            pages=(replace(publication.site.pages[0], resource_content=content),),
+        ),
+    ), asset
+
+
+def test_composed_pdf_keeps_source_vectors_text_tags_and_authored_order(tmp_path) -> None:
+    from pypdf import PdfReader
+
+    from test_pdf_print_documents import prepared_vector_fixture
+
+    prepared = tmp_path / "prepared.pdf"
+    prepared_body = prepared_vector_fixture()
+    prepared.write_bytes(prepared_body)
+    publication, asset = _publication_with_vector_document(prepared_body)
+    output = build_print_pdf(publication, {}, {asset.object_id: prepared_body})
+    assert output == build_print_pdf(publication, {}, {asset.object_id: prepared_body})
+    assert prepared.read_bytes() == prepared_body
+    composed = tmp_path / "composed.pdf"
+    composed.write_bytes(output)
+    reader = PdfReader(BytesIO(output))
+    assert len(reader.pages) == 3
+    imported = reader.pages[1]
+    assert imported.rotation == 90
+    assert list(imported.cropbox) == [10, 15, 290, 280]
+    assert "/Font" in imported["/Resources"]
+    operators = imported.get_contents().get_data()
+    assert b" re f" in operators and b" Tj" in operators
+    assert "/Annots" not in imported
+    assert b"ANNOTATION_CONTROL" not in output
+    extracted = [page.extract_text() for page in reader.pages]
+    assert "Before imported pages" in extracted[0]
+    assert "First authored" in extracted[1] and "Second authored" in extracted[1]
+    assert "After imported pages" in extracted[2]
+    root = reader.root_object["/StructTreeRoot"]
+    sections = root["/K"][0].get_object()["/K"]
+    imported_tags = sections[1].get_object()["/K"]
+    assert len(imported_tags) == 2
+    parent_tree = root["/ParentTree"]["/Nums"]
+    assert list(parent_tree[3]) == list(imported_tags)
+    for mcid, ref in enumerate(imported_tags):
+        node = ref.get_object()
+        assert node["/S"] == "/P" and node["/K"] == mcid
+        assert node.raw_get("/Pg") == imported.indirect_reference
+        assert node.raw_get("/P") == sections[1]
+
+
+def test_vector_pdf_requires_exact_sealed_body_and_derived_key() -> None:
+    body = b"unparsed body"
+    publication, asset = _publication_with_vector_document(body)
+    with pytest.raises(SitePrintError, match="site_print_vector_document_not_sealed"):
+        build_print_pdf(publication, {}, {asset.object_id: b"changed bytes"})
+    publication = replace(publication, assets=(replace(asset, object_key="original/source.pdf"),))
+    with pytest.raises(SitePrintError, match="site_print_vector_document_not_sealed"):
+        build_print_pdf(publication, {}, {asset.object_id: body})

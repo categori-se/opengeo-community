@@ -400,6 +400,7 @@ class PublishedSiteAsset:
     size_bytes: int
     checksum_sha256: str
     filename: str
+    print_document: "PublishedSiteAsset | None" = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1887,13 +1888,36 @@ class PostgresSitePublicationRepository:
              AND project_dataset.dataset_id = object.dataset_id
              AND project_dataset.project_id = %s
             WHERE object.organization_id = %s
-              AND object.id = ANY(%s::uuid[])
+              AND (
+                object.id = ANY(%s::uuid[])
+                OR (
+                  object.role = 'derived'
+                  AND object.content_type = 'application/pdf'
+                  AND object.object_key LIKE '%%/document/print-vector.pdf'
+                  AND (object.dataset_id, link.dataset_version_id) IN (
+                    SELECT * FROM unnest(%s::uuid[], %s::uuid[])
+                  )
+                )
+              )
             ORDER BY object.id
+            LIMIT 33
             """,
-            (project_id, context.organization_id, object_ids),
+            (
+                project_id,
+                context.organization_id,
+                object_ids,
+                [draft.dataset_id for draft in drafts if draft.kind in {"file", "document"}],
+                [
+                    draft.dataset_version_id
+                    for draft in drafts
+                    if draft.kind in {"file", "document"}
+                ],
+            ),
         )
+        if len(rows) > 2 * MAX_SITE_ASSETS:
+            raise SiteConflict("site_asset_limit_exceeded")
         row_by_id = {cast(UUID, row[0]): row for row in rows}
-        if set(object_ids) != set(row_by_id):
+        if not set(object_ids).issubset(row_by_id):
             raise SiteConflict("site_asset_not_found")
         assets: list[PublishedSiteAsset] = []
         total_size = 0
@@ -1911,7 +1935,19 @@ class PostgresSitePublicationRepository:
                 geometry_type=row[15] if len(row) > 15 else None,
                 schema_definition=row[16] if len(row) > 16 else None,
             )
-            total_size += asset.size_bytes
+            document = (
+                row[16].get("document") if len(row) > 16 and isinstance(row[16], dict) else None
+            )
+            if (
+                draft.kind in {"file", "document"}
+                and isinstance(document, dict)
+                and document.get("print_vector_available") is True
+                and not asset.object_key.endswith("/document/print-vector.pdf")
+            ):
+                asset = cls._bind_print_document(asset, row, rows)
+            total_size += asset.size_bytes + (
+                asset.print_document.size_bytes if asset.print_document is not None else 0
+            )
             assets.append(asset)
         if total_size > MAX_SITE_ASSET_TOTAL_BYTES:
             raise SiteConflict("site_asset_total_too_large")
@@ -1931,6 +1967,8 @@ class PostgresSitePublicationRepository:
         if not raw_assets:
             return ()
         sealed: dict[UUID, dict[str, Any]] = {}
+        parents: dict[UUID, UUID] = {}
+        source_ids: list[UUID] = []
         try:
             for raw in raw_assets:
                 if not isinstance(raw, dict):
@@ -1939,6 +1977,21 @@ class PostgresSitePublicationRepository:
                 if object_id in sealed:
                     raise ValueError
                 sealed[object_id] = raw
+                source_ids.append(object_id)
+            for object_id in source_ids:
+                raw = sealed[object_id]
+                if "printDocument" not in raw:
+                    continue
+                companion = raw["printDocument"]
+                if not isinstance(companion, dict) or "printDocument" in companion:
+                    raise ValueError
+                companion_id = UUID(str(companion["objectId"]))
+                if companion_id == object_id or companion.get("kind") != "file":
+                    raise ValueError
+                if companion_id in sealed and sealed[companion_id] != companion:
+                    raise ValueError
+                sealed[companion_id] = companion
+                parents[object_id] = companion_id
         except (KeyError, TypeError, ValueError) as error:
             raise SiteNotFound("site_edition") from error
         rows = await transaction.fetch_all(
@@ -2010,7 +2063,97 @@ class PostgresSitePublicationRepository:
             result.append(asset)
         if total_size > MAX_SITE_ASSET_TOTAL_BYTES:
             raise SiteNotFound("site_edition")
-        return tuple(result)
+        by_id = {asset.object_id: asset for asset in result}
+        row_by_id = {cast(UUID, row[0]): row for row in rows}
+        for object_id, companion_id in parents.items():
+            try:
+                bound = cls._bind_print_document(
+                    by_id[object_id], row_by_id[object_id], [row_by_id[companion_id]]
+                )
+            except SiteConflict as error:
+                raise SiteNotFound("site_edition") from error
+            by_id[object_id] = bound
+        return tuple(by_id[object_id] for object_id in source_ids)
+
+    @classmethod
+    def _bind_print_document(
+        cls,
+        source: PublishedSiteAsset,
+        source_row: tuple[Any, ...],
+        rows: list[tuple[Any, ...]],
+    ) -> PublishedSiteAsset:
+        schema = source_row[16] if len(source_row) > 16 else None
+        document = schema.get("document") if isinstance(schema, dict) else None
+        facts = document.get("print_vector_facts") if isinstance(document, dict) else None
+        page_count = document.get("page_count") if isinstance(document, dict) else None
+        if (
+            source.kind not in {"file", "document"}
+            or (source.kind == "file" and source.content_type != "application/pdf")
+            or len(source_row) <= 16
+            or source_row[14] != "pdf"
+            or source_row[15] != "document"
+            or not isinstance(document, dict)
+            or document.get("kind") != "pdf"
+            or document.get("source_format") != "pdf"
+            or document.get("print_vector_available") is not True
+            or document.get("print_vector_schema") != "opengeo.pdf-print-vector.1.0.0"
+            or type(page_count) is not int
+            or not 1 <= page_count <= 200
+            or not isinstance(facts, dict)
+            or facts.get("schema") != "opengeo.pdf-print-vector.1.0.0"
+            or facts.get("renderer") != "pypdf-safe-clone"
+            or type(facts.get("page_count")) is not int
+            or facts.get("page_count") != page_count
+            or facts.get("source_tags") not in ("absent", "closed-actualtext")
+            or type(facts.get("annotations_removed")) is not int
+            or facts["annotations_removed"] < 0
+            or not isinstance(facts.get("pages"), list)
+            or len(facts["pages"]) != page_count
+        ):
+            raise SiteConflict("site_print_document_invalid")
+        for page in facts["pages"]:
+            if (
+                not isinstance(page, dict)
+                or type(page.get("rotation")) is not int
+                or page.get("rotation") not in (0, 90, 180, 270)
+            ):
+                raise SiteConflict("site_print_document_invalid")
+            for name in ("crop_box", "media_box"):
+                box = page.get(name)
+                if (
+                    not isinstance(box, list)
+                    or len(box) != 4
+                    or any(type(value) not in {int, float} or not isfinite(value) for value in box)
+                    or not box[0] < box[2]
+                    or not box[1] < box[3]
+                ):
+                    raise SiteConflict("site_print_document_invalid")
+            crop = page["crop_box"]
+            if (
+                type(page.get("width_points")) not in {int, float}
+                or type(page.get("height_points")) not in {int, float}
+                or page["width_points"] != crop[2] - crop[0]
+                or page["height_points"] != crop[3] - crop[1]
+            ):
+                raise SiteConflict("site_print_document_invalid")
+        siblings = [
+            row
+            for row in rows
+            if row[1] == source.dataset_id
+            and row[2] == source.dataset_version_id
+            and row[0] != source.object_id
+            and isinstance(row[4], str)
+            and row[4].endswith("/document/print-vector.pdf")
+        ]
+        if len(siblings) != 1:
+            raise SiteConflict("site_print_document_invalid")
+        row = siblings[0]
+        if row[9] != "derived" or row[10:13] != ("public", "active", "active"):
+            raise SiteConflict("site_print_document_invalid")
+        companion = cls._asset_from_row("file", row, row[13] if len(row) > 13 else None)
+        if companion.content_type != "application/pdf":
+            raise SiteConflict("site_print_document_invalid")
+        return replace(source, print_document=companion)
 
     @staticmethod
     def _asset_from_row(
@@ -2574,15 +2717,16 @@ class PostgresSitePublicationRepository:
             ],
             "assets": [
                 {
-                    "kind": asset.kind,
-                    "datasetId": str(asset.dataset_id),
-                    "datasetVersionId": str(asset.dataset_version_id),
-                    "objectId": str(asset.object_id),
-                    "storageVersionId": asset.storage_version_id,
-                    "contentType": asset.content_type,
-                    "sizeBytes": asset.size_bytes,
-                    "checksumSha256": asset.checksum_sha256,
-                    "filename": asset.filename,
+                    **PostgresSitePublicationRepository._asset_manifest(asset),
+                    **(
+                        {
+                            "printDocument": PostgresSitePublicationRepository._asset_manifest(
+                                asset.print_document
+                            )
+                        }
+                        if asset.print_document is not None
+                        else {}
+                    ),
                 }
                 for asset in assets
             ],
@@ -2590,6 +2734,20 @@ class PostgresSitePublicationRepository:
                 "platformRecordIsRevocable": True,
                 "downloadedOrPrintedCopiesCannotBeRecalled": True,
             },
+        }
+
+    @staticmethod
+    def _asset_manifest(asset: PublishedSiteAsset) -> dict[str, Any]:
+        return {
+            "kind": asset.kind,
+            "datasetId": str(asset.dataset_id),
+            "datasetVersionId": str(asset.dataset_version_id),
+            "objectId": str(asset.object_id),
+            "storageVersionId": asset.storage_version_id,
+            "contentType": asset.content_type,
+            "sizeBytes": asset.size_bytes,
+            "checksumSha256": asset.checksum_sha256,
+            "filename": asset.filename,
         }
 
     @staticmethod

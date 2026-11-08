@@ -1,0 +1,117 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+/StructTreeRoot 6 0 R
+/MarkInfo <<
+/Marked true
+>>
+/OpenGeoPrintVector (1\0560\0560)
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Count 1
+/Kids [ 3 0 R ]
+>>
+endobj
+3 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 4 0 R
+>>
+>>
+/MediaBox [ 0.0 0.0 300 300 ]
+/Parent 2 0 R
+/StructParents 0
+/Contents 5 0 R
+/CropBox [ 10 15 290 280 ]
+/Rotate 90
+>>
+endobj
+4 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+>>
+endobj
+5 0 obj
+<<
+/Length 335
+>>
+stream
+/Span << /MCID 0 /ActualText <feff0046006900720073007400200061007500740068006f007200650064> >> BDC
+BT /F1 10 Tf 20 30 Td (First authored) Tj ET
+EMC
+/Span << /MCID 1 /ActualText <feff005300650063006f006e006400200061007500740068006f007200650064> >> BDC
+BT /F1 10 Tf 20 250 Td (Second authored) Tj ET
+EMC
+0.85 0.1 0.2 rg 40 60 70 90 re f
+
+endstream
+endobj
+6 0 obj
+<<
+/Type /StructTreeRoot
+/K [ 7 0 R ]
+/ParentTree 10 0 R
+>>
+endobj
+7 0 obj
+<<
+/Type /StructElem
+/S /Document
+/P 6 0 R
+/K [ 8 0 R 9 0 R ]
+>>
+endobj
+8 0 obj
+<<
+/Type /StructElem
+/S /P
+/P 7 0 R
+/Pg 3 0 R
+/K 0
+>>
+endobj
+9 0 obj
+<<
+/Type /StructElem
+/S /P
+/P 7 0 R
+/Pg 3 0 R
+/K 1
+>>
+endobj
+10 0 obj
+<<
+/Nums [ 0 [ 8 0 R 9 0 R ] ]
+>>
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000015 00000 n 
+0000000149 00000 n 
+0000000208 00000 n 
+0000000395 00000 n 
+0000000465 00000 n 
+0000000851 00000 n 
+0000000926 00000 n 
+0000001006 00000 n 
+0000001075 00000 n 
+0000001144 00000 n 
+trailer
+<<
+/Size 11
+/Root 1 0 R
+>>
+startxref
+1194
+%%EOF

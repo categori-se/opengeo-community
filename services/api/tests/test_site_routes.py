@@ -7,6 +7,7 @@ from json import dumps, loads
 from uuid import UUID
 from zipfile import ZipFile
 
+import pytest
 from fastapi.testclient import TestClient
 
 from opengeo_api.app import create_app
@@ -1237,6 +1238,84 @@ def test_public_site_reads_and_packages_one_exact_odt_semantic_document() -> Non
     assert len(storage.calls) == 2
 
 
+def test_public_print_composes_exact_worker_vector_pdf_and_rechecks_access(tmp_path) -> None:
+    from pypdf import PdfReader
+
+    from test_pdf_print_documents import prepared_vector_fixture
+
+    body = prepared_vector_fixture()
+    asset = PublishedSiteAsset(
+        kind="file",
+        dataset_id=ASSET_DATASET_ID,
+        dataset_version_id=ASSET_VERSION_ID,
+        object_id=DOCUMENT_OBJECT_ID,
+        bucket="opengeo-test-geodata",
+        object_key=(
+            f"organizations/{ORG_ID}/datasets/{ASSET_DATASET_ID}/document/print-vector.pdf"
+        ),
+        storage_version_id="sealed-vector-version-1",
+        content_type="application/pdf",
+        size_bytes=len(body),
+        checksum_sha256=sha256(body).hexdigest(),
+        filename="print-vector.pdf",
+    )
+    release = edition()
+    published_page = replace(
+        page(),
+        resource_content={
+            "blocks": [
+                {
+                    "id": "vector-document",
+                    "type": "file",
+                    "dataset_id": str(ASSET_DATASET_ID),
+                    "dataset_version_id": str(ASSET_VERSION_ID),
+                    "object_id": str(DOCUMENT_OBJECT_ID),
+                    "label": "Selected vector report",
+                }
+            ]
+        },
+    )
+    published_site = replace(
+        site(state="published", active_edition=release),
+        pages=(published_page,),
+    )
+    repository = MemorySiteRepository()
+    repository.record = published_site
+    repository.release = PublishedSite(published_site, release, (), (asset,))
+    storage = MemoryDownloadStorage(body, "sealed-vector-version-1")
+    response = api_client(repository, download_storage=storage).get(
+        f"/public/organizations/{ORG_ID}/projects/{PROJECT_ID}/sites/field-report/print.pdf"
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert len(storage.calls) == 1
+    sealed_read = storage.calls[0]
+    assert sealed_read.key == asset.object_key
+    assert sealed_read.version_id == asset.storage_version_id
+    assert sealed_read.checksum_sha256 == asset.checksum_sha256
+    output = PdfReader(BytesIO(response.content))
+    imported = next(page for page in output.pages if "First authored" in page.extract_text())
+    assert "Second authored" in imported.extract_text()
+    assert imported.rotation == 90
+    assert list(imported.cropbox) == [10, 15, 290, 280]
+    assert imported["/Resources"]["/Font"]["/F1"]["/BaseFont"] == "/Helvetica"
+    assert b" re f" in imported.get_contents().get_data()
+    assert "/Annots" not in imported
+    assert "/StructTreeRoot" in output.root_object
+
+    class RevokingStorage(MemoryDownloadStorage):
+        async def read_exact_object(self, spec):
+            result = await super().read_exact_object(spec)
+            repository.release = None
+            return result
+
+    revoked = api_client(
+        repository,
+        download_storage=RevokingStorage(body, "sealed-vector-version-1"),
+    ).get(f"/public/organizations/{ORG_ID}/projects/{PROJECT_ID}/sites/field-report/print.pdf")
+    assert revoked.status_code == 404
+
+
 def test_public_site_serves_revocable_pdf_visual_pages_and_packages_exact_images() -> None:
     image = visual_jpeg()
     presentation = {
@@ -1406,3 +1485,102 @@ def test_publication_identity_keeps_site_and_access_context_explicit() -> None:
     assert record["id"] == record["site"]["id"] == str(SITE_ID)
     assert record["resource_type"] == "publication"
     assert record["access_container_id"] == record["site"]["project_id"] == str(PROJECT_ID)
+
+
+@pytest.mark.parametrize("kind", ["file", "document"])
+def test_normal_pdf_blocks_share_exact_sealed_companion_and_recheck_binding(kind) -> None:
+    from pypdf import PdfReader
+
+    from test_pdf_print_documents import prepared_vector_fixture
+
+    body = prepared_vector_fixture()
+    companion = PublishedSiteAsset(
+        kind="file",
+        dataset_id=ASSET_DATASET_ID,
+        dataset_version_id=ASSET_VERSION_ID,
+        object_id=UUID(int=725),
+        bucket="opengeo-test-geodata",
+        object_key="organizations/o/datasets/d/document/print-vector.pdf",
+        storage_version_id="prepared-pinned-1",
+        content_type="application/pdf",
+        size_bytes=len(body),
+        checksum_sha256=sha256(body).hexdigest(),
+        filename="print-vector.pdf",
+    )
+    source = replace(
+        companion,
+        kind=kind,
+        object_id=DOCUMENT_OBJECT_ID,
+        object_key="organizations/o/datasets/d/source.pdf"
+        if kind == "file"
+        else "organizations/o/datasets/d/document/accessible-preview.json",
+        storage_version_id="source-pinned-1",
+        content_type="application/pdf" if kind == "file" else "application/json",
+        print_document=companion,
+    )
+    second = replace(source, object_id=UUID(int=726))
+    release = edition()
+    published_page = replace(
+        page(),
+        resource_content={
+            "blocks": [
+                {
+                    "id": "source_" + str(index),
+                    "type": kind,
+                    "dataset_id": str(ASSET_DATASET_ID),
+                    "dataset_version_id": str(ASSET_VERSION_ID),
+                    "object_id": str(asset.object_id),
+                    "label": "Source pages",
+                }
+                for index, asset in enumerate((source, second))
+            ]
+        },
+    )
+    published_site = replace(
+        site(state="published", active_edition=release), pages=(published_page,)
+    )
+    repository = MemorySiteRepository()
+    repository.record = published_site
+    publication = PublishedSite(published_site, release, (), (source, second))
+    repository.release = publication
+    storage = MemoryDownloadStorage(body, "prepared-pinned-1")
+    client = api_client(repository, download_storage=storage)
+    url = f"/public/organizations/{ORG_ID}/projects/{PROJECT_ID}/sites/field-report/print.pdf"
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    assert len(storage.calls) == 1
+    assert storage.calls[0].key == companion.object_key
+    assert storage.calls[0].version_id == companion.storage_version_id
+    reader = PdfReader(BytesIO(response.content))
+    imported = [page for page in reader.pages if "First authored" in page.extract_text()]
+    assert len(imported) == 2
+    assert all(
+        page.rotation == 90 and list(page.cropbox) == [10, 15, 290, 280] for page in imported
+    )
+
+    class ChangingStorage(MemoryDownloadStorage):
+        async def read_exact_object(self, spec):
+            output = await super().read_exact_object(spec)
+            repository.release = replace(
+                publication,
+                assets=(
+                    replace(source, print_document=replace(companion, storage_version_id="drift")),
+                    second,
+                ),
+            )
+            return output
+
+    changed = api_client(
+        repository, download_storage=ChangingStorage(body, "prepared-pinned-1")
+    ).get(url)
+    assert changed.status_code == 404
+    repository.release = replace(
+        publication,
+        assets=(
+            replace(source, print_document=replace(companion, size_bytes=4 * 1024 * 1024 + 1)),
+        ),
+    )
+    oversized_storage = MemoryDownloadStorage(body, "prepared-pinned-1")
+    oversized = api_client(repository, download_storage=oversized_storage).get(url)
+    assert oversized.status_code == 422
+    assert oversized_storage.calls == []

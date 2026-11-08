@@ -1,7 +1,7 @@
 import asyncio
 from collections import deque
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import pytest
@@ -11,6 +11,7 @@ from opengeo_api.site_publications import (
     PublishedResourceReference,
     SiteAccessDenied,
     SiteAssetCandidate,
+    SiteAssetDraft,
     SiteConflict,
     SiteDraft,
     SiteMapSnapshotDraft,
@@ -604,19 +605,28 @@ def test_pdf_document_asset_requires_exact_bounded_text_extraction_facts() -> No
 
 def test_tagged_pdf_facts_require_exact_semantic_method_and_keep_legacy_guards() -> None:
     facts = {
-        "kind": "pdf", "source_format": "pdf",
+        "kind": "pdf",
+        "source_format": "pdf",
         "accessible_preview_schema": "opengeo.document-preview.2.0.0",
-        "text_extraction": "pypdf_tagged_actualtext", "reading_order": "source-tags",
-        "ocr_performed": False, "tagged": True, "text_available": True,
-        "text_block_count": 2, "text_characters": 42,
+        "text_extraction": "pypdf_tagged_actualtext",
+        "reading_order": "source-tags",
+        "ocr_performed": False,
+        "tagged": True,
+        "text_available": True,
+        "text_block_count": 2,
+        "text_characters": 42,
     }
     valid = PostgresSitePublicationRepository._document_facts_valid
     key = "x/document/accessible-preview.json"
     assert valid("pdf", "document", {"document": facts}, key)
     for change in (
-        {"text_extraction": "poppler_pdftotext"}, {"reading_order": "heuristic"},
-        {"ocr_performed": True}, {"tagged": False}, {"text_available": False},
-        {"text_block_count": 0}, {"text_block_count": "2"},
+        {"text_extraction": "poppler_pdftotext"},
+        {"reading_order": "heuristic"},
+        {"ocr_performed": True},
+        {"tagged": False},
+        {"text_available": False},
+        {"text_block_count": 0},
+        {"text_block_count": "2"},
         {"accessible_preview_schema": "opengeo.document-preview.3.0.0"},
     ):
         assert not valid("pdf", "document", {"document": {**facts, **change}}, key)
@@ -1635,3 +1645,219 @@ def test_publication_resolution_hides_a_same_tenant_unreadable_container() -> No
     assert len(transaction.fetches) == 3
     assert transaction.fetches[0][1] == (ORG_ID, SITE_ID)
     assert transaction.executions == []
+
+
+PRINT_DOCUMENT_OBJECT_ID = UUID("82000000-0000-4000-8000-000000000284")
+
+
+def pdf_print_asset_rows(kind: str = "file") -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    scan = {
+        "safety_scan": {
+            "status": "passed",
+            "engine": "ClamAV",
+            "engine_version": "1.4.3",
+            "signature_version": 27900,
+            "comprehensive_malware_scan": True,
+        }
+    }
+    document = {
+        "kind": "pdf",
+        "source_format": "pdf",
+        "page_count": 1,
+        "tagged": False,
+        "text_available": True,
+        "text_block_count": 1,
+        "text_characters": 10,
+        "accessible_preview_schema": "opengeo.document-preview.2.0.0",
+        "text_extraction": "poppler_pdftotext",
+        "reading_order": "heuristic",
+        "ocr_performed": False,
+        "print_vector_available": True,
+        "print_vector_schema": "opengeo.pdf-print-vector.1.0.0",
+        "print_vector_facts": {
+            "schema": "opengeo.pdf-print-vector.1.0.0",
+            "page_count": 1,
+            "renderer": "pypdf-safe-clone",
+            "source_tags": "absent",
+            "annotations_removed": 0,
+            "pages": [
+                {
+                    "crop_box": [0, 0, 612, 792],
+                    "media_box": [0, 0, 612, 792],
+                    "rotation": 0,
+                    "width_points": 612,
+                    "height_points": 792,
+                }
+            ],
+        },
+    }
+    prefix = f"organizations/{ORG_ID}/datasets/{ASSET_DATASET_ID}"
+    source = (
+        DOCUMENT_OBJECT_ID,
+        ASSET_DATASET_ID,
+        ASSET_VERSION_ID,
+        "opengeo-test-geodata",
+        prefix + ("/source.pdf" if kind == "file" else "/document/accessible-preview.json"),
+        "source-exact-1",
+        "application/pdf" if kind == "file" else "application/json",
+        2048,
+        "c" * 64,
+        "original" if kind == "file" else "derived",
+        "public",
+        "active",
+        "active",
+        scan,
+        "pdf",
+        "document",
+        {"document": document},
+    )
+    companion = (
+        PRINT_DOCUMENT_OBJECT_ID,
+        ASSET_DATASET_ID,
+        ASSET_VERSION_ID,
+        "opengeo-test-geodata",
+        prefix + "/document/print-vector.pdf",
+        "prepared-exact-1",
+        "application/pdf",
+        1024,
+        "e" * 64,
+        "derived",
+        "public",
+        "active",
+        "active",
+        scan,
+        "pdf",
+        "document",
+        {"document": document},
+    )
+    return source, companion
+
+
+@pytest.mark.parametrize("kind", ["file", "document"])
+def test_normal_pdf_asset_binds_prepared_pages_and_reads_only_exact_manifest(
+    kind: Literal["file", "document"],
+) -> None:
+    source, companion = pdf_print_asset_rows(kind)
+    transaction = ScriptedTransaction(all_rows=[[source, companion]])
+    assets = asyncio.run(
+        PostgresSitePublicationRepository._seal_site_assets(
+            transaction,
+            TenantContext(USER_ID, ORG_ID),
+            PROJECT_ID,
+            (SiteAssetDraft(kind, ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID),),
+        )
+    )
+    assert len(assets) == 1
+    bound = assets[0]
+    assert bound.object_id == DOCUMENT_OBJECT_ID
+    assert bound.print_document is not None
+    assert bound.print_document.object_id == PRINT_DOCUMENT_OBJECT_ID
+    assert bound.print_document.storage_version_id == "prepared-exact-1"
+    site_transaction = ScriptedTransaction(
+        one=[site_row("review")], all_rows=[[document_page_row()]]
+    )
+    site = asyncio.run(
+        repository(site_transaction)._load_site_version(
+            site_transaction,
+            TenantContext(USER_ID, ORG_ID),
+            PROJECT_ID,
+            SITE_ID,
+            SITE_VERSION_ID,
+        )
+    )
+    assert site.publication_destination is not None
+    manifest = PostgresSitePublicationRepository._manifest(
+        TenantContext(USER_ID, ORG_ID),
+        site,
+        EDITION_ID,
+        1,
+        NOW,
+        (),
+        assets,
+        site.publication_destination,
+        None,
+    )
+    raw = manifest["assets"][0]
+    assert raw["objectId"] == str(DOCUMENT_OBJECT_ID)
+    assert raw["printDocument"]["objectId"] == str(PRINT_DOCUMENT_OBJECT_ID)
+    read = ScriptedTransaction(all_rows=[[source, companion]])
+    loaded = asyncio.run(
+        PostgresSitePublicationRepository._load_manifest_assets(
+            read,
+            TenantContext(USER_ID, ORG_ID),
+            PROJECT_ID,
+            {"assets": [raw]},
+        )
+    )
+    assert loaded == assets
+    assert set(read.fetches[0][1][2]) == {DOCUMENT_OBJECT_ID, PRINT_DOCUMENT_OBJECT_ID}
+    assert "print-vector.pdf" not in read.fetches[0][0]
+    legacy = ScriptedTransaction(all_rows=[[source]])
+    raw.pop("printDocument")
+    old = asyncio.run(
+        PostgresSitePublicationRepository._load_manifest_assets(
+            legacy,
+            TenantContext(USER_ID, ORG_ID),
+            PROJECT_ID,
+            {"assets": [raw]},
+        )
+    )
+    assert old[0].print_document is None
+    assert legacy.fetches[0][1][2] == [DOCUMENT_OBJECT_ID]
+
+
+@pytest.mark.parametrize(
+    "changed", ["foreign_dataset", "foreign_version", "unscanned", "wrong_role"]
+)
+def test_pdf_prepared_binding_rejects_invalid_or_foreign_sibling(changed: str) -> None:
+    source, companion = pdf_print_asset_rows()
+    invalid = list(companion)
+    if changed == "foreign_dataset":
+        invalid[1] = UUID(int=99)
+    elif changed == "foreign_version":
+        invalid[2] = UUID(int=99)
+    elif changed == "unscanned":
+        invalid[13] = {}
+    else:
+        invalid[9] = "original"
+    transaction = ScriptedTransaction(all_rows=[[source, tuple(invalid)]])
+    with pytest.raises(SiteConflict):
+        asyncio.run(
+            PostgresSitePublicationRepository._seal_site_assets(
+                transaction,
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                (SiteAssetDraft("file", ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID),),
+            )
+        )
+
+
+@pytest.mark.parametrize("changed", ["checksum", "version", "recursive", "foreign_version"])
+def test_pdf_prepared_manifest_rejects_drift_and_recursive_or_foreign_binding(changed: str) -> None:
+    source, companion = pdf_print_asset_rows()
+    asset = PostgresSitePublicationRepository._asset_from_row("file", source, source[13])
+    prepared = PostgresSitePublicationRepository._asset_from_row("file", companion, companion[13])
+    raw = PostgresSitePublicationRepository._asset_manifest(asset)
+    nested = PostgresSitePublicationRepository._asset_manifest(prepared)
+    raw["printDocument"] = nested
+    if changed == "checksum":
+        nested["checksumSha256"] = "f" * 64
+    elif changed == "version":
+        nested["storageVersionId"] = "another-version"
+    elif changed == "recursive":
+        nested["printDocument"] = dict(nested)
+    else:
+        companion = tuple(
+            UUID(int=99) if index == 2 else value for index, value in enumerate(companion)
+        )
+        nested["datasetVersionId"] = str(UUID(int=99))
+    transaction = ScriptedTransaction(all_rows=[[source, companion]])
+    with pytest.raises(SiteNotFound):
+        asyncio.run(
+            PostgresSitePublicationRepository._load_manifest_assets(
+                transaction,
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                {"assets": [raw]},
+            )
+        )
