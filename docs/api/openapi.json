@@ -15334,7 +15334,22 @@
         "additionalProperties": false,
         "properties": {
           "extraction": {
-            "$ref": "#/components/schemas/PdfDocumentExtractionResponse"
+            "discriminator": {
+              "mapping": {
+                "poppler-pdftotext": "#/components/schemas/PdfDocumentExtractionResponse",
+                "pypdf": "#/components/schemas/TaggedPdfDocumentExtractionResponse"
+              },
+              "propertyName": "engine"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PdfDocumentExtractionResponse"
+              },
+              {
+                "$ref": "#/components/schemas/TaggedPdfDocumentExtractionResponse"
+              }
+            ],
+            "title": "Extraction"
           },
           "language": {
             "anyOf": [
@@ -24471,6 +24486,51 @@
           "columns"
         ],
         "title": "TableBlock",
+        "type": "object"
+      },
+      "TaggedPdfDocumentExtractionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "engine": {
+            "const": "pypdf",
+            "title": "Engine",
+            "type": "string"
+          },
+          "mode": {
+            "const": "tagged-actualtext",
+            "title": "Mode",
+            "type": "string"
+          },
+          "ocrPerformed": {
+            "const": false,
+            "title": "Ocrperformed",
+            "type": "boolean"
+          },
+          "readingOrder": {
+            "const": "source-tags",
+            "title": "Readingorder",
+            "type": "string"
+          },
+          "tagged": {
+            "const": true,
+            "title": "Tagged",
+            "type": "boolean"
+          },
+          "textAvailable": {
+            "const": true,
+            "title": "Textavailable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "engine",
+          "mode",
+          "ocrPerformed",
+          "readingOrder",
+          "tagged",
+          "textAvailable"
+        ],
+        "title": "TaggedPdfDocumentExtractionResponse",
         "type": "object"
       },
       "TeamMemberRequest": {
