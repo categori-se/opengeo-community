@@ -7,7 +7,7 @@ export function documentPreview(preview) {
     ? ` Declared-language Tesseract OCR was attempted on ${preview.extraction.ocrPages.length} page${preview.extraction.ocrPages.length === 1 ? "" : "s"} using ${preview.extraction.ocrModel}; OCR text may contain errors.${preview.extraction.ocrTruncated ? " The bounded 32-page OCR limit was reached." : ""}`
     : " OCR is not performed.";
   const description = preview.sourceFormat === "pdf"
-    ? `All-page semantic PDF ${preview.pdfVersion} text · ${preview.pages.length} page${preview.pages.length === 1 ? "" : "s"}. Reading order is heuristic.${pdfOcrDescription}`
+    ? `All-page semantic PDF ${preview.pdfVersion} text · ${preview.pages.length} page${preview.pages.length === 1 ? "" : "s"}. ${preview.extraction.readingOrder === "source-tags" ? "Reading order follows validated source tags." : "Reading order is heuristic."}${pdfOcrDescription}`
     : `Semantic ODF ${preview.odfVersion} preview · ${preview.pages.length} page${preview.pages.length === 1 ? "" : "s"}. Page layout and embedded media are not reproduced.`;
   article.append(
     text("h5", preview.title ?? (preview.sourceFormat === "pdf" ? "PDF text presentation" : "OpenDocument text preview")),

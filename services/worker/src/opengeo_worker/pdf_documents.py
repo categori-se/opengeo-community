@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import re
 from dataclasses import dataclass
@@ -75,7 +76,12 @@ def extract_pdf_semantic_preview(
     if len(raw_pages) != page_count:
         raise ValidationFailure("document_text_extraction_failed")
 
-    embedded_paragraphs = tuple(_paragraphs(raw_page) for raw_page in raw_pages)
+    tagged_text = _validated_tagged_pages(source, workdir, runner, page_count) if tagged else None
+    embedded_paragraphs = (
+        tuple(tuple(page) for page in tagged_text)
+        if tagged_text is not None
+        else tuple(_paragraphs(raw_page) for raw_page in raw_pages)
+    )
     empty_pages = tuple(
         number for number, paragraphs in enumerate(embedded_paragraphs, start=1) if not paragraphs
     )
@@ -121,10 +127,10 @@ def extract_pdf_semantic_preview(
     schema = PREVIEW_SCHEMA
     if ocr is None:
         extraction = {
-            "engine": "poppler-pdftotext",
-            "mode": "layout",
+            "engine": "pypdf" if tagged_text is not None else "poppler-pdftotext",
+            "mode": "tagged-actualtext" if tagged_text is not None else "layout",
             "ocrPerformed": False,
-            "readingOrder": "heuristic",
+            "readingOrder": "source-tags" if tagged_text is not None else "heuristic",
             "tagged": tagged,
             "textAvailable": text_available,
         }
@@ -213,3 +219,37 @@ def _optional_language(value: str | None) -> str | None:
     if _LANGUAGE.fullmatch(normalized) is None:
         raise ValidationFailure("document_metadata_invalid")
     return normalized
+
+
+def _validated_tagged_pages(
+    source: Path, workdir: Path, runner: CommandRunner, page_count: int
+) -> list[list[str]] | None:
+    spec = importlib.util.find_spec("pypdf")
+    if spec is None or spec.origin is None:
+        return None
+    # Paths originate exclusively in trusted installed modules, never in PDF content.
+    paths = [str(Path(spec.origin).parent.parent), str(Path(__file__).resolve().parents[1])]
+    bootstrap = (
+        f"import sys;sys.path[:0]={paths!r};"
+        "from opengeo_worker.pdf_tagged_text import main;main()"
+    )
+    try:
+        result = runner.run(
+            "pdf-tagged-text", ["-I", "-c", bootstrap, str(source), str(page_count)],
+            cwd=workdir, maximum_file_bytes=_MAX_RAW_TEXT_BYTES,
+        )
+        if result.stderr or len(result.stdout.encode()) > _MAX_RAW_TEXT_BYTES:
+            return None
+        pages = json.loads(result.stdout).get("pages")
+        if (
+            not isinstance(pages, list) or len(pages) != page_count
+            or any(not isinstance(page, list) or not page for page in pages)
+            or sum(len(page) for page in pages) > _MAX_BLOCKS
+            or any(not isinstance(text, str) or not text.strip() or "\x00" in text
+                   for page in pages for text in page)
+            or sum(len(text) for page in pages for text in page) > _MAX_TEXT_CHARACTERS
+        ):
+            return None
+        return pages
+    except (ValidationFailure, ValueError, TypeError, AttributeError):
+        return None

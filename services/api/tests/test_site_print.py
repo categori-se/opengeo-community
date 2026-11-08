@@ -1,4 +1,5 @@
 import json
+import re
 import struct
 import zlib
 from dataclasses import replace
@@ -103,6 +104,63 @@ def test_builds_deterministic_pdf_with_checksum_bound_map_appendix() -> None:
     assert_pdf_maps_text(first, "Critical context")
     assert_pdf_maps_text(first, publication.references[0].snapshot.checksum_sha256)
     assert first.endswith(b"%%EOF\n")
+
+
+def test_tagged_pdf_reading_order_uses_authored_elements_not_page_coordinates() -> None:
+    publication, body = publication_with_snapshot()
+    values = ("First authored paragraph", "Second authored paragraph שלום")
+    publication = replace(
+        publication,
+        site=replace(
+            publication.site,
+            print_layout={
+                "schemaVersion": "opengeo.print-layout.1.0.0",
+                "pages": [
+                    {
+                        "sitePageSlug": "findings",
+                        "elements": [
+                            {
+                                "id": f"paragraph_{index}",
+                                "type": "text",
+                                "x": 40,
+                                "y": 650 if index == 0 else 40,
+                                "width": 900,
+                                "height": 100,
+                                "text": value,
+                                "style": "body",
+                            }
+                            for index, value in enumerate(values)
+                        ],
+                    }
+                ],
+            },
+        ),
+    )
+    pdf = build_print_pdf(publication, {MAP_RESOURCE_ID: body})
+    assert pdf == build_print_pdf(publication, {MAP_RESOURCE_ID: body})
+    assert b"/MarkInfo << /Marked true >>" in pdf
+    assert b"/Type /StructTreeRoot" in pdf
+    assert b"/S /Document" in pdf and b"/S /Sect" in pdf
+    assert b"/StructParents 0 /Tabs /S" in pdf
+    streams = re.findall(rb"stream\n(.*?)endstream", pdf, re.DOTALL)
+    page_spans = [
+        spans
+        for stream in streams
+        if (spans := re.findall(rb"/ActualText <([0-9A-F]+)> /MCID (\d+) >> BDC", stream))
+    ]
+    text = [bytes.fromhex(value.decode()).decode("utf-16") for value, _ in page_spans[0]]
+    assert text[:2] == list(values)
+    for spans in page_spans:
+        assert [int(identifier) for _, identifier in spans] == list(range(len(spans)))
+    parent_tree = re.search(rb"/Nums \[0 \[([^]]*)\]", pdf)
+    assert parent_tree is not None
+    children = re.findall(rb"(\d+) 0 R", parent_tree.group(1))
+    assert len(children) == len(page_spans[0])
+    for marked_content_id, identifier in enumerate(children):
+        element = re.search(identifier + rb" 0 obj\n([^\n]+)", pdf)
+        assert element is not None
+        assert b"/Type /StructElem /S /Span" in element.group(1)
+        assert f"/K {marked_content_id} >>".encode() in element.group(1)
 
 
 def test_pdf_catalog_bounds_total_composite_bitmap_work() -> None:

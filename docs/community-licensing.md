@@ -63,7 +63,7 @@ pointing to these terms. Identify modified upstream files and retain the origina
 license choices. Apache notices are attribution material, not extra license
 restrictions; see [Apache-2.0 section 4](https://www.apache.org/licenses/LICENSE-2.0).
 
-The checked register currently contains 60 direct packages, 20 platform foundations
+The checked register currently contains 61 direct packages, 20 platform foundations
 and 7 reference products. Those counts describe this local register, not a
 complete transitive SBOM or legal certification. Exact binary releases need their
 own transitive and operating-system inventory using existing release tooling.

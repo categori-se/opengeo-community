@@ -760,6 +760,9 @@ pyparsing==3.3.2 \
     # via
     #   -r services/worker/requirements.lock
     #   rasterio
+pypdf==7.0.0 \
+    --hash=sha256:112a2c7cbabefd8dfe498f7a13977e575e762d58cdb0d832acb8886922602c6f
+    # via -r services/worker/requirements.lock
 pyproj==3.7.2 \
     --hash=sha256:0a9bb26a6356fb5b033433a6d1b4542158fb71e3c51de49b4c318a1dff3aeaab \
     --hash=sha256:0b7cb633565129677b2a183c4d807c727d1c736fcb0568a12299383056e67433 \

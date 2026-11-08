@@ -74,3 +74,13 @@ it('reads recorded PDF text deliberately with read authority, without requesting
   const denied=DatasetVersionFiles({dataset:{...pdf,capabilities:{read:false}},version:recorded,adapter});assert.equal(denied.querySelector('button'),null);denied.dispose();
  }finally{root?.dispose();globalThis.document=old;dom.window.close();}
 });
+
+it('describes validated source-tag PDF order without a heuristic claim',async()=>{
+ const {documentPreview}=await import('../src/components/DocumentPreview.js');
+ const dom=new JSDOM();const old=globalThis.document;globalThis.document=dom.window.document;
+ try{
+  const root=documentPreview({sourceFormat:'pdf',pdfVersion:'1.7',extraction:{readingOrder:'source-tags',ocrPerformed:false},pages:[{number:1,blocks:[{type:'paragraph',text:'Authored order.'}]}]});
+  assert.match(root.textContent,/Reading order follows validated source tags\./);
+  assert.doesNotMatch(root.textContent,/Reading order is heuristic/);
+ }finally{globalThis.document=old;dom.window.close();}
+});

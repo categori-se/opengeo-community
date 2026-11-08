@@ -103,6 +103,14 @@ class _PdfFontCatalog:
         self._locations: dict[tuple[str, str], tuple[int, int]] = {}
         self.banks: list[list[_PdfGlyph]] = []
         self._composite_bitmaps = 0
+        self.page_marked_content_count: int | None = None
+
+    def mark_text(self) -> int | None:
+        if self.page_marked_content_count is None:
+            return None
+        identifier = self.page_marked_content_count
+        self.page_marked_content_count += 1
+        return identifier
 
     def encode_layout(self, layout: PrintTextLayout) -> tuple[tuple[int, bytes], ...]:
         if layout.contains_rtl:
@@ -626,10 +634,14 @@ def _pdf(
 
     catalog_id = reserve()
     pages_id = reserve()
+    structure_id = reserve()
+    document_id = reserve()
+    parent_tree_id = reserve()
     fonts = _PdfFontCatalog()
     page_width, page_height = options.page_points
     page_ids: list[int] = []
     pending_pages: list[tuple[int, int, str]] = []
+    structure_pages: list[tuple[int, int, int]] = []
     for sequence, page in enumerate(pages, 1):
         image_objects: list[tuple[str, int]] = []
         image_names: dict[str, str] = {}
@@ -664,6 +676,7 @@ def _pdf(
         content_id = reserve()
         page_id = reserve()
         page_ids.append(page_id)
+        fonts.page_marked_content_count = 0
         stream = _page_stream(
             publication,
             page,
@@ -675,6 +688,9 @@ def _pdf(
             image_names,
             fonts,
         )
+        assert fonts.page_marked_content_count is not None
+        structure_pages.append((page_id, reserve(), fonts.page_marked_content_count))
+        fonts.page_marked_content_count = None
         assign(
             content_id,
             f"<< /Length {len(stream)} >>\n".encode("ascii") + b"stream\n" + stream + b"endstream",
@@ -691,14 +707,14 @@ def _pdf(
     font_resources = " ".join(
         f"/F{bank + 1} {identifier} 0 R" for bank, identifier in enumerate(font_objects)
     )
-    for page_id, content_id, xobjects in pending_pages:
+    for page_index, (page_id, content_id, xobjects) in enumerate(pending_pages):
         assign(
             page_id,
             (
                 f"<< /Type /Page /Parent {pages_id} 0 R /MediaBox [0 0 "
                 f"{_number(page_width)} {_number(page_height)}] "
                 f"/Resources << /Font << {font_resources} >>{xobjects} >> "
-                f"/Contents {content_id} 0 R >>"
+                f"/Contents {content_id} 0 R /StructParents {page_index} /Tabs /S >>"
             ).encode("ascii"),
         )
     assign(
@@ -708,7 +724,54 @@ def _pdf(
             f"[{' '.join(f'{identifier} 0 R' for identifier in page_ids)}] >>"
         ).encode("ascii"),
     )
-    assign(catalog_id, f"<< /Type /Catalog /Pages {pages_id} 0 R >>".encode("ascii"))
+    section_ids: list[int] = []
+    parent_entries: list[str] = []
+    # Follow sealed page/element and logical text order, never infer order from coordinates.
+    for page_index, (page_id, section_id, text_count) in enumerate(structure_pages):
+        section_ids.append(section_id)
+        text_ids: list[int] = []
+        for marked_content_id in range(text_count):
+            identifier = reserve()
+            text_ids.append(identifier)
+            assign(
+                identifier,
+                (
+                    f"<< /Type /StructElem /S /Span /P {section_id} 0 R "
+                    f"/Pg {page_id} 0 R /K {marked_content_id} >>"
+                ).encode("ascii"),
+            )
+        children = " ".join(f"{identifier} 0 R" for identifier in text_ids)
+        assign(
+            section_id,
+            (
+                f"<< /Type /StructElem /S /Sect /P {document_id} 0 R "
+                f"/Pg {page_id} 0 R /K [{children}] >>"
+            ).encode("ascii"),
+        )
+        parent_entries.append(f"{page_index} [{children}]")
+    assign(parent_tree_id, f"<< /Nums [{' '.join(parent_entries)}] >>".encode("ascii"))
+    assign(
+        document_id,
+        (
+            f"<< /Type /StructElem /S /Document /P {structure_id} 0 R "
+            f"/K [{' '.join(f'{identifier} 0 R' for identifier in section_ids)}] >>"
+        ).encode("ascii"),
+    )
+    assign(
+        structure_id,
+        (
+            f"<< /Type /StructTreeRoot /K [{document_id} 0 R] "
+            f"/ParentTree {parent_tree_id} 0 R /ParentTreeNextKey {len(page_ids)} >>"
+        ).encode("ascii"),
+    )
+    language = (b"\xfe\xff" + publication.site.language.encode("utf-16-be")).hex().upper()
+    assign(
+        catalog_id,
+        (
+            f"<< /Type /Catalog /Pages {pages_id} 0 R /StructTreeRoot {structure_id} 0 R "
+            f"/MarkInfo << /Marked true >> /Lang <{language}> >>"
+        ).encode("ascii"),
+    )
 
     output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
     offsets = [0]
@@ -2863,6 +2926,8 @@ def _pdf_text(
 ) -> bytes:
     if maximum_width is not None:
         value = _truncate_pdf_text(value, fonts, maximum_width / size)
+    if not value:
+        return b""
     layout = fonts.layout(value)
     text_width = fonts.text_advance(value) * size
     text_x = (
@@ -2871,8 +2936,10 @@ def _pdf_text(
         else x
     )
     actual_text = (b"\xfe\xff" + value.encode("utf-16-be")).hex().upper()
+    marked_content_id = fonts.mark_text()
+    marker = f" /MCID {marked_content_id}" if marked_content_id is not None else ""
     commands = [
-        f"/Span << /ActualText <{actual_text}> >> BDC\n",
+        f"/Span << /ActualText <{actual_text}>{marker} >> BDC\n",
         f"BT {_number(text_x)} {_number(y)} Td ",
     ]
     for bank, encoded in fonts.encode_layout(layout):

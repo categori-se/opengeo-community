@@ -133,6 +133,7 @@ Observable Framework's current transitive build tree is locked with reviewed ove
 | [DuckDB](https://github.com/duckdb/duckdb) | 1.5.5 | In-process analytics | MIT |
 | [GeoPandas](https://github.com/geopandas/geopandas) | 1.1.4 | Vector/tabular geospatial operations | BSD-3-Clause |
 | [Apache Arrow/PyArrow](https://github.com/apache/arrow) | 25.0.0 | Arrow/Parquet interchange | Apache-2.0 |
+| [pypdf](https://github.com/py-pdf/pypdf) | 7.0.0 | Bounded imported-PDF source-tag ActualText ordering in isolated workers | BSD-3-Clause |
 | [Rasterio](https://github.com/rasterio/rasterio) | 1.5.0 | Raster access and transforms | BSD-3-Clause |
 | [rio-cogeo](https://github.com/cogeotiff/rio-cogeo) | 7.0.2 | Cloud Optimized GeoTIFF creation/validation | BSD-3-Clause |
 | [Shapely](https://github.com/shapely/shapely) | 2.1.2 | Geometry operations | BSD-3-Clause; uses LGPL GEOS |
