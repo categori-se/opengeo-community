@@ -602,6 +602,29 @@ def test_pdf_document_asset_requires_exact_bounded_text_extraction_facts() -> No
             )
 
 
+def test_tagged_pdf_facts_require_exact_semantic_method_and_keep_legacy_guards() -> None:
+    facts = {
+        "kind": "pdf", "source_format": "pdf",
+        "accessible_preview_schema": "opengeo.document-preview.2.0.0",
+        "text_extraction": "pypdf_tagged_actualtext", "reading_order": "source-tags",
+        "ocr_performed": False, "tagged": True, "text_available": True,
+        "text_block_count": 2, "text_characters": 42,
+    }
+    valid = PostgresSitePublicationRepository._document_facts_valid
+    key = "x/document/accessible-preview.json"
+    assert valid("pdf", "document", {"document": facts}, key)
+    for change in (
+        {"text_extraction": "poppler_pdftotext"}, {"reading_order": "heuristic"},
+        {"ocr_performed": True}, {"tagged": False}, {"text_available": False},
+        {"text_block_count": 0}, {"text_block_count": "2"},
+        {"accessible_preview_schema": "opengeo.document-preview.3.0.0"},
+    ):
+        assert not valid("pdf", "document", {"document": {**facts, **change}}, key)
+    assert not valid("odt", "document", {"document": facts}, key)
+    assert not valid("pdf", "Point", {"document": facts}, key)
+    assert not valid("pdf", "document", {"document": facts}, "x/source.pdf")
+
+
 def test_pdf_ocr_document_asset_requires_exact_bounded_provenance() -> None:
     row = (
         DOCUMENT_OBJECT_ID,

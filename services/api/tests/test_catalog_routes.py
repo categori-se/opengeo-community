@@ -1,7 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from opengeo_api.app import create_app
 from opengeo_api.auth_models import OrganizationMembership, Principal, VerifiedAccessToken
@@ -15,6 +17,7 @@ from opengeo_api.catalog import (
     DatasetVersion,
     DatasetVersionLineage,
 )
+from opengeo_api.catalog_routes import PdfDocumentPreviewResponse
 from opengeo_api.config import Settings
 from opengeo_api.s3_downloads import DownloadTicket
 from opengeo_api.tenant_database import TenantContext
@@ -253,6 +256,20 @@ class PdfPreviewCatalogRepository(FakeCatalogRepository):
         }
 
 
+class TaggedPdfPreviewCatalogRepository(PdfPreviewCatalogRepository):
+    async def get_document_preview(self, context, project_id, dataset_id, version_id):
+        document = await super().get_document_preview(context, project_id, dataset_id, version_id)
+        document["extraction"] = {
+            "engine": "pypdf",
+            "mode": "tagged-actualtext",
+            "ocrPerformed": False,
+            "readingOrder": "source-tags",
+            "tagged": True,
+            "textAvailable": True,
+        }
+        return document
+
+
 class PdfOcrPreviewCatalogRepository(FakeCatalogRepository):
     async def get_document_preview(self, context, project_id, dataset_id, version_id):
         self.calls.append(("document-preview", context, project_id, dataset_id, version_id))
@@ -425,6 +442,49 @@ def test_exact_pdf_semantic_preview_uses_the_strict_variant_response() -> None:
         "tagged": True,
         "textAvailable": True,
     }
+
+
+def test_tagged_pdf_semantic_get_preserves_source_order_and_tenant_headers() -> None:
+    repository = TaggedPdfPreviewCatalogRepository()
+    response = api_client(repository).get(
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/versions/{VERSION_ID}/document-preview",
+        headers=headers(),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.json()["extraction"] == {
+        "engine": "pypdf",
+        "mode": "tagged-actualtext",
+        "ocrPerformed": False,
+        "readingOrder": "source-tags",
+        "tagged": True,
+        "textAvailable": True,
+    }
+    assert response.json()["pages"][0]["blocks"][0]["text"] == "Exact PDF text."
+    assert repository.calls[-1] == (
+        "document-preview", TenantContext(USER_ID, ORG_ID), PROJECT_ID, DATASET_ID, VERSION_ID,
+    )
+
+
+def test_pdf_response_variants_reject_mixed_extraction_facts() -> None:
+    response = api_client(TaggedPdfPreviewCatalogRepository()).get(
+        f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/versions/{VERSION_ID}/document-preview",
+        headers=headers(),
+    )
+    document = response.json()
+    for change in (
+        {"engine": "poppler-pdftotext"},
+        {"mode": "layout"},
+        {"readingOrder": "heuristic"},
+        {"tagged": False},
+        {"textAvailable": False},
+        {"ocrPerformed": True},
+    ):
+        invalid = {**document, "extraction": {**document["extraction"], **change}}
+        with pytest.raises(ValidationError):
+            PdfDocumentPreviewResponse.model_validate(invalid)
 
 
 def test_exact_spatial_preview_is_private_no_store_and_tenant_bound() -> None:

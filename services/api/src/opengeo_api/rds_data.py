@@ -26,14 +26,62 @@ from opengeo_api.config import Settings
 
 
 class RdsDataApiUnavailable(RuntimeError):
-    pass
+    _SERVICE_ERROR_CODES = frozenset(
+        {
+            "AccessDeniedException",
+            "BadRequestException",
+            "DatabaseErrorException",
+            "DatabaseNotFoundException",
+            "DatabaseResumingException",
+            "DatabaseUnavailableException",
+            "ForbiddenException",
+            "HttpEndpointNotEnabledException",
+            "InternalServerErrorException",
+            "InvalidResourceStateException",
+            "InvalidSecretException",
+            "SecretsErrorException",
+            "ServiceUnavailableError",
+            "ServiceUnavailableException",
+            "StatementTimeoutException",
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "UnsupportedResultException",
+        }
+    )
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        service_error_code: str | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        # Only fixed values cross the exception/log boundary; provider messages
+        # and unrecognized error names can contain sensitive request content.
+        self.failure_category = "service_error" if service_error_code is not None else None
+        self.service_error_code = (
+            service_error_code
+            if service_error_code in self._SERVICE_ERROR_CODES
+            else "unrecognized"
+            if service_error_code is not None
+            else None
+        )
+        self.http_status = (
+            http_status
+            if isinstance(http_status, int)
+            and not isinstance(http_status, bool)
+            and 100 <= http_status <= 599
+            else None
+        )
+
 
 
 class RdsDataApiConflict(RuntimeError):
     pass
 
 
-class _RdsDataApiResuming(RuntimeError):
+class _RdsDataApiResuming(RdsDataApiUnavailable):
     pass
 
 
@@ -182,6 +230,7 @@ class RdsDataApiClient:
             payload["transactionId"] = transaction_id
         # An explicit caller budget covers transport and database-resume waits
         # together. A transport timeout never replays an uncertain operation.
+        resume_wait: list[_RdsDataApiResuming] = []
         try:
             async with asyncio.timeout(timeout_seconds):
                 response = await self._call(
@@ -189,8 +238,16 @@ class RdsDataApiClient:
                     payload,
                     timeout_seconds=timeout_seconds,
                     transport_timeout_seconds=transport_timeout_seconds,
+                    resume_wait=resume_wait,
                 )
         except TimeoutError as error:
+            if resume_wait:
+                known = resume_wait[0]
+                raise RdsDataApiUnavailable(
+                    "RDS Data API database did not resume in time",
+                    service_error_code=known.service_error_code,
+                    http_status=known.http_status,
+                ) from error
             raise RdsDataApiUnavailable("RDS Data API request timed out") from error
         return decode_data_api_result(response)
 
@@ -219,6 +276,7 @@ class RdsDataApiClient:
         *,
         timeout_seconds: float | None = None,
         transport_timeout_seconds: float | None = None,
+        resume_wait: list[_RdsDataApiResuming] | None = None,
     ) -> dict[str, Any]:
         deadline = self._monotonic() + (
             self._resume_timeout_seconds if timeout_seconds is None else timeout_seconds
@@ -229,6 +287,8 @@ class RdsDataApiClient:
             if timeout_seconds is not None:
                 remaining_seconds = deadline - self._monotonic()
                 if remaining_seconds <= 0:
+                    if resume_wait:
+                        raise resume_wait[0]
                     raise RdsDataApiUnavailable("RDS Data API request timed out")
                 call_timeout_seconds = remaining_seconds
             if transport_timeout_seconds is not None:
@@ -236,6 +296,10 @@ class RdsDataApiClient:
                     self._timeout_seconds if call_timeout_seconds is None else call_timeout_seconds,
                     transport_timeout_seconds,
                 )
+            # Once another request is dispatched, its outcome is uncertain even
+            # if the preceding response explicitly said the database was resuming.
+            if resume_wait is not None:
+                resume_wait.clear()
             try:
                 # Only the identity caller opts into a shorter transport cap.
                 # A stalled/uncertain call is cancelled, never a resume retry.
@@ -246,10 +310,14 @@ class RdsDataApiClient:
                         operation, payload, timeout_seconds=call_timeout_seconds
                     )
             except _RdsDataApiResuming as error:
+                if resume_wait is not None:
+                    resume_wait.append(error)
                 remaining_seconds = deadline - self._monotonic()
                 if remaining_seconds <= 0:
                     raise RdsDataApiUnavailable(
-                        "RDS Data API database did not resume in time"
+                        "RDS Data API database did not resume in time",
+                        service_error_code=error.service_error_code,
+                        http_status=error.http_status,
                     ) from error
                 await self._sleep(min(delay_seconds, remaining_seconds))
                 delay_seconds = min(delay_seconds * 2, 4.0)
@@ -325,7 +393,11 @@ class RdsDataApiClient:
         error_type = error_type.split(":", 1)[0].rsplit("#", 1)[-1]
         message = str(decoded.get("message") or decoded.get("Message") or "")
         if error_type == "DatabaseResumingException":
-            raise _RdsDataApiResuming("RDS Data API database is resuming")
+            raise _RdsDataApiResuming(
+                "RDS Data API database is resuming",
+                service_error_code="DatabaseResumingException",
+                http_status=status_code,
+            )
         if error_type == "DatabaseErrorException" and re.search(
             r"(?:SQLSTATE|SQLState)\s*:?\s*23[0-9A-Z]{3}", message
         ):

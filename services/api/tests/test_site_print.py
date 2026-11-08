@@ -16,6 +16,7 @@ from opengeo_api.site_print import (
     MAX_PRINT_COMPOSITE_BITMAPS,
     SitePrintError,
     _PdfFontCatalog,
+    _decode_png,
     build_map_sheet_svg,
     build_print_page_png,
     build_print_pdf,
@@ -553,6 +554,89 @@ def test_pdf_embeds_searchable_unicode_and_png_rasterizes_the_same_text() -> Non
     assert_pdf_maps_text(pdf, title)
     assert title.encode("utf-8") in unicode_png
     assert unicode_png != ascii_png
+
+
+def test_canonical_text_composes_visual_glyphs_and_preserves_exact_logical_unicode() -> None:
+    publication, body = publication_with_snapshot()
+    logical = "Cafe\u0301 / \u1100\u1161"
+    composed = "Café / 가"
+
+    def with_text(value: str):
+        return replace(
+            publication,
+            site=replace(
+                publication.site,
+                pages=(replace(publication.site.pages[0], resource_title=logical),),
+                print_layout={
+                    "schemaVersion": "opengeo.print-layout.1.1.0",
+                    "pages": [
+                        {
+                            "sitePageSlug": "findings",
+                            "elements": [
+                                {
+                                    "id": "canonical",
+                                    "type": "text",
+                                    "x": 40,
+                                    "y": 40,
+                                    "width": 920,
+                                    "height": 300,
+                                    "rotation": 0,
+                                    "clip": True,
+                                    "text": value,
+                                    "style": "title",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ),
+        )
+
+    layout = layout_print_text(logical)
+    assert layout.logical == logical
+    assert layout.visual == composed
+    fonts = _PdfFontCatalog()
+    assert fonts.text_advance(logical) == fonts.text_advance(composed)
+    selected = with_text(logical)
+    pdf = build_print_pdf(selected, {MAP_RESOURCE_ID: body})
+    raster = build_print_page_png(selected, "findings", {MAP_RESOURCE_ID: body})
+    composed_raster = build_print_page_png(
+        with_text(composed), "findings", {MAP_RESOURCE_ID: body}
+    )
+    assert _decode_png(raster).rgb == _decode_png(composed_raster).rgb
+    encoded = logical.encode("utf-16-be").hex().upper().encode("ascii")
+    assert b"/ActualText <FEFF" + encoded + b">" in pdf
+    for cluster in ("e\u0301", "\u1100\u1161"):
+        cluster_hex = cluster.encode("utf-16-be").hex().upper().encode("ascii")
+        assert b"<" + cluster_hex + b">" in pdf  # exact logical ToUnicode clusters
+    assert logical.encode("utf-8") in raster
+    assert pdf == build_print_pdf(selected, {MAP_RESOURCE_ID: body})
+    assert raster == build_print_page_png(selected, "findings", {MAP_RESOURCE_ID: body})
+    empty_visual_pdf = build_print_pdf(with_text("\ufeff"), {MAP_RESOURCE_ID: body})
+    assert b"/ActualText <FEFFFEFF>" in empty_visual_pdf
+
+
+def test_canonical_text_reuses_cluster_glyphs_within_existing_bitmap_budget() -> None:
+    decomposed_fonts = _PdfFontCatalog()
+    composed_fonts = _PdfFontCatalog()
+    leading_marks = "\u0301\u0327"
+    for index in range(1_100):
+        logical = f"{leading_marks} Line {index:04d} Cafe\u0301 / \u1100\u1161\u11a8"
+        composed = f"\u0327\u0301 Line {index:04d} Café / 각"
+        for fonts, value in ((decomposed_fonts, logical), (composed_fonts, composed)):
+            layout = fonts.layout(value)
+            encoded = fonts.encode_layout(layout)
+            glyphs = [
+                fonts.banks[bank][code - 1]
+                for bank, codes in encoded
+                for code in codes
+            ]
+            assert "".join(glyph.unicode_text for glyph in glyphs) == value
+            assert layout.visual == composed
+        assert decomposed_fonts.text_advance(logical) == composed_fonts.text_advance(composed)
+    assert decomposed_fonts._composite_bitmaps == composed_fonts._composite_bitmaps
+    assert decomposed_fonts._composite_bitmaps < 64
+    assert decomposed_fonts._composite_bitmaps < MAX_PRINT_COMPOSITE_BITMAPS
 
 
 def test_pdf_and_png_share_bidi_order_and_arabic_shaping_with_logical_actual_text() -> None:

@@ -29,6 +29,8 @@ class PdfSemanticPreview:
     text_characters: int
     text_available: bool
     ocr: PdfOcrResult | None
+    text_extraction: str = "poppler_pdftotext"
+    reading_order: str = "heuristic"
 
 
 def extract_pdf_semantic_preview(
@@ -176,6 +178,10 @@ def extract_pdf_semantic_preview(
         text_characters,
         text_available,
         ocr,
+        "pypdf_tagged_actualtext" if tagged_text is not None else (
+            "poppler_pdftotext_tesseract" if ocr is not None else "poppler_pdftotext"
+        ),
+        "source-tags" if tagged_text is not None else "heuristic",
     )
 
 

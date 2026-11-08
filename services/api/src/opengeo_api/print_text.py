@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import cast
-from unicodedata import bidirectional, combining
+from unicodedata import bidirectional, combining, normalize
 
 from arabic_reshaper import ArabicReshaper  # type: ignore[import-untyped]
 from bidi import get_base_level, get_display  # type: ignore[import-untyped]
@@ -67,7 +67,8 @@ def layout_print_text(value: str) -> PrintTextLayout:
     if not value:
         return PrintTextLayout(logical="", visual="", base_direction="L", contains_rtl=False)
     try:
-        shaped = _ARABIC_RESHAPER.reshape(value)
+        # Compose visual glyphs while retaining exact authored text for extraction.
+        shaped = _ARABIC_RESHAPER.reshape(normalize("NFC", value))
         visual = cast(str, get_display(shaped))
         base_direction = "R" if get_base_level(value) == 1 else "L"
     except (KeyError, RuntimeError, ValueError) as error:
@@ -84,7 +85,7 @@ def layout_print_text(value: str) -> PrintTextLayout:
 
 
 def print_text_clusters(value: str) -> tuple[str, ...]:
-    """Return conservative clusters so wrapping does not split marks or joiner sequences."""
+    """Keep normalization-dependent marks, Hangul and joiner sequences together."""
 
     _validate_print_text(value)
     clusters: list[str] = []
@@ -93,7 +94,9 @@ def print_text_clusters(value: str) -> tuple[str, ...]:
         if not clusters:
             clusters.append(character)
         elif (
-            combining(character)
+            combining(normalize("NFD", character)[0])
+            or normalize("NFC", clusters[-1] + character)
+            != normalize("NFC", clusters[-1]) + normalize("NFC", character)
             or _is_variation_selector(character)
             or character
             in {

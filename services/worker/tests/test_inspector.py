@@ -534,6 +534,8 @@ class DocumentRunner:
             return CommandResult(self.javascript, "")
         if program == "pdfdetach":
             return CommandResult(f"{self.attachments} embedded files\n", "")
+        if program == "pdf-tagged-text":
+            return CommandResult('{"pages":null}', "")
         if program == "pdftotext":
             assert maximum_file_bytes == 1_048_576
             assert arguments[-1] == "-"
@@ -953,6 +955,36 @@ def test_media_source_limit_is_rechecked_inside_the_worker(tmp_path: Path) -> No
         DatasetInspector(settings(tmp_path), MediaRunner("PNG", (1, 1), 3), CleanScanner()).inspect(
             source, "png", tmp_path
         )
+
+
+def test_pdf_validated_tagged_method_reaches_version_facts_and_visual_preview(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.pdf"
+    source.write_bytes(pdf_bytes())
+    original = source.read_bytes()
+    monkeypatch.setattr(
+        "opengeo_worker.pdf_documents._validated_tagged_pages",
+        lambda *_: [["Authored first"], ["Authored second"]],
+    )
+    result = DatasetInspector(settings(tmp_path), DocumentRunner(), CleanScanner()).inspect(
+        source, "pdf", tmp_path
+    )
+    facts = result.schema_definition["document"]
+    assert facts["text_extraction"] == "pypdf_tagged_actualtext"
+    assert facts["reading_order"] == "source-tags"
+    assert facts["ocr_performed"] is False
+    assert facts["tagged"] is True and facts["text_available"] is True
+    assert source.read_bytes() == original
+    semantic = json.loads(result.artifacts[-2].path.read_text())
+    visual = json.loads(result.artifacts[-1].path.read_text())
+    assert semantic["extraction"]["readingOrder"] == facts["reading_order"]
+    assert semantic["extraction"]["engine"] == "pypdf"
+    assert visual["extraction"] == semantic["extraction"]
+    assert visual["rendering"]["engine"] == "poppler-pdftoppm"
+    assert {"code": "semantic_pdf_text_reading_order_is_heuristic"} not in (
+        result.quality_results["warnings"]
+    )
 
 
 def test_pdf_is_scanned_inspected_and_rendered_to_metadata_free_pngs(tmp_path: Path) -> None:

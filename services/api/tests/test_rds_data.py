@@ -445,6 +445,79 @@ def test_startup_principal_overall_deadline_cancels_without_transport_replay() -
     assert isinstance(caught.value.__cause__.__cause__, TimeoutError)
 
 
+def test_real_resume_backoff_expiry_preserves_known_provider_category() -> None:
+    config = settings().model_copy(
+        update={"readiness_timeout_seconds": 0.01, "principal_lookup_timeout_seconds": 0.04}
+    )
+    transport = FakeTransport([(400, {"x-amzn-errortype": "DatabaseResumingException"}, {})])
+    repository = RdsDataApiPrincipalRepository(
+        config, RdsDataApiClient(config, credentials=StaticCredentials(), transport=transport)
+    )
+    started = monotonic()
+    with pytest.raises(PrincipalBackendUnavailable) as caught:
+        asyncio.run(repository.resolve_for_startup("known-subject"))
+    assert monotonic() - started < 0.5
+    assert len(transport.calls) == 1
+    failure = caught.value.__cause__
+    assert isinstance(failure, RdsDataApiUnavailable)
+    assert failure.service_error_code == "DatabaseResumingException"
+    assert failure.http_status == 400
+    assert isinstance(failure.__cause__, TimeoutError)
+
+
+def test_resume_followed_by_uncertain_transport_keeps_timeout_without_replay() -> None:
+    calls = []
+    cancelled = []
+
+    class ResumeThenStall:
+        async def call(self, *args):
+            calls.append(args)
+            if len(calls) == 1:
+                return 400, {"x-amzn-errortype": "DatabaseResumingException"}, b"{}"
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+
+    async def immediate_sleep(delay):
+        await asyncio.sleep(0)
+
+    config = settings().model_copy(update={"principal_lookup_timeout_seconds": 0.04})
+    repository = RdsDataApiPrincipalRepository(config, RdsDataApiClient(
+        config, credentials=StaticCredentials(), transport=ResumeThenStall(), sleep=immediate_sleep
+    ))
+    with pytest.raises(PrincipalBackendUnavailable) as caught:
+        asyncio.run(repository.resolve_for_startup("known-subject"))
+    assert len(calls) == 2 and cancelled == [True]
+    failure = caught.value.__cause__
+    assert isinstance(failure, RdsDataApiUnavailable)
+    assert failure.service_error_code is None
+    assert isinstance(failure.__cause__, TimeoutError)
+
+
+def test_external_cancellation_during_known_resume_wait_propagates() -> None:
+    entered_wait = asyncio.Event()
+
+    async def wait(delay):
+        entered_wait.set()
+        await asyncio.Event().wait()
+
+    transport = FakeTransport([(400, {"x-amzn-errortype": "DatabaseResumingException"}, {})])
+    repository = RdsDataApiPrincipalRepository(settings(), RdsDataApiClient(
+        settings(), credentials=StaticCredentials(), transport=transport, sleep=wait
+    ))
+
+    async def exercise():
+        task = asyncio.create_task(repository.resolve_for_startup("known-subject"))
+        await entered_wait.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(exercise())
+    assert len(transport.calls) == 1
+
+
 def test_startup_principal_preserves_explicit_resume_backoff_inside_total_window() -> None:
     elapsed = 0.0
     sleeps = []

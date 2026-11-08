@@ -351,10 +351,8 @@ class DatasetInspector:
             "preview_width": preview_width,
             "preview_height": preview_height,
             "accessible_preview_schema": semantic_preview.schema,
-            "text_extraction": (
-                "poppler_pdftotext_tesseract" if ocr is not None else "poppler_pdftotext"
-            ),
-            "reading_order": "heuristic",
+            "text_extraction": semantic_preview.text_extraction,
+            "reading_order": semantic_preview.reading_order,
             "ocr_performed": ocr is not None,
             "tagged": fields.get("Tagged") == "yes",
             "text_available": semantic_preview.text_available,
@@ -382,8 +380,9 @@ class DatasetInspector:
         warnings = [
             {"code": "public_original_is_attachment_only"},
             {"code": "visual_presentation_is_bounded_lossy_raster"},
-            {"code": "semantic_pdf_text_reading_order_is_heuristic"},
         ]
+        if semantic_preview.reading_order == "heuristic":
+            warnings.append({"code": "semantic_pdf_text_reading_order_is_heuristic"})
         if ocr is None:
             warnings.append({"code": "ocr_not_performed"})
         else:

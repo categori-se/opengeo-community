@@ -170,6 +170,15 @@ class PdfDocumentExtractionResponse(RequestModel):
     text_available: bool = Field(alias="textAvailable")
 
 
+class TaggedPdfDocumentExtractionResponse(RequestModel):
+    engine: Literal["pypdf"]
+    mode: Literal["tagged-actualtext"]
+    ocr_performed: Literal[False] = Field(alias="ocrPerformed")
+    reading_order: Literal["source-tags"] = Field(alias="readingOrder")
+    tagged: Literal[True]
+    text_available: Literal[True] = Field(alias="textAvailable")
+
+
 class PdfDocumentPreviewResponse(RequestModel):
     schema_version: Literal["opengeo.document-preview.2.0.0"] = Field(alias="schemaVersion")
     source_format: Literal["pdf"] = Field(alias="sourceFormat")
@@ -178,7 +187,10 @@ class PdfDocumentPreviewResponse(RequestModel):
     )
     title: str | None
     language: str | None
-    extraction: PdfDocumentExtractionResponse
+    extraction: Annotated[
+        PdfDocumentExtractionResponse | TaggedPdfDocumentExtractionResponse,
+        Field(discriminator="engine"),
+    ]
     pages: list[DocumentPreviewPageResponse]
 
 

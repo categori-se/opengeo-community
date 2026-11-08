@@ -113,12 +113,28 @@ class _PdfFontCatalog:
         return identifier
 
     def encode_layout(self, layout: PrintTextLayout) -> tuple[tuple[int, bytes], ...]:
+        if not layout.visual:
+            return ()
         if layout.contains_rtl:
             bank, code = self._location(layout.logical, layout.visual)
             return ((bank, bytes((code,))),)
+        pairs = (
+            tuple(
+                (cluster, self.layout(cluster).visual)
+                for cluster in _print_text_clusters(layout.logical)
+            )
+            if layout.logical != layout.visual
+            else tuple((character, character) for character in layout.visual)
+        )
+        if "".join(visual for _, visual in pairs) != layout.visual:
+            # Cross-cluster bidi reordering needs the existing whole-run mapping.
+            bank, code = self._location(layout.logical, layout.visual)
+            return ((bank, bytes((code,))),)
         runs: list[tuple[int, bytearray]] = []
-        for character in layout.visual:
-            bank, code = self._location(character, character)
+        for logical, visual in pairs:
+            if not visual:
+                continue
+            bank, code = self._location(logical, visual)
             if not runs or runs[-1][0] != bank:
                 runs.append((bank, bytearray()))
             runs[-1][1].append(code)
