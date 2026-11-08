@@ -502,6 +502,29 @@ def test_authorized_document_preview_is_exactly_read_reauthorized_and_strictly_p
     assert len(reauthorize.calls) == 2
 
 
+def test_tagged_pdf_preview_target_keeps_exact_read_reauthorization_and_fact_branch() -> None:
+    prepare = FakeTransaction(one=[access("viewer")], all_rows=[[preview_target_row()]])
+    reauthorize = FakeTransaction(one=[access("viewer")], all_rows=[[preview_target_row()]])
+    document = pdf_preview_document()
+    document["extraction"].update({
+        "engine": "pypdf", "mode": "tagged-actualtext", "readingOrder": "source-tags",
+    })
+    storage = FakeStorage(json.dumps(document).encode())
+    repository = PostgresCatalogRepository(FakeExecutor([prepare, reauthorize]), storage)
+    preview = asyncio.run(
+        repository.get_document_preview(context(), PROJECT_ID, DATASET_ID, VERSION_ID)
+    )
+    assert preview == document
+    query = " ".join(next(call for call in prepare.calls if call[0] == "all")[1].split())
+    assert "'pypdf_tagged_actualtext'" in query and "'source-tags'" in query
+    assert "'{document,tagged}' = 'true'::jsonb" in query
+    assert "'{document,text_available}' = 'true'::jsonb" in query
+    assert "'{document,ocr_performed}' = 'false'::jsonb" in query
+    assert "object.role = 'derived'" in query
+    assert storage.specs[0].version_id == "s3-version-preview"
+    assert len(reauthorize.calls) == 2
+
+
 def test_mapinfo_authorized_spatial_preview_reads_one_exact_validated_derivative() -> None:
     prepare = FakeTransaction(one=[access("viewer")], all_rows=[[spatial_preview_target_row()]])
     reauthorize = FakeTransaction(one=[access("viewer")], all_rows=[[spatial_preview_target_row()]])

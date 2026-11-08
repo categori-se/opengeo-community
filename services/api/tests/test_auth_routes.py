@@ -243,10 +243,28 @@ def test_session_startup_failure_uses_existing_sanitized_mapping(capsys) -> None
     )
     assert response.status_code == 503
     assert response.json() == {"detail": "identity_store_unavailable"}
+    assert "retry-after" not in response.headers
     logs = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
     record = next(row for row in logs if row["event"] == "principal.unavailable")
     assert record["cause_type"] == "TimeoutError"
     assert "sensitive" not in json.dumps(logs)
+
+
+def test_session_known_resume_keeps_public_body_and_advertises_bounded_retry() -> None:
+    class ResumingStartupRepository(FakeRepository):
+        async def resolve_for_startup(self, subject):
+            raise PrincipalBackendUnavailable("lookup failed") from RdsDataApiUnavailable(
+                "provider text stays private", service_error_code="DatabaseResumingException",
+                http_status=400,
+            )
+
+    response = client(ResumingStartupRepository(principal())).get(
+        "/auth/session", headers=auth_headers()
+    )
+    assert response.status_code == 503
+    assert response.content == b'{"detail":"identity_store_unavailable"}'
+    assert len(response.content) == 39
+    assert response.headers["retry-after"] == "2"
 
 
 def test_principal_failure_logs_cause_type_without_sensitive_exception_text(caplog) -> None:

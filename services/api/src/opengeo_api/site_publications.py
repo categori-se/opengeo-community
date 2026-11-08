@@ -2119,7 +2119,6 @@ class PostgresSitePublicationRepository:
             dataset_format == "pdf"
             and document.get("kind") == "pdf"
             and document.get("source_format") == "pdf"
-            and document.get("reading_order") == "heuristic"
             and isinstance(document.get("tagged"), bool)
             and isinstance(document.get("text_available"), bool)
             and isinstance(document.get("text_block_count"), int)
@@ -2134,10 +2133,21 @@ class PostgresSitePublicationRepository:
         legacy_pdf_facts = (
             document.get("accessible_preview_schema") == PDF_DOCUMENT_PREVIEW_SCHEMA
             and document.get("text_extraction") == "poppler_pdftotext"
+            and document.get("reading_order") == "heuristic"
             and document.get("ocr_performed") is False
         )
+        tagged_pdf_facts = (
+            document.get("accessible_preview_schema") == PDF_DOCUMENT_PREVIEW_SCHEMA
+            and document.get("text_extraction") == "pypdf_tagged_actualtext"
+            and document.get("reading_order") == "source-tags"
+            and document.get("ocr_performed") is False
+            and document.get("tagged") is True
+            and document.get("text_available") is True
+            and type(document.get("text_block_count")) is int
+            and cast(int, document["text_block_count"]) > 0
+        )
         ocr_pdf_facts = PostgresSitePublicationRepository._pdf_ocr_facts_valid(document)
-        if not pdf_common_facts or not (legacy_pdf_facts or ocr_pdf_facts):
+        if not pdf_common_facts or not (legacy_pdf_facts or tagged_pdf_facts or ocr_pdf_facts):
             return False
         if object_key.endswith("/document/accessible-preview.json"):
             return True
@@ -2176,6 +2186,7 @@ class PostgresSitePublicationRepository:
         return (
             document.get("accessible_preview_schema") == PDF_OCR_DOCUMENT_PREVIEW_SCHEMA
             and document.get("text_extraction") == "poppler_pdftotext_tesseract"
+            and document.get("reading_order") == "heuristic"
             and document.get("ocr_performed") is True
             and document.get("ocr_engine") == "tesseract"
             and isinstance(document.get("ocr_engine_version"), str)

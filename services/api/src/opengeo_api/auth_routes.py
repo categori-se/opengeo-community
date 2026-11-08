@@ -19,6 +19,7 @@ from opengeo_api.auth_tokens import (
     TokenVerifier,
 )
 from opengeo_api.principals import PrincipalBackendUnavailable, PrincipalRepository
+from opengeo_api.rds_data import RdsDataApiUnavailable
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["authentication"])
@@ -105,6 +106,7 @@ async def _resolve_principal(
         principal = await resolver(token.subject)
     except PrincipalBackendUnavailable as error:
         cause = error.__cause__
+        data_api_error = cause if isinstance(cause, RdsDataApiUnavailable) else None
         if cause is not None and cause.__cause__ is not None:
             cause = cause.__cause__
         logger.error(
@@ -117,6 +119,13 @@ async def _resolve_principal(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="identity_store_unavailable",
+            headers=(
+                {"Retry-After": "2"}
+                if startup
+                and data_api_error is not None
+                and data_api_error.service_error_code == "DatabaseResumingException"
+                else None
+            ),
         ) from error
     if principal is None:
         raise HTTPException(

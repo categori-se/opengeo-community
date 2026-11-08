@@ -5770,8 +5770,12 @@ export class OpenGeoApiClient {
           catch { return first; }
           if (detail !== "identity_store_unavailable") return first;
           // A paused metadata store can recover while the existing login stays valid.
-          // Keep one shared retry, without adding delay after a slow server response.
-          const delay = Math.max(0, 2000 - (performance.now() - started));
+          // Keep one shared retry, honoring a short server-directed resume wait.
+          const retryAfter = first.headers.get("retry-after");
+          const retryAfterSeconds = retryAfter !== null && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
+          const delay = retryAfterSeconds > 0 && retryAfterSeconds <= 5
+            ? retryAfterSeconds * 1000
+            : Math.max(0, 2000 - (performance.now() - started));
           if (delay > 0) await new Promise((resolve, reject) => {
             requestSignal.throwIfAborted();
             const abort = () => {

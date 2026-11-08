@@ -216,6 +216,9 @@ describe("0025 portable site publications", () => {
       if (file === "0035_public_pdf_ocr_documents.sql") publicPdfOcrMigration = sql;
       await db.exec(sql);
     }
+    await db.exec(await readFile(new URL(
+      "../migrations/0187_tagged_pdf_publication_facts.sql", import.meta.url
+    ), "utf8"));
     await db.exec(`
       INSERT INTO app.users (id, cognito_subject, email, display_name)
       VALUES
@@ -665,6 +668,39 @@ describe("0025 portable site publications", () => {
       ...facts,
       visual_presentation_schema: "opengeo.pdf-visual-presentation.1.0.0"
     }, "x/document/visual-presentation.json"), false);
+  });
+
+  it("admits only exact tagged semantic facts through the forward PDF seal guard", async () => {
+    const facts = {
+      kind: "pdf", source_format: "pdf",
+      accessible_preview_schema: "opengeo.document-preview.2.0.0",
+      text_extraction: "pypdf_tagged_actualtext", reading_order: "source-tags",
+      ocr_performed: false, tagged: true, text_available: true,
+      text_block_count: 2, text_characters: 42,
+      page_count: 1, visual_page_count: 1,
+      visual_presentation_schema: "opengeo.pdf-visual-presentation.1.0.0",
+      visual_renderer: "poppler_pdftoppm", visual_media_type: "image/jpeg",
+      visual_annotations_hidden: true, visual_target_max_dimension: 1000,
+      visual_total_pixels: 10000, visual_total_image_bytes: 1000
+    };
+    const valid = async (document, key = "x/document/accessible-preview.json") => {
+      const result = await db.query(
+        "SELECT app.pdf_document_publication_facts_valid_v1($1::jsonb,$2::text,$3::bigint) AS valid",
+        [JSON.stringify({document}), key, 8192]
+      );
+      return result.rows[0].valid;
+    };
+    assert.equal(await valid(facts), true);
+    assert.equal(await valid(facts, "x/document/visual-presentation.json"), true);
+    assert.equal(await valid({...facts, text_extraction: "poppler_pdftotext", reading_order: "heuristic"}), true);
+    for (const change of [
+      {text_extraction: "poppler_pdftotext"}, {reading_order: "heuristic"},
+      {ocr_performed: true}, {ocr_performed: "false"}, {tagged: false}, {tagged: "true"},
+      {text_available: false}, {text_block_count: 0}, {text_block_count: "2"},
+      {accessible_preview_schema: "opengeo.document-preview.3.0.0"}
+    ]) assert.equal(await valid({...facts, ...change}), false);
+    assert.equal(await valid(facts, "x/source.pdf"), false);
+    assert.equal(await valid({...facts, visual_renderer: "untrusted"}, "x/document/visual-presentation.json"), false);
   });
 
   it("keeps tenant rows invisible outside their organization", async () => {

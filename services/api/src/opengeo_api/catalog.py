@@ -827,16 +827,32 @@ class PostgresCatalogRepository:
                   dataset.format::text = 'pdf'
                   AND version.schema_definition #>> '{document,kind}' = 'pdf'
                   AND version.schema_definition #>> '{document,source_format}' = 'pdf'
-                  AND version.schema_definition #>> '{document,reading_order}' = 'heuristic'
                   AND (
                     (
-                      version.schema_definition #>> '{document,text_extraction}' =
-                        'poppler_pdftotext'
-                      AND version.schema_definition #>> '{document,ocr_performed}' = 'false'
+                      version.schema_definition #>> '{document,ocr_performed}' = 'false'
                       AND version.schema_definition #>> '{document,accessible_preview_schema}' = %s
+                      AND (
+                        (
+                          version.schema_definition #>> '{document,text_extraction}' =
+                            'poppler_pdftotext'
+                          AND version.schema_definition #>> '{document,reading_order}' =
+                            'heuristic'
+                        ) OR (
+                          version.schema_definition #>> '{document,text_extraction}' =
+                            'pypdf_tagged_actualtext'
+                          AND version.schema_definition #>> '{document,reading_order}' =
+                            'source-tags'
+                          AND version.schema_definition #> '{document,ocr_performed}' =
+                            'false'::jsonb
+                          AND version.schema_definition #> '{document,tagged}' = 'true'::jsonb
+                          AND version.schema_definition #> '{document,text_available}' =
+                            'true'::jsonb
+                        )
+                      )
                     ) OR (
                       version.schema_definition #>> '{document,text_extraction}' =
                         'poppler_pdftotext_tesseract'
+                      AND version.schema_definition #>> '{document,reading_order}' = 'heuristic'
                       AND version.schema_definition #>> '{document,ocr_performed}' = 'true'
                       AND version.schema_definition #>> '{document,accessible_preview_schema}' = %s
                     )
