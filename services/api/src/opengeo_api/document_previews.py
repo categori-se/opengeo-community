@@ -323,8 +323,7 @@ def _pdf_extraction_valid(value: object, schema: object) -> bool:
     if not isinstance(value, dict):
         return False
     common_valid = (
-        value.get("readingOrder") == "heuristic"
-        and isinstance(value.get("tagged"), bool)
+        isinstance(value.get("tagged"), bool)
         and isinstance(value.get("textAvailable"), bool)
     )
     if not common_valid:
@@ -340,9 +339,21 @@ def _pdf_extraction_valid(value: object, schema: object) -> bool:
                 "tagged",
                 "textAvailable",
             }
-            and value.get("engine") == "poppler-pdftotext"
-            and value.get("mode") == "layout"
             and value.get("ocrPerformed") is False
+            and (
+                (
+                    value.get("engine") == "poppler-pdftotext"
+                    and value.get("mode") == "layout"
+                    and value.get("readingOrder") == "heuristic"
+                )
+                or (
+                    value.get("engine") == "pypdf"
+                    and value.get("mode") == "tagged-actualtext"
+                    and value.get("readingOrder") == "source-tags"
+                    and value.get("tagged") is True
+                    and value.get("textAvailable") is True
+                )
+            )
         )
     ocr_pages = value.get("ocrPages")
     return (
@@ -366,6 +377,7 @@ def _pdf_extraction_valid(value: object, schema: object) -> bool:
         }
         and value.get("engine") == "poppler-pdftotext+tesseract"
         and value.get("mode") == "layout+page-ocr"
+        and value.get("readingOrder") == "heuristic"
         and value.get("ocrPerformed") is True
         and value.get("ocrEngine") == "tesseract"
         and isinstance(value.get("ocrEngineVersion"), str)

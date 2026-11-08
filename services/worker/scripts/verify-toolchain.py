@@ -17,6 +17,7 @@ PYTHON_MODULES = (
     "geopandas",
     "psycopg",
     "pyarrow",
+    "pypdf",
     "rasterio",
     "rio_cogeo",
     "shapely",

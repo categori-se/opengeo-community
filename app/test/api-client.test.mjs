@@ -4065,6 +4065,23 @@ describe("OpenGeo API client", () => {
     });
     assert.equal(pdf.pages.length, 2);
     assert.equal(pdf.extraction.ocrPerformed, false);
+    const taggedPdf = {
+      ...pdf,
+      extraction: {
+        engine: "pypdf", mode: "tagged-actualtext", ocrPerformed: false,
+        readingOrder: "source-tags", tagged: true, textAvailable: true
+      }
+    };
+    assert.deepEqual(parseDocumentPreview(taggedPdf), taggedPdf);
+    for (const change of [
+      {tagged: false}, {textAvailable: false}, {ocrPerformed: true},
+      {engine: "poppler-pdftotext"}, {mode: "layout"}, {readingOrder: "heuristic"}
+    ]) {
+      assert.throws(
+        () => parseDocumentPreview({...taggedPdf, extraction: {...taggedPdf.extraction, ...change}}),
+        ApiContractError
+      );
+    }
     assert.throws(
       () => parseDocumentPreview({
         ...pdf,
@@ -4110,6 +4127,12 @@ describe("OpenGeo API client", () => {
     });
     assert.equal(ocrPdf.pages[1].textSource, "ocr");
     assert.equal(ocrPdf.extraction.ocrPageLimit, 32);
+    assert.throws(
+      () => parseDocumentPreview({
+        ...ocrPdf, extraction: {...ocrPdf.extraction, readingOrder: "source-tags"}
+      }),
+      ApiContractError
+    );
     assert.throws(
       () => parseDocumentPreview({
         ...ocrPdf,

@@ -573,6 +573,35 @@ def test_pdf_preview_parser_accepts_all_pages_and_rejects_forged_extraction_fact
         PostgresCatalogRepository._parse_document_preview(json.dumps(document).encode())
 
 
+def test_pdf_source_tags_parser_requires_validated_non_ocr_extraction_facts() -> None:
+    document = pdf_preview_document()
+    document["extraction"] = {
+        "engine": "pypdf",
+        "mode": "tagged-actualtext",
+        "ocrPerformed": False,
+        "readingOrder": "source-tags",
+        "tagged": True,
+        "textAvailable": True,
+    }
+    parsed = PostgresCatalogRepository._parse_document_preview(json.dumps(document).encode())
+    assert parsed == document
+    for changed in (
+        {"tagged": False},
+        {"textAvailable": False},
+        {"ocrPerformed": True},
+        {"engine": "poppler-pdftotext"},
+        {"mode": "layout"},
+        {"readingOrder": "heuristic"},
+    ):
+        forged = {**document, "extraction": {**document["extraction"], **changed}}
+        with pytest.raises(CatalogConflict, match="document_preview_invalid"):
+            PostgresCatalogRepository._parse_document_preview(json.dumps(forged).encode())
+    ocr_document = pdf_ocr_preview_document()
+    ocr_document["extraction"]["readingOrder"] = "source-tags"
+    with pytest.raises(CatalogConflict, match="document_preview_invalid"):
+        PostgresCatalogRepository._parse_document_preview(json.dumps(ocr_document).encode())
+
+
 def test_pdf_ocr_preview_parser_seals_bounded_page_provenance() -> None:
     document = pdf_ocr_preview_document()
 

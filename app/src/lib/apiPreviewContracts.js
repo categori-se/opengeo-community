@@ -390,13 +390,18 @@ export function parseDocumentPreview(value) {
         textAvailable: boolean(extraction.textAvailable, "PDF text availability")
       };
     } else {
+      const sourceTags = extraction.readingOrder === "source-tags";
       parsedExtraction = {
-        engine: oneOf(extraction.engine, ["poppler-pdftotext"], "PDF extraction engine"),
-        mode: oneOf(extraction.mode, ["layout"], "PDF extraction mode"),
+        engine: oneOf(extraction.engine, [sourceTags ? "pypdf" : "poppler-pdftotext"], "PDF extraction engine"),
+        mode: oneOf(extraction.mode, [sourceTags ? "tagged-actualtext" : "layout"], "PDF extraction mode"),
         ocrPerformed: oneOf(extraction.ocrPerformed, [false], "PDF OCR state"),
-        readingOrder: oneOf(extraction.readingOrder, ["heuristic"], "PDF reading order"),
-        tagged: boolean(extraction.tagged, "PDF tagged state"),
-        textAvailable: boolean(extraction.textAvailable, "PDF text availability")
+        readingOrder: oneOf(extraction.readingOrder, ["heuristic", "source-tags"], "PDF reading order"),
+        tagged: sourceTags
+          ? oneOf(extraction.tagged, [true], "PDF tagged state")
+          : boolean(extraction.tagged, "PDF tagged state"),
+        textAvailable: sourceTags
+          ? oneOf(extraction.textAvailable, [true], "PDF text availability")
+          : boolean(extraction.textAvailable, "PDF text availability")
       };
     }
     let rendering;

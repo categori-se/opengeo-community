@@ -1,6 +1,7 @@
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -45,6 +46,7 @@ class CommandRunner:
                 "pdfinfo": "/usr/bin/pdfinfo",
                 "pdftoppm": "/usr/bin/pdftoppm",
                 "pdftotext": "/usr/bin/pdftotext",
+                "pdf-tagged-text": sys.executable,
                 "tesseract": "/usr/bin/tesseract",
             }
         )

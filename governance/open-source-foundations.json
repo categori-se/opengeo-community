@@ -769,6 +769,24 @@
     },
     {
       "ecosystem": "pypi",
+      "name": "pypdf",
+      "version": "7.0.0",
+      "dependencyKind": "runtime",
+      "usedBy": [
+        "services/worker/pyproject.toml"
+      ],
+      "purpose": "Validated source-tag ActualText ordering for bounded imported PDF previews in isolated workers.",
+      "licenseExpression": "BSD-3-Clause",
+      "sourceUrl": "https://github.com/py-pdf/pypdf",
+      "licenseEvidence": {
+        "kind": "package-metadata",
+        "url": "https://pypi.org/project/pypdf/7.0.0/",
+        "reviewedAt": "2026-11-08"
+      },
+      "notes": "Exact pure-Python wheel SHA-256 112a2c7cbabefd8dfe498f7a13977e575e762d58cdb0d832acb8886922602c6f; BSD license verified from the wheel. No listed PyPI advisories at qualification; release security scanning remains required. Does not establish PDF/UA, OCR accuracy or universal tagged-PDF support."
+    },
+    {
+      "ecosystem": "pypi",
       "name": "rasterio",
       "version": "1.5.0",
       "dependencyKind": "runtime",
