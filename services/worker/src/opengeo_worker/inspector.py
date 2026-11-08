@@ -25,6 +25,8 @@ from opengeo_worker.pdf_presentations import (
     PRESENTATION_CONTENT_TYPE as PDF_PRESENTATION_CONTENT_TYPE,
 )
 from opengeo_worker.pdf_presentations import build_pdf_visual_presentation
+from opengeo_worker.pdf_print_vectors import SCHEMA as PDF_PRINT_VECTOR_SCHEMA
+from opengeo_worker.pdf_print_vectors import build_pdf_print_vectors
 from opengeo_worker.working_counts import working_count_evidence
 
 _EXPECTED_VECTOR_DRIVER: dict[DatasetFormat, str] = {
@@ -340,6 +342,12 @@ class DatasetInspector:
             page_count=page_count,
         )
 
+        print_vectors, print_vector_facts = build_pdf_print_vectors(
+            source,
+            workdir,
+            self._runner,
+            page_count=page_count,
+        )
         ocr = semantic_preview.ocr
         document_definition: dict[str, object] = {
             "kind": "pdf",
@@ -366,6 +374,9 @@ class DatasetInspector:
             "visual_target_max_dimension": visual_presentation.target_maximum_dimension,
             "visual_total_pixels": visual_presentation.total_pixels,
             "visual_total_image_bytes": visual_presentation.total_image_bytes,
+            "print_vector_available": print_vectors is not None,
+            "print_vector_schema": PDF_PRINT_VECTOR_SCHEMA,
+            "print_vector_facts": print_vector_facts,
         }
         checks = [
             {"code": "format_verified", "status": "passed"},
@@ -381,6 +392,10 @@ class DatasetInspector:
             {"code": "public_original_is_attachment_only"},
             {"code": "visual_presentation_is_bounded_lossy_raster"},
         ]
+        if print_vectors is None:
+            warnings.append({"code": "print_vector_unavailable_unsupported_or_bounded"})
+        else:
+            checks.append({"code": "bounded_safe_vector_pdf_prepared", "status": "passed"})
         if semantic_preview.reading_order == "heuristic":
             warnings.append({"code": "semantic_pdf_text_reading_order_is_heuristic"})
         if ocr is None:
@@ -417,6 +432,18 @@ class DatasetInspector:
                 "warnings": warnings,
             },
             artifacts=(
+                (
+                    ArtifactFile(
+                        "derived",
+                        "document/print-vector.pdf",
+                        "application/pdf",
+                        print_vectors,
+                    ),
+                )
+                if print_vectors is not None
+                else ()
+            )
+            + (
                 ArtifactFile(
                     "derived",
                     "document/preview-page-1.png",

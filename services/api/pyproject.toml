@@ -12,6 +12,7 @@ dependencies = [
   "pydantic-settings==2.15.0",
   "PyJWT[crypto]==2.14.0",
   "python-bidi==0.6.11",
+  "pypdf==7.0.0",
   "pygeofilter==0.4.0",
   "uvicorn==0.52.3"
 ]

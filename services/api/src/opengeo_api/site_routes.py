@@ -1,6 +1,6 @@
 import logging
 import re
-from asyncio import gather
+from asyncio import gather, to_thread
 from base64 import b64encode
 from collections.abc import Awaitable
 from hashlib import sha256
@@ -1460,9 +1460,11 @@ async def _print_response(
     download_storage: DownloadStorage,
 ) -> Response:
     images = await _snapshot_images(publication, organization_id, repository, render_repository)
-    assets = await _print_asset_images(publication, organization_id, repository, download_storage)
+    assets = await _print_asset_images(
+        publication, organization_id, repository, download_storage, include_vector_documents=True
+    )
     try:
-        document = build_print_pdf(publication, images, assets)
+        document = await to_thread(build_print_pdf, publication, images, assets)
     except SitePrintError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     checksum = sha256(document).hexdigest()
@@ -1670,21 +1672,89 @@ async def _print_asset_images(
     organization_id: UUID,
     repository: SitePublicationRepository,
     download_storage: DownloadStorage,
+    *,
+    include_vector_documents: bool = False,
 ) -> dict[UUID, bytes]:
-    assets = tuple(asset for asset in publication.assets if asset.kind == "image")
+    referenced_files: set[str] = set()
+    if include_vector_documents:
+        for page in publication.site.pages:
+            blocks = page.resource_content.get("blocks")
+            if isinstance(blocks, list):
+                referenced_files.update(
+                    str(block.get("object_id"))
+                    for block in blocks
+                    if isinstance(block, dict) and block.get("type") in {"file", "document"}
+                )
+    # Key each PDF body by the authored source block identity. Only companions
+    # explicitly sealed into this edition may replace that source in print.
+    selected: list[tuple[PublishedSiteAsset, PublishedSiteAsset]] = []
+    for parent in publication.assets:
+        if parent.kind == "image":
+            selected.append((parent, parent))
+        elif include_vector_documents and str(parent.object_id) in referenced_files:
+            asset = parent.print_document or parent
+            if (
+                asset.kind == "file"
+                and asset.content_type == "application/pdf"
+                and asset.object_key.endswith("/document/print-vector.pdf")
+            ):
+                selected.append((parent, asset))
+    # Bound both logical document uses and actual storage bytes before retrieval.
+    vector_assets = tuple(asset for _parent, asset in selected if asset.kind == "file")
+    if (
+        len(vector_assets) > 200
+        or any(not 0 < asset.size_bytes <= 4 * 1024 * 1024 for asset in vector_assets)
+        or sum(asset.size_bytes for asset in vector_assets) > 16 * 1024 * 1024
+    ):
+        raise HTTPException(status_code=422, detail="pdf_print_document_limit")
+    # A source PDF and its semantic block can share one sealed prepared object.
+    # Reuse that read; each source relationship is still checked after retrieval.
+    reads: dict[UUID, PublishedSiteAsset] = {}
+    for _parent, asset in selected:
+        previous = reads.get(asset.object_id)
+        if previous is not None and previous != asset:
+            raise HTTPException(status_code=404, detail="site_asset_not_found")
+        reads[asset.object_id] = asset
     outputs = await gather(
         *(
-            _read_site_asset(
-                publication,
-                asset,
-                organization_id,
-                repository,
-                download_storage,
+            execute_public_asset(
+                download_storage.read_exact_object(
+                    ExactObjectSpec(
+                        bucket=asset.bucket,
+                        key=asset.object_key,
+                        version_id=asset.storage_version_id,
+                        content_type=asset.content_type,
+                        size_bytes=asset.size_bytes,
+                        checksum_sha256=asset.checksum_sha256,
+                        maximum_bytes=MAX_SITE_ASSET_BYTES,
+                    )
+                )
             )
-            for asset in assets
+            for asset in reads.values()
         )
     )
-    return {asset.object_id: output.body for asset, output in zip(assets, outputs, strict=True)}
+    bodies = dict(zip(reads, outputs, strict=True))
+    checked = (
+        await execute_public_site(
+            repository.get_public_site(
+                public_tenant_context(organization_id),
+                publication.site.project_id,
+                edition_id=publication.edition.edition_id,
+            )
+        )
+        if selected
+        else publication
+    )
+    checked_assets = {asset.object_id: asset for asset in checked.assets}
+    for parent, asset in selected:
+        checked_parent = checked_assets.get(parent.object_id)
+        if (
+            checked_parent is None
+            or checked_parent != parent
+            or (parent.print_document is not None and checked_parent.print_document != asset)
+        ):
+            raise HTTPException(status_code=404, detail="site_asset_not_found")
+    return {parent.object_id: bodies[asset.object_id].body for parent, asset in selected}
 
 
 async def _read_site_asset(

@@ -2,6 +2,33 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Imported PDF pages — November 8, 2026
+
+A local increment keeps source fonts, vector paths, selectable text, crop and
+rotation when printing processed PDFs. New editions bind prepared pages from the
+same exact dataset/version to ordinary PDF file and document blocks. Users keep
+the original block and resource identity. Flowing exports insert source pages at
+the block position; positioned layouts append them after that sheet. Direct
+selection of `print-vector.pdf` through the governed asset picker also works.
+Original source bytes and existing edition seals remain unchanged. This section describes locally verified source behavior; hosted deployment
+remains open.
+
+Preparation retains the existing source safety checks, strips inert annotations
+and refuses active content. Exports read only explicitly sealed object versions,
+check size/checksum and recheck access and the complete source/companion binding
+after retrieval. Shared companions use one storage read. Parsing remains isolated
+and bounded. Supported ActualText tags retain source roles and page relationships;
+general spanning tag trees remain unsupported.
+
+Sixteen affected local cases and strict type checks on five changed modules pass,
+including normal file/document binding, exact manifest readback, shared reads,
+drift, revocation and limits before storage reads. Earlier Poppler text extraction
+and identical source/composed rendering evidence is retained. Formatting, lint and
+the dependency inventory pass. Earlier imports without prepared pages need
+deliberate processing; old editions are not rebound. Hosted ingestion/publication,
+release checks and wider typography/OCR/Office/native/accessibility/scale
+requirements remain open. Full Print parity is not established.
+
 ## Saved 3D framing — November 2, 2026
 
 Print Studio can capture the existing MapLibre globe and perspective views.
