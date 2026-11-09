@@ -14,6 +14,32 @@ import {
 } from "../src/lib/managedUpload.js";
 
 describe("governed local-file ingestion", () => {
+  it("uploads a Word document with its exact original bytes and document MIME type", async () => {
+    const contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const file = namedBlob("exact DOCX original bytes", "field-report.DOCX", contentType);
+    assert.equal(inferManagedFormat(file.name), "docx");
+    assert.ok(MANAGED_FILE_ACCEPT.includes(".docx"));
+    const calls = [];
+    await ingestManagedFile({projectId: "project", file, adapter: {
+      async requestUpload(projectId, metadata) {
+        calls.push("request");
+        assert.equal(projectId, "project");
+        assert.equal(metadata.format, "docx");
+        assert.equal(metadata.contentType, contentType);
+        assert.equal(metadata.filename, file.name);
+        assert.equal(metadata.checksumSha256, createHash("sha256")
+          .update(Buffer.from(await file.arrayBuffer())).digest("hex"));
+        return {uploadId: "upload", expiresAt: "2099-01-01T00:00:00Z", upload: {}};
+      },
+      async uploadFile(_ticket, original) {calls.push("upload"); assert.equal(original, file);},
+      async completeUpload() {calls.push("complete"); return {dataset: {name: "Field report"}, versionNumber: 1};}
+    }});
+    assert.deepEqual(calls, ["request", "upload", "complete"]);
+    for (const filename of ["field-report.doc", "field-report.docm", "field-report.zip"]) {
+      assert.throws(() => validateManagedUpload({file: namedBlob("bytes", filename),
+        name: "Field report", format: "docx"}), /http_422/);
+    }
+  });
   it("admits MapInfo ZIP explicitly while ZIP inference remains Shapefile and preserves original bytes", async () => {
     const file = namedBlob("MapInfo original archive bytes", "survey.ZIP", "application/zip");
     assert.equal(inferManagedFormat(file.name), "shapefile");

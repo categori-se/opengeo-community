@@ -1,4 +1,4 @@
-"""One-shot original-layout ODT rendering, after the ordinary source safety gates.
+"""One-shot original-layout Writer rendering, after the ordinary source safety gates.
 
 The semantic preview and original package stay intact. Only the derived PDF
 enters the existing safe-vector preparation path. No office service is started.
@@ -16,11 +16,14 @@ import tempfile
 import zipfile
 import zlib
 from pathlib import Path
+from typing import Literal
 from xml.dom import minidom
 from xml.dom.minidom import Element
 from xml.parsers.expat import ExpatError
 
 from opengeo_worker.command_runner import CommandRunner
+from opengeo_worker.docx_documents import HYPERLINK_RELATIONSHIP, REL_NS, WORD_NS
+from opengeo_worker.docx_documents import _read_package as _read_docx_package
 from opengeo_worker.models import TransientFailure, ValidationFailure
 from opengeo_worker.odf_documents import _parse_xml, _read_package
 from opengeo_worker.pdf_print_vectors import MAX_BYTES, build_pdf_print_vectors
@@ -103,6 +106,59 @@ def build_odt_print_vectors(
     workdir: Path,
     runner: CommandRunner,
 ) -> tuple[Path | None, dict[str, object], dict[str, object]]:
+    return _build_writer_print_vectors(source, workdir, runner, source_format="odt")
+
+
+def build_docx_print_vectors(
+    source: Path,
+    workdir: Path,
+    runner: CommandRunner,
+) -> tuple[Path | None, dict[str, object], dict[str, object]]:
+    return _build_writer_print_vectors(source, workdir, runner, source_format="docx")
+
+
+def _docx_conversion_copy(source: Path, target: Path) -> None:
+    package = _read_docx_package(source)
+    with zipfile.ZipFile(target, "w") as output:
+        for name, body in package.files.items():
+            if name.endswith((".xml", ".rels")):
+                with minidom.parseString(body) as document:
+                    links = {
+                        identifier
+                        for identifier, relation in package.relationships.get(name, {}).items()
+                        if relation.kind == HYPERLINK_RELATIONSHIP
+                    }
+                    for element in list(document.getElementsByTagName("*")):
+                        if (
+                            element.localName == "Relationship"
+                            and element.getAttribute("Type") == HYPERLINK_RELATIONSHIP
+                        ) or (
+                            element.namespaceURI
+                            == "http://schemas.openxmlformats.org/drawingml/2006/main"
+                            and element.localName in {"hlinkClick", "hlinkHover"}
+                        ):
+                            if element.parentNode is not None:
+                                element.parentNode.removeChild(element)
+                                element.unlink()
+                        elif element.getAttributeNS(REL_NS, "id") in links:
+                            element.removeAttributeNS(REL_NS, "id")
+                        if (
+                            element.namespaceURI == WORD_NS
+                            and element.localName == "hyperlink"
+                            and element.hasAttributeNS(WORD_NS, "anchor")
+                        ):
+                            element.removeAttributeNS(WORD_NS, "anchor")
+                    body = document.toxml(encoding="utf-8")
+            output.writestr(name, body, compress_type=zipfile.ZIP_DEFLATED)
+
+
+def _build_writer_print_vectors(
+    source: Path,
+    workdir: Path,
+    runner: CommandRunner,
+    *,
+    source_format: Literal["odt", "docx"],
+) -> tuple[Path | None, dict[str, object], dict[str, object]]:
     """Return optional prepared pages, safe PDF facts and conversion provenance."""
     target = workdir / "print-vector.pdf"
     target.unlink(missing_ok=True)
@@ -112,7 +168,10 @@ def build_odt_print_vectors(
         # A private short child directory also stays below Unix socket path limits.
         with tempfile.TemporaryDirectory(prefix="office-", dir=workdir) as temporary:
             conversion = Path(temporary)
-            _conversion_copy(source, conversion / "source.odt")
+            if source_format == "docx":
+                _docx_conversion_copy(source, conversion / "source.docx")
+            else:
+                _conversion_copy(source, conversion / "source.odt")
             package = str(Path(__file__).resolve().parents[1])
             bootstrap = (
                 f"import sys;sys.path.insert(0,{package!r});"
@@ -151,6 +210,7 @@ def build_odt_print_vectors(
                     "-c",
                     bootstrap,
                     "/tmp/job",
+                    *(["docx"] if source_format == "docx" else []),
                 ],
                 cwd=conversion,
                 maximum_file_bytes=_MAX_CONVERTED_BYTES,
@@ -210,7 +270,13 @@ def main() -> None:
     from opengeo_worker.office_sandbox import restrict_office_process
 
     workdir = Path(sys.argv[1]).resolve()
-    if workdir != Path.cwd().resolve() or not (workdir / "source.odt").is_file():
+    source_format = sys.argv[2] if len(sys.argv) == 3 else "odt"
+    if (
+        len(sys.argv) not in {2, 3}
+        or source_format not in {"odt", "docx"}
+        or workdir != Path.cwd().resolve()
+        or not (workdir / f"source.{source_format}").is_file()
+    ):
         raise ValueError("office_workspace_invalid")
     profile = workdir / "profile"
     (profile / "user").mkdir(parents=True)
@@ -278,6 +344,6 @@ def main() -> None:
             "pdf:writer_pdf_Export:" + json.dumps(filters, separators=(",", ":")),
             "--outdir",
             str(workdir),
-            str(workdir / "source.odt"),
+            str(workdir / f"source.{source_format}"),
         ],
     )

@@ -1,11 +1,14 @@
 """Inspect flow PDF heading/paragraph structure and its painted content."""
 
 from dataclasses import replace
+from html import escape
 from io import BytesIO
 
+import pytest
 from pypdf import PdfReader
 from pypdf.generic import ContentStream, DictionaryObject
 
+from opengeo_api.site_export import _citation
 from opengeo_api.site_print import build_print_pdf
 from test_site_export import published_site
 from test_site_print_semantics import _children, _marked_text, _mcids, _node_text, _sections
@@ -161,3 +164,81 @@ def test_flow_content_limit_has_no_unpainted_or_empty_semantic_nodes():
     assert all(text.strip() for text in texts)
     assert "Omitted" not in reader.pages[0].extract_text()
     _assert_visible_ancestry(reader)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ({"doi": "10.1234/field-study"}, "https://doi.org/10.1234/field-study"),
+        (
+            {"url": "https://example.org/study?a=1&b=2", "doi": "10.1234/other"},
+            "https://example.org/study?a=1&b=2",
+        ),
+        (
+            {"url": "https://doi.org/10.1234/field-study", "doi": "10.1234/field-study"},
+            "https://doi.org/10.1234/field-study",
+        ),
+    ],
+)
+def test_flow_citation_retains_one_canonical_source_like_portable_html(source, expected):
+    block = {"id": "source", "type": "citation", "title": "Source record", **source}
+    reader = _flow([block], abstract=None)
+    marked = _marked_text(reader, reader.pages[0])
+    paragraphs = [
+        node for node in _children(_sections(reader)[0]) if node.get_object()["/S"] == "/P"
+    ]
+    assert len(paragraphs) == 1
+    runs = [_node_text(node, marked) for node in _children(paragraphs[0])]
+    assert runs[0] == "Citation: Source record"
+    assert "".join(runs[1:]) == expected
+    assert f'href="{escape(expected, quote=True)}"' in _citation(block)
+    if source.get("doi") and expected != f"https://doi.org/{source['doi']}":
+        assert source["doi"] not in reader.pages[0].extract_text()
+    _assert_visible_ancestry(reader)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        {"doi": "10.1234/" + "long-study-segment-" * 10},
+        {"url": "https://example.org/" + "測定資料" * 60},
+    ],
+)
+def test_flow_long_citation_locator_is_complete_across_painted_lines(source):
+    expected = source.get("url", f"https://doi.org/{source.get('doi')}")
+    reader = _flow([
+        {"id": "before", "type": "markdown", "markdown": "Before the source."},
+        {"id": "source", "type": "citation", "title": "Source record", **source},
+        {"id": "after", "type": "markdown", "markdown": "After the source."},
+    ], abstract=None)
+    marked = _marked_text(reader, reader.pages[0])
+    paragraphs = [
+        node for node in _children(_sections(reader)[0]) if node.get_object()["/S"] == "/P"
+    ]
+    assert len(paragraphs) == 3
+    assert _node_text(paragraphs[0], marked) == "Before the source."
+    assert _node_text(paragraphs[2], marked) == "After the source."
+    runs = [_node_text(node, marked) for node in _children(paragraphs[1])]
+    assert runs[0] == "Citation: Source record"
+    assert len(runs[1:]) > 1
+    assert "".join(runs[1:]) == expected
+    assert expected in "".join(reader.pages[0].extract_text().split())
+    _assert_visible_ancestry(reader)
+
+
+@pytest.mark.parametrize(
+    "url", ["javascript:alert(1)", "https://user:secret@example.org/source", "https://[broken"]
+)
+def test_flow_legacy_unsafe_citation_url_keeps_title_without_doi_fallback(url):
+    block = {
+        "id": "source", "type": "citation", "title": "Source record",
+        "url": url, "doi": "10.1234/field-study",
+    }
+    reader = _flow([block], abstract=None)
+    marked = _marked_text(reader, reader.pages[0])
+    paragraphs = [
+        node for node in _children(_sections(reader)[0]) if node.get_object()["/S"] == "/P"
+    ]
+    assert [_node_text(node, marked) for node in paragraphs] == ["Citation: Source record"]
+    assert "href=" not in _citation(block)
+    assert "10.1234" not in reader.pages[0].extract_text()

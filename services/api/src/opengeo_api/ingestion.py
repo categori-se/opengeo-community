@@ -71,6 +71,7 @@ DatasetFormat = Literal[
     "jpeg",
     "pdf",
     "odt",
+    "docx",
     "xyz",
     "wms",
     "arcgis",
@@ -96,6 +97,7 @@ UploadDatasetFormat = Literal[
     "jpeg",
     "pdf",
     "odt",
+    "docx",
 ]
 DatasetStatus = Literal["draft", "processing", "active", "failed", "archived"]
 DatasetVersionState = Literal["queued", "processing", "active", "failed", "preserved"]

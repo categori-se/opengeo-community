@@ -4162,13 +4162,18 @@ function versionHistory(state, dataset, versions) {
       item.append(lineage, lineageRegion);
     }
     if (
-      ["odt", "pdf"].includes(dataset.format)
+      ["odt", "docx", "pdf"].includes(dataset.format)
       && version.state === "active"
       && (
         (
           dataset.format === "odt"
           && version.schemaDefinition?.document?.accessible_preview_schema
             === "opengeo.document-preview.1.0.0"
+        )
+        || (
+          dataset.format === "docx"
+          && version.schemaDefinition?.document?.accessible_preview_schema
+            === "opengeo.document-preview.4.0.0"
         )
         || (
           dataset.format === "pdf"

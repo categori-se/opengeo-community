@@ -5796,7 +5796,8 @@ function fixtureDatasetFilename(dataset) {
     png: "png",
     jpeg: "jpg",
     pdf: "pdf",
-    odt: "odt"
+    odt: "odt",
+    docx: "docx"
   }[dataset.format] ?? "geojson";
   return `${stem}.${extension}`;
 }
@@ -5812,7 +5813,8 @@ function fixtureDatasetContentType(dataset) {
     png: "image/png",
     jpeg: "image/jpeg",
     pdf: "application/pdf",
-    odt: "application/vnd.oasis.opendocument.text"
+    odt: "application/vnd.oasis.opendocument.text",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
   }[dataset.format] ?? "application/geo+json";
 }
 

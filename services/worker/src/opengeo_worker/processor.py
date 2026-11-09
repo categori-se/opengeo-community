@@ -66,6 +66,7 @@ _SOURCE_FILENAMES = {
     "jpeg": "source.jpg",
     "pdf": "source.pdf",
     "odt": "source.odt",
+    "docx": "source.docx",
 }
 _PMTILES_SOURCE_FILENAMES = {
     "application/geo+json": "source.geojson",

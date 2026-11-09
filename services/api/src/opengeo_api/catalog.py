@@ -19,6 +19,7 @@ from opengeo_api.authorization import (
 )
 from opengeo_api.document_previews import (
     DOCUMENT_PREVIEW_SCHEMA,
+    DOCX_DOCUMENT_PREVIEW_SCHEMA,
     MAX_DOCUMENT_PREVIEW_BYTES,
     PDF_DOCUMENT_PREVIEW_SCHEMA,
     PDF_OCR_DOCUMENT_PREVIEW_SCHEMA,
@@ -814,7 +815,7 @@ class PostgresCatalogRepository:
              AND object.id = link.data_object_id
             WHERE dataset.organization_id = %s
               AND dataset.id = %s
-              AND dataset.format::text IN ('odt', 'pdf')
+              AND dataset.format::text IN ('odt', 'pdf', 'docx')
               AND version.state = 'active'
               AND version.geometry_type = 'document'
               AND (
@@ -822,6 +823,11 @@ class PostgresCatalogRepository:
                   dataset.format::text = 'odt'
                   AND version.schema_definition #>> '{document,kind}' = 'odf_text'
                   AND version.schema_definition #>> '{document,source_format}' = 'odt'
+                  AND version.schema_definition #>> '{document,accessible_preview_schema}' = %s
+                ) OR (
+                  dataset.format::text = 'docx'
+                  AND version.schema_definition #>> '{document,kind}' = 'ooxml_text'
+                  AND version.schema_definition #>> '{document,source_format}' = 'docx'
                   AND version.schema_definition #>> '{document,accessible_preview_schema}' = %s
                 ) OR (
                   dataset.format::text = 'pdf'
@@ -868,6 +874,7 @@ class PostgresCatalogRepository:
                 context.organization_id,
                 dataset_id,
                 DOCUMENT_PREVIEW_SCHEMA,
+                DOCX_DOCUMENT_PREVIEW_SCHEMA,
                 PDF_DOCUMENT_PREVIEW_SCHEMA,
                 PDF_OCR_DOCUMENT_PREVIEW_SCHEMA,
             ),

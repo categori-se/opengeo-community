@@ -30,7 +30,7 @@ _ARCHIVE_KEY = re.compile(
     r"datasets/(?P<dataset>[0-9a-f-]{36})/"
     r"uploads/(?P<job>[0-9a-f-]{36})/original/"
     r"(?P<filename>snapshot\.png|source\."
-    r"(?:geojson|csv|zip|gpkg|parquet|tif|pmtiles|png|jpg|pdf|odt))"
+    r"(?:geojson|csv|zip|gpkg|parquet|tif|pmtiles|png|jpg|pdf|odt|docx))"
 )
 _ARCHIVE_CONTENT_TYPES: dict[str, frozenset[str]] = {
     "snapshot.png": frozenset({"image/png"}),
@@ -56,6 +56,9 @@ _ARCHIVE_CONTENT_TYPES: dict[str, frozenset[str]] = {
     "source.png": frozenset({"image/png"}),
     "source.jpg": frozenset({"image/jpeg"}),
     "source.pdf": frozenset({"application/pdf"}),
+    "source.docx": frozenset(
+        {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
+    ),
     "source.odt": frozenset({"application/vnd.oasis.opendocument.text"}),
 }
 _ETAG = re.compile(r"[A-Fa-f0-9]{16,128}")

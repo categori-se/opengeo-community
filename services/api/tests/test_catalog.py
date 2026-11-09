@@ -498,7 +498,10 @@ def test_authorized_document_preview_is_exactly_read_reauthorized_and_strictly_p
     assert preview == preview_document()
     assert storage.specs[0].maximum_bytes == 512 * 1024
     assert storage.specs[0].version_id == "s3-version-preview"
-    assert sum("dataset.format::text IN ('odt', 'pdf')" in call[1] for call in prepare.calls) == 1
+    assert (
+        sum("dataset.format::text IN ('odt', 'pdf', 'docx')" in call[1] for call in prepare.calls)
+        == 1
+    )
     assert len(reauthorize.calls) == 2
 
 
@@ -506,9 +509,13 @@ def test_tagged_pdf_preview_target_keeps_exact_read_reauthorization_and_fact_bra
     prepare = FakeTransaction(one=[access("viewer")], all_rows=[[preview_target_row()]])
     reauthorize = FakeTransaction(one=[access("viewer")], all_rows=[[preview_target_row()]])
     document = pdf_preview_document()
-    document["extraction"].update({
-        "engine": "pypdf", "mode": "tagged-actualtext", "readingOrder": "source-tags",
-    })
+    document["extraction"].update(
+        {
+            "engine": "pypdf",
+            "mode": "tagged-actualtext",
+            "readingOrder": "source-tags",
+        }
+    )
     storage = FakeStorage(json.dumps(document).encode())
     repository = PostgresCatalogRepository(FakeExecutor([prepare, reauthorize]), storage)
     preview = asyncio.run(

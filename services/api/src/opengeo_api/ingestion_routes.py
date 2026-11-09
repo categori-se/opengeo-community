@@ -143,6 +143,10 @@ _UPLOAD_FORMATS: dict[UploadDatasetFormat, tuple[frozenset[str], frozenset[str]]
     "png": (frozenset({".png"}), frozenset({"image/png"})),
     "jpeg": (frozenset({".jpg", ".jpeg"}), frozenset({"image/jpeg"})),
     "pdf": (frozenset({".pdf"}), frozenset({"application/pdf"})),
+    "docx": (
+        frozenset({".docx"}),
+        frozenset({"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
+    ),
     "odt": (
         frozenset({".odt"}),
         frozenset({"application/vnd.oasis.opendocument.text"}),
@@ -151,7 +155,7 @@ _UPLOAD_FORMATS: dict[UploadDatasetFormat, tuple[frozenset[str], frozenset[str]]
 
 _MEDIA_UPLOAD_FORMATS: frozenset[UploadDatasetFormat] = frozenset({"png", "jpeg"})
 _MAX_MEDIA_SOURCE_BYTES = 16 * 1024 * 1024
-_DOCUMENT_UPLOAD_FORMATS: frozenset[UploadDatasetFormat] = frozenset({"pdf", "odt"})
+_DOCUMENT_UPLOAD_FORMATS: frozenset[UploadDatasetFormat] = frozenset({"pdf", "odt", "docx"})
 _MAX_DOCUMENT_SOURCE_BYTES = 32 * 1024 * 1024
 
 

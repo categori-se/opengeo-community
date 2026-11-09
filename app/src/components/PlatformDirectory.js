@@ -2128,7 +2128,8 @@ function repositoryFormat(relativePath) {
     ["png", [".png"]],
     ["jpeg", [".jpg", ".jpeg"]],
     ["pdf", [".pdf"]],
-    ["odt", [".odt"]]
+    ["odt", [".odt"]],
+    ["docx", [".docx"]]
   ]) {
     if (extensions.some((extension) => path.endsWith(extension))) return format;
   }
@@ -2137,7 +2138,7 @@ function repositoryFormat(relativePath) {
 
 function repositoryDatasetName(filename) {
   return filename
-    .replace(/\.(?:geojson|geoparquet|gpkg|parquet|pmtiles|tiff?|json|csv|zip|png|jpe?g|pdf|odt)$/i, "")
+    .replace(/\.(?:geojson|geoparquet|gpkg|parquet|pmtiles|tiff?|json|csv|zip|png|jpe?g|pdf|odt|docx)$/i, "")
     .replace(/[_-]+/g, " ")
     .trim() || filename;
 }
@@ -2154,7 +2155,8 @@ function repositoryFormatLabel(format) {
     png: "PNG image",
     jpeg: "JPEG image",
     pdf: "PDF document",
-    odt: "OpenDocument text"
+    odt: "OpenDocument text",
+    docx: "Word document"
   })[format] ?? format;
 }
 

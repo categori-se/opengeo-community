@@ -10,6 +10,7 @@ from dataclasses import dataclass, replace
 from html import escape
 from itertools import groupby, pairwise
 from typing import cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from opengeo_api.pdf_print_documents import (
@@ -723,6 +724,7 @@ def _flow_print_pages(
 
 def _content_page(publication: PublishedSite, page: SitePage, options: PrintOptions) -> _PrintPage:
     paragraphs: list[tuple[str, str]] = []
+    citation_locators: dict[int, str] = {}
 
     def append(value: str, role: str = "P") -> None:
         paragraphs.append((role, value))
@@ -769,6 +771,9 @@ def _content_page(publication: PublishedSite, page: SitePage, options: PrintOpti
                     if labels and all(isinstance(label, str) for label in labels):
                         append(f"{block['label']}: {'; '.join(cast(list[str], labels))}")
             elif kind == "citation" and isinstance(block.get("title"), str):
+                locator = _citation_locator(block)
+                if locator is not None:
+                    citation_locators[len(paragraphs)] = locator
                 append(f"Citation: {block['title']}")
             elif kind == "map":
                 caption = block.get("caption")
@@ -810,11 +815,45 @@ def _content_page(publication: PublishedSite, page: SitePage, options: PrintOpti
     page_width, page_height = options.page_points
     line_width = max(48, min(180, int((page_width - 80) / 4.7)))
     maximum = max(20, min(180, int((page_height - 135) / 13)))
-    lines, structure = _wrap_content_lines(paragraphs, width=line_width, maximum=maximum)
+    # Unifont cells occupy at most one em. Locator-only splitting therefore
+    # stays inside both the character cap and the painter's nine-point width,
+    # including Unicode paths, without changing ordinary paragraph wrapping.
+    locator_width = max(1, min(line_width, int((page_width - 72) / 9)))
+    locator_lines = {
+        index: tuple(
+            textwrap.wrap(locator, width=locator_width, break_long_words=True, break_on_hyphens=False)
+        )
+        for index, locator in citation_locators.items()
+    }
+    lines, structure = _wrap_content_lines(
+        paragraphs, width=line_width, maximum=maximum, citation_locators=locator_lines
+    )
     lines += ("", f"Resource {page.resource_id} · version {page.resource_version_number}")
     return _PrintPage(
         title=page.resource_title, lines=lines[: maximum + 2], line_structure=structure
     )
+
+
+def _citation_locator(block: dict[str, object]) -> str | None:
+    # Match portable HTML: an explicit URL takes priority; DOI supplies its
+    # canonical resolver only when no string URL is present. Never fetch it.
+    locator = block.get("url")
+    if not isinstance(locator, str) and isinstance(block.get("doi"), str):
+        locator = f"https://doi.org/{block['doi']}"
+    if not isinstance(locator, str):
+        return None
+    try:
+        parsed = urlsplit(locator)
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname is not None
+            and parsed.username is None
+            and parsed.password is None
+        ):
+            return locator
+    except ValueError:
+        pass
+    return None
 
 
 def _map_page(reference: PublishedResourceReference, image: _PdfImage) -> _PrintPage:
@@ -3430,16 +3469,24 @@ def _plain_markdown(value: str) -> str:
 
 
 def _wrap_content_lines(
-    paragraphs: list[tuple[str, str]], *, width: int, maximum: int
+    paragraphs: list[tuple[str, str]],
+    *,
+    width: int,
+    maximum: int,
+    citation_locators: dict[int, tuple[str, ...]] | None = None,
 ) -> tuple[tuple[str, ...], tuple[tuple[str, int] | None, ...]]:
     lines: list[str] = []
     structure: list[tuple[str, int] | None] = []
-    for role, value in paragraphs:
-        for paragraph in re.split(r"\n\s*\n", value.strip()):
+    for index, (role, value) in enumerate(paragraphs):
+        chunks = re.split(r"\n\s*\n", value.strip())
+        for paragraph_index, paragraph in enumerate(chunks):
             normalized = " ".join(paragraph.split())
             if not normalized:
                 continue
             wrapped = textwrap.wrap(normalized, width=width, break_long_words=False)
+            if citation_locators and index in citation_locators:
+                if not any(chunk.strip() for chunk in chunks[paragraph_index + 1 :]):
+                    wrapped.extend(citation_locators[index])
             group = (role, len(lines))
             lines.extend(wrapped)
             structure.extend([group] * len(wrapped))

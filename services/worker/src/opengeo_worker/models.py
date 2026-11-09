@@ -21,6 +21,7 @@ DatasetFormat = Literal[
     "jpeg",
     "pdf",
     "odt",
+    "docx",
 ]
 ArtifactRole = Literal["working", "tile", "derived", "thumbnail"]
 ClaimStatus = Literal[

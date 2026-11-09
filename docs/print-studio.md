@@ -2,6 +2,36 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Word documents (DOCX) — local work, November 9, 2026
+
+DOCX joins managed upload, Catalog semantic preview and Publication document
+blocks. The closed `opengeo.document-preview.4.0.0` contract uses
+`sourceFormat: docx` and bounded heading, paragraph, list and table blocks.
+It admits a transitional WordprocessingML subset with packaged PNG/JPEG images;
+encrypted packages, macros, OLE, external content, fields and unsupported
+namespaces are rejected.
+
+The original DOCX stays unchanged. Hyperlinks become visible text in a sanitized
+copy passed through the existing isolated Writer conversion and safe-PDF
+preparation. Publication document blocks bind that prepared print companion.
+Semantic content-page counts do not claim native pagination; the text preview
+omits embedded media and auxiliary stories.
+
+This increment is qualified locally with a two-page portrait/landscape native
+fixture, ordinary Publication composition retaining text, geometry and matching
+pixels, and focused compiled synthetic previews at desktop and narrow widths.
+Real managed upload, scanner/account and hosted workflow acceptance remain open.
+Other Office formats, wider fidelity and full Print parity remain unfinished.
+
+## Citation source information — local work, November 9, 2026
+
+Flow citations print their explicit HTTPS URL, or the canonical DOI resolver
+when no URL string is present, matching portable HTML priority. Locator-only
+wrapping preserves complete painted addresses within the existing content capacity;
+unsafe legacy URLs retain the title without DOI fallback. Other blocks keep their
+existing wrapping. This increment is qualified locally; existing flow overflow,
+hosted acceptance and broader Print parity remain open.
+
 ## Positioned image descriptions in PDF — local work, November 9, 2026
 
 A sealed PNG placed through an authored image block now carries its exact

@@ -5,7 +5,7 @@ import {documentPreview} from "./DocumentPreview.js";
 export function DatasetVersionFiles({adapter,dataset,version}) {
   const root=el('section');root.setAttribute('aria-label',`Files for version ${version.versionNumber}`);
   let disposed=false;const timers=[],previews=[];root.dispose=()=>{disposed=true;for(const timer of timers)clearTimeout(timer);for(const preview of previews)preview.dispose?.();for(const link of root.querySelectorAll("a"))link.remove();};
-  if (dataset.capabilities?.read && ["pdf","odt"].includes(dataset.format) && version.schemaDefinition?.document?.accessible_preview_schema && typeof adapter.getDatasetDocumentPreview === "function") {
+  if (dataset.capabilities?.read && ["pdf","odt","docx"].includes(dataset.format) && version.schemaDefinition?.document?.accessible_preview_schema && typeof adapter.getDatasetDocumentPreview === "function") {
     const read=el('button','Read accessible document');read.type='button';read.setAttribute('aria-expanded','false');
     const content=el('div');content.hidden=true;let loaded=false;
     read.onclick=async()=>{content.hidden=!content.hidden;read.setAttribute('aria-expanded',String(!content.hidden));if(content.hidden||loaded||disposed)return;read.disabled=true;content.textContent='Loading recorded document text…';try{const preview=await adapter.getDatasetDocumentPreview(dataset.projectId,dataset.id,version.id);if(!disposed){content.replaceChildren(documentPreview(preview));loaded=true;}}catch{if(!disposed)content.textContent='Document preview unavailable. Close and reopen to check access and retry.';}finally{if(!disposed)read.disabled=false;}};

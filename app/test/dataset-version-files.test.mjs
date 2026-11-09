@@ -75,6 +75,30 @@ it('reads recorded PDF text deliberately with read authority, without requesting
  }finally{root?.dispose();globalThis.document=old;dom.window.close();}
 });
 
+it('reads an exact Word version as literal semantic content without claiming original pagination',async()=>{
+ const dom=new JSDOM();const old=globalThis.document;globalThis.document=dom.window.document;
+ let root;
+ try{
+  const calls=[];const adapter={getDatasetDocumentPreview:async(...args)=>{calls.push(args);return {
+   schemaVersion:'opengeo.document-preview.4.0.0',sourceFormat:'docx',title:null,language:'ne',
+   pages:[{number:1,blocks:[{type:'heading',level:2,text:'नेपाल findings'},
+    {type:'paragraph',text:'Literal <script>source</script>'},
+    {type:'list',ordered:true,items:['First','Second']},
+    {type:'table',headerRows:1,rows:[['Place','Count'],['Kathmandu','7']]}]}]
+  };},requestDatasetDownload(){assert.fail('Semantic preview must not request a download');}};
+  const docx={...dataset,format:'docx',capabilities:{read:true,download:false}};
+  const recorded={...version,objects:[],schemaDefinition:{document:{accessible_preview_schema:'opengeo.document-preview.4.0.0'}}};
+  root=DatasetVersionFiles({dataset:docx,version:recorded,adapter});assert.equal(calls.length,0);
+  await root.querySelector('button').onclick();assert.deepEqual(calls,[['project','layer','old-version']]);
+  assert.equal(root.querySelector('article').lang,'ne');assert.match(root.textContent,/Word document preview/);
+  assert.match(root.textContent,/count is not the original pagination/);
+  assert.match(root.textContent,/Literal <script>source<\/script>/);assert.equal(root.querySelector('script'),null);
+  assert.equal(root.querySelector('[role=heading]').getAttribute('aria-level'),'2');
+  assert.equal(root.querySelectorAll('ol li').length,2);assert.equal(root.querySelectorAll('th[scope=col]').length,2);
+  await root.querySelector('button').onclick();await root.querySelector('button').onclick();assert.equal(calls.length,1);
+ }finally{root?.dispose();globalThis.document=old;dom.window.close();}
+});
+
 it('describes validated source-tag PDF order without a heuristic claim',async()=>{
  const {documentPreview}=await import('../src/components/DocumentPreview.js');
  const dom=new JSDOM();const old=globalThis.document;globalThis.document=dom.window.document;

@@ -1036,6 +1036,11 @@ def _render_document(
                 f"reading order is heuristic, {ocr_note}, and original visual layout, "
                 "images, forms, annotations, and active content are not reproduced."
             )
+    elif source_format == "docx":
+        fidelity = (
+            "Sanitized semantic preview of Word DOCX; original layout, images, tracked changes, "
+            "annotations, and active or external content are not reproduced."
+        )
     else:
         version = preview.get("odfVersion")
         fidelity = (

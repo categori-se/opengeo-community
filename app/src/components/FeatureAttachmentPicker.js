@@ -105,7 +105,7 @@ export function FeatureAttachmentPicker({control, adapter, projectId, classifica
         previewRegion.replaceChildren(summary,MapView({geojson:result.geojson,geometryType:'GeometryCollection',height:'22rem'}));
         return;
       }
-      if(!['pdf','odt'].includes(ref.format) || typeof adapter.getDatasetDocumentPreview!=='function') {
+      if(!['pdf','odt','docx'].includes(ref.format) || typeof adapter.getDatasetDocumentPreview!=='function') {
         previewRegion.textContent='An accessible preview is not available for this file format. File details and authorized download remain available.';
         return;
       }

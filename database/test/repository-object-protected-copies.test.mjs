@@ -90,6 +90,8 @@ describe("0066 exact repository object protected copies", () => {
     await db.exec(await load("0065_exact_repository_object_sources.sql"));
     migration = await load("0066_repository_object_protected_copies.sql");
     await db.exec(migration);
+    await db.exec(await load("0190_governed_docx_documents.sql"));
+    await db.exec(await load("0192_docx_repository_copy_format.sql"));
 
     await db.exec(`
       INSERT INTO app.users (id, cognito_subject, email, display_name) VALUES
@@ -171,6 +173,72 @@ describe("0066 exact repository object protected copies", () => {
         ]
       );
     });
+  });
+
+  it("claims a matching DOCX source with its original filename and existing authority", async () => {
+    const source = "80000000-0000-4000-8000-000000000068";
+    const destination = "81000000-0000-4000-8000-000000000068";
+    const estimate = "90000000-0000-4000-8000-000000000068";
+    const job = "91000000-0000-4000-8000-000000000068";
+    const mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    const rollback = new Error("DOCX claim verified; roll back fixture");
+    await assert.rejects(inTenant(IDS.organization, IDS.owner, async () => {
+      for (const [id, sourceType, state] of [
+        [source, "repository", "active"], [destination, "upload", "draft"]
+      ]) {
+        await db.query(
+          `INSERT INTO app.datasets
+            (id,organization_id,name,classification,source_type,format,status,
+             owner_user_id,created_by,updated_by)
+           VALUES ($1,$2,'DOCX source fixture','internal',$3,'docx',$4,$5,$5,$5)`,
+          [id, IDS.organization, sourceType, state, IDS.owner]
+        );
+        await db.query(
+          `INSERT INTO app.project_datasets (organization_id,project_id,dataset_id,linked_by)
+           VALUES ($1,$2,$3,$4)`, [IDS.organization, IDS.project, id, IDS.owner]
+        );
+      }
+      await db.query(
+        `INSERT INTO app.repository_object_sources
+          (organization_id,dataset_id,connection_id,connection_target_revision,
+           provider,bucket_name,region_name,object_prefix,relative_path,
+           provider_version_id,size_bytes,last_modified,content_type,etag,
+           storage_class,provider_checksum_sha256,created_by)
+         VALUES ($1,$2,$3,1,'s3','geospatial.data','us-east-1','usa/ma/',
+           'environment/report.docx','docx-version-1',4096,'2026-08-31T12:00:00Z',
+           $4,'"etag-docx"','STANDARD','AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',$5)`,
+        [IDS.organization, source, IDS.connection, mime, IDS.owner]
+      );
+      await db.query(
+        `INSERT INTO app.repository_object_copy_estimates
+          (id,organization_id,project_id,source_dataset_id,output_format,
+           output_content_type,maximum_requests,maximum_output_bytes,
+           estimated_cost_usd,estimate_checksum_sha256,created_by,expires_at)
+         VALUES ($1,$2,$3,$4,'docx',$5,1,4096,0,$6,$7,clock_timestamp()+interval '5 minutes')`,
+        [estimate, IDS.organization, IDS.project, source, mime, "c".repeat(64), IDS.owner]
+      );
+      await db.query(
+        `INSERT INTO app.repository_object_copy_jobs
+          (id,organization_id,project_id,estimate_id,source_dataset_id,
+           destination_dataset_id,destination_bucket,rights_basis,attribution,
+           request_checksum_sha256,idempotency_key,request_id,created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,'opengeo-geodata-test',
+           'Fixture open-data permission','Fixture source',$7,$8,'docx-copy-68',$9)`,
+        [job, IDS.organization, IDS.project, estimate, source, destination,
+          "d".repeat(64), "94000000-0000-4000-8000-000000000068", IDS.owner]
+      );
+      await db.exec("SET LOCAL ROLE opengeo_repository_copier");
+      const claim = await db.query(
+        "SELECT claim_status,output_format,output_content_type,output_object_key FROM app.claim_repository_object_copy($1,$2,120)",
+        [job, IDS.worker]
+      );
+      assert.equal(claim.rows[0].claim_status, "claimed");
+      assert.equal(claim.rows[0].output_format, "docx");
+      assert.equal(claim.rows[0].output_content_type, mime);
+      assert.equal(claim.rows[0].output_object_key,
+        `organizations/${IDS.organization}/projects/${IDS.project}/datasets/${destination}/uploads/${job}/original/source.docx`);
+      throw rollback;
+    }), (error) => error === rollback);
   });
 
   after(async () => {

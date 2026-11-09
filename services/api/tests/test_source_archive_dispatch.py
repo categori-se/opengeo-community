@@ -143,6 +143,10 @@ def test_repeated_dispatch_uses_the_same_object_identity_and_sequencer() -> None
         ("source.jpg", "image/jpeg"),
         ("source.pdf", "application/pdf"),
         ("source.odt", "application/vnd.oasis.opendocument.text"),
+        (
+            "source.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
     ],
 )
 def test_dispatches_each_governed_repository_copy_format(filename: str, content_type: str) -> None:

@@ -9,12 +9,13 @@ from typing import Any, cast
 
 from opengeo_worker.command_runner import CommandRunner
 from opengeo_worker.config import Settings
+from opengeo_worker.docx_documents import inspect_docx
 from opengeo_worker.geometry_dimensions import dimension_evidence
 from opengeo_worker.kml_sources import inspect_kml_source
 from opengeo_worker.malware import ClamAvScanner, MalwareScanEvidence, MalwareScanner
 from opengeo_worker.models import ArtifactFile, DatasetFormat, InspectionResult, ValidationFailure
 from opengeo_worker.odf_documents import inspect_odt
-from opengeo_worker.office_print_vectors import build_odt_print_vectors
+from opengeo_worker.office_print_vectors import build_docx_print_vectors, build_odt_print_vectors
 from opengeo_worker.pdf_documents import (
     PREVIEW_CONTENT_TYPE as PDF_PREVIEW_CONTENT_TYPE,
 )
@@ -112,6 +113,8 @@ class DatasetInspector:
             return self._with_malware_scan(self._inspect_pdf(source, workdir), scan)
         if dataset_format == "odt":
             return self._with_malware_scan(self._inspect_odt(source, workdir), scan)
+        if dataset_format == "docx":
+            return self._with_malware_scan(self._inspect_docx(source, workdir), scan)
         self._verify_magic(source, dataset_format)
         if dataset_format == "cog":
             return self._with_malware_scan(self._inspect_cog(source, workdir), scan)
@@ -151,6 +154,26 @@ class DatasetInspector:
             maximum_ratio=self._settings.max_archive_ratio,
         )
         prepared, facts, conversion = build_odt_print_vectors(source, workdir, self._runner)
+        return self._with_office_print(semantic, prepared, facts, conversion)
+
+    def _inspect_docx(self, source: Path, workdir: Path) -> InspectionResult:
+        semantic = inspect_docx(
+            source,
+            workdir,
+            maximum_entries=self._settings.max_archive_entries,
+            maximum_expanded_bytes=self._settings.max_archive_expanded_bytes,
+            maximum_ratio=self._settings.max_archive_ratio,
+        )
+        prepared, facts, conversion = build_docx_print_vectors(source, workdir, self._runner)
+        return self._with_office_print(semantic, prepared, facts, conversion)
+
+    @staticmethod
+    def _with_office_print(
+        semantic: InspectionResult,
+        prepared: Path | None,
+        facts: dict[str, object],
+        conversion: dict[str, object],
+    ) -> InspectionResult:
         document = cast(dict[str, object], semantic.schema_definition["document"])
         # Semantic pages count explicit breaks, not the office renderer's pages.
         document = {

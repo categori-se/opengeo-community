@@ -267,6 +267,7 @@ const IDS = Object.freeze({
   geomooseQueryDataset: "80000000-0000-4000-8000-000000000041",
   odtDataset: "80000000-0000-4000-8000-000000000031",
   pdfDataset: "80000000-0000-4000-8000-000000000032",
+  docxDataset: "80000000-0000-4000-8000-000000000033",
   upload: "81000000-0000-4000-8000-000000000001",
   uploadedDataset: "82000000-0000-4000-8000-000000000001",
   sourceDataset: "83000000-0000-4000-8000-000000000001",
@@ -321,6 +322,7 @@ const IDS = Object.freeze({
   geomooseQueryVersion: "90000000-0000-4000-8000-000000000041",
   odtVersion: "90000000-0000-4000-8000-000000000031",
   pdfVersion: "90000000-0000-4000-8000-000000000032",
+  docxVersion: "90000000-0000-4000-8000-000000000033",
   job: "91000000-0000-4000-8000-000000000001"
 });
 
@@ -394,6 +396,18 @@ const browserDatasets = [
     crs: null,
     geometry_type: "document",
     tags: ["research", "pdf"]
+  }),
+  datasetPayload({
+    id: IDS.docxDataset,
+    name: "Word field report",
+    description: "Governed Word document with an exact semantic preview.",
+    format: "docx",
+    current_version_id: IDS.docxVersion,
+    feature_count: null,
+    extent: null,
+    crs: null,
+    geometry_type: "document",
+    tags: ["research", "document"]
   })
 ];
 if (geomooseQueryMode) {
@@ -6561,7 +6575,119 @@ async function assertGeoLibreRendererImport(browser, baseUrl) {
   });
 }
 
+async function assertManagedDocumentPreviews(page, baseUrl) {
+  const initialFailureCount = failures.length;
+  const route = `/workspaces?project=${IDS.projects[0]}&manage=data#project-data`;
+  await visit(page, `${baseUrl}${route}`, `${route} managed upload`);
+  await page.locator(".project-datasets").waitFor();
+  const pdfOption = page.getByRole("option", {name: "PDF document"});
+  if (await pdfOption.count() !== 2) {
+    failures.push(`${route}: expected PDF in upload and catalog format controls`);
+  }
+  const odtOption = page.getByRole("option", {name: "OpenDocument text"});
+  if (await odtOption.count() !== 2) {
+    failures.push(`${route}: expected ODT in upload and catalog format controls`);
+  }
+  const docxOption = page.getByRole("option", {name: "Word document", exact: true});
+  if (await docxOption.count() !== 2) {
+    failures.push(`${route}: expected DOCX in upload and catalog format controls`);
+  }
+  await expectText(page, "Access Road Network", "API-backed dataset catalog");
+  await expectText(page, "Field report", "governed ODF dataset");
+  const odtCard = page.locator(`[data-dataset-id="${IDS.odtDataset}"]`);
+  await odtCard.getByRole("button", {name: "Version history"}).click();
+  await odtCard.getByRole("button", {name: "Read accessible preview"}).click();
+  await odtCard.locator(".project-document-preview-content").waitFor();
+  const odtText = await odtCard.innerText();
+  if (!odtText.includes("नेपाल field report")) {
+    failures.push("Unicode ODF preview title was not rendered");
+  }
+  if (!odtText.includes("Kathmandu")) {
+    failures.push("semantic ODF table content was not rendered");
+  }
+  if (await odtCard.locator("th[scope=col]").count() !== 2) {
+    failures.push(`${route}: expected scoped ODF table headers`);
+  }
+  const docxCard = page.locator(`[data-dataset-id="${IDS.docxDataset}"]`);
+  await docxCard.getByRole("button", {name: "Version history"}).click();
+  await docxCard.getByRole("button", {name: "Read accessible preview"}).click();
+  await docxCard.locator(".project-document-preview-content").waitFor();
+  const docxText = await docxCard.innerText();
+  if (!docxText.includes("नेपाल Word report") || !docxText.includes("Kathmandu")) {
+    failures.push(`${route}: expected literal Unicode Word preview text and table`);
+  }
+  if (!docxText.includes("count is not the original pagination")) {
+    failures.push(`${route}: Word semantic preview count lacked pagination disclosure`);
+  }
+  if (await docxCard.locator("th[scope=col]").count() !== 2) {
+    failures.push(`${route}: expected scoped Word table headers`);
+  }
+  await page.setViewportSize({width: 390, height: 844});
+  const docxPreview = docxCard.locator(".project-document-preview-content");
+  await docxPreview.scrollIntoViewIfNeeded();
+  const narrowDocx = await docxPreview.evaluate((preview) => ({
+    text: preview.innerText,
+    width: preview.getBoundingClientRect().width,
+    pageOverflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth)
+      - window.innerWidth,
+    previewOverflow: preview.scrollWidth - preview.clientWidth
+  }));
+  if (!await docxPreview.isVisible() || narrowDocx.width <= 0
+    || !narrowDocx.text.includes("नेपाल Word report")
+    || !narrowDocx.text.includes("Kathmandu")
+    || !narrowDocx.text.includes("count is not the original pagination")) {
+    failures.push(`${route}: Word semantic preview was not readable at 390px`);
+  }
+  if (narrowDocx.pageOverflow > 1 || narrowDocx.previewOverflow > 1) {
+    failures.push(`${route}: Word semantic preview overflowed horizontally at 390px`);
+  }
+  await page.setViewportSize({width: 1440, height: 950});
+  browserProgress("DOCX semantic preview: compiled desktop/390px Unicode, table headers, pagination disclosure and no horizontal overflow checked (synthetic API)");
+  const pdfCard = page.locator(`[data-dataset-id="${IDS.pdfDataset}"]`);
+  await pdfCard.getByRole("button", {name: "Version history"}).click();
+  await pdfCard.getByRole("button", {name: "Read accessible preview"}).click();
+  await pdfCard.locator(".project-document-preview-content").waitFor();
+  const pdfText = await pdfCard.innerText();
+  if (!pdfText.includes("All-page semantic PDF 1.7 text")) {
+    failures.push("all-page PDF semantic disclosure was not rendered");
+  }
+  if (!pdfText.includes("Exact first-page PDF text")) {
+    failures.push("semantic PDF page text was not rendered");
+  }
+  if (!pdfText.includes("No extractable text was found on this page")) {
+    failures.push("empty PDF page accessibility limitation was not rendered");
+  }
+  await expectText(page, "Convert it to a COG", "actionable worker validation result");
+  await expectText(page, "Error code: cog_layout_required", "safe worker error code");
+  const newFailures = failures.slice(initialFailureCount);
+  console.log(JSON.stringify({
+    status: newFailures.length ? "FAIL" : "PASS",
+    workflow: "managed-document-previews",
+    transport: "Compiled Studio with synthetic local API fixtures",
+    formats: ["odt", "docx", "pdf"],
+    docx: {
+      datasetId: IDS.docxDataset, versionId: IDS.docxVersion,
+      desktopViewport: {width: 1440, height: 950},
+      narrowViewport: {width: 390, height: 844},
+      narrowPreviewWidth: narrowDocx.width,
+      pageHorizontalOverflow: narrowDocx.pageOverflow,
+      previewHorizontalOverflow: narrowDocx.previewOverflow
+    },
+    newFailures,
+    limits: "Document preview controls only; no real upload, converter, native layout, account, hosted or family acceptance."
+  }));
+  assert.deepEqual(newFailures, [], "Managed document preview assertions failed");
+  return route;
+}
+
 async function assertPlatformStates(browser, baseUrl) {
+  if (process.env.OPEN_GEO_BROWSER_PLATFORM_FOCUS === "documents") {
+    await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
+      await assertManagedDocumentPreviews(page, baseUrl);
+    });
+    return;
+  }
+
   await withPlatformPage(browser, baseUrl, {token: null}, async (page) => {
     await visit(page, `${baseUrl}/workspaces`, "/workspaces unauthenticated");
     await page.waitForURL(/\/oauth2\/authorize/);
@@ -6587,8 +6713,8 @@ async function assertPlatformStates(browser, baseUrl) {
     await page.getByLabel("Search organization datasets").fill("Access Road");
     await page.getByRole("button", {name: "Search catalog"}).click();
     await page.locator(".platform-catalog-table").first().waitFor();
-    await page.getByText("1 authorized dataset found.", {exact: true}).waitFor();
-    await expectText(page, "1 authorized dataset found", "organization catalog discovery");
+    await page.getByText("1 loaded · all results loaded.", {exact: true}).waitFor();
+    await expectText(page, "1 loaded · all results loaded.", "organization catalog discovery");
     await expectText(page, "Access Road Network", "organization catalog result");
   });
 
@@ -6625,49 +6751,7 @@ async function assertPlatformStates(browser, baseUrl) {
   await assertBasemapProviderConnectionWorkflow(browser, baseUrl);
 
   await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
-    const route = `/workspaces?project=${IDS.projects[0]}&manage=data#project-data`;
-    await visit(page, `${baseUrl}${route}`, `${route} managed upload`);
-    await page.locator(".project-datasets").waitFor();
-    const pdfOption = page.getByRole("option", {name: "PDF document"});
-    if (await pdfOption.count() !== 2) {
-      failures.push(`${route}: expected PDF in upload and catalog format controls`);
-    }
-    const odtOption = page.getByRole("option", {name: "OpenDocument text"});
-    if (await odtOption.count() !== 2) {
-      failures.push(`${route}: expected ODT in upload and catalog format controls`);
-    }
-    await expectText(page, "Access Road Network", "API-backed dataset catalog");
-    await expectText(page, "Field report", "governed ODF dataset");
-    const odtCard = page.locator(`[data-dataset-id="${IDS.odtDataset}"]`);
-    await odtCard.getByRole("button", {name: "Version history"}).click();
-    await odtCard.getByRole("button", {name: "Read accessible preview"}).click();
-    await odtCard.locator(".project-document-preview-content").waitFor();
-    const odtText = await odtCard.innerText();
-    if (!odtText.includes("नेपाल field report")) {
-      failures.push("Unicode ODF preview title was not rendered");
-    }
-    if (!odtText.includes("Kathmandu")) {
-      failures.push("semantic ODF table content was not rendered");
-    }
-    if (await odtCard.locator("th[scope=col]").count() !== 2) {
-      failures.push(`${route}: expected scoped ODF table headers`);
-    }
-    const pdfCard = page.locator(`[data-dataset-id="${IDS.pdfDataset}"]`);
-    await pdfCard.getByRole("button", {name: "Version history"}).click();
-    await pdfCard.getByRole("button", {name: "Read accessible preview"}).click();
-    await pdfCard.locator(".project-document-preview-content").waitFor();
-    const pdfText = await pdfCard.innerText();
-    if (!pdfText.includes("All-page semantic PDF 1.7 text")) {
-      failures.push("all-page PDF semantic disclosure was not rendered");
-    }
-    if (!pdfText.includes("Exact first-page PDF text")) {
-      failures.push("semantic PDF page text was not rendered");
-    }
-    if (!pdfText.includes("No extractable text was found on this page")) {
-      failures.push("empty PDF page accessibility limitation was not rendered");
-    }
-    await expectText(page, "Convert it to a COG", "actionable worker validation result");
-    await expectText(page, "Error code: cog_layout_required", "safe worker error code");
+    const route = await assertManagedDocumentPreviews(page, baseUrl);
     await visit(
       page,
       `${baseUrl}/workspaces?project=${IDS.projects[0]}&manage=resources#project-resources`,
@@ -8693,10 +8777,11 @@ async function withPlatformPage(
   const cameraTourOnly = process.argv.includes("--camera-tour");
   const offlineDirectory = process.argv.includes("--project-directory");
   const offlineWorkbench = process.argv.includes("--workbench-interactions");
+  const offlinePlatform = process.argv.includes("--platform-states");
   if (tourLayerMode) assert.ok(tourLayerReceipt.usage.contexts < 2, "Two cumulative browser contexts exhausted");
   const context = await browser.newContext({
     colorScheme, viewport, hasTouch, isMobile,
-    ...(flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench ? {serviceWorkers: "block"} : {})
+    ...(flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench || offlinePlatform ? {serviceWorkers: "block"} : {})
   });
   if (tourLayerMode) {
     tourLayerReceipt.usage.contexts++;tourLayerReceipt.cleanup.contextsClosed = false;
@@ -8719,14 +8804,14 @@ async function withPlatformPage(
       if (url.origin === baseUrl && /\/datasets\//.test(url.pathname) && request.method() === "GET") tourLayerReceipt.usage.datasetReads++;
     });
   }
-  if (flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench) {
+  if (flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench || offlinePlatform) {
     // Register first so the existing explicit local/provider fixture routes take
     // precedence. Every remaining remote request fails before network access.
     await context.route("**/*", async (route) => {
       if (new URL(route.request().url()).origin === baseUrl) return route.continue();
       flightBrowserRequests.blockedUnexpected += 1;
       if (tourLayerMode) {tourLayerReceipt.usage.outboundBlocked++;tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Unexpected outbound request blocked";}
-      failures.push(`${cameraTourOnly ? "camera tour" : offlineDirectory ? "project directory" : offlineWorkbench ? "workbench interactions" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
+      failures.push(`${cameraTourOnly ? "camera tour" : offlineDirectory ? "project directory" : offlineWorkbench ? "workbench interactions" : offlinePlatform ? "platform states" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
       await route.abort("blockedbyclient");
     });
     context.on("request", (request) => {
@@ -11146,11 +11231,16 @@ async function handleApiRequest(request, response) {
     const pdf = documentPreviewMatch[1] === IDS.projects[0]
       && documentPreviewMatch[2] === IDS.pdfDataset
       && documentPreviewMatch[3] === IDS.pdfVersion;
-    writeJson(response, odt || pdf ? 200 : 404, odt
+    const docx = documentPreviewMatch[1] === IDS.projects[0]
+      && documentPreviewMatch[2] === IDS.docxDataset
+      && documentPreviewMatch[3] === IDS.docxVersion;
+    writeJson(response, odt || pdf || docx ? 200 : 404, odt
       ? documentPreviewPayload()
       : pdf
         ? pdfDocumentPreviewPayload()
-        : {
+        : docx
+          ? docxDocumentPreviewPayload()
+          : {
       detail: "document_preview_not_found"
     }, requestId);
     return true;
@@ -13049,6 +13139,14 @@ function datasetVersionPayload(dataset) {
     text_characters: 42,
     embedded_media_count: 0,
     accessible_preview_schema: "opengeo.document-preview.1.0.0"
+  } : dataset.format === "docx" ? {
+    kind: "ooxml_text",
+    source_format: "docx",
+    page_count: 1,
+    block_count: 3,
+    text_characters: 42,
+    embedded_media_count: 0,
+    accessible_preview_schema: "opengeo.document-preview.4.0.0"
   } : dataset.format === "pdf" ? {
     kind: "pdf",
     source_format: "pdf",
@@ -13081,10 +13179,10 @@ function datasetVersionPayload(dataset) {
     objects: [{
       id: "82000000-0000-4000-8000-000000000099",
       role: "derived",
-      filename: ["odt", "pdf"].includes(dataset.format)
+      filename: ["odt", "docx", "pdf"].includes(dataset.format)
         ? "accessible-preview.json"
         : "access-roads.parquet",
-      content_type: ["odt", "pdf"].includes(dataset.format)
+      content_type: ["odt", "docx", "pdf"].includes(dataset.format)
         ? "application/json"
         : "application/vnd.apache.parquet",
       size_bytes: 4096,
@@ -13114,6 +13212,16 @@ function documentPreviewPayload() {
         }
       ]
     }]
+  };
+}
+
+function docxDocumentPreviewPayload() {
+  const {odfVersion, ...preview} = documentPreviewPayload();
+  return {
+    ...preview,
+    schemaVersion: "opengeo.document-preview.4.0.0",
+    sourceFormat: "docx",
+    title: "नेपाल Word report"
   };
 }
 

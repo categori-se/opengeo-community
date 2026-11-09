@@ -86,7 +86,7 @@ export function renderLayerResource({dataset, source: recordedSource = null, kno
   const resourceKnowledge=ResourceKnowledge({adapter,datasetId:dataset.id,projectId:dataset.projectId});
   root.dataset.resourceId = dataset.id;
   const observed = recordedLayerMetadata(knowledge).metadata;
-  const nonSpatial = ["pdf","odt","png","jpeg"].includes(dataset.format)
+  const nonSpatial = ["pdf","odt","docx","png","jpeg"].includes(dataset.format)
     || ["table","document","image","none"].includes(dataset.geometryType?.toLowerCase())
     || (dataset.format === "csv" && !dataset.geometryType);
   root.append(node("p", nonSpatial ? "Catalog resource" : "Catalog Layer", "platform-eyebrow"), node("h1", observed?.name || dataset.name),
