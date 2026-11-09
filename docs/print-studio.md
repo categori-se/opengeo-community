@@ -2,6 +2,28 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Direct browser PDF text structure — local work, November 9, 2026
+
+Vector PDF and geospatial PDF now retain the owned page title as `H1`, each
+literal text frame as one `P` containing its painted wrapped lines, and other
+painted text as `Span`. The duplicate text used to paint a label halo is an
+artifact. Blank runs do not create empty structure elements. Literal Unicode,
+parentheses and markup remain text; font, map registration and legal attachments
+use their existing paths.
+
+This increment is qualified locally; hosted acceptance remains open. Focused tests and strict inspection of
+an actual writer fixture check page ownership, paragraph grouping, reading text
+and repeat serialization. Its before/current text, geometry and 60-DPI native
+pixels are identical. The compiled Studio selection/save/reopen/export journey
+also passes. Its actual PDF has one title, a ten-run description paragraph and
+18 paint-bound MCIDs with valid page/ParentTree ancestry. A 96-DPI comparison
+matches the prior output outside the explicitly masked random fixture-ID line;
+all other extracted text matches. This fixture comparison is not a device matrix.
+This does not establish full assistive-technology behavior, language handling,
+Figure/table/list semantics or PDF/UA conformance; hosted and full-family
+acceptance remain open.
+
+
 ## Flow PDF headings and paragraphs — local work, November 9, 2026
 
 Ordinary flow layouts now retain typed heading levels 2–4 as `H2`–`H4` and

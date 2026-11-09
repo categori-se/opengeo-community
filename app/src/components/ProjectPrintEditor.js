@@ -1169,7 +1169,8 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
         try {return assertPrintDataFrameSnapshot(item, snapshot, captured.presentation);} catch (error) {if (preview) return {frameId: item.id, captured: false};throw error;}
       })} : {frameId: frame.id, captured: false};})});svg.append(metadata);
   svg.append(svgNode("rect", {width: page.widthMm, height: page.heightMm, fill: "white"}));
-  svg.append(svgText(layout.title, page.marginMm, 16, 5));
+  const pageTitle = svgText(layout.title, page.marginMm, 16, 5);
+  pageTitle.setAttribute("data-print-page-title", "true");svg.append(pageTitle);
   if (guides) svg.append(svgNode("rect", {x: page.marginMm, y: page.marginMm, width: page.widthMm - 2 * page.marginMm, height: page.heightMm - 2 * page.marginMm, fill: "none", stroke: "#94a3b8", "stroke-width": 0.2, "stroke-dasharray": "2 2"}));
   const annotationText = (value, px, py, size, attributes = {}) => {
     const node = svgText(value, px, py, size);
