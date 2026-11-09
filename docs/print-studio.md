@@ -2,6 +2,29 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Office document layout — local acceptance
+
+Processed ODT document blocks reuse the exact-version PDF print companion.
+Original packages remain private, semantic previews and their page counts remain
+unchanged, and physical pagination is recorded separately. Old editions are not
+rebound. Conversion uses one-shot LibreOffice Writer with a fresh profile,
+private process, device and bounded temporary filesystems, Landlock and seccomp.
+System fonts may be substituted; unsupported conversion keeps semantic access.
+Conversion copies preserve nested namespace declarations and formula bindings.
+
+One local CC0 two-page case passes with LibreOffice 25.8.7.3 and the retained
+pypdf 7 runtime: portrait/landscape geometry, selectable text, table, image and font
+resources remain, with unchanged original bytes and no annotations. Six local
+filesystem/socket controls pass. The same worker PDF passes the actual API
+description/composition path with equal text, geometry and per-page Poppler
+pixels at 60 DPI. Thirteen focused worker/runner cases and strict types on two
+changed modules pass; earlier API/fallback and namespace evidence is reused.
+
+This is scoped local acceptance. Exact worker-image, kernel/UID/cgroup/runtime,
+dependency/security/SBOM and hosted scanner/storage/authorization/publication
+qualification remain open, along with non-ODT Office, wider fidelity and the
+remaining Print requirements. Hosted deployment is not established by this work.
+
 ## Imported PDF pages — November 8, 2026
 
 A local increment keeps source fonts, vector paths, selectable text, crop and

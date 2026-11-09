@@ -2084,18 +2084,48 @@ class PostgresSitePublicationRepository:
     ) -> PublishedSiteAsset:
         schema = source_row[16] if len(source_row) > 16 else None
         document = schema.get("document") if isinstance(schema, dict) else None
-        facts = document.get("print_vector_facts") if isinstance(document, dict) else None
-        page_count = document.get("page_count") if isinstance(document, dict) else None
+        if len(source_row) <= 16 or source_row[15] != "document" or not isinstance(document, dict):
+            raise SiteConflict("site_print_document_invalid")
+        pdf_source = (
+            source.kind in {"file", "document"}
+            and (source.kind != "file" or source.content_type == "application/pdf")
+            and source_row[14] == "pdf"
+            and document.get("kind") == "pdf"
+            and document.get("source_format") == "pdf"
+        )
+        odt_source = (
+            source.kind == "document"
+            and source.content_type == "application/json"
+            and source_row[9] == "derived"
+            and source_row[14] == "odt"
+            and cls._document_facts_valid(source_row[14], source_row[15], schema, source.object_key)
+        )
+        if not (pdf_source or odt_source):
+            raise SiteConflict("site_print_document_invalid")
+        if odt_source:
+            conversion = document.get("print_conversion")
+            version = conversion.get("version") if isinstance(conversion, dict) else None
+            if (
+                not isinstance(conversion, dict)
+                or conversion.get("renderer") != "libreoffice-writer-pdf"
+                or not isinstance(version, str)
+                or not 1 <= len(version) <= 120
+                or not version.strip()
+                or not version.isprintable()
+                or conversion.get("export_filter") != "writer_pdf_Export"
+                or conversion.get("network") != "seccomp-denied"
+                or conversion.get("fonts") != "system-fonts-substitution-possible"
+            ):
+                raise SiteConflict("site_print_document_invalid")
+        facts = document.get("print_vector_facts")
+        # The semantic ODT page count does not describe Writer's pagination.
+        page_count = (
+            facts.get("page_count")
+            if odt_source and isinstance(facts, dict)
+            else document.get("page_count")
+        )
         if (
-            source.kind not in {"file", "document"}
-            or (source.kind == "file" and source.content_type != "application/pdf")
-            or len(source_row) <= 16
-            or source_row[14] != "pdf"
-            or source_row[15] != "document"
-            or not isinstance(document, dict)
-            or document.get("kind") != "pdf"
-            or document.get("source_format") != "pdf"
-            or document.get("print_vector_available") is not True
+            document.get("print_vector_available") is not True
             or document.get("print_vector_schema") != "opengeo.pdf-print-vector.1.0.0"
             or type(page_count) is not int
             or not 1 <= page_count <= 200

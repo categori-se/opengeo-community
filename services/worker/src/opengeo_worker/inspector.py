@@ -14,6 +14,7 @@ from opengeo_worker.kml_sources import inspect_kml_source
 from opengeo_worker.malware import ClamAvScanner, MalwareScanEvidence, MalwareScanner
 from opengeo_worker.models import ArtifactFile, DatasetFormat, InspectionResult, ValidationFailure
 from opengeo_worker.odf_documents import inspect_odt
+from opengeo_worker.office_print_vectors import build_odt_print_vectors
 from opengeo_worker.pdf_documents import (
     PREVIEW_CONTENT_TYPE as PDF_PREVIEW_CONTENT_TYPE,
 )
@@ -110,16 +111,7 @@ class DatasetInspector:
             self._verify_pdf_structure(source)
             return self._with_malware_scan(self._inspect_pdf(source, workdir), scan)
         if dataset_format == "odt":
-            return self._with_malware_scan(
-                inspect_odt(
-                    source,
-                    workdir,
-                    maximum_entries=self._settings.max_archive_entries,
-                    maximum_expanded_bytes=self._settings.max_archive_expanded_bytes,
-                    maximum_ratio=self._settings.max_archive_ratio,
-                ),
-                scan,
-            )
+            return self._with_malware_scan(self._inspect_odt(source, workdir), scan)
         self._verify_magic(source, dataset_format)
         if dataset_format == "cog":
             return self._with_malware_scan(self._inspect_cog(source, workdir), scan)
@@ -148,6 +140,47 @@ class DatasetInspector:
             schema_definition=result.schema_definition,
             quality_results=quality,
             artifacts=result.artifacts,
+        )
+
+    def _inspect_odt(self, source: Path, workdir: Path) -> InspectionResult:
+        semantic = inspect_odt(
+            source,
+            workdir,
+            maximum_entries=self._settings.max_archive_entries,
+            maximum_expanded_bytes=self._settings.max_archive_expanded_bytes,
+            maximum_ratio=self._settings.max_archive_ratio,
+        )
+        prepared, facts, conversion = build_odt_print_vectors(source, workdir, self._runner)
+        document = cast(dict[str, object], semantic.schema_definition["document"])
+        # Semantic pages count explicit breaks, not the office renderer's pages.
+        document = {
+            **document,
+            "print_vector_available": prepared is not None,
+            "print_vector_schema": PDF_PRINT_VECTOR_SCHEMA,
+            "print_vector_facts": facts,
+            "print_conversion": conversion,
+        }
+        quality = dict(semantic.quality_results)
+        checks = list(cast(list[dict[str, str]], quality["checks"]))
+        warnings = list(cast(list[dict[str, str]], quality["warnings"]))
+        artifacts = semantic.artifacts
+        if prepared is None:
+            warnings.append({"code": "office_original_layout_unavailable_unsupported_or_bounded"})
+        else:
+            checks.append({"code": "isolated_office_original_layout_prepared", "status": "passed"})
+            warnings.append({"code": "office_print_system_fonts_may_be_substituted"})
+            artifacts += (
+                ArtifactFile("derived", "document/print-vector.pdf", "application/pdf", prepared),
+            )
+        quality.update(checks=checks, warnings=warnings)
+        return InspectionResult(
+            feature_count=semantic.feature_count,
+            extent=semantic.extent,
+            crs=semantic.crs,
+            geometry_type=semantic.geometry_type,
+            schema_definition={**semantic.schema_definition, "document": document},
+            quality_results=quality,
+            artifacts=artifacts,
         )
 
     def _inspect_media(
