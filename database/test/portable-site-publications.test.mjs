@@ -225,7 +225,7 @@ describe("0025 portable site publications", () => {
     await db.exec(await readFile(new URL(
       "../migrations/0189_positioned_text_formatting.sql", import.meta.url
     ), "utf8"));
-    for (const file of ["0190_governed_docx_documents.sql", "0191_docx_publication_contract.sql"]) {
+    for (const file of ["0190_governed_docx_documents.sql", "0191_docx_publication_contract.sql", "0193_tagged_mcid_publication_facts.sql"]) {
       await db.exec(await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
     }
     await db.exec(`
@@ -699,8 +699,18 @@ describe("0025 portable site publications", () => {
       );
       return result.rows[0].valid;
     };
-    assert.equal(await valid(facts), true);
-    assert.equal(await valid(facts, "x/document/visual-presentation.json"), true);
+    for (const method of ["pypdf_tagged_actualtext", "pypdf_tagged_mcid_text"]) {
+      const sourceOrdered = {...facts, text_extraction: method};
+      assert.equal(await valid(sourceOrdered), true);
+      assert.equal(await valid(sourceOrdered, "x/document/visual-presentation.json"), true);
+      for (const invalid of [
+        {reading_order: "heuristic"}, {ocr_performed: true}, {ocr_performed: "false"},
+        {tagged: false}, {tagged: "true"}, {text_available: false},
+        {text_block_count: 0}, {text_characters: 0}, {text_block_count: "2"},
+        {accessible_preview_schema: "opengeo.document-preview.3.0.0"}
+      ]) assert.equal(await valid({...sourceOrdered, ...invalid}), false);
+    }
+    assert.equal(await valid({...facts, text_extraction: "unknown_tagged_reader"}), false);
     assert.equal(await valid({...facts, text_extraction: "poppler_pdftotext", reading_order: "heuristic"}), true);
     for (const change of [
       {text_extraction: "poppler_pdftotext"}, {reading_order: "heuristic"},

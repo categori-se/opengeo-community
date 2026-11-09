@@ -15,7 +15,7 @@ import sys
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, NoReturn, TypedDict, cast
 from uuid import UUID
 
 MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
@@ -23,6 +23,184 @@ MAX_TOTAL_BYTES = 16 * 1024 * 1024
 MAX_OUTPUT_BYTES = 8 * 1024 * 1024
 MAX_PAGES = 200
 CHILD_TIMEOUT_SECONDS = 15
+
+
+def _marked_page_spans(reader: Any, page: Any, error_type: type[ValueError] = ValueError) -> dict[int, dict[str, Any]]:
+    """Validate paint ownership; extract glyph text only inside source MCIDs."""
+    from copy import copy
+    from pypdf.generic import ArrayObject, ContentStream, DictionaryObject, NameObject, NumberObject
+
+    spans: dict[int, dict[str, Any]] = {}
+    operations = decoded = 0
+    stack: list[int | None] = []
+    path: set[int] = set()
+
+    def resolve(value: Any) -> Any:
+        return value.get_object() if hasattr(value, "get_object") else value
+
+    def fail() -> NoReturn:
+        raise error_type("tagged_pdf_paint_ownership")
+
+    def scan(stream: Any, resources: Any, inherited: int | None = None, artifact: bool = False, depth: int = 0) -> Any:
+        nonlocal operations, decoded
+        if depth > 16:
+            fail()
+        decoded += len(stream.get_data())
+        if decoded > 1_048_576:
+            fail()
+        resources = resolve(resources)
+        content = ContentStream(stream, reader)
+        local: list[int | None] = []
+        for args, op in content.operations:
+            operations += 1
+            if operations > 40_000:
+                fail()
+            active = local[-1] if local else inherited
+            decorative = bool(local and local[-1] is None) or (not local and artifact)
+            if op in {b"BDC", b"BMC"}:
+                if len(args) != (2 if op == b"BDC" else 1):
+                    fail()
+                props = args[1] if op == b"BDC" and len(args) == 2 else None
+                if isinstance(props, NameObject):
+                    props = resolve(resources.get("/Properties", {})).get(props)
+                    props = props.get_object() if props is not None else None
+                if str(args[0]) == "/Artifact":
+                    if isinstance(props, DictionaryObject) and "/MCID" in props:
+                        fail()
+                    local.append(None)
+                    continue
+                if active is not None or decorative or not isinstance(props, DictionaryObject):
+                    fail()
+                mcid = props.get("/MCID")
+                text = props.get("/ActualText")
+                if (type(mcid) is not NumberObject or not 0 <= mcid < 2_000
+                    or int(mcid) in spans or depth):
+                    fail()
+                if text is not None and (not isinstance(text, str) or not text.strip()
+                    or len(text) > 8_000 or "\x00" in text):
+                    fail()
+                spans[int(mcid)] = {"text": str(text) if text is not None else None,
+                                    "painted": False, "textPaint": False, "imagePaint": False}
+                local.append(int(mcid))
+            elif op == b"EMC":
+                if not local:
+                    fail()
+                local.pop()
+            elif op in {b"Tj", b"TJ", b"'", b'"'}:
+                if len(args) != (3 if op == b'"' else 1):
+                    fail()
+                operand = args[-1]
+                if op == b"TJ":
+                    if not isinstance(operand, ArrayObject):
+                        fail()
+                    paints_text = any(isinstance(item, (str, bytes)) and len(item) for item in operand)
+                else:
+                    if not isinstance(operand, (str, bytes)):
+                        fail()
+                    paints_text = bool(operand)
+                if paints_text:
+                    if active is None and not decorative:
+                        fail()
+                    if active is not None:
+                        spans[active]["painted"] = spans[active]["textPaint"] = True
+            elif op == b"Do":
+                if len(args) != 1:
+                    fail()
+                obj = resolve(resources.get("/XObject", {})).get(args[0])
+                if obj is None:
+                    fail()
+                obj = obj.get_object()
+                if obj.get("/Subtype") == "/Image":
+                    if active is None and not decorative:
+                        fail()
+                    if active is not None:
+                        spans[active]["painted"] = spans[active]["imagePaint"] = True
+                elif obj.get("/Subtype") == "/Form":
+                    identity = id(obj)
+                    if identity in path or "/StructParents" in obj:
+                        fail()
+                    path.add(identity)
+                    scan(obj, obj.get("/Resources", resources), active, decorative, depth + 1)
+                    path.remove(identity)
+                else:
+                    fail()
+        if local:
+            fail()
+        return content
+
+    if page.get_contents() is None:
+        return spans
+    content = scan(page.get_contents(), page.get("/Resources", {}))
+    if any(not span["painted"] for span in spans.values()):
+        fail()
+    if any(span["text"] is None and span["textPaint"] for span in spans.values()):
+        # Flush extraction at marked-content boundaries. This temporary stream
+        # never replaces source/print content, geometry or font resources.
+        extraction = copy(page)
+        projected = ContentStream(None, reader)
+        projected.operations = []
+        for args, op in content.operations:
+            if op in {b"BDC", b"BMC", b"EMC"}:
+                projected.operations.append(([], b"ET"))
+            projected.operations.append((args, op))
+            if op in {b"BDC", b"BMC", b"EMC"}:
+                projected.operations.append(([], b"BT"))
+        extraction[NameObject("/Contents")] = projected
+        glyphs: dict[int, list[str]] = {mcid: [] for mcid in spans}
+
+        def before(op: bytes, args: Any, *_: Any) -> None:
+            if op in {b"BDC", b"BMC"}:
+                props = args[1] if op == b"BDC" and len(args) == 2 else None
+                if isinstance(props, NameObject):
+                    props = resolve(resolve(page.get("/Resources", {})).get("/Properties", {})).get(props)
+                    props = props.get_object() if props is not None else None
+                stack.append(int(cast(Any, props["/MCID"])) if isinstance(props, DictionaryObject)
+                             and "/MCID" in props else None)
+            elif op == b"EMC":
+                if not stack:
+                    fail()
+                stack.pop()
+
+        def unicode_font(font: Any) -> bool:
+            font = resolve(font)
+            if not isinstance(font, DictionaryObject):
+                return False
+            if "/ToUnicode" in font:
+                mapping = resolve(font["/ToUnicode"])
+                if not hasattr(mapping, "get_data"):
+                    return False
+                data = mapping.get_data()
+                return bool(data) and len(data) <= 1_048_576 and (
+                    b"beginbfchar" in data or b"beginbfrange" in data
+                )
+            # Only the standard unembedded Roman Type1 fonts have a known
+            # fallback encoding. Custom glyph programs and Differences require
+            # an explicit ToUnicode mapping; a font name alone is insufficient.
+            standard = {
+                "/Courier", "/Courier-Bold", "/Courier-Oblique", "/Courier-BoldOblique",
+                "/Helvetica", "/Helvetica-Bold", "/Helvetica-Oblique", "/Helvetica-BoldOblique",
+                "/Times-Roman", "/Times-Bold", "/Times-Italic", "/Times-BoldItalic",
+            }
+            return (
+                font.get("/Subtype") == "/Type1" and str(font.get("/BaseFont")) in standard
+                and "/FontDescriptor" not in font
+                and font.get("/Encoding") in (None, "/StandardEncoding", "/WinAnsiEncoding", "/MacRomanEncoding")
+            )
+
+        def text(value: str, _cm: Any, _tm: Any, font: Any, _size: Any) -> None:
+            if value.strip() and stack and stack[-1] is not None:
+                if not unicode_font(font) or "\x00" in value or "\ufffd" in value:
+                    fail()
+                glyphs[stack[-1]].append(value)
+
+        extraction.extract_text(visitor_operand_before=before, visitor_text=text)
+        for mcid, span in spans.items():
+            if span["text"] is None and span["textPaint"]:
+                value = "".join(glyphs[mcid]).strip()
+                if not value or len(value) > 8_000:
+                    fail()
+                span["text"] = value
+    return spans
 
 
 class VectorPagePlacement(TypedDict):
@@ -384,7 +562,19 @@ def _child(directory: str, dependency_path: str) -> None:
                 raise PdfPrintDocumentError("pdf_print_tag_profile")
             found: set[int] = set()
             for kid in kids:
-                found.update(walk(kid, ref, page_ref, depth + 1))
+                if type(kid) is NumberObject:
+                    if index is None or index < last_page:
+                        raise PdfPrintDocumentError("pdf_print_tag_profile")
+                    key = int(reader.pages[index]["/StructParents"])
+                    mcid = int(kid)
+                    if (not 0 <= mcid < len(parents[key]) or (index, mcid) in used
+                        or not same(parents[key][mcid], ref)):
+                        raise PdfPrintDocumentError("pdf_print_tag_profile")
+                    used.add((index, mcid))
+                    last_page = index
+                    found.add(index)
+                else:
+                    found.update(walk(kid, ref, page_ref, depth + 1))
             if not kids and index is not None:
                 found.add(index)
             return found
@@ -401,49 +591,16 @@ def _child(directory: str, dependency_path: str) -> None:
                 raise PdfPrintDocumentError("pdf_print_tag_profile")
             expected.update((index, mcid) for mcid in range(len(array)))
             if validate_content:
-                content = ContentStream(page.get_contents(), reader)
-                if len(content.operations) > 40_000:
+                marked = _marked_page_spans(reader, page, PdfPrintDocumentError)
+                if set(marked) != set(range(len(array))):
                     raise PdfPrintDocumentError("pdf_print_tag_profile")
-                marked: dict[int, bool] = {}
-                active: int | None = None
-                for operands, operator in content.operations:
-                    if operator == b"BDC":
-                        if (
-                            active is not None
-                            or len(operands) != 2
-                            or not isinstance(operands[1], DictionaryObject)
-                        ):
+                for mcid, span in marked.items():
+                    if span["text"] is None:
+                        owner = array[mcid].get_object()
+                        if (not span["imagePaint"] or owner.get("/S") != "/Figure"
+                            or not isinstance(owner.get("/Alt"), str)
+                            or not owner["/Alt"].strip() or len(owner["/Alt"]) > 8_000):
                             raise PdfPrintDocumentError("pdf_print_tag_profile")
-                        mcid = operands[1].get("/MCID")
-                        text = operands[1].get("/ActualText")
-                        if (
-                            type(mcid) is not NumberObject
-                            or not 0 <= mcid < 2_000
-                            or mcid in marked
-                            or not isinstance(text, TextStringObject)
-                            or not text.strip()
-                            or len(text) > 8_000
-                            or "\x00" in text
-                        ):
-                            raise PdfPrintDocumentError("pdf_print_tag_profile")
-                        active = int(mcid)
-                        marked[active] = False
-                    elif operator == b"EMC":
-                        if active is None:
-                            raise PdfPrintDocumentError("pdf_print_tag_profile")
-                        active = None
-                    elif operator in {b"BMC", b"Do"}:
-                        raise PdfPrintDocumentError("pdf_print_tag_profile")
-                    elif operator in {b"Tj", b"TJ", b"'", b'"'}:
-                        if active is None:
-                            raise PdfPrintDocumentError("pdf_print_tag_profile")
-                        marked[active] = True
-                if (
-                    active is not None
-                    or set(marked) != set(range(len(array)))
-                    or not all(marked.values())
-                ):
-                    raise PdfPrintDocumentError("pdf_print_tag_profile")
         if used != expected:
             raise PdfPrintDocumentError("pdf_print_tag_profile")
         return (root, document, children, parents, groups)

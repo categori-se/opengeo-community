@@ -180,7 +180,7 @@ class PdfDocumentExtractionResponse(RequestModel):
 
 class TaggedPdfDocumentExtractionResponse(RequestModel):
     engine: Literal["pypdf"]
-    mode: Literal["tagged-actualtext"]
+    mode: Literal["tagged-actualtext", "tagged-mcid-text"]
     ocr_performed: Literal[False] = Field(alias="ocrPerformed")
     reading_order: Literal["source-tags"] = Field(alias="readingOrder")
     tagged: Literal[True]

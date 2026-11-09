@@ -4175,6 +4175,18 @@ describe("OpenGeo API client", () => {
       }
     };
     assert.deepEqual(parseDocumentPreview(taggedPdf), taggedPdf);
+    const mcidPdf = {...taggedPdf, extraction: {...taggedPdf.extraction, mode: "tagged-mcid-text"}};
+    assert.deepEqual(parseDocumentPreview(mcidPdf), mcidPdf);
+    for (const change of [
+      {engine: "poppler-pdftotext"}, {mode: "layout"}, {mode: "tagged-unknown"},
+      {mode: null}, {readingOrder: "heuristic"}, {tagged: false},
+      {ocrPerformed: true}, {textAvailable: false}
+    ]) {
+      assert.throws(() => parseDocumentPreview({
+        ...mcidPdf, extraction: {...mcidPdf.extraction, ...change}
+      }), ApiContractError);
+    }
+
     for (const change of [
       {tagged: false}, {textAvailable: false}, {ocrPerformed: true},
       {engine: "poppler-pdftotext"}, {mode: "layout"}, {readingOrder: "heuristic"}

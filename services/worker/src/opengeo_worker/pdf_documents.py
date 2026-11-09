@@ -78,7 +78,8 @@ def extract_pdf_semantic_preview(
     if len(raw_pages) != page_count:
         raise ValidationFailure("document_text_extraction_failed")
 
-    tagged_text = _validated_tagged_pages(source, workdir, runner, page_count) if tagged else None
+    tagged_result = _validated_tagged_pages(source, workdir, runner, page_count) if tagged else None
+    tagged_text, tagged_mode = tagged_result if tagged_result is not None else (None, None)
     embedded_paragraphs = (
         tuple(tuple(page) for page in tagged_text)
         if tagged_text is not None
@@ -130,7 +131,7 @@ def extract_pdf_semantic_preview(
     if ocr is None:
         extraction = {
             "engine": "pypdf" if tagged_text is not None else "poppler-pdftotext",
-            "mode": "tagged-actualtext" if tagged_text is not None else "layout",
+            "mode": tagged_mode if tagged_text is not None else "layout",
             "ocrPerformed": False,
             "readingOrder": "source-tags" if tagged_text is not None else "heuristic",
             "tagged": tagged,
@@ -178,7 +179,10 @@ def extract_pdf_semantic_preview(
         text_characters,
         text_available,
         ocr,
-        "pypdf_tagged_actualtext" if tagged_text is not None else (
+        (
+            "pypdf_tagged_mcid_text" if tagged_mode == "tagged-mcid-text"
+            else "pypdf_tagged_actualtext"
+        ) if tagged_text is not None else (
             "poppler_pdftotext_tesseract" if ocr is not None else "poppler_pdftotext"
         ),
         "source-tags" if tagged_text is not None else "heuristic",
@@ -229,7 +233,7 @@ def _optional_language(value: str | None) -> str | None:
 
 def _validated_tagged_pages(
     source: Path, workdir: Path, runner: CommandRunner, page_count: int
-) -> list[list[str]] | None:
+) -> tuple[list[list[str]], str] | None:
     spec = importlib.util.find_spec("pypdf")
     if spec is None or spec.origin is None:
         return None
@@ -246,7 +250,16 @@ def _validated_tagged_pages(
         )
         if result.stderr or len(result.stdout.encode()) > _MAX_RAW_TEXT_BYTES:
             return None
-        pages = json.loads(result.stdout).get("pages")
+        payload = json.loads(result.stdout)
+        if not isinstance(payload, dict) or set(payload) != {"pages", "mode", "sourceTags"}:
+            return None
+        mode, profile = payload.get("mode"), payload.get("sourceTags")
+        if not isinstance(mode, str) or (mode, profile) not in {
+            ("tagged-actualtext", "closed-actualtext"),
+            ("tagged-mcid-text", "validated-mcid-text"),
+        }:
+            return None
+        pages = payload.get("pages")
         if (
             not isinstance(pages, list) or len(pages) != page_count
             or any(not isinstance(page, list) or not page for page in pages)
@@ -256,6 +269,6 @@ def _validated_tagged_pages(
             or sum(len(text) for page in pages for text in page) > _MAX_TEXT_CHARACTERS
         ):
             return None
-        return pages
+        return pages, mode
     except (ValidationFailure, ValueError, TypeError, AttributeError):
         return None

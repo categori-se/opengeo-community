@@ -2135,7 +2135,7 @@ class PostgresSitePublicationRepository:
             or facts.get("renderer") != "pypdf-safe-clone"
             or type(facts.get("page_count")) is not int
             or facts.get("page_count") != page_count
-            or facts.get("source_tags") not in ("absent", "closed-actualtext")
+            or facts.get("source_tags") not in ("absent", "closed-actualtext", "validated-mcid-text")
             or type(facts.get("annotations_removed")) is not int
             or facts["annotations_removed"] < 0
             or not isinstance(facts.get("pages"), list)
@@ -2317,7 +2317,9 @@ class PostgresSitePublicationRepository:
         )
         tagged_pdf_facts = (
             document.get("accessible_preview_schema") == PDF_DOCUMENT_PREVIEW_SCHEMA
-            and document.get("text_extraction") == "pypdf_tagged_actualtext"
+            and document.get("text_extraction") in (
+                "pypdf_tagged_actualtext", "pypdf_tagged_mcid_text"
+            )
             and document.get("reading_order") == "source-tags"
             and document.get("ocr_performed") is False
             and document.get("tagged") is True

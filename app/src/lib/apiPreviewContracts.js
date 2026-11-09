@@ -406,7 +406,8 @@ export function parseDocumentPreview(value) {
       const sourceTags = extraction.readingOrder === "source-tags";
       parsedExtraction = {
         engine: oneOf(extraction.engine, [sourceTags ? "pypdf" : "poppler-pdftotext"], "PDF extraction engine"),
-        mode: oneOf(extraction.mode, [sourceTags ? "tagged-actualtext" : "layout"], "PDF extraction mode"),
+        mode: oneOf(extraction.mode, sourceTags
+          ? ["tagged-actualtext", "tagged-mcid-text"] : ["layout"], "PDF extraction mode"),
         ocrPerformed: oneOf(extraction.ocrPerformed, [false], "PDF OCR state"),
         readingOrder: oneOf(extraction.readingOrder, ["heuristic", "source-tags"], "PDF reading order"),
         tagged: sourceTags

@@ -355,7 +355,7 @@ def _pdf_extraction_valid(value: object, schema: object) -> bool:
                 )
                 or (
                     value.get("engine") == "pypdf"
-                    and value.get("mode") == "tagged-actualtext"
+                    and value.get("mode") in ("tagged-actualtext", "tagged-mcid-text")
                     and value.get("readingOrder") == "source-tags"
                     and value.get("tagged") is True
                     and value.get("textAvailable") is True

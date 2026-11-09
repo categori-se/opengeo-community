@@ -505,14 +505,15 @@ def test_authorized_document_preview_is_exactly_read_reauthorized_and_strictly_p
     assert len(reauthorize.calls) == 2
 
 
-def test_tagged_pdf_preview_target_keeps_exact_read_reauthorization_and_fact_branch() -> None:
+@pytest.mark.parametrize("mode", ["tagged-actualtext", "tagged-mcid-text"])
+def test_tagged_pdf_preview_target_keeps_exact_read_reauthorization_and_fact_branch(mode) -> None:
     prepare = FakeTransaction(one=[access("viewer")], all_rows=[[preview_target_row()]])
     reauthorize = FakeTransaction(one=[access("viewer")], all_rows=[[preview_target_row()]])
     document = pdf_preview_document()
     document["extraction"].update(
         {
             "engine": "pypdf",
-            "mode": "tagged-actualtext",
+            "mode": mode,
             "readingOrder": "source-tags",
         }
     )
@@ -523,7 +524,8 @@ def test_tagged_pdf_preview_target_keeps_exact_read_reauthorization_and_fact_bra
     )
     assert preview == document
     query = " ".join(next(call for call in prepare.calls if call[0] == "all")[1].split())
-    assert "'pypdf_tagged_actualtext'" in query and "'source-tags'" in query
+    assert "'pypdf_tagged_actualtext'" in query and "'pypdf_tagged_mcid_text'" in query
+    assert "'source-tags'" in query
     assert "'{document,tagged}' = 'true'::jsonb" in query
     assert "'{document,text_available}' = 'true'::jsonb" in query
     assert "'{document,ocr_performed}' = 'false'::jsonb" in query
@@ -603,11 +605,12 @@ def test_pdf_preview_parser_accepts_all_pages_and_rejects_forged_extraction_fact
         PostgresCatalogRepository._parse_document_preview(json.dumps(document).encode())
 
 
-def test_pdf_source_tags_parser_requires_validated_non_ocr_extraction_facts() -> None:
+@pytest.mark.parametrize("mode", ["tagged-actualtext", "tagged-mcid-text"])
+def test_pdf_source_tags_parser_requires_validated_non_ocr_extraction_facts(mode) -> None:
     document = pdf_preview_document()
     document["extraction"] = {
         "engine": "pypdf",
-        "mode": "tagged-actualtext",
+        "mode": mode,
         "ocrPerformed": False,
         "readingOrder": "source-tags",
         "tagged": True,
@@ -621,6 +624,10 @@ def test_pdf_source_tags_parser_requires_validated_non_ocr_extraction_facts() ->
         {"ocrPerformed": True},
         {"engine": "poppler-pdftotext"},
         {"mode": "layout"},
+        {"mode": "tagged-unknown"},
+        {"mode": None},
+        {"mode": []},
+        {"mode": {}},
         {"readingOrder": "heuristic"},
     ):
         forged = {**document, "extraction": {**document["extraction"], **changed}}

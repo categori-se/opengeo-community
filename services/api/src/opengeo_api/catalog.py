@@ -844,8 +844,8 @@ class PostgresCatalogRepository:
                           AND version.schema_definition #>> '{document,reading_order}' =
                             'heuristic'
                         ) OR (
-                          version.schema_definition #>> '{document,text_extraction}' =
-                            'pypdf_tagged_actualtext'
+                          version.schema_definition #>> '{document,text_extraction}' IN
+                            ('pypdf_tagged_actualtext', 'pypdf_tagged_mcid_text')
                           AND version.schema_definition #>> '{document,reading_order}' =
                             'source-tags'
                           AND version.schema_definition #> '{document,ocr_performed}' =

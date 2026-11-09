@@ -257,11 +257,13 @@ class PdfPreviewCatalogRepository(FakeCatalogRepository):
 
 
 class TaggedPdfPreviewCatalogRepository(PdfPreviewCatalogRepository):
+    mode = "tagged-actualtext"
+
     async def get_document_preview(self, context, project_id, dataset_id, version_id):
         document = await super().get_document_preview(context, project_id, dataset_id, version_id)
         document["extraction"] = {
             "engine": "pypdf",
-            "mode": "tagged-actualtext",
+            "mode": self.mode,
             "ocrPerformed": False,
             "readingOrder": "source-tags",
             "tagged": True,
@@ -444,8 +446,10 @@ def test_exact_pdf_semantic_preview_uses_the_strict_variant_response() -> None:
     }
 
 
-def test_tagged_pdf_semantic_get_preserves_source_order_and_tenant_headers() -> None:
+@pytest.mark.parametrize("mode", ["tagged-actualtext", "tagged-mcid-text"])
+def test_tagged_pdf_semantic_get_preserves_source_order_and_tenant_headers(mode) -> None:
     repository = TaggedPdfPreviewCatalogRepository()
+    repository.mode = mode
     response = api_client(repository).get(
         f"/projects/{PROJECT_ID}/datasets/{DATASET_ID}/versions/{VERSION_ID}/document-preview",
         headers=headers(),
@@ -456,7 +460,7 @@ def test_tagged_pdf_semantic_get_preserves_source_order_and_tenant_headers() -> 
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.json()["extraction"] == {
         "engine": "pypdf",
-        "mode": "tagged-actualtext",
+        "mode": mode,
         "ocrPerformed": False,
         "readingOrder": "source-tags",
         "tagged": True,
