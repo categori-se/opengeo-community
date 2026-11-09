@@ -109,6 +109,7 @@ class _PdfStructureNode:
     role: str
     children: list["_PdfStructureNode | int"]
     column_header: bool = False
+    alt_text: str | None = None
 
 
 class _PdfFontCatalog:
@@ -125,11 +126,13 @@ class _PdfFontCatalog:
         self._structure_stack: list[_PdfStructureNode] = []
 
     @contextmanager
-    def tag(self, role: str, *, column_header: bool = False) -> Iterator[None]:
+    def tag(
+        self, role: str, *, column_header: bool = False, alt_text: str | None = None
+    ) -> Iterator[None]:
         if self.page_marked_content_count is None:
             yield
             return
-        node = _PdfStructureNode(role, [], column_header)
+        node = _PdfStructureNode(role, [], column_header, alt_text)
         children = (
             self._structure_stack[-1].children if self._structure_stack else self.page_structure
         )
@@ -141,6 +144,9 @@ class _PdfFontCatalog:
             self._structure_stack.pop()
 
     def mark_text(self) -> int | None:
+        return self.mark_content()
+
+    def mark_content(self) -> int | None:
         if self.page_marked_content_count is None:
             return None
         identifier = self.page_marked_content_count
@@ -611,6 +617,21 @@ def _image_frame_object_id(
         raise SitePrintError("site_print_layout_image_not_sealed") from error
 
 
+def _image_frame_alt_text(
+    element: PrintLayoutElement, blocks: dict[str, dict[str, object]]
+) -> str | None:
+    value = _content_frame_block(element, blocks, "image").get("alt_text")
+    # Current authored image blocks require bounded, nonblank text. Older sealed
+    # blocks still paint when that field is absent or invalid; never invent it.
+    if not isinstance(value, str) or not value.strip() or len(value) > 1_000:
+        return None
+    try:
+        value.encode("utf-16-be")
+    except UnicodeEncodeError:
+        return None
+    return value
+
+
 def _vector_block_id(block: object) -> str | None:
     if not isinstance(block, dict) or block.get("type") not in {"file", "document"}:
         return None
@@ -942,14 +963,25 @@ def _pdf(
                 text_ids[node] = identifier
                 role, children, attributes = "Span", str(node), ""
             else:
-                references = [
-                    child_id
-                    for child in node.children
-                    if (child_id := structure_child(child, identifier)) is not None
-                ]
                 role = node.role
-                children = "[" + " ".join(f"{child_id} 0 R" for child_id in references) + "]"
+                references: list[str] = []
+                for child in node.children:
+                    if role == "Figure" and isinstance(child, int):
+                        text_ids[child] = identifier
+                        references.append(str(child))
+                    elif (child_id := structure_child(child, identifier)) is not None:
+                        references.append(f"{child_id} 0 R")
+                children = (
+                    references[0]
+                    if role == "Figure"
+                    and len(node.children) == 1
+                    and isinstance(node.children[0], int)
+                    else "[" + " ".join(references) + "]"
+                )
                 attributes = " /A << /O /Table /Scope /Column >>" if node.column_header else ""
+                if node.alt_text is not None:
+                    alternative = (b"\xfe\xff" + node.alt_text.encode("utf-16-be")).hex().upper()
+                    attributes += f" /Alt <{alternative}>"
                 if node.column_header:
                     pdf_version = b"1.5"
             assign(
@@ -1276,6 +1308,16 @@ def _pdf_positioned_page(
             frame_commands = _pdf_image_frame(
                 name, image, x, y, width, height, element.fit or "contain", border=False
             )
+            alt_text = _image_frame_alt_text(element, blocks)
+            if alt_text is not None:
+                with fonts.tag("Figure", alt_text=alt_text):
+                    marked_content_id = fonts.mark_content()
+                if marked_content_id is not None:
+                    frame_commands = [
+                        f"/Figure << /MCID {marked_content_id} >> BDC\n".encode("ascii"),
+                        *frame_commands,
+                        b"EMC\n",
+                    ]
         elif element.type == "table_frame":
             frame_commands = _pdf_table_frame(
                 _content_frame_block(element, blocks, "table"), x, y, width, height, fonts
