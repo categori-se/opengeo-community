@@ -3524,6 +3524,8 @@ describe("OpenGeo API client", () => {
       }]
     };
     assert.deepEqual(parseSitePrintLayout(layout, new Set(["findings"])), layout);
+    const newer = {...layout, schemaVersion: "opengeo.print-layout.1.2.0"};
+    assert.deepEqual(parseSitePrintLayout(newer, new Set(["findings"])), newer);
     assert.throws(
       () => parseSitePrintLayout({...layout, remoteUrl: "https://bad.example"}),
       ApiContractError
@@ -3540,6 +3542,34 @@ describe("OpenGeo API client", () => {
       ]}]}),
       ApiContractError
     );
+  });
+
+  it("admits bounded local shapes only in opt-in print layouts and preserves older versions", () => {
+    const frame = {id: "outline", type: "shape_frame", x: 20, y: 40, width: 300, height: 200,
+      rotation: 15, clip: true, shape: "rectangle", stroke: "#123ABC", fill: null, strokeWidth: 3};
+    const layout = (element = frame, schemaVersion = "opengeo.print-layout.1.2.0") => ({
+      schemaVersion, pages: [{sitePageSlug: "findings", elements: [element]}]
+    });
+    for (const shape of ["line", "rectangle", "ellipse"]) {
+      const value = layout({...frame, shape});
+      assert.deepEqual(parseSitePrintLayout(value, new Set(["findings"])), value);
+    }
+    const filled = layout({...frame, stroke: null, fill: "#abcdef", shape: "ellipse"});
+    assert.deepEqual(parseSitePrintLayout(filled), filled);
+    for (const version of ["opengeo.print-layout.1.0.0", "opengeo.print-layout.1.1.0"]) {
+      assert.throws(() => parseSitePrintLayout(layout(frame, version)), ApiContractError);
+      const old = {schemaVersion: version, pages: []};
+      assert.deepEqual(parseSitePrintLayout(old), old);
+    }
+    for (const change of [
+      {shape: "path"}, {stroke: "red"}, {fill: "#123"}, {stroke: "#12345678"},
+      {fill: "url(https://bad.example/paint)"}, {fill: {}}, {stroke: false},
+      {stroke: null, fill: null}, {shape: "line", fill: "#ffffff"},
+      {shape: "line", stroke: null}, {strokeWidth: 0}, {strokeWidth: 13},
+      {strokeWidth: 1.5}, {strokeWidth: "2"}, {href: "https://bad.example"}
+    ]) assert.throws(() => parseSitePrintLayout(layout({...frame, ...change})), ApiContractError);
+    const missing = {...frame};delete missing.stroke;
+    assert.throws(() => parseSitePrintLayout(layout(missing)), ApiContractError);
   });
 
   it("lists strict governed site asset candidates without accepting storage facts", async () => {

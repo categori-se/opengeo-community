@@ -3284,7 +3284,8 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   );
   const source = labeledTextarea(
     "Advanced layout JSON",
-    initialLayout && Array.isArray(initialLayout.pages) && initialLayout.pages.length
+    initialLayout && Array.isArray(initialLayout.pages)
+      && (initialLayout.pages.length || initialLayout.schemaVersion !== "opengeo.print-layout.1.1.0")
       ? JSON.stringify(initialLayout, null, 2)
       : "",
     32_768,
@@ -3300,8 +3301,13 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   const pageChoice = labeledSelect("Preview page", []);
   const addType = labeledSelect("Add frame", [
     "text", "map_frame", "legend_frame", "image_frame", "table_frame", "chart_frame",
-    "source_panel", "north_arrow", "scale_bar"
+    "source_panel", "north_arrow", "scale_bar", "line", "rectangle", "ellipse"
   ]);
+  for (const option of addType.control.options) {
+    if (["line", "rectangle", "ellipse"].includes(option.value)) {
+      option.textContent = option.value[0].toUpperCase() + option.value.slice(1);
+    }
+  }
   const addBinding = labeledInput("Exact binding or text", "", 1_000);
   const addFrame = button("Add frame", "platform-button secondary");
   const addControls = document.createElement("div");
@@ -3326,19 +3332,32 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   );
   const clip = labeledCheckbox("Clip to frame", true);
   const fit = labeledSelect("Image fit", ["contain", "cover"]);
+  const shapeKind = labeledSelect("Shape", ["line", "rectangle", "ellipse"]);
+  const strokeColor = labeledInput("Outline color", "#172026", 7);
+  strokeColor.control.type = "color";
+  const noStroke = labeledCheckbox("No outline", false);
+  const fillColor = labeledInput("Fill color", "#e6eef2", 7);
+  fillColor.control.type = "color";
+  const noFill = labeledCheckbox("No fill", false);
+  const strokeWidth = labeledInput("Outline width (pt)", "1", 2);
+  Object.assign(strokeWidth.control, {type: "number", min: "1", max: "12", step: "1"});
+  const shapeFields = [shapeKind, strokeColor, noStroke, fillColor, noFill, strokeWidth];
   const apply = button("Apply frame changes");
   const rotateLeft = button("Rotate −15°", "platform-button secondary");
   const rotateRight = button("Rotate +15°", "platform-button secondary");
   const remove = button("Delete frame", "platform-button secondary");
+  const backward = button("Send backward", "platform-button secondary");
+  const forward = button("Bring forward", "platform-button secondary");
   const inspectorActions = document.createElement("div");
   inspectorActions.className = "project-positioned-layout-actions";
-  inspectorActions.append(apply, rotateLeft, rotateRight, remove);
+  inspectorActions.append(apply, rotateLeft, rotateRight, backward, forward, remove);
   inspector.append(
     inspectorTitle,
     selectedSummary,
     ...Object.values(geometry).map((field) => field.label),
     clip.label,
     fit.label,
+    ...shapeFields.map((field) => field.label),
     inspectorActions
   );
   const feedback = text(
@@ -3385,6 +3404,14 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     conversionReport.hidden = false;
     conversionReport.open = true;
   };
+  const richLayout = (layout) => ["opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0"].includes(layout.schemaVersion);
+  const pagePoints = () => {
+    const dimensions = {a4: [595.276, 841.89], letter: [612, 792], legal: [612, 1008],
+      tabloid: [792, 1224], a3: [841.89, 1190.551], a2: [1190.551, 1683.78],
+      a1: [1683.78, 2383.937], a0: [2383.937, 3370.394]};
+    const points = dimensions[printControls.printPageSize.control.value] ?? dimensions.a4;
+    return printControls.printOrientation.control.value === "landscape" ? [...points].reverse() : points;
+  };
 
   const selectedRows = () => rows.filter((row) => row.include.checked);
   const allowedSlugs = () => new Set(selectedRows().map((row) => siteSlug(row.resource.slug)));
@@ -3406,8 +3433,8 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   };
   const editSelected = (change) => {
     const layout = rawLayout();
-    if (layout.schemaVersion !== "opengeo.print-layout.1.1.0") {
-      throw new TypeError("visual edits require the 1.1 layout; insert a new starter to upgrade");
+    if (!richLayout(layout)) {
+      throw new TypeError("visual edits require a 1.1 or 1.2 layout; insert a new starter to upgrade");
     }
     const target = findSelected(layout);
     if (!target) throw new TypeError("select a frame first");
@@ -3418,20 +3445,37 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   const syncInspector = (layout) => {
     const target = findSelected(layout);
     inspector.disabled = !target;
+    for (const field of shapeFields) field.label.hidden = target?.element.type !== "shape_frame";
     if (!target) {
       selectedSummary.textContent = "Select a frame to edit it.";
       return;
     }
     const {element} = target;
-    selectedSummary.textContent = `${element.id} · ${element.type}. Arrow keys move by 10 units; Shift + arrows move by 1.`;
+    selectedSummary.textContent = `${element.id} · ${element.type} · Frame ${target.page.elements.indexOf(element) + 1} of ${target.page.elements.length}. Arrow keys move by 10 units; Shift + arrows move by 1.`;
     for (const name of ["x", "y", "width", "height", "rotation"]) {
       geometry[name].control.value = String(element[name] ?? 0);
     }
     clip.control.checked = element.clip ?? true;
     fit.control.value = element.fit ?? "contain";
     fit.label.hidden = !["map_frame", "image_frame"].includes(element.type);
+    for (const field of shapeFields) field.label.hidden = element.type !== "shape_frame";
+    if (element.type === "shape_frame") {
+      shapeKind.control.value = element.shape;
+      noStroke.control.checked = element.stroke === null;
+      strokeColor.control.value = element.stroke ?? "#172026";
+      noFill.control.checked = element.fill === null;
+      fillColor.control.value = element.fill ?? "#e6eef2";
+      strokeWidth.control.value = String(element.strokeWidth);
+      strokeColor.control.disabled = noStroke.control.checked;
+      noStroke.control.disabled = element.shape === "line";
+      noFill.control.disabled = element.shape === "line";
+      fillColor.control.disabled = noFill.control.checked || element.shape === "line";
+    }
+    backward.disabled = target.page.elements.indexOf(element) === 0;
+    forward.disabled = target.page.elements.indexOf(element) === target.page.elements.length - 1;
   };
   const frameLabel = (element) => {
+    if (element.type === "shape_frame") return element.shape[0].toUpperCase() + element.shape.slice(1);
     if (element.type === "map_frame") return `Map · ${element.resourceId.slice(0, 8)}`;
     if (Object.hasOwn(element, "blockId")) return `${element.type.replaceAll("_", " ")} · ${element.blockId}`;
     return element.type.replaceAll("_", " ");
@@ -3471,7 +3515,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
       const dy = Math.round((moveEvent.clientY - startY) * 1000 / bounds.height);
       const layout = rawLayout();
       const target = findSelected(layout);
-      if (!target || layout.schemaVersion !== "opengeo.print-layout.1.1.0") { finish(true); return; }
+      if (!target || !richLayout(layout)) { finish(true); return; }
       if (mode === "move") {
         target.element.x = Math.max(0, Math.min(1000 - start.width, start.x + dx));
         target.element.y = Math.max(0, Math.min(1000 - start.height, start.y + dy));
@@ -3509,6 +3553,8 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     preview.replaceChildren();
     try {
       const layout = parsedLayout();
+      const [paperWidth, paperHeight] = pagePoints();
+      preview.style.aspectRatio = `${paperWidth} / ${paperHeight}`;
       const priorPage = pageChoice.control.value;
       pageChoice.control.replaceChildren(...layout.pages.map((page) => {
         const option = text("option", page.sitePageSlug);
@@ -3532,7 +3578,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         shell.style.top = `${element.y / 10}%`;
         shell.style.width = `${element.width / 10}%`;
         shell.style.height = `${element.height / 10}%`;
-        shell.style.rotate = `${element.rotation ?? 0}deg`;
+        shell.style.rotate = `${element.type === "shape_frame" ? 0 : element.rotation ?? 0}deg`;
         shell.dataset.clip = String(element.clip ?? true);
         shell.dataset.selected = String(
           selected?.pageSlug === page.sitePageSlug && selected.elementId === element.id
@@ -3541,6 +3587,29 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         selectFrame.ariaLabel = `Select and move ${element.id} ${frameLabel(element)}`;
         selectFrame.dataset.elementId = element.id;
         selectFrame.setAttribute("aria-pressed", shell.dataset.selected);
+        if (element.type === "shape_frame") {
+          shell.style.background = "transparent";
+          shell.style.borderStyle = "dashed";
+          selectFrame.style.padding = "0";
+          selectFrame.style.overflow = "visible";
+          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          const width = paperWidth * element.width / 1000;
+          const height = paperHeight * element.height / 1000;
+          svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+          svg.setAttribute("preserveAspectRatio", "none");
+          svg.setAttribute("aria-hidden", "true");
+          Object.assign(svg.style, {width: "100%", height: "100%", display: "block", overflow: "visible", pointerEvents: "none"});
+          const graphic = document.createElementNS("http://www.w3.org/2000/svg",
+            element.shape === "rectangle" ? "rect" : element.shape);
+          const attributes = element.shape === "line" ? {x1: 0, y1: height / 2, x2: width, y2: height / 2}
+            : element.shape === "ellipse" ? {cx: width / 2, cy: height / 2, rx: width / 2, ry: height / 2}
+              : {x: 0, y: 0, width, height};
+          for (const [name, value] of Object.entries({...attributes, stroke: element.stroke ?? "none",
+            fill: element.fill ?? "none", "stroke-width": element.strokeWidth})) graphic.setAttribute(name, String(value));
+          graphic.setAttribute("transform", `rotate(${-element.rotation} ${width / 2} ${height / 2})`);
+          svg.append(graphic);
+          selectFrame.replaceChildren(svg);
+        }
         selectFrame.addEventListener("click", () => {
           selected = {pageSlug: page.sitePageSlug, elementId: element.id};
           renderPreview();
@@ -3636,10 +3705,38 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         }
         element.clip = clip.control.checked;
         if (["map_frame", "image_frame"].includes(element.type)) element.fit = fit.control.value;
+        if (element.type === "shape_frame") Object.assign(element, shapeValues());
       });
       renderPreview();
     } catch (error) {
       feedback.textContent = `Frame needs attention (${error?.message ?? "invalid_frame"}).`;
+    }
+  });
+  const shapeValues = () => ({shape: shapeKind.control.value,
+    stroke: shapeKind.control.value === "line" || !noStroke.control.checked ? strokeColor.control.value : null,
+    fill: shapeKind.control.value === "line" || noFill.control.checked ? null : fillColor.control.value,
+    strokeWidth: Number(strokeWidth.control.value)});
+  for (const field of shapeFields) field.control.addEventListener("change", () => {
+    try {
+      editSelected((element) => {
+        if (element.type === "shape_frame") Object.assign(element, shapeValues());
+      });
+      renderPreview();
+    } catch (error) {
+      feedback.textContent = `Shape needs attention (${error?.message ?? "invalid_shape"}).`;
+    }
+  });
+  for (const [control, delta] of [[backward, -1], [forward, 1]]) control.addEventListener("click", () => {
+    try {
+      editSelected((element, page) => {
+        const index = page.elements.indexOf(element);
+        const next = index + delta;
+        if (next < 0 || next >= page.elements.length) return;
+        [page.elements[index], page.elements[next]] = [page.elements[next], page.elements[index]];
+      });
+      renderPreview();
+    } catch (error) {
+      feedback.textContent = `Frame order needs attention (${error?.message ?? "invalid_frame"}).`;
     }
   });
   const rotate = (delta) => {
@@ -3693,15 +3790,23 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   };
   const updateSuggestedBinding = () => {
     addBinding.control.value = suggestedBinding();
+    addBinding.label.hidden = ["line", "rectangle", "ellipse"].includes(addType.control.value);
   };
   addType.control.addEventListener("change", updateSuggestedBinding);
   pageChoice.control.addEventListener("change", updateSuggestedBinding);
   addFrame.addEventListener("click", () => {
     try {
       const layout = rawLayout();
-      if (layout.schemaVersion !== "opengeo.print-layout.1.1.0") {
-        throw new TypeError("new rich frames require the 1.1 layout");
+      const shape = ["line", "rectangle", "ellipse"].includes(addType.control.value) ? addType.control.value : null;
+      if (shape && layout.schemaVersion === "opengeo.print-layout.1.0.0") {
+        for (const page of layout.pages) for (const element of page.elements) {
+          Object.assign(element, {rotation: 0, clip: true});
+          if (element.type === "map_frame") element.fit = "contain";
+        }
+      } else if (!richLayout(layout)) {
+        throw new TypeError("new frames require a 1.1 or 1.2 layout");
       }
+      if (shape) layout.schemaVersion = "opengeo.print-layout.1.2.0";
       let page = layout.pages.find(({sitePageSlug}) => sitePageSlug === pageChoice.control.value);
       if (!page) {
         const pageSlug = selectedRows()[0] && siteSlug(selectedRows()[0].resource.slug);
@@ -3709,9 +3814,9 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         page = {sitePageSlug: pageSlug, elements: []};
         layout.pages.push(page);
       }
-      const type = addType.control.value;
+      const type = shape ? "shape_frame" : addType.control.value;
       const binding = addBinding.control.value.trim();
-      const stem = type.replace("_frame", "");
+      const stem = shape ?? type.replace("_frame", "");
       let number = 1;
       while (page.elements.some(({id}) => id === `${stem}_${number}`)) number += 1;
       const element = {
@@ -3724,7 +3829,9 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         rotation: 0,
         clip: true
       };
-      if (type === "text") Object.assign(element, {text: binding || "New print content", style: "body"});
+      if (type === "shape_frame") Object.assign(element, {shape, stroke: "#172026",
+        fill: shape === "line" ? null : "#e6eef2", strokeWidth: 1});
+      else if (type === "text") Object.assign(element, {text: binding || "New print content", style: "body"});
       else if (type === "map_frame") Object.assign(element, {resourceId: binding, fit: "contain"});
       else if (type === "image_frame") Object.assign(element, {blockId: binding, fit: "contain"});
       else if (["table_frame", "chart_frame"].includes(type)) element.blockId = binding;
@@ -3738,6 +3845,9 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     }
   });
   source.control.addEventListener("input", renderPreview);
+  for (const field of [printControls.printPageSize, printControls.printOrientation]) {
+    field.control.addEventListener("change", renderPreview);
+  }
   fieldset.append(
     starter,
     importGeoMoose,

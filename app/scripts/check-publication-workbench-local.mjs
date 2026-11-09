@@ -12,6 +12,8 @@ const draftOnly = process.argv.includes('--draft-only');
 const exportOnly = process.argv.includes('--export-only');
 const accountExportPresentationOnly = process.argv.includes('--account-export-presentation-only');
 const accountExportOnly = process.argv.includes('--account-export-only') || accountExportPresentationOnly;
+const positionedShapesOnly = process.argv.includes('--positioned-shapes-only');
+assert(!(positionedShapesOnly && (accountExportOnly || exportOnly || draftOnly)), 'Choose one narrow check mode');
 assert(!(accountExportOnly && (exportOnly || draftOnly)), 'Choose one narrow check mode');
 const output = "/tmp/opengeo-publication-workbench";
 await mkdir(output, {recursive: true});
@@ -36,11 +38,12 @@ const unexpectedRequests = [];
 let draftShellRequests = 0;
 const browserStarted = Date.now();
 let softwareRequests = 0, softwareBytes = 0, accountCheckTimer;
-const browser = await chromium.launch({headless: true, executablePath: ["/usr/bin/chromium", "/usr/bin/chromium-browser"].find(existsSync), ...(accountExportOnly ? {timeout: 5000} : {})});
+const browser = await chromium.launch({headless: true, executablePath: ["/usr/bin/chromium", "/usr/bin/chromium-browser"].find(existsSync), ...(accountExportOnly || positionedShapesOnly ? {timeout: 5000} : {})});
 if (accountExportOnly) accountCheckTimer = setTimeout(() => {void browser.close().catch(() => {});}, Math.max(1, 25_000 - (Date.now() - browserStarted)));
+if (positionedShapesOnly) accountCheckTimer = setTimeout(() => {void browser.close().catch(() => {});}, Math.max(1, 25_000 - (Date.now() - browserStarted)));
 const errors = [];
 try {
-  const page = await browser.newPage({viewport: {width: 1280, height: 900}, ...(accountExportOnly ? {serviceWorkers: "block"} : {})});
+  const page = await browser.newPage({viewport: {width: 1280, height: 900}, ...(accountExportOnly || positionedShapesOnly ? {serviceWorkers: "block"} : {})});
   if (accountExportOnly) {page.setDefaultTimeout(3500); page.setDefaultNavigationTimeout(5000);}
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/*", async route => {
@@ -49,7 +52,7 @@ try {
       unexpectedRequests.push(`${request.method()} ${url.href}`); return route.abort();
     }
     if (url.href === draftUrl) {
-      if (accountExportOnly) {unexpectedRequests.push(url.href); return route.abort();}
+      if (accountExportOnly || positionedShapesOnly) {unexpectedRequests.push(url.href); return route.abort();}
       draftShellRequests++;
       return route.fulfill({contentType: 'text/html', headers: {'Content-Security-Policy': draftPolicy}, body: draftShell});
     }
@@ -63,9 +66,9 @@ try {
     }
     try {
       const bytes = await readFile(file);
-      if (accountExportOnly) {
+      if (accountExportOnly || positionedShapesOnly) {
         softwareRequests++; softwareBytes += bytes.byteLength;
-        if (softwareRequests > 200 || softwareBytes > 5 * 1024 * 1024) {
+        if (softwareRequests > 200 || softwareBytes > (positionedShapesOnly ? 10 : 5) * 1024 * 1024) {
           unexpectedRequests.push('Compiled asset budget exceeded'); return route.abort();
         }
       }
@@ -74,6 +77,88 @@ try {
     } catch {unexpectedRequests.push(url.href); return route.abort();}
   });
   await page.goto(origin + "/check");
+  if (positionedShapesOnly) {
+    page.setDefaultTimeout(5000);
+    await page.evaluate(async ({module}) => {
+      const {ProjectPublishingWorkspace} = await import(`/_import/components/${module}`);
+      const id = number => `10000000-0000-4000-8000-${String(number).padStart(12, '0')}`;
+      const resource = {id: id(4), slug: 'shape-page', title: 'Shape page', kind: 'document', versionNumber: 1};
+      const printLayout = {schemaVersion: 'opengeo.print-layout.1.1.0', pages: [{sitePageSlug: resource.slug,
+        elements: [{id: 'title', type: 'text', x: 40, y: 40, width: 400, height: 100,
+          rotation: 0, clip: true, text: 'Positioned shapes', style: 'title'}]}]};
+      window.calls = []; window.shapeFixture = {original: JSON.stringify(printLayout), site: {
+        id: id(5), slug: 'shapes', title: 'Positioned shapes', description: 'Bounded local shapes', language: 'en',
+        state: 'draft', versionNumber: 1, theme: 'paper', themeOptions: {printPageSize: 'a4', printOrientation: 'landscape'},
+        printLayout, activeEdition: null, publicationDestination: {revision: 1, reach: 'unpublished', listedSlug: 'shapes', isPrimary: false},
+        pages: [{slug: resource.slug, navigationLabel: resource.title, position: 0, isHome: true,
+          resourceId: resource.id, resourceTitle: resource.title, resourceKind: resource.kind,
+          resourceVersionNumber: 1, resourceState: 'published', resourceVisibility: 'public'}]}};
+      const adapter = {kind: 'fixture', updateSite: async (_project, _site, draft) => {
+        window.calls.push('save-layout');
+        window.shapeFixture.site = {...window.shapeFixture.site, printLayout: structuredClone(draft.printLayout),
+          themeOptions: {...draft.themeOptions}, versionNumber: window.shapeFixture.site.versionNumber + 1};
+      }};
+      const mount = () => document.querySelector('#workspace').replaceChildren(ProjectPublishingWorkspace({state: {
+        organization: {id: id(1), callerRole: 'member'}, project: {id: id(2), name: 'Shape atlas', callerRole: 'owner'},
+        sites: [window.shapeFixture.site], resources: [resource], observableSourceProjects: [], adapter
+      }, refresh: async () => mount()}));
+      window.reopenShapes = mount; mount();
+    }, {module});
+    await page.getByRole('button', {name: 'Save draft revision', exact: true}).click();
+    await page.waitForFunction(() => window.shapeFixture.site.versionNumber === 2);
+    assert.equal(await page.evaluate(() => JSON.stringify(window.shapeFixture.site.printLayout) === window.shapeFixture.original), true);
+    await page.getByRole('tab', {name: 'Settings', exact: true}).click();
+    const editor = page.locator('.project-positioned-layout');
+    const layout = () => editor.getByLabel('Advanced layout JSON', {exact: true}).inputValue().then(JSON.parse);
+    const add = async shape => {
+      // The wrapped select's label text also contains its option text. Target
+      // the existing Add frame select within its two-select controls directly.
+      await editor.locator('.project-positioned-layout-add select').nth(1).selectOption(shape);
+      await editor.getByRole('button', {name: 'Add frame', exact: true}).click();
+    };
+    await add('rectangle');
+    assert.equal((await layout()).schemaVersion, 'opengeo.print-layout.1.2.0');
+    await editor.getByLabel('Fill color', {exact: true}).evaluate(input => {
+      input.value = '#336699'; input.dispatchEvent(new Event('change', {bubbles: true}));
+    });
+    assert.equal(await editor.locator('svg rect').getAttribute('fill'), '#336699');
+    await editor.getByLabel('Outline width (pt)', {exact: true}).fill('5');
+    await editor.getByLabel('Outline width (pt)', {exact: true}).dispatchEvent('change');
+    await editor.getByLabel('No fill', {exact: true}).check();
+    await editor.getByLabel('Clip to frame', {exact: true}).uncheck();
+    await editor.getByRole('button', {name: 'Apply frame changes', exact: true}).click();
+    await editor.getByRole('button', {name: 'Rotate +15°', exact: true}).click();
+    assert.match(await editor.locator('svg rect').getAttribute('transform'), /^rotate\(-15 /);
+    const rectangleBefore = (await layout()).pages[0].elements.find(item => item.shape === 'rectangle');
+    const selected = editor.locator('.shape_frame[data-selected="true"]');
+    await selected.scrollIntoViewIfNeeded();
+    let box = await selected.boundingBox(); assert(box);
+    await page.mouse.move(box.x + box.width / 3, box.y + box.height / 3);
+    await page.mouse.down(); await page.mouse.move(box.x + box.width / 3 + 20, box.y + box.height / 3 + 12, {steps: 3}); await page.mouse.up();
+    const moved = (await layout()).pages[0].elements.find(item => item.shape === 'rectangle');
+    assert(moved.x > rectangleBefore.x && moved.y > rectangleBefore.y);
+    const resize = selected.locator('.project-positioned-layout-resize'); await resize.scrollIntoViewIfNeeded();
+    box = await resize.boundingBox(); assert(box);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 18, box.y + box.height / 2 + 10, {steps: 3}); await page.mouse.up();
+    const resized = (await layout()).pages[0].elements.find(item => item.shape === 'rectangle');
+    assert(resized.width > moved.width && resized.height > moved.height);
+    await add('line'); await add('ellipse');
+    assert.equal(await editor.locator('svg').count(), 3);
+    const line = editor.locator('svg line');
+    assert.equal(await line.getAttribute('y1'), await line.getAttribute('y2'));
+    await editor.getByRole('button', {name: 'Send backward', exact: true}).click();
+    const expected = await layout();
+    assert.deepEqual(expected.pages[0].elements.filter(item => item.shape).map(item => item.shape), ['rectangle', 'ellipse', 'line']);
+    assert.equal(resized.strokeWidth, 5); assert.equal(resized.fill, null); assert.equal(resized.clip, false); assert.equal(resized.rotation, 15);
+    await page.getByRole('button', {name: 'Save draft revision', exact: true}).click();
+    await page.waitForFunction(() => window.shapeFixture.site.versionNumber === 3);
+    await page.evaluate(() => window.reopenShapes());
+    await page.getByRole('tab', {name: 'Settings', exact: true}).click();
+    assert.deepEqual(await layout(), expected);
+    await page.screenshot({path: `${output}/positioned-shapes.png`, fullPage: true});
+    assert.deepEqual(await page.evaluate(() => window.calls), ['save-layout', 'save-layout']);
+  } else {
   await page.evaluate(async ({module, exportOnly, accountExportOnly}) => {
     const {ProjectPublishingWorkspace, renderDirectoryState} = await import(`/_import/components/${module}`);
     if (accountExportOnly) {
@@ -461,15 +546,18 @@ try {
   assert.equal(await page.evaluate(() => window.calls.some(call => ["save-site", "destination"].includes(call))), false);
   }
   }
+  }
   assert.deepEqual(errors, []);
   assert.deepEqual(unexpectedRequests, [], 'every request is served from the frozen build or exact local draft shell');
-  console.log(JSON.stringify({passed: true, widths: [1280, 390],
-    ...(accountExportOnly ? {accountExportOnly, accountExportPresentationOnly, accountSettingsEntry: true, ...(accountExportPresentationOnly
+  console.log(JSON.stringify({passed: true, widths: positionedShapesOnly ? [1280] : [1280, 390],
+    ...(positionedShapesOnly ? {positionedShapesOnly, oldSchemaPreserved: true, shapes: ['line', 'rectangle', 'ellipse'],
+      styled: true, moved: true, resized: true, rotated: true, clipPreserved: true, ordered: true, savedAndReopened: true}
+      : accountExportOnly ? {accountExportOnly, accountExportPresentationOnly, accountSettingsEntry: true, ...(accountExportPresentationOnly
       ? {savedSourceZipProofReused: true, idleCancelHidden: true, activeCancelVisible: true, cancelledControlHidden: true, stalePlanDisabled: true}
       : {savedSourceZip: true, exactBomCrlfBinary: true}), visibleEstimate: true, compatibleReadCancelled: true, noPartialZip: true, staleAccountBlocked: true, unchangedSavedSources: true}
       : exportOnly ? {exportOnly, visibleEstimate: true, currentEditedBytes: true, compatibleReadCancelled: true, noPartialZip: true, unchangedDraft: true}
       : {retainedDraft: true, liveFrameworkDraft: true, reactiveNotebookDraft: true, retainedPreviewWindows: true, notebookInputPreserved: true, draftOnly}),
-    draftShellRequests, externalRequests: 0, awsRequests: 0, newBuilds: 0, ...(accountExportOnly ? {softwareRequests, softwareBytes, elapsedMilliseconds: Date.now() - browserStarted} : {}),
+    draftShellRequests, externalRequests: 0, awsRequests: 0, newBuilds: 0, ...(accountExportOnly || positionedShapesOnly ? {softwareRequests, softwareBytes, elapsedMilliseconds: Date.now() - browserStarted} : {}),
     requests: await page.evaluate(() => window.calls), fixtureOnly: true, dist, output}));
 } catch (error) {
   console.error(JSON.stringify({browserErrors: errors, unexpectedRequests, draftShellRequests, ...(accountExportOnly ? {accountExportOnly, softwareRequests, softwareBytes, elapsedMilliseconds: Date.now() - browserStarted} : {})}));

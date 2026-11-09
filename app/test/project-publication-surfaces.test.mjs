@@ -694,6 +694,105 @@ describe("publication project surfaces", () => {
     );
   });
 
+  it("adds and styles local shapes through the positioned editor and preserves them on save and reopen", async () => {
+    const resource = {id: "60000000-0000-4000-8000-000000000001", slug: "shape-map",
+      title: "Shape map", kind: "map", versionNumber: 3};
+    const saved = [];
+    const state = {
+      organization: {id: IDS.organization, callerRole: "member"},
+      project: {id: IDS.project, name: "Shape atlas", description: "Local shapes", callerRole: "owner"},
+      adapter: {listSites() {}, createSite: async (_projectId, value) => { saved.push(value); },
+        updateSite: async (_projectId, _siteId, value) => { saved.push(value); }},
+      sites: [], resources: [resource]
+    };
+    const surface = ProjectSites({state, refresh: async () => {}});
+    document.body.append(surface);
+    const editor = surface.querySelector(".project-positioned-layout");
+    const field = (root, label) => [...root.querySelectorAll("label")]
+      .find((node) => node.querySelector("span")?.textContent === label)?.querySelector("input,select,textarea");
+    const advanced = field(editor, "Advanced layout JSON");
+    const add = (shape) => {
+      const choice = field(editor, "Add frame");choice.value = shape;
+      choice.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+      findButton(editor, "Add frame").click();
+    };
+    const change = (label, value) => {
+      const control = field(editor, label);
+      if (control.type === "checkbox") control.checked = value;
+      else control.value = value;
+      control.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    };
+    assert.equal(advanced.value, "");
+    add("text");
+    assert.equal(JSON.parse(advanced.value).schemaVersion, "opengeo.print-layout.1.1.0");
+    add("rectangle");
+    assert.equal(JSON.parse(advanced.value).schemaVersion, "opengeo.print-layout.1.2.0");
+    assert.equal(editor.querySelector("svg rect").getAttribute("stroke"), "#172026");
+    change("Fill color", "#336699");
+    assert.equal(editor.querySelector("svg rect").getAttribute("fill"), "#336699");
+    change("Outline width (pt)", "5");
+    const beforeInvalidWidth = advanced.value;
+    change("Outline width (pt)", "13");
+    assert.equal(advanced.value, beforeInvalidWidth);
+    assert.match(editor.textContent, /Shape needs attention/);
+    change("Outline width (pt)", "5");
+    change("No fill", true);
+    assert.equal(editor.querySelector("svg rect").getAttribute("fill"), "none");
+    assert.equal(editor.querySelector("svg rect").getAttribute("stroke-width"), "5");
+    change("Clip to frame", false);
+    findButton(editor, "Apply frame changes").click();
+    findButton(editor, "Rotate +15°").click();
+    assert.match(editor.querySelector("svg rect").getAttribute("transform"), /^rotate\(-15 /);
+    assert.equal(editor.querySelector(".shape_frame").style.rotate, "0deg");
+    editor.querySelector('.shape_frame .project-positioned-layout-frame-select').dispatchEvent(
+      new harness.dom.window.KeyboardEvent("keydown", {key: "ArrowRight", shiftKey: true, bubbles: true})
+    );
+    let rectangle = JSON.parse(advanced.value).pages[0].elements.find(({shape}) => shape === "rectangle");
+    assert.equal(rectangle.rotation, 15);assert.equal(rectangle.clip, false);assert.equal(rectangle.x, 61);
+    add("line");add("ellipse");
+    assert.equal(editor.querySelectorAll("svg").length, 3);
+    const previewLine = editor.querySelector("svg line");
+    assert.equal(previewLine.getAttribute("y1"), previewLine.getAttribute("y2"));
+    findButton(editor, "Send backward").click();
+    const expected = JSON.parse(advanced.value);
+    assert.deepEqual(expected.pages[0].elements.filter(({shape}) => shape).map(({shape}) => shape),
+      ["rectangle", "ellipse", "line"]);
+    findButton(surface, "Create draft site").click();
+    await waitFor(() => saved.length === 1);
+    assert.deepEqual(saved[0].printLayout, expected);
+    const reopened = ProjectSites({state: {...state,
+      sites: [{...draftSite("site-shapes", "Shape atlas", resource), printLayout: saved[0].printLayout}]},
+      refresh: async () => {}});
+    document.body.append(reopened);
+    const persisted = [...reopened.querySelectorAll(".project-positioned-layout")]
+      .find((node) => field(node, "Advanced layout JSON")?.value.includes("shape_frame"));
+    assert.ok(persisted);
+    assert.deepEqual(JSON.parse(field(persisted, "Advanced layout JSON").value), expected);
+    assert.equal(persisted.querySelectorAll("svg").length, 3);
+    const viewer = ProjectSites({state: {...state, project: {...state.project, callerRole: "viewer"}}, refresh: async () => {}});
+    assert.equal(viewer.querySelector(".project-positioned-layout"), null);
+  });
+
+  it("saves old positioned layout versions without an implicit shape upgrade", async () => {
+    const resource = {id: "60000000-0000-4000-8000-000000000001", slug: "unchanged-map",
+      title: "Unchanged map", kind: "map", versionNumber: 1};
+    for (const schemaVersion of ["opengeo.print-layout.1.0.0", "opengeo.print-layout.1.1.0"]) {
+      const calls = [];
+      const printLayout = {schemaVersion, pages: []};
+      const surface = ProjectSites({state: {
+        organization: {id: IDS.organization, callerRole: "member"},
+        project: {id: IDS.project, name: "Old layout", description: "Preserve schema", callerRole: "owner"},
+        adapter: {listSites() {}, createSite() {}, updateSite: async (_project, _site, value) => { calls.push(value); }},
+        sites: [{...draftSite("site-old", "Old layout", resource), printLayout}], resources: [resource]
+      }, refresh: async () => {}});
+      document.body.append(surface);
+      findButton(surface, "Save draft revision").click();
+      await waitFor(() => calls.length === 1);
+      assert.deepEqual(calls[0].printLayout, printLayout);
+      surface.remove();
+    }
+  });
+
   it("imports one bounded GeoMoose layout into the governed site print editor", async () => {
     const {surface, map} = positionedSiteFixture();
     assert.match(surface.textContent, /Import GeoMoose print layout/);

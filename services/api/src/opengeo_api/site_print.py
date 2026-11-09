@@ -1176,6 +1176,8 @@ def _pdf_positioned_page(
             )
         elif element.type == "text":
             frame_commands = _pdf_text_frame(element, x, y, width, height, fonts)
+        elif element.type == "shape_frame":
+            frame_commands = _pdf_shape_frame(element, x, y, width, height)
         elif element.type == "image_frame":
             object_id = _image_frame_object_id(element, blocks)
             image = decoded_assets.get(object_id)
@@ -1225,6 +1227,42 @@ def _pdf_positioned_page(
                 raise SitePrintError("site_print_layout_element_type_invalid")
         commands.extend(_pdf_transform_frame(element, x, y, width, height, frame_commands))
     return commands
+
+
+def _pdf_shape_frame(
+    element: PrintLayoutElement, x: float, y: float, width: float, height: float
+) -> list[bytes]:
+    commands = ["/Artifact BMC\nq\n", f"{element.stroke_width} w 0 J 0 j\n"]
+    for color, operator in ((element.stroke, "RG"), (element.fill, "rg")):
+        if color is not None:
+            red, green, blue = _hex_rgb(color)
+            commands.append(f"{red / 255:.6f} {green / 255:.6f} {blue / 255:.6f} {operator}\n")
+    if element.shape == "line":
+        commands.append(
+            f"{x:.3f} {y + height / 2:.3f} m {x + width:.3f} {y + height / 2:.3f} l S\n"
+        )
+    else:
+        if element.shape == "rectangle":
+            commands.append(f"{x:.3f} {y:.3f} {width:.3f} {height:.3f} re\n")
+        elif element.shape == "ellipse":
+            cx, cy, rx, ry = x + width / 2, y + height / 2, width / 2, height / 2
+            k = 0.5522847498307936
+            commands.append(f"{cx + rx:.3f} {cy:.3f} m\n")
+            for points in (
+                (cx + rx, cy + k * ry, cx + k * rx, cy + ry, cx, cy + ry),
+                (cx - k * rx, cy + ry, cx - rx, cy + k * ry, cx - rx, cy),
+                (cx - rx, cy - k * ry, cx - k * rx, cy - ry, cx, cy - ry),
+                (cx + k * rx, cy - ry, cx + rx, cy - k * ry, cx + rx, cy),
+            ):
+                commands.append(" ".join(f"{value:.3f}" for value in points) + " c\n")
+            commands.append("h\n")
+        else:
+            raise SitePrintError("site_print_layout_shape_style_invalid")
+        commands.append(
+            "B\n" if element.stroke and element.fill else "S\n" if element.stroke else "f\n"
+        )
+    commands.append("Q\nEMC\n")
+    return ["".join(commands).encode("ascii")]
 
 
 def _pdf_transform_frame(
@@ -1855,6 +1893,9 @@ def _raster_positioned_page(
         if element.type == "map_frame"
     }
     for element in layout_page.elements:
+        if element.type == "shape_frame":
+            _draw_raster_shape(canvas, page_width, page_height, element)
+            continue
         x, y, width, height = _raster_element_box(element, page_width, page_height)
         target = map_elements.get(element.map_frame_id or "")
         target_width = (
@@ -1907,6 +1948,81 @@ def _raster_positioned_page(
                 decoded,
                 decoded_assets,
             )
+
+
+def _ellipse_distance(x: float, y: float, rx: float, ry: float) -> float:
+    """Bounded closest-point solve, used only in the narrow candidate stroke band."""
+    if rx < ry:
+        x, y, rx, ry = y, x, ry, rx
+    if y < 1e-10:
+        difference = rx * rx - ry * ry
+        if difference == 0 or x >= difference / rx:
+            return abs(x - rx)
+        nearest_x = rx * rx * x / difference
+        return math.hypot(nearest_x - x, ry * math.sqrt(max(0.0, 1 - (nearest_x / rx) ** 2)))
+    squared_x, squared_y = rx * rx, ry * ry
+    outside = (x / rx) ** 2 + (y / ry) ** 2 >= 1
+    low, high = (0.0, math.hypot(rx * x, ry * y)) if outside else (-squared_y, 0.0)
+    for _ in range(18):
+        middle = (low + high) / 2
+        value = (rx * x / (middle + squared_x)) ** 2 + (ry * y / (middle + squared_y)) ** 2
+        if value > 1:
+            low = middle
+        else:
+            high = middle
+    parameter = (low + high) / 2
+    return math.hypot(
+        squared_x * x / (parameter + squared_x) - x,
+        squared_y * y / (parameter + squared_y) - y,
+    )
+
+
+def _draw_raster_shape(
+    canvas: bytearray, page_width: int, page_height: int, element: PrintLayoutElement
+) -> None:
+    # Direct coverage writes only painted pixels. A null fill never replaces an
+    # underlying frame with a white RGB rotation layer.
+    x, y = page_width * element.x / 1000, page_height * element.y / 1000
+    width, height = page_width * element.width / 1000, page_height * element.height / 1000
+    rx, ry = width / 2, height / 2
+    cx, cy = x + rx, y + ry
+    half = (element.stroke_width or 1) * PRINT_RASTER_DPI / 144
+    stroke = bytes(_hex_rgb(element.stroke)) if element.stroke is not None else None
+    fill = bytes(_hex_rgb(element.fill)) if element.fill is not None else None
+    angle = math.radians(element.rotation)
+    cosine, sine = math.cos(angle), math.sin(angle)
+    # PDF positive rotation is counter-clockwise; the raster y axis points down.
+    reach_x = abs(cosine) * (rx + half) + abs(sine) * (ry + half)
+    reach_y = abs(sine) * (rx + half) + abs(cosine) * (ry + half)
+    left, right = max(0, math.floor(cx - reach_x)), min(page_width, math.ceil(cx + reach_x))
+    top, bottom = max(0, math.floor(cy - reach_y)), min(page_height, math.ceil(cy + reach_y))
+    for py in range(top, bottom):
+        if element.clip and not y <= py + 0.5 < y + height:
+            continue
+        for px in range(left, right):
+            if element.clip and not x <= px + 0.5 < x + width:
+                continue
+            dx, dy = px + 0.5 - cx, py + 0.5 - cy
+            u, v = abs(cosine * dx - sine * dy), abs(sine * dx + cosine * dy)
+            inside = painted = False
+            if element.shape == "line":
+                painted = u <= rx and v <= half
+            elif element.shape == "rectangle":
+                inside = u <= rx and v <= ry
+                painted = (
+                    u <= rx + half and v <= ry + half and not (u < rx - half and v < ry - half)
+                )
+            elif element.shape == "ellipse":
+                normalized = math.hypot(u / rx, v / ry)
+                inside = normalized <= 1
+                if stroke is not None and abs(normalized - 1) * min(rx, ry) <= half:
+                    painted = _ellipse_distance(u, v, rx, ry) <= half
+            else:
+                raise SitePrintError("site_print_layout_shape_style_invalid")
+            color = stroke if painted and stroke is not None else fill if inside else None
+            if color is not None:
+                offset = (py * page_width + px) * 3
+                canvas[offset : offset + 3] = color
 
 
 def _draw_raster_positioned_element(

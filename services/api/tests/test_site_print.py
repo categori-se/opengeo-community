@@ -12,6 +12,7 @@ import pytest
 
 from opengeo_api.print_text import layout_print_text
 from opengeo_api.site_export import build_static_package
+from opengeo_api.site_layouts import PrintLayoutElement
 from opengeo_api.site_print import (
     MAX_PRINT_COMPOSITE_BITMAPS,
     SitePrintError,
@@ -88,6 +89,142 @@ def publication_with_snapshot():
         ),
         body,
     )
+
+
+def test_two_page_shape_publication_keeps_vector_paths_and_transparent_overlap() -> None:
+    publication, body = publication_with_snapshot()
+    page = publication.site.pages[0]
+
+    def frame(identifier, shape, stroke, fill, **extra):
+        return {
+            "id": identifier,
+            "type": "shape_frame",
+            "x": 100,
+            "y": 100,
+            "width": 800,
+            "height": 800,
+            "rotation": 0,
+            "clip": True,
+            "shape": shape,
+            "stroke": stroke,
+            "fill": fill,
+            "strokeWidth": 6,
+            **extra,
+        }
+
+    elements = [
+        frame("background", "rectangle", None, "#d06030"),
+        frame(
+            "ellipse", "ellipse", "#0055aa", None, x=250, y=250, width=500, height=500, rotation=35
+        ),
+        frame(
+            "line",
+            "line",
+            "#203040",
+            None,
+            x=250,
+            y=400,
+            width=500,
+            height=200,
+            rotation=-30,
+            clip=False,
+        ),
+    ]
+    publication = replace(
+        publication,
+        site=replace(
+            publication.site,
+            pages=(page, replace(page, slug="details", position=1, is_home=False)),
+            print_layout={
+                "schemaVersion": "opengeo.print-layout.1.2.0",
+                "pages": [
+                    {"sitePageSlug": "findings", "elements": elements},
+                    {
+                        "sitePageSlug": "details",
+                        "elements": [frame("filled", "ellipse", "#112233", "#40a060")],
+                    },
+                ],
+            },
+        ),
+    )
+    pdf = build_print_pdf(publication, {MAP_RESOURCE_ID: body})
+    first_png = build_print_page_png(publication, "findings", {MAP_RESOURCE_ID: body})
+    second_png = build_print_page_png(publication, "details", {MAP_RESOURCE_ID: body})
+    # Two positioned pages retain the fixture's unplaced sealed-map appendix.
+    assert len(re.findall(rb"/Type /Page\b", pdf)) == 3
+    shape_streams = [
+        stream
+        for stream in re.findall(rb"stream\n(.*?)\nendstream", pdf, re.DOTALL)
+        if b"/Artifact BMC" in stream
+    ]
+    assert [stream.count(b"/Artifact BMC") for stream in shape_streams] == [3, 1]
+    assert b" c\n" in pdf and b" l S\n" in pdf
+    assert b"6 w 0 J 0 j" in pdf
+    assert first_png != second_png
+    first = _decode_png(first_png)
+    # Ellipse and line are transparent at this interior background point.
+    point = (round(first.height * 0.30) * first.width + round(first.width * 0.50)) * 3
+    assert first.rgb[point : point + 3] == bytes((208, 96, 48))
+    assert build_print_pdf(publication, {MAP_RESOURCE_ID: body}) == pdf
+
+
+@pytest.mark.parametrize("shape", ["rectangle", "ellipse"])
+def test_rotated_null_fill_shapes_preserve_every_unpainted_background_pixel(shape: str) -> None:
+    from opengeo_api.site_print import _draw_raster_shape
+
+    background = bytes((9, 80, 30))
+    canvas = bytearray(background * 100 * 100)
+    element = PrintLayoutElement(
+        "outline",
+        "shape_frame",
+        200,
+        300,
+        600,
+        400,
+        rotation=35,
+        clip=False,
+        shape=shape,
+        stroke="#ffffff",
+        fill=None,
+        stroke_width=3,
+    )
+    _draw_raster_shape(canvas, 100, 100, element)
+    pixels = {bytes(canvas[index : index + 3]) for index in range(0, len(canvas), 3)}
+    assert pixels == {background, b"\xff\xff\xff"}
+    assert canvas[(50 * 100 + 50) * 3 : (50 * 100 + 50) * 3 + 3] == background
+    assert canvas[:3] == background
+
+
+def test_shape_rotation_matches_pdf_direction_and_clip_keeps_stroke_inside_frame() -> None:
+    from opengeo_api.site_print import _draw_raster_shape
+
+    background = bytes((9, 80, 30))
+    element = PrintLayoutElement(
+        "slope",
+        "shape_frame",
+        200,
+        400,
+        600,
+        200,
+        rotation=45,
+        clip=False,
+        shape="line",
+        stroke="#0055aa",
+        fill=None,
+        stroke_width=4,
+    )
+    canvas = bytearray(background * 100 * 100)
+    _draw_raster_shape(canvas, 100, 100, element)
+
+    def pixel(body, x, y):
+        return bytes(body[(y * 100 + x) * 3 : (y * 100 + x) * 3 + 3])
+
+    assert pixel(canvas, 70, 29) == bytes((0, 85, 170))
+    assert pixel(canvas, 70, 70) == background
+    clipped = bytearray(background * 100 * 100)
+    _draw_raster_shape(clipped, 100, 100, replace(element, clip=True))
+    assert pixel(clipped, 70, 29) == background
+    assert pixel(clipped, 50, 50) == bytes((0, 85, 170))
 
 
 def test_builds_deterministic_pdf_with_checksum_bound_map_appendix() -> None:

@@ -219,6 +219,9 @@ describe("0025 portable site publications", () => {
     await db.exec(await readFile(new URL(
       "../migrations/0187_tagged_pdf_publication_facts.sql", import.meta.url
     ), "utf8"));
+    await db.exec(await readFile(new URL(
+      "../migrations/0188_positioned_publication_shapes.sql", import.meta.url
+    ), "utf8"));
     await db.exec(`
       INSERT INTO app.users (id, cognito_subject, email, display_name)
       VALUES
@@ -1138,4 +1141,96 @@ describe("0025 portable site publications", () => {
       /permission denied|governed resource history is immutable/
     );
   });
+  it("validates opt-in shape frames without changing older layout contracts", async () => {
+    const shape = {id: "outline", type: "shape_frame", x: 80, y: 100, width: 300, height: 180,
+      rotation: 22, clip: false, shape: "rectangle", stroke: "#2457bd", fill: null, strokeWidth: 2};
+    const layout = {schemaVersion: "opengeo.print-layout.1.2.0",
+      pages: [{sitePageSlug: "findings", elements: [shape]}]};
+    const accepted = value => db.query(
+      "SELECT app.project_site_print_layout_valid($1::jsonb) AS accepted", [JSON.stringify(value)]
+    ).then(result => result.rows[0].accepted);
+    for (const kind of ["rectangle", "ellipse", "line"]) {
+      const value = structuredClone(layout); value.pages[0].elements[0].shape = kind;
+      assert.equal(await accepted(value), true, kind);
+    }
+    for (const change of [
+      {id: null}, {type: null}, {stroke: null}, {fill: "url(https://bad.example)"}, {stroke: "#123"},
+      {strokeWidth: 0}, {strokeWidth: 13}, {strokeWidth: 1.5}, {strokeWidth: true},
+      {shape: "path"}, {shape: null}, {shape: "line", fill: "#ffffff"},
+      {remoteUrl: "https://bad.example"}, {x: 950}, {rotation: 181}
+    ]) {
+      const value = structuredClone(layout); Object.assign(value.pages[0].elements[0], change);
+      assert.equal(await accepted(value), false, JSON.stringify(change));
+    }
+    for (const schemaVersion of ["opengeo.print-layout.1.0.0", "opengeo.print-layout.1.1.0"]) {
+      assert.equal(await accepted({...layout, schemaVersion}), false);
+    }
+    const value = structuredClone(layout); delete value.pages[0].elements[0].fill;
+    assert.equal(await accepted(value), false, "missing required nullable field");
+    const missingSlug = structuredClone(layout); missingSlug.pages[0].sitePageSlug = null;
+    assert.equal(await accepted(missingSlug), false, "null page slug");
+    const nullStyle = structuredClone(layout);
+    nullStyle.pages[0].elements = [{id: "label", type: "text", x: 0, y: 0, width: 100,
+      height: 100, rotation: 0, clip: true, text: "Label", style: null}];
+    assert.equal(await accepted(nullStyle), false, "null ordinary-frame style in new schema");
+  });
+
+  it("saves and reopens shape layouts under tenant boundaries and keeps edition media gates", async () => {
+    const create = async (suffix, extraImage) => {
+      const id = prefix => `${prefix}-0000-4000-8000-000000000${suffix}`;
+      const ids = {site: id("b0000000"), version: id("b1000000"), page: id("b2000000"),
+        event: id("b3000000"), edition: id("b4000000")};
+      const elements = [{id: "background", type: "shape_frame", shape: "ellipse", x: 80, y: 100,
+        width: 400, height: 220, rotation: -24, clip: true,
+        fill: "#e8f0fe", stroke: null, strokeWidth: 1}];
+      if (extraImage) elements.push({id: "missing_photo", type: "image_frame", blockId: "unsealed_image",
+        x: 0, y: 0, width: 100, height: 100, rotation: 0, clip: true, fit: "contain"});
+      const layout = {schemaVersion: "opengeo.print-layout.1.2.0",
+        pages: [{sitePageSlug: "findings", elements}]};
+      await tenant(ID.organization, ID.user, async () => {
+        await db.query(`INSERT INTO app.project_sites
+          (id,organization_id,project_id,slug,current_version_id,current_version_number,created_by,updated_by)
+          VALUES ($1,$2,$3,$4,$5,1,$6,$6)`,
+        [ids.site, ID.organization, ID.project, `shapes-${suffix}`, ids.version, ID.user]);
+        await db.query(`INSERT INTO app.project_site_versions
+          (id,organization_id,project_id,site_id,version_number,title,theme,print_layout,created_by)
+          VALUES ($1,$2,$3,$4,1,'Positioned shapes','paper',$5::jsonb,$6)`,
+        [ids.version, ID.organization, ID.project, ids.site, JSON.stringify(layout), ID.user]);
+        await db.query(`INSERT INTO app.project_site_pages
+          (id,organization_id,project_id,site_id,site_version_id,site_version_number,page_slug,
+           navigation_label,position,is_home,resource_id,resource_version_id,resource_version_number,created_by)
+          VALUES ($1,$2,$3,$4,$5,1,'findings','Findings',0,true,$6,$7,1,$8)`,
+        [ids.page, ID.organization, ID.project, ids.site, ids.version, ID.resource, ID.resourceVersion, ID.user]);
+        await db.query(`UPDATE app.project_sites SET state='review',updated_by=$1,
+          updated_at=updated_at + interval '1 millisecond' WHERE id=$2`, [ID.user, ids.site]);
+        await db.query(`INSERT INTO app.project_site_workflow_events
+          (id,organization_id,project_id,site_id,site_version_id,site_version_number,
+           source_state,target_state,actor_user_id) VALUES ($1,$2,$3,$4,$5,1,'draft','review',$6)`,
+        [ids.event, ID.organization, ID.project, ids.site, ids.version, ID.user]);
+      });
+      const reopened = await tenant(ID.organization, ID.user, () => db.query(
+        "SELECT print_layout FROM app.project_site_versions WHERE id=$1", [ids.version]));
+      assert.deepEqual(reopened.rows[0].print_layout, layout);
+      const hidden = await tenant(ID.otherOrganization, ID.otherUser, () => db.query(
+        "SELECT print_layout FROM app.project_site_versions WHERE id=$1", [ids.version]));
+      assert.equal(hidden.rows.length, 0);
+      const manifest = {schemaVersion: "opengeo.site-edition.1.3.0", organizationId: ID.organization,
+        projectId: ID.project, siteId: ids.site, siteVersionId: ids.version, siteVersionNumber: 1,
+        editionId: ids.edition, editionNumber: 1, themeOptions: {}, printLayout: layout,
+        pages: [{slug: "findings", navigationLabel: "Findings", position: 0, home: true,
+          resourceId: ID.resource, resourceVersionId: ID.resourceVersion, resourceVersionNumber: 1}], references: []};
+      const seal = () => tenant(ID.organization, ID.user, () => db.query(`INSERT INTO app.project_site_editions
+        (id,organization_id,project_id,site_id,site_version_id,site_version_number,edition_number,
+         manifest,manifest_checksum_sha256,published_by) VALUES ($1,$2,$3,$4,$5,1,1,$6::jsonb,$7,$8)`,
+      [ids.edition, ID.organization, ID.project, ids.site, ids.version, JSON.stringify(manifest), "c".repeat(64), ID.user]));
+      return {seal, ids, manifest};
+    };
+    const valid = await create("255", false); await valid.seal();
+    const sealed = await tenant(ID.organization, ID.user, () => db.query(
+      "SELECT manifest FROM app.project_site_editions WHERE id=$1", [valid.ids.edition]));
+    assert.deepEqual(sealed.rows[0].manifest, valid.manifest);
+    const invalid = await create("256", true);
+    await assert.rejects(invalid.seal, /content frame seal mismatch/);
+  });
+
 });

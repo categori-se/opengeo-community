@@ -2,6 +2,23 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Positioned shapes — local acceptance
+
+Positioned Publications support line, rectangle and ellipse frames through the
+opt-in `opengeo.print-layout.1.2.0` schema. Existing 1.0/1.1 layouts and seals
+remain valid; the empty default stays 1.1. Adding a shape upgrades that draft.
+The editor supports stroke/fill, transparent interiors, 1–12 point outlines,
+ordering, drag/resize, rotation and clipping. Lines cross the frame centre;
+positive rotation is counterclockwise and clipping retains the original bounds.
+
+The API and migration 0188 validate exact inert fields and retain existing rich
+media edition checks. PDF uses vector paths marked as artifacts; PNG paints
+shapes directly over existing content. Shapes introduce no assets, URLs or
+grants. Focused local API, persistence/isolation/sealing and compiled editor
+edit/save/reopen acceptance pass. This is source preparation; migration 0188,
+production deployment and hosted acceptance remain open. Wider Print-family
+fidelity and layout requirements remain open.
+
 ## Office document layout — local acceptance
 
 Processed ODT document blocks reuse the exact-version PDF print companion.

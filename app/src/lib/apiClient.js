@@ -12515,8 +12515,9 @@ function parseSiteThemeOptions(value) {
 export function parseSitePrintLayout(value, allowedPageSlugs = null) {
   const raw = boundedObject(value, 32_768, "project site.print_layout");
   const legacy = raw.schemaVersion === "opengeo.print-layout.1.0.0";
+  const shapes = raw.schemaVersion === "opengeo.print-layout.1.2.0";
   if (Object.keys(raw).length !== 2
-    || (!legacy && raw.schemaVersion !== "opengeo.print-layout.1.1.0")
+    || (!legacy && !shapes && raw.schemaVersion !== "opengeo.print-layout.1.1.0")
     || !Array.isArray(raw.pages)
     || raw.pages.length > 64) {
     contract("project site.print_layout shape is invalid");
@@ -12548,7 +12549,8 @@ export function parseSitePrintLayout(value, allowedPageSlugs = null) {
           ? ["map_frame", "text", "source_panel", "north_arrow", "scale_bar"]
           : [
             "map_frame", "text", "source_panel", "north_arrow", "scale_bar",
-            "legend_frame", "image_frame", "table_frame", "chart_frame"
+            "legend_frame", "image_frame", "table_frame", "chart_frame",
+            ...(shapes ? ["shape_frame"] : [])
           ],
         "project site print layout element type"
       );
@@ -12559,6 +12561,8 @@ export function parseSitePrintLayout(value, allowedPageSlugs = null) {
         ? [...commonKeys, "resourceId", ...(legacy ? [] : ["fit"])]
         : type === "text"
           ? [...commonKeys, "text", "style"]
+          : type === "shape_frame"
+            ? [...commonKeys, "shape", "stroke", "fill", "strokeWidth"]
           : ["image_frame", "table_frame", "chart_frame"].includes(type)
             ? [...commonKeys, "blockId", ...(type === "image_frame" ? ["fit"] : [])]
             : [...commonKeys, "mapFrameId"];
@@ -12587,6 +12591,20 @@ export function parseSitePrintLayout(value, allowedPageSlugs = null) {
           contract("project site print layout clip is invalid");
         }
         common.clip = element.clip;
+      }
+      if (type === "shape_frame") {
+        const shape = oneOf(element.shape, ["line", "rectangle", "ellipse"], "project site print shape");
+        for (const color of [element.stroke, element.fill]) {
+          if (color !== null && (typeof color !== "string" || !/^#[0-9a-fA-F]{6}$/.test(color))) {
+            contract("project site print shape color is invalid");
+          }
+        }
+        if ((element.stroke === null && element.fill === null)
+          || (shape === "line" && (element.stroke === null || element.fill !== null))) {
+          contract("project site print shape must have a visible outline or fill");
+        }
+        return {...common, shape, stroke: element.stroke, fill: element.fill,
+          strokeWidth: integerBetween(element.strokeWidth, 1, 12, "project site print shape outline width")};
       }
       if (type === "map_frame") {
         const resourceId = uuid(element.resourceId, "project site print layout resource id");

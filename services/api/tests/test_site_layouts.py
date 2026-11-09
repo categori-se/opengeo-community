@@ -143,3 +143,76 @@ def test_legacy_positioned_layout_remains_readable_without_mutation() -> None:
     }
 
     assert parse_print_layout(legacy).as_json() == legacy
+
+
+def shape_layout() -> dict:
+    return {
+        "schemaVersion": "opengeo.print-layout.1.2.0",
+        "pages": [
+            {
+                "sitePageSlug": "findings",
+                "elements": [
+                    {
+                        "id": "outline",
+                        "type": "shape_frame",
+                        "x": 100,
+                        "y": 200,
+                        "width": 600,
+                        "height": 300,
+                        "rotation": 35,
+                        "clip": False,
+                        "shape": "ellipse",
+                        "stroke": "#0055aa",
+                        "fill": None,
+                        "strokeWidth": 4,
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_shape_layout_round_trips_null_fill_without_resources_or_legacy_changes() -> None:
+    from opengeo_api.site_layouts import print_layout_resource_ids
+
+    layout = shape_layout()
+    parsed = parse_print_layout(layout)
+    assert parsed.as_json() == layout
+    assert parsed.pages[0].elements[0].stroke_width == 4
+    assert print_layout_resource_ids(layout) == frozenset()
+    assert empty_print_layout()["schemaVersion"] == "opengeo.print-layout.1.1.0"
+    assert parse_print_layout(rich_layout()).as_json() == rich_layout()
+
+
+@pytest.mark.parametrize("version", ["opengeo.print-layout.1.0.0", "opengeo.print-layout.1.1.0"])
+def test_shapes_are_explicitly_rejected_in_older_layout_versions(version: str) -> None:
+    layout = shape_layout()
+    layout["schemaVersion"] = version
+    with pytest.raises(SiteLayoutError, match="element_type_invalid"):
+        parse_print_layout(layout)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"shape": []},
+        {"shape": "path"},
+        {"stroke": "url(https://example.invalid)"},
+        {"stroke": "#aabbcc80"},
+        {"fill": "red"},
+        {"stroke": None, "fill": None},
+        {"shape": "line", "stroke": None, "fill": "#ffffff"},
+        {"shape": "line", "fill": "#ffffff"},
+        {"strokeWidth": True},
+        {"strokeWidth": 0},
+        {"strokeWidth": 13},
+        {"strokeWidth": 1.5},
+        {"path": "M0 0"},
+        {"resourceId": str(MAP_ID)},
+    ],
+)
+def test_shape_layout_rejects_active_unbounded_or_invisible_styles(change: dict) -> None:
+    layout = shape_layout()
+    layout["pages"][0]["elements"][0].update(change)
+    with pytest.raises(SiteLayoutError):
+        parse_print_layout(layout)
