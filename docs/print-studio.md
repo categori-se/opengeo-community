@@ -2,6 +2,23 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Flow PDF headings and paragraphs — local work, November 9, 2026
+
+Ordinary flow layouts now retain typed heading levels 2–4 as `H2`–`H4` and
+each abstract/body paragraph as a separate `P`, including its wrapped lines.
+Unsupported or malformed heading levels remain paragraphs. Authored order,
+existing wrapping and the content limit are preserved; omitted overflow receives
+no unpainted semantic nodes. Site titles, resource details and footers keep their
+existing span treatment.
+
+Five affected actual-PDF cases pass, covering the three new flow cases, the
+checksum-bound map appendix and imported-page composition. Strict typing passes
+on the changed module. One representative before/current flow PDF has identical
+text, page geometry and 60-DPI Poppler pixels. This increment is qualified locally; hosted acceptance remains open. Existing flow truncation, broader Markdown/list/table
+structure, figures and actual assistive-technology evidence remain open. No PDF/UA
+conformance is claimed; this does not establish full Print-family parity.
+
+
 ## Generated PDF headings and tables — local work, November 9, 2026
 
 PDF output now gives its page title an `H1` structure element. Positioned text

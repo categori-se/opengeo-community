@@ -5,10 +5,10 @@ import struct
 import textwrap
 import zlib
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from html import escape
-from itertools import pairwise
+from itertools import groupby, pairwise
 from typing import cast
 from uuid import UUID
 
@@ -91,6 +91,7 @@ class _PrintPage:
     layout_page: PrintLayoutPage | None = None
     vector_object_id: str | None = None
     vector_page_index: int = 0
+    line_structure: tuple[tuple[str, int] | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -700,9 +701,13 @@ def _flow_print_pages(
 
 
 def _content_page(publication: PublishedSite, page: SitePage, options: PrintOptions) -> _PrintPage:
-    paragraphs: list[str] = []
+    paragraphs: list[tuple[str, str]] = []
+
+    def append(value: str, role: str = "P") -> None:
+        paragraphs.append((role, value))
+
     if page.resource_abstract:
-        paragraphs.append(page.resource_abstract)
+        append(page.resource_abstract)
     blocks = page.resource_content.get("blocks")
     if isinstance(blocks, list):
         headings = {
@@ -718,15 +723,21 @@ def _content_page(publication: PublishedSite, page: SitePage, options: PrintOpti
                 continue
             kind = block.get("type")
             if kind == "markdown" and isinstance(block.get("markdown"), str):
-                paragraphs.append(_plain_markdown(cast(str, block["markdown"])))
+                append(_plain_markdown(cast(str, block["markdown"])))
             elif kind == "heading" and isinstance(block.get("text"), str):
-                paragraphs.append(cast(str, block["text"]))
+                level = block.get("level")
+                role = (
+                    f"H{level}"
+                    if isinstance(level, int) and not isinstance(level, bool) and level in {2, 3, 4}
+                    else "P"
+                )
+                append(cast(str, block["text"]), role)
             elif (
                 kind == "callout"
                 and isinstance(block.get("title"), str)
                 and isinstance(block.get("markdown"), str)
             ):
-                paragraphs.append(
+                append(
                     f"{str(block.get('tone', 'note')).title()}: {block['title']}. "
                     f"{_plain_markdown(cast(str, block['markdown']))}"
                 )
@@ -735,12 +746,12 @@ def _content_page(publication: PublishedSite, page: SitePage, options: PrintOpti
                 if isinstance(targets, list):
                     labels = [headings.get(target) for target in targets if isinstance(target, str)]
                     if labels and all(isinstance(label, str) for label in labels):
-                        paragraphs.append(f"{block['label']}: {'; '.join(cast(list[str], labels))}")
+                        append(f"{block['label']}: {'; '.join(cast(list[str], labels))}")
             elif kind == "citation" and isinstance(block.get("title"), str):
-                paragraphs.append(f"Citation: {block['title']}")
+                append(f"Citation: {block['title']}")
             elif kind == "map":
                 caption = block.get("caption")
-                paragraphs.append(
+                append(
                     f"Map: {caption}" if isinstance(caption, str) else "Map included in appendix."
                 )
             elif kind == "table":
@@ -748,9 +759,9 @@ def _content_page(publication: PublishedSite, page: SitePage, options: PrintOpti
                 columns = block.get("columns")
                 rows = block.get("rows")
                 if isinstance(caption, str):
-                    paragraphs.append(f"Table: {caption}")
+                    append(f"Table: {caption}")
                 if isinstance(columns, list) and isinstance(rows, list):
-                    paragraphs.append(
+                    append(
                         f"Columns: {', '.join(str(column) for column in columns)}. "
                         f"Rows: {len(rows)}. See the portable HTML edition for the "
                         "accessible table."
@@ -759,18 +770,18 @@ def _content_page(publication: PublishedSite, page: SitePage, options: PrintOpti
                 title = block.get("title")
                 alt_text = block.get("alt_text")
                 if isinstance(title, str) and isinstance(alt_text, str):
-                    paragraphs.append(f"Chart: {title}. {alt_text}")
+                    append(f"Chart: {title}. {alt_text}")
             elif kind == "image":
                 alt_text = block.get("alt_text")
                 caption = block.get("caption")
                 if isinstance(alt_text, str):
                     prefix = f"Image: {caption}. " if isinstance(caption, str) else "Image: "
-                    paragraphs.append(f"{prefix}{alt_text}")
+                    append(f"{prefix}{alt_text}")
             elif kind == "file":
                 label = block.get("label")
                 description = block.get("description")
                 if isinstance(label, str):
-                    paragraphs.append(
+                    append(
                         f"File: {label}. {description}"
                         if isinstance(description, str)
                         else f"File: {label}."
@@ -778,9 +789,11 @@ def _content_page(publication: PublishedSite, page: SitePage, options: PrintOpti
     page_width, page_height = options.page_points
     line_width = max(48, min(180, int((page_width - 80) / 4.7)))
     maximum = max(20, min(180, int((page_height - 135) / 13)))
-    lines = _wrap_lines("\n\n".join(paragraphs), width=line_width, maximum=maximum)
+    lines, structure = _wrap_content_lines(paragraphs, width=line_width, maximum=maximum)
     lines += ("", f"Resource {page.resource_id} · version {page.resource_version_number}")
-    return _PrintPage(title=page.resource_title, lines=lines[: maximum + 2])
+    return _PrintPage(
+        title=page.resource_title, lines=lines[: maximum + 2], line_structure=structure
+    )
 
 
 def _map_page(reference: PublishedResourceReference, image: _PdfImage) -> _PrintPage:
@@ -1187,18 +1200,27 @@ def _page_stream(
                 f"q {width:.3f} 0 0 {height:.3f} {x:.3f} {y:.3f} cm /Map Do Q\n".encode("ascii")
             )
             text_y = 78.0
-        for line in page.lines:
-            commands.append(
-                _pdf_text(
-                    fonts,
-                    9,
-                    36,
-                    text_y,
-                    _truncate(line, max(70, int((page_width - 72) / 4.8))),
-                    maximum_width=page_width - 72,
-                )
-            )
-            text_y -= 13.0
+        for structure, lines in groupby(
+            enumerate(page.lines),
+            key=lambda item: (
+                page.line_structure[item[0]] if item[0] < len(page.line_structure) else None
+            ),
+        ):
+            with fonts.tag(structure[0]) if structure is not None else nullcontext():
+                for _, line in lines:
+                    commands.append(
+                        _pdf_text(
+                            fonts,
+                            9,
+                            36,
+                            text_y,
+                            _truncate(line, max(70, int((page_width - 72) / 4.8))),
+                            maximum_width=page_width - 72,
+                        )
+                    )
+                    text_y -= 13.0
+                    if text_y < 43.0:
+                        break
             if text_y < 43.0:
                 break
     footer = (
@@ -3365,17 +3387,27 @@ def _plain_markdown(value: str) -> str:
     return re.sub(r"[`*_~]", "", value)
 
 
-def _wrap_lines(value: str, *, width: int, maximum: int) -> tuple[str, ...]:
+def _wrap_content_lines(
+    paragraphs: list[tuple[str, str]], *, width: int, maximum: int
+) -> tuple[tuple[str, ...], tuple[tuple[str, int] | None, ...]]:
     lines: list[str] = []
-    for paragraph in re.split(r"\n\s*\n", value.strip()):
-        normalized = " ".join(paragraph.split())
-        if not normalized:
-            continue
-        lines.extend(textwrap.wrap(normalized, width=width, break_long_words=False))
-        lines.append("")
+    structure: list[tuple[str, int] | None] = []
+    for role, value in paragraphs:
+        for paragraph in re.split(r"\n\s*\n", value.strip()):
+            normalized = " ".join(paragraph.split())
+            if not normalized:
+                continue
+            wrapped = textwrap.wrap(normalized, width=width, break_long_words=False)
+            group = (role, len(lines))
+            lines.extend(wrapped)
+            structure.extend([group] * len(wrapped))
+            lines.append("")
+            structure.append(None)
+            if len(lines) >= maximum:
+                break
         if len(lines) >= maximum:
             break
-    return tuple(lines[:maximum])
+    return tuple(lines[:maximum]), tuple(structure[:maximum])
 
 
 def _pdf_text(
