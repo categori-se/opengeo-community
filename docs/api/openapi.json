@@ -24554,7 +24554,10 @@
             "type": "string"
           },
           "mode": {
-            "const": "tagged-actualtext",
+            "enum": [
+              "tagged-actualtext",
+              "tagged-mcid-text"
+            ],
             "title": "Mode",
             "type": "string"
           },

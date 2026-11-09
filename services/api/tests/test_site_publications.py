@@ -603,12 +603,13 @@ def test_pdf_document_asset_requires_exact_bounded_text_extraction_facts() -> No
             )
 
 
-def test_tagged_pdf_facts_require_exact_semantic_method_and_keep_legacy_guards() -> None:
+@pytest.mark.parametrize("method", ["pypdf_tagged_actualtext", "pypdf_tagged_mcid_text"])
+def test_tagged_pdf_facts_require_exact_semantic_method_and_keep_legacy_guards(method) -> None:
     facts = {
         "kind": "pdf",
         "source_format": "pdf",
         "accessible_preview_schema": "opengeo.document-preview.2.0.0",
-        "text_extraction": "pypdf_tagged_actualtext",
+        "text_extraction": method,
         "reading_order": "source-tags",
         "ocr_performed": False,
         "tagged": True,
@@ -621,6 +622,9 @@ def test_tagged_pdf_facts_require_exact_semantic_method_and_keep_legacy_guards()
     assert valid("pdf", "document", {"document": facts}, key)
     for change in (
         {"text_extraction": "poppler_pdftotext"},
+        {"text_extraction": "pypdf_unknown_reader"},
+        {"text_extraction": None},
+        {"text_extraction": []},
         {"reading_order": "heuristic"},
         {"ocr_performed": True},
         {"tagged": False},

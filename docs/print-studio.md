@@ -204,8 +204,13 @@ Preparation retains the existing source safety checks, strips inert annotations
 and refuses active content. Exports read only explicitly sealed object versions,
 check size/checksum and recheck access and the complete source/companion binding
 after retrieval. Shared companions use one storage read. Parsing remains isolated
-and bounded. Supported ActualText tags retain source roles and page relationships;
-general spanning tag trees remain unsupported.
+and bounded. Supported ActualText tags retain source roles and page relationships.
+The local tagged-PDF extension also reads text from validated page-owned MCIDs
+with explicit Unicode font mappings or supported standard fonts. Its distinct
+`tagged-mcid-text` provenance follows inspection, Catalog preview and publication;
+unvalidated text remains heuristic. Bounded figure alternatives, decorative
+content and vector Forms retain their source ownership. Nested ParentTrees,
+RoleMap, stream-owned tags and general spanning tag trees remain unsupported.
 
 Sixteen affected local cases and strict type checks on five changed modules pass,
 including normal file/document binding, exact manifest readback, shared reads,

@@ -467,6 +467,10 @@ let browserSites = [sitePayload()];
 let browserObservableSourceProjects = [observableSourceProjectPayload()];
 const browserObservableSourceUploads = new Map();
 const browserObservableSourceRevisions = [];
+const browserObservableSourceFiles = [
+  {name: "index.md", mimeType: "text/markdown", buffer: Buffer.from("# Browser Observable source")},
+  {name: "package-lock.json", mimeType: "application/json", buffer: Buffer.from('{"lockfileVersion":3}')}
+];
 const browserObservableBuilds = [];
 const browserSourceRequests = [];
 const browserRegionalBasemapRequests = [];
@@ -6680,7 +6684,124 @@ async function assertManagedDocumentPreviews(page, baseUrl) {
   return route;
 }
 
+async function assertProjectPublishingWorkflow(page, baseUrl, route) {
+  const initialFailureCount = failures.length;
+  // A source-bound Publication has one Files/Preview surface. Keep page/print
+  // and Framework checks on distinct fixture identities, as the current UI does.
+  const pagesSiteId = "b0000000-0000-4000-8000-000000000099";
+  if (!browserSites.some(site => site.id === pagesSiteId)) {
+    browserSites.push(sitePayload({id: pagesSiteId, slug: "research-pages", title: "Research pages",
+      version_id: "b1000000-0000-4000-8000-000000000099",
+      pages: sitePayload().pages.map(page => ({...page, id: "b2000000-0000-4000-8000-000000000099"}))}));
+  }
+  await visit(
+    page,
+    `${baseUrl}/workspaces?project=${IDS.projects[0]}&manage=resources#project-resources`,
+    `${route} project resources`
+  );
+  await page.locator(".project-resources").waitFor();
+  await expectText(page, "Project resources", "governed publishing catalog");
+  await visit(
+    page,
+    `${baseUrl}/workspaces?project=${IDS.projects[0]}&manage=publishing#project-publishing`,
+    `${route} project publishing`
+  );
+  const publishing = page.locator(".project-publishing-workspace");
+  await publishing.getByRole("heading", {name: "Publications", exact: true}).waitFor();
+  await publishing.getByLabel("Publication", {exact: true}).selectOption(pagesSiteId);
+  const pagePublication = publishing.locator(`[data-site-id="${pagesSiteId}"]`);
+  await pagePublication.getByRole("heading", {name: "Research pages · research-pages", exact: true}).waitFor();
+  await expectText(page, "Findings · home · story v1 · review/organization", "non-map site publishing boundary");
+  await pagePublication.getByRole("tab", {name: "Settings", exact: true}).click();
+  await expectText(page, "Positioned multi-frame pages", "durable positioned print editor");
+  const starterLayout = page.getByRole("button", {
+    name: "Insert accessible starter layout"
+  });
+  const positionedEditor = starterLayout.locator("xpath=ancestor::fieldset[1]");
+  await starterLayout.click();
+  await positionedEditor.locator(
+    '.project-positioned-layout-preview[data-state="valid"]'
+  ).waitFor();
+  await expectText(page, "positioned page", "positioned layout preview validation");
+  await positionedEditor.locator(".project-positioned-layout-frame-select").first().click();
+  await positionedEditor.getByRole("button", {name: "Rotate +15°"}).click();
+  await positionedEditor.getByLabel("Advanced layout JSON").waitFor();
+  if (!await positionedEditor.getByLabel("Advanced layout JSON").inputValue().then((value) => (
+    value.includes('"schemaVersion": "opengeo.print-layout.1.1.0"')
+    && value.includes('"rotation": 15')
+    && value.includes('"clip": true')
+  ))) throw new Error("rich positioned layout controls did not update the sealed 1.1 contract");
+  await publishing.getByLabel("Publication", {exact: true}).selectOption(IDS.site);
+  const sourcePublication = publishing.locator(".observable-source-project");
+  await sourcePublication.getByRole("heading", {name: "Research field report source", exact: true}).waitFor();
+  await sourcePublication.getByRole("tab", {name: "Settings", exact: true}).click();
+  await sourcePublication.getByText("Build configuration and source details", {exact: true}).click();
+  await expectText(page, "network deny_all", "credential-free compiler policy");
+  await sourcePublication.getByRole("tab", {name: "Files", exact: true}).click();
+  await sourcePublication.locator(".source-editor-file-tray > summary").click();
+  await sourcePublication.getByText("Import files or a project folder", {exact: true}).click();
+  try {
+    await sourcePublication.getByLabel("Source files", {exact: true})
+      .and(sourcePublication.locator('input[type="file"]')).setInputFiles(browserObservableSourceFiles);
+  } catch (error) {
+    const inputs = await sourcePublication.locator('input[type="file"]').evaluateAll((elements) => elements.map((input) => ({
+      label: input.labels?.[0]?.textContent,
+      ariaLabel: input.getAttribute("aria-label"),
+      multiple: input.multiple,
+      directory: input.hasAttribute("webkitdirectory")
+    })));
+    throw new Error(
+      `Observable source import failed: ${error.message}; inputs=${JSON.stringify(inputs)}`,
+      {cause: error}
+    );
+  }
+  await sourcePublication.getByRole("button", {name: "Save draft", exact: true}).click();
+  await sourcePublication.getByText("Draft version 1", {exact: true}).waitFor();
+  if (browserObservableSourceRevisions.length !== 1) {
+    failures.push(`${route}: exact Observable source revision was not committed`);
+  }
+  await sourcePublication.getByRole("tab", {name: "Files", exact: true}).click();
+  await sourcePublication.getByRole("navigation", {name: "Source files", exact: true})
+    .getByRole("button", {name: "index.md", exact: true}).click();
+  await sourcePublication.getByText("Editing index.md. Draft changes do not update the public version.", {exact: true}).waitFor();
+  assert.equal(await sourcePublication.getByLabel("Framework source editor", {exact: true}).inputValue(),
+    browserObservableSourceFiles[0].buffer.toString("utf8"), "Saved source bytes were not reopened");
+  await sourcePublication.getByRole("tab", {name: "Preview", exact: true}).click();
+  await sourcePublication.getByLabel("Preview mode", {exact: true}).selectOption("saved");
+  await sourcePublication.getByRole("heading", {name: "Saved preview", exact: true}).waitFor();
+  await sourcePublication.getByRole("button", {name: "Check saved preview", exact: true}).click();
+  await sourcePublication.getByText("No completed preview for this saved revision. Build it once, then reuse it while editing.", {exact: true}).waitFor();
+  await sourcePublication.getByRole("button", {name: "Build saved revision", exact: true}).click();
+  await sourcePublication.getByText("Saved revision 1 · pending. Nothing is published by previewing.", {exact: true}).waitFor();
+  if (browserObservableBuilds[0]?.state !== "pending") {
+    failures.push(`${route}: Observable preview did not remain an inert pending build record`);
+  }
+  await publishing.getByLabel("Publication", {exact: true}).selectOption(pagesSiteId);
+  await pagePublication.getByRole("tab", {name: "Publish", exact: true}).click();
+  await expectText(page, "Publication remains blocked", "public resource publication gate");
+  await pagePublication.getByRole("button", {name: "Submit revision for review"}).click();
+  await publishing.locator(`[data-site-id="${pagesSiteId}"][data-state="review"]`).waitFor();
+  await pagePublication.getByRole("tab", {name: "Publish", exact: true}).click();
+  const publishSite = pagePublication.getByRole("button", {name: "Publish reviewed edition", exact: true});
+  if (!(await publishSite.isDisabled())) {
+    failures.push(`${route}: site publication bypassed the public resource gate`);
+  }
+  const newFailures = failures.slice(initialFailureCount);
+  console.log(JSON.stringify({status: newFailures.length ? "FAIL" : "PASS",
+    workflow: "project-publishing", transport: "Compiled Studio with synthetic local API fixtures",
+    sourceRevisions: browserObservableSourceRevisions.length, previewState: browserObservableBuilds[0]?.state,
+    pagePublicationState: browserSites.find(site => site.id === pagesSiteId)?.state, newFailures,
+    limits: "Navigation/source/pending-build/public-gate controls only; no real compiler, upload/account, hosted or full-suite acceptance."}));
+  assert.deepEqual(newFailures, [], "Project publishing assertions failed");
+}
+
 async function assertPlatformStates(browser, baseUrl) {
+  if (process.env.OPEN_GEO_BROWSER_PLATFORM_FOCUS === "publishing") {
+    await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
+      await assertProjectPublishingWorkflow(page, baseUrl, `/workspaces?project=${IDS.projects[0]}`);
+    });
+    return;
+  }
   if (process.env.OPEN_GEO_BROWSER_PLATFORM_FOCUS === "documents") {
     await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
       await assertManagedDocumentPreviews(page, baseUrl);
@@ -6752,77 +6873,7 @@ async function assertPlatformStates(browser, baseUrl) {
 
   await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
     const route = await assertManagedDocumentPreviews(page, baseUrl);
-    await visit(
-      page,
-      `${baseUrl}/workspaces?project=${IDS.projects[0]}&manage=resources#project-resources`,
-      `${route} project resources`
-    );
-    await page.locator(".project-resources").waitFor();
-    await expectText(page, "Project resources", "governed publishing catalog");
-    await visit(
-      page,
-      `${baseUrl}/workspaces?project=${IDS.projects[0]}&manage=publishing#project-publishing`,
-      `${route} project publishing`
-    );
-    await page.locator(".project-sites").waitFor();
-    await expectText(page, "Project sites and portable editions", "general site publishing");
-    await expectText(page, "Research field report · research-field-report", "durable site identity");
-    await expectText(page, "map optional", "non-map site publishing boundary");
-    await expectText(page, "Positioned multi-frame pages", "durable positioned print editor");
-    const starterLayout = page.getByRole("button", {
-      name: "Insert accessible starter layout"
-    });
-    const positionedEditor = starterLayout.locator("xpath=ancestor::fieldset[1]");
-    await starterLayout.click();
-    await positionedEditor.locator(
-      '.project-positioned-layout-preview[data-state="valid"]'
-    ).waitFor();
-    await expectText(page, "positioned page", "positioned layout preview validation");
-    await positionedEditor.locator(".project-positioned-layout-frame-select").first().click();
-    await positionedEditor.getByRole("button", {name: "Rotate +15°"}).click();
-    await positionedEditor.getByLabel("Advanced layout JSON").waitFor();
-    if (!await positionedEditor.getByLabel("Advanced layout JSON").inputValue().then((value) => (
-      value.includes('"schemaVersion": "opengeo.print-layout.1.1.0"')
-      && value.includes('"rotation": 15')
-      && value.includes('"clip": true')
-    ))) throw new Error("rich positioned layout controls did not update the sealed 1.1 contract");
-    await expectText(page, "Observable Framework projects", "Observable source project workspace");
-    await expectText(page, "network deny_all", "credential-free compiler policy");
-    try {
-      await page.getByLabel("Source files").setInputFiles([
-        {
-          name: "index.md",
-          mimeType: "text/markdown",
-          buffer: Buffer.from("# Browser Observable source")
-        },
-        {
-          name: "package-lock.json",
-          mimeType: "application/json",
-          buffer: Buffer.from('{"lockfileVersion":3}')
-        }
-      ]);
-    } catch {
-      throw new Error(
-        `Observable source editor was unavailable: ${await page.locator(".observable-source-workspace").innerText()}`
-      );
-    }
-    await page.getByRole("button", {name: "Commit exact source revision"}).click();
-    await page.getByText(/source revision 1/).waitFor();
-    if (browserObservableSourceRevisions.length !== 1) {
-      failures.push(`${route}: exact Observable source revision was not committed`);
-    }
-    await page.getByRole("button", {name: "Stage private preview build"}).click();
-    await page.getByText(/API execution not_configured\. Nothing was published\./).waitFor();
-    if (browserObservableBuilds[0]?.state !== "pending") {
-      failures.push(`${route}: Observable preview did not remain an inert pending build record`);
-    }
-    await expectText(page, "Publication remains blocked", "public resource publication gate");
-    await page.getByRole("button", {name: "Submit revision for review"}).click();
-    await page.locator('.project-site-card[data-state="review"]').waitFor();
-    const publishSite = page.getByRole("button", {name: "Publish reviewed edition"});
-    if (!(await publishSite.isDisabled())) {
-      failures.push(`${route}: site publication bypassed the public resource gate`);
-    }
+    await assertProjectPublishingWorkflow(page, baseUrl, route);
   });
 
   await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
@@ -8781,8 +8832,19 @@ async function withPlatformPage(
   if (tourLayerMode) assert.ok(tourLayerReceipt.usage.contexts < 2, "Two cumulative browser contexts exhausted");
   const context = await browser.newContext({
     colorScheme, viewport, hasTouch, isMobile,
-    ...(flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench || offlinePlatform ? {serviceWorkers: "block"} : {})
+    ...(flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench ? {serviceWorkers: "block"} : {})
   });
+  if (offlinePlatform) {
+    // Playwright's context-wide block shim reads the serviceWorker getter in
+    // opaque publication frames. Keep those frames isolated and block only the
+    // top application's registration, as in check-browser-demo-release.mjs.
+    await context.addInitScript(() => {
+      if (window === window.top && "serviceWorker" in navigator) {
+        Object.defineProperty(navigator.serviceWorker, "register", {configurable: true,
+          value: () => Promise.reject(new Error("Service worker registration is disabled in the local acceptance peer."))});
+      }
+    });
+  }
   if (tourLayerMode) {
     tourLayerReceipt.usage.contexts++;tourLayerReceipt.cleanup.contextsClosed = false;
     context.on("close", () => {tourLayerReceipt.cleanup.contextsClosed = browser.contexts().length === 0;});
@@ -8817,6 +8879,28 @@ async function withPlatformPage(
     context.on("request", (request) => {
       if (new URL(request.url()).origin === baseUrl) flightBrowserRequests.local += 1;
       else flightBrowserRequests.interceptedExternal += 1;
+    });
+  }
+  if (offlinePlatform) {
+    await context.route(`${baseUrl}/service-worker.js`, (route) => route.fulfill({status: 404, body: "Not found"}));
+    const edge = await readFile(resolve(appRoot, "../infrastructure/lib/observable-preview-edge.ts"), "utf8");
+    const policyStart = edge.indexOf("export const OBSERVABLE_PREVIEW_DRAFT_CSP = [");
+    assert.notEqual(policyStart, -1, "Maintained draft-preview CSP is missing");
+    const draftPolicy = [...edge.slice(policyStart).split("].join")[0].matchAll(/"([^"]+)"/g)]
+      .map(match => match[1]).join("; ");
+    assert.ok(draftPolicy, "Maintained draft-preview CSP is empty");
+    const draftShell = await readFile(resolve(appRoot, "../services/observable-preview/authorize/draft.html"));
+    await context.route("https://preview.studio.opengeo.tools/authorize/draft.html", async (route) => {
+      const request = route.request(), headers = request.headers();
+      if (request.url() !== "https://preview.studio.opengeo.tools/authorize/draft.html"
+        || request.method() !== "GET" || request.resourceType() !== "document" || request.postData() !== null
+        || headers.authorization || headers.cookie || headers["x-opengeo-organization"]) {
+        failures.push("platform states: refused credentialed or invalid draft-shell fixture request");
+        return route.abort("blockedbyclient");
+      }
+      return route.fulfill({contentType: "text/html", headers: {
+        "Content-Security-Policy": draftPolicy, "Cache-Control": "no-store"
+      }, body: draftShell});
     });
   }
   context.setDefaultTimeout(20_000);
@@ -10187,6 +10271,27 @@ async function handleApiRequest(request, response) {
     }, requestId);
     return true;
   }
+  const observableSourceFileMatch = url.pathname.match(
+    /^\/api\/projects\/([0-9a-f-]+)\/source-projects\/([0-9a-f-]+)\/revisions\/([0-9a-f-]+)\/files\/(.+)$/i
+  );
+  if (observableSourceFileMatch && request.method === "GET") {
+    const [, projectId, sourceId, revisionId, relativePath] = observableSourceFileMatch;
+    const revision = browserObservableSourceRevisions.find(value => value.id === revisionId);
+    const file = browserObservableSourceFiles.find(value => value.name === relativePath);
+    const sealed = revision?.files.find(value => value.relative_path === relativePath);
+    const checksum = file && createHash("sha256").update(file.buffer).digest("hex");
+    if (projectId !== IDS.projects[0] || sourceId !== IDS.sourceProject || revisionId !== IDS.sourceRevision
+      || revision?.source_project_id !== sourceId || !file || !sealed
+      || sealed.content_type !== file.mimeType || sealed.size_bytes !== file.buffer.length
+      || sealed.checksum_sha256 !== checksum) {
+      writeJson(response, 404, {detail: "observable_source_file_not_found"}, requestId);
+    } else {
+      response.writeHead(200, {"content-type": file.mimeType, "content-length": file.buffer.length,
+        "X-OpenGeo-Source-Sha256": checksum, "X-Request-ID": requestId});
+      response.end(file.buffer);
+    }
+    return true;
+  }
   const observableRevisionsMatch = url.pathname.match(
     /^\/api\/projects\/([0-9a-f-]+)\/source-projects\/([0-9a-f-]+)\/revisions$/i
   );
@@ -10220,6 +10325,18 @@ async function handleApiRequest(request, response) {
         : project
     ));
     writeJson(response, 201, revision, requestId);
+    return true;
+  }
+  const observableBuildReads = url.pathname.match(
+    /^\/api\/projects\/([0-9a-f-]+)\/source-projects\/([0-9a-f-]+)\/(artifact-references|build-jobs)$/i
+  );
+  if (observableBuildReads && request.method === "GET") {
+    if (observableBuildReads[1] !== IDS.projects[0] || observableBuildReads[2] !== IDS.sourceProject) {
+      writeJson(response, 404, {detail: "observable_source_project_not_found"}, requestId);
+    } else {
+      writeJson(response, 200, observableBuildReads[3] === "artifact-references"
+        ? {revision: 0, references: []} : browserObservableBuilds, requestId);
+    }
     return true;
   }
   const observableBuildMatch = url.pathname.match(

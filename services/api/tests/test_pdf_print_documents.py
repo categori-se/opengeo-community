@@ -197,3 +197,28 @@ def prepared_vector_fixture() -> bytes:
         == "ac69d6833703aa9e36c03d2020fc62b9a63da04e8c71c1c53a3df4664366c9b3"
     )
     return body
+
+
+def test_tagged_artifact_vector_form_and_direct_mcid_array_round_trip():
+    source = PdfReader(BytesIO(_pdf(["authored source"], prepared=True, tagged=True)))
+    writer = PdfWriter()
+    writer.clone_reader_document_root(source)
+    page = writer.pages[0]
+    form = DecodedStreamObject()
+    form.set_data(b"0 0 10 10 re f")
+    form.update(_dictionary(Type=NameObject("/XObject"), Subtype=NameObject("/Form"),
+                            BBox=ArrayObject([NumberObject(x) for x in (0, 0, 10, 10)])))
+    page["/Resources"][NameObject("/XObject")] = _dictionary(Fm=writer._add_object(form))
+    content = DecodedStreamObject()
+    content.set_data(page.get_contents().get_data() + b"\n/Artifact BMC /Fm Do EMC\n")
+    page[NameObject("/Contents")] = writer._add_object(content)
+    leaf = writer.root_object["/StructTreeRoot"]["/K"][0].get_object()["/K"][0].get_object()["/K"][0].get_object()
+    leaf[NameObject("/K")] = ArrayObject([NumberObject(0)])
+    output = BytesIO()
+    writer.write(output)
+    result = compose_vector_pages(_pdf([""], tagged=True), {IDENTITY: output.getvalue()},
+                                  [{"targetPageIndex": 0, "objectID": str(IDENTITY), "sourcePageIndex": 0}])
+    expected_page = PdfReader(BytesIO(output.getvalue())).pages[0]
+    result_page = PdfReader(BytesIO(result)).pages[0]
+    assert result_page.extract_text() == expected_page.extract_text()
+    assert result_page.get_contents().get_data() == expected_page.get_contents().get_data()

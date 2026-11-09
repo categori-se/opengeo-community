@@ -149,11 +149,12 @@ def prepare_vectors(source: Path, target: Path, page_count: int) -> dict[str, ob
     # Walk the complete reachable catalog before copying pages: annotations and
     # actions are parsed objects, never detected by searching raw PDF names.
     walk(reader.root_object)
+    tag_facts = {"source_tags": "closed-actualtext" if tagged else "absent"}
     if tagged:
         from opengeo_worker.pdf_tagged_text import tagged_pages
 
         # Authoritative closed profile; complex tags stay unavailable.
-        tagged_pages(source, page_count)
+        tagged_pages(source, page_count, profile=tag_facts)
     elif any("/StructParents" in page or "/StructParent" in page for page in pages):
         raise UnsupportedVectors("orphan_source_tags")
     dimensions = []
@@ -221,7 +222,7 @@ def prepare_vectors(source: Path, target: Path, page_count: int) -> dict[str, ob
         "page_count": page_count,
         "pages": dimensions,
         "annotations_removed": removed,
-        "source_tags": "closed-actualtext" if tagged else "absent",
+        "source_tags": tag_facts["source_tags"],
         "renderer": "pypdf-safe-clone",
     }
 
