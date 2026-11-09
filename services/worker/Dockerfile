@@ -161,7 +161,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update \
     && apt-get upgrade --assume-yes --no-install-recommends \
     && apt-get install --assume-yes --no-install-recommends \
-      clamav poppler-utils tesseract-ocr tesseract-ocr-eng \
+      clamav poppler-utils libreoffice-writer libseccomp2 fonts-liberation bubblewrap \
+      tesseract-ocr tesseract-ocr-eng \
       tesseract-ocr-script-arab tesseract-ocr-script-beng \
       tesseract-ocr-script-cyrl tesseract-ocr-script-deva \
       tesseract-ocr-script-ethi tesseract-ocr-script-grek \

@@ -1,9 +1,35 @@
+import json
+import sys
 from pathlib import Path
 
 import pytest
 
 from opengeo_worker.command_runner import CommandRunner
 from opengeo_worker.models import ValidationFailure
+
+
+@pytest.mark.parametrize("program", ["tool", "office-print"])
+def test_ordinary_executables_keep_process_and_descriptor_limits(
+    tmp_path: Path, program: str
+) -> None:
+    runner = CommandRunner(
+        tmp_path,
+        timeout_seconds=10,
+        output_bytes=1000,
+        executable_paths={program: sys.executable},
+    )
+    result = runner.run(
+        program,
+        [
+            "-I",
+            "-c",
+            "import json,resource;print(json.dumps([resource.getrlimit(resource.RLIMIT_NPROC),"
+            "resource.getrlimit(resource.RLIMIT_NOFILE)]))",
+        ],
+        cwd=tmp_path,
+    )
+
+    assert json.loads(result.stdout) == [[64, 64], [256, 256]]
 
 
 def test_runs_only_allowlisted_absolute_executable_with_minimal_environment(

@@ -24,6 +24,8 @@ PYTHON_MODULES = (
 )
 BINARIES = (
     "clamscan",
+    "bwrap",
+    "libreoffice",
     "gdalinfo",
     "gdalsrsinfo",
     "gdal_translate",
@@ -132,6 +134,12 @@ def main() -> None:
     if not reference.IsSame(reopened):
         raise RuntimeError("GDAL OSR semantic CRS comparison is unavailable")
     output(["tippecanoe", "--version"])
+    output(["bwrap", "--version"])
+    if (
+        re.match(r"LibreOffice [0-9]+\.[0-9]+\.[0-9]+", output(["libreoffice", "--version"]))
+        is None
+    ):
+        raise RuntimeError("LibreOffice Writer runtime is unavailable")
     tesseract_version = output(["tesseract", "--version"])
     if re.match(r"tesseract 5\.[0-9]+\.[0-9]+", tesseract_version) is None:
         raise RuntimeError("Tesseract 5 runtime is unavailable")

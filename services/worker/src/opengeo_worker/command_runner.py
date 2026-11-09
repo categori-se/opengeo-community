@@ -48,6 +48,7 @@ class CommandRunner:
                 "pdftotext": "/usr/bin/pdftotext",
                 "pdf-tagged-text": sys.executable,
                 "pdf-print-vectors": sys.executable,
+                "office-print": "/usr/bin/bwrap",
                 "tesseract": "/usr/bin/tesseract",
             }
         )
@@ -85,7 +86,15 @@ class CommandRunner:
                 "--cpu=300",
                 "--as=4294967296",
                 f"--fsize={maximum_file_bytes}",
-                "--nproc=64",
+                # The trusted office launcher creates a private user namespace
+                # before its child applies RLIMIT_NPROC=64. Applying it here
+                # counts unrelated processes owned by the desktop user and can
+                # prevent even the namespace launcher from forking.
+                *(
+                    []
+                    if program == "office-print" and executable == "/usr/bin/bwrap"
+                    else ["--nproc=64"]
+                ),
                 "--nofile=256",
                 "--",
                 *command,

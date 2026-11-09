@@ -1733,11 +1733,44 @@ def pdf_print_asset_rows(kind: str = "file") -> tuple[tuple[Any, ...], tuple[Any
     return source, companion
 
 
-@pytest.mark.parametrize("kind", ["file", "document"])
-def test_normal_pdf_asset_binds_prepared_pages_and_reads_only_exact_manifest(
+def odt_print_asset_rows() -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    source, companion = pdf_print_asset_rows("document")
+    pdf_document = source[16]["document"]
+    document = {
+        "kind": "odf_text",
+        "source_format": "odt",
+        "page_count": 7,
+        "accessible_preview_schema": "opengeo.document-preview.1.0.0",
+        "print_vector_available": True,
+        "print_vector_schema": pdf_document["print_vector_schema"],
+        "print_vector_facts": pdf_document["print_vector_facts"],
+        "print_conversion": {
+            "renderer": "libreoffice-writer-pdf",
+            "version": "LibreOffice 7.4.7.2 40(Build:2)",
+            "export_filter": "writer_pdf_Export",
+            "network": "seccomp-denied",
+            "fonts": "system-fonts-substitution-possible",
+        },
+    }
+    rows = []
+    for row in (source, companion):
+        updated = list(row)
+        updated[14] = "odt"
+        updated[16] = {"document": document}
+        rows.append(tuple(updated))
+    return rows[0], rows[1]
+
+
+@pytest.mark.parametrize(
+    ("source_format", "kind"), [("pdf", "file"), ("pdf", "document"), ("odt", "document")]
+)
+def test_document_asset_binds_prepared_pages_and_reads_only_exact_manifest(
+    source_format: str,
     kind: Literal["file", "document"],
 ) -> None:
-    source, companion = pdf_print_asset_rows(kind)
+    source, companion = (
+        odt_print_asset_rows() if source_format == "odt" else pdf_print_asset_rows(kind)
+    )
     transaction = ScriptedTransaction(all_rows=[[source, companion]])
     assets = asyncio.run(
         PostgresSitePublicationRepository._seal_site_assets(
@@ -1753,6 +1786,9 @@ def test_normal_pdf_asset_binds_prepared_pages_and_reads_only_exact_manifest(
     assert bound.print_document is not None
     assert bound.print_document.object_id == PRINT_DOCUMENT_OBJECT_ID
     assert bound.print_document.storage_version_id == "prepared-exact-1"
+    if source_format == "odt":
+        assert source[16]["document"]["page_count"] == 7
+        assert source[16]["document"]["print_vector_facts"]["page_count"] == 1
     site_transaction = ScriptedTransaction(
         one=[site_row("review")], all_rows=[[document_page_row()]]
     )
@@ -1807,10 +1843,107 @@ def test_normal_pdf_asset_binds_prepared_pages_and_reads_only_exact_manifest(
 
 
 @pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("renderer", "unverified-converter"),
+        ("version", ""),
+        ("version", " "),
+        ("version", "LibreOffice\n7.4.7"),
+        ("version", "L" * 121),
+        ("version", 747),
+        ("export_filter", "other-filter"),
+        ("network", "allowed"),
+        ("fonts", "all-fonts-exact"),
+        (None, None),
+        (None, []),
+    ],
+)
+def test_odt_prepared_binding_requires_bounded_conversion_provenance(
+    field: str | None, value: object
+) -> None:
+    source, companion = odt_print_asset_rows()
+    document = source[16]["document"]
+    if field is None:
+        document["print_conversion"] = value
+    else:
+        document["print_conversion"][field] = value
+    transaction = ScriptedTransaction(all_rows=[[source, companion]])
+    with pytest.raises(SiteConflict, match="site_print_document_invalid"):
+        asyncio.run(
+            PostgresSitePublicationRepository._seal_site_assets(
+                transaction,
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                (
+                    SiteAssetDraft(
+                        "document", ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID
+                    ),
+                ),
+            )
+        )
+
+
+@pytest.mark.parametrize("kind", ["file", "document"])
+def test_odt_original_file_cannot_supply_a_public_print_binding(
+    kind: Literal["file", "document"],
+) -> None:
+    source, companion = odt_print_asset_rows()
+    original = list(source)
+    original[4] = original[4].replace("/document/accessible-preview.json", "/source.odt")
+    original[6] = "application/vnd.oasis.opendocument.text"
+    original[9] = "original"
+    transaction = ScriptedTransaction(all_rows=[[tuple(original), companion]])
+    with pytest.raises(SiteConflict, match="site_asset_invalid"):
+        asyncio.run(
+            PostgresSitePublicationRepository._seal_site_assets(
+                transaction,
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                (SiteAssetDraft(kind, ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID),),
+            )
+        )
+
+
+@pytest.mark.parametrize("field", ["kind", "source_format"])
+def test_pdf_prepared_binding_rejects_odt_metadata_on_a_pdf_file(field: str) -> None:
+    source, companion = pdf_print_asset_rows()
+    source[16]["document"][field] = "odf_text" if field == "kind" else "odt"
+    transaction = ScriptedTransaction(all_rows=[[source, companion]])
+    with pytest.raises(SiteConflict, match="site_print_document_invalid"):
+        asyncio.run(
+            PostgresSitePublicationRepository._seal_site_assets(
+                transaction,
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                (SiteAssetDraft("file", ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID),),
+            )
+        )
+
+
+def test_pdf_prepared_binding_still_requires_matching_source_pagination() -> None:
+    source, companion = pdf_print_asset_rows()
+    source[16]["document"]["page_count"] = 7
+    transaction = ScriptedTransaction(all_rows=[[source, companion]])
+    with pytest.raises(SiteConflict, match="site_print_document_invalid"):
+        asyncio.run(
+            PostgresSitePublicationRepository._seal_site_assets(
+                transaction,
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                (SiteAssetDraft("file", ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID),),
+            )
+        )
+
+
+@pytest.mark.parametrize("source_format", ["pdf", "odt"])
+@pytest.mark.parametrize(
     "changed", ["foreign_dataset", "foreign_version", "unscanned", "wrong_role"]
 )
-def test_pdf_prepared_binding_rejects_invalid_or_foreign_sibling(changed: str) -> None:
-    source, companion = pdf_print_asset_rows()
+def test_document_prepared_binding_rejects_invalid_or_foreign_sibling(
+    source_format: str, changed: str
+) -> None:
+    source, companion = odt_print_asset_rows() if source_format == "odt" else pdf_print_asset_rows()
+    kind: Literal["file", "document"] = "document" if source_format == "odt" else "file"
     invalid = list(companion)
     if changed == "foreign_dataset":
         invalid[1] = UUID(int=99)
@@ -1827,15 +1960,26 @@ def test_pdf_prepared_binding_rejects_invalid_or_foreign_sibling(changed: str) -
                 transaction,
                 TenantContext(USER_ID, ORG_ID),
                 PROJECT_ID,
-                (SiteAssetDraft("file", ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID),),
+                (SiteAssetDraft(kind, ASSET_DATASET_ID, ASSET_VERSION_ID, DOCUMENT_OBJECT_ID),),
             )
         )
 
 
+@pytest.mark.parametrize("source_format", ["pdf", "odt"])
 @pytest.mark.parametrize("changed", ["checksum", "version", "recursive", "foreign_version"])
-def test_pdf_prepared_manifest_rejects_drift_and_recursive_or_foreign_binding(changed: str) -> None:
-    source, companion = pdf_print_asset_rows()
-    asset = PostgresSitePublicationRepository._asset_from_row("file", source, source[13])
+def test_document_prepared_manifest_rejects_drift_and_recursive_or_foreign_binding(
+    source_format: str, changed: str
+) -> None:
+    source, companion = odt_print_asset_rows() if source_format == "odt" else pdf_print_asset_rows()
+    kind: Literal["file", "document"] = "document" if source_format == "odt" else "file"
+    asset = PostgresSitePublicationRepository._asset_from_row(
+        kind,
+        source,
+        source[13],
+        dataset_format=source[14],
+        geometry_type=source[15],
+        schema_definition=source[16],
+    )
     prepared = PostgresSitePublicationRepository._asset_from_row("file", companion, companion[13])
     raw = PostgresSitePublicationRepository._asset_manifest(asset)
     nested = PostgresSitePublicationRepository._asset_manifest(prepared)
@@ -1851,6 +1995,32 @@ def test_pdf_prepared_manifest_rejects_drift_and_recursive_or_foreign_binding(ch
             UUID(int=99) if index == 2 else value for index, value in enumerate(companion)
         )
         nested["datasetVersionId"] = str(UUID(int=99))
+    transaction = ScriptedTransaction(all_rows=[[source, companion]])
+    with pytest.raises(SiteNotFound):
+        asyncio.run(
+            PostgresSitePublicationRepository._load_manifest_assets(
+                transaction,
+                TenantContext(USER_ID, ORG_ID),
+                PROJECT_ID,
+                {"assets": [raw]},
+            )
+        )
+
+
+def test_odt_prepared_manifest_revalidates_conversion_provenance() -> None:
+    source, companion = odt_print_asset_rows()
+    asset = PostgresSitePublicationRepository._asset_from_row(
+        "document",
+        source,
+        source[13],
+        dataset_format=source[14],
+        geometry_type=source[15],
+        schema_definition=source[16],
+    )
+    prepared = PostgresSitePublicationRepository._asset_from_row("file", companion, companion[13])
+    raw = PostgresSitePublicationRepository._asset_manifest(asset)
+    raw["printDocument"] = PostgresSitePublicationRepository._asset_manifest(prepared)
+    source[16]["document"]["print_conversion"]["network"] = "allowed"
     transaction = ScriptedTransaction(all_rows=[[source, companion]])
     with pytest.raises(SiteNotFound):
         asyncio.run(

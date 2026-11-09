@@ -1274,6 +1274,58 @@
       "licenseEvidenceUrl": "https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/COPYING"
     },
     {
+      "name": "LibreOffice Writer",
+      "version": "Ubuntu package in pinned worker image",
+      "usedBy": [
+        "services/worker/Dockerfile",
+        "services/worker/src/opengeo_worker/office_print_vectors.py"
+      ],
+      "purpose": "One-shot original-layout ODT conversion into a derived PDF companion within the existing ingestion worker.",
+      "licenseExpression": "MPL-2.0",
+      "sourceUrl": "https://www.libreoffice.org/",
+      "licenseEvidenceUrl": "https://www.libreoffice.org/licenses/",
+      "notes": "Source declaration only; no new image build or deployment is established. Record the actual converter version per output and retain the exact image SBOM, Ubuntu package copyright files and mixed bundled component licenses. The MPL expression identifies LibreOffice's primary license, not every bundled component. Original source bytes and semantic previews remain separate from converted print pages; conversion does not establish native-layout fidelity."
+    },
+    {
+      "name": "libseccomp",
+      "version": "Ubuntu package in pinned worker image",
+      "usedBy": [
+        "services/worker/Dockerfile",
+        "services/worker/src/opengeo_worker/office_sandbox.py"
+      ],
+      "purpose": "Inherited syscall restrictions for the isolated one-shot Office converter, loaded through Python ctypes.",
+      "licenseExpression": "LGPL-2.1-only",
+      "sourceUrl": "https://github.com/seccomp/libseccomp",
+      "licenseEvidenceUrl": "https://github.com/seccomp/libseccomp/blob/main/COPYING",
+      "notes": "Source declaration only. Preserve the installed package's license and corresponding source information with the exact worker image SBOM; review replacement and distribution obligations for the dynamically loaded library. No converter image build, deployment or runtime security qualification is implied."
+    },
+    {
+      "name": "Bubblewrap",
+      "version": "Ubuntu package in pinned worker image",
+      "usedBy": [
+        "services/worker/Dockerfile",
+        "services/worker/src/opengeo_worker/office_print_vectors.py"
+      ],
+      "purpose": "Private mount, user and PID namespace environment for one-shot Office conversion and its private temporary directory.",
+      "licenseExpression": "LGPL-2.0-or-later",
+      "sourceUrl": "https://github.com/containers/bubblewrap",
+      "licenseEvidenceUrl": "https://github.com/containers/bubblewrap/blob/main/COPYING",
+      "notes": "Source declaration only. Retain exact Ubuntu package identity, license and corresponding source information in release material and the image SBOM. Host verification does not establish availability inside a future worker runtime or approve a new image/deployment."
+    },
+    {
+      "name": "Liberation fonts",
+      "version": "Ubuntu package in pinned worker image",
+      "usedBy": [
+        "services/worker/Dockerfile",
+        "services/worker/src/opengeo_worker/office_print_vectors.py"
+      ],
+      "purpose": "Local document font metrics and embeddable glyphs for bounded original-layout Office print conversion.",
+      "licenseExpression": "OFL-1.1",
+      "sourceUrl": "https://github.com/liberationfonts/liberation-fonts",
+      "licenseEvidenceUrl": "https://github.com/liberationfonts/liberation-fonts/blob/main/LICENSE",
+      "notes": "Source declaration only. Preserve the supplied OFL, font copyright notices and any Reserved Font Names with the exact installed font package. Record the package identity in the image SBOM; do not infer that every document uses these fonts or that substitution preserves original pagination. No new image build or deployment is established."
+    },
+    {
       "name": "Tesseract OCR",
       "version": "Ubuntu package and selected script data in pinned worker image",
       "usedBy": [

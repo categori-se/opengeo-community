@@ -161,12 +161,25 @@ The October 22 correction reconciled Psycopg with its [3.3.4 package metadata](h
 | [Tippecanoe](https://github.com/felt/tippecanoe) | 2.79.0 | Vector-tile generation | BSD-2-Clause |
 | [ClamAV](https://github.com/Cisco-Talos/clamav) | Pinned worker-image package | Upload malware scanning | GPL-2.0-only |
 | [Poppler](https://gitlab.freedesktop.org/poppler/poppler) | Pinned worker-image package | PDF inspection/text/raster preview | GPL-2.0-or-later |
+| [LibreOffice Writer](https://www.libreoffice.org/) | Ubuntu package in pinned worker image; actual converter version recorded per output | One-shot ODT conversion into a derived PDF print companion | MPL-2.0 primary license; mixed bundled licenses retained |
+| [libseccomp](https://github.com/seccomp/libseccomp) | Ubuntu package in pinned worker image | Inherited syscall restrictions for isolated Office conversion | LGPL-2.1-only |
+| [Bubblewrap](https://github.com/containers/bubblewrap) | Ubuntu package in pinned worker image | Private mount, user and PID namespaces and temporary directory for Office conversion | LGPL-2.0-or-later |
+| [Liberation fonts](https://github.com/liberationfonts/liberation-fonts) | Ubuntu package in pinned worker image | Local document font metrics and embeddable glyphs | OFL-1.1 |
 | [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) | Pinned worker-image package and selected language data | Resource-limited OCR | Apache-2.0 |
 | [MathJax and original TeX glyphs](https://www.mathjax.org/) | Source 4.1.3; TeX font 4.1.0 | Local Print mathematical layout and vector equation glyphs | Apache-2.0 software; OFL-1.1 font outlines and exact source notices |
 | [GNU Unifont](https://savannah.gnu.org/projects/unifont) | 17.0.04 checksum-pinned from redundant GNU mirrors; full license vendored | Deterministic multilingual print glyphs | GPL-2.0-or-later WITH Font-exception-2.0 |
 | [Open Sans generated map glyphs](https://src.fedoraproject.org/rpms/open-sans-fonts) | Open Sans 1.10 from Fedora `1.10-24.fc43`; `opengeo-open-sans-v1` asset version 1 | Shared exact-version browser/saved-map glyphs and original font for native Cesium labels | Apache-2.0; [vendored license](../app/src/assets/render-fonts/opengeo-open-sans-v1/1/LICENSE.txt) and [attribution notice](../app/src/assets/render-fonts/opengeo-open-sans-v1/1/NOTICE.txt) |
 | [Maki symbol assets](https://github.com/mapbox/maki/tree/6ab50f392294aeb20b3af83e8a10067151876eb9) | 8.2.0; exact published archive checksum in the checked register | All 215 Point icons, generated locally with white glyphs and a dark halo; loaded on demand | CC0-1.0; [retained license, source pin and contributor credit](../app/src/data/symbology-sources.json) |
 | [OpenStreetMap Carto symbol assets](https://github.com/openstreetmap-carto/openstreetmap-carto/commit/1cc4b89c48e4385b607d63156d6f8f1eea8b35a2) | Exact commit `1cc4b89c48e4` after v6.1.0; archive checksum in the checked register | All 998 source images: 921 Point/shield choices and 77 separate line/pattern reference previews, preserving source colors; separate on-demand payloads | CC0-1.0; [retained license, source pin and contributor credit](../app/src/data/symbology-sources.json) |
+
+The November 8 Office additions declare source requirements for the existing
+worker image; they do not establish a new image build or deployment. Each output
+records the actual LibreOffice converter version. Release review still requires
+the exact image SBOM, Ubuntu package identities and supplied license/copyright
+files, including LibreOffice's mixed bundled licenses. Retain corresponding
+source information for libseccomp and Bubblewrap, and the complete OFL and font
+notices for Liberation. Font substitution and successful conversion alone do not
+establish original pagination or native-layout fidelity.
 
 The Open Sans glyph manifest pins the source font, license, coverage, generator and generated PBF bytes. The separate attribution notice preserves the source font's embedded copyright and identifies the generated files; it is intentionally outside the frozen version-1 manifest. Ship both notice and license with the glyph assets. This records the exact Apache-licensed 1.10 font, not an asserted upstream commit or a newer release. TinySDF 2.2.0 (BSD-2-Clause) is already locked transitively in the app's build tree; generating these assets adds no runtime package and its build-tool attribution remains part of the transitive SBOM.
 
