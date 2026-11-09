@@ -1366,6 +1366,23 @@ def _pdf_text_frame(
 ) -> list[bytes]:
     if element.text is None:
         raise SitePrintError("site_print_layout_text_invalid")
+    if element.font_size is not None:
+        size = element.font_size
+        leading = size * 1.35
+        lines = _wrap_pdf_lines(
+            element.text,
+            fonts,
+            maximum_width=width / size,
+            maximum_lines=max(1, 1 + math.floor((height - size) / leading)),
+        )
+        red, green, blue = _hex_rgb(element.color or "#000000")
+        commands = [f"q {red / 255:.8f} {green / 255:.8f} {blue / 255:.8f} rg\n".encode("ascii")]
+        text_y = y + height - size
+        for line in lines:
+            commands.append(_pdf_text(fonts, size, x, text_y, line, maximum_width=width))
+            text_y -= leading
+        commands.append(b"Q\n")
+        return commands
     sizes = {"title": 19, "heading": 14, "body": 9, "note": 8, "attribution": 7}
     size = sizes.get(element.style or "body", 9)
     leading = size * 1.35
@@ -1892,6 +1909,14 @@ def _raster_positioned_page(
         for element in layout_page.elements
         if element.type == "map_frame"
     }
+    text_fonts = (
+        _PdfFontCatalog()
+        if any(element.font_size is not None for element in layout_page.elements)
+        else None
+    )
+    text_page_points = (
+        resolve_print_options(publication).page_points if text_fonts is not None else None
+    )
     for element in layout_page.elements:
         if element.type == "shape_frame":
             _draw_raster_shape(canvas, page_width, page_height, element)
@@ -1918,6 +1943,8 @@ def _raster_positioned_page(
                 blocks,
                 decoded,
                 decoded_assets,
+                text_fonts,
+                text_page_points,
             )
             _composite_rotated_layer(
                 canvas,
@@ -1947,6 +1974,8 @@ def _raster_positioned_page(
                 blocks,
                 decoded,
                 decoded_assets,
+                text_fonts,
+                text_page_points,
             )
 
 
@@ -2040,6 +2069,8 @@ def _draw_raster_positioned_element(
     blocks: dict[str, dict[str, object]],
     decoded: dict[UUID, _PdfImage],
     decoded_assets: dict[UUID, _PdfImage],
+    text_fonts: _PdfFontCatalog | None = None,
+    text_page_points: tuple[float, float] | None = None,
 ) -> None:
     if element.type == "map_frame":
         if element.resource_id is None or element.resource_id not in decoded:
@@ -2075,6 +2106,22 @@ def _draw_raster_positioned_element(
     elif element.type == "text":
         if element.text is None:
             raise SitePrintError("site_print_layout_text_invalid")
+        if element.font_size is not None:
+            if text_page_points is None:
+                raise SitePrintError("site_print_layout_text_page_size_invalid")
+            page_points = text_page_points
+            _draw_formatted_text(
+                canvas,
+                page_width,
+                page_height,
+                element,
+                x,
+                y,
+                page_points[0] * element.width / 1000,
+                page_points[1] * element.height / 1000,
+                text_fonts or _PdfFontCatalog(),
+            )
+            return
         scale = {
             "title": 4,
             "heading": 3,
@@ -2692,6 +2739,77 @@ def _draw_text_block(
                 color,
             )
             glyph_x += advance
+
+
+def _draw_formatted_text(
+    canvas: bytearray,
+    page_width: int,
+    page_height: int,
+    element: PrintLayoutElement,
+    x: int,
+    y: int,
+    width_points: float,
+    height_points: float,
+    fonts: _PdfFontCatalog,
+) -> None:
+    if element.text is None or element.font_size is None:
+        raise SitePrintError("site_print_layout_text_invalid")
+    size = element.font_size
+    leading = size * 1.35
+    lines = _wrap_pdf_lines(
+        element.text,
+        fonts,
+        maximum_width=width_points / size,
+        maximum_lines=max(1, 1 + math.floor((height_points - size) / leading)),
+    )
+    pixels_per_unit = size * PRINT_RASTER_DPI / (72 * 16)
+    width_pixels = width_points * PRINT_RASTER_DPI / 72
+    color = _hex_rgb(element.color or "#000000")
+    for line_index, line in enumerate(lines):
+        line = _truncate_pdf_text(line, fonts, width_points / size)
+        layout = fonts.layout(line)
+        fonts.encode_layout(layout)  # Keep the existing unique/composite glyph budgets.
+        glyph_x = x + (
+            max(0.0, width_pixels - fonts.text_advance(line) * size * PRINT_RASTER_DPI / 72)
+            if layout.base_direction == "R"
+            else 0
+        )
+        # Match the existing Type3 glyph's [-.125,.875] EM baseline bounds.
+        glyph_y = y + (size / 8 + line_index * leading) * PRINT_RASTER_DPI / 72
+        for character in layout.visual:
+            glyph = fonts._glyph(character)
+            for row, bits in enumerate(glyph.rows):
+                top, bottom = (
+                    round(glyph_y + row * pixels_per_unit),
+                    round(glyph_y + (row + 1) * pixels_per_unit),
+                )
+                if bottom <= top:
+                    continue
+                for column in range(glyph.width):
+                    if bits & (1 << (glyph.width - column - 1)):
+                        left, right = (
+                            round(glyph_x + column * pixels_per_unit),
+                            round(glyph_x + (column + 1) * pixels_per_unit),
+                        )
+                        paint_top, paint_bottom = top, bottom
+                        if element.clip:
+                            left, right = max(x, left), min(round(x + width_pixels), right)
+                            paint_top, paint_bottom = (
+                                max(y, top),
+                                min(round(y + height_points * PRINT_RASTER_DPI / 72), bottom),
+                            )
+                        if right > left and paint_bottom > paint_top:
+                            _fill_rect(
+                                canvas,
+                                page_width,
+                                page_height,
+                                left,
+                                paint_top,
+                                right - left,
+                                paint_bottom - paint_top,
+                                color,
+                            )
+            glyph_x += fonts.advance(character) * size * PRINT_RASTER_DPI / 72
 
 
 def _wrap_raster_line(value: str, maximum_width: int, scale: int) -> list[str]:

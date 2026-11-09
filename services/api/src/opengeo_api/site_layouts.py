@@ -1,3 +1,4 @@
+import math
 import re
 from dataclasses import dataclass
 from typing import Literal, cast
@@ -7,6 +8,7 @@ from opengeo_api.json_canonical import canonical_json_bytes
 
 PRINT_LAYOUT_SCHEMA = "opengeo.print-layout.1.1.0"
 SHAPE_PRINT_LAYOUT_SCHEMA = "opengeo.print-layout.1.2.0"
+TEXT_PRINT_LAYOUT_SCHEMA = "opengeo.print-layout.1.3.0"
 LEGACY_PRINT_LAYOUT_SCHEMA = "opengeo.print-layout.1.0.0"
 MAX_LAYOUT_PAGES = 64
 MAX_LAYOUT_ELEMENTS_PER_PAGE = 32
@@ -39,6 +41,10 @@ _ELEMENT_KEYS = {
 _SHAPE_ELEMENT_KEYS = {
     **_ELEMENT_KEYS,
     "shape_frame": _COMMON_KEYS | {"shape", "stroke", "fill", "strokeWidth"},
+}
+_FORMATTED_ELEMENT_KEYS = {
+    **_SHAPE_ELEMENT_KEYS,
+    "text": _COMMON_KEYS | {"text", "style", "fontSize", "color"},
 }
 _TEXT_STYLES = frozenset({"title", "heading", "body", "note", "attribution"})
 _IMAGE_FITS = frozenset({"contain", "cover"})
@@ -79,6 +85,8 @@ class PrintLayoutElement:
     stroke: str | None = None
     fill: str | None = None
     stroke_width: int | None = None
+    font_size: int | float | None = None
+    color: str | None = None
 
     def as_json(self, schema_version: str = PRINT_LAYOUT_SCHEMA) -> dict[str, object]:
         value: dict[str, object] = {
@@ -89,7 +97,11 @@ class PrintLayoutElement:
             "width": self.width,
             "height": self.height,
         }
-        if schema_version in {PRINT_LAYOUT_SCHEMA, SHAPE_PRINT_LAYOUT_SCHEMA}:
+        if schema_version in {
+            PRINT_LAYOUT_SCHEMA,
+            SHAPE_PRINT_LAYOUT_SCHEMA,
+            TEXT_PRINT_LAYOUT_SCHEMA,
+        }:
             value["rotation"] = self.rotation
             value["clip"] = self.clip
         if self.resource_id is not None:
@@ -104,6 +116,8 @@ class PrintLayoutElement:
             value["blockId"] = self.block_id
         if self.fit is not None:
             value["fit"] = self.fit
+        if self.type == "text" and schema_version == TEXT_PRINT_LAYOUT_SCHEMA:
+            value.update(fontSize=self.font_size, color=self.color)
         if self.type == "shape_frame":
             value.update(
                 shape=self.shape, stroke=self.stroke, fill=self.fill, strokeWidth=self.stroke_width
@@ -147,6 +161,7 @@ def parse_print_layout(value: object) -> PrintLayoutDocument:
         LEGACY_PRINT_LAYOUT_SCHEMA,
         PRINT_LAYOUT_SCHEMA,
         SHAPE_PRINT_LAYOUT_SCHEMA,
+        TEXT_PRINT_LAYOUT_SCHEMA,
     }:
         raise SiteLayoutError("site_print_layout_schema_unsupported")
     raw_pages = value.get("pages")
@@ -215,6 +230,8 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
     element_keys = (
         _LEGACY_ELEMENT_KEYS
         if schema_version == LEGACY_PRINT_LAYOUT_SCHEMA
+        else _FORMATTED_ELEMENT_KEYS
+        if schema_version == TEXT_PRINT_LAYOUT_SCHEMA
         else _SHAPE_ELEMENT_KEYS
         if schema_version == SHAPE_PRINT_LAYOUT_SCHEMA
         else _ELEMENT_KEYS
@@ -249,7 +266,7 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
     )
     rotation = 0
     clip = True
-    if schema_version in {PRINT_LAYOUT_SCHEMA, SHAPE_PRINT_LAYOUT_SCHEMA}:
+    if schema_version in {PRINT_LAYOUT_SCHEMA, SHAPE_PRINT_LAYOUT_SCHEMA, TEXT_PRINT_LAYOUT_SCHEMA}:
         rotation_value = value.get("rotation")
         clip_value = value.get("clip")
         if (
@@ -326,6 +343,18 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
             raise SiteLayoutError("site_print_layout_text_invalid")
         if not isinstance(style, str) or style not in _TEXT_STYLES:
             raise SiteLayoutError("site_print_layout_text_style_invalid")
+        font_size = value.get("fontSize") if schema_version == TEXT_PRINT_LAYOUT_SCHEMA else None
+        color = value.get("color") if schema_version == TEXT_PRINT_LAYOUT_SCHEMA else None
+        if schema_version == TEXT_PRINT_LAYOUT_SCHEMA:
+            if (
+                isinstance(font_size, bool)
+                or not isinstance(font_size, (int, float))
+                or not 1 <= font_size <= 144
+                or not math.isfinite(font_size)
+            ):
+                raise SiteLayoutError("site_print_layout_text_font_size_invalid")
+            if not isinstance(color, str) or re.fullmatch(r"#[0-9a-f]{6}", color) is None:
+                raise SiteLayoutError("site_print_layout_text_color_invalid")
         return PrintLayoutElement(
             identifier,
             element_type,
@@ -335,6 +364,8 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
             height,
             text=content,
             style=style,
+            font_size=cast(int | float | None, font_size),
+            color=cast(str | None, color),
             rotation=rotation,
             clip=clip,
         )

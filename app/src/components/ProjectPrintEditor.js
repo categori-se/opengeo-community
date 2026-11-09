@@ -17,15 +17,18 @@ import {printMapPlacement, printGeoPdfRegistrations} from "../lib/printGeoPdf.js
 import {appendPrintTextFrames} from "../lib/printTextSvg.js";
 import {hasPrintMath, preparePrintMath, printMathReady} from "../lib/printMathSvg.js";
 import {selectedFeaturePrintText} from "../lib/printTextFrames.js";
+import {assertPrintFontFaceCoverage} from "../lib/printFontFaces.js";
 
 // Layout metadata is saved explicitly. Map images remain an authorized browser capture.
-export function ProjectPrintEditor({state, workbench: initialWorkbench, editFrame, canSave = false, onSaved = () => {}, captureMap = capturePrintMap, persistence = "account"}) {
+export function ProjectPrintEditor({state, workbench: initialWorkbench, editFrame, canSave = false, onSaved = () => {}, captureMap = capturePrintMap, persistence = "account", prepareTextFonts}) {
   const root = el("section");root.className = "project-print-studio project-print-editor";root.id = "project-print-studio";
   let mapRecord = state.selectedMap, workbench = initialWorkbench, collection, activeId, frameId;
   let dirty = false, busy = false, disposed = false, uncertain = false, guides = true;
   let units = "mm", snapping = true, drag = null;
   let templateId = "", templateName = "", templateBindings = {}, outputFormat = "svg", outputRunning = false;
   let pendingQgisImport = null, mathLoadStarted = false;
+  let fontState = null, fontStateKey = "", fontPromise = null, fontRequestKey = "", fontFailure = null;
+  let fontGeneration = 0, fontController = null, fontPreviewWaiting = "";
   let captureController = null;
   let outputController = null;
   const captures = new Map(), undo = [], redo = [];
@@ -60,7 +63,40 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
   root.hasUnsavedChanges = () => dirty;
   root.shouldBlockNavigation = () => dirty || busy || uncertain || Boolean(drag);
   root.checkDraft = () => {status.textContent = "Save the layout or discard its changes before leaving Print Studio.";root.scrollIntoView?.({block: "start"});return true;};
-  root.dispose = () => {finishDrag(false, false);disposed = true;captureController?.abort();outputController?.abort();captures.clear();};
+  root.dispose = () => {finishDrag(false, false);disposed = true;captureController?.abort();outputController?.abort();fontController?.abort();fontState?.dispose();captures.clear();};
+  const styledFaceKey = selected => [...new Set((selected.textFrames ?? [])
+    .filter(item => item.type === "text" && item.fontFace && item.fontFace !== "regular")
+    .map(item => item.fontFace))].sort().join(",");
+  async function exactTextFonts(selected) {
+    const requested = styledFaceKey(selected);
+    if (!requested) return null;
+    assertPrintFontFaceCoverage(selected);
+    if (requested === fontStateKey && fontState) return fontState;
+    if (requested === fontFailure?.key) throw fontFailure.error;
+    if (requested === fontRequestKey && fontPromise) return fontPromise;
+    const generation = ++fontGeneration;
+    fontController?.abort(); fontController = new AbortController();
+    fontRequestKey = requested; fontFailure = null;
+    const signal = fontController.signal;
+    const snapshot = structuredClone(selected);
+    const pending = (async () => {
+      const owner = root.ownerDocument;
+      if (!prepareTextFonts && (typeof owner.defaultView?.FontFace !== "function" || !owner.fonts?.add)) {
+        throw Error("This browser cannot load the exact text faces. Reopen Print Studio in a browser with local font support.");
+      }
+      const prepare = prepareTextFonts ?? (await import("../lib/printFontFaces.js")).preparePrintFontFaces;
+      const prepared = await prepare(snapshot, {document: owner, signal});
+      if (disposed || generation !== fontGeneration || signal.aborted) {
+        prepared.dispose(); throw Error("Text face preparation was canceled.");
+      }
+      fontState?.dispose(); fontState = prepared; fontStateKey = requested;
+      return prepared;
+    })();
+    fontPromise = pending;
+    try { return await pending; }
+    catch (error) {if (generation === fontGeneration && !disposed) fontFailure = {key: requested, error}; throw error;}
+    finally {if (generation === fontGeneration) fontPromise = null;}
+  }
   function remember(previous) {
     undo.push(previous);if (undo.length > 20) undo.shift();redo.length = 0;dirty = true;
   }
@@ -207,6 +243,10 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         inputField("Text size (pt)", selectedFrame.fontSizePt, "number", value => change(() => {frame().fontSizePt = Number(value);})),
         inputField("Text color", selectedFrame.color, "color", value => change(() => {frame().color = value;})),
         selectField("Text alignment", selectedFrame.alignment, [["left", "Left"], ["center", "Center"], ["right", "Right"]], value => change(() => {frame().alignment = value;})));
+      if (!math) controls.append(selectField("Text face", selectedFrame.fontFace ?? "regular",
+        [["regular", "Regular"], ["bold", "Bold"], ["italic", "Italic"], ["bolditalic", "Bold italic"]], value => change(() => {
+          if (value === "regular") delete frame().fontFace; else frame().fontFace = value;
+        })));
       const transparent = el("label"), checkbox = el("input");checkbox.type = "checkbox";checkbox.checked = selectedFrame.background === "none";
       checkbox.onchange = () => change(() => {frame().background = checkbox.checked ? "none" : "#ffffff";});transparent.append(checkbox, " Transparent text background");controls.append(transparent);
       if (selectedFrame.background !== "none") controls.append(inputField("Text background color", selectedFrame.background, "color", value => change(() => {frame().background = value;})));
@@ -409,9 +449,22 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     }
     try {
       const selected = layout(), page = selected.page, grid = el("div");grid.className = "print-paper-grid";
+      const faceKey = styledFaceKey(selected);
+      if (faceKey) assertPrintFontFaceCoverage(selected);
+      const preparedFonts = faceKey && faceKey === fontStateKey ? fontState : null;
+      if (faceKey && !preparedFonts) {
+        stage.replaceChildren(el("p", fontFailure?.key === faceKey ? fontFailure.error.message : "Loading exact text faces…"));
+        if (fontPreviewWaiting !== faceKey && fontFailure?.key !== faceKey) {
+          fontPreviewWaiting = faceKey;
+          exactTextFonts(selected).then(() => {fontPreviewWaiting = "";if (!disposed) renderPage();}, error => {
+            fontPreviewWaiting = "";if (!disposed) {status.textContent = error.message;renderPage();}
+          });
+        }
+        return;
+      }
       grid.style.cssText = `grid-template-columns:28px ${page.widthMm}mm;grid-template-rows:28px ${page.heightMm}mm;width:calc(28px + ${page.widthMm}mm)`;
       const corner = el("span", units);corner.className = "print-ruler-corner";corner.setAttribute("aria-hidden", "true");
-      const svg = printPageSvg(selected, captures, activeId, {guides, preview: true});svg.setAttribute("role", "group");svg.setAttribute("aria-label", "Page frames");
+      const svg = printPageSvg(selected, captures, activeId, {guides, preview: true, ...(preparedFonts ? {fontFamily: preparedFonts.family, fontCss: preparedFonts.css} : {})});svg.setAttribute("role", "group");svg.setAttribute("aria-label", "Page frames");
       const aids = svgNode("g", {"data-print-editing-aids": "", class: "print-editing-aids"});
       for (const item of editableFrames()) {
         const outline = svgNode("rect", {x: item.xMm, y: item.yMm, width: item.widthMm, height: item.heightMm,
@@ -592,6 +645,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     busy = true;outputRunning = true;render();status.textContent = "Checking current map captures and page bounds…";
     try {
       const selected = structuredClone(layout());validateProjectPrintLayouts(collection, mapRecord);
+      if (styledFaceKey(selected)) assertPrintFontFaceCoverage(selected);
       const activeCapture = captures.get(key(mapFrame())), currentLayers = workbench.getPrintContext?.()?.layers;
       const displays = layers => canonicalJson(layers.filter(layer => layer.managedDisplayId).map(layer => [layer.layerId, layer.managedDisplayId]));
       if (activeCapture && currentLayers && displays(activeCapture.presentation) !== displays(currentLayers)) {
@@ -603,7 +657,11 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       status.textContent = `Composing ${outputDimensions(selected)}…`;
       const vector = ["vector-svg", "vector-print", "vector-pdf", "geospatial-pdf"].includes(format);
       const print = format === "print" || format === "vector-print";
-      const svg = printPageSvg(selected, captures, activeId, {mapRepresentation: vector ? "vector" : "raster"}), serialized = new root.ownerDocument.defaultView.XMLSerializer().serializeToString(svg);
+      const preparedFonts = await exactTextFonts(selected);if (!await current()) return;
+      const directPdf = format === "vector-pdf" || format === "geospatial-pdf";
+      const svg = printPageSvg(selected, captures, activeId, {mapRepresentation: vector ? "vector" : "raster",
+        ...(preparedFonts ? {fontFamily: preparedFonts.family, ...(!directPdf ? {fontCss: preparedFonts.css} : {})} : {})});
+      const serialized = new root.ownerDocument.defaultView.XMLSerializer().serializeToString(svg);
       const name = safeName(selected.title);
       if (format === "svg" || format === "vector-svg") download(new Blob([serialized], {type: "image/svg+xml"}), `${name}${vector ? ".vector" : ""}.svg`);
       else if (format === "vector-pdf" || format === "geospatial-pdf") {
@@ -611,7 +669,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         const registrations = format === "geospatial-pdf" ? printGeoPdfRegistrations(selected, captures, activeId) : [];
         status.textContent = "Preparing vector PDF and embedding the page font…";
         const [{compilePrintVectorPdf}, {printFontAttachments}] = await Promise.all([import("../lib/printVectorPdf.js"), import("../lib/printFontAttachments.js")]);
-        const font = await printFontAttachments();if (!await current()) return;
+        const font = await printFontAttachments(selected);if (!await current()) return;
         const result = await compilePrintVectorPdf({svg, layout: selected, ...font, registrations,
           signal: outputController.signal, onPhase: message => {if (!disposed) status.textContent = message;}});
         if (!await current()) return;
@@ -632,7 +690,8 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         if (format === "html") download(new Blob([html], {type: "text/html"}), `${name}.html`);
         else {
           const frame = el("iframe");frame.title = "Print layout";frame.style.cssText = "position:fixed;width:1px;height:1px;left:-10000px";
-          frame.onload = () => {if (!disposed && root.isConnected) {frame.contentWindow.focus();frame.contentWindow.print();status.textContent = `Print dialog requested for ${selected.page.widthMm} × ${selected.page.heightMm} mm. Complete or cancel it in your browser.`;}};frame.srcdoc = html;root.append(frame);
+          frame.onload = async () => {if (preparedFonts) await frame.contentDocument?.fonts?.ready;
+            if (!disposed && root.isConnected) {frame.contentWindow.focus();frame.contentWindow.print();status.textContent = `Print dialog requested for ${selected.page.widthMm} × ${selected.page.heightMm} mm. Complete or cancel it in your browser.`;}};frame.srcdoc = html;root.append(frame);
           frame.contentWindow?.addEventListener("afterprint", () => frame.remove(), {once: true});
         }
       } else {
@@ -1078,7 +1137,7 @@ function appendPrintDataFrame(svg, frame, snapshot, index, sourceTitle) {
   }
 }
 
-export function printPageSvg(layout, captures, layoutId, {guides = false, preview = false, mapRepresentation = "raster"} = {}) {
+export function printPageSvg(layout, captures, layoutId, {guides = false, preview = false, mapRepresentation = "raster", fontFamily, fontCss} = {}) {
   if (!["raster", "vector"].includes(mapRepresentation)) throw Error("Choose raster or vector map output.");
   if (layout.legendFormat !== undefined && !["swatches", "classed-bars", "color-bars"].includes(layout.legendFormat)) throw Error("Invalid print legend format.");
   if (!preview) for (const frame of layout.frames) {
@@ -1091,6 +1150,10 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   }
   const page = layout.page, svg = svgNode("svg", {width: `${page.widthMm}mm`, height: `${page.heightMm}mm`, viewBox: `0 0 ${page.widthMm} ${page.heightMm}`, role: "img", "aria-label": layout.title});
   svg.style.cssText = "background:white;color:#17212b;max-width:none";
+  if (fontCss) {
+    const definitions = svgNode("defs", {}), style = svgNode("style", {type: "text/css"});
+    style.textContent = fontCss; definitions.append(style); svg.append(definitions);
+  }
   const metadata = svgNode("metadata", {});metadata.textContent = JSON.stringify({layout,
     ...(mapRepresentation === "vector" ? {mapRepresentation: "vector", geographicRegistration: false} : {}),
     captures: layout.frames.map(frame => {const captured = captures.get(`${layoutId}:${frame.id}`);return captured ? {frameId: frame.id, projectId: captured.projectId, projectVersion: captured.projectVersion, imageSha256: captured.imageSha256, width: captured.width, height: captured.height,
@@ -1259,7 +1322,7 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   for (const item of layout.textFrames ?? []) if (legendBottom !== null && item.xMm < page.widthMm - page.marginMm
     && item.xMm + item.widthMm > main.xMm + main.widthMm + 4 && item.yMm < legendBottom && item.yMm + item.heightMm > main.yMm)
     throw Error(`${item.title}: move this text block away from the map legend.`);
-  appendPrintTextFrames(svg, layout, {preview});
+  appendPrintTextFrames(svg, layout, {preview, ...(fontFamily ? {fontFamily} : {})});
   const licenses = [...new Set(layout.frames.flatMap(frame => captures.get(`${layoutId}:${frame.id}`)?.sourceMetadata ?? [])
     .map(source => `${plainText(source.title ?? "Layer")} · License: ${typeof source.license === "string" && source.license.trim() ? plainText(source.license).trim() : "not recorded"}`))];
   const notes = [...new Set(layout.frames.flatMap(frame => captures.get(`${layoutId}:${frame.id}`)?.attribution ?? [])), ...licenses,
@@ -1313,7 +1376,7 @@ function vectorSceneSvg(captured, {x, y, width, height}) {
 }
 
 function paperHtml(layout, svg) {
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeText(layout.title)}</title><style>@page{size:${layout.page.widthMm}mm ${layout.page.heightMm}mm;margin:0}html,body{margin:0;background:white}svg{display:block}@media screen{body{overflow:auto}}</style>${svg}</html>`;
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:;${(layout.textFrames ?? []).some(item => item.type === 'text' && item.fontFace && item.fontFace !== 'regular') ? ' font-src data:;' : ''} style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeText(layout.title)}</title><style>@page{size:${layout.page.widthMm}mm ${layout.page.heightMm}mm;margin:0}html,body{margin:0;background:white}svg{display:block}@media screen{body{overflow:auto}}</style>${svg}</html>`;
 }
 async function pagePng(svg, layout) {
   return (await pageImages(svg, layout, false)).png;

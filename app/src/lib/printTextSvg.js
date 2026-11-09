@@ -10,7 +10,12 @@ export function appendPrintTextFrames(svg, layout, {fontFamily = "system-ui,sans
   const node = (name, attrs, text) => {const value=document.createElementNS(NS,name);for(const [key,entry]of Object.entries(attrs))value.setAttribute(key,entry);if(text!==undefined)value.textContent=text;return value;};
   let context;
   if (typeof document.defaultView?.CanvasRenderingContext2D === "function") context = document.createElement("canvas").getContext("2d");
-  const measure = context ? (text,size) => {context.font = `${size * 96 / 25.4}px ${fontFamily}`;return context.measureText(text).width * 25.4 / 96;} : undefined;
+  const styledLayout = frames.some(frame => frame.type === "text" && frame.fontFace && frame.fontFace !== "regular");
+  const faceAttributes = face => ({weight: ["bold", "bolditalic"].includes(face) ? "700" : "400",
+    style: ["italic", "bolditalic"].includes(face) ? "italic" : "normal"});
+  const measure = context ? (text,size,face) => {const selected = faceAttributes(face);
+    context.font = `${selected.style} ${selected.weight} ${size * 96 / 25.4}px ${fontFamily}`;
+    return context.measureText(text).width * 25.4 / 96;} : undefined;
   appendPrintMathMetadata(svg, layout, {preview});
   for (const [index,frame] of frames.entries()) {
     const id=`print-text-${index}`,defs=node("defs",{}),clip=node("clipPath",{id});clip.append(node("rect",{x:frame.xMm,y:frame.yMm,width:frame.widthMm,height:frame.heightMm}));defs.append(clip);svg.append(defs);
@@ -19,8 +24,14 @@ export function appendPrintTextFrames(svg, layout, {fontFamily = "system-ui,sans
     try {
       if(frame.type === "math") {appendPrintMathFrame(group,frame);continue;}
       const result=layoutPrintTextFrame(frame,measure);
-      for(const [lineIndex,line]of result.lines.entries())group.append(node("text",{x:line.x,y:line.y,"font-size":result.fontSizeMm,"font-family":fontFamily,
-        fill:frame.color,"text-anchor":"start","xml:space":"preserve","data-print-text-line":lineIndex},line.text));
+      for(const [lineIndex,line]of result.lines.entries()) {
+        const selected = faceAttributes(frame.fontFace ?? "regular");
+        const lineNode = node("text", {x:line.x,y:line.y,"font-size":result.fontSizeMm,"font-family":fontFamily,
+          ...((styledLayout || Object.hasOwn(frame, "fontFace")) ? {"font-weight": selected.weight, "font-style": selected.style} : {}),
+          fill:frame.color,"text-anchor":"start","xml:space":"preserve","data-print-text-line":lineIndex}, line.text);
+        if (frame.fontFace && frame.fontFace !== "regular") lineNode.setAttribute("style", "font-synthesis: none;");
+        group.append(lineNode);
+      }
     } catch(error) {
       if(!preview)throw error;
       group.append(node("rect",{x:frame.xMm,y:frame.yMm,width:frame.widthMm,height:frame.heightMm,fill:"#fff7ed",stroke:"#c2410c","stroke-width":0.2}),

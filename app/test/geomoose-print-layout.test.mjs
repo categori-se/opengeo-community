@@ -210,3 +210,101 @@ describe("GeoMoose 3.15.2 print-layout conversion", () => {
     );
   });
 });
+
+describe("opt-in GeoMoose drawing conversion", () => {
+  const schema = "opengeo.print-layout.1.2.0";
+  it("preserves legacy output/reports by default and retains rectangle order only on explicit 1.2", () => {
+    assert.deepEqual(convert(), convert(sourceLayout(), {targetSchemaVersion: "opengeo.print-layout.1.1.0"}));
+    const result = convert(sourceLayout(), {targetSchemaVersion: schema});
+    const parsed = parseSitePrintLayout(result.printLayout, new Set(["massgis-map"]));
+    assert.equal(parsed.schemaVersion, schema);
+    assert.deepEqual(parsed.pages[0].elements.map(element => element.type),
+      ["text", "map_frame", "shape_frame", "text", "text", "legend_frame", "shape_frame"]);
+    const border = parsed.pages[0].elements[2];
+    assert.equal(border.shape, "rectangle"); assert.equal(border.stroke, "#000000"); assert.equal(border.fill, null);
+    assert.equal(border.strokeWidth, 1);
+    assert.equal(result.report.convertedElementCount, 7); assert.equal(result.report.omittedElementCount, 0);
+    assert.equal(result.report.losses.filter(loss => loss.code === "stroke_width_quantized").length, 2);
+    assert(result.report.externalContextLosses.some(loss => loss.code === "legend_async_paint_order_not_converted"));
+    assert.equal(result.report.networkRequests, 0); assert.equal(result.report.externalResourcesOpened, false);
+    assert.throws(() => convert(sourceLayout(), {targetSchemaVersion: "opengeo.print-layout.1.0.0"}), /target schema/);
+    assert.throws(() => convert(sourceLayout(), {targetSchemaVersion: "future"}), /target schema/);
+  });
+
+  it("maps ellipse centre/radii, fill-only semantics and exact RGB colors without inventing a stroke", () => {
+    const source = sourceLayout(); source.units = "pt"; source.elements = [
+      {type: "map", x: 0, y: 0, width: 300, height: 300},
+      {type: "ellipse", x: 144, y: 144, rx: 72, ry: 36, filled: true, strokeWidth: 0, fill: [12, 34, 56]},
+      {type: "rect", x: 72, y: 36, width: 144, height: 72, filled: true, strokeWidth: 2, stroke: [1, 2, 3]}
+    ];
+    const result = convert(source, {targetSchemaVersion: schema}), shapes = result.printLayout.pages[0].elements.slice(1);
+    assert.deepEqual([shapes[0].x, shapes[0].y, shapes[0].width, shapes[0].height], [91, 176, 182, 118]);
+    assert.equal(shapes[0].shape, "ellipse"); assert.equal(shapes[0].fill, "#0c2238"); assert.equal(shapes[0].stroke, null);
+    assert.equal(shapes[1].fill, "#ffffff"); assert.equal(shapes[1].stroke, "#010203"); assert.equal(shapes[1].strokeWidth, 2);
+    assert(result.report.losses.some(loss => loss.code === "drawing_geometry_quantized"));
+    assert(shapes.every(shape => shape.clip === false));
+    parseSitePrintLayout(result.printLayout, new Set(["massgis-map"]));
+  });
+
+  it("converts explicit layout-unit widths and discloses the upstream unusual omitted-width default", () => {
+    const source = sourceLayout(); source.units = "mm"; source.elements = [
+      {type: "map", x: 1, y: 1, width: 100, height: 100},
+      {type: "rect", x: 5, y: 5, width: 20, height: 20, strokeWidth: 0.25},
+      {type: "ellipse", x: 60, y: 60, rx: 10, ry: 10}
+    ];
+    const result = convert(source, {targetSchemaVersion: schema});
+    assert.equal(result.printLayout.pages[0].elements[1].strokeWidth, 1);
+    assert.equal(result.printLayout.pages[0].elements[2].strokeWidth, 4);
+    assert.match(result.report.losses.find(loss => loss.sourceElementIndex === 1 && loss.code === "stroke_width_quantized").detail, /0\.70866/);
+    const inches = sourceLayout(); inches.elements.push({type: "rect", x: 1, y: 1, width: 1, height: 1});
+    const unsupported = convert(inches, {targetSchemaVersion: schema});
+    assert.equal(unsupported.report.sourceElementOutcomes.at(-1).disposition, "omitted");
+    assert.match(unsupported.report.losses.find(loss => loss.code === "drawing_omitted_stroke_width").detail, /96pt/);
+  });
+
+  it("reports out-of-page, undersized and unsupported-width drawings without clamping or enlarging", () => {
+    const source = sourceLayout(); source.elements = [source.elements[1],
+      {type: "ellipse", x: 0.1, y: 0.1, rx: 0.2, ry: 0.2, strokeWidth: 0.01},
+      {type: "rect", x: 1, y: 1, width: 0.01, height: 0.01, strokeWidth: 0.01},
+      {type: "rect", x: 10.5, y: 1, width: 1, height: 1, strokeWidth: 0.01},
+      {type: "rect", x: 1, y: 1, width: 1, height: 1, strokeWidth: 1},
+      {type: "rect", x: 2, y: 2, width: 1, height: 1, filled: false, strokeWidth: 0, fill: [255, 0, 0]}
+    ];
+    const result = convert(source, {targetSchemaVersion: schema});
+    assert.equal(result.printLayout.pages[0].elements.length, 1);
+    assert.equal(result.report.losses.filter(loss => loss.code === "drawing_omitted_bounds").length, 3);
+    assert.equal(result.report.losses.filter(loss => loss.code === "drawing_omitted_stroke_width").length, 1);
+    assert.equal(result.report.losses.filter(loss => loss.code === "drawing_omitted_fill_state").length, 1);
+    const unsafe = sourceLayout(); unsafe.elements[2].fill = "url(https://bad.example/)";
+    assert.throws(() => convert(unsafe, {targetSchemaVersion: schema}), /fill/);
+  });
+});
+
+
+describe("opt-in physical GeoMoose text formatting", () => {
+  it("preserves native baseline, fractional point size, exact RGB and remaining-page width in 1.3", () => {
+    const source = sourceLayout(); source.elements[0].color = [33, 66, 99];
+    const result = convert(source, {targetSchemaVersion: "opengeo.print-layout.1.3.0"});
+    const parsed = parseSitePrintLayout(result.printLayout, new Set(["massgis-map"]));
+    const title = parsed.pages[0].elements[0];
+    assert.equal(title.fontSize, 18); assert.equal(title.color, "#214263");
+    assert.deepEqual([title.x, title.y, title.width, title.height], [45, 53, 955, 40]);
+    assert.equal(parsed.pages[0].elements.find(element => element.text?.startsWith("Printed")).fontSize, 13);
+    assert(result.report.losses.some(loss => loss.code === "text_geometry_quantized"));
+    assert(result.report.losses.some(loss => loss.code === "text_font_substituted"));
+    assert(!result.report.losses.some(loss => loss.code === "text_style_coarsened"));
+    assert.equal(parsed.pages[0].elements.filter(element => element.type === "shape_frame").length, 2);
+    source.elements[0].size = 18.25;
+    assert.equal(convert(source, {targetSchemaVersion: "opengeo.print-layout.1.3.0"}).printLayout.pages[0].elements[0].fontSize, 18.25);
+    assert(!Object.hasOwn(convert(source).printLayout.pages[0].elements[0], "fontSize"));
+    assert(!Object.hasOwn(convert(source, {targetSchemaVersion: "opengeo.print-layout.1.2.0"}).printLayout.pages[0].elements[0], "color"));
+  });
+  it("rejects native baselines above the page and overflowing text without clamping", () => {
+    const source = sourceLayout(); source.elements[0].y = 0.01;
+    assert.throws(() => convert(source, {targetSchemaVersion: "opengeo.print-layout.1.3.0"}), /text frame falls outside/);
+    source.elements[0].y = 8.5;
+    assert.throws(() => convert(source, {targetSchemaVersion: "opengeo.print-layout.1.3.0"}), /text frame falls outside/);
+    source.elements[0].y = 0.7; source.elements[0].x = 10.99;
+    assert.throws(() => convert(source, {targetSchemaVersion: "opengeo.print-layout.1.3.0"}), /text frame falls outside/);
+  });
+});

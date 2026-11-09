@@ -216,3 +216,67 @@ def test_shape_layout_rejects_active_unbounded_or_invisible_styles(change: dict)
     layout["pages"][0]["elements"][0].update(change)
     with pytest.raises(SiteLayoutError):
         parse_print_layout(layout)
+
+
+def formatted_layout():
+    return {
+        "schemaVersion": "opengeo.print-layout.1.3.0",
+        "pages": [
+            {
+                "sitePageSlug": "findings",
+                "elements": [
+                    {
+                        "id": "text",
+                        "type": "text",
+                        "x": 0,
+                        "y": 0,
+                        "width": 1000,
+                        "height": 200,
+                        "rotation": 0,
+                        "clip": True,
+                        "text": "Exact point size",
+                        "style": "body",
+                        "fontSize": 12.375,
+                        "color": "#336699",
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def test_formatted_text_round_trips_fractional_points_and_keeps_default_and_old_keys() -> None:
+    layout = formatted_layout()
+    assert parse_print_layout(layout).as_json() == layout
+    element = parse_print_layout(layout).pages[0].elements[0]
+    assert element.font_size == 12.375 and element.color == "#336699"
+    assert "fontSize" not in element.as_json("opengeo.print-layout.1.2.0")
+    assert empty_print_layout()["schemaVersion"] == "opengeo.print-layout.1.1.0"
+    for version in ["1.0.0", "1.1.0", "1.2.0"]:
+        older = deepcopy(layout)
+        older["schemaVersion"] = f"opengeo.print-layout.{version}"
+        with pytest.raises(SiteLayoutError):
+            parse_print_layout(older)
+    for missing in ["fontSize", "color"]:
+        malformed = deepcopy(layout)
+        del malformed["pages"][0]["elements"][0][missing]
+        with pytest.raises(SiteLayoutError):
+            parse_print_layout(malformed)
+
+
+@pytest.mark.parametrize(
+    "value", [True, False, 0, 144.01, float("nan"), float("inf"), "12.5", None]
+)
+def test_formatted_text_rejects_nonphysical_point_sizes(value) -> None:
+    layout = formatted_layout()
+    layout["pages"][0]["elements"][0]["fontSize"] = value
+    with pytest.raises(SiteLayoutError, match="font_size_invalid"):
+        parse_print_layout(layout)
+
+
+@pytest.mark.parametrize("value", ["#3366AA", "red", "#123", "#123456ff", None])
+def test_formatted_text_requires_canonical_rgb(value) -> None:
+    layout = formatted_layout()
+    layout["pages"][0]["elements"][0]["color"] = value
+    with pytest.raises(SiteLayoutError, match="color_invalid"):
+        parse_print_layout(layout)

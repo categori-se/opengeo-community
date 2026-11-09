@@ -1,0 +1,27 @@
+Open Sans 1.10 — additional original Print font faces
+
+Digitized data copyright © 2010-2011, Google Corporation.
+These unmodified original fonts identify the Apache License, Version 2.0.
+The complete unchanged license accompanies OpenSans-LICENSE.txt and the existing
+Regular font at assets/render-fonts/opengeo-open-sans-v1/1/LICENSE.txt.
+
+Source distribution: open-sans-fonts-1.10-24.fc43.noarch
+Source RPM: open-sans-fonts-1.10-24.fc43.src.rpm
+Local installed originals: /usr/share/fonts/open-sans/
+No network download, synthetic weight/slant, family alias or font modification.
+
+OpenSans-Bold.ttf
+SHA-256: 1a6bc6775358bfed0e4191b6f2c4d7d75d122f0c6e5a255f264ab455c67237b7
+Bytes: 224592
+Embedded license: Licensed under the Apache License, Version 2.0
+
+OpenSans-Italic.ttf
+SHA-256: e5178be12cd740aeafebea15ec563fe577bbb4fab42d9e40500bd49ec8c9ce16
+Bytes: 212896
+Embedded license: Licensed under the Apache License, Version 2.0
+
+OpenSans-BoldItalic.ttf
+SHA-256: b5c44af3cb55f65fadb2f1b20edc38e1008bb71388d04ad127c5ad340c9329f2
+Bytes: 213292
+Embedded license: Licensed under the Apache License, Version 2.0
+

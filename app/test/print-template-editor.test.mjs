@@ -259,3 +259,65 @@ test("vector output explains an unsupported capture and retains the existing ras
   assert.equal([...root.querySelectorAll("button")].find(node => node.textContent === "Prepare selected output").disabled, false);
   assert.equal(JSON.stringify(map.definition), before);assert.equal(root.hasUnsavedChanges(), true, "capturing retains its ordinary unsaved layout state");
 });
+
+test("visible literal Text face controls preserve exact variants through templates, save and fresh reopen", async () => {
+  const {map}=fixture();let saved;
+  const adapter={updateMap:async(_project,_map,request)=>{
+    saved={...(saved ?? map),version:request.expectedVersion+1,definition:request.changes.definition};return saved;
+  }};
+  editor(map,{adapter});
+  await click("Add text block");
+  const face=root.querySelector('[aria-label="Text face"]');assert.ok(face);
+  assert.deepEqual([...face.options].map(option=>[option.value,option.textContent]),
+    [["regular","Regular"],["bold","Bold"],["italic","Italic"],["bolditalic","Bold italic"]]);
+  field("Text content","Genuine face, retained literal text");field("Text face","bolditalic");
+  field("Template name","Styled text");await click("Save layout as template");
+  const templateId=root.querySelector('[aria-label="Print template"]').value;
+  await click("Save layout");
+  const stored=projectPrintLayouts(saved);
+  assert.equal(stored.layouts[0].textFrames[0].fontFace,"bolditalic");
+  assert.equal(stored.templates[0].textFrames[0].fontFace,"bolditalic");
+  const textId=stored.layouts[0].textFrames[0].id;
+  root.dispose();root.remove();editor(JSON.parse(JSON.stringify(saved)),{adapter});
+  field("Arrange item",textId);assert.equal(root.querySelector('[aria-label="Text face"]').value,"bolditalic");
+  field("Print template",templateId);await click("Create layout from template");
+  const textOption=[...root.querySelector('[aria-label="Arrange item"]').options].find(option=>option.textContent==="Text · Text block");
+  field("Arrange item",textOption.value);assert.equal(root.querySelector('[aria-label="Text face"]').value,"bolditalic");
+  field("Text face","regular");await click("Save layout");
+  const latest=projectPrintLayouts(saved).layouts.find(layout=>layout.id===root.querySelector('[aria-label="Layout"]').value);
+  assert.equal(Object.hasOwn(latest.textFrames[0],"fontFace"),false);
+  await click("Add equation");assert.equal(root.querySelector('[aria-label="Text face"]'),null);
+});
+
+
+test("cached real faces recheck edited text before preview or SVG/PNG output and recover without asset reload", async () => {
+  const {map}=fixture();let preparations=0,downloads=0,saved;
+  const prepareTextFonts=async()=>{preparations++;return {family:"OpenGeoPrintSans",css:"",faces:{},dispose(){}};};
+  const adapter={updateMap:async(_project,_map,request)=>{
+    saved={...map,version:request.expectedVersion+1,definition:request.changes.definition};return saved;
+  }};
+  editor(map,{prepareTextFonts,adapter});
+  await click("Add text block");field("Text content","Supported text");field("Text face","bold");
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(preparations,1);assert.ok(root.querySelector('[data-print-text-frame] text'));
+  await click("Capture map frame");
+  const originalClick=dom.window.HTMLAnchorElement.prototype.click;
+  dom.window.HTMLAnchorElement.prototype.click=function(){downloads++;};
+  const unsupported="Retain this text: "+String.fromCodePoint(0x10ffff);
+  try {
+    field("Text content",unsupported);
+    assert.match(root.querySelector(".print-stage").textContent,/font.*(cover|glyph)|glyph.*(unavailable|missing)/i);
+    for (const format of ["svg","png"]) {
+      field("Output format",format);await click("Prepare selected output");
+      assert.match(status(),/font.*(cover|glyph)|glyph.*(unavailable|missing)/i);
+      assert.equal(root.querySelector('[aria-label="Text content"]').value,unsupported);
+    }
+    assert.equal(downloads,0);assert.equal(preparations,1);
+    await click("Save layout");
+    assert.equal(projectPrintLayouts(saved).layouts[0].textFrames[0].text,unsupported,"an unsupported glyph never erases the authored draft");
+    field("Text content","Supported again");
+    assert.ok(root.querySelector('[data-print-text-frame] text'));
+    assert.match(root.querySelector(".print-stage").textContent,/Supported again/);
+    assert.equal(preparations,1,"coverage recovery reuses already verified font assets");
+  } finally {dom.window.HTMLAnchorElement.prototype.click=originalClick;}
+});

@@ -3,6 +3,7 @@ import {mapFontSha256, PINNED_MAP_FONT, PINNED_MAP_FONT_STACK} from "./mapFonts.
 import {registerPrintPdfMaps} from "./printGeoPdf.js";
 import {reflowPrintPdfTextFrames} from "./printTextSvg.js";
 import {hasPrintMath, preparePrintMath, printMathLegalFiles} from "./printMathSvg.js";
+import {PRINT_FONT_FACES, usedPrintFontFaces, printFontFaceAttributes, validatePrintFontFaceAssets} from "./printFontFaces.js";
 
 const NS = "http://www.w3.org/2000/svg";
 const FONT_SHA256 = "8ab4aa561e7db0eb3e1af8b0bed2a315e0a33fe2ed3070e645d1b89f8efc1d5c";
@@ -33,8 +34,11 @@ export async function validatePrintVectorPdfAttribution(fontLicenseBytes, fontNo
 }
 
 export function registerPrintPdfFontAttribution(pdf, files) {
-  const names = ["OpenSans-LICENSE.txt", "OpenSans-NOTICE.txt", "MathJax-LICENSE.txt", "MathJax-NOTICE.txt", "MathJax-TeX-FONT-NOTICE.txt", "SIL-OFL-1.1.txt"];
-  if (!Array.isArray(files) || ![2, 6].includes(files.length) || files.some((file, index) => file?.name !== names[index]
+  const names = ["OpenSans-LICENSE.txt", "OpenSans-NOTICE.txt",
+    ...(files?.[2]?.name === "OpenSans-FACES-NOTICE.txt" ? ["OpenSans-FACES-NOTICE.txt"] : []),
+    "MathJax-LICENSE.txt", "MathJax-NOTICE.txt", "MathJax-TeX-FONT-NOTICE.txt", "SIL-OFL-1.1.txt"];
+  if (!Array.isArray(files) || ![2, 3, 6, 7].includes(files.length) || files.length === 3 && names.length !== 7
+    || files.length === 6 && names.length !== 6 || files.length === 7 && names.length !== 7 || files.some((file, index) => file?.name !== names[index]
     || !(file.bytes instanceof Uint8Array) || !file.bytes.length || file.bytes.length > 32768)) fail("The PDF font attribution attachments are invalid.");
   files = files.map(file => ({name: file.name, bytes: file.bytes.slice()})).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   let tree;
@@ -88,6 +92,20 @@ function normalizeColor(node, attribute, value) {
   fail("This Print color needs the browser's color renderer.");
 }
 
+// A non-Regular face belongs only to a flat owned literal frame, never a map
+// label, inherited group style, or a caller-created SVG text fragment.
+function ownedLiteralTextFrame(node, layout, root) {
+  if (node.localName !== "text") return null;
+  const group = node.parentElement;
+  if (!group?.hasAttribute("data-print-text-frame") || group.parentElement !== root) return null;
+  const matches = (layout.textFrames ?? []).filter(frame => frame.type === "text" && frame.id === group.getAttribute("data-print-text-frame"));
+  if (matches.length !== 1) return null;
+  const frame = matches[0], lines = [...group.querySelectorAll("text")];
+  if (!lines.length || lines.some((line, index) => line.parentElement !== group || line.getAttribute("data-print-text-line") !== String(index))
+    || lines.map(line => line.textContent).join("") !== frame.text.replaceAll("\n", "")) return null;
+  return frame;
+}
+
 // Admit only the closed page emitted by printPageSvg. This is deliberately not an
 // arbitrary SVG import surface; URLs, images, CSS, scripts and embedded HTML refuse.
 export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans") {
@@ -107,7 +125,9 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
     || copy.getAttribute("viewBox") !== `0 0 ${page.widthMm} ${page.heightMm}`
     || copy.getAttribute("width") !== `${page.widthMm}mm` || copy.getAttribute("height") !== `${page.heightMm}mm`
     || copy.querySelectorAll("[data-print-vector-map]").length !== layout.frames.length) fail("The vector Print page does not match this layout.");
+  usedPrintFontFaces(layout);
   let text = "", groups = 0;
+  const faceText = {};
   for (const node of nodes) {
     if (node.namespaceURI !== NS || !TAGS.has(node.localName) || node !== copy && node.localName === "svg") fail(`Unsupported ${node.localName} content in direct vector PDF.`);
     if (["metadata", "title", "text"].includes(node.localName) && node.children.length) fail("The composed page contains unsupported nested text or metadata.");
@@ -122,7 +142,9 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
         // their canonical serialization with the same owned style in this DOM.
         const expected = svg.ownerDocument.createElementNS(NS, "svg");
         expected.style.cssText = "background:white;color:#17212b;max-width:none";
-        if (node !== copy || node.style.cssText !== expected.style.cssText) fail("External or custom CSS is unsupported in direct vector PDF.");
+        const literal = ownedLiteralTextFrame(node, layout, copy);
+        const synthesisOnly = literal && /^font-synthesis:\s*none;?$/.test(node.getAttribute("style") ?? "");
+        if (!synthesisOnly && (node !== copy || node.style.cssText !== expected.style.cssText)) fail("External or custom CSS is unsupported in direct vector PDF.");
         node.removeAttribute("style");
       }
       if (name === "clip-path" || PAINT.has(name) && value.startsWith("url(")) {
@@ -135,7 +157,15 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
         && (!Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 1)) fail("The composed page has an invalid opacity.");
       if (name === "stop-opacity" && Number(value) !== 1) fail("Transparent gradient stops need browser Print to preserve their changing alpha.");
       if (name === "paint-order" && (node.localName !== "text" || value !== "stroke fill")) fail("This paint order needs browser Print.");
-      if (["font-style", "font-weight"].includes(name) && value !== "normal" && value !== "400") fail("This font style needs browser Print.");
+      if (["font-style", "font-weight"].includes(name)) {
+        const literal = ownedLiteralTextFrame(node, layout, copy), face = literal?.fontFace ?? "regular";
+        if (face === "regular") {
+          if (value !== "normal" && value !== "400") fail("This font style needs browser Print.");
+        } else {
+          const wanted = printFontFaceAttributes(face)[name];
+          if (value !== wanted && !(name === "font-weight" && wanted === "700" && value === "bold")) fail("The Print text face does not match its literal frame.");
+        }
+      }
     }
     if (node.localName === "g" && Number(node.getAttribute("opacity") ?? 1) !== 1) {
       const mapPass = node.hasAttribute("data-print-vector-pass") && node.parentElement?.hasAttribute("data-print-vector-map");
@@ -147,7 +177,13 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
     }
     if (node.localName === "text") {
       text += node.textContent;
-      node.setAttribute("font-family", family);node.setAttribute("font-style", "normal");node.setAttribute("font-weight", "normal");
+      const literal = ownedLiteralTextFrame(node, layout, copy), face = literal?.fontFace ?? "regular";
+      faceText[face] = (faceText[face] ?? "") + node.textContent;
+      if (face === "regular") {
+        node.setAttribute("font-family", family);node.setAttribute("font-style", "normal");node.setAttribute("font-weight", "normal");
+      } else {
+        for (const [name, value] of Object.entries(printFontFaceAttributes(face, {family}))) node.setAttribute(name, value);
+      }
       if (node.hasAttribute("paint-order")) {
         // svg2pdf always fills before stroking. Separate identical text runs keep
         // the accepted white halo behind, rather than over, the dark glyph.
@@ -159,7 +195,7 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
   for (const reference of references) if (ids.get(reference.id)?.localName !== reference.type) fail("A Print clip or gradient definition is missing.");
   if (text.length > LIMITS.text) fail("The composed page text exceeds the direct PDF limit.");
   copy.setAttribute("font-family", family);
-  return {svg: copy, text, compositeGroups: groups, sourceMetadata: record};
+  return {svg: copy, text, faceText, compositeGroups: groups, sourceMetadata: record};
 }
 
 // Partition in paint order, preserving each leaf's ancestor transforms/clips.
@@ -236,7 +272,7 @@ export function registerPrintPdfMetadata(pdf, record) {
   pdf.addMetadata(JSON.stringify(record), "https://opengeo.tools/ns/print/1.0/");
 }
 
-export async function compilePrintVectorPdf({svg, layout, fontBytes, fontManifest, manifestBytes, fontLicenseBytes, fontNoticeBytes, registrations = [], signal, onPhase} = {}) {
+export async function compilePrintVectorPdf({svg, layout, fontBytes, fontManifest, manifestBytes, fontLicenseBytes, fontNoticeBytes, fontFaceBytes, fontFacesNoticeBytes, registrations = [], signal, onPhase} = {}) {
   const start = performance.now(), family = `OpenGeoPrintSans${++fontSequence}`;
   const check = () => {if (signal?.aborted) throw Error("Print PDF preparation was cancelled.");if (performance.now() - start > 60000) fail("Print PDF preparation exceeded its 60 second cooperative limit.");};
   // Limits and cancellation are checked between converter calls. Main-thread SVG
@@ -244,19 +280,27 @@ export async function compilePrintVectorPdf({svg, layout, fontBytes, fontManifes
   check();onPhase?.("Checking vector page and embedded font…");
   if (hasPrintMath(layout)) {await preparePrintMath();check();}
   const prepared = preparePrintVectorPdfSvg(svg, layout, family);
-  const {font, manifest} = await validatePrintVectorPdfFont(fontBytes, manifestBytes ?? fontManifest, prepared.text);check();
+  const faceNames = usedPrintFontFaces(layout), styled = faceNames.length > 1;
+  const {font, manifest} = await validatePrintVectorPdfFont(fontBytes, manifestBytes ?? fontManifest, styled ? prepared.faceText.regular ?? "" : prepared.text);check();
+  const faceAssets = styled ? await validatePrintFontFaceAssets(layout, {
+    faceBytes: {regular: font, ...fontFaceBytes}, noticeBytes: fontFacesNoticeBytes}) : null;check();
   if (manifestBytes && fontManifest && !(fontManifest instanceof Uint8Array) && !(fontManifest instanceof ArrayBuffer)
     && canonicalJson(fontManifest) !== canonicalJson(manifest)) fail("The loaded Print font manifest changed.");
   const attribution = await validatePrintVectorPdfAttribution(fontLicenseBytes, fontNoticeBytes, manifest);check();
+  if (faceAssets) attribution.push({name: "OpenSans-FACES-NOTICE.txt", bytes: faceAssets.noticeBytes});
   for (const file of printMathLegalFiles(layout)) {
     const value = new TextEncoder().encode(file.body);if (!value.length || value.length > 32768 || await mapFontSha256(value) !== file.sha256) fail("The packaged equation license or notice failed its checksum check.");
     attribution.push({name: file.name, bytes: value});
   }
   const view = svg.ownerDocument.defaultView, fonts = svg.ownerDocument.fonts;
   if (typeof view.FontFace !== "function" || !fonts?.add || !fonts?.delete) fail("This browser cannot load the exact embedded Print font.");
-  const face = new view.FontFace(family, font.slice().buffer, {style: "normal", weight: "400"});
-  await face.load();check();fonts.add(face);
+  const installedFaces = [];
   try {
+    for (const name of faceNames) {
+      const record = PRINT_FONT_FACES[name], source = faceAssets?.faces[name] ?? font;
+      const face = new view.FontFace(family, source.slice().buffer, {style: record.style, weight: record.weight});
+      await face.load();check();fonts.add(face);installedFaces.push(face);
+    }
     if (layout.textFrames?.length) reflowPrintPdfTextFrames(prepared.svg, layout, family);
     onPhase?.("Preparing PDF support…");
     const [{jsPDF}, {svg2pdf}] = await Promise.all([import("jspdf"), import("svg2pdf.js")]);check();
@@ -265,9 +309,18 @@ export async function compilePrintVectorPdf({svg, layout, fontBytes, fontManifes
     const pdf = new jsPDF({orientation: width >= height ? "landscape" : "portrait", unit: "mm", format: [width, height], putOnlyUsedFonts: true, compress: true, floatPrecision: 12});
     pdf.__private__.setPdfVersion("1.7");
     pdf.addFileToVFS("OpenGeoPrintSans.ttf", binaryString(font));pdf.addFont("OpenGeoPrintSans.ttf", family, "normal");pdf.setFont(family, "normal");
-    const embedded = pdf.getFont();
-    if (embedded.fontName !== family || typeof embedded.metadata?.characterToGlyph !== "function") fail("The Print font could not be embedded.");
-    for (const character of prepared.text) if (!embedded.metadata.characterToGlyph(character.codePointAt(0))) fail("A Print glyph is unavailable in the embedded font.");
+    for (const name of faceNames) {
+      const record = PRINT_FONT_FACES[name];
+      if (name !== "regular") {
+        pdf.addFileToVFS(record.file, binaryString(faceAssets.faces[name]));
+        pdf.addFont(record.file, family, record.pdfStyle);
+      }
+      pdf.setFont(family, record.pdfStyle);
+      const embedded = pdf.getFont();
+      if (embedded.fontName !== family || embedded.fontStyle !== record.pdfStyle || typeof embedded.metadata?.characterToGlyph !== "function") fail("The Print font face could not be embedded.");
+      for (const character of prepared.faceText[name] ?? "") if (!embedded.metadata.characterToGlyph(character.codePointAt(0))) fail(`A Print glyph is unavailable in the embedded ${name} font.`);
+    }
+    pdf.setFont(family, "normal");
     pdf.setProperties({title: layout.title, creator: "OpenGeo.Tools", subject: "Vector Print with embedded Open Sans"});
     registerPrintPdfMetadata(pdf, {schemaVersion: "opengeo.vector-print-pdf.1", ...prepared.sourceMetadata,
       geographicRegistration: registrations.length > 0, font: {id: manifest.id, checksumSha256: FONT_SHA256, license: manifest.license}});
@@ -285,7 +338,8 @@ export async function compilePrintVectorPdf({svg, layout, fontBytes, fontManifes
     if (!(output instanceof ArrayBuffer) || output.byteLength < 100 || output.byteLength > LIMITS.pdfBytes) fail("The vector PDF is empty or exceeds 32 MiB.");
     return {blob: new Blob([output], {type: "application/pdf"}), metadata: {representation: "vector-page", georeferenced: registrations.length > 0,
       font: {id: manifest.id, version: manifest.version, checksumSha256: FONT_SHA256, license: manifest.license},
+      ...(styled ? {fontFaces: faceNames.map(name => ({face: name, checksumSha256: PRINT_FONT_FACES[name].sha256}))} : {}),
       fontAttribution: attribution.map(file => file.name),
       compositeGroups: prepared.compositeGroups, page: {widthMm: width, heightMm: height}, converter: {jsPDF: "4.2.1", svg2pdf: "2.8.1"}}};
-  } finally {fonts.delete(face);}
+  } finally {for (const face of installedFaces) fonts.delete(face);}
 }

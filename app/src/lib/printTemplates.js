@@ -79,7 +79,8 @@ export function templateFromLayout(layout, name, id = crypto.randomUUID()) {
   }
   if (Object.hasOwn(layout, "textFrames")) {
     validatePrintTextFrames(layout.textFrames, layout.page, [...layout.frames, ...(layout.dataFrames ?? [])].map(frame => frame.id));
-    result.textFrames = layout.textFrames.map((frame, index) => ({...pick(frame, PRINT_TEXT_FRAME_KEYS), id: `text-${index + 1}`}));
+    result.textFrames = layout.textFrames.map((frame, index) => ({...pick(frame, PRINT_TEXT_FRAME_KEYS),
+      ...(Object.hasOwn(frame, "fontFace") ? {fontFace: frame.fontFace} : {}), id: `text-${index + 1}`}));
   }
   return validatePrintTemplate(result);
 }

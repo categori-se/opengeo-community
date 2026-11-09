@@ -52,6 +52,10 @@ test("sealed PWA assets include bounded install metadata and a credential-safe w
     assert.match(worker, /request\.headers\.has\("authorization"\)/);
     assert.match(worker, /url\.pathname !== "\/auth-config\.json"/);
     assert.match(worker, /opengeo-field-capture-v1/);
+    assert.match(worker, /OpenGeoPublicationPngDownloads\.installPublicationPngDownloads\(self\)/);
+    assert.match(worker, /url\.pathname\.startsWith\("\/__opengeo_download\/"\)/);
+    assert.match(worker, /application\/zip/);
+    assert.match(worker, /Download link expired/);
     assert.doesNotMatch(worker, /localStorage|sessionStorage|Bearer /);
     assert.doesNotThrow(() => new Function(worker));
   } finally {
@@ -147,4 +151,124 @@ test("saving a capture does not wait for an unregistered service worker", async 
     eventTarget: new EventTarget()
   });
   assert.deepEqual(result, {scheduled: false, mode: "client-assisted"});
+});
+
+
+test("publication PNG downloads extend the existing worker without storing plans or registering a worker", async () => {
+  const [worker, bridge] = await Promise.all([
+    readFile(new URL("../src/lib/publicationPngDownloadWorker.js", import.meta.url), "utf8"),
+    readFile(new URL("../src/lib/publicationPngDownload.js", import.meta.url), "utf8")
+  ]);
+  assert.match(worker, /event\.clientId \|\| event\.replacesClientId/);
+  assert.match(worker, /!sourceClientId \|\| sourceClientId !== entry\.clientId/);
+  assert.match(worker, /tokens\.delete\(token\)/);
+  assert.match(worker, /credentials: "omit", redirect: "error"/);
+  assert.match(worker, /entry\.reader\.cancel\(error\)/);
+  assert.match(worker, /clearTimeout\(entry\.expiry\)/);
+  assert.match(worker, /clearInterval\(entry\.clientWatch\)/);
+  assert.match(worker, /"Cache-Control": "no-store"/);
+  assert.doesNotMatch(worker + bridge, /caches\.|indexedDB|localStorage|sessionStorage|serviceWorker\.register|new Blob/);
+  assert.match(bridge, /Reload Studio to enable this download/);
+  assert.match(bridge, /signal\?\.addEventListener\("abort"/);
+  assert.match(bridge, /completion/);
+});
+
+test("publication download tokens reject another window and cancellation retires the plan without fetching", async () => {
+  const {installPublicationPngDownloads} = await import("../src/lib/publicationPngDownloadWorker.js");
+  const handlers = new Map();
+  let fetches = 0;
+  const owner = {id: "studio-owner", type: "window", url: "https://studio.example/workspaces"};
+  const scope = {
+    location: {origin: "https://studio.example"},
+    crypto: {randomUUID: () => "10000000-0000-4000-8000-000000000001"},
+    clients: {get: async id => id === owner.id ? owner : undefined},
+    fetch: async () => { fetches += 1; throw Error("PNG fetch must not start"); },
+    addEventListener: (type, handler) => handlers.set(type, handler)
+  };
+  installPublicationPngDownloads(scope);
+  const id = "60000000-0000-4000-8000-000000000001";
+  const plan = {schemaVersion: "opengeo.publication-png-archive.1", organizationId: id,
+    projectId: id, editionId: id, editionNumber: 1, manifestChecksumSha256: "a".repeat(64),
+    filename: "publication-pages.zip", pages: [{slug: "findings", label: "Findings",
+      url: `https://studio.example/public/organizations/${id}/projects/${id}/site-editions/${id}/print/pages/findings.png`}]};
+  const messages = [];
+  const port = {postMessage: message => messages.push(message), start() {}, close() { this.closed = true; }};
+  let registration;
+  handlers.get("message")({data: {type: "opengeo:publication-png-download", version: 1, plan},
+    source: owner, ports: [port], waitUntil: promise => { registration = promise; }});
+  await registration;
+  assert.equal(messages[0].type, "ready");
+  assert.equal(fetches, 0, "preparing a native download must not read any PNG");
+  const navigate = async clientId => {
+    let response;
+    handlers.get("fetch")({request: new Request(messages[0].url), clientId,
+      respondWith: promise => { response = promise; }, waitUntil() {}});
+    return await response;
+  };
+  try {
+    assert.equal((await navigate("another-window")).status, 404);
+    assert.equal(fetches, 0);
+    port.onmessage({data: {type: "cancel"}});
+    assert.equal(port.closed, true);
+    assert.equal((await navigate(owner.id)).status, 404, "cancelled tokens must never be replayed");
+    assert.equal(fetches, 0);
+  } finally {
+    port.onmessage({data: {type: "cancel"}});
+  }
+});
+
+test("cancelling an active PNG download errors its native response instead of completing a truncated ZIP", async () => {
+  const {installPublicationPngDownloads} = await import("../src/lib/publicationPngDownloadWorker.js");
+  const handlers = new Map();
+  const owner = {id: "active-studio", type: "window", url: "https://studio.example/workspaces"};
+  let fetchStarted;
+  const started = new Promise(resolve => { fetchStarted = resolve; });
+  const scope = {
+    location: {origin: "https://studio.example"},
+    crypto: {randomUUID: () => "20000000-0000-4000-8000-000000000001"},
+    clients: {get: async () => owner},
+    fetch: (_url, {signal}) => new Promise((_resolve, reject) => {
+      fetchStarted();
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason), {once: true});
+    }),
+    addEventListener: (type, handler) => handlers.set(type, handler)
+  };
+  installPublicationPngDownloads(scope);
+  const id = "60000000-0000-4000-8000-000000000001";
+  const plan = {schemaVersion: "opengeo.publication-png-archive.1", organizationId: id,
+    projectId: id, editionId: id, editionNumber: 1, manifestChecksumSha256: "a".repeat(64),
+    filename: "publication-pages.zip", pages: [{slug: "findings", label: "Findings",
+      url: `https://studio.example/public/organizations/${id}/projects/${id}/site-editions/${id}/print/pages/findings.png`}]};
+  const messages = [];
+  const port = {postMessage: message => messages.push(message), start() {}, close() {}};
+  let registered;
+  handlers.get("message")({data: {type: "opengeo:publication-png-download", version: 1, plan},
+    source: owner, ports: [port], waitUntil: promise => { registered = promise; }});
+  await registered;
+  let response;
+  const navigate = async (clientId, replacesClientId) => {
+    let pending;
+    handlers.get("fetch")({request: new Request(messages[0].url), clientId, replacesClientId,
+      respondWith: promise => { pending = promise; }, waitUntil() {}});
+    return await pending;
+  };
+  assert.equal((await navigate("another-window", owner.id)).status, 404,
+    "a present mismatched clientId must not fall back to replacesClientId");
+  assert.equal((await navigate("", "another-window")).status, 404);
+  assert.equal((await navigate("", "")).status, 404, "a navigation must identify its source window");
+  response = await navigate("", owner.id);
+  assert.equal(response.status, 200, "native navigation may identify the replaced source client");
+  const body = response.body.getReader();
+  const consuming = (async () => { while (!(await body.read()).done) { /* Drain ZIP headers too. */ } })();
+  const rejected = assert.rejects(consuming, {name: "AbortError"});
+  try {
+    await started;
+    port.onmessage({data: {type: "cancel"}});
+    await rejected;
+    assert.equal(messages.at(-1).type, "error");
+    assert.equal(messages.some(message => message.type === "done"), false);
+  } finally {
+    port.onmessage({data: {type: "cancel"}});
+  }
 });

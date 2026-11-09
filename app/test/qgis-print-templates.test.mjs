@@ -107,11 +107,52 @@ test("positioned literal text exports as editable native labels with native geom
   }
   assert.equal(label.querySelector("BackgroundColor").getAttribute("red"), "255");assert.equal(label.querySelector("BackgroundColor").getAttribute("green"), "241");
   const settings = JSON.parse([...document.querySelectorAll("Layout > customproperties Option")].find(option => option.getAttribute("name") === "opengeo/print-template").getAttribute("value"));
-  assert.equal(settings.textFramesPresent, true);assert.doesNotMatch(JSON.stringify(settings), /Summary|Literal|fontSize|"color"|alignment|textFrames"/);
+  assert.equal(settings.textFramesPresent, true);assert.doesNotMatch(JSON.stringify(settings), /Summary|Literal|fontSize|fontFace|"color"|alignment|textFrames"/);
   assert.deepEqual(parse(xml).template, value);assert.deepEqual(value, before);
   const reordered = editXml(xml, document => document.documentElement.append(findRole(document, "text-text-1")));
   assert.deepEqual(parse(reordered).template, value);
   const empty = {...value, textFrames: []};assert.deepEqual(parse(exportQgisPrintTemplate(empty)).template, empty);
+});
+
+test("Open Sans faces serialize real Qt weight, italic and named style while legacy Regular stays optional", () => {
+  for (const [fontFace, weight, italic, namedStyle] of [
+    ["regular", "50", "0", "Regular"], ["bold", "75", "0", "Bold"],
+    ["italic", "50", "1", "Italic"], ["bolditalic", "75", "1", "Bold Italic"]
+  ]) {
+    const value = withTextFrames();value.textFrames[0].fontFace = fontFace;
+    const before = structuredClone(value), xml = exportQgisPrintTemplate(value);
+    const document = new DOMParser().parseFromString(xml, "application/xml");
+    const style = findRole(document, "text-text-1").querySelector("text-style");
+    assert.equal(style.getAttribute("fontFamily"), "Open Sans");
+    assert.equal(style.getAttribute("fontWeight"), weight);assert.equal(style.getAttribute("fontItalic"), italic);
+    assert.equal(style.getAttribute("namedStyle"), namedStyle);
+    assert.equal(style.getAttribute("forcedBold"), "0");assert.equal(style.getAttribute("forcedItalic"), "0");
+    const expected = structuredClone(value);
+    if (fontFace === "regular") delete expected.textFrames[0].fontFace;
+    const imported = parse(xml);
+    assert.deepEqual(imported.template, expected);assert.deepEqual(value, before);
+    assert.equal(Object.hasOwn(imported.template.textFrames[1], "fontFace"), false);
+    assert(imported.notices.some(notice => /Regular imports.*optional fontFace field omitted/.test(notice)));
+    const settings = JSON.parse([...document.querySelectorAll("Layout > customproperties Option")]
+      .find(option => option.getAttribute("name") === "opengeo/print-template").getAttribute("value"));
+    assert.doesNotMatch(JSON.stringify(settings), /fontFace|fontWeight|fontItalic|namedStyle/);
+  }
+});
+
+test("native face edits govern reimport instead of stale OpenGeo settings", () => {
+  const value = withTextFrames();value.textFrames[0].fontFace = "bold";
+  const edited = editXml(exportQgisPrintTemplate(value), document => {
+    const style = findRole(document, "text-text-1").querySelector("text-style");
+    style.setAttribute("fontWeight", "50");style.setAttribute("fontItalic", "1");style.setAttribute("namedStyle", "Italic");
+  });
+  assert.equal(parse(edited).template.textFrames[0].fontFace, "italic");
+  const regular = editXml(edited, document => {
+    const style = findRole(document, "text-text-1").querySelector("text-style");
+    style.setAttribute("fontItalic", "0");style.setAttribute("namedStyle", "Regular");
+  });
+  assert.deepEqual(parse(regular).template.textFrames, withTextFrames().textFrames);
+  const withoutName = editXml(edited, document => findRole(document, "text-text-1").querySelector("text-style").removeAttribute("namedStyle"));
+  assert.equal(parse(withoutName).template.textFrames[0].fontFace, "italic", "numeric native fields define the face when the optional name is absent");
 });
 
 test("native positioned-label edits and deletion govern reimport without restoring stale supplemental values", () => {
@@ -128,16 +169,17 @@ test("native positioned-label edits and deletion govern reimport without restori
   assert.deepEqual(parse(firstDeleted).template.textFrames, [{...withTextFrames().textFrames[1], id: "text-1"}]);
 });
 
-test("ordinary native labels keep separate positions and disclose font-family and line-spacing differences", () => {
+test("ordinary native labels keep separate positions and faces while disclosing font-family and line-spacing differences", () => {
   const xml = editXml(nativeFixture, document => {
     const source = [...document.querySelectorAll('Layout > LayoutItem[type="65641"]')].find(label => label.getAttribute("id") === "caption");
     const label = source.cloneNode(true);label.setAttribute("id", "Extra explanation");label.setAttribute("uuid", "{extra-label}");label.setAttribute("templateUuid", "{extra-label}");
+    const style = label.querySelector("text-style");style.setAttribute("fontWeight", "75");style.setAttribute("fontItalic", "1");style.setAttribute("namedStyle", "Bold Italic");
     label.setAttribute("labelText", "An independent note");label.setAttribute("positionOnPage", "235,100,mm");label.setAttribute("size", "50,25,mm");document.documentElement.append(label);
   });
   const {template: value, notices} = parse(xml);
   assert.equal(value.caption, "Local QGIS template caption — café & <paper>");
   assert.deepEqual(value.textFrames, [{id: "text-1", type: "text", title: "Extra explanation", text: "An independent note",
-    xMm: 235, yMm: 100, widthMm: 50, heightMm: 25, fontSizePt: 10, color: "#000000", background: "none", alignment: "left"}]);
+    xMm: 235, yMm: 100, widthMm: 50, heightMm: 25, fontSizePt: 10, color: "#000000", background: "none", alignment: "left", fontFace: "bolditalic"}]);
   assert.ok(notices.some(notice => /font family “Noto Sans Arabic” is not retained/.test(notice)));assert.ok(notices.some(notice => /native multiline spacing is not retained/.test(notice)));
 });
 
@@ -145,7 +187,11 @@ test("unsupported positioned-label formatting is refused explicitly and literal 
   const safe = exportQgisPrintTemplate(withTextFrames());
   const changes = [label => label.setAttribute("halign", "8"), label => label.setAttribute("valign", "128"), label => label.setAttribute("marginX", "2"),
     label => label.setAttribute("frame", "true"), label => label.setAttribute("opacity", "0.5"), label => label.setAttribute("htmlState", "1"),
-    label => label.querySelector("text-style").setAttribute("fontWeight", "0"), label => label.querySelector("text-style").setAttribute("fontWeight", "75"), label => label.querySelector("text-style").setAttribute("fontItalic", "1"),
+    label => label.querySelector("text-style").setAttribute("fontWeight", "0"), label => label.querySelector("text-style").setAttribute("fontWeight", "63"), label => label.querySelector("text-style").setAttribute("fontItalic", "2"),
+    label => label.querySelector("text-style").setAttribute("fontUnderline", "1"), label => label.querySelector("text-style").setAttribute("fontStrikeout", "1"),
+    label => label.querySelector("text-style").setAttribute("forcedBold", "1"), label => label.querySelector("text-style").setAttribute("forcedItalic", "1"),
+    label => label.querySelector("text-style").setAttribute("namedStyle", "Condensed"),
+    label => label.querySelector("text-style").setAttribute("namedStyle", "Bold"),
     label => label.querySelector("text-style").setAttribute("fontSizeUnit", "Pixel"), label => label.querySelector("text-style").setAttribute("textColor", "0,0,0,128"),
     label => label.querySelector("text-style").setAttribute("unrecognizedTypography", "1")];
   for (const change of changes) assert.throws(() => parse(editXml(safe, document => change(findRole(document, "text-text-1")))), /Unsupported native QGIS positioned text|HTML labels|requires opaque RGB/);

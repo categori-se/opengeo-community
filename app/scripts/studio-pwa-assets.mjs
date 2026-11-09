@@ -2,6 +2,8 @@ import {createHash} from "node:crypto";
 import {mkdir, writeFile} from "node:fs/promises";
 import {dirname, resolve} from "node:path";
 import {deflateSync} from "node:zlib";
+import {fileURLToPath} from "node:url";
+import {build} from "esbuild";
 
 import {snapshotTree} from "./release-utils.mjs";
 
@@ -47,6 +49,12 @@ export async function writeStudioPwaAssets({
     writeBinary(resolve(outputRoot, "icons/opengeo-512.png"), openGeoIconPng(512))
   ]);
 
+  const downloadBundle = await build({
+    entryPoints: [resolve(dirname(fileURLToPath(import.meta.url)), "../src/lib/publicationPngDownloadWorker.js")],
+    bundle: true, write: false, format: "iife", platform: "browser", target: "es2022",
+    globalName: "OpenGeoPublicationPngDownloads", legalComments: "none"
+  });
+  const downloadWorkerSource = `${downloadBundle.outputFiles[0].text}\nOpenGeoPublicationPngDownloads.installPublicationPngDownloads(self);\n`;
   const beforeWorker = await snapshotTree(outputRoot);
   const shellFiles = beforeWorker.files.filter(({path, bytes}) => {
     if (!isCredentialFreeShellPath(path)) return false;
@@ -71,13 +79,14 @@ export async function writeStudioPwaAssets({
     .update(requiredText(applicationId, "PWA application id", 80))
     .update("\0")
     .update(beforeWorker.digest)
+    .update(downloadWorkerSource)
     .update("\0")
     .update(JSON.stringify(precacheUrls))
     .digest("hex")
     .slice(0, 20);
   await writeText(
     resolve(outputRoot, "service-worker.js"),
-    serviceWorkerSource({applicationId, version, precacheUrls, routes: normalizedRoutes})
+    serviceWorkerSource({applicationId, version, precacheUrls, routes: normalizedRoutes}) + downloadWorkerSource
   );
   return {
     applicationId,
@@ -134,6 +143,7 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
+  if (url.pathname.startsWith("/__opengeo_download/")) return;
   if (!safeGet(request, url)) return;
   if (request.mode === "navigate") {
     event.respondWith(networkFirstNavigation(request, url));

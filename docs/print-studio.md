@@ -2,6 +2,38 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Current Print additions — source preparation
+
+Published editions offer **Download all PNG pages**, using their exact sealed
+page order and edition identity. A browser stream downloads each PNG in turn
+into a stored ZIP with manifest, actual dimensions and locally calculated
+SHA-256 checksums. Cancellation stops later pages. The limits remain 64 pages,
+20 megapixels and 64 MiB per PNG, 3 GiB per ZIP, 45 seconds per page and one hour
+per download. Server checksums are verified when exposed; their absence is
+recorded honestly. No payload is stored in the offline shell cache.
+
+GeoMoose 3.15.2 import can retain supported rectangles and ellipses in source
+order. Width and geometry rounding, unsupported bounds/styles, inherited fill
+state and asynchronous legend order are reported rather than silently changed.
+The default converter contract stays 1.1; the governed import selects opt-in
+layout 1.3 to preserve text point size, RGB color and native baseline geometry.
+Older 1.0/1.1/1.2 layouts remain readable, with the empty default still 1.1.
+Visible text size/color controls deliberately upgrade a draft; adding a shape
+does not downgrade 1.3. Source font family and face substitution remain explicit.
+API, Studio and forward migration 0189 require coherent rollout; source
+qualification does not establish deployment or hosted persistence.
+
+Project Print literal text also offers real **Regular**, **Bold**, **Italic**
+and **Bold italic** Open Sans faces. The optional `fontFace` field is preserved
+in Project layouts and source-free JSON templates; untouched Regular text keeps
+its existing representation. Math uses its typesetter rather than this selector.
+Exact pinned font bytes supply preview measurement, self-contained SVG/HTML/PNG
+and embedded vector PDF. Standalone font payloads retain Apache-2.0 licensing and
+source notices. Glyph coverage is checked again after text edits even when the
+font assets are cached. Unknown faces and unsupported glyphs fail explicitly.
+QGIS interchange retains supported authored faces and reports remaining losses.
+Custom families, complex shaping and whole Print-family fidelity remain open.
+
 ## Positioned shapes — local acceptance
 
 Positioned Publications support line, rectangle and ellipse frames through the

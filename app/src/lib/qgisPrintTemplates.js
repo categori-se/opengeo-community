@@ -6,6 +6,12 @@ import {PRINT_TEMPLATE_SCHEMA, validatePrintTemplate} from "./printTemplates.js"
 const SETTINGS = "opengeo/print-template", ROLE = "opengeo/role";
 const TYPES = {page: "65638", map: "65639", label: "65641", legend: "65642", scale: "65646", tableFrame: "65647", table: "65649"};
 const PROFILE = "opengeo.qpt-settings.1";
+const FONT_FACES = {
+  regular: {weight: 50, italic: 0, name: "Regular"},
+  bold: {weight: 75, italic: 0, name: "Bold"},
+  italic: {weight: 50, italic: 1, name: "Italic"},
+  bolditalic: {weight: 75, italic: 1, name: "Bold Italic"}
+};
 const bytes = value => new TextEncoder().encode(value).byteLength;
 const paper = {Letter: [215.9, 279.4], Legal: [215.9, 355.6], Tabloid: [279.4, 431.8], A4: [210, 297], A3: [297, 420], A2: [420, 594], A1: [594, 841], A0: [841, 1189]};
 const sourceNotice = "Map extents, CRS, Layer identities, visibility presets and styles are not imported. Applying this source-free template uses the destination Project's current camera and presentation; tables require explicit current-Layer binding and fresh captures.";
@@ -60,7 +66,7 @@ export function exportQgisPrintTemplate(template) {
   for (const frame of value.textFrames ?? []) {
     const fill = frame.background === "none" ? "" : `<BackgroundColor${attributes(rgba(frame.background))}/>`;
     items.push(nativeItem(TYPES.label, uuid(), `text-${frame.id}`, frame, {id: frame.title, labelText: frame.text, htmlState: 0, marginX: 1, marginY: 1,
-      halign: {left: 1, center: 4, right: 2}[frame.alignment], valign: 32, background: frame.background !== "none", zValue: 2}, `${fill}${textStyle(frame.fontSizePt, frame.color, true)}`));
+      halign: {left: 1, center: 4, right: 2}[frame.alignment], valign: 32, background: frame.background !== "none", zValue: 2}, `${fill}${textStyle(frame.fontSizePt, frame.color, true, frame.fontFace ?? "regular")}`));
   }
   if (value.legend) {
     const rectangle = legendRectangle(value.page, value.frames[0], occupied);
@@ -139,7 +145,7 @@ export function importQgisPrintTemplate(xml, {name, DOMParser: Parser = globalTh
   const textOrder = textLabels.map(label => /^text-text-([1-8])$/.exec(property(label, ROLE) ?? "")?.[1]);
   if (textOrder.every(Boolean) && new Set(textOrder).size === textLabels.length)
     textLabels.sort((a, b) => Number(property(a, ROLE).slice(10)) - Number(property(b, ROLE).slice(10)));
-  if (textLabels.length) notices.push("Positioned text uses Open Sans with a 1 mm inner margin and fixed line spacing. Native font availability and substitution can change metrics and wrapping; review text fit after exchange.");
+  if (textLabels.length) notices.push("Positioned text uses Open Sans with a 1 mm inner margin and fixed line spacing. Native font availability and substitution can change metrics and wrapping; review text fit after exchange. Native Regular imports with the optional fontFace field omitted.");
   if (textLabels.length || settings?.textFramesPresent) result.textFrames = textLabels.map((label, index) => nativeTextFrame(label, `text-${index + 1}`, index, notices));
   const tableFrames = all.filter(element => element.getAttribute("type") === TYPES.tableFrame).sort((a, b) => {
     const left = /^data-(\d)$/.exec(property(a, ROLE) ?? ""), right = /^data-(\d)$/.exec(property(b, ROLE) ?? "");
@@ -184,7 +190,7 @@ function geometry(element) {
   return {xMm, yMm, widthMm, heightMm};
 }
 function nativeTextFrame(element, id, index, notices) {
-  const styles = direct(element, "text-style"), fail = detail => {throw Error(`Unsupported native QGIS positioned text ${detail}. Use plain, top-aligned text with a regular point-size font.`);};
+  const styles = direct(element, "text-style"), fail = detail => {throw Error(`Unsupported native QGIS positioned text ${detail}. Use plain, top-aligned point-size text with a supported Open Sans face.`);};
   const active = value => value !== null && !["", "0", "false"].includes(value);
   if (styles.length !== 1) fail("font configuration");
   const style = styles[0], alignment = {1: "left", 4: "center", 2: "right"}[element.getAttribute("halign") || "1"];
@@ -200,9 +206,18 @@ function nativeTextFrame(element, id, index, notices) {
   if (margins.some(value => value !== 1)) notices.push(`Positioned text “${element.getAttribute("id") || `Text ${index + 1}`}” uses a 1 mm inner margin; native text margins are not retained.`);
   if (active(element.getAttribute("frame")) || numeric(element.getAttribute("opacity") || 1) !== 1 || numeric(element.getAttribute("blendMode") || 0) !== 0) fail("border, opacity or blending");
   if ((style.getAttribute("fontSizeUnit") || "Point") !== "Point") fail("font size units");
-  for (const key of ["forcedBold", "fontItalic", "forcedItalic", "fontUnderline", "fontStrikeout"]) if (active(style.getAttribute(key))) fail("font weight or style");
-  if (style.hasAttribute("fontWeight") && numeric(style.getAttribute("fontWeight")) !== 50) fail("font weight");
-  if (style.getAttribute("namedStyle") && !/^(?:Regular|Normal)$/i.test(style.getAttribute("namedStyle"))) fail("named font style");
+  for (const key of ["forcedBold", "forcedItalic", "fontUnderline", "fontStrikeout"]) if (active(style.getAttribute(key))) fail("font weight or style");
+  const weight = style.hasAttribute("fontWeight") ? numeric(style.getAttribute("fontWeight")) : 50;
+  if (![50, 75].includes(weight)) fail("font weight");
+  const nativeItalic = style.getAttribute("fontItalic");
+  if (![null, "", "0", "false", "1"].includes(nativeItalic)) fail("font italic flag");
+  const italic = nativeItalic === "1";
+  const fontFace = weight === 75 ? (italic ? "bolditalic" : "bold") : (italic ? "italic" : "regular");
+  const namedStyle = style.getAttribute("namedStyle");
+  if (namedStyle) {
+    const namedFace = {regular: "regular", normal: "regular", bold: "bold", italic: "italic", "bold italic": "bolditalic"}[namedStyle.toLowerCase()];
+    if (!namedFace || namedFace !== fontFace) fail("named font style or conflicting weight/italic flags");
+  }
   for (const key of ["fontLetterSpacing", "fontWordSpacing", "capitalization", "blendMode"]) if (numeric(style.getAttribute(key) || 0) !== 0) fail("font spacing, capitalization or blending");
   if (numeric(style.getAttribute("textOpacity") || 1) !== 1 || (style.getAttribute("textOrientation") || "horizontal") !== "horizontal") fail("font opacity or orientation");
   if ((style.getAttribute("multilineHeightUnit") || "Percentage") !== "Percentage" || numeric(style.getAttribute("fontKerning") || 1) !== 1) fail("line spacing units or font kerning");
@@ -221,7 +236,8 @@ function nativeTextFrame(element, id, index, notices) {
     fill = nativeColor(["red", "green", "blue", "alpha"].map(key => colors[0].getAttribute(key)).join(","));
   }
   return {id, type: "text", title: element.getAttribute("id") || `Text ${index + 1}`, text: element.getAttribute("labelText") ?? "", ...geometry(element),
-    fontSizePt: numeric(style.getAttribute("fontSize")), color: nativeColor(style.getAttribute("textColor")), background: fill, alignment};
+    fontSizePt: numeric(style.getAttribute("fontSize")), color: nativeColor(style.getAttribute("textColor")), background: fill, alignment,
+    ...(fontFace === "regular" ? {} : {fontFace})};
 }
 function nativeColor(value) {
   const parts = String(value).split(",");
@@ -287,9 +303,13 @@ function literalColumn(value) {
 function escape(value) {return String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\n", "&#10;").replaceAll("\r", "&#13;").replaceAll("\t", "&#9;");}
 function attributes(value) {return Object.entries(value).map(([key, value]) => ` ${key}="${escape(value)}"`).join("");}
 function layoutObject(role) {return `<LayoutObject><dataDefinedProperties><Option type="Map"><Option name="properties"/></Option></dataDefinedProperties><customproperties><Option type="Map"><Option name="${ROLE}" type="QString" value="${escape(role)}"/></Option></customproperties></LayoutObject>`;}
-// The pinned QGIS 3.44.14 build uses Qt 5: Normal=50, Thin=0. Its XML
-// reader treats omitted weight as 0, so positioned text declares its regular face.
-function textStyle(fontSize, color = "#17212b", positioned = false) {const {red, green, blue} = rgba(color);return `<text-style fontFamily="${positioned ? "Open Sans" : "sans-serif"}" fontSize="${fontSize}" fontSizeUnit="Point" textColor="${red},${green},${blue},255" allowHtml="0"${positioned ? ' fontWeight="50" fontItalic="0" forcedBold="0" forcedItalic="0" fontUnderline="0" fontStrikeout="0" multilineHeight="1.3" multilineHeightUnit="Percentage"' : ""}/>`;}
+// The pinned QGIS 3.44.14 build uses Qt 5: Normal=50, Bold=75, Thin=0.
+// namedStyle is the native text-format field serialized from QFont.styleName().
+function textStyle(fontSize, color = "#17212b", positioned = false, fontFace = "regular") {
+  const {red, green, blue} = rgba(color), face = FONT_FACES[fontFace];
+  if (!face) throw Error("Unsupported QGIS positioned text font face.");
+  return `<text-style fontFamily="${positioned ? "Open Sans" : "sans-serif"}" fontSize="${fontSize}" fontSizeUnit="Point" textColor="${red},${green},${blue},255" allowHtml="0"${positioned ? ` fontWeight="${face.weight}" fontItalic="${face.italic}" namedStyle="${face.name}" forcedBold="0" forcedItalic="0" fontUnderline="0" fontStrikeout="0" multilineHeight="1.3" multilineHeightUnit="Percentage"` : ""}/>`;
+}
 function item(type, uuid, role, frame, extra = {}, content = "") {
   const position = `${frame.xMm},${frame.yMm},mm`;
   return `<LayoutItem${attributes({type, uuid, templateUuid: uuid, id: role, position, positionOnPage: position, size: `${frame.widthMm},${frame.heightMm},mm`,
