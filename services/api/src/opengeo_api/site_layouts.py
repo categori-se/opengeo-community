@@ -6,6 +6,7 @@ from uuid import UUID
 from opengeo_api.json_canonical import canonical_json_bytes
 
 PRINT_LAYOUT_SCHEMA = "opengeo.print-layout.1.1.0"
+SHAPE_PRINT_LAYOUT_SCHEMA = "opengeo.print-layout.1.2.0"
 LEGACY_PRINT_LAYOUT_SCHEMA = "opengeo.print-layout.1.0.0"
 MAX_LAYOUT_PAGES = 64
 MAX_LAYOUT_ELEMENTS_PER_PAGE = 32
@@ -35,6 +36,10 @@ _ELEMENT_KEYS = {
     "table_frame": _COMMON_KEYS | {"blockId"},
     "chart_frame": _COMMON_KEYS | {"blockId"},
 }
+_SHAPE_ELEMENT_KEYS = {
+    **_ELEMENT_KEYS,
+    "shape_frame": _COMMON_KEYS | {"shape", "stroke", "fill", "strokeWidth"},
+}
 _TEXT_STYLES = frozenset({"title", "heading", "body", "note", "attribution"})
 _IMAGE_FITS = frozenset({"contain", "cover"})
 
@@ -56,6 +61,7 @@ class PrintLayoutElement:
         "image_frame",
         "table_frame",
         "chart_frame",
+        "shape_frame",
     ]
     x: int
     y: int
@@ -69,6 +75,10 @@ class PrintLayoutElement:
     fit: str | None = None
     rotation: int = 0
     clip: bool = True
+    shape: str | None = None
+    stroke: str | None = None
+    fill: str | None = None
+    stroke_width: int | None = None
 
     def as_json(self, schema_version: str = PRINT_LAYOUT_SCHEMA) -> dict[str, object]:
         value: dict[str, object] = {
@@ -79,7 +89,7 @@ class PrintLayoutElement:
             "width": self.width,
             "height": self.height,
         }
-        if schema_version == PRINT_LAYOUT_SCHEMA:
+        if schema_version in {PRINT_LAYOUT_SCHEMA, SHAPE_PRINT_LAYOUT_SCHEMA}:
             value["rotation"] = self.rotation
             value["clip"] = self.clip
         if self.resource_id is not None:
@@ -94,6 +104,10 @@ class PrintLayoutElement:
             value["blockId"] = self.block_id
         if self.fit is not None:
             value["fit"] = self.fit
+        if self.type == "shape_frame":
+            value.update(
+                shape=self.shape, stroke=self.stroke, fill=self.fill, strokeWidth=self.stroke_width
+            )
         return value
 
 
@@ -129,7 +143,11 @@ def parse_print_layout(value: object) -> PrintLayoutDocument:
     if not isinstance(value, dict) or set(value) != {"schemaVersion", "pages"}:
         raise SiteLayoutError("site_print_layout_shape_invalid")
     schema_version = value.get("schemaVersion")
-    if schema_version not in {LEGACY_PRINT_LAYOUT_SCHEMA, PRINT_LAYOUT_SCHEMA}:
+    if schema_version not in {
+        LEGACY_PRINT_LAYOUT_SCHEMA,
+        PRINT_LAYOUT_SCHEMA,
+        SHAPE_PRINT_LAYOUT_SCHEMA,
+    }:
         raise SiteLayoutError("site_print_layout_schema_unsupported")
     raw_pages = value.get("pages")
     if not isinstance(raw_pages, list) or len(raw_pages) > MAX_LAYOUT_PAGES:
@@ -195,7 +213,11 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
         raise SiteLayoutError("site_print_layout_element_shape_invalid")
     kind = value.get("type")
     element_keys = (
-        _LEGACY_ELEMENT_KEYS if schema_version == LEGACY_PRINT_LAYOUT_SCHEMA else _ELEMENT_KEYS
+        _LEGACY_ELEMENT_KEYS
+        if schema_version == LEGACY_PRINT_LAYOUT_SCHEMA
+        else _SHAPE_ELEMENT_KEYS
+        if schema_version == SHAPE_PRINT_LAYOUT_SCHEMA
+        else _ELEMENT_KEYS
     )
     if not isinstance(kind, str) or kind not in element_keys:
         raise SiteLayoutError("site_print_layout_element_type_invalid")
@@ -221,12 +243,13 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
             "image_frame",
             "table_frame",
             "chart_frame",
+            "shape_frame",
         ],
         kind,
     )
     rotation = 0
     clip = True
-    if schema_version == PRINT_LAYOUT_SCHEMA:
+    if schema_version in {PRINT_LAYOUT_SCHEMA, SHAPE_PRINT_LAYOUT_SCHEMA}:
         rotation_value = value.get("rotation")
         clip_value = value.get("clip")
         if (
@@ -239,6 +262,39 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
             raise SiteLayoutError("site_print_layout_clip_invalid")
         rotation = rotation_value
         clip = clip_value
+    if kind == "shape_frame":
+        shape = value.get("shape")
+        stroke = value.get("stroke")
+        fill = value.get("fill")
+        stroke_width = value.get("strokeWidth")
+        if not isinstance(shape, str) or shape not in {"line", "rectangle", "ellipse"}:
+            raise SiteLayoutError("site_print_layout_shape_style_invalid")
+        for color in (stroke, fill):
+            if color is not None and (
+                not isinstance(color, str) or re.fullmatch(r"#[0-9a-fA-F]{6}", color) is None
+            ):
+                raise SiteLayoutError("site_print_layout_shape_color_invalid")
+        if (
+            (stroke is None and fill is None)
+            or (shape == "line" and (stroke is None or fill is not None))
+            or type(stroke_width) is not int
+            or not 1 <= stroke_width <= 12
+        ):
+            raise SiteLayoutError("site_print_layout_shape_style_invalid")
+        return PrintLayoutElement(
+            identifier,
+            element_type,
+            x,
+            y,
+            width,
+            height,
+            rotation=rotation,
+            clip=clip,
+            shape=shape,
+            stroke=cast(str | None, stroke),
+            fill=cast(str | None, fill),
+            stroke_width=stroke_width,
+        )
     if kind == "map_frame":
         try:
             resource_id = UUID(cast(str, value.get("resourceId")))
@@ -255,7 +311,7 @@ def _parse_element(value: object, schema_version: str) -> PrintLayoutElement:
             width,
             height,
             resource_id=resource_id,
-            fit=fit if schema_version == PRINT_LAYOUT_SCHEMA else None,
+            fit=fit if schema_version != LEGACY_PRINT_LAYOUT_SCHEMA else None,
             rotation=rotation,
             clip=clip,
         )
