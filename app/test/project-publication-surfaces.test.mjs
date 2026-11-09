@@ -773,6 +773,40 @@ describe("publication project surfaces", () => {
     assert.equal(viewer.querySelector(".project-positioned-layout"), null);
   });
 
+  it("edits visible physical text size/color, upgrades all text deliberately and preserves 1.3 through shapes and reopen", async () => {
+    const resource = {id: "60000000-0000-4000-8000-000000000001", slug: "typed-map", title: "Typed map", kind: "map", versionNumber: 1};
+    const saved = [], state = {organization: {id: IDS.organization, callerRole: "member"},
+      project: {id: IDS.project, name: "Typography", description: "Text controls", callerRole: "owner"},
+      adapter: {listSites() {}, updateSite() {}, createSite: async (_project, value) => saved.push(value)}, sites: [], resources: [resource]};
+    const surface = ProjectSites({state, refresh: async () => {}}); document.body.append(surface);
+    const editor = surface.querySelector(".project-positioned-layout");
+    const field = (root, label) => [...root.querySelectorAll("label")].find(node => node.querySelector("span")?.textContent === label)?.querySelector("input,select,textarea");
+    const advanced = field(editor, "Advanced layout JSON");
+    const add = kind => { const control = field(editor, "Add frame"); control.value = kind;
+      control.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true})); findButton(editor, "Add frame").click(); };
+    add("text"); add("text");
+    assert.equal(JSON.parse(advanced.value).schemaVersion, "opengeo.print-layout.1.1.0");
+    const size = field(editor, "Text size (pt)"), color = field(editor, "Text color");
+    assert.equal(size.closest("label").hidden, false); assert.equal(color.closest("label").hidden, false);
+    size.value = "24.5"; size.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    color.value = "#aabbcc"; color.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    const typed = JSON.parse(advanced.value); assert.equal(typed.schemaVersion, "opengeo.print-layout.1.3.0");
+    assert.equal(typed.pages[0].elements[0].fontSize, 9); assert.equal(typed.pages[0].elements[0].color, "#172026");
+    assert.equal(typed.pages[0].elements[1].fontSize, 24.5); assert.equal(typed.pages[0].elements[1].color, "#aabbcc");
+    assert.equal(editor.querySelectorAll(".text svg text")[1].getAttribute("font-size"), "24.5");
+    assert.equal(editor.querySelectorAll(".text svg text")[1].getAttribute("fill"), "#aabbcc");
+    const valid = advanced.value; size.value = "145"; size.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
+    assert.equal(advanced.value, valid); assert.match(editor.textContent, /Text needs attention/);
+    add("rectangle"); add("text");
+    const expected = JSON.parse(advanced.value); assert.equal(expected.schemaVersion, "opengeo.print-layout.1.3.0");
+    assert.equal(expected.pages[0].elements.at(-1).fontSize, 9); assert.equal(expected.pages[0].elements.at(-1).color, "#172026");
+    findButton(surface, "Create draft site").click(); await waitFor(() => saved.length === 1);
+    const reopened = ProjectSites({state: {...state, sites: [{...draftSite("typed-site", "Typography", resource), printLayout: saved[0].printLayout}]}, refresh: async () => {}});
+    document.body.append(reopened);
+    const persisted = [...reopened.querySelectorAll(".project-positioned-layout")].find(node => field(node, "Advanced layout JSON")?.value.includes("1.3.0"));
+    assert.deepEqual(JSON.parse(field(persisted, "Advanced layout JSON").value), expected);
+  });
+
   it("saves old positioned layout versions without an implicit shape upgrade", async () => {
     const resource = {id: "60000000-0000-4000-8000-000000000001", slug: "unchanged-map",
       title: "Unchanged map", kind: "map", versionNumber: 1};
@@ -818,16 +852,21 @@ describe("publication project surfaces", () => {
       }]
     });
     file.dispatchEvent(new harness.dom.window.Event("change", {bubbles: true}));
-    await waitFor(() => /2\/3 elements retained/.test(surface.textContent));
+    await waitFor(() => /3\/3 elements retained/.test(surface.textContent));
 
     const advanced = [...surface.querySelectorAll("label")]
       .find((label) => label.querySelector("span")?.textContent === "Advanced layout JSON")
       ?.querySelector("textarea");
     const converted = JSON.parse(advanced.value);
-    assert.equal(converted.schemaVersion, "opengeo.print-layout.1.1.0");
-    assert.deepEqual(converted.pages[0].elements.map(({type}) => type), ["text", "map_frame"]);
+    assert.equal(converted.schemaVersion, "opengeo.print-layout.1.3.0");
+    assert.equal(converted.pages[0].elements[0].fontSize, 18);
+    assert.equal(converted.pages[0].elements[0].color, "#000000");
+    assert.deepEqual(converted.pages[0].elements.map(({type}) => type), ["text", "map_frame", "shape_frame"]);
     assert.equal(converted.pages[0].elements[1].resourceId, map.id);
-    assert.match(surface.textContent, /1 omitted; 6 declared differences/);
+    assert.equal(converted.pages[0].elements[2].shape, "rectangle");
+    assert.equal(converted.pages[0].elements[2].strokeWidth, 1);
+    assert.match(surface.textContent, /0 omitted;/);
+    assert.match(surface.textContent, /stroke_width_quantized/);
     const pageSize = [...surface.querySelectorAll("label")]
       .find((label) => label.querySelector("span")?.textContent === "Print page size")
       ?.querySelector("select");
@@ -1766,6 +1805,61 @@ describe("publication project surfaces", () => {
     await waitFor(() => panel.textContent.includes("project_membership_conflict"));
     assert.match(panel.textContent, /Project access was not changed/);
     assert.equal(update.disabled, false);
+  });
+
+  it("downloads all PNG pages from the sealed edition and cancels work when its surface closes", async () => {
+    const site = printSite("png-atlas", "PNG atlas", {});
+    site.state = "published";
+    site.pages[0].slug = "changed-draft";
+    site.activeEdition = {id: "70000000-0000-4000-8000-000000000001",
+      editionNumber: 3, publicationReach: "listed", listedSlug: "png-atlas",
+      manifestChecksumSha256: "a".repeat(64), manifest: {pages: [
+        {slug: "second", navigationLabel: "Second", position: 1},
+        {slug: "first", navigationLabel: "First", position: 0}
+      ]}};
+    const calls = [];
+    const url = () => "/retained-public-delivery";
+    const adapter = {kind: "api", listSites: async () => [site], publicSiteUrl: url, publicSiteExportUrl: url,
+      publicSitePrintUrl: url, publicSitePagePngUrl: url, publicSiteMapSheetUrl: url,
+      publicSiteEditionPagePngUrl: (organizationId, projectId, editionId, slug) =>
+        `https://api.example.test/public/organizations/${organizationId}/projects/${projectId}/site-editions/${editionId}/print/pages/${slug}.png`};
+    let settle;
+    const state = {organization: {id: IDS.organization, callerRole: "member"},
+      project: {id: IDS.project, name: "PNG atlas", callerRole: "viewer"},
+      sites: [site], resources: [], adapter,
+      downloadPublicationPngPages: async (plan, options) => {
+        calls.push({plan, options});
+        return {completion: new Promise((resolve, reject) => {
+          settle = resolve;
+          options.signal.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")), {once: true});
+        })};
+      }};
+    const surface = ProjectSites({state, refresh: async () => {}});
+    document.body.append(surface);
+    assert.equal(calls.length, 0, "opening the surface performs no export");
+    const start = findButton(surface, "Download all PNG pages");
+    start.click();
+    await waitFor(() => calls.length === 1);
+    assert.deepEqual(calls[0].plan.pages.map(page => page.slug), ["first", "second"]);
+    assert.ok(calls[0].plan.pages.every(page => page.url.includes(`/site-editions/${site.activeEdition.id}/`)));
+    assert.equal(calls[0].plan.manifestChecksumSha256, "a".repeat(64));
+    assert.equal(calls[0].plan.filename, "png-atlas-edition-3-png.zip");
+    assert.equal(start.disabled, true);
+    calls[0].options.onProgress({completedPages: 1, totalPages: 2, slug: "first"});
+    assert.match(surface.textContent, /Prepared 1 of 2 PNG pages/);
+    settle();
+    await waitFor(() => !start.disabled);
+    assert.match(surface.textContent, /All 2 PNG pages prepared for download/);
+    start.click();
+    await waitFor(() => calls.length === 2);
+    findButton(surface, "Cancel PNG download").click();
+    await waitFor(() => !start.disabled);
+    assert.equal(calls[1].options.signal.aborted, true);
+    assert.match(surface.textContent, /PNG download cancelled/);
+    start.click();
+    await waitFor(() => calls.length === 3);
+    surface.remove();
+    await waitFor(() => calls[2].options.signal.aborted);
   });
 
   it("exposes API-backed public, portable, print, and revocation actions for a sealed edition", async () => {

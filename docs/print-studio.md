@@ -2,6 +2,81 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Flow PDF headings and paragraphs — local work, November 9, 2026
+
+Ordinary flow layouts now retain typed heading levels 2–4 as `H2`–`H4` and
+each abstract/body paragraph as a separate `P`, including its wrapped lines.
+Unsupported or malformed heading levels remain paragraphs. Authored order,
+existing wrapping and the content limit are preserved; omitted overflow receives
+no unpainted semantic nodes. Site titles, resource details and footers keep their
+existing span treatment.
+
+Five affected actual-PDF cases pass, covering the three new flow cases, the
+checksum-bound map appendix and imported-page composition. Strict typing passes
+on the changed module. One representative before/current flow PDF has identical
+text, page geometry and 60-DPI Poppler pixels. This increment is qualified locally; hosted acceptance remains open. Existing flow truncation, broader Markdown/list/table
+structure, figures and actual assistive-technology evidence remain open. No PDF/UA
+conformance is claimed; this does not establish full Print-family parity.
+
+
+## Generated PDF headings and tables — local work, November 9, 2026
+
+PDF output now gives its page title an `H1` structure element. Positioned text
+uses the authored title/heading styles as `H1`/`H2`; other positioned text is one
+`P` containing its wrapped lines in authored order. Positioned tables retain a
+caption and `Table` → `TR` → `TH`/`TD` relationships. Header cells declare column
+scope, and blank cells remain present. The page ParentTree still binds every
+actual text MCID to its leaf and correct ancestry; table decoration is marked as
+artifact. This follows the structural approach described by
+[W3C PDF6](https://www.w3.org/WAI/WCAG22/Techniques/pdf/PDF6) and
+[PDF9](https://www.w3.org/WAI/WCAG22/Techniques/pdf/PDF9).
+
+Eight affected actual-PDF tests cover the new graph, imported tagged pages,
+existing rich layout, physical formatting and legacy schema behavior. The final
+three graph/version cases and strict typing pass on the current source; the five
+unchanged regression results are reused. Column-header
+scope was introduced in [PDF 1.5](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.5_v6.pdf),
+so exports now declare 1.5 only when emitting that attribute; other output retains
+1.4. Independent review approves the final source. One representative
+before/current A4-landscape PDF has identical extracted text, page geometry and
+Poppler-rendered pixels at 60 DPI. Earlier preparation timeouts and cumulative
+runtime remain recorded; no graphics or font calculations changed. This increment is qualified locally; hosted acceptance remains open. Full flow-block hierarchy, figure/list semantics,
+imported/OCR reading-order authority, actual assistive-technology acceptance,
+PDF/UA conformance and the wider Print-family requirements remain open.
+
+
+## Current Print additions — source preparation
+
+Published editions offer **Download all PNG pages**, using their exact sealed
+page order and edition identity. A browser stream downloads each PNG in turn
+into a stored ZIP with manifest, actual dimensions and locally calculated
+SHA-256 checksums. Cancellation stops later pages. The limits remain 64 pages,
+20 megapixels and 64 MiB per PNG, 3 GiB per ZIP, 45 seconds per page and one hour
+per download. Server checksums are verified when exposed; their absence is
+recorded honestly. No payload is stored in the offline shell cache.
+
+GeoMoose 3.15.2 import can retain supported rectangles and ellipses in source
+order. Width and geometry rounding, unsupported bounds/styles, inherited fill
+state and asynchronous legend order are reported rather than silently changed.
+The default converter contract stays 1.1; the governed import selects opt-in
+layout 1.3 to preserve text point size, RGB color and native baseline geometry.
+Older 1.0/1.1/1.2 layouts remain readable, with the empty default still 1.1.
+Visible text size/color controls deliberately upgrade a draft; adding a shape
+does not downgrade 1.3. Source font family and face substitution remain explicit.
+API, Studio and forward migration 0189 require coherent rollout; source
+qualification does not establish deployment or hosted persistence.
+
+Project Print literal text also offers real **Regular**, **Bold**, **Italic**
+and **Bold italic** Open Sans faces. The optional `fontFace` field is preserved
+in Project layouts and source-free JSON templates; untouched Regular text keeps
+its existing representation. Math uses its typesetter rather than this selector.
+Exact pinned font bytes supply preview measurement, self-contained SVG/HTML/PNG
+and embedded vector PDF. Standalone font payloads retain Apache-2.0 licensing and
+source notices. Glyph coverage is checked again after text edits even when the
+font assets are cached. Unknown faces and unsupported glyphs fail explicitly.
+QGIS interchange retains supported authored faces and reports remaining losses.
+Custom families, complex shaping and whole Print-family fidelity remain open.
+
 ## Positioned shapes — local acceptance
 
 Positioned Publications support line, rectangle and ellipse frames through the

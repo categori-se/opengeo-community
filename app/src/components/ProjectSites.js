@@ -2601,6 +2601,10 @@ function siteCard(state, refresh, site, {workspace = false} = {}) {
           true
         )
       );
+      if (Array.isArray(edition.manifest?.pages)
+        && typeof state.adapter.publicSiteEditionPagePngUrl === "function") {
+        actions.append(publicationPngDownloadControl(state, site));
+      }
       for (const page of site.pages) {
         actions.append(link(
           `Open whole-page PNG · ${page.navigationLabel}`,
@@ -2787,6 +2791,84 @@ function mergeSnapshotBindings(selected, manual) {
   }
   return result;
 }
+
+function publicationPngDownloadControl(state, site) {
+  const group = document.createElement("div");
+  group.className = "publication-png-download";
+  const start = button("Download all PNG pages");
+  const cancel = button("Cancel PNG download", "platform-button secondary");
+  cancel.hidden = true;
+  const status = text("p", "", "project-resource-feedback");
+  status.setAttribute("role", "status");
+  status.setAttribute("aria-live", "polite");
+  let controller = null;
+  cancel.addEventListener("click", () => controller?.abort());
+  start.addEventListener("click", async () => {
+    if (controller) return;
+    const edition = site.activeEdition;
+    const selected = new AbortController();
+    controller = selected;
+    start.disabled = true;
+    cancel.hidden = false;
+    status.textContent = "Preparing the PNG download…";
+    const observer = new group.ownerDocument.defaultView.MutationObserver(() => {
+      if (!group.isConnected || group.closest("[hidden]")) selected.abort();
+    });
+    observer.observe(group.ownerDocument.documentElement, {childList: true, subtree: true,
+      attributes: true, attributeFilter: ["hidden"]});
+    try {
+      const pages = [...edition.manifest.pages].sort((a, b) => a.position - b.position);
+      const plan = {
+        schemaVersion: "opengeo.publication-png-archive.1",
+        organizationId: state.organization.id,
+        projectId: state.project.id,
+        editionId: edition.id,
+        editionNumber: edition.editionNumber,
+        manifestChecksumSha256: edition.manifestChecksumSha256,
+        filename: `${site.slug}-edition-${edition.editionNumber}-png.zip`,
+        pages: pages.map(page => ({slug: page.slug, label: page.navigationLabel ?? page.slug,
+          url: state.adapter.publicSiteEditionPagePngUrl(
+            state.organization.id, state.project.id, edition.id, page.slug)}))
+      };
+      const begin = state.downloadPublicationPngPages
+        ?? (await import("../lib/publicationPngDownload.js")).startPublicationPngDownload;
+      if (selected.signal.aborted) throw new DOMException("Download cancelled", "AbortError");
+      const download = await begin(plan, {
+        signal: selected.signal,
+        onProgress: progress => {
+          if (!selected.signal.aborted && Number.isInteger(progress.completedPages)) {
+            status.textContent = `Prepared ${progress.completedPages} of ${pages.length} PNG pages…`;
+          }
+        },
+        onReady: ({url, filename}) => {
+          if (selected.signal.aborted || !group.isConnected) {
+            throw new DOMException("Download cancelled", "AbortError");
+          }
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          group.append(anchor);
+          try {anchor.click();} finally {anchor.remove();}
+        }
+      });
+      await download.completion;
+      if (!selected.signal.aborted) {
+        status.textContent = `All ${pages.length} PNG pages prepared for download.`;
+      }
+    } catch (error) {
+      status.textContent = selected.signal.aborted
+        ? "PNG download cancelled."
+        : `PNG download could not finish. ${error instanceof Error ? error.message : String(error)}`;
+    } finally {
+      observer.disconnect();
+      if (controller === selected) controller = null;
+      start.disabled = false;
+      cancel.hidden = true;
+    }
+  });
+  group.append(start, cancel, status);
+  return group;
+}
+
 
 function hasPublicSiteDelivery(adapter, listed) {
   const shared = [
@@ -3342,6 +3424,11 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   const strokeWidth = labeledInput("Outline width (pt)", "1", 2);
   Object.assign(strokeWidth.control, {type: "number", min: "1", max: "12", step: "1"});
   const shapeFields = [shapeKind, strokeColor, noStroke, fillColor, noFill, strokeWidth];
+  const textSize = labeledInput("Text size (pt)", "9", 8);
+  Object.assign(textSize.control, {type: "number", min: "1", max: "144", step: "any"});
+  const textColor = labeledInput("Text color", "#172026", 7);
+  textColor.control.type = "color";
+  const textFields = [textSize, textColor];
   const apply = button("Apply frame changes");
   const rotateLeft = button("Rotate −15°", "platform-button secondary");
   const rotateRight = button("Rotate +15°", "platform-button secondary");
@@ -3358,6 +3445,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     clip.label,
     fit.label,
     ...shapeFields.map((field) => field.label),
+    ...textFields.map((field) => field.label),
     inspectorActions
   );
   const feedback = text(
@@ -3404,7 +3492,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     conversionReport.hidden = false;
     conversionReport.open = true;
   };
-  const richLayout = (layout) => ["opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0"].includes(layout.schemaVersion);
+  const richLayout = (layout) => ["opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0", "opengeo.print-layout.1.3.0"].includes(layout.schemaVersion);
   const pagePoints = () => {
     const dimensions = {a4: [595.276, 841.89], letter: [612, 792], legal: [612, 1008],
       tabloid: [792, 1224], a3: [841.89, 1190.551], a2: [1190.551, 1683.78],
@@ -3413,6 +3501,20 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     return printControls.printOrientation.control.value === "landscape" ? [...points].reverse() : points;
   };
 
+  const semanticTextSize = element => ({title: 19, heading: 14, body: 9, note: 8, attribution: 7}[element.style] ?? 9);
+  const upgradeTextLayout = layout => {
+    for (const page of layout.pages) for (const element of page.elements) {
+      if (layout.schemaVersion === "opengeo.print-layout.1.0.0") {
+        Object.assign(element, {rotation: 0, clip: true});
+        if (element.type === "map_frame") element.fit = "contain";
+      }
+      if (element.type === "text") {
+        element.fontSize ??= semanticTextSize(element);
+        element.color ??= "#172026";
+      }
+    }
+    layout.schemaVersion = "opengeo.print-layout.1.3.0";
+  };
   const selectedRows = () => rows.filter((row) => row.include.checked);
   const allowedSlugs = () => new Set(selectedRows().map((row) => siteSlug(row.resource.slug)));
   const rawLayout = () => (
@@ -3434,7 +3536,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   const editSelected = (change) => {
     const layout = rawLayout();
     if (!richLayout(layout)) {
-      throw new TypeError("visual edits require a 1.1 or 1.2 layout; insert a new starter to upgrade");
+      throw new TypeError("visual edits require a 1.1, 1.2 or 1.3 layout; insert a new starter to upgrade");
     }
     const target = findSelected(layout);
     if (!target) throw new TypeError("select a frame first");
@@ -3446,11 +3548,16 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     const target = findSelected(layout);
     inspector.disabled = !target;
     for (const field of shapeFields) field.label.hidden = target?.element.type !== "shape_frame";
+    for (const field of textFields) field.label.hidden = target?.element.type !== "text";
     if (!target) {
       selectedSummary.textContent = "Select a frame to edit it.";
       return;
     }
     const {element} = target;
+    if (element.type === "text") {
+      textSize.control.value = String(element.fontSize ?? semanticTextSize(element));
+      textColor.control.value = element.color ?? "#172026";
+    }
     selectedSummary.textContent = `${element.id} · ${element.type} · Frame ${target.page.elements.indexOf(element) + 1} of ${target.page.elements.length}. Arrow keys move by 10 units; Shift + arrows move by 1.`;
     for (const name of ["x", "y", "width", "height", "rotation"]) {
       geometry[name].control.value = String(element[name] ?? 0);
@@ -3610,6 +3717,31 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
           svg.append(graphic);
           selectFrame.replaceChildren(svg);
         }
+        if (element.type === "text" && layout.schemaVersion === "opengeo.print-layout.1.3.0") {
+          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          const width = paperWidth * element.width / 1000, height = paperHeight * element.height / 1000;
+          svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+          svg.setAttribute("preserveAspectRatio", "none"); svg.setAttribute("aria-hidden", "true");
+          Object.assign(svg.style, {width: "100%", height: "100%", display: "block", overflow: element.clip ? "hidden" : "visible", pointerEvents: "none"});
+          const glyphs = document.createElementNS("http://www.w3.org/2000/svg", "text");
+          glyphs.setAttribute("x", "0"); glyphs.setAttribute("y", String(element.fontSize));
+          glyphs.setAttribute("font-size", String(element.fontSize)); glyphs.setAttribute("fill", element.color);
+          glyphs.setAttribute("font-family", "monospace");
+          const capacity = Math.max(1, Math.floor(width / (element.fontSize * 0.5)));
+          const lines = []; let line = "";
+          for (const word of element.text.split(/\s+/)) {
+            if (line && line.length + word.length + 1 > capacity) { lines.push(line); line = ""; }
+            line += (line ? " " : "") + word;
+          }
+          if (line) lines.push(line);
+          lines.forEach((value, index) => {
+            const span = document.createElementNS("http://www.w3.org/2000/svg", "tspan");
+            span.setAttribute("x", "0"); span.setAttribute("y", String(element.fontSize * (1 + index * 1.35)));
+            span.textContent = value; glyphs.append(span);
+          });
+          svg.append(glyphs); selectFrame.style.padding = "0"; selectFrame.style.overflow = element.clip ? "hidden" : "visible";
+          selectFrame.replaceChildren(svg); selectFrame.ariaLabel = `Select and move ${element.id}: ${element.text}`;
+        }
         selectFrame.addEventListener("click", () => {
           selected = {pageSlug: page.sitePageSlug, elementId: element.id};
           renderPreview();
@@ -3673,6 +3805,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
         throw new TypeError("selected map page changed during import");
       }
       const converted = convertGeoMoosePrintLayout(JSON.parse(content), {
+        targetSchemaVersion: "opengeo.print-layout.1.3.0",
         sitePageSlug: siteSlug(mapRow.resource.slug),
         mapResourceId: mapRow.resource.id,
         title: mapRow.resource.title,
@@ -3699,7 +3832,10 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
   });
   apply.addEventListener("click", () => {
     try {
-      editSelected((element) => {
+      editSelected((element, _page, layout) => {
+        if (element.type === "text" && layout.schemaVersion === "opengeo.print-layout.1.3.0") {
+          element.fontSize = Number(textSize.control.value); element.color = textColor.control.value.toLowerCase();
+        }
         for (const name of ["x", "y", "width", "height", "rotation"]) {
           element[name] = controlValue(geometry[name]);
         }
@@ -3711,6 +3847,16 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     } catch (error) {
       feedback.textContent = `Frame needs attention (${error?.message ?? "invalid_frame"}).`;
     }
+  });
+  for (const field of textFields) field.control.addEventListener("change", () => {
+    try {
+      const layout = rawLayout(), target = findSelected(layout);
+      if (target?.element.type !== "text") throw new TypeError("select a text frame first");
+      upgradeTextLayout(layout);
+      target.element.fontSize = Number(textSize.control.value);
+      target.element.color = textColor.control.value.toLowerCase();
+      writeLayout(layout); renderPreview();
+    } catch (error) { feedback.textContent = `Text needs attention (${error?.message ?? "invalid_text"}).`; }
   });
   const shapeValues = () => ({shape: shapeKind.control.value,
     stroke: shapeKind.control.value === "line" || !noStroke.control.checked ? strokeColor.control.value : null,
@@ -3804,9 +3950,9 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
           if (element.type === "map_frame") element.fit = "contain";
         }
       } else if (!richLayout(layout)) {
-        throw new TypeError("new frames require a 1.1 or 1.2 layout");
+        throw new TypeError("new frames require a 1.1, 1.2 or 1.3 layout");
       }
-      if (shape) layout.schemaVersion = "opengeo.print-layout.1.2.0";
+      if (shape && layout.schemaVersion !== "opengeo.print-layout.1.3.0") layout.schemaVersion = "opengeo.print-layout.1.2.0";
       let page = layout.pages.find(({sitePageSlug}) => sitePageSlug === pageChoice.control.value);
       if (!page) {
         const pageSlug = selectedRows()[0] && siteSlug(selectedRows()[0].resource.slug);
@@ -3831,7 +3977,8 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
       };
       if (type === "shape_frame") Object.assign(element, {shape, stroke: "#172026",
         fill: shape === "line" ? null : "#e6eef2", strokeWidth: 1});
-      else if (type === "text") Object.assign(element, {text: binding || "New print content", style: "body"});
+      else if (type === "text") Object.assign(element, {text: binding || "New print content", style: "body",
+        ...(layout.schemaVersion === "opengeo.print-layout.1.3.0" ? {fontSize: 9, color: "#172026"} : {})});
       else if (type === "map_frame") Object.assign(element, {resourceId: binding, fit: "contain"});
       else if (type === "image_frame") Object.assign(element, {blockId: binding, fit: "contain"});
       else if (["table_frame", "chart_frame"].includes(type)) element.blockId = binding;

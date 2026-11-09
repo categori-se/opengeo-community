@@ -1025,3 +1025,111 @@ def test_vector_pdf_requires_exact_sealed_body_and_derived_key() -> None:
     publication = replace(publication, assets=(replace(asset, object_key="original/source.pdf"),))
     with pytest.raises(SitePrintError, match="site_print_vector_document_not_sealed"):
         build_print_pdf(publication, {}, {asset.object_id: body})
+
+
+def test_formatted_text_pdf_preserves_physical_fractional_size_color_and_baseline() -> None:
+    publication = published_site()
+    element = {
+        "id": "typed",
+        "type": "text",
+        "x": 100,
+        "y": 100,
+        "width": 800,
+        "height": 200,
+        "rotation": 0,
+        "clip": True,
+        "text": "Point color",
+        "style": "title",
+        "fontSize": 12.375,
+        "color": "#336699",
+    }
+    layout = {
+        "schemaVersion": "opengeo.print-layout.1.3.0",
+        "pages": [{"sitePageSlug": "findings", "elements": [element]}],
+    }
+    publication = replace(
+        publication,
+        site=replace(
+            publication.site,
+            print_layout=layout,
+            theme_options={"printPageSize": "letter", "printOrientation": "portrait"},
+        ),
+    )
+    pdf = build_print_pdf(publication, {})
+    assert b"12.375 Tf" in pdf
+    assert b"0.20000000 0.40000000 0.60000000 rg" in pdf
+    assert b"BT 61.2 700.425 Td" in pdf  # top=79.2pt; baseline=top+12.375pt, with no inset.
+    assert_pdf_maps_text(pdf, "Point color")
+
+
+def test_formatted_png_uses_full_bitmap_rows_fractional_em_and_exact_rgb(monkeypatch) -> None:
+    from opengeo_api import site_print
+    from opengeo_api.print_fonts import BitmapGlyph
+
+    # A fully painted EM makes exact physical bounds independent of installed font art.
+    monkeypatch.setattr(
+        site_print, "configured_unifont", lambda: {ord("A"): BitmapGlyph(8, (255,) * 16)}
+    )
+    fonts = site_print._PdfFontCatalog()
+    element = PrintLayoutElement(
+        "typed",
+        "text",
+        0,
+        0,
+        1000,
+        1000,
+        text="AA",
+        style="body",
+        font_size=12.375,
+        color="#336699",
+        clip=True,
+    )
+    canvas = bytearray(b"\xff" * 80 * 80 * 3)
+    site_print._draw_formatted_text(canvas, 80, 80, element, 10, 10, 60, 40, fonts)
+    painted = [
+        (index // 3 % 80, index // (80 * 3))
+        for index in range(0, len(canvas), 3)
+        if bytes(canvas[index : index + 3]) == bytes((51, 102, 153))
+    ]
+    # 12.375pt =16.5px EM: two half-width glyphs occupy16px, no integer preset scaling.
+    assert (min(x for x, _ in painted), max(x for x, _ in painted)) == (10, 25)
+    assert (min(y for _, y in painted), max(y for _, y in painted)) == (12, 28)
+    assert {bytes(canvas[i : i + 3]) for i in range(0, len(canvas), 3)} == {
+        b"\xff\xff\xff",
+        b"\x33\x66\x99",
+    }
+
+
+def test_old_text_rendering_remains_identical_between_unchanged_legacy_schemas() -> None:
+    publication = published_site()
+    base = {
+        "id": "old",
+        "type": "text",
+        "x": 50,
+        "y": 50,
+        "width": 900,
+        "height": 200,
+        "rotation": 0,
+        "clip": True,
+        "text": "Existing text",
+        "style": "heading",
+    }
+
+    def with_version(version):
+        return replace(
+            publication,
+            site=replace(
+                publication.site,
+                print_layout={
+                    "schemaVersion": version,
+                    "pages": [{"sitePageSlug": "findings", "elements": [base]}],
+                },
+            ),
+        )
+
+    old, shapes = (
+        with_version("opengeo.print-layout.1.1.0"),
+        with_version("opengeo.print-layout.1.2.0"),
+    )
+    assert build_print_pdf(old, {}) == build_print_pdf(shapes, {})
+    assert build_print_page_png(old, "findings", {}) == build_print_page_png(shapes, "findings", {})

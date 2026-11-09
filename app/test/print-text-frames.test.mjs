@@ -224,3 +224,41 @@ test("text geometry moves, resizes, aligns and snaps against map, data and other
   assert.equal(resizePrintFrame(layout, "data-original", {widthMm: 1, heightMm: 1}).heightMm, 20);
   assert.deepEqual(layout, before);
 });
+
+test("optional literal text faces preserve old JSON and survive template/save/reopen without style aliases", () => {
+  const original = frame(), before = structuredClone(original);
+  assert.deepEqual(validatePrintTextFrames([original], page), [before]);
+  assert.equal(Object.hasOwn(validatePrintTextFrames([original], page)[0], "fontFace"), false);
+  for (const fontFace of ["regular", "bold", "italic", "bolditalic"]) {
+    const value = frame({fontFace}), checked = validatePrintTextFrames([value], page);
+    assert.equal(checked[0].fontFace, fontFace); assert.deepEqual(value, frame({fontFace}));
+    const {map, layout, collection} = fixture(); layout.textFrames = [value];
+    const saved = JSON.parse(JSON.stringify(collection));
+    assert.equal(validateProjectPrintLayouts(saved, map).layouts[0].textFrames[0].fontFace, fontFace);
+    const template = templateFromLayout(layout, "Real text faces", "styled-template");
+    assert.equal(validatePrintTemplate(JSON.parse(JSON.stringify(template))).textFrames[0].fontFace, fontFace);
+    const reopened = layoutFromTemplate(template, map, "reopened");
+    assert.equal(reopened.textFrames[0].fontFace, fontFace);
+  }
+  const {layout} = fixture(), oldTemplate = templateFromLayout(layout, "Old text", "old-template");
+  assert.equal(Object.hasOwn(oldTemplate.textFrames[0], "fontFace"), false);
+  for (const fontFace of [null, undefined, false, 700, "Bold", "oblique", "url(https://bad.example/font)"]) {
+    assert.throws(() => validatePrintTextFrames([frame({fontFace})], page), /face/);
+  }
+  assert.throws(() => validatePrintTextFrames([frame({type: "math", fontFace: "regular"})], page), /face|typesetter/);
+  const hidden = frame();Object.defineProperty(hidden, "fontFace", {value: "bold"});
+  assert.throws(() => validatePrintTextFrames([hidden], page), /fields/);
+  const accessor = frame();Object.defineProperty(accessor, "fontFace", {enumerable: true, get() {throw Error("getter executed");}});
+  assert.throws(() => validatePrintTextFrames([accessor], page), error => !/getter executed/.test(error.message));
+});
+
+test("layout measurement receives the selected real face for every line-wrap decision", () => {
+  const measured = [];
+  const value = frame({fontFace: "bolditalic", text: "Measured words", alignment: "right"});
+  const result = layoutPrintTextFrame(value, (text, size, face) => {measured.push({text, size, face});return text.length * size * 0.7;});
+  assert(measured.length > 1);assert(measured.every(value => value.face === "bolditalic"));
+  assert.equal(result.lines[0].text, value.text);
+  const defaults = [];
+  layoutPrintTextFrame(frame(), (_text, _size, face) => {defaults.push(face);return 1;});
+  assert(defaults.every(face => face === "regular"));
+});

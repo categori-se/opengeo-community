@@ -238,6 +238,44 @@ function loss(index, type, code, detail) {
   return {sourceElementIndex: index, sourceType: type, code, detail};
 }
 
+// Pinned GeoMoose 3.15.2 printModal.js addDrawing: rect uses its top-left,
+// ellipse its centre/radii; PDF coordinates AND line width use layout units.
+// The upstream omitted-width expression is toPoints(1, "px") == 96/72 in
+// those units, not a conventional 0.75pt browser pixel.
+function drawingFrame(element, index, scale, pageWidthMm, pageHeightMm, losses) {
+  const omit = (code, detail) => { losses.push(loss(index, element.type, code, detail)); return null; };
+  const source = element.type === "ellipse"
+    ? {x: (element.x - element.rx) * scale, y: (element.y - element.ry) * scale,
+      width: 2 * element.rx * scale, height: 2 * element.ry * scale}
+    : {x: element.x * scale, y: element.y * scale, width: element.width * scale, height: element.height * scale};
+  const geometry = {x: Math.round(source.x / pageWidthMm * 1000), y: Math.round(source.y / pageHeightMm * 1000),
+    width: Math.round(source.width / pageWidthMm * 1000), height: Math.round(source.height / pageHeightMm * 1000)};
+  if (source.x < 0 || source.y < 0 || source.x + source.width > pageWidthMm + 1e-9
+    || source.y + source.height > pageHeightMm + 1e-9 || geometry.width < 10 || geometry.height < 10
+    || geometry.x < 0 || geometry.y < 0 || geometry.x + geometry.width > 1000 || geometry.y + geometry.height > 1000) {
+    return omit("drawing_omitted_bounds", "The drawing or its normalized minimum-size frame cannot fit the page without clipping or enlarging its geometry; it was omitted without clamping.");
+  }
+  const sourceWidth = element.strokeWidth ?? (96 / 72);
+  const widthPoints = sourceWidth * scale * 72 / 25.4;
+  const outlined = sourceWidth > 0;
+  if (!outlined && !element.filled) {
+    return omit("drawing_omitted_fill_state", "GeoMoose fills a zero-width, unfilled drawing with inherited jsPDF fill state and ignores its fill field. That runtime state is unavailable; the drawing was omitted rather than inventing a color.");
+  }
+  const strokeWidth = outlined ? Math.round(widthPoints) : 1;
+  if (outlined && (strokeWidth < 1 || strokeWidth > 12)) {
+    return omit("drawing_omitted_stroke_width", `The ${Number(widthPoints.toPrecision(12))}pt source outline is outside the canonical integer 1–12pt range; it was omitted without clamping.`);
+  }
+  const hex = rgb => "#" + rgb.map(component => component.toString(16).padStart(2, "0")).join("");
+  const stroke = outlined ? hex(element.stroke ?? [0, 0, 0]) : null;
+  const fill = !outlined || element.filled ? hex(element.fill ?? [255, 255, 255]) : null;
+  if (outlined && Math.abs(widthPoints - strokeWidth) > 1e-9) losses.push(loss(index, element.type,
+    "stroke_width_quantized", `The ${Number(widthPoints.toPrecision(12))}pt source outline (${sourceWidth} layout units) was rounded to ${strokeWidth}pt; exact source thickness is not retained.`));
+  if (Object.keys(geometry).some(key => Math.abs(geometry[key] - source[key] / (key === "x" || key === "width" ? pageWidthMm : pageHeightMm) * 1000) > 1e-9)) {
+    losses.push(loss(index, element.type, "drawing_geometry_quantized", "Drawing edges were rounded to integer thousandths of page width/height; no bounds or minimum-size clamping was applied."));
+  }
+  return {...geometry, rotation: 0, clip: false, shape: element.type === "rect" ? "rectangle" : "ellipse", stroke, fill, strokeWidth};
+}
+
 /**
  * Convert one bounded GeoMoose 3.15.2 print-layout object into OpenGeo's sealed,
  * normalized positioned-page contract. This function never reads image bytes,
@@ -248,8 +286,11 @@ export function convertGeoMoosePrintLayout(value, {
   mapResourceId,
   title = "Untitled map",
   printedOn = null,
-  imageBlockIds = {}
+  imageBlockIds = {},
+  targetSchemaVersion = "opengeo.print-layout.1.1.0"
 } = {}) {
+  if (!["opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0", "opengeo.print-layout.1.3.0"].includes(targetSchemaVersion)) invalid("target schema version is unsupported");
+  const formattedText = targetSchemaVersion === "opengeo.print-layout.1.3.0";
   const sourceBytes = byteLength(value);
   const source = plainObject(value, "document");
   exactKeys(source, new Set(["label", "orientation", "page", "units", "elements"]), "document");
@@ -288,7 +329,7 @@ export function convertGeoMoosePrintLayout(value, {
   const output = [];
   const outcomes = [];
   const losses = [];
-  const counts = {map: 0, text: 0, legend: 0, image: 0};
+  const counts = {map: 0, text: 0, legend: 0, image: 0, shape: 0};
   const target = (type, geometry, binding = {}) => {
     const id = `${type.replace("_frame", "")}_${++counts[type.replace("_frame", "")]}`;
     return {id, type, ...geometry, ...binding};
@@ -316,21 +357,26 @@ export function convertGeoMoosePrintLayout(value, {
     } else if (element.type === "text") {
       const substitution = substituteText(element.text, safeTitle, printedOn);
       const lineHeightMm = element.size * 25.4 / 72 * 1.35;
-      const topMm = Math.max(0, element.y * scale - lineHeightMm);
+      const topMm = formattedText ? element.y * scale - element.size * 25.4 / 72
+        : Math.max(0, element.y * scale - lineHeightMm);
       // Native GeoMoose text has no box width; semantic font substitution must not clip it to guessed glyph metrics.
       const remainingWidthMm = pageWidthMm - element.x * scale;
-      const converted = target(
-        "text",
-        frame(
-          element.x * scale,
-          topMm,
-          remainingWidthMm,
-          lineHeightMm,
-          pageWidthMm,
-          pageHeightMm
-        ),
-        {text: substitution.text, style: textStyle(element)}
-      );
+      let geometry;
+      if (formattedText) {
+        const x = Math.round(element.x * scale / pageWidthMm * 1000);
+        const y = Math.round(topMm / pageHeightMm * 1000);
+        const height = Math.max(10, Math.round(lineHeightMm / pageHeightMm * 1000));
+        if (topMm < 0 || element.x * scale >= pageWidthMm || topMm + lineHeightMm > pageHeightMm
+          || 1000 - x < 10 || y < 0 || y + height > 1000) invalid("text frame falls outside its page");
+        geometry = {x, y, width: 1000 - x, height, rotation: 0, clip: true};
+        if (Math.abs(x - element.x * scale / pageWidthMm * 1000) > 1e-9
+          || Math.abs(y - topMm / pageHeightMm * 1000) > 1e-9
+          || Math.abs(height - lineHeightMm / pageHeightMm * 1000) > 1e-9) losses.push(loss(index, element.type,
+          "text_geometry_quantized", "The native baseline was converted to an EM-top frame; coordinates and 1.35-leading height were rounded to integer thousandths, with the contract's minimum height of 10. No top or page-edge clamping was applied."));
+      } else geometry = frame(element.x * scale, topMm, remainingWidthMm, lineHeightMm, pageWidthMm, pageHeightMm);
+      const converted = target("text", geometry,
+        {text: substitution.text, style: textStyle(element), ...(formattedText ? {fontSize: element.size,
+          color: "#" + element.color.map(component => component.toString(16).padStart(2, "0")).join("")} : {})});
       output.push(converted);
       targetIds.push(converted.id);
       if (substitution.unresolved.length) {
@@ -341,8 +387,10 @@ export function convertGeoMoosePrintLayout(value, {
           `OpenGeo Studio retained unsupported template tokens literally: ${substitution.unresolved.join(", ")}.`
         ));
       }
-      if (element.size !== 13 || element.font !== "NotoSans"
-        || element.fontStyle !== "regular" || element.color.some((value) => value !== 0)) {
+      if (formattedText) losses.push(loss(index, element.type, "text_font_substituted",
+        `Source font ${element.font} / ${element.fontStyle} uses the target's Unifont metrics; font family, bold and italic fidelity are not retained. Physical point size and RGB color are retained.`));
+      if (!formattedText && (element.size !== 13 || element.font !== "NotoSans"
+        || element.fontStyle !== "regular" || element.color.some((value) => value !== 0))) {
         losses.push(loss(
           index,
           element.type,
@@ -400,6 +448,13 @@ export function convertGeoMoosePrintLayout(value, {
           "The image was omitted because no sealed content-block binding with explicit dimensions was supplied."
         ));
       }
+    } else if (["opengeo.print-layout.1.2.0", "opengeo.print-layout.1.3.0"].includes(targetSchemaVersion)) {
+      const drawing = drawingFrame(element, index, scale, pageWidthMm, pageHeightMm, losses);
+      if (drawing) {
+        const converted = target("shape_frame", drawing);
+        output.push(converted);
+        targetIds.push(converted.id);
+      }
     } else {
       losses.push(loss(
         index,
@@ -420,7 +475,7 @@ export function convertGeoMoosePrintLayout(value, {
   }
   return {
     printLayout: {
-      schemaVersion: "opengeo.print-layout.1.1.0",
+      schemaVersion: targetSchemaVersion,
       pages: [{sitePageSlug: slug, elements: output}]
     },
     themeOptions: {
@@ -444,6 +499,11 @@ export function convertGeoMoosePrintLayout(value, {
       sourceElementOutcomes: outcomes,
       losses,
       externalContextLosses: [
+        ...(["opengeo.print-layout.1.2.0", "opengeo.print-layout.1.3.0"].includes(targetSchemaVersion) && output.some(({type}) => type === "shape_frame")
+          && elements.some(({type}) => type === "legend") ? [{
+            code: "legend_async_paint_order_not_converted",
+            detail: "Source array order is retained. GeoMoose paints asynchronous legend images after ordinary drawings; that runtime paint order is not reproduced."
+          }] : []),
         {
           code: "runtime_resolution_not_converted",
           detail: "GeoMoose's interactive print-resolution multiplier is runtime state outside the layout object."
@@ -458,7 +518,7 @@ export function convertGeoMoosePrintLayout(value, {
         },
         {
           code: "geopdf_extent_not_converted",
-          detail: "GeoMoose's jsPDF GeoArea extent is not represented by OpenGeo Studio print-layout 1.1."
+          detail: `GeoMoose's jsPDF GeoArea extent is not represented by OpenGeo Studio print-layout ${targetSchemaVersion.replace("opengeo.print-layout.", "").replace(/\.0$/, "")}.`
         }
       ],
       networkRequests: 0,

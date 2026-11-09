@@ -1,5 +1,6 @@
 // Text and LaTeX source are data: no executable expression or external asset fields.
 export const PRINT_TEXT_FRAME_KEYS = ["id", "type", "title", "text", "xMm", "yMm", "widthMm", "heightMm", "fontSizePt", "color", "background", "alignment"];
+export const PRINT_TEXT_FONT_FACES = Object.freeze(["regular", "bold", "italic", "bolditalic"]);
 const forbiddenControls = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u2028\u2029]/u;
 
 /**
@@ -90,7 +91,7 @@ export function layoutPrintTextFrame(frame, measureWidth = (text, fontSizeMm) =>
   const fontSizeMm = frame.fontSizePt * 25.4 / 72, lineHeightMm = fontSizeMm * 1.3;
   const innerWidth = frame.widthMm - 2, innerHeight = frame.heightMm - 2;
   const measure = text => {
-    const width = measureWidth(text, fontSizeMm);
+    const width = measureWidth(text, fontSizeMm, frame.fontFace ?? "regular");
     if (typeof width !== "number" || !Number.isFinite(width) || width < 0) throw Error("Print text measurement must be a finite nonnegative width.");
     return width;
   };
@@ -122,12 +123,15 @@ export function layoutPrintTextFrame(frame, measureWidth = (text, fontSizeMm) =>
 }
 
 function validateFrame(frame) {
+  const hasFace = frame != null && Object.hasOwn(frame, "fontFace");
+  const keys = hasFace ? [...PRINT_TEXT_FRAME_KEYS, "fontFace"] : PRINT_TEXT_FRAME_KEYS;
   if (!frame || typeof frame !== "object" || Array.isArray(frame) || ![Object.prototype, null].includes(Object.getPrototypeOf(frame))
-    || Reflect.ownKeys(frame).length !== PRINT_TEXT_FRAME_KEYS.length
-    || Reflect.ownKeys(frame).some(key => typeof key !== "string" || !PRINT_TEXT_FRAME_KEYS.includes(key)
+    || Reflect.ownKeys(frame).length !== keys.length
+    || Reflect.ownKeys(frame).some(key => typeof key !== "string" || !keys.includes(key)
       || !Object.getOwnPropertyDescriptor(frame, key)?.enumerable || !Object.hasOwn(Object.getOwnPropertyDescriptor(frame, key), "value"))) throw Error("Invalid or unsupported Print text frame fields.");
   text(frame.id, 100);text(frame.title, 200);text(frame.text, 4000, true, true);
   if (!["text", "math"].includes(frame.type)) throw Error("Choose a literal Print text or math frame.");
+  if (hasFace && (frame.type !== "text" || !PRINT_TEXT_FONT_FACES.includes(frame.fontFace))) throw Error("Choose a supported literal text face; equation fonts are controlled by the typesetter.");
   number(frame.xMm, 0, 1189);number(frame.yMm, 0, 1189);
   number(frame.widthMm, 10, 1189);number(frame.heightMm, 5, 1189);
   number(frame.fontSizePt, 6, 48);

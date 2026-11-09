@@ -12515,7 +12515,8 @@ function parseSiteThemeOptions(value) {
 export function parseSitePrintLayout(value, allowedPageSlugs = null) {
   const raw = boundedObject(value, 32_768, "project site.print_layout");
   const legacy = raw.schemaVersion === "opengeo.print-layout.1.0.0";
-  const shapes = raw.schemaVersion === "opengeo.print-layout.1.2.0";
+  const formattedText = raw.schemaVersion === "opengeo.print-layout.1.3.0";
+  const shapes = formattedText || raw.schemaVersion === "opengeo.print-layout.1.2.0";
   if (Object.keys(raw).length !== 2
     || (!legacy && !shapes && raw.schemaVersion !== "opengeo.print-layout.1.1.0")
     || !Array.isArray(raw.pages)
@@ -12560,7 +12561,7 @@ export function parseSitePrintLayout(value, allowedPageSlugs = null) {
       const allowedKeys = type === "map_frame"
         ? [...commonKeys, "resourceId", ...(legacy ? [] : ["fit"])]
         : type === "text"
-          ? [...commonKeys, "text", "style"]
+          ? [...commonKeys, "text", "style", ...(formattedText ? ["fontSize", "color"] : [])]
           : type === "shape_frame"
             ? [...commonKeys, "shape", "stroke", "fill", "strokeWidth"]
           : ["image_frame", "table_frame", "chart_frame"].includes(type)
@@ -12633,6 +12634,9 @@ export function parseSitePrintLayout(value, allowedPageSlugs = null) {
         };
       }
       if (type === "text") {
+        if (formattedText && (typeof element.fontSize !== "number" || !Number.isFinite(element.fontSize)
+          || element.fontSize < 1 || element.fontSize > 144 || typeof element.color !== "string"
+          || !/^#[0-9a-f]{6}$/.test(element.color))) contract("project site print text formatting is invalid");
         const text = boundedString(element.text, 1_000, "project site print layout text");
         if (!text.length || text !== text.trim()) {
           contract("project site print layout text is invalid");
@@ -12644,7 +12648,8 @@ export function parseSitePrintLayout(value, allowedPageSlugs = null) {
             element.style,
             ["title", "heading", "body", "note", "attribution"],
             "project site print layout text style"
-          )
+          ),
+          ...(formattedText ? {fontSize: element.fontSize, color: element.color} : {})
         };
       }
       if (typeof element.mapFrameId !== "string"

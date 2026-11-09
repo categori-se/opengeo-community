@@ -222,6 +222,9 @@ describe("0025 portable site publications", () => {
     await db.exec(await readFile(new URL(
       "../migrations/0188_positioned_publication_shapes.sql", import.meta.url
     ), "utf8"));
+    await db.exec(await readFile(new URL(
+      "../migrations/0189_positioned_text_formatting.sql", import.meta.url
+    ), "utf8"));
     await db.exec(`
       INSERT INTO app.users (id, cognito_subject, email, display_name)
       VALUES
@@ -1175,17 +1178,64 @@ describe("0025 portable site publications", () => {
     assert.equal(await accepted(nullStyle), false, "null ordinary-frame style in new schema");
   });
 
-  it("saves and reopens shape layouts under tenant boundaries and keeps edition media gates", async () => {
-    const create = async (suffix, extraImage) => {
+  it("validates opt-in text size and color without weakening prior schemas or frame fields", async () => {
+    const text = {id: "caption", type: "text", x: 20, y: 30, width: 400, height: 100,
+      rotation: 0, clip: false, text: "Exact text styling", style: "body", fontSize: 18.25, color: "#123abc"};
+    const layout = {schemaVersion: "opengeo.print-layout.1.3.0",
+      pages: [{sitePageSlug: "findings", elements: [text]}]};
+    const accepted = value => db.query(
+      "SELECT app.project_site_print_layout_valid($1::jsonb) AS accepted", [JSON.stringify(value)]
+    ).then(result => result.rows[0].accepted);
+    for (const fontSize of [1, 1.125, 18.25, 144]) {
+      const value = structuredClone(layout); value.pages[0].elements[0].fontSize = fontSize;
+      assert.equal(await accepted(value), true, `font size ${fontSize}`);
+    }
+    for (const change of [
+      {fontSize: 0.999}, {fontSize: 144.001}, {fontSize: -1}, {fontSize: 1e308},
+      {fontSize: true}, {fontSize: null}, {fontSize: "18"}, {fontSize: "NaN"},
+      {fontSize: "Infinity"}, {fontSize: "-Infinity"},
+      {color: "#123ABC"}, {color: "#123"}, {color: "red"}, {color: "url(https://bad.example)"},
+      {color: null}, {color: true}, {remoteUrl: "https://bad.example"}, {style: null}, {width: 1001}
+    ]) {
+      const value = structuredClone(layout); Object.assign(value.pages[0].elements[0], change);
+      assert.equal(await accepted(value), false, JSON.stringify(change));
+    }
+    for (const missing of ["fontSize", "color"]) {
+      const value = structuredClone(layout); delete value.pages[0].elements[0][missing];
+      assert.equal(await accepted(value), false, `missing ${missing}`);
+    }
+    for (const schemaVersion of ["opengeo.print-layout.1.0.0", "opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0"]) {
+      assert.equal(await accepted({...layout, schemaVersion}), false, "new keys require explicit opt-in");
+    }
+    for (const schemaVersion of ["opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0"]) {
+      const legacy = structuredClone(layout); legacy.schemaVersion = schemaVersion;
+      delete legacy.pages[0].elements[0].fontSize; delete legacy.pages[0].elements[0].color;
+      assert.equal(await accepted(legacy), true, "old text remains valid without formatting keys");
+    }
+    const shape = structuredClone(layout);
+    shape.pages[0].elements = [{id: "border", type: "shape_frame", x: 0, y: 0, width: 100,
+      height: 100, rotation: 0, clip: false, shape: "rectangle", stroke: "#123abc", fill: null,
+      strokeWidth: 1, fontSize: 18, color: "#123abc"}];
+    assert.equal(await accepted(shape), false, "text-only fields cannot leak onto other frame types");
+    const defaultLayout = await db.query(`SELECT column_default FROM information_schema.columns
+      WHERE table_schema='app' AND table_name='project_site_versions' AND column_name='print_layout'`);
+    assert.match(defaultLayout.rows[0].column_default, /opengeo\.print-layout\.1\.1\.0/);
+  });
+
+  it("saves and reopens opt-in shapes and text under tenant boundaries and keeps edition media gates", async () => {
+    const create = async (suffix, extraImage, textFormatting = false) => {
       const id = prefix => `${prefix}-0000-4000-8000-000000000${suffix}`;
       const ids = {site: id("b0000000"), version: id("b1000000"), page: id("b2000000"),
         event: id("b3000000"), edition: id("b4000000")};
       const elements = [{id: "background", type: "shape_frame", shape: "ellipse", x: 80, y: 100,
         width: 400, height: 220, rotation: -24, clip: true,
         fill: "#e8f0fe", stroke: null, strokeWidth: 1}];
+      if (textFormatting) elements.push({id: "caption", type: "text", x: 90, y: 120,
+        width: 300, height: 100, rotation: 0, clip: false, text: "Exact sealed text", style: "heading",
+        fontSize: 42.25, color: "#123abc"});
       if (extraImage) elements.push({id: "missing_photo", type: "image_frame", blockId: "unsealed_image",
         x: 0, y: 0, width: 100, height: 100, rotation: 0, clip: true, fit: "contain"});
-      const layout = {schemaVersion: "opengeo.print-layout.1.2.0",
+      const layout = {schemaVersion: textFormatting ? "opengeo.print-layout.1.3.0" : "opengeo.print-layout.1.2.0",
         pages: [{sitePageSlug: "findings", elements}]};
       await tenant(ID.organization, ID.user, async () => {
         await db.query(`INSERT INTO app.project_sites
@@ -1231,6 +1281,24 @@ describe("0025 portable site publications", () => {
     assert.deepEqual(sealed.rows[0].manifest, valid.manifest);
     const invalid = await create("256", true);
     await assert.rejects(invalid.seal, /content frame seal mismatch/);
+    const styled = await create("257", false, true); await styled.seal();
+    const styledSeal = await tenant(ID.organization, ID.user, () => db.query(
+      "SELECT manifest FROM app.project_site_editions WHERE id=$1", [styled.ids.edition]));
+    assert.deepEqual(styledSeal.rows[0].manifest, styled.manifest);
+    assert.equal(styledSeal.rows[0].manifest.printLayout.schemaVersion, "opengeo.print-layout.1.3.0");
+    assert.equal(styledSeal.rows[0].manifest.printLayout.pages[0].elements[1].fontSize, 42.25);
+    assert.equal(styledSeal.rows[0].manifest.printLayout.pages[0].elements[1].color, "#123abc");
+    const invalidStyled = await create("258", true, true);
+    await assert.rejects(invalidStyled.seal, /content frame seal mismatch/);
+    await tenant(ID.organization, ID.user, () => db.query(
+      "UPDATE app.project_site_editions SET revoked_by=$1, revoked_at=clock_timestamp() WHERE id=$2",
+      [ID.user, styled.ids.edition]));
+    await assert.rejects(tenant(ID.organization, ID.user, () => db.query(
+      "UPDATE app.project_site_editions SET revoked_by=NULL, revoked_at=NULL WHERE id=$1",
+      [styled.ids.edition])), /project site edition revocation is one-way/);
+    const revoked = await tenant(ID.organization, ID.user, () => db.query(
+      "SELECT manifest FROM app.project_site_editions WHERE id=$1", [styled.ids.edition]));
+    assert.deepEqual(revoked.rows[0].manifest, styled.manifest, "revocation preserves exact formatted manifest");
   });
 
 });

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {test} from "node:test";
 import {JSDOM} from "jsdom";
+import {PRINT_FONT_FACES, usedPrintFontFaces, printFontFaceAttributes, validatePrintFontFaceAssets, preparePrintFontFaces, assertPrintFontFaceCoverage} from "../src/lib/printFontFaces.js";
 import {jsPDF} from "jspdf";
 import {compilePrintVectorPdf, preparePrintVectorPdfSvg, printVectorPdfFragments, printPdfCompositeForms,
   registerPrintPdfFontAttribution, validatePrintVectorPdfAttribution, validatePrintVectorPdfFont} from "../src/lib/printVectorPdf.js";
@@ -93,7 +94,7 @@ test("font admission checks exact source/manifest bytes and every Unicode scalar
   const accepted = await validatePrintVectorPdfFont(font, manifest, "Café Ω Москва ≥ 42° · License: unknown");
   assert.equal(accepted.manifest.license, "Apache-2.0");
   for (const text of ["東京", "مرحبا", "😀", "hidden\u202Etext", "line\nbreak"]) await assert.rejects(validatePrintVectorPdfFont(font, manifest, text), /does not cover U\+.*browser output/);
-  const changedFont = font.slice();changedFont[100] ^= 1;
+  const changedFont = new Uint8Array(font);changedFont[100] ^= 1;
   await assert.rejects(validatePrintVectorPdfFont(changedFont, manifest, "test"), /checksum/);
   const changedManifest = new TextEncoder().encode(JSON.stringify({...JSON.parse(manifest), version: 2}));
   await assert.rejects(validatePrintVectorPdfFont(font, changedManifest, "test"), /checksum/);
@@ -125,7 +126,7 @@ test("pinned jsPDF forms serialize isolated composite alpha with explicit resolv
 
 test("PDF carries exact verified plain-text font license/notice with fixed attachment names", async () => {
   const files = await validatePrintVectorPdfAttribution(license, notice, JSON.parse(manifest));
-  const changed = notice.slice();changed[10] ^= 1;
+  const changed = new Uint8Array(notice);changed[10] ^= 1;
   await assert.rejects(validatePrintVectorPdfAttribution(license, changed, JSON.parse(manifest)), /checksum/);
   const pdf = new jsPDF({compress: false});registerPrintPdfFontAttribution(pdf, files);
   const output = pdf.output(), embedded = [...output.matchAll(/\/Type \/EmbeddedFile \/Subtype \/text#2Fplain \/Length (\d+) >>\nstream\n/g)];
@@ -153,4 +154,109 @@ test("owned point legend opacity uses the same isolated vector fragment path", (
     assert.ok(fragment);assert.equal(fragment.svg.querySelectorAll("circle").length, 1);assert.equal(fragment.svg.querySelectorAll("image").length, 0);
     assert.equal(fragment.svg.querySelector('[data-print-point-legend]').getAttribute("opacity"), "1");
   } finally {value.dom.window.close();}
+});
+
+
+const FACES_ROOT = new URL("../src/assets/print-fonts/open-sans-v1/", import.meta.url);
+async function faceAssets() {
+  const [bold, italic, bolditalic, noticeBytes] = await Promise.all([
+    readFile(new URL("OpenSans-Bold.ttf", FACES_ROOT)), readFile(new URL("OpenSans-Italic.ttf", FACES_ROOT)),
+    readFile(new URL("OpenSans-BoldItalic.ttf", FACES_ROOT)), readFile(new URL("FACES-NOTICE.txt", FACES_ROOT))
+  ]);
+  return {faceBytes: {regular: font, bold, italic, bolditalic}, noticeBytes};
+}
+function styledPage(face = "bold") {
+  const value = page();
+  const frame = {id: "literal", type: "text", title: "Real face", text: "OpenGeo office", xMm: 10, yMm: 180,
+    widthMm: 120, heightMm: 20, fontSizePt: 18, color: "#17212b", background: "none", alignment: "left", fontFace: face};
+  value.layout.textFrames = [frame];
+  const record = JSON.parse(value.svg.querySelector("metadata").textContent);record.layout = value.layout;
+  value.svg.querySelector("metadata").textContent = JSON.stringify(record);
+  const group = value.node("g", {"data-print-text-frame": frame.id});
+  const line = value.node("text", {x: 11, y: 187.35, "font-size": 6.35, fill: frame.color,
+    "data-print-text-line": 0, "xml:space": "preserve", ...printFontFaceAttributes(face)}, frame.text);
+  group.append(line);value.svg.append(group);
+  return {...value, group, line};
+}
+
+test("only exact owned literal text can select actual PDF bold and italic faces", () => {
+  for (const face of ["bold", "italic", "bolditalic"]) {
+    const value = styledPage(face);
+    try {
+      value.line.setAttribute("style", "font-synthesis: none;");
+      const prepared = preparePrintVectorPdfSvg(value.svg, value.layout);
+      const line = prepared.svg.querySelector('[data-print-text-frame="literal"] text');
+      assert.equal(line.getAttribute("font-weight"), PRINT_FONT_FACES[face].weight);
+      assert.equal(line.getAttribute("font-style"), PRINT_FONT_FACES[face].style);
+      assert.equal(line.hasAttribute("style"), false);
+      assert.equal(prepared.faceText[face], "OpenGeo office");
+    } finally {value.dom.window.close();}
+  }
+  for (const change of [
+    value => {value.line.textContent = "Unmatched substituted text";},
+    value => value.group.setAttribute("data-print-text-frame", "unknown"),
+    value => value.line.setAttribute("font-style", "italic"),
+    value => value.group.setAttribute("font-weight", "700"),
+    value => value.line.setAttribute("style", "font-synthesis: none; fill: red;")
+  ]) {
+    const value = styledPage();
+    try {change(value);assert.throws(() => preparePrintVectorPdfSvg(value.svg, value.layout), /style|CSS|face|Print/);}
+    finally {value.dom.window.close();}
+  }
+});
+
+test("real Print faces have separate pinned bytes and reject changed font or attribution", async () => {
+  const layout = {textFrames: ["regular", "bold", "italic", "bolditalic"].map(fontFace => ({type: "text", text: "OpenGeo office", fontFace}))};
+  const assets = await faceAssets();
+  const prepared = await validatePrintFontFaceAssets(layout, assets);
+  assert.deepEqual(usedPrintFontFaces(layout), ["regular", "bold", "italic", "bolditalic"]);
+  assert.equal(new Set(Object.values(PRINT_FONT_FACES).map(face => face.sha256)).size, 4);
+  assert.equal(Object.keys(prepared.faces).length, 4);
+  const changed = new Uint8Array(assets.faceBytes.bold);changed[100] ^= 1;
+  await assert.rejects(validatePrintFontFaceAssets(layout, {...assets, faceBytes: {...assets.faceBytes, bold: changed}}), /bold.*checksum/);
+  const badNotice = new Uint8Array(assets.noticeBytes);badNotice[10] ^= 1;
+  await assert.rejects(validatePrintFontFaceAssets(layout, {...assets, noticeBytes: badNotice}), /notice.*checksum/);
+  await assert.rejects(validatePrintFontFaceAssets({textFrames: [{type: "text", text: "東京", fontFace: "bold"}]}, assets), /bold.*does not cover/);
+  assert.throws(() => usedPrintFontFaces({textFrames: [{type: "text", fontFace: "synthetic-bold"}]}), /packaged/);
+  assert.throws(() => usedPrintFontFaces({textFrames: [{type: "math", fontFace: "bold"}]}), /literal/);
+});
+
+test("browser face preparation loads exact used assets, embeds legal text and disposes actual FontFaces", async () => {
+  const assets = await faceAssets(), loaded = [], installed = new Set();
+  class Face {
+    constructor(family, bytes, descriptor) {Object.assign(this, {family, bytes, descriptor});}
+    async load() {loaded.push(this);return this;}
+  }
+  const document = {defaultView: {FontFace: Face}, fonts: {add: face => installed.add(face), delete: face => installed.delete(face)}};
+  const prepared = await preparePrintFontFaces({textFrames: [{type: "text", text: "OpenGeo office", fontFace: "bolditalic"}]},
+    {document, ...assets, licenseBytes: license, regularNoticeBytes: notice});
+  assert.equal(loaded.length, 2, "Regular and the selected real face are loaded; unused faces are not");
+  assert.deepEqual(loaded.map(face => face.descriptor), [{style: "normal", weight: "400"}, {style: "italic", weight: "700"}]);
+  assert.equal(new Uint8Array(loaded[1].bytes).length, assets.faceBytes.bolditalic.length);
+  assert.equal((prepared.css.match(/@font-face\{/g) ?? []).length, 2);
+  assert.match(prepared.css, /Apache License/);assert.match(prepared.css, /OpenSans-FACES-NOTICE/);
+  assert.match(prepared.css, /font-style:italic;font-weight:700;src:url\(data:font\/ttf;base64,/);
+  prepared.dispose();assert.equal(installed.size, 0);
+});
+
+test("PDF adds the third faces notice only for new faces and retains two-file Regular attribution", async () => {
+  const legal = await validatePrintVectorPdfAttribution(license, notice, JSON.parse(manifest));
+  const {noticeBytes} = await faceAssets();
+  const pdf = new jsPDF({compress: false});
+  registerPrintPdfFontAttribution(pdf, [...legal, {name: "OpenSans-FACES-NOTICE.txt", bytes: noticeBytes}]);
+  const output = pdf.output();
+  assert.equal((output.match(/\/Type \/EmbeddedFile/g) ?? []).length, 3);
+  assert.match(output, /OpenSans-FACES-NOTICE\.txt/);
+  assert.equal(legal.length, 2);
+});
+
+
+test("same-face edited text is checked without reloading or hashing cached font assets", () => {
+  const frame = {type: "text", fontFace: "bold", text: "OpenGeo office"};
+  const layout = {textFrames: [frame]};
+  assert.doesNotThrow(() => assertPrintFontFaceCoverage(layout));
+  frame.text = "OpenGeo 東京";
+  assert.throws(() => assertPrintFontFaceCoverage(layout), /bold.*does not cover U\+6771/);
+  frame.text = "Updated café";
+  assert.doesNotThrow(() => assertPrintFontFaceCoverage(layout));
 });

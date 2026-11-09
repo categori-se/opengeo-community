@@ -3572,6 +3572,28 @@ describe("OpenGeo API client", () => {
     assert.throws(() => parseSitePrintLayout(layout(missing)), ApiContractError);
   });
 
+  it("preserves opt-in physical text formatting and keeps older text contracts closed", () => {
+    const frame = {id: "title", type: "text", x: 20, y: 30, width: 900, height: 100,
+      rotation: 0, clip: true, text: "Physical title", style: "title", fontSize: 18.25, color: "#12abef"};
+    const layout = (element = frame, schemaVersion = "opengeo.print-layout.1.3.0") => ({schemaVersion,
+      pages: [{sitePageSlug: "findings", elements: [element]}]});
+    assert.deepEqual(parseSitePrintLayout(layout()), layout());
+    for (const change of [{fontSize: true}, {fontSize: "18"}, {fontSize: NaN}, {fontSize: Infinity},
+      {fontSize: 0.99}, {fontSize: 144.01}, {color: "#12ABEF"}, {color: "red"}, {color: null},
+      {color: "url(https://bad.example/font)"}, {fontFamily: "Remote"}]) {
+      assert.throws(() => parseSitePrintLayout(layout({...frame, ...change})), ApiContractError);
+    }
+    for (const key of ["fontSize", "color"]) { const missing = {...frame}; delete missing[key];
+      assert.throws(() => parseSitePrintLayout(layout(missing)), ApiContractError); }
+    for (const schemaVersion of ["opengeo.print-layout.1.0.0", "opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0"]) {
+      const old = {...frame}; delete old.fontSize; delete old.color;
+      if (schemaVersion.endsWith("1.0.0")) { delete old.rotation; delete old.clip; }
+      assert.deepEqual(parseSitePrintLayout(layout(old, schemaVersion)), layout(old, schemaVersion));
+      assert.throws(() => parseSitePrintLayout(layout({...old, fontSize: 18, color: "#000000"}, schemaVersion)), ApiContractError);
+    }
+    for (const fontSize of [1, 144]) assert.equal(parseSitePrintLayout(layout({...frame, fontSize})).pages[0].elements[0].fontSize, fontSize);
+  });
+
   it("lists strict governed site asset candidates without accepting storage facts", async () => {
     const calls = [];
     const client = new OpenGeoApiClient({

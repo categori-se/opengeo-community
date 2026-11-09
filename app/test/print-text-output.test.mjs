@@ -51,3 +51,40 @@ test("owned page keeps text independent of required source notes and direct PDF 
     line.setAttribute("xml:space","preserve");map.setAttribute("xml:space","preserve");assert.throws(()=>preparePrintVectorPdfSvg(svg,layout),/whitespace/);
   }finally{globalThis.document=prior;dom.window.close();}
 });
+
+test("actual face attributes drive SVG and canvas measurement without synthesizing styles or mutating regular defaults", () => {
+  const {dom,layout,svg}=fixture();
+  try {
+    const fonts=[];
+    Object.defineProperty(dom.window, "CanvasRenderingContext2D", {value: function CanvasRenderingContext2D(){}, configurable:true});
+    const original=dom.window.HTMLCanvasElement.prototype.getContext;
+    dom.window.HTMLCanvasElement.prototype.getContext=()=>({font:"",measureText(value){fonts.push(this.font);return {width:value.length*4};}});
+    try {
+      layout.textFrames=["regular","bold","italic","bolditalic"].map((fontFace,index)=>({...layout.textFrames[0],
+        id:`face-${index}`,yMm:20+index*40,heightMm:35,text:fontFace,...(fontFace==="regular"?{}:{fontFace})}));
+      const before=JSON.parse(JSON.stringify(layout));
+      appendPrintTextFrames(svg,layout,{fontFamily:"OpenGeoPrintSans"});
+      const lines=[...svg.querySelectorAll('[data-print-text-frame] text')];
+      assert.deepEqual(lines.map(node=>[node.getAttribute("font-weight"),node.getAttribute("font-style")]),
+        [["400","normal"],["700","normal"],["400","italic"],["700","italic"]]);
+      assert(lines.slice(1).every(node=>node.getAttribute("style")==="font-synthesis: none;"));
+      assert(fonts.some(font=>font.startsWith("normal 700 ")));assert(fonts.some(font=>font.startsWith("italic 400 ")));
+      assert(fonts.some(font=>font.startsWith("italic 700 ")));assert(fonts.every(font=>font.endsWith("OpenGeoPrintSans")));
+      assert.deepEqual(layout,before);assert.equal(Object.hasOwn(layout.textFrames[0],"fontFace"),false);
+    } finally {dom.window.HTMLCanvasElement.prototype.getContext=original;}
+  } finally {dom.window.close();}
+});
+
+test("styled owned pages embed their prepared font CSS for standalone SVG and keep plain PDF source free of font payloads", () => {
+  const {dom,layout}=fixture(),prior=globalThis.document;globalThis.document=dom.window.document;
+  try {
+    layout.textFrames[0].fontFace="bold";
+    const css="@font-face{font-family:OpenGeoPrintSans;font-weight:700;font-style:normal;src:url(data:font/ttf;base64,AA==) format('truetype')}";
+    const standalone=printPageSvg(layout,new Map(),layout.id,{preview:true,fontFamily:"OpenGeoPrintSans",fontCss:css});
+    assert.equal(standalone.querySelector("defs style").textContent,css);
+    const serialized=new dom.window.XMLSerializer().serializeToString(standalone);
+    assert(serialized.includes("data:font/ttf;base64,AA=="));assert(!serialized.includes("https://"));
+    const plain=printPageSvg(layout,new Map(),layout.id,{preview:true,fontFamily:"OpenGeoPrintSans"});
+    assert.equal(plain.querySelector("style"),null);assert.equal(plain.querySelector('[data-print-text-frame] text').getAttribute("font-weight"),"700");
+  } finally {globalThis.document=prior;dom.window.close();}
+});
