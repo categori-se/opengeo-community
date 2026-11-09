@@ -8,7 +8,7 @@ import {PRINT_FONT_FACES, usedPrintFontFaces, printFontFaceAttributes, validateP
 const NS = "http://www.w3.org/2000/svg";
 const FONT_SHA256 = "8ab4aa561e7db0eb3e1af8b0bed2a315e0a33fe2ed3070e645d1b89f8efc1d5c";
 const NOTICE_SHA256 = "50abb8dfaa45dfa4c9167dff20766e459ced61c64ee8f97fcdedafc53e6b6f4a";
-const LIMITS = {svgBytes: 16 * 1024 * 1024, pdfBytes: 32 * 1024 * 1024, nodes: 65000, text: 131072, groups: 256};
+const LIMITS = {svgBytes: 16 * 1024 * 1024, pdfBytes: 32 * 1024 * 1024, nodes: 65000, text: 131072, groups: 256, fragmentNodes: 1024 * 1024};
 const TAGS = new Set(["svg", "g", "defs", "clipPath", "linearGradient", "stop", "rect", "circle", "path", "polyline", "line", "text", "title", "metadata"]);
 const ATTRIBUTES = new Set(["xmlns", "id", "width", "height", "viewBox", "role", "x", "y", "cx", "cy", "r", "x1", "y1", "x2", "y2", "d", "points", "transform", "fill", "fill-opacity", "fill-rule", "stroke", "stroke-width", "stroke-opacity", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit", "stroke-dasharray", "stroke-dashoffset", "opacity", "clip-path", "font-size", "font-family", "font-style", "font-weight", "text-anchor", "paint-order", "color-interpolation", "offset", "stop-color", "stop-opacity", "style", "xml:space"]);
 const PAINT = new Set(["fill", "stroke", "stop-color"]);
@@ -126,6 +126,10 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
     || copy.getAttribute("width") !== `${page.widthMm}mm` || copy.getAttribute("height") !== `${page.heightMm}mm`
     || copy.querySelectorAll("[data-print-vector-map]").length !== layout.frames.length) fail("The vector Print page does not match this layout.");
   usedPrintFontFaces(layout);
+  const artifactText = new WeakSet();
+  const titles = [...copy.querySelectorAll("[data-print-page-title]")];
+  if (titles.length > 1 || titles.some(node => node.localName !== "text" || node.parentElement !== copy
+    || node.getAttribute("data-print-page-title") !== "true" || node.textContent !== layout.title)) fail("The owned Print page title does not match its layout.");
   let text = "", groups = 0;
   const faceText = {};
   for (const node of nodes) {
@@ -187,7 +191,8 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
       if (node.hasAttribute("paint-order")) {
         // svg2pdf always fills before stroking. Separate identical text runs keep
         // the accepted white halo behind, rather than over, the dark glyph.
-        const halo = node.cloneNode(true);halo.removeAttribute("paint-order");halo.setAttribute("fill", "none");
+        const halo = node.cloneNode(true);halo.removeAttribute("paint-order");halo.removeAttribute("data-print-page-title");halo.setAttribute("fill", "none");
+        artifactText.add(halo);
         node.removeAttribute("paint-order");node.setAttribute("stroke", "none");node.before(halo);
       }
     }
@@ -195,38 +200,68 @@ export function preparePrintVectorPdfSvg(svg, layout, family = "OpenGeoPrintSans
   for (const reference of references) if (ids.get(reference.id)?.localName !== reference.type) fail("A Print clip or gradient definition is missing.");
   if (text.length > LIMITS.text) fail("The composed page text exceeds the direct PDF limit.");
   copy.setAttribute("font-family", family);
-  return {svg: copy, text, faceText, compositeGroups: groups, sourceMetadata: record};
+  return {svg: copy, text, faceText, compositeGroups: groups, sourceMetadata: record, artifactText};
+}
+
+// Reflow creates fresh literal line nodes. Bind semantics to their final owned
+// identities, never to coincident coordinates, duplicate strings or caller tags.
+export function printPdfTextSemantics(svg, layout, artifactText = new WeakSet()) {
+  const semantics = new WeakMap();
+  for (const node of svg.querySelectorAll("text")) {
+    if (node.closest("defs,clipPath,metadata,title") || !node.textContent.trim()) continue;
+    if (artifactText.has(node)) {semantics.set(node, {role: "Artifact", text: node.textContent});continue;}
+    const frame = ownedLiteralTextFrame(node, layout, svg);
+    if (node.hasAttribute("data-print-page-title")) {
+      if (node.parentElement !== svg || node.getAttribute("data-print-page-title") !== "true"
+        || node.textContent !== layout.title) fail("The owned Print page title does not match its layout.");
+      semantics.set(node, {role: "H1", group: "page-title", text: node.textContent});
+    } else semantics.set(node, {role: frame ? "P" : "Span", ...(frame ? {group: `frame:${frame.id}`} : {}), text: node.textContent});
+  }
+  return semantics;
 }
 
 // Partition in paint order, preserving each leaf's ancestor transforms/clips.
 // A page background is a leaf in the first fragment, never an implicit backdrop.
-export function printVectorPdfFragments(svg) {
+export function printVectorPdfFragments(svg, semantics) {
   const definitions = [...svg.querySelectorAll("defs")].map(node => node.cloneNode(true));
-  const fragments = [];let active = null;
+  const definitionNodes = definitions.reduce((sum, node) => sum + 1 + node.querySelectorAll("*").length, 0);
+  const fragments = [];let active = null, copiedNodes = 0;
+  const budget = count => {
+    copiedNodes += count;
+    if (semantics && copiedNodes > LIMITS.fragmentNodes) fail("The tagged Print fragments exceed their bounded conversion work.");
+  };
   function fragment(opacity = 1) {
+    budget(definitionNodes + 1);
     const root = svg.cloneNode(false);root.append(...definitions.map(node => node.cloneNode(true)));
     const result = {svg: root, opacity, parents: new Map([[svg, root]])};fragments.push(result);return result;
   }
   function append(part, node, ancestors) {
     let parent = part.svg;
     for (const ancestor of ancestors) {
-      if (!part.parents.has(ancestor)) {const copy = ancestor.cloneNode(false);parent.append(copy);part.parents.set(ancestor, copy);}
+      if (!part.parents.has(ancestor)) {budget(1);const copy = ancestor.cloneNode(false);parent.append(copy);part.parents.set(ancestor, copy);}
       parent = part.parents.get(ancestor);
     }
     parent.append(node);
   }
   function visit(node, ancestors) {
     if (["defs", "metadata", "title"].includes(node.localName)) return;
+    if (node.localName !== "g" || Number(node.getAttribute("opacity") ?? 1) !== 1) budget(1 + node.querySelectorAll("*").length);
     if (node.localName === "g" && Number(node.getAttribute("opacity") ?? 1) !== 1) {
+      if (semantics && node.querySelector("text")) fail("Composite Print passes must remain text-free.");
       active = null;
       const isolated = fragment(Number(node.getAttribute("opacity"))), copy = node.cloneNode(true);copy.setAttribute("opacity", "1");
       append(isolated, copy, ancestors);return;
     }
     if (node.localName === "g") {for (const child of node.children) visit(child, [...ancestors, node]);return;}
+    if (semantics && node.localName === "text") {
+      active = null;
+      const part = fragment();part.semantic = semantics.get(node) ?? {role: "Artifact", text: node.textContent};
+      append(part, node.cloneNode(true), ancestors);return;
+    }
     active ??= fragment();append(active, node.cloneNode(true), ancestors);
   }
   for (const child of svg.children) visit(child, []);
-  return fragments.map(({svg, opacity}) => ({svg, opacity}));
+  return fragments.map(({svg, opacity, semantic}) => ({svg, opacity, ...(semantic ? {semantic} : {})}));
 }
 
 // jsPDF 4.2.1's ordinary forms have no /Group. Wrap their converter-produced
@@ -270,6 +305,61 @@ export function printPdfCompositeForms(pdf) {
 // jsPDF escapes XML itself. Pre-escaping would change literal source ampersands.
 export function registerPrintPdfMetadata(pdf, record) {
   pdf.addMetadata(JSON.stringify(record), "https://opengeo.tools/ns/print/1.0/");
+}
+
+// Content IDs are recorded while real text is painted. Object IDs belong to one
+// serialization only: jsPDF rebuilds them on every output(), including repeats.
+export function registerPrintPdfTextStructure(pdf) {
+  const internal = pdf?.internal;
+  if (!internal?.events?.subscribe || typeof internal.newAdditionalObject !== "function"
+    || typeof internal.write !== "function" || pdf.getNumberOfPages?.() !== 1) fail("The PDF writer cannot tag this single-page layout.");
+  const nodes = [], owners = [], groups = new Map();
+  let active = null, state = null, serializationError = null;
+  const listen = (name, callback) => internal.events.subscribe(name, (...args) => {
+    try {callback(...args);} catch (error) {serializationError ??= error;}
+  });
+  listen("buildDocument", () => {state = {pageId: null, root: null, complete: false};serializationError = null;});
+  listen("putPage", event => {
+    if (!state || event.pageNumber !== 1 || !Number.isSafeInteger(event.objId) || pdf.getNumberOfPages() !== 1)
+      fail("The tagged PDF page contract changed.");
+    state.pageId = event.objId;internal.write("/StructParents 0", "/Tabs /S");
+  });
+  listen("putAdditionalObjects", () => {
+    if (!state?.pageId || active !== null) fail("The tagged PDF content is incomplete.");
+    const root = internal.newAdditionalObject(), document = internal.newAdditionalObject(), tree = internal.newAdditionalObject();
+    const references = new Map(nodes.map(node => [node, internal.newAdditionalObject()]));
+    for (const node of nodes) references.get(node).content = `<< /Type /StructElem /S /${node.role} /P ${document.objId} 0 R /Pg ${state.pageId} 0 R /K [${node.mcids.join(" ")}] >>`;
+    tree.content = `<< /Nums [0 [${owners.map(node => `${references.get(node).objId} 0 R`).join(" ")}]] >>`;
+    document.content = `<< /Type /StructElem /S /Document /P ${root.objId} 0 R /K [${nodes.map(node => `${references.get(node).objId} 0 R`).join(" ")}] >>`;
+    root.content = `<< /Type /StructTreeRoot /K [${document.objId} 0 R] /ParentTree ${tree.objId} 0 R /ParentTreeNextKey 1 >>`;
+    state.root = root.objId;
+  });
+  listen("putCatalog", () => {
+    if (!state?.root || serializationError) fail("The PDF structure could not be serialized.");
+    internal.write(`/StructTreeRoot ${state.root} 0 R`, "/MarkInfo << /Marked true >>");state.complete = true;
+  });
+  return {
+    begin({role, text, group} = {}) {
+      if (active !== null || !["H1", "P", "Span", "Artifact"].includes(role)) fail("The PDF text role is invalid or nested.");
+      if (role === "Artifact") {internal.write("/Artifact BMC");active = role;return;}
+      if (typeof text !== "string" || !text.trim() || text.length > LIMITS.text || owners.length >= LIMITS.nodes
+        || group !== undefined && (typeof group !== "string" || !group.length || group.length > 256)) fail("The PDF text run is invalid.");
+      let node = group === undefined ? null : groups.get(group);
+      if (node && node.role !== role) fail("The PDF text group changed its role.");
+      if (!node) {node = {role, mcids: []};nodes.push(node);if (group !== undefined) groups.set(group, node);}
+      const mcid = owners.length;owners.push(node);node.mcids.push(mcid);
+      // UTF-16BE hex keeps literal Unicode, parentheses and markup inert.
+      const actualText = [...Array(text.length)].map((_, index) => text.charCodeAt(index).toString(16).padStart(4, "0")).join("");
+      internal.write(`/${role} << /MCID ${mcid} /ActualText <FEFF${actualText}> >> BDC`);active = role;
+    },
+    end() {
+      if (active === null) fail("The PDF text run is not open.");
+      internal.write("EMC");active = null;
+    },
+    assertComplete() {
+      if (active !== null || serializationError || !state?.complete) fail("The PDF text structure is incomplete.");
+    }
+  };
 }
 
 export async function compilePrintVectorPdf({svg, layout, fontBytes, fontManifest, manifestBytes, fontLicenseBytes, fontNoticeBytes, fontFaceBytes, fontFacesNoticeBytes, registrations = [], signal, onPhase} = {}) {
@@ -324,17 +414,29 @@ export async function compilePrintVectorPdf({svg, layout, fontBytes, fontManifes
     pdf.setProperties({title: layout.title, creator: "OpenGeo.Tools", subject: "Vector Print with embedded Open Sans"});
     registerPrintPdfMetadata(pdf, {schemaVersion: "opengeo.vector-print-pdf.1", ...prepared.sourceMetadata,
       geographicRegistration: registrations.length > 0, font: {id: manifest.id, checksumSha256: FONT_SHA256, license: manifest.license}});
-    const fragments = printVectorPdfFragments(prepared.svg), composeGroup = printPdfCompositeForms(pdf);
+    const semantics = printPdfTextSemantics(prepared.svg, layout, prepared.artifactText);
+    const fragments = printVectorPdfFragments(prepared.svg, semantics), composeGroup = printPdfCompositeForms(pdf);
+    const structure = registerPrintPdfTextStructure(pdf);
     for (const [index, part] of fragments.entries()) {
       check();onPhase?.(`Converting vector page section ${index + 1} of ${fragments.length}…`);
-      if (part.opacity === 1) await svg2pdf(part.svg, pdf, {width, height, loadExternalStyleSheets: false, loadImages: false});
-      else await composeGroup(part.svg, part.opacity, svg2pdf, {width, height});
+      const originalText = pdf.text;
+      pdf.text = function(value, ...args) {
+        if (typeof value !== "string") fail("The PDF converter's literal text contract changed.");
+        if (!value.trim()) return originalText.call(this, value, ...args);
+        if (!part.semantic || part.opacity !== 1) fail("The PDF converter painted text outside its owned page run.");
+        structure.begin({...part.semantic, text: value});
+        try {return originalText.call(this, value, ...args);} finally {structure.end();}
+      };
+      try {
+        if (part.opacity === 1) await svg2pdf(part.svg, pdf, {width, height, loadExternalStyleSheets: false, loadImages: false});
+        else await composeGroup(part.svg, part.opacity, svg2pdf, {width, height});
+      } finally {pdf.text = originalText;}
       check();
     }
     registerPrintPdfMaps(pdf, registrations);
     registerPrintPdfFontAttribution(pdf, attribution);
     onPhase?.("Packaging vector PDF…");check();
-    const output = pdf.output("arraybuffer");check();
+    const output = pdf.output("arraybuffer");structure.assertComplete();check();
     if (!(output instanceof ArrayBuffer) || output.byteLength < 100 || output.byteLength > LIMITS.pdfBytes) fail("The vector PDF is empty or exceeds 32 MiB.");
     return {blob: new Blob([output], {type: "application/pdf"}), metadata: {representation: "vector-page", georeferenced: registrations.length > 0,
       font: {id: manifest.id, version: manifest.version, checksumSha256: FONT_SHA256, license: manifest.license},
