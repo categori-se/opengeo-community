@@ -4,7 +4,8 @@ import re
 import struct
 import textwrap
 import zlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from html import escape
 from itertools import pairwise
@@ -102,6 +103,13 @@ class _PdfGlyph:
         return sum(0.5 if bitmap.width == 8 else 1.0 for bitmap in self.bitmaps)
 
 
+@dataclass(slots=True)
+class _PdfStructureNode:
+    role: str
+    children: list["_PdfStructureNode | int"]
+    column_header: bool = False
+
+
 class _PdfFontCatalog:
     def __init__(self) -> None:
         try:
@@ -112,12 +120,34 @@ class _PdfFontCatalog:
         self.banks: list[list[_PdfGlyph]] = []
         self._composite_bitmaps = 0
         self.page_marked_content_count: int | None = None
+        self.page_structure: list[_PdfStructureNode | int] = []
+        self._structure_stack: list[_PdfStructureNode] = []
+
+    @contextmanager
+    def tag(self, role: str, *, column_header: bool = False) -> Iterator[None]:
+        if self.page_marked_content_count is None:
+            yield
+            return
+        node = _PdfStructureNode(role, [], column_header)
+        children = (
+            self._structure_stack[-1].children if self._structure_stack else self.page_structure
+        )
+        children.append(node)
+        self._structure_stack.append(node)
+        try:
+            yield
+        finally:
+            self._structure_stack.pop()
 
     def mark_text(self) -> int | None:
         if self.page_marked_content_count is None:
             return None
         identifier = self.page_marked_content_count
         self.page_marked_content_count += 1
+        children = (
+            self._structure_stack[-1].children if self._structure_stack else self.page_structure
+        )
+        children.append(identifier)
         return identifier
 
     def encode_layout(self, layout: PrintTextLayout) -> tuple[tuple[int, bytes], ...]:
@@ -793,7 +823,7 @@ def _pdf(
     page_width, page_height = options.page_points
     page_ids: list[int] = []
     pending_pages: list[tuple[int, int, str]] = []
-    structure_pages: list[tuple[int, int, int]] = []
+    structure_pages: list[tuple[int, int, int, tuple[_PdfStructureNode | int, ...]]] = []
     for sequence, page in enumerate(pages, 1):
         image_objects: list[tuple[str, int]] = []
         image_names: dict[str, str] = {}
@@ -829,6 +859,7 @@ def _pdf(
         page_id = reserve()
         page_ids.append(page_id)
         fonts.page_marked_content_count = 0
+        fonts.page_structure = []
         stream = _page_stream(
             publication,
             page,
@@ -841,7 +872,10 @@ def _pdf(
             fonts,
         )
         assert fonts.page_marked_content_count is not None
-        structure_pages.append((page_id, reserve(), fonts.page_marked_content_count))
+        assert not fonts._structure_stack
+        structure_pages.append(
+            (page_id, reserve(), fonts.page_marked_content_count, tuple(fonts.page_structure))
+        )
         fonts.page_marked_content_count = None
         assign(
             content_id,
@@ -878,21 +912,48 @@ def _pdf(
     )
     section_ids: list[int] = []
     parent_entries: list[str] = []
+    pdf_version = b"1.4"
     # Follow sealed page/element and logical text order, never infer order from coordinates.
-    for page_index, (page_id, section_id, text_count) in enumerate(structure_pages):
+    for page_index, (page_id, section_id, text_count, nodes) in enumerate(structure_pages):
         section_ids.append(section_id)
-        text_ids: list[int] = []
-        for marked_content_id in range(text_count):
+        text_ids = [0] * text_count
+
+        def structure_child(node: _PdfStructureNode | int, parent: int) -> int | None:
+            nonlocal pdf_version
+            if isinstance(node, _PdfStructureNode) and not node.children and node.role not in {
+                "TH", "TD"
+            }:
+                return None
             identifier = reserve()
-            text_ids.append(identifier)
+            if isinstance(node, int):
+                text_ids[node] = identifier
+                role, children, attributes = "Span", str(node), ""
+            else:
+                references = [
+                    child_id
+                    for child in node.children
+                    if (child_id := structure_child(child, identifier)) is not None
+                ]
+                role = node.role
+                children = "[" + " ".join(f"{child_id} 0 R" for child_id in references) + "]"
+                attributes = " /A << /O /Table /Scope /Column >>" if node.column_header else ""
+                if node.column_header:
+                    pdf_version = b"1.5"
             assign(
                 identifier,
                 (
-                    f"<< /Type /StructElem /S /Span /P {section_id} 0 R "
-                    f"/Pg {page_id} 0 R /K {marked_content_id} >>"
+                    f"<< /Type /StructElem /S /{role} /P {parent} 0 R "
+                    f"/Pg {page_id} 0 R /K {children}{attributes} >>"
                 ).encode("ascii"),
             )
-        children = " ".join(f"{identifier} 0 R" for identifier in text_ids)
+            return identifier
+
+        children = " ".join(
+            f"{node_identifier} 0 R"
+            for node in nodes
+            if (node_identifier := structure_child(node, section_id)) is not None
+        )
+        assert all(text_ids)
         assign(
             section_id,
             (
@@ -900,7 +961,9 @@ def _pdf(
                 f"/Pg {page_id} 0 R /K [{children}] >>"
             ).encode("ascii"),
         )
-        parent_entries.append(f"{page_index} [{children}]")
+        parent_entries.append(
+            f"{page_index} [{' '.join(f'{identifier} 0 R' for identifier in text_ids)}]"
+        )
     assign(parent_tree_id, f"<< /Nums [{' '.join(parent_entries)}] >>".encode("ascii"))
     assign(
         document_id,
@@ -925,7 +988,7 @@ def _pdf(
         ).encode("ascii"),
     )
 
-    output = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
+    output = bytearray(b"%PDF-" + pdf_version + b"\n%\xe2\xe3\xcf\xd3\n")
     offsets = [0]
     for identifier, value in enumerate(objects, 1):
         if value is None:
@@ -1089,15 +1152,17 @@ def _page_stream(
         )
         commands.append(_pdf_text(fonts, 6, 10, 7, footer, maximum_width=page_width - 20))
         return b"".join(commands)
-    commands = [
-        _pdf_text(
+    with fonts.tag("H1"):
+        title = _pdf_text(
             fonts,
             19,
             36,
             page_height - 40,
             _truncate(page.title, max(48, int((page_width - 72) / 8.5))),
             maximum_width=page_width - 72,
-        ),
+        )
+    commands = [
+        title,
         _pdf_text(
             fonts,
             9,
@@ -1175,7 +1240,9 @@ def _pdf_positioned_page(
                 name, image, x, y, width, height, element.fit or "contain", border=True
             )
         elif element.type == "text":
-            frame_commands = _pdf_text_frame(element, x, y, width, height, fonts)
+            role = {"title": "H1", "heading": "H2"}.get(element.style or "body", "P")
+            with fonts.tag(role):
+                frame_commands = _pdf_text_frame(element, x, y, width, height, fonts)
         elif element.type == "shape_frame":
             frame_commands = _pdf_shape_frame(element, x, y, width, height)
         elif element.type == "image_frame":
@@ -1490,49 +1557,57 @@ def _pdf_table_frame(
 ) -> list[bytes]:
     caption, columns, rows = _table_values(block)
     commands = [
-        f"q 0.75 w 0.4 0.45 0.48 RG {x:.3f} {y:.3f} {width:.3f} {height:.3f} re S Q\n".encode(
-            "ascii"
-        ),
-        _pdf_text(
+        (
+            f"/Artifact BMC\nq 0.75 w 0.4 0.45 0.48 RG "
+            f"{x:.3f} {y:.3f} {width:.3f} {height:.3f} re S Q\nEMC\n"
+        ).encode("ascii"),
+    ]
+    with fonts.tag("Caption"):
+        caption_text = _pdf_text(
             fonts,
             8,
             x + 4,
             y + height - 11,
             _truncate(caption, max(8, int((width - 8) / 4.3))),
             maximum_width=width - 8,
-        ),
-    ]
+        )
+    commands.append(caption_text)
     row_height = 11.0
     table_top = y + height - 18
     maximum_rows = max(0, min(len(rows), int((height - 22) / row_height) - 1))
     column_width = width / len(columns)
     displayed: list[list[object]] = [cast(list[object], columns), *rows[:maximum_rows]]
-    for row_index, row in enumerate(displayed):
-        row_y = table_top - (row_index + 1) * row_height
-        if row_index == 0:
-            commands.append(
-                (
-                    f"q 0.94 0.96 0.97 rg {x:.3f} {row_y:.3f} {width:.3f} {row_height:.3f} re f Q\n"
-                ).encode("ascii")
-            )
-        for column_index, cell in enumerate(row):
-            cell_x = x + column_index * column_width
-            commands.append(
-                (
-                    f"q 0.8 0.82 0.83 RG 0.35 w {cell_x:.3f} {row_y:.3f} "
-                    f"{column_width:.3f} {row_height:.3f} re S Q\n"
-                ).encode("ascii")
-            )
-            commands.append(
-                _pdf_text(
-                    fonts,
-                    7 if row_index == 0 else 6,
-                    cell_x + 2,
-                    row_y + 3,
-                    _truncate(_table_cell(cell), max(2, int((column_width - 4) / 3.4))),
-                    maximum_width=column_width - 4,
+    with fonts.tag("Table"):
+        for row_index, row in enumerate(displayed):
+            row_y = table_top - (row_index + 1) * row_height
+            if row_index == 0:
+                commands.append(
+                    (
+                        f"/Artifact BMC\nq 0.94 0.96 0.97 rg {x:.3f} {row_y:.3f} "
+                        f"{width:.3f} {row_height:.3f} re f Q\nEMC\n"
+                    ).encode("ascii")
                 )
-            )
+            with fonts.tag("TR"):
+                for column_index, cell in enumerate(row):
+                    cell_x = x + column_index * column_width
+                    commands.append(
+                        (
+                            f"/Artifact BMC\nq 0.8 0.82 0.83 RG 0.35 w "
+                            f"{cell_x:.3f} {row_y:.3f} {column_width:.3f} "
+                            f"{row_height:.3f} re S Q\nEMC\n"
+                        ).encode("ascii")
+                    )
+                    with fonts.tag("TH" if row_index == 0 else "TD", column_header=row_index == 0):
+                        commands.append(
+                            _pdf_text(
+                                fonts,
+                                7 if row_index == 0 else 6,
+                                cell_x + 2,
+                                row_y + 3,
+                                _truncate(_table_cell(cell), max(2, int((column_width - 4) / 3.4))),
+                                maximum_width=column_width - 4,
+                            )
+                        )
     return commands
 
 

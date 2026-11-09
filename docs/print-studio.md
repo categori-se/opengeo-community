@@ -2,6 +2,32 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Generated PDF headings and tables — local work, November 9, 2026
+
+PDF output now gives its page title an `H1` structure element. Positioned text
+uses the authored title/heading styles as `H1`/`H2`; other positioned text is one
+`P` containing its wrapped lines in authored order. Positioned tables retain a
+caption and `Table` → `TR` → `TH`/`TD` relationships. Header cells declare column
+scope, and blank cells remain present. The page ParentTree still binds every
+actual text MCID to its leaf and correct ancestry; table decoration is marked as
+artifact. This follows the structural approach described by
+[W3C PDF6](https://www.w3.org/WAI/WCAG22/Techniques/pdf/PDF6) and
+[PDF9](https://www.w3.org/WAI/WCAG22/Techniques/pdf/PDF9).
+
+Eight affected actual-PDF tests cover the new graph, imported tagged pages,
+existing rich layout, physical formatting and legacy schema behavior. The final
+three graph/version cases and strict typing pass on the current source; the five
+unchanged regression results are reused. Column-header
+scope was introduced in [PDF 1.5](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.5_v6.pdf),
+so exports now declare 1.5 only when emitting that attribute; other output retains
+1.4. Independent review approves the final source. One representative
+before/current A4-landscape PDF has identical extracted text, page geometry and
+Poppler-rendered pixels at 60 DPI. Earlier preparation timeouts and cumulative
+runtime remain recorded; no graphics or font calculations changed. This increment is qualified locally; hosted acceptance remains open. Full flow-block hierarchy, figure/list semantics,
+imported/OCR reading-order authority, actual assistive-technology acceptance,
+PDF/UA conformance and the wider Print-family requirements remain open.
+
+
 ## Current Print additions — source preparation
 
 Published editions offer **Download all PNG pages**, using their exact sealed
