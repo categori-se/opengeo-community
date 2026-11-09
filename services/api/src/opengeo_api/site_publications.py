@@ -16,6 +16,7 @@ from opengeo_api.auth_models import OrganizationRole
 from opengeo_api.authorization import Action, AuthorizationDenied, ProjectRole, Roles, authorize
 from opengeo_api.document_previews import (
     DOCUMENT_PREVIEW_SCHEMA,
+    DOCX_DOCUMENT_PREVIEW_SCHEMA,
     MAX_PDF_OCR_PAGES,
     MAX_PDF_OCR_PIXELS,
     PDF_DOCUMENT_PREVIEW_SCHEMA,
@@ -2093,16 +2094,16 @@ class PostgresSitePublicationRepository:
             and document.get("kind") == "pdf"
             and document.get("source_format") == "pdf"
         )
-        odt_source = (
+        office_source = (
             source.kind == "document"
             and source.content_type == "application/json"
             and source_row[9] == "derived"
-            and source_row[14] == "odt"
+            and source_row[14] in {"odt", "docx"}
             and cls._document_facts_valid(source_row[14], source_row[15], schema, source.object_key)
         )
-        if not (pdf_source or odt_source):
+        if not (pdf_source or office_source):
             raise SiteConflict("site_print_document_invalid")
-        if odt_source:
+        if office_source:
             conversion = document.get("print_conversion")
             version = conversion.get("version") if isinstance(conversion, dict) else None
             if (
@@ -2118,10 +2119,10 @@ class PostgresSitePublicationRepository:
             ):
                 raise SiteConflict("site_print_document_invalid")
         facts = document.get("print_vector_facts")
-        # The semantic ODT page count does not describe Writer's pagination.
+        # The semantic Office page count does not describe Writer's pagination.
         page_count = (
             facts.get("page_count")
-            if odt_source and isinstance(facts, dict)
+            if office_source and isinstance(facts, dict)
             else document.get("page_count")
         )
         if (
@@ -2281,12 +2282,17 @@ class PostgresSitePublicationRepository:
             or not isinstance(object_key, str)
         ):
             return False
-        if dataset_format == "odt":
+        if dataset_format in ("odt", "docx"):
+            expected_kind, expected_schema = (
+                ("odf_text", DOCUMENT_PREVIEW_SCHEMA)
+                if dataset_format == "odt"
+                else ("ooxml_text", DOCX_DOCUMENT_PREVIEW_SCHEMA)
+            )
             return (
                 object_key.endswith("/document/accessible-preview.json")
-                and document.get("kind") == "odf_text"
-                and document.get("source_format") == "odt"
-                and document.get("accessible_preview_schema") == DOCUMENT_PREVIEW_SCHEMA
+                and document.get("kind") == expected_kind
+                and document.get("source_format") == dataset_format
+                and document.get("accessible_preview_schema") == expected_schema
             )
         pdf_common_facts = (
             dataset_format == "pdf"

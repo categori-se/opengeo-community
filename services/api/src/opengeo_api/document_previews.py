@@ -6,6 +6,7 @@ from hashlib import sha256
 from typing import Any, cast
 
 DOCUMENT_PREVIEW_SCHEMA = "opengeo.document-preview.1.0.0"
+DOCX_DOCUMENT_PREVIEW_SCHEMA = "opengeo.document-preview.4.0.0"
 PDF_DOCUMENT_PREVIEW_SCHEMA = "opengeo.document-preview.2.0.0"
 PDF_OCR_DOCUMENT_PREVIEW_SCHEMA = "opengeo.document-preview.3.0.0"
 PDF_VISUAL_PRESENTATION_SCHEMA = "opengeo.pdf-visual-presentation.1.0.0"
@@ -19,6 +20,7 @@ PDF_VISUAL_PRESENTATION_SCHEMAS = frozenset(
 DOCUMENT_PREVIEW_SCHEMAS = frozenset(
     {
         DOCUMENT_PREVIEW_SCHEMA,
+        DOCX_DOCUMENT_PREVIEW_SCHEMA,
         *PDF_DOCUMENT_PREVIEW_SCHEMAS,
         *PDF_VISUAL_PRESENTATION_SCHEMAS,
     }
@@ -79,6 +81,12 @@ def parse_document_preview(content: bytes) -> dict[str, Any]:
             }
             or raw.get("sourceFormat") != "odt"
             or raw.get("odfVersion") not in {"1.2", "1.3", "1.4"}
+        ):
+            raise DocumentPreviewInvalid("document_preview_invalid")
+    elif schema == DOCX_DOCUMENT_PREVIEW_SCHEMA:
+        if (
+            set(raw) != {"schemaVersion", "sourceFormat", "title", "language", "pages"}
+            or raw.get("sourceFormat") != "docx"
         ):
             raise DocumentPreviewInvalid("document_preview_invalid")
     elif schema in PDF_DOCUMENT_PREVIEW_SCHEMAS | PDF_VISUAL_PRESENTATION_SCHEMAS:
@@ -322,9 +330,8 @@ def _integer_between(value: object, minimum: int, maximum: int) -> bool:
 def _pdf_extraction_valid(value: object, schema: object) -> bool:
     if not isinstance(value, dict):
         return False
-    common_valid = (
-        isinstance(value.get("tagged"), bool)
-        and isinstance(value.get("textAvailable"), bool)
+    common_valid = isinstance(value.get("tagged"), bool) and isinstance(
+        value.get("textAvailable"), bool
     )
     if not common_valid:
         return False

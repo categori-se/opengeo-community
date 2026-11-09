@@ -517,7 +517,8 @@ def test_renders_and_embeds_exact_governed_image_and_file_assets() -> None:
         assert lineage[0]["checksumSha256"] == sha256(image).hexdigest()
 
 
-def test_renders_and_embeds_an_exact_accessible_odt_semantic_preview() -> None:
+@pytest.mark.parametrize("source_format", ["odt", "docx"])
+def test_renders_and_embeds_an_exact_accessible_odt_semantic_preview(source_format: str) -> None:
     publication = published_site()
     preview = {
         "schemaVersion": "opengeo.document-preview.1.0.0",
@@ -543,6 +544,9 @@ def test_renders_and_embeds_an_exact_accessible_odt_semantic_preview() -> None:
             {"number": 2, "blocks": [{"type": "paragraph", "text": "Conclusion"}]},
         ],
     }
+    if source_format == "docx":
+        preview.update(schemaVersion="opengeo.document-preview.4.0.0", sourceFormat="docx")
+        preview.pop("odfVersion")
     content = (json.dumps(preview, sort_keys=True, separators=(",", ":")) + "\n").encode()
     publication.site.pages[0].resource_content["blocks"].append(
         {
@@ -584,6 +588,9 @@ def test_renders_and_embeds_an_exact_accessible_odt_semantic_preview() -> None:
     assert '<h3 data-source-heading-level="1">Observed &lt;conditions&gt;</h3>' in live
     assert '<thead><tr><th scope="col">District</th>' in live
     assert "original layout, images, tracked changes" in live
+    if source_format == "docx":
+        assert "Sanitized semantic preview of Word DOCX" in live
+        assert "ODF Text" not in live and "presentation of PDF" not in live
     package = build_static_package(
         publication,
         public_project_root="https://geo.example.test/public/organizations/o/projects/p",

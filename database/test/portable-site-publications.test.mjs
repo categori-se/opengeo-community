@@ -225,6 +225,9 @@ describe("0025 portable site publications", () => {
     await db.exec(await readFile(new URL(
       "../migrations/0189_positioned_text_formatting.sql", import.meta.url
     ), "utf8"));
+    for (const file of ["0190_governed_docx_documents.sql", "0191_docx_publication_contract.sql"]) {
+      await db.exec(await readFile(new URL(`../migrations/${file}`, import.meta.url), "utf8"));
+    }
     await db.exec(`
       INSERT INTO app.users (id, cognito_subject, email, display_name)
       VALUES
@@ -709,6 +712,29 @@ describe("0025 portable site publications", () => {
     assert.equal(await valid({...facts, visual_renderer: "untrusted"}, "x/document/visual-presentation.json"), false);
   });
 
+  it("requires the exact bounded DOCX semantic-preview identity", async () => {
+    const facts = {document: {
+      kind: "ooxml_text", source_format: "docx",
+      accessible_preview_schema: "opengeo.document-preview.4.0.0"
+    }};
+    const valid = async (schema, key = "account/document/accessible-preview.json", size = 512) => {
+      const result = await db.query(
+        "SELECT app.docx_document_publication_facts_valid_v1($1::jsonb,$2::text,$3::bigint) AS valid",
+        [JSON.stringify(schema), key, size]
+      );
+      return result.rows[0].valid;
+    };
+    assert.equal(await valid(facts), true);
+    for (const change of [
+      {kind: "odf_text"}, {source_format: "odt"},
+      {accessible_preview_schema: "opengeo.document-preview.1.0.0"}
+    ]) assert.equal(await valid({document: {...facts.document, ...change}}), false);
+    assert.equal(await valid({}), false);
+    assert.equal(await valid(facts, "account/source.docx"), false);
+    assert.equal(await valid(facts, undefined, 524289), false);
+    assert.equal(await valid(facts, undefined, 0), false);
+  });
+
   it("keeps tenant rows invisible outside their organization", async () => {
     const visible = await tenant(ID.organization, ID.user, () =>
       db.query("SELECT slug FROM app.project_sites")
@@ -817,7 +843,7 @@ describe("0025 portable site publications", () => {
     }
   });
 
-  it("seals only the exact post-scan ODT semantic preview under edition schema 1.4", async () => {
+  it("seals exact post-scan ODT and DOCX semantic previews under edition schema 1.4", async () => {
     await tenant(ID.organization, ID.user, async () => {
       await db.query(
         `UPDATE app.project_sites
@@ -840,7 +866,7 @@ describe("0025 portable site publications", () => {
         ]
       );
     });
-    const insertEdition = (manifest) => tenant(ID.organization, ID.user, () => db.query(
+    const insertEditionRow = (manifest) => db.query(
       `INSERT INTO app.project_site_editions
          (id, organization_id, project_id, site_id, site_version_id,
           site_version_number, edition_number, manifest,
@@ -856,7 +882,8 @@ describe("0025 portable site publications", () => {
         "f".repeat(64),
         ID.user
       ]
-    ));
+);
+    const insertEdition = (manifest) => tenant(ID.organization, ID.user, () => insertEditionRow(manifest));
 
     await assert.rejects(
       insertEdition(documentManifest("opengeo.site-edition.1.3.0")),
@@ -866,6 +893,29 @@ describe("0025 portable site publications", () => {
       insertEdition(documentManifest("opengeo.site-edition.1.4.0", "a".repeat(64))),
       /governed asset is invalid/
     );
+    // Exercise the actual edition trigger with DOCX post-scan metadata. Roll
+    // the fixture back so the existing ODT compatibility acceptance stays intact.
+    const rollbackDocx = new Error("DOCX edition accepted; roll back fixture");
+    await assert.rejects(tenant(ID.organization, ID.user, async () => {
+      // The fixture owner seeds inspected metadata; the publication itself
+      // still executes as the normal runtime role.
+      await db.exec("RESET ROLE");
+      await db.query("UPDATE app.datasets SET format='docx' WHERE id=$1", [ID.documentDataset]);
+      await db.query(
+        "UPDATE app.dataset_versions SET schema_definition=$1::jsonb WHERE id=$2",
+        [JSON.stringify({document: {
+          kind: "ooxml_text", source_format: "docx",
+          accessible_preview_schema: "opengeo.document-preview.4.0.0"
+        }}), ID.documentDatasetVersion]
+      );
+      await db.exec("SET LOCAL ROLE opengeo_runtime");
+      await insertEditionRow(documentManifest("opengeo.site-edition.1.4.0"));
+      const sealedDocx = await db.query(
+        "SELECT id FROM app.project_site_editions WHERE id=$1", [ID.documentEdition]
+      );
+      assert.equal(sealedDocx.rows.length, 1);
+      throw rollbackDocx;
+    }), (error) => error === rollbackDocx);
     await insertEdition(documentManifest("opengeo.site-edition.1.4.0"));
 
     const sealed = await tenant(ID.organization, ID.user, () => db.query(

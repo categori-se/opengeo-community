@@ -53,6 +53,25 @@ test('switching feature records clears rendered and pending attachment previews'
   } finally {globalThis.document=previous;dom.window.close();}
 });
 
+test('previews a Word attachment through its saved version without fetching original bytes', async()=>{
+  const previous=globalThis.document;
+  const dom=new JSDOM('<!doctype html><body></body>');globalThis.document=dom.window.document;
+  try {
+    const control=document.createElement('input');control.value='saved-word-version';const calls=[];
+    const picker=FeatureAttachmentPicker({control,adapter:{
+      resolveFeatureAttachment:async version=>{assert.equal(version,'saved-word-version');return {format:'docx',projectId:'project',datasetId:'file'};},
+      getDatasetDocumentPreview:async(...args)=>{calls.push(args);return {sourceFormat:'docx',title:'Field report',language:'en',pages:[{number:1,blocks:[{type:'paragraph',text:'Literal <b>Word content</b>.'}]}]};},
+      requestDatasetDownload(){assert.fail('Document preview must not fetch the original');}
+    }});
+    [...picker.querySelectorAll('button')].find(b=>b.textContent==='Preview selected file').click();
+    await new Promise(resolve=>setTimeout(resolve,0));
+    assert.deepEqual(calls,[['project','file','saved-word-version']]);
+    const region=picker.querySelector('[aria-label="Selected attachment preview"]');
+    assert.match(region.textContent,/Literal <b>Word content<\/b>/);assert.equal(region.querySelector('b'),null);
+    assert.match(region.textContent,/count is not the original pagination/);assert.equal(control.value,'saved-word-version');
+  } finally {globalThis.document=previous;dom.window.close();}
+});
+
 test('image preview checks exact original size and independent download permission', async()=>{
   const previous=globalThis.document;
   const dom=new JSDOM('<!doctype html><body></body>');globalThis.document=dom.window.document;

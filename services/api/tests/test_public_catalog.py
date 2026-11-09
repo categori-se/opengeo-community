@@ -614,7 +614,7 @@ def test_public_dataset_document_preview_reads_exact_visual_and_rechecks_public_
     for statement, parameters in transaction.fetch_one_calls:
         assert "resource.state = 'published'" in statement
         assert "resource.visibility = 'public'" in statement
-        assert "dataset.format::text IN ('pdf', 'odt')" in statement
+        assert "dataset.format::text IN ('pdf', 'odt', 'docx')" in statement
         assert parameters == (ORGANIZATION_ID, PROJECT_ID, RESOURCE_ID)
     for statement, parameters in transaction.fetch_all_calls:
         assert "dataset.classification = 'public'" in statement

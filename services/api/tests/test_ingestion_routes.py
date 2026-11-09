@@ -583,6 +583,11 @@ def test_media_and_documents_use_the_same_shared_auth_and_private_upload_contrac
         ("jpeg", "field-photo.jpeg", "image/jpeg"),
         ("pdf", "research-report.pdf", "application/pdf"),
         (
+            "docx",
+            "research-report.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+        (
             "odt",
             "research-report.odt",
             "application/vnd.oasis.opendocument.text",
@@ -636,6 +641,11 @@ def test_media_upload_contract_has_a_format_specific_16_mib_safety_limit() -> No
     ("format_name", "filename", "content_type"),
     [
         ("pdf", "research-report.pdf", "application/pdf"),
+        (
+            "docx",
+            "research-report.docx",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
         ("odt", "research-report.odt", "application/vnd.oasis.opendocument.text"),
     ],
 )

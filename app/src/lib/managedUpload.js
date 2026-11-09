@@ -14,7 +14,8 @@ export const MANAGED_FORMATS = Object.freeze({
   png: Object.freeze({label: "PNG image", extensions: [".png"], contentType: "image/png"}),
   jpeg: Object.freeze({label: "JPEG image", extensions: [".jpg", ".jpeg"], contentType: "image/jpeg"}),
   pdf: Object.freeze({label: "PDF document", extensions: [".pdf"], contentType: "application/pdf"}),
-  odt: Object.freeze({label: "OpenDocument text", extensions: [".odt"], contentType: "application/vnd.oasis.opendocument.text"})
+  odt: Object.freeze({label: "OpenDocument text", extensions: [".odt"], contentType: "application/vnd.oasis.opendocument.text"}),
+  docx: Object.freeze({label: "Word document", extensions: [".docx"], contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"})
 });
 
 export const MANAGED_FILE_ACCEPT = Object.values(MANAGED_FORMATS)

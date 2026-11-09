@@ -106,7 +106,7 @@ import {
  * @typedef {{code: string, status: string | null}} QualityFinding
  * @typedef {{valid: boolean | null, checks: QualityFinding[], warnings: QualityFinding[], errors: QualityFinding[]}} QualityResults
  * @typedef {{read: boolean, edit: boolean, download: boolean, managePermissions: boolean}} DatasetCapabilities
- * @typedef {{id: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", sourceType: "upload" | "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", format: "geojson" | "csv" | "shapefile" | "mapinfo" | "geopackage" | "geoparquet" | "geotiff" | "nitf" | "img" | "cog" | "pmtiles" | "png" | "jpeg" | "pdf" | "odt" | "kml" | "xyz" | "wms" | "arcgis" | "wfs", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, currentVersionId: string | null, currentVersionNumber: number | null, currentVersionState: "queued" | "processing" | "active" | "failed" | "preserved" | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, qualityResults: QualityResults, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled" | null, processingErrorCode: string | null, tags: string[], createdAt: string, updatedAt: string, capabilities: DatasetCapabilities}} Dataset
+ * @typedef {{id: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", sourceType: "upload" | "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", format: "geojson" | "csv" | "shapefile" | "mapinfo" | "geopackage" | "geoparquet" | "geotiff" | "nitf" | "img" | "cog" | "pmtiles" | "png" | "jpeg" | "pdf" | "odt" | "docx" | "kml" | "xyz" | "wms" | "arcgis" | "wfs", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, currentVersionId: string | null, currentVersionNumber: number | null, currentVersionState: "queued" | "processing" | "active" | "failed" | "preserved" | null, featureCount: number | null, extent: number[] | null, crs: string | null, geometryType: string | null, qualityResults: QualityResults, processingJobState: "queued" | "running" | "completed" | "failed" | "cancelled" | null, processingErrorCode: string | null, tags: string[], createdAt: string, updatedAt: string, capabilities: DatasetCapabilities}} Dataset
  * @typedef {{datasetId: string, projectId: string, name: string, description: string | null, classification: "public" | "internal" | "confidential" | "restricted", status: "draft" | "processing" | "active" | "failed" | "archived", ownerUserId: string, sourceType: "xyz" | "wms" | "pmtiles" | "geojson" | "arcgis" | "wfs", accessMode: "direct_browser", credentialMode: "none", versionNumber: number, sourceUrl: string, configuration: Record<string, unknown>, verificationState: "syntax_only", createdAt: string, updatedAt: string, capabilities: {read: boolean, edit: boolean}}} ExternalSource
  * @typedef {{estimateId: string, projectId: string, sourceDatasetId: string, sourceRevisionNumber: number, sourceType: "wms" | "pmtiles" | "arcgis" | "wfs", copyMethod: "bounded_map_capture" | "exact_object_copy" | "bounded_feature_capture", captureScope: Record<string, unknown>, outputFormat: "png" | "pmtiles" | "geojson", outputContentType: "image/png" | "application/vnd.pmtiles" | "application/geo+json", maximumRequests: number, maximumOutputBytes: number, estimatedCostUsd: number, estimateChecksumSha256: string, createdAt: string, expiresAt: string}} ExternalSourceCopyEstimate
  * @typedef {{jobId: string, projectId: string, estimateId: string, sourceDatasetId: string, sourceRevisionNumber: number, destinationDatasetId: string, destinationName: string, destinationClassification: "public" | "internal" | "confidential" | "restricted", copyMethod: "bounded_map_capture" | "exact_object_copy" | "bounded_feature_capture", captureScope: Record<string, unknown>, outputFormat: "png" | "pmtiles" | "geojson", outputContentType: "image/png" | "application/vnd.pmtiles" | "application/geo+json", maximumRequests: number, maximumOutputBytes: number, estimatedCostUsd: number, estimateChecksumSha256: string, estimateExpiresAt: string, rightsBasis: string, attribution: string, requestChecksumSha256: string, idempotencyKey: string, state: "queued" | "running" | "completed" | "failed" | "cancelled", outputObjectId: string | null, outputDatasetVersionId: string | null, errorCode: string | null, attemptCount: number, createdBy: string, createdAt: string, startedAt: string | null, finishedAt: string | null, cancellable: boolean}} ProtectedCopyJob
@@ -117,7 +117,7 @@ import {
  * @typedef {{kind: "pmtiles", operationId: string, recipe: "gdal-pmtiles-v1", sourceObjectId: string, outputObjectId: string, bounds: [number, number, number, number], minimumZoom: number, maximumZoom: number, sourceLayer: string, requestChecksumSha256: string, createdAt: string}} DatasetDerivativeLineage
  * @typedef {{schemaVersion: "opengeo.dataset-version-lineage.1.0.0", datasetId: string, versionId: string, versionNumber: number, origins: DatasetLineageOrigin[], derivatives: DatasetDerivativeLineage[], derivativesTruncated: boolean}} DatasetVersionLineage
  * @typedef {{schemaVersion: "opengeo.spatial-preview.1.0.0", datasetVersionId: string, numberReturned: number, numberMatched: number | null, mayBeTruncated: boolean, geojson: {type: "FeatureCollection", features: object[]}}} SpatialPreview
- * @typedef {({schemaVersion: "opengeo.document-preview.1.0.0", sourceFormat: "odt", odfVersion: "1.2" | "1.3" | "1.4"} | {schemaVersion: "opengeo.document-preview.2.0.0" | "opengeo.document-preview.3.0.0" | "opengeo.pdf-visual-presentation.1.0.0" | "opengeo.pdf-visual-presentation.2.0.0", sourceFormat: "pdf", pdfVersion: "1.0" | "1.1" | "1.2" | "1.3" | "1.4" | "1.5" | "1.6" | "1.7" | "2.0", extraction: Record<string, unknown>, rendering?: {engine: "poppler-pdftoppm", mediaType: "image/jpeg", annotationsHidden: true, colorSpace: "rgb", pageCount: number, targetMaximumDimension: number, totalPixels: number, totalImageBytes: number}}) & {title: string | null, language: string | null, pages: {number: number, textSource?: "embedded" | "ocr" | "none", width?: number, height?: number, imageBase64?: string, imageSha256?: string, blocks: Record<string, unknown>[]}[]}} DocumentPreview
+ * @typedef {({schemaVersion: "opengeo.document-preview.1.0.0", sourceFormat: "odt", odfVersion: "1.2" | "1.3" | "1.4"} | {schemaVersion: "opengeo.document-preview.4.0.0", sourceFormat: "docx"} | {schemaVersion: "opengeo.document-preview.2.0.0" | "opengeo.document-preview.3.0.0" | "opengeo.pdf-visual-presentation.1.0.0" | "opengeo.pdf-visual-presentation.2.0.0", sourceFormat: "pdf", pdfVersion: "1.0" | "1.1" | "1.2" | "1.3" | "1.4" | "1.5" | "1.6" | "1.7" | "2.0", extraction: Record<string, unknown>, rendering?: {engine: "poppler-pdftoppm", mediaType: "image/jpeg", annotationsHidden: true, colorSpace: "rgb", pageCount: number, targetMaximumDimension: number, totalPixels: number, totalImageBytes: number}}) & {title: string | null, language: string | null, pages: {number: number, textSource?: "embedded" | "ocr" | "none", width?: number, height?: number, imageBase64?: string, imageSha256?: string, blocks: Record<string, unknown>[]}[]}} DocumentPreview
  * @typedef {{userId: string, email: string, displayName: string, role: "manage" | "edit" | "view" | "download", grantedBy: string, createdAt: string, updatedAt: string}} DatasetPermission
  * @typedef {{field: string, equals?: string | number | boolean, value_field?: string, operator?: "eq" | "ne" | "gt" | "gte" | "lt" | "lte"}} FeatureFieldCondition
  * @typedef {{name: string, type: "string" | "integer" | "number" | "boolean", required: boolean, label: string | null, description: string | null, choices: string[], minimum: number | null, maximum: number | null, minLength: number | null, maxLength: number | null, visibleWhen: FeatureFieldCondition | null}} FeatureField
@@ -140,7 +140,7 @@ import {
  * @typedef {{schemaVersion: "opengeo.public-catalog.1.5.0", numberReturned: number, numberMatched: number, limit: number, offset: number, nextOffset: number | null, facetSampleSize: number, facetsTruncated: boolean, facets: Record<string, {value: string, label: string, count: number}[]>, records: PublicCatalogRecord[]}} PublicCatalogPage
  * @typedef {{schemaVersion: "opengeo.public-spatial-preview.1.0.0", resourceId: string, resourceVersionNumber: number, numberReturned: number, numberMatched: number | null, mayBeTruncated: boolean, geojson: {type: "FeatureCollection", features: object[]}} PublicSpatialPreview
  * @typedef {{schemaVersion: "opengeo.public-document-preview.1.0.0", resourceId: string, resourceVersionNumber: number, resourceKind: "document" | "story" | "dashboard", rendererVersion: "opengeo-page-renderer-1.1.0", dependencyReferencesOmitted: number, html: string}} PublicDocumentPreview
- * @typedef {{schemaVersion: "opengeo.public-dataset-document-preview.1.0.0", resourceId: string, resourceVersionNumber: number, datasetVersionNumber: number, sourceFormat: "pdf" | "odt", presentationKind: "semantic" | "visual", presentation: DocumentPreview}} PublicDatasetDocumentPreview
+ * @typedef {{schemaVersion: "opengeo.public-dataset-document-preview.1.0.0", resourceId: string, resourceVersionNumber: number, datasetVersionNumber: number, sourceFormat: "pdf" | "odt" | "docx", presentationKind: "semantic" | "visual", presentation: DocumentPreview}} PublicDatasetDocumentPreview
  * @typedef {{schemaVersion: "opengeo.public-map-preview.1.0.0", resourceId: string, resourceVersionNumber: number, mapVersion: number, projection: "mercator" | "globe", colorMode: "light" | "dark", layers: {layerId: string, title: string, visible: boolean, opacity: number, order: number, style: Record<string, unknown>, labels: Record<string, unknown>, numberReturned: number, numberMatched: number | null, mayBeTruncated: boolean, geojson: {type: "FeatureCollection", features: object[]}}[]}} PublicMapPreview
  * @typedef {{projectId: string, projectName: string, siteId: string, editionId: string, listedSlug: string, title: string, description: string | null, language: string, theme: "paper" | "atlas" | "minimal", pageCount: number, publishedAt: string, isPrimary: boolean, href: string, primaryHref: string | null}} PublicSiteDirectoryRecord
  * @typedef {{schemaVersion: "opengeo.public-site-directory.1.0.0", numberReturned: number, numberMatched: number, limit: number, offset: number, nextOffset: number | null, records: PublicSiteDirectoryRecord[]}} PublicSiteDirectoryPage
@@ -961,7 +961,7 @@ export class OpenGeoApiClient {
     );
     const format = oneOf(
       draft?.format,
-      ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt"],
+      ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "docx"],
       "repository object registration.format"
     );
     if (
@@ -6885,7 +6885,7 @@ export function parseRepositoryObjectRegistration(value) {
     ),
     format: oneOf(
       record.format,
-      ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt"],
+      ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "docx"],
       "repository object registration.format"
     ),
     created: boolean(record.created, "repository object registration.created"),
@@ -7306,7 +7306,7 @@ export function parseDataset(value) {
     description: nullableString(record.description, "dataset.description"),
     classification: oneOf(record.classification, ["public", "internal", "confidential", "restricted"], "dataset.classification"),
     sourceType: oneOf(record.source_type, ["upload", "repository", "xyz", "wms", "pmtiles", "geojson", "arcgis", "wfs", "imageserver", "mapserver", "cog", "postgis"], "dataset.source_type"),
-    format: oneOf(record.format, ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver", "postgis"], "dataset.format"),
+    format: oneOf(record.format, ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "docx", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver", "postgis"], "dataset.format"),
     status: oneOf(record.status, ["draft", "processing", "active", "failed", "archived"], "dataset.status"),
     ownerUserId: uuid(record.owner_user_id, "dataset.owner_user_id"),
     currentVersionId: nullableUuid(record.current_version_id, "dataset.current_version_id"),
@@ -8359,7 +8359,7 @@ export function parseRepositoryObjectProtectedCopyJob(value) {
 function repositoryCopyFormat(value, label) {
   return oneOf(value, [
     "geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "cog",
-    "pmtiles", "png", "jpeg", "pdf", "odt"
+    "pmtiles", "png", "jpeg", "pdf", "odt", "docx"
   ], label);
 }
 
@@ -9013,7 +9013,7 @@ export function parsePublicDatasetDocumentPreview(value) {
   }
   const sourceFormat = oneOf(
     record.source_format,
-    ["pdf", "odt"],
+    ["pdf", "odt", "docx"],
     "public dataset document preview.source_format"
   );
   const presentationKind = oneOf(
@@ -9026,7 +9026,7 @@ export function parsePublicDatasetDocumentPreview(value) {
   if (
     presentation.sourceFormat !== sourceFormat
     || visual !== (presentationKind === "visual")
-    || (sourceFormat === "odt" && presentationKind !== "semantic")
+    || (["odt", "docx"].includes(sourceFormat) && presentationKind !== "semantic")
   ) {
     contract("public dataset document preview presentation is inconsistent");
   }
@@ -14780,7 +14780,7 @@ function datasetQuery({
     owner_user_id: ownerUserId === null ? null : assertUuid(ownerUserId, "owner user id"),
     tag: boundedQuery(tag, 64, "tag")?.toLowerCase() ?? null,
     geometry_type: boundedQuery(geometryType, 100, "geometry type"),
-    format: optionalOneOf(format, ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver"], "format"),
+    format: optionalOneOf(format, ["geojson", "csv", "shapefile", "mapinfo", "geopackage", "geoparquet", "geotiff", "nitf", "img", "cog", "pmtiles", "png", "jpeg", "pdf", "odt", "docx", "kml", "xyz", "wms", "arcgis", "wfs", "imageserver", "mapserver"], "format"),
     classification: optionalOneOf(classification, ["public", "internal", "confidential", "restricted"], "classification"),
     source_type: optionalOneOf(
       sourceType,

@@ -106,6 +106,7 @@ RepositoryDatasetFormat = Literal[
     "jpeg",
     "pdf",
     "odt",
+    "docx",
 ]
 
 _REPOSITORY_FORMAT_EXTENSIONS: dict[RepositoryDatasetFormat, frozenset[str]] = {
@@ -120,6 +121,7 @@ _REPOSITORY_FORMAT_EXTENSIONS: dict[RepositoryDatasetFormat, frozenset[str]] = {
     "jpeg": frozenset({".jpg", ".jpeg"}),
     "pdf": frozenset({".pdf"}),
     "odt": frozenset({".odt"}),
+    "docx": frozenset({".docx"}),
 }
 
 _BUCKET_PATTERN = re.compile(r"^[a-z0-9][a-z0-9.-]*[a-z0-9]$")

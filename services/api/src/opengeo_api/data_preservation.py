@@ -93,6 +93,7 @@ _REPOSITORY_COPY_CONTENT_TYPES: dict[UploadDatasetFormat, frozenset[str]] = {
     "png": frozenset({"image/png"}),
     "jpeg": frozenset({"image/jpeg"}),
     "pdf": frozenset({"application/pdf"}),
+    "docx": frozenset({"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}),
     "odt": frozenset({"application/vnd.oasis.opendocument.text"}),
 }
 

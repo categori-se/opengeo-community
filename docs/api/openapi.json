@@ -6811,6 +6811,7 @@
               "jpeg",
               "pdf",
               "odt",
+              "docx",
               "xyz",
               "wms",
               "arcgis",
@@ -7438,6 +7439,59 @@
           "blocks"
         ],
         "title": "DocumentPreviewPageResponse",
+        "type": "object"
+      },
+      "DocxDocumentPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/DocumentPreviewPageResponse"
+            },
+            "title": "Pages",
+            "type": "array"
+          },
+          "schemaVersion": {
+            "const": "opengeo.document-preview.4.0.0",
+            "title": "Schemaversion",
+            "type": "string"
+          },
+          "sourceFormat": {
+            "const": "docx",
+            "title": "Sourceformat",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "sourceFormat",
+          "title",
+          "language",
+          "pages"
+        ],
+        "title": "DocxDocumentPreviewResponse",
         "type": "object"
       },
       "DownloadTicketResponse": {
@@ -18061,7 +18115,8 @@
           "source_format": {
             "enum": [
               "pdf",
-              "odt"
+              "odt",
+              "docx"
             ],
             "title": "Source Format",
             "type": "string"
@@ -19531,7 +19586,8 @@
               "png",
               "jpeg",
               "pdf",
-              "odt"
+              "odt",
+              "docx"
             ],
             "title": "Format",
             "type": "string"
@@ -20755,7 +20811,8 @@
               "png",
               "jpeg",
               "pdf",
-              "odt"
+              "odt",
+              "docx"
             ],
             "title": "Format",
             "type": "string"
@@ -31041,6 +31098,7 @@
                     "jpeg",
                     "pdf",
                     "odt",
+                    "docx",
                     "xyz",
                     "wms",
                     "arcgis",
@@ -39877,6 +39935,7 @@
                     "jpeg",
                     "pdf",
                     "odt",
+                    "docx",
                     "xyz",
                     "wms",
                     "arcgis",
@@ -44694,6 +44753,9 @@
                   "anyOf": [
                     {
                       "$ref": "#/components/schemas/OdtDocumentPreviewResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DocxDocumentPreviewResponse"
                     },
                     {
                       "$ref": "#/components/schemas/PdfDocumentPreviewResponse"

@@ -10,6 +10,7 @@ from uuid import UUID
 
 from opengeo_api.document_previews import (
     DOCUMENT_PREVIEW_SCHEMA,
+    DOCX_DOCUMENT_PREVIEW_SCHEMA,
     MAX_DOCUMENT_PREVIEW_BYTES,
     MAX_PDF_VISUAL_PRESENTATION_BYTES,
     PDF_VISUAL_PRESENTATION_SCHEMAS,
@@ -168,7 +169,7 @@ class PublicDatasetDocumentPreviewTarget:
     resource_version_number: int
     dataset_version_id: UUID
     dataset_version_number: int
-    source_format: Literal["pdf", "odt"]
+    source_format: Literal["pdf", "odt", "docx"]
     object_id: UUID
     bucket: str
     key: str
@@ -183,7 +184,7 @@ class PublicDatasetDocumentPreview:
     resource_id: UUID
     resource_version_number: int
     dataset_version_number: int
-    source_format: Literal["pdf", "odt"]
+    source_format: Literal["pdf", "odt", "docx"]
     presentation_kind: Literal["semantic", "visual"]
     presentation: dict[str, Any]
 
@@ -1117,7 +1118,7 @@ class PostgresPublicCatalogRepository:
               AND resource.kind = 'dataset'
               AND resource.state = 'published'
               AND resource.visibility = 'public'
-              AND dataset.format::text IN ('pdf', 'odt')
+              AND dataset.format::text IN ('pdf', 'odt', 'docx')
             """,
             (organization_id, project_id, resource_id),
         )
@@ -1191,6 +1192,14 @@ class PostgresPublicCatalogRepository:
                   AND version.schema_definition #>>
                         '{document,accessible_preview_schema}' = %s
                 ) OR (
+                  dataset.format::text = 'docx'
+                  AND object.object_key LIKE '%%/document/accessible-preview.json'
+                  AND object.size_bytes BETWEEN 1 AND 524288
+                  AND version.schema_definition #>> '{document,kind}' = 'ooxml_text'
+                  AND version.schema_definition #>> '{document,source_format}' = 'docx'
+                  AND version.schema_definition #>>
+                        '{document,accessible_preview_schema}' = %s
+                ) OR (
                   dataset.format::text = 'pdf'
                   AND app.pdf_document_publication_facts_valid_v1(
                     version.schema_definition,
@@ -1211,6 +1220,7 @@ class PostgresPublicCatalogRepository:
                 dataset_id,
                 cast(str, resource_row[4]),
                 DOCUMENT_PREVIEW_SCHEMA,
+                DOCX_DOCUMENT_PREVIEW_SCHEMA,
             ),
         )
         accessible = [
@@ -1219,11 +1229,11 @@ class PostgresPublicCatalogRepository:
         visual = [
             row for row in rows if cast(str, row[3]).endswith("/document/visual-presentation.json")
         ]
-        source_format = cast(Literal["pdf", "odt"], resource_row[4])
+        source_format = cast(Literal["pdf", "odt", "docx"], resource_row[4])
         if (
             len(accessible) != 1
             or len(visual) > 1
-            or (source_format == "odt" and visual)
+            or (source_format in {"odt", "docx"} and visual)
             or len(rows) != len(accessible) + len(visual)
             or cast(int, accessible[0][0]) != dataset_version_number
             or any(cast(int, row[0]) != dataset_version_number for row in visual)
@@ -1466,7 +1476,7 @@ class PostgresPublicCatalogRepository:
                          FROM app.datasets preview_dataset
                          WHERE preview_dataset.organization_id = resource.organization_id
                            AND preview_dataset.id = resource.dataset_id
-                           AND preview_dataset.format::text IN ('pdf', 'odt')
+                           AND preview_dataset.format::text IN ('pdf', 'odt', 'docx')
                        ) THEN 'dataset-document'
                      WHEN resource.dataset_id IS NOT NULL THEN 'dataset'
                      WHEN resource.kind IN ('document', 'story', 'dashboard') THEN 'document'

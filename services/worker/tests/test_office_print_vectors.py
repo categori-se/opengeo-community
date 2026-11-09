@@ -1,20 +1,99 @@
 # ruff: noqa: E501
 
 import hashlib
+import io
 import json
 import os
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
 from opengeo_worker.command_runner import CommandRunner
+from opengeo_worker.docx_documents import REL_NS, WORD_NS
 from opengeo_worker.models import TransientFailure
 from opengeo_worker.odf_documents import inspect_odt
-from opengeo_worker.office_print_vectors import _conversion_copy, build_odt_print_vectors
+from opengeo_worker.office_print_vectors import (
+    _conversion_copy,
+    _docx_conversion_copy,
+    build_docx_print_vectors,
+    build_odt_print_vectors,
+)
+
+_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
+_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+_WP = "application/vnd.openxmlformats-officedocument.wordprocessingml."
+
+
+def marker_png() -> bytes:
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+        )
+
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\x00\xff\x20\x10"))
+        + chunk(b"IEND", b"")
+    )
+
+
+def docx_bytes(
+    *,
+    body: str | None = None,
+    extra_files: dict[str, bytes] | None = None,
+    relationships: str = "",
+    content_types: str = "",
+    document: bytes | None = None,
+) -> bytes:
+    """CC0 deterministic inactive OPC fixture; no Office SDK or download needed."""
+    body = (
+        body
+        or """
+      <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>नेपाल अध्ययन</w:t></w:r></w:p>
+      <w:p><w:r><w:t>First paragraph</w:t><w:br w:type="page"/><w:t>Second page</w:t></w:r></w:p>
+      <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>One</w:t></w:r></w:p>
+      <w:p><w:pPr><w:numPr><w:ilvl w:val="0"/><w:numId w:val="1"/></w:numPr></w:pPr><w:r><w:t>Two</w:t></w:r></w:p>
+      <w:tbl><w:tr><w:trPr><w:tblHeader/></w:trPr><w:tc><w:p><w:r><w:t>Place</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Count</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>Kathmandu</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>7</w:t></w:r></w:p></w:tc></w:tr></w:tbl>"""
+    )
+    files = {
+        "word/document.xml": document
+        or f'''<w:document xmlns:w="{WORD_NS}" xmlns:r="{REL_NS}"
+          xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+          xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+          xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><w:body>{body}</w:body></w:document>'''.encode(),
+        "word/styles.xml": f'''<w:styles xmlns:w="{WORD_NS}">
+          <w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="DejaVu Sans" w:hAnsi="DejaVu Sans"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults>
+          <w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:pPr><w:outlineLvl w:val="0"/></w:pPr><w:rPr><w:sz w:val="44"/><w:color w:val="1260A0"/></w:rPr></w:style></w:styles>'''.encode(),
+        "word/numbering.xml": f'''<w:numbering xmlns:w="{WORD_NS}"><w:abstractNum w:abstractNumId="0"><w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="decimal"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum><w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num></w:numbering>'''.encode(),
+        "docProps/core.xml": b"""<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Nepal field report</dc:title><dc:language>ne</dc:language></cp:coreProperties>""",
+        "_rels/.rels": f'''<Relationships xmlns="{_REL}"><Relationship Id="rIdDocument" Type="{REL_NS}/officeDocument" Target="word/document.xml"/><Relationship Id="rIdCore" Type="{_REL}/metadata/core-properties" Target="docProps/core.xml"/></Relationships>'''.encode(),
+        "word/_rels/document.xml.rels": f'''<Relationships xmlns="{_REL}"><Relationship Id="rIdStyles" Type="{REL_NS}/styles" Target="styles.xml"/><Relationship Id="rIdNumbering" Type="{REL_NS}/numbering" Target="numbering.xml"/>{relationships}</Relationships>'''.encode(),
+    }
+    files.update(extra_files or {})
+    files["[Content_Types].xml"] = f'''<Types xmlns="{_CT}">
+      <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+      <Default Extension="xml" ContentType="application/xml"/>
+      <Default Extension="png" ContentType="image/png"/>
+      <Override PartName="/word/document.xml" ContentType="{_WP}document.main+xml"/>
+      <Override PartName="/word/styles.xml" ContentType="{_WP}styles+xml"/>
+      <Override PartName="/word/numbering.xml" ContentType="{_WP}numbering+xml"/>
+      <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
+      {content_types}</Types>'''.encode()
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, value in files.items():
+            info = zipfile.ZipInfo(name, date_time=(2026, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, value)
+    return output.getvalue()
 
 
 def layout_odt(path: Path, *, remote_image: bool = False) -> None:
@@ -94,7 +173,98 @@ def layout_odt(path: Path, *, remote_image: bool = False) -> None:
         archive.writestr("META-INF/manifest.xml", manifest, compress_type=zipfile.ZIP_DEFLATED)
 
 
+def layout_docx(path: Path, *, remote_image: bool = False) -> None:
+    """CC0 two-page DOCX: section geometry, text, table and embedded PNG."""
+    portrait = '<w:pgSz w:w="8391" w:h="11906"/><w:pgMar w:top="680" w:right="680" w:bottom="680" w:left="680"/>'
+    landscape = '<w:pgSz w:w="11906" w:h="8391" w:orient="landscape"/><w:pgMar w:top="680" w:right="680" w:bottom="680" w:left="680"/>'
+    body = f"""<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>DOCX original layout first</w:t></w:r></w:p>
+      <w:p><w:r><w:t>A source paragraph with a </w:t></w:r><w:hyperlink r:id="rIdLink"><w:r><w:t>visible link</w:t></w:r></w:hyperlink><w:r><w:t>.</w:t></w:r></w:p>
+      <w:tbl><w:tblPr><w:tblW w:w="5000" w:type="dxa"/></w:tblPr><w:tblGrid><w:gridCol w:w="2500"/><w:gridCol w:w="2500"/></w:tblGrid><w:tr>
+        <w:tc><w:tcPr><w:tcW w:w="2500" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>Station</w:t></w:r></w:p></w:tc>
+        <w:tc><w:tcPr><w:tcW w:w="2500" w:type="dxa"/></w:tcPr><w:p><w:r><w:t>42</w:t></w:r></w:p></w:tc>
+      </w:tr></w:tbl>
+      <w:p><w:pPr><w:sectPr><w:type w:val="nextPage"/>{portrait}</w:sectPr></w:pPr><w:r><w:drawing>
+        <wp:inline><wp:extent cx="360000" cy="360000"/><wp:docPr id="1" name="Marker"/>
+        <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic>
+          <pic:nvPicPr><pic:cNvPr id="1" name="marker.png"/><pic:cNvPicPr/></pic:nvPicPr>
+          <pic:blipFill><a:blip r:embed="rIdImage"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
+          <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="360000" cy="360000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
+        </pic:pic></a:graphicData></a:graphic></wp:inline>
+      </w:drawing></w:r></w:p>
+      <w:p><w:r><w:t>DOCX original layout second</w:t></w:r></w:p><w:sectPr>{landscape}</w:sectPr>"""
+    image_target = (
+        'Target="https://example.invalid/image.png" TargetMode="External"'
+        if remote_image
+        else 'Target="media/marker.png"'
+    )
+    relationships = (
+        f'<Relationship Id="rIdImage" Type="{REL_NS}/image" {image_target}/>'
+        f'<Relationship Id="rIdLink" Type="{REL_NS}/hyperlink" Target="https://example.invalid/" TargetMode="External"/>'
+    )
+    path.write_bytes(
+        docx_bytes(
+            body=body,
+            relationships=relationships,
+            extra_files={"word/media/marker.png": marker_png()},
+        )
+    )
+
+
 class OfficePrintTests(unittest.TestCase):
+    def test_docx_conversion_copy_keeps_layout_media_namespace_and_literal_link_only(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source, target = Path(temporary) / "source.docx", Path(temporary) / "copy.docx"
+            layout_docx(source)
+            before = source.read_bytes()
+            _docx_conversion_copy(source, target)
+            self.assertEqual(source.read_bytes(), before)
+            with zipfile.ZipFile(target) as archive:
+                document = archive.read("word/document.xml")
+                relationships = archive.read("word/_rels/document.xml.rels")
+                self.assertIn(b"DOCX original layout first", document)
+                self.assertIn(b"visible link", document)
+                self.assertIn(b'w:orient="landscape"', document)
+                self.assertIn(b"xmlns:pic=", document)
+                self.assertIn("word/media/marker.png", archive.namelist())
+                self.assertNotIn(b"rIdLink", document)
+                self.assertNotIn(b"https://example.invalid", relationships)
+                self.assertNotIn(b"/hyperlink", relationships)
+
+    def test_docx_external_image_refused_before_converter(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.docx"
+            layout_docx(source, remote_image=True)
+            before = source.read_bytes()
+            runner = CommandRunner(root, timeout_seconds=10, output_bytes=4096)
+            with patch.object(runner, "run") as run:
+                prepared, facts, conversion = build_docx_print_vectors(source, root, runner)
+                run.assert_not_called()
+            self.assertIsNone(prepared)
+            self.assertIn("unavailable_reason", facts)
+            self.assertEqual(conversion, {})
+            self.assertEqual(source.read_bytes(), before)
+            self.assertEqual(list(root.iterdir()), [source])
+
+    def test_docx_missing_converter_retains_source_and_uses_fixed_child_format(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source.docx"
+            layout_docx(source)
+            before = source.read_bytes()
+            runner = CommandRunner(root, timeout_seconds=10, output_bytes=4096)
+            with patch.object(
+                runner, "run", side_effect=TransientFailure("runtime_missing")
+            ) as run:
+                self.assertIsNone(build_docx_print_vectors(source, root, runner)[0])
+                arguments = run.call_args.args[1]
+                self.assertEqual(arguments[-2:], ["/tmp/job", "docx"])
+                self.assertIn("--unshare-user", arguments)
+                self.assertIn("--unshare-pid", arguments)
+                self.assertIn("--die-with-parent", arguments)
+            self.assertEqual(source.read_bytes(), before)
+            self.assertEqual(list(root.iterdir()), [source])
+
     def test_conversion_copy_retains_layout_media_and_original_not_active_settings_or_links(self):
         with tempfile.TemporaryDirectory() as temporary:
             source, target = Path(temporary) / "source.odt", Path(temporary) / "copy.odt"
@@ -276,6 +446,35 @@ class OfficePrintTests(unittest.TestCase):
                 self.assertEqual(len(links), 1)
                 self.assertFalse(links[0].hasAttributeNS("http://www.w3.org/1999/xlink", "href"))
                 self.assertEqual(links[0].firstChild.data, "visible link")
+
+    @unittest.skipUnless(
+        os.environ.get("OPEN_GEO_TEST_NATIVE_OFFICE") == "1", "explicit local native qualification"
+    )
+    def test_native_docx_original_layout(self):
+        from pypdf import PdfReader
+
+        with tempfile.TemporaryDirectory(prefix="og-office-") as temporary:
+            root = Path(temporary)
+            source = root / "source.docx"
+            layout_docx(source)
+            before = hashlib.sha256(source.read_bytes()).hexdigest()
+            runner = CommandRunner(root, timeout_seconds=25, output_bytes=32768)
+            prepared, facts, conversion = build_docx_print_vectors(source, root, runner)
+            self.assertIsNotNone(prepared, facts)
+            self.assertEqual(before, hashlib.sha256(source.read_bytes()).hexdigest())
+            self.assertEqual(facts["page_count"], 2)
+            self.assertEqual(conversion["network"], "seccomp-denied")
+            reader = PdfReader(prepared)
+            self.assertIn("DOCX original layout first", reader.pages[0].extract_text())
+            self.assertIn("visible link", reader.pages[0].extract_text())
+            self.assertIn("Station", reader.pages[0].extract_text())
+            self.assertIn("42", reader.pages[0].extract_text())
+            self.assertIn("DOCX original layout second", reader.pages[1].extract_text())
+            self.assertLess(reader.pages[0].mediabox.width, reader.pages[0].mediabox.height)
+            self.assertGreater(reader.pages[1].mediabox.width, reader.pages[1].mediabox.height)
+            self.assertIn("/Font", reader.pages[0]["/Resources"])
+            self.assertIn("/XObject", reader.pages[0]["/Resources"])
+            self.assertFalse(any("/Annots" in page for page in reader.pages))
 
     @unittest.skipUnless(
         os.environ.get("OPEN_GEO_TEST_NATIVE_OFFICE") == "1", "explicit local native qualification"

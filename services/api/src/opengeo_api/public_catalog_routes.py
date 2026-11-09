@@ -134,7 +134,7 @@ class PublicDatasetDocumentPreviewResponse(ResponseModel):
     resource_id: UUID
     resource_version_number: int = Field(ge=1)
     dataset_version_number: int = Field(ge=1)
-    source_format: Literal["pdf", "odt"]
+    source_format: Literal["pdf", "odt", "docx"]
     presentation_kind: Literal["semantic", "visual"]
     presentation: dict[str, Any]
 

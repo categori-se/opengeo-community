@@ -8,9 +8,11 @@ export function documentPreview(preview) {
     : " OCR is not performed.";
   const description = preview.sourceFormat === "pdf"
     ? `All-page semantic PDF ${preview.pdfVersion} text · ${preview.pages.length} page${preview.pages.length === 1 ? "" : "s"}. ${preview.extraction.readingOrder === "source-tags" ? "Reading order follows validated source tags." : "Reading order is heuristic."}${pdfOcrDescription}`
-    : `Semantic ODF ${preview.odfVersion} preview · ${preview.pages.length} page${preview.pages.length === 1 ? "" : "s"}. Page layout and embedded media are not reproduced.`;
+    : preview.sourceFormat === "docx"
+      ? `Semantic Word document preview · ${preview.pages.length} content page${preview.pages.length === 1 ? "" : "s"}. Page layout and embedded media are not reproduced; this count is not the original pagination.`
+      : `Semantic ODF ${preview.odfVersion} preview · ${preview.pages.length} page${preview.pages.length === 1 ? "" : "s"}. Page layout and embedded media are not reproduced.`;
   article.append(
-    text("h5", preview.title ?? (preview.sourceFormat === "pdf" ? "PDF text presentation" : "OpenDocument text preview")),
+    text("h5", preview.title ?? (preview.sourceFormat === "pdf" ? "PDF text presentation" : preview.sourceFormat === "docx" ? "Word document preview" : "OpenDocument text preview")),
     text("p", description, "project-catalog-feedback")
   );
   for (const page of preview.pages) {

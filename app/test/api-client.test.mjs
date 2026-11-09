@@ -4040,6 +4040,56 @@ describe("OpenGeo API client", () => {
     assert.equal(datasets[0].geometryType, "document");
   });
 
+  it("loads exact Word semantic pages without PDF or ODF fields", async () => {
+    const dataset = parseDataset(datasetPayload({
+      name: "Word field report", format: "docx", feature_count: null,
+      extent: null, crs: null, geometry_type: "document"
+    }));
+    assert.equal(dataset.format, "docx");
+    assert.equal(dataset.geometryType, "document");
+    const preview = {
+      schemaVersion: "opengeo.document-preview.4.0.0", sourceFormat: "docx",
+      title: "नेपाल field report", language: "ne",
+      pages: [{number: 1, blocks: [
+        {type: "heading", level: 1, text: "Findings"},
+        {type: "paragraph", text: "Literal <b>source</b> & observations."},
+        {type: "list", ordered: true, items: ["One", "Two"]},
+        {type: "table", headerRows: 1, rows: [["Place", "Count"], ["Kathmandu", "7"]]}
+      ]}]
+    };
+    const calls = [];
+    const client = new OpenGeoApiClient({
+      tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async (url) => {calls.push(url); return jsonResponse(preview);}
+    });
+    assert.deepEqual(await client.getDatasetDocumentPreview(
+      IDS.project, IDS.dataset, IDS.version
+    ), preview);
+    assert.deepEqual(calls, [
+      `/api/projects/${IDS.project}/datasets/${IDS.dataset}/versions/${IDS.version}/document-preview`
+    ]);
+    for (const extra of [{odfVersion: "1.4"}, {pdfVersion: "1.7"}, {extraction: {}},
+      {remoteUrl: "https://attacker.example"}]) {
+      assert.throws(() => parseDocumentPreview({...preview, ...extra}), ApiContractError);
+    }
+    for (const change of [
+      {sourceFormat: "odt"}, {schemaVersion: "opengeo.document-preview.1.0.0"},
+      {pages: [{...preview.pages[0], number: 2}]},
+      {pages: [{number: 1, blocks: [{type: "paragraph", text: "x".repeat(8_001)}]}]}
+    ]) {
+      assert.throws(() => parseDocumentPreview({...preview, ...change}), ApiContractError);
+    }
+    const published = {
+      schema_version: "opengeo.public-dataset-document-preview.1.0.0",
+      resource_id: IDS.resource, resource_version_number: 3, dataset_version_number: 6,
+      source_format: "docx", presentation_kind: "semantic", presentation: preview
+    };
+    assert.deepEqual(parsePublicDatasetDocumentPreview(published).presentation, preview);
+    assert.throws(() => parsePublicDatasetDocumentPreview({
+      ...published, presentation_kind: "visual"
+    }), ApiContractError);
+  });
+
   it("loads strict exact ODF semantic pages and rejects widened preview data", async () => {
     const preview = {
       schemaVersion: "opengeo.document-preview.1.0.0",

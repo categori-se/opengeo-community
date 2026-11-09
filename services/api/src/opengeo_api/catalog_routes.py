@@ -161,6 +161,14 @@ class OdtDocumentPreviewResponse(RequestModel):
     pages: list[DocumentPreviewPageResponse]
 
 
+class DocxDocumentPreviewResponse(RequestModel):
+    schema_version: Literal["opengeo.document-preview.4.0.0"] = Field(alias="schemaVersion")
+    source_format: Literal["docx"] = Field(alias="sourceFormat")
+    title: str | None
+    language: str | None
+    pages: list[DocumentPreviewPageResponse]
+
+
 class PdfDocumentExtractionResponse(RequestModel):
     engine: Literal["poppler-pdftotext"]
     mode: Literal["layout"]
@@ -240,7 +248,10 @@ class PdfOcrDocumentPreviewResponse(RequestModel):
 
 
 DocumentPreviewResponse = (
-    OdtDocumentPreviewResponse | PdfDocumentPreviewResponse | PdfOcrDocumentPreviewResponse
+    OdtDocumentPreviewResponse
+    | DocxDocumentPreviewResponse
+    | PdfDocumentPreviewResponse
+    | PdfOcrDocumentPreviewResponse
 )
 
 
@@ -434,6 +445,8 @@ async def document_preview(
     )
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
+    if document.get("sourceFormat") == "docx":
+        return DocxDocumentPreviewResponse.model_validate(document)
     if document.get("sourceFormat") == "odt":
         return OdtDocumentPreviewResponse.model_validate(document)
     if document.get("schemaVersion") == "opengeo.document-preview.3.0.0":

@@ -309,6 +309,19 @@ export function parseDocumentPreview(value) {
       odfVersion: oneOf(record.odfVersion, ["1.2", "1.3", "1.4"], "ODF version")
     };
   } else if (
+    record.schemaVersion === "opengeo.document-preview.4.0.0"
+    && record.sourceFormat === "docx"
+  ) {
+    exactKeys(
+      record,
+      ["schemaVersion", "sourceFormat", "title", "language", "pages"],
+      "document preview"
+    );
+    variant = {
+      schemaVersion: record.schemaVersion,
+      sourceFormat: record.sourceFormat
+    };
+  } else if (
     [
       "opengeo.document-preview.2.0.0",
       "opengeo.document-preview.3.0.0",
