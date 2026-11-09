@@ -2,6 +2,26 @@
 
 Print Studio arranges Project map frames, text and supporting information into saved layouts for export.
 
+## Positioned image descriptions in PDF — local work, November 9, 2026
+
+A sealed PNG placed through an authored image block now carries its exact
+alternative text in a PDF `Figure`. Each placement owns its actual image paint,
+page and ParentTree entry, including repeated assets across pages. Missing,
+blank, malformed or oversized legacy alternatives keep their existing image
+output without an invented description. Captions remain separate.
+
+Six final affected actual-PDF checks and strict typing pass. The normal mixed
+Publication export preserves the image description alongside authoritative tags,
+text, crop and rotation from an imported PDF. Seven unchanged non-Figure
+regression results are reused from the initial twelve-test run. A representative
+before/current page has identical text, geometry and 60-DPI native pixels. Both
+runs and the small fixture inspection used 72.775 seconds, including cleanup;
+no cloud, CI, build, installation or persistent environment was added.
+This increment is qualified locally; hosted acceptance remains open. Flow images, other figure
+kinds, broader imported/OCR authority, actual assistive-technology behavior and
+hosted/full-family acceptance remain open; no PDF/UA conformance is claimed.
+
+
 ## Direct browser PDF text structure — local work, November 9, 2026
 
 Vector PDF and geospatial PDF now retain the owned page title as `H1`, each
