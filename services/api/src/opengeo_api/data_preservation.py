@@ -1848,7 +1848,9 @@ class PostgresDataPreservationRepository:
                    job.state::text, job.output_object_id, job.output_size_bytes,
                    job.output_checksum_sha256, job.error_code, job.attempt_count,
                    job.created_by, job.created_at, job.started_at, job.finished_at,
-                   job.conversion_options, job.worker_image_digest
+                   NULLIF(to_jsonb(job)->'conversion_options', 'null'::jsonb)
+                       AS conversion_options,
+                   to_jsonb(job)->>'worker_image_digest' AS worker_image_digest
             FROM app.pmtiles_derivative_jobs job
         """
 

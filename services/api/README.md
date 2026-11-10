@@ -28,6 +28,12 @@ This is the production API runtime foundation. The current surface includes:
 - project-service coverage administration plus authenticated WCS 2.0.1 KVP discovery, rectified-grid description, and whole-coverage exact GeoTIFF retrieval. Publication accepts only a current active validated COG original and freezes its logical/storage/raster identity. Withdrawal is irreversible; stale heads fail closed; admin responses omit storage coordinates; and the exact download is authorized and target-checked before and after signing. Duplicate/unknown/oversized KVP and subset/scale/reprojection/range/alternate- format requests fail closed. Reads never dispatch processing. This bounded GDAL-verified lane makes no WCS conformance or full-product-parity claim.
 - explicit immutable coverage derivatives under the project-service administration path. A bounded within-source subset, optional sorted one-based source bands, either target dimensions/`EPSG:` reprojection or source-CRS resolution, and nearest/bilinear/cubic resampling queue only from a shared- auth POST. A policy publishes pixel/sample and 64-retained/four-active quotas, queued-only cancellation, a 24-hour minimum reclamation age, and a 15-minute checksum-bound preview. A second shared-auth manager POST queues exact-version physical deletion through the activation-only worker while omitting bucket, key, ETag, and storage version from browser/API contracts. Queueing immediately makes the output unavailable; derivative/reclamation/activity history remains, and successful deletion releases one retained-job quota slot. Candidate-draft- shaped collection, coverage, domain-set, range-type, and schema GETs resolve only an exact source or already completed COG, never create work, and keep `conformsTo` empty. Exact downloads recheck authorization/source availability and target identity around signing.
 
+PMTiles job list and detail reads remain compatible with schemas predating migration
+`0172`: absent or null conversion options retain the legacy job response, while
+configured rows retain their versioned options and worker image digest. This read
+compatibility preserves tenant filters and RLS; it does not enable v2 processing or
+apply the migration.
+
 Every HTTP response receives `X-Request-ID`. A caller-supplied value is retained only when it uses a bounded safe character set; otherwise the API generates a UUID. One JSON completion/failure event is written per request without query strings or database error text.
 
 ## Local Checks

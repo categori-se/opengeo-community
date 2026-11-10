@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {describe, it} from "node:test";
-import {installLoadedMapLayers, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../src/lib/loadedLayerInstallation.js";
+import {addMapLayer} from "../src/components/WorkbenchView.js";
+import {installLoadedMapLayers, isMapLayerHandleInstalled, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../src/lib/loadedLayerInstallation.js";
 
 function fixture(secondSourceType = "governed-dataset") {
   const upper = {layerId: "upper", sourceType: secondSourceType};
@@ -53,6 +54,56 @@ describe("cached persisted map layer installation", () => {
     view.options.layers.splice(view.options.layers.indexOf(view.lower), 1);
     view.map.ready = true;
     assert.equal(installLoadedMapLayers(view.options), 0, "Removed layer is not resurrected from its cached data");
+  });
+
+  it("retires stale GL handles and restores cached data after sources or paint layers disappear", () => {
+    const sources = new Map(), paints = new Map(), handlers = new Set();
+    let removedHandlers = 0, installations = 0;
+    const map = {ready: true, isStyleLoaded() { return this.ready; },
+      getSource: id => sources.get(id), getLayer: id => paints.get(id),
+      addSource(id, value) { sources.set(id, value); this.ready = false; },
+      addLayer(value) { paints.set(value.id, value); },
+      removeSource(id) { sources.delete(id); }, removeLayer(id) { paints.delete(id); },
+      on(type, id, handler) { handlers.add(handler); },
+      off(type, id, handler) { assert(handlers.delete(handler)); removedHandlers++; }};
+    const layer = {layerId: "field-sites", sourceType: "governed-dataset", geometryType: "Point",
+      visible: true, opacity: 1, style: {circleColor: "#14b8a6", circleRadius: 7}};
+    const data = {type: "FeatureCollection", features: [{type: "Feature", properties: {},
+      geometry: {type: "Point", coordinates: [-77.04, 38.91]}}]};
+    const state = {map, layerHandles: new Map()};
+    const options = {getMap: () => map, layers: [layer], dataByLayerId: new Map([[layer.layerId, data]]),
+      layerHandles: state.layerHandles,
+      install(current, cached) { assert.equal(cached, data); installations++; addMapLayer(state, current, cached, []); },
+      syncOrder() {}};
+    assert.equal(installLoadedMapLayers(options), 1);
+    assert.equal(handlers.size, 3);
+    map.ready = true;
+    assert.equal(installLoadedMapLayers(options), 0, "Live source/paint identities are reused");
+
+    sources.clear(); paints.clear(); // A replacement style discarded GL content, not the handle.
+    map.ready = false;
+    assert.equal(installLoadedMapLayers(options), 0, "Do not retire handles during an in-flight style change");
+    map.ready = true;
+    assert.equal(installLoadedMapLayers(options), 1);
+    assert.equal(removedHandlers, 3, "Normal disposal retires stale interaction handlers");
+    assert.equal(sources.get("field-sites-source").data, data, "Reuse the same data without another read");
+    assert(paints.has("field-sites-points"));
+
+    map.ready = true;
+    paints.delete("field-sites-points"); // A surviving source alone does not establish installation.
+    assert.equal(installLoadedMapLayers(options), 1);
+    assert.equal(removedHandlers, 6);
+    assert.equal(handlers.size, 3, "Partial content does not accumulate feature handlers");
+    assert.equal(sources.get("field-sites-source").data, data);
+    assert(paints.has("field-sites-points"));
+    map.ready = true;
+    assert.equal(installLoadedMapLayers(options), 0);
+    assert.equal(installations, 3, "Each loss repairs once; repeated readiness never reinstalls live content");
+    paints.clear();
+    assert.equal(isMapLayerHandleInstalled(map, {...state.layerHandles.get(layer.layerId), cog: {}}), true,
+      "An asynchronous COG session owns its pending content lifecycle");
+    assert.equal(isMapLayerHandleInstalled({isStyleLoaded: () => true}, state.layerHandles.get(layer.layerId)), true,
+      "Native adapters without GL accessors keep their existing lifecycle");
   });
 
   it("stops if the owning map changes and never installs without a current map", () => {
