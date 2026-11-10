@@ -874,8 +874,10 @@ describe("publication project surfaces", () => {
     const report = surface.querySelector(".project-geomoose-conversion-report");
     assert.equal(report.hidden, false);
     assert.equal(report.querySelector("summary").textContent, "GeoMoose conversion report");
-    assert.match(report.querySelector('[role="status"]').textContent, /2\/3 elements retained/);
-    assert.match(report.textContent, /Element 3 \(rect\): omitted.*drawing_omitted:.*shape was not approximated/s);
+    assert.match(report.querySelector('[role="status"]').textContent, /3\/3 elements retained; 0 omitted;/);
+    assert.match(report.textContent, /Element 3 \(rect\): converted/);
+    assert.match(report.textContent, /stroke_width_quantized:.*0\.72pt.*1pt/s);
+    assert.doesNotMatch(report.textContent, /drawing_omitted/);
     assert.match(report.textContent, /runtime_resolution_not_converted/);
     const reportText = report.textContent;
     const frame = surface.querySelector(".project-positioned-layout-frame-select");
@@ -893,8 +895,15 @@ describe("publication project surfaces", () => {
       findButton(report, "Download conversion report JSON").click();
       const downloadedReport = JSON.parse(await downloaded.text());
       assert.equal(downloadedReport.sourceLabel, "letter-landscape");
-      assert.equal(downloadedReport.sourceElementOutcomes[2].disposition, "omitted");
-      assert.ok(downloadedReport.losses.some(({code}) => code === "drawing_omitted"));
+      assert.equal(downloadedReport.convertedElementCount, 3);
+      assert.equal(downloadedReport.omittedElementCount, 0);
+      assert.deepEqual(downloadedReport.sourceElementOutcomes.map(({disposition}) => disposition),
+        ["converted", "converted", "converted"]);
+      assert.deepEqual(downloadedReport.sourceElementOutcomes.map(({targetElementIds}) => targetElementIds),
+        converted.pages[0].elements.map(({id}) => [id]));
+      assert.ok(downloadedReport.losses.some(({sourceElementIndex, code}) =>
+        sourceElementIndex === 2 && code === "stroke_width_quantized"));
+      assert.ok(!downloadedReport.losses.some(({code}) => code.startsWith("drawing_omitted")));
       assert.equal(downloadedReport.externalContextLosses.length, 4);
     } finally {
       URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; anchorPrototype.click = originalClick;
