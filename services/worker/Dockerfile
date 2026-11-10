@@ -203,12 +203,16 @@ COPY --from=builder /tmp/aws-rds-global-bundle.pem /etc/ssl/certs/aws-rds-global
 
 WORKDIR /srv/opengeo
 COPY src ./src
-COPY scripts/verify-toolchain.py ./scripts/verify-toolchain.py
 
-RUN PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify-toolchain.py \
+ARG OPEN_GEO_CLAMAV_REFRESH=initial
+RUN test -n "$OPEN_GEO_CLAMAV_REFRESH" \
+    && freshclam --stdout \
+    && chmod --recursive a+rX /var/lib/clamav \
     && chmod 0444 /etc/ssl/certs/aws-rds-global-bundle.pem \
     && chown --recursive 10001:10001 /srv/opengeo
 
 USER 10001:10001
+COPY --chown=10001:10001 scripts/verify-toolchain.py ./scripts/verify-toolchain.py
+RUN PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify-toolchain.py
 VOLUME ["/tmp/opengeo-worker"]
 CMD ["python3", "-m", "opengeo_worker"]

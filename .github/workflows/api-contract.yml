@@ -282,7 +282,7 @@ jobs:
           podman pull "${pull_options[@]}" docker.io/postgis/postgis@sha256:8828b03e9a95269f808abe62aa83215b22a2d3710f54a55e8040327b7b5f9932
           build_options=(--jobs=1 --no-cache --layers=false --pull=missing --retry=0 --cpu-period=100000 --cpu-quota=200000 --memory=8g --memory-swap=8g --authfile "$OPEN_GEO_FRESH_STORE/anonymous-auth.json")
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/api.iid" --file services/api/Dockerfile services/api
-          podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/worker.iid" --file services/worker/Dockerfile services/worker
+          podman build "${build_options[@]}" --build-arg "OPEN_GEO_CLAMAV_REFRESH=$(date -u +%Y-%m-%dT%H)" --iidfile "$OPEN_GEO_FRESH_STORE/worker.iid" --file services/worker/Dockerfile services/worker
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/pmtiles.iid" --file services/worker/Dockerfile.pmtiles services/worker
           podman build "${build_options[@]}" --iidfile "$OPEN_GEO_FRESH_STORE/compiler.iid" --file services/observable-builder/Dockerfile services/observable-builder
           BUILD
