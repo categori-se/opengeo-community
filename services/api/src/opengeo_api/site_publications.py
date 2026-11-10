@@ -634,7 +634,8 @@ class PostgresSitePublicationRepository:
             await transaction.execute(
                 """
                 UPDATE app.project_site_publication_destinations
-                SET revision = %s, reach = %s, listed_slug = %s, is_primary = %s,
+                SET revision = %s, reach = %s::app.project_site_publication_reach,
+                    listed_slug = %s, is_primary = %s,
                     configured_by = %s, configured_at = clock_timestamp()
                 WHERE organization_id = %s AND project_id = %s AND site_id = %s
                 """,
@@ -656,7 +657,8 @@ class PostgresSitePublicationRepository:
                    source_reach, target_reach, source_listed_slug,
                    target_listed_slug, source_is_primary, target_is_primary,
                    request_id, actor_user_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s::app.project_site_publication_reach,
+                        %s::app.project_site_publication_reach, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     context.organization_id,
@@ -1084,7 +1086,8 @@ class PostgresSitePublicationRepository:
                    site_version_number, edition_number, manifest,
                    manifest_checksum_sha256, published_by, published_at,
                    publication_reach, listed_slug, unlisted_token, is_primary)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s::app.project_site_publication_reach, %s, %s, %s)
                 """,
                 (
                     edition_id,

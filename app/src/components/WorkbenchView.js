@@ -68,7 +68,7 @@ import {geojsonBounds} from "../lib/mapLayers.js";
 import {resolvePlusCode} from "../lib/plusCode.js";
 import {applyKmlView} from "../lib/kmlView.js";
 import {mapGraticule} from "../lib/mapGraticule.js";
-import {installLoadedMapLayers, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../lib/loadedLayerInstallation.js";
+import {installLoadedMapLayers, isMapLayerHandleInstalled, isCurrentPersistedLayer, persistedLayerSourceIdentity} from "../lib/loadedLayerInstallation.js";
 import {PINNED_MAP_FONT, createMapFontSession, isRegisteredMapFont, validateMapFontRef} from "../lib/mapFonts.js";
 import {exportGeoLibreProject, importGeoLibreProject} from "../lib/geolibreProject.js";
 import {applyGeoLibreReturnCameraChoice} from "../lib/geolibreHandoff.js";
@@ -15018,7 +15018,10 @@ function bindLayerInteraction(state, map, layer, mapLayerId, datasets) {
 
 export function addMapLayer(state, layer, geojson, datasets) {
   const map = state.map;
-  if (!map || state.layerHandles.has(layer.layerId)) return;
+  if (!map || isMapLayerHandleInstalled(map, state.layerHandles.get(layer.layerId))) return;
+  // setStyle can discard sources/layers while a cached handle still exists.
+  // Retire its listeners, images and overlays before reusing the loaded data.
+  if (state.layerHandles.has(layer.layerId)) removeMapLayer(state, layer.layerId);
   if (isCogLayer(layer)) {
     if (workbenchRenderer(map).id !== "maplibre") {
       state.rendererLayerIssues ??= new Map(); state.rendererLayerIssues.set(layer.layerId, "COG preview currently uses MapLibre. The Layer is preserved."); return;

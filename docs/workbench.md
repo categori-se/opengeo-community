@@ -18,3 +18,7 @@ normal preview, source review and Add Layer steps. Templates operate in the
 browser; saving a Project retains the resulting Layer and source through the
 existing save workflow. A template does not transfer source data or authorize
 access to another account.
+
+## Restoring layers after a basemap change
+
+Studio restores already loaded layers if the new map style removes their sources or paint layers.
