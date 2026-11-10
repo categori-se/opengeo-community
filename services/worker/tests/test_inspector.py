@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import json
 import shutil
 import struct
@@ -1207,6 +1208,23 @@ def test_pdf_preview_runs_through_the_real_isolated_poppler_toolchain(tmp_path: 
     presentation = json.loads(result.artifacts[-1].path.read_text(encoding="utf-8"))
     assert presentation["rendering"]["pageCount"] == 1
     assert presentation["pages"][0]["number"] == 1
+
+    verifier_source = Path(__file__).resolve().parents[1] / "scripts/verify-toolchain.py"
+    spec = importlib.util.spec_from_file_location("worker_toolchain_verifier", verifier_source)
+    assert spec is not None and spec.loader is not None
+    verifier = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(verifier)
+    assert (
+        verifier.scanned_pdf_contract_failures(
+            document,
+            result.quality_results["safety_scan"]["comprehensive_malware_scan"],
+            [
+                (artifact.relative_key, artifact.content_type, artifact.path.is_file())
+                for artifact in result.artifacts
+            ],
+        )
+        == []
+    )
 
 
 def test_kml_inspection_preserves_source_without_fetch_or_conversion(

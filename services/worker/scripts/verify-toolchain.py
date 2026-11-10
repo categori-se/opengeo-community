@@ -11,6 +11,8 @@ from opengeo_worker.inspector import DatasetInspector
 from opengeo_worker.malware import parse_clamav_version
 
 TOOL_ENVIRONMENT = {**os.environ, "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC"}
+# Match production bounds while bundled ClamAV signatures load under ARM64 emulation.
+BUILD_VERIFIER_COMMAND_TIMEOUT_SECONDS = 300
 
 PYTHON_MODULES = (
     "duckdb",
@@ -83,7 +85,7 @@ def worker_settings(workspace: Path) -> Settings:
         db_password="not-used-by-toolchain-verifier",
         db_sslrootcert="/etc/ssl/certs/aws-rds-global-bundle.pem",
         workspace_root=workspace,
-        command_timeout_seconds=30,
+        command_timeout_seconds=BUILD_VERIFIER_COMMAND_TIMEOUT_SECONDS,
     )
 
 
@@ -97,6 +99,38 @@ def output(command: list[str]) -> str:
         timeout=30,
     )
     return completed.stdout + completed.stderr
+
+
+def scanned_pdf_contract_failures(
+    metadata: object,
+    comprehensive_malware_scan: object,
+    artifacts: list[tuple[str, str, bool]],
+) -> list[str]:
+    if not isinstance(metadata, dict):
+        return ["document_metadata"]
+    expected_artifacts = [
+        ("document/preview-page-1.png", "image/png"),
+        ("thumbnail/overview.png", "image/png"),
+        ("document/accessible-preview.json", "application/json"),
+        ("document/visual-presentation.json", "application/json"),
+    ]
+    if metadata.get("print_vector_available") is True:
+        expected_artifacts.insert(0, ("document/print-vector.pdf", "application/pdf"))
+    checks = {
+        "page_count": metadata.get("page_count") == 1,
+        "comprehensive_malware_scan": comprehensive_malware_scan is True,
+        "accessible_preview_schema": (
+            metadata.get("accessible_preview_schema") == "opengeo.document-preview.3.0.0"
+        ),
+        "text_extraction": metadata.get("text_extraction") == "poppler_pdftotext_tesseract",
+        "ocr_performed": metadata.get("ocr_performed") is True,
+        "print_vector_available": type(metadata.get("print_vector_available")) is bool,
+        "artifact_contract": (
+            [(key, content_type) for key, content_type, _ in artifacts] == expected_artifacts
+            and all(is_file for _, _, is_file in artifacts)
+        ),
+    }
+    return [name for name, passed in checks.items() if not passed]
 
 
 def main() -> None:
@@ -178,7 +212,7 @@ def main() -> None:
             check=False,
             capture_output=True,
             env=TOOL_ENVIRONMENT,
-            timeout=30,
+            timeout=BUILD_VERIFIER_COMMAND_TIMEOUT_SECONDS,
         )
         if scan.returncode != 1:
             raise RuntimeError("ClamAV failed its blocked-signature control")
@@ -188,22 +222,21 @@ def main() -> None:
             document, "pdf", Path(directory)
         )
         metadata = inspection.schema_definition.get("document")
-        if (
-            not isinstance(metadata, dict)
-            or metadata.get("page_count") != 1
-            or inspection.quality_results.get("safety_scan", {}).get("comprehensive_malware_scan")
-            is not True
-            or metadata.get("accessible_preview_schema") != "opengeo.document-preview.3.0.0"
-            or metadata.get("text_extraction") != "poppler_pdftotext_tesseract"
-            or metadata.get("ocr_performed") is not True
-            or len(inspection.artifacts) != 4
-            or any(
-                artifact.content_type not in {"image/png", "application/json"}
-                or not artifact.path.is_file()
-                for artifact in inspection.artifacts
+        artifacts = [
+            (artifact.relative_key, artifact.content_type, artifact.path.is_file())
+            for artifact in inspection.artifacts
+        ]
+        failed_checks = scanned_pdf_contract_failures(
+            metadata,
+            inspection.quality_results.get("safety_scan", {}).get("comprehensive_malware_scan"),
+            artifacts,
+        )
+        if failed_checks:
+            identities = [(key, content_type) for key, content_type, _ in artifacts]
+            raise RuntimeError(
+                "isolated scanned PDF preview contract failed; "
+                f"failed_checks={failed_checks!r}; artifact_identities={identities!r}"
             )
-        ):
-            raise RuntimeError("isolated scanned PDF preview contract failed")
 
 
 if __name__ == "__main__":
