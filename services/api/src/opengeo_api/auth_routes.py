@@ -109,8 +109,13 @@ async def _resolve_principal(
         data_api_error = cause if isinstance(cause, RdsDataApiUnavailable) else None
         if cause is not None and cause.__cause__ is not None:
             cause = cause.__cause__
-        logger.error(
-            "principal.unavailable",
+        resuming = (
+            startup
+            and data_api_error is not None
+            and data_api_error.service_error_code == "DatabaseResumingException"
+        )
+        (logger.info if resuming else logger.error)(
+            "principal.resuming" if resuming else "principal.unavailable",
             extra={
                 "error_type": type(error).__name__,
                 "cause_type": type(cause).__name__ if cause is not None else "unknown",
@@ -119,13 +124,7 @@ async def _resolve_principal(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="identity_store_unavailable",
-            headers=(
-                {"Retry-After": "2"}
-                if startup
-                and data_api_error is not None
-                and data_api_error.service_error_code == "DatabaseResumingException"
-                else None
-            ),
+            headers={"Retry-After": "5"} if resuming else None,
         ) from error
     if principal is None:
         raise HTTPException(

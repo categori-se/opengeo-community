@@ -254,7 +254,8 @@ def test_session_known_resume_keeps_public_body_and_advertises_bounded_retry() -
     class ResumingStartupRepository(FakeRepository):
         async def resolve_for_startup(self, subject):
             raise PrincipalBackendUnavailable("lookup failed") from RdsDataApiUnavailable(
-                "provider text stays private", service_error_code="DatabaseResumingException",
+                "provider text stays private",
+                service_error_code="DatabaseResumingException",
                 http_status=400,
             )
 
@@ -264,7 +265,7 @@ def test_session_known_resume_keeps_public_body_and_advertises_bounded_retry() -
     assert response.status_code == 503
     assert response.content == b'{"detail":"identity_store_unavailable"}'
     assert len(response.content) == 39
-    assert response.headers["retry-after"] == "2"
+    assert response.headers["retry-after"] == "5"
 
 
 def test_principal_failure_logs_cause_type_without_sensitive_exception_text(caplog) -> None:

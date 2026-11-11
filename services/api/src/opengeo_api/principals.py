@@ -97,10 +97,12 @@ class RdsDataApiPrincipalRepository:
         return await self._resolve(subject, self._transport_timeout_seconds)
 
     async def resolve_for_startup(self, subject: str) -> Principal | None:
-        """Allow the session GET its existing overall lookup window for transport."""
-        return await self._resolve(subject, self._timeout_seconds)
+        """Return an explicit resume signal without polling the paused database."""
+        return await self._resolve(subject, self._timeout_seconds, wait_for_resume=False)
 
-    async def _resolve(self, subject: str, transport_timeout_seconds: float) -> Principal | None:
+    async def _resolve(
+        self, subject: str, transport_timeout_seconds: float, *, wait_for_resume: bool = True
+    ) -> Principal | None:
         try:
             result = await self._client.execute(
                 """
@@ -113,6 +115,7 @@ class RdsDataApiPrincipalRepository:
                 # never replayed. Explicit resume responses share the total window.
                 timeout_seconds=self._timeout_seconds,
                 transport_timeout_seconds=transport_timeout_seconds,
+                wait_for_resume=wait_for_resume,
             )
         except RdsDataApiUnavailable as error:
             raise PrincipalBackendUnavailable("principal lookup failed") from error
