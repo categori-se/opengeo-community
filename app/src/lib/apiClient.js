@@ -5781,35 +5781,42 @@ export class OpenGeoApiClient {
       if (path === "/auth/session" && method === "GET" && body === undefined && !anonymous) {
         const scope = JSON.stringify([requestBaseUrl, [...headers]]);
         const loadSession = async (requestSignal) => {
-          const started = performance.now();
-          const first = await fetchResponse(requestSignal);
-          if (first.status !== 503) return first;
-          let detail;
-          try { detail = (await first.clone().json())?.detail; }
-          catch { return first; }
-          if (detail !== "identity_store_unavailable") return first;
-          // A paused metadata store can recover while the existing login stays valid.
-          // Keep one shared retry, honoring a short server-directed resume wait.
-          const retryAfter = first.headers.get("retry-after");
-          const retryAfterSeconds = retryAfter !== null && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
-          const delay = retryAfterSeconds > 0 && retryAfterSeconds <= 5
-            ? retryAfterSeconds * 1000
-            : Math.max(0, 2000 - (performance.now() - started));
-          if (delay > 0) await new Promise((resolve, reject) => {
-            requestSignal.throwIfAborted();
-            const abort = () => {
-              clearTimeout(timer);
-              requestSignal.removeEventListener("abort", abort);
-              reject(requestSignal.reason ?? new DOMException("Aborted", "AbortError"));
-            };
-            const timer = setTimeout(() => {
-              requestSignal.removeEventListener("abort", abort);
-              resolve();
-            }, delay);
-            requestSignal.addEventListener("abort", abort, {once: true});
-          });
-          requestSignal.throwIfAborted();
-          return fetchResponse(requestSignal);
+          const started = performance.now(), deadline = started + 60_000;
+          const flightSignal = AbortSignal.any([requestSignal, AbortSignal.timeout(60_000)]);
+          let current = await fetchResponse(flightSignal);
+          for (let attempt = 0; attempt < 4; attempt++) {
+            if (current.status !== 503) return current;
+            let detail;
+            try { detail = (await current.clone().json())?.detail; }
+            catch { return current; }
+            if (detail !== "identity_store_unavailable") return current;
+            const retryAfter = current.headers.get("retry-after");
+            const seconds = retryAfter !== null && /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
+            const resuming = seconds > 0 && seconds <= 5;
+            // Only an explicit database-resume response gets the longer recovery.
+            // Unknown identity failures retain the existing single read retry.
+            if (attempt === 3 || (attempt > 0 && !resuming)) return current;
+            const delay = resuming
+              ? Math.max(seconds * 1000, [5000, 10000, 15000][attempt])
+              : Math.max(0, 2000 - (performance.now() - started));
+            if (performance.now() + delay >= deadline) return current;
+            if (delay > 0) await new Promise((resolve, reject) => {
+              flightSignal.throwIfAborted();
+              const abort = () => {
+                clearTimeout(timer);
+                flightSignal.removeEventListener("abort", abort);
+                reject(flightSignal.reason ?? new DOMException("Aborted", "AbortError"));
+              };
+              const timer = setTimeout(() => {
+                flightSignal.removeEventListener("abort", abort);
+                resolve();
+              }, delay);
+              flightSignal.addEventListener("abort", abort, {once: true});
+            });
+            flightSignal.throwIfAborted();
+            current = await fetchResponse(flightSignal);
+          }
+          return current;
         };
         response = (await pendingSessionRequest(this.pendingSessions, scope, loadSession, {signal})).clone();
       } else {

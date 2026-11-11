@@ -192,3 +192,44 @@ test('changing token, account and endpoint during recovery keeps both session sc
  assert.equal((await original).userId,'10000000-0000-4000-8000-000000000001');
  assert.deepEqual(calls[2],calls[0]);assert.equal(calls[1].url,'/second-api/auth/session');assert.equal(calls[1].token,'Bearer second-token');assert.equal(calls[1].account,'10000000-0000-4000-8000-000000000004');assert.equal(client.pendingSessions.size,0);
 });
+
+
+const resumingSession = () => Response.json({detail:'identity_store_unavailable'},
+ {status:503,headers:{'Retry-After':'5'}});
+const flushSessionRecovery = () => new Promise(resolve=>setImmediate(resolve));
+
+test('known database resume shares four bounded reads without repeating authentication',async t=>{
+ const {OpenGeoApiClient}=await import('../src/lib/apiClient.js'), clock=sessionRetryClock(t),calls=[];
+ let tokenReads=0;
+ const client=new OpenGeoApiClient({tokenProvider:()=>{tokenReads++;return 'existing-token';},fetchImplementation:async(url,options)=>{
+  calls.push({url,method:options.method,headers:[...options.headers]});
+  return calls.length<4?resumingSession():Response.json(sessionBody('10000000-0000-4000-8000-000000000001'));
+ }});
+ const first=client.getSession(),second=client.getSession();await clock.scheduled;
+ for(const delay of [5000,10000,15000]){clock.tick(delay);await flushSessionRecovery();}
+ const results=await Promise.all([first,second]);
+ assert.equal(calls.length,4);assert.equal(tokenReads,2);
+ assert.deepEqual(clock.delays,[5000,10000,15000]);
+ assert(calls.every(call=>JSON.stringify(call)===JSON.stringify(calls[0])));
+ assert.deepEqual(results[0],results[1]);assert.notEqual(results[0],results[1]);
+ assert.equal(client.pendingSessions.size,0);
+});
+
+test('known database resume stops after four reads and releases the shared flight',async t=>{
+ const {OpenGeoApiClient}=await import('../src/lib/apiClient.js'), clock=sessionRetryClock(t);let calls=0;
+ const client=new OpenGeoApiClient({tokenProvider:()=> 'existing-token',fetchImplementation:async()=>{calls++;return resumingSession();}});
+ const result=client.getSession();const rejected=assert.rejects(result,error=>error.status===503&&error.code==='identity_store_unavailable');
+ await clock.scheduled;
+ for(const delay of [5000,10000,15000]){clock.tick(delay);await flushSessionRecovery();}
+ await rejected;clock.tick(60000);assert.equal(calls,4);assert.equal(client.pendingSessions.size,0);
+});
+
+test('resume recovery does not dispatch another request outside the sixty-second window',async t=>{
+ const {OpenGeoApiClient}=await import('../src/lib/apiClient.js'), clock=sessionRetryClock(t);let calls=0;
+ const client=new OpenGeoApiClient({tokenProvider:()=> 'existing-token',fetchImplementation:async()=>{
+  calls++;clock.elapse(calls===1?20000:35000);return resumingSession();
+ }});
+ const result=client.getSession();const rejected=assert.rejects(result,error=>error.status===503);
+ await clock.scheduled;clock.tick(5000);await rejected;
+ assert.equal(calls,2);assert.deepEqual(clock.delays,[5000]);assert.equal(client.pendingSessions.size,0);
+});

@@ -118,8 +118,8 @@ export async function loadDirectoryCore(adapter, {signal, onProgress = () => {},
     try {
       session = await adapter.getSession({signal});
     } catch (error) {
-      // The SDK already retries a temporarily unavailable identity store once.
-      // Leave further recovery to the startup backoff instead of repeating it here.
+      // The SDK owns bounded database-resume recovery and one generic identity retry.
+      // Do not add another session retry inside this directory load.
       if (error?.status === 403 && adapter.clearOrganization) {
         signal?.throwIfAborted();
         adapter.clearOrganization();

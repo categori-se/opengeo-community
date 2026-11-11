@@ -76,7 +76,6 @@ class RdsDataApiUnavailable(RuntimeError):
         )
 
 
-
 class RdsDataApiConflict(RuntimeError):
     pass
 
@@ -210,6 +209,7 @@ class RdsDataApiClient:
         *,
         timeout_seconds: float | None = None,
         transport_timeout_seconds: float | None = None,
+        wait_for_resume: bool = True,
     ) -> DataApiResult:
         sql, encoded_parameters = compile_data_api_statement(statement, parameters)
         payload: dict[str, Any] = {
@@ -239,6 +239,7 @@ class RdsDataApiClient:
                     timeout_seconds=timeout_seconds,
                     transport_timeout_seconds=transport_timeout_seconds,
                     resume_wait=resume_wait,
+                    wait_for_resume=wait_for_resume,
                 )
         except TimeoutError as error:
             if resume_wait:
@@ -277,6 +278,7 @@ class RdsDataApiClient:
         timeout_seconds: float | None = None,
         transport_timeout_seconds: float | None = None,
         resume_wait: list[_RdsDataApiResuming] | None = None,
+        wait_for_resume: bool = True,
     ) -> dict[str, Any]:
         deadline = self._monotonic() + (
             self._resume_timeout_seconds if timeout_seconds is None else timeout_seconds
@@ -310,6 +312,10 @@ class RdsDataApiClient:
                         operation, payload, timeout_seconds=call_timeout_seconds
                     )
             except _RdsDataApiResuming as error:
+                if not wait_for_resume:
+                    # Session reads let the shared browser recovery own the wait.
+                    # Never turn one paused database into repeated Data API polls.
+                    raise
                 if resume_wait is not None:
                     resume_wait.append(error)
                 remaining_seconds = deadline - self._monotonic()
