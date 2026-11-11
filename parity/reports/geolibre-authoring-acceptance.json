@@ -1,0 +1,100 @@
+{
+  "schemaVersion": "opengeo.public-family-acceptance.1",
+  "observedAt": "2026-11-11",
+  "rowId": "geolibre.gis-authoring-inspection",
+  "result": "pass",
+  "originalCriteriaUnchanged": true,
+  "criteria": [
+    {
+      "id": "C01",
+      "criterion": "The standalone workbench supports a layer tree, styles, labels, tables, filters, identify, selection, CRS handling, and measurement.",
+      "result": "pass",
+      "evidence": "Retained actual compiled workbench journeys prove native hierarchy, continuous table filters, row selection, original Layer identities, navigation/identify, coordinate drawing and shared geographic measurement. Built Studio/API/PostgreSQL label-order/field/enabled controls, membership filters and layer-order/visibility survive Save/reopen; independent compiled native pixels prove labels. Normal-owner production composition proves pinned reusable Style, draw order, visibility, typed filters and fresh reopen. Declared CRS84/EPSG:4326/EPSG:3857 transforms/axis handling and safe spatial-body choices have separate exact retained acceptance."
+    },
+    {
+      "id": "C02",
+      "criterion": "Feature and attribute edits are durable, conflict-aware, versioned, and auditable.",
+      "result": "pass",
+      "evidence": "Normal-owner concurrent deployed API clients update both Point geometry and name attributes through expected-version CAS: exactly one200/one409; immutable attributed histories retain base and winner with no losing revision. Independent native Modify/Snap applies governed PostGIS geometry and freshly reopens peer plus Studio/map/history with stable identities/properties; stale version rejects. These are real persistence/history receipts, not fixture-only durability."
+    },
+    {
+      "id": "C03",
+      "criterion": "Saved authoring state reloads reproducibly.",
+      "result": "pass",
+      "evidence": "Actual compiled Project device Save/fresh reopen retains exact Layer IDs, authored coordinates, saved measurement and independent GL camera; separate keyboard journey freshly reopens exact Project coordinates and backup. Real HTTP/PostgreSQL built Studio reopens label choices, membership filters, filter editor, layer order and visibility across two compositions; normal-owner production maps retain pinned Styles and exact saved presentation after latest Style advances. Native peer/Studio/history reopen verifies governed feature edits independently."
+    }
+  ],
+  "review": {
+    "result": "approved_original_criteria_complete",
+    "method": "Read-only exact retained actual-workflow and hash review; no new tests, runtime, builds or cloud.",
+    "basis": "All C01 advertised operation groups, C02 durable conflict-aware audited feature/attribute edits and C03 saved-state reopen have executable retained working-flow evidence. No concrete remaining original workflow blocker found."
+  },
+  "retainedEvidence": [
+    {
+      "role": "Actual compiled keyboard hierarchy/table/filter/selection/save/fresh-reopen journey",
+      "sha256": "e11c43aa9f19fff88fa99be4c0f960eaaf102a835df6e572c4e42f1574becf01",
+      "bytes": 1342
+    },
+    {
+      "role": "Actual compiled native Canvas identify/coordinate/measurement/save/fresh-reopen journey",
+      "sha256": "d327064d975fff701c577d4880e22732f1a36eb78b80b3fb5f480057248e8167",
+      "bytes": 1662
+    },
+    {
+      "role": "Built Studio real HTTP/PostgreSQL labels/filters/order/visibility Save/reopen",
+      "sha256": "9df3f567c658adac793795d050e6f66560ad596c1923d31c42f53ae55cabcffe",
+      "bytes": 23308
+    },
+    {
+      "role": "Real compiler/fixed runtime native label-pixel acceptance",
+      "sha256": "ea96aa46a70677711bbb4c0ffa27ab15cb5bf0f1becfd2704f08626322cf3c1a",
+      "bytes": 3060
+    },
+    {
+      "role": "Accepted normal-owner production composition/Style/filter/order/fresh-reopen",
+      "sha256": "a5bce011c8346b338bca90fa70e49b6e7d9b9cbc8b6fe15b3a5dba7f0beae91e",
+      "bytes": 9027
+    },
+    {
+      "role": "Exact normal-owner actual deployed component/canvas receipt",
+      "sha256": "38c500424f3399d1416781233bce0088c3b4af8dd5bad8992daa2f8a008c6e41",
+      "bytes": 25459
+    },
+    {
+      "role": "Actual deployed concurrent geometry/attribute CAS and immutable attributed history",
+      "sha256": "aa1d53653efebd80dfb9faddf86e6a33dc9dfe461a3a17b23f4f68f687491ce0",
+      "bytes": 7228
+    },
+    {
+      "role": "Actual native Modify/Snap governed PostGIS and fresh Studio/history",
+      "sha256": "79fd062ad66f1159034e1506995f829360563c7d1b3ba72d8ba310cb276043a4",
+      "bytes": 36029
+    },
+    {
+      "role": "Retained safe coordinate/body and geographic measurement acceptance",
+      "sha256": "ace0ef5f48f657f2b29e13bfc42e00600ba857a6ec5ba7d44b670e60f5de3097",
+      "bytes": 6317
+    },
+    {
+      "role": "Declared authoritative CRS transforms and axis-order acceptance",
+      "sha256": "6feabf9c9c5e9530ff1e6e9466770bb5626bd2089a164cfb7808f10b0f636432",
+      "bytes": 6626
+    },
+    {
+      "role": "Original immutable audited feature/attribute store contract acceptance",
+      "sha256": "d2ed066ba91b8ecfde8d322fa134ffcc05bf45182c6a81de6f500a048c8ab10c",
+      "bytes": 2949
+    }
+  ],
+  "reviewPacketSHA256": "6c7d9f472c7e04e6eb16e82c4965fd4344bdefd2650dff7d36df36ac31b06cee",
+  "limits": [
+    "This is criterion-specific reuse of exact retained working flows at their original sources/environments; it is not a fresh run against every current mutable Workbench file.",
+    "Table/filter/identify/coordinate/measurement keyboard and Canvas journeys use synthetic loaded data, local device storage and blocked external network. They do not establish account authorization or deployment. Separate normal-owner production Style/CAS receipts provide the stated real persistence only.",
+    "Labels and membership filters have real local HTTP/PostgreSQL built-Studio Save/reopen and compiled worker/native-image acceptance. Production Style acceptance is an opaque LineString with labels disabled; broader deployed label/point/nonopaque portrayal remains unclaimed.",
+    "CRS handling is the declared CRS84/EPSG:4326/EPSG:3857 and safe body-boundary profile, not arbitrary projection registration or general coordinate migration.",
+    "General reshape/network topology, every expression/format/attachment, installed offline sync, full physical-device/OS-AT/multi-browser/representative-scale coverage, upstream desktop authoring exchange and clean-machine recovery are wider historical limits, not added original authoring criteria.",
+    "Historical failures and costs remain in their owning receipts; no committed write, browser journey or provider request is replayed by this reconciliation."
+  ],
+  "issue": "https://github.com/categori-se/opengeo-community/issues/11",
+  "newExecution": "Retained evidence/hash reconciliation only; no repeated workflow, build, cloud or deployment."
+}

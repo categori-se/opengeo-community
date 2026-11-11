@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "opengeo.public-family-acceptance.1",
+  "observedAt": "2026-11-11",
+  "rowId": "geonode.metadata-management",
+  "result": "pass",
+  "originalCriteriaUnchanged": true,
+  "criteria": [
+    {
+      "id": "C01",
+      "criterion": "Administrators define profiles, field dictionaries, vocabularies, validation, and dynamic extensions without code changes.",
+      "result": "pass",
+      "evidence": "Retained administrator-authored immutable field dictionaries, vocabularies, validation and typed extension profiles; published Studio Save and fresh-session reopen. No application code change is required to define a profile."
+    },
+    {
+      "id": "C02",
+      "criterion": "Metadata revisions preserve provenance, rights, lineage, multilingual values, and unmapped extensions.",
+      "result": "pass",
+      "evidence": "Retained exact-revision profiles and metadata round trips preserve source/curated knowledge, rights, lineage, language-tagged values and unknown safe namespaces. Earlier real normal-owner multilingual persistence remains separately scoped."
+    },
+    {
+      "id": "C03",
+      "criterion": "GeoNode 5.1.0 metadata imports and exports with a field-level conversion report.",
+      "result": "pass",
+      "evidence": "Published browser client with normal existing-owner authentication imports the private authored fixture in production and exports the pinned GeoNode5.1.0 contract with40field outcomes. Exact core metadata, source_fixture and source data custody compare equal. Reimport is idempotent with the same identity/version/metadata and retains the archived state; independent fresh read succeeds."
+    }
+  ],
+  "target": {
+    "product": "geonode",
+    "version": "5.1.0",
+    "commit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9"
+  },
+  "fieldReportSummary": {
+    "mapped": 8,
+    "preservedExtensions": 23,
+    "preservedSourceFields": 2,
+    "editorialHints": 3,
+    "notPresent": 4,
+    "unsupported": 0
+  },
+  "sourceDataCustody": "_opengeo.metadataExtensions.geonode.data; explicitly reported as preserved_extension, not native GeoStory content conversion.",
+  "fixture": "Original CC-BY-4.0 authored acceptance package in the pinned upstream shape; not a live GeoNode export. No restricted user data is copied.",
+  "cleanup": {
+    "newPrivateResources": 1,
+    "resourceArchived": true,
+    "archivePreservedOnReimport": true,
+    "newUploads": 0,
+    "newSites": 0,
+    "newGrants": 0,
+    "newAccounts": 0,
+    "newProcessingJobs": 0
+  },
+  "retainedEvidencePins": [
+    {
+      "id": "migration",
+      "sha256": "e0fe62723161516128c6fb066a7bf0ff28b8aed334b73d179b9dccc7cb317ba7"
+    },
+    {
+      "id": "metadata-governance",
+      "sha256": "682e7773d22ccb8eec92297e7b27fe0f1e02af104c468e2f380260d8d59a70be"
+    },
+    {
+      "id": "metadata-multilingual",
+      "sha256": "1f1fcae1e97ed7b5e2c1625df06f4a97a9ce8dc4fa4a7c429fd149fb2f466db2"
+    },
+    {
+      "id": "metadata-roundtrip",
+      "sha256": "d8a7c8d996e01bb08ca07e6b34326f072f6022ae536dd000963cfee75a0e65b3"
+    },
+    {
+      "id": "metadata-extended",
+      "sha256": "d37982baf21b68df1895a9c8784a181d463781037be421524f85852b92475f8a"
+    },
+    {
+      "id": "geonode-peer",
+      "sha256": "2be326597754add0159a06b38d3c0b25282bef4d6a28dfb77a5757ae2b389eb1"
+    },
+    {
+      "id": "native-migration-publication",
+      "sha256": "1da10f964c985a850aafd656ce766ace55c12375fa6aeb22ad8cfc13577bfc83"
+    },
+    {
+      "id": "native-metadata-export",
+      "sha256": "b608e238d96790331d2578b5c68ef6c06a82e78c5cdd3aab379ffe20b049f353"
+    }
+  ],
+  "reviewPacketSHA256": "7a3b35f168818bc8b7d711476ae2c14de2a29bf1ec45e2a2d50fa8cdaa991bad",
+  "productionAcceptanceSHA256": "289bda08d7c1e683fa8398e5ccca560400dc0c8d79682141108efc8404230fcb",
+  "usage": {
+    "SRPRequests": 6,
+    "applicationRequests": 13,
+    "mutationAttempts": 3,
+    "activeCaseSeconds": 31.543,
+    "browserContexts": 1,
+    "staticRequests": 184,
+    "staticBytes": 3480549,
+    "providerRequests": 0,
+    "AWSAdministrationCalls": 0,
+    "builds": 0,
+    "deployments": 0,
+    "serviceMediatedKMS": "Unknown; application request counts are not KMS counts."
+  },
+  "retainedFailure": "The initial live harness required top-level GeoStory data. The declared metadata profile preserves and reports that data in source custody. Canonical comparison and one targeted continuation pass; the original failure and all costs remain retained.",
+  "limits": [
+    "This aggregation reruns no profile UI, API, database, source peer or standards validator. It reuses accepted producing profiles and does not assert fresh acceptance of every later changed implementation file.",
+    "ISO Schematron, a Records-specific executable ETS, production conformance declarations, complete ISO distribution/acquisition/locale mappings and saved/deployed QGIS clients are not required by these three original criteria; their prior incomplete status remains.",
+    "Unsupported source fields and locales remain exact source or explicit losses; no full GeoNode product migration, normative ISO/OGC conformance or arbitrary metadata-format completeness is claimed.",
+    "Local, production and source-peer environments remain distinct. This is supported metadata exchange, not full GeoNode publication/principal/binary/style migration, arbitrary metadata-format support or normative standards certification."
+  ],
+  "issue": "https://github.com/categori-se/opengeo-community/issues/20"
+}
