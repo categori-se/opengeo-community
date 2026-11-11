@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import {test} from "node:test";
+import {readFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {JSDOM} from "jsdom";
 import {nativeAnalysisPanel, runNativeAnalysisPreview, cancelNativeAnalysisPreview, retainedResultPanel, resumeSavedResultPanel} from "../src/components/WorkbenchView.js";
 import {buildReceptorScreening, receptorScreeningCsv} from "../src/lib/receptorScreening.js";
@@ -452,6 +454,13 @@ test("retained result Add discards an exact-version preview after scope or regis
 });
 
 test("retained result Save preserves prior acknowledgement when scope changes before the server response", async () => {
+  const image = readFileSync(new URL("./fixtures/panorama-equirect.png", import.meta.url));
+  const legacyCatalog = {schemaVersion: "opengeo.panorama.1.0.0", scenes: [{id: "saved-scene", title: "Saved panorama", position: [-71, 42],
+    asset: {mediaType: "image/png", dataUrl: `data:image/png;base64,${image.toString("base64")}`, sha256: createHash("sha256").update(image).digest("hex"),
+      width: image.readUInt32BE(16), height: image.readUInt32BE(20)},
+    rights: {attribution: "OpenGeo test fixture", license: "Apache-2.0", privacyReviewed: true, exportAllowed: true},
+    initialPose: {heading: 0, pitch: 0, fov: 75}, links: []}]};
+  const legacyView = {sceneId: "saved-scene", heading: 15, pitch: 5, fov: 70};
   const dom = new JSDOM("<!doctype html><body></body>"), prior = globalThis.document;
   globalThis.document = dom.window.document;
   try {
@@ -472,11 +481,16 @@ test("retained result Save preserves prior acknowledgement when scope changes be
         saveProject: definition => {writes.push(structuredClone(definition)); started.resolve(); return pending.promise;},
         onProjectSaved: saved => acknowledged.push(saved)
       });
+      if (name === "Project reference") view.project.extensions = {panoramas: legacyCatalog, panoramaView: legacyView};
       view.project.updatedAt = "2026-10-27T12:00:00Z"; view.shell.dataset.saveState = "saved";
       renderRetainedResult(view, record);
       assert.equal(button("Save this Project with retained result").disabled, false, name);
       button("Save this Project with retained result").click(); await finishRetainedResultAction();
       assert.equal(writes.length, 1, `${name}: the real save path must reach its request`); await started.promise;
+      if (name === "Project reference") {
+        assert.deepEqual(writes[0].extensions.panoramas, legacyCatalog, "Existing panorama content survives uninitialized optional workspace state");
+        assert.deepEqual(writes[0].extensions.panoramaView, legacyView, "The saved panorama view is preserved");
+      }
       assert.equal(view.shell.dataset.saveState, "saving", name);
       change(view, record);
       pending.resolve({id: "retained-map", version: 4, updatedAt: "2026-10-28T12:00:00Z", definition: writes[0]});

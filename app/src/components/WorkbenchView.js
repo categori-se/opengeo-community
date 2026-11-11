@@ -18987,9 +18987,10 @@ function mapExtensionsForSave(context) {
     extensions.cameraTour = cameraTourForSave(context.state.cameraTour);
   }
   if (context.state.acquisitionAvailability) extensions.historicalAcquisitionEvidence = structuredClone(context.state.acquisitionAvailability);
-  if (!context.state.panoramaError && (context.state.panoramaCatalog.scenes.length || extensions.panoramas)) {
-    extensions.panoramas = normalizePanoramaCatalog(context.state.panoramaCatalog);
-    extensions.panoramaView = normalizePanoramaState(context.state.panoramaView, context.state.panoramaCatalog);
+  const panoramaCatalog = context.state.panoramaCatalog ?? extensions.panoramas;
+  if (!context.state.panoramaError && (panoramaCatalog?.scenes?.length || extensions.panoramas)) {
+    extensions.panoramas = normalizePanoramaCatalog(panoramaCatalog);
+    extensions.panoramaView = normalizePanoramaState(context.state.panoramaView ?? extensions.panoramaView, panoramaCatalog);
   }
   return context.compatibility?.extensions(extensions) ?? extensions;
 }
