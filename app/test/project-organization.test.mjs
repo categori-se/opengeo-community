@@ -5,7 +5,7 @@ import {WorkbenchView} from "../src/components/WorkbenchView.js";
 import {editLayerFolders, LayerFolders} from "../src/components/LayerFolders.js";
 import {normalizeProjectLayerOrder, orderedProjectLayerTree, sortProjectLayerSiblings} from "../src/lib/layerOrder.js";
 import {addKmlPlace, createPlacesDocument, exportKml, moveKmlPlace, parseKml, sortKmlPlaceSiblings} from "../src/lib/kmlPlaces.js";
-import {addNamedMapView, mapViewsForSave, removeNamedMapView, renameNamedMapView} from "../src/lib/globeView.js";
+import {addNamedMapView, mapViewsForSave, moveNamedMapView, removeNamedMapView, renameNamedMapView} from "../src/lib/globeView.js";
 const {JSDOM} = createRequire(new URL("../package.json", import.meta.url))("jsdom");
 
 const ROOT = "50000000-0000-4000-8000-000000000001";
@@ -243,6 +243,39 @@ it("KML tree dragging rejects foreign payloads, viewers, detached handlers, Laye
   harness.dom.window.dispatchEvent(new harness.dom.window.Event("opengeo:account-navigation"));
   dispatchKmlDrag("drop", kmlDropTarget(shell, "apple"), revokedTransfer, 95);
   unchanged(shell);
+});
+
+it("reorders named cameras through controls and preserves order through Save and reopen", async () => {
+  const second = {...savedView, id: "hill", title: "Hill", center: [12, 48]};
+  const original = [primary, savedView, second];
+  const moved = moveNamedMapView(original, "hill", -1);
+  assert.deepEqual(moved, [primary, second, savedView]);
+  assert.deepEqual(original, [primary, savedView, second]);
+  assert.throws(() => moveNamedMapView(original, "primary", 1), /named view/);
+  assert.throws(() => moveNamedMapView(original, "harbor", -1), /end of the list/);
+  assert.throws(() => moveNamedMapView(original, "hill", 2), /adjacent/);
+  const saved = [];
+  const shell = mount({project: project({mapViews: original}),
+    saveProject: async value => {saved.push(structuredClone(value)); return {version: 2};}});
+  assert.equal(button(shell, "Move Harbor up").disabled, true);
+  const stale = button(shell, "Move Hill up");
+  stale.click();
+  assert.deepEqual(shell.getPrintContext().project.mapViews, moved);
+  stale.click();
+  assert.deepEqual(shell.getPrintContext().project.mapViews, moved);
+  const draftReopen = mount({project: project({mapViews: original}), restoreBrowserDraft: true});
+  assert.deepEqual(draftReopen.getPrintContext().project.mapViews, moved);
+  const viewer = mount({role: "viewer", project: project({mapViews: original})});
+  const forbidden = button(viewer, "Move Hill up");
+  assert.equal(forbidden.disabled, true);
+  forbidden.dispatchEvent(new harness.dom.window.Event("click"));
+  assert.deepEqual(viewer.getPrintContext().project.mapViews, original);
+  button(shell, "Save").click();
+  await waitFor(() => saved.length === 1);
+  assert.deepEqual(saved[0].mapViews, moved);
+  const reopened = mount({project: project(saved[0])});
+  assert.deepEqual([...reopened.querySelectorAll("[data-saved-view-id]")].map(row => row.dataset.savedViewId), ["hill", "harbor"]);
+  assert.equal(button(reopened, "Move Hill up").disabled, true);
 });
 
 it("renames/removes saved views through project controls and Save/fresh mount preserves the named camera", async () => {

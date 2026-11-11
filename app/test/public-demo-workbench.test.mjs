@@ -3,7 +3,7 @@ import {readFile} from "node:fs/promises";
 import {WorkbenchView} from "../src/components/WorkbenchView.js";
 import {emptyMapDefinition} from "../src/lib/mapDefinition.js";
 import {spatialBodyDefinition} from "../src/lib/spatialBody.js";
-import {savedProjectVersionFile} from "../src/lib/projectFileFormat.js";
+import {savedProjectVersionFile, readSavedProjectVersionFile} from "../src/lib/projectFileFormat.js";
 import {readBrowserProjectFile} from "../src/lib/browserProjectFile.js";
 import {originalNmeaFile} from "../src/lib/nmeaImport.js";
 import {originalOziFile} from "../src/lib/oziImport.js";
@@ -362,6 +362,7 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
   const restore = installDomGlobals(dom.window), listeners = new Map(), flights = [], fits = [];
   const originalFetch = globalThis.fetch;
   let shell, camera = {center: [-71, 42], zoom: 2};
+  const providerCalls = [];
   const map = {
     on(type, callback) {listeners.set(type, callback);}, off(type) {listeners.delete(type);}, resize() {},
     isStyleLoaded: () => false, getZoom: () => camera.zoom, getBearing: () => 0, getPitch: () => 0,
@@ -380,6 +381,11 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
     shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Coordinate navigation"},
       role: "owner", project: emptyMapDefinition(), layers: [layer], geojsonByLayerId: new Map([[layer.layerId, geojson]]),
       persistenceMode: "fixture", restoreBrowserDraft: false,
+      placeSearch: {
+        search: async query => {providerCalls.push(query); return {provider: "Wikidata", candidates: [{id: "Q84", label: "London", description: "city"}]};},
+        locate: async id => {providerCalls.push(id); return {provider: "Wikidata", id, revision: 123,
+          retrievedAt: "2026-11-11T00:00:00Z", positions: [{latitude: 51.5, longitude: -0.12, rank: "normal", statementId: "Q84$position", precision: 0.01}]};}
+      },
       rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: () => map, disposeMap() {}}});
     document.body.append(shell);
     await waitFor(() => listeners.has("click"));
@@ -399,8 +405,25 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
     assert.deepEqual(flights, [{center: [-71.06, 42.36], zoom: 12, duration: 350}]);
     assert.deepEqual(shell.getPrintContext().project.mapViews[0].center, [-71.06, 42.36]);
     assert.match(shell.querySelector('[data-status-field="message"]').textContent, /Going to WGS84 42.36, -71.06/);
+    const addCoordinate = () => [...shell.querySelectorAll('.gis-search button')]
+      .find(button => button.textContent === "Add coordinate to Places");
+    const placeName = shell.querySelector('.gis-search input[maxlength="256"]');
+    placeName.value = "Field meeting point";
+    placeName.dispatchEvent(new dom.window.Event("input"));
+    const staleAdd = addCoordinate();
+    staleAdd.click();
+    const places = shell.getPrintContext().project.layers.find(layer => layer.sourceType === "kml-places");
+    assert.equal(places.kmlDocument.children[0].name, "Field meeting point");
+    assert.deepEqual(places.kmlDocument.children[0].geometry.coordinates, [-71.06, 42.36]);
+    const roundTrip = readSavedProjectVersionFile(savedProjectVersionFile("coordinate-project", {
+      version: 1, definition: shell.getPrintContext().project
+    })).definition;
+    assert.deepEqual(roundTrip.layers.find(layer => layer.sourceType === "kml-places").kmlDocument, places.kmlDocument);
     camera.zoom = 15;
     type(" -33.86, +151.21 ");
+    staleAdd.click();
+    assert.equal(shell.getPrintContext().project.layers.find(layer => layer.sourceType === "kml-places")
+      .kmlDocument.children.length, 1, "A detached result action cannot promote a stale coordinate");
     assert.equal(flights.length, 1); assert.equal(enter().defaultPrevented, true);
     assert.deepEqual(flights.at(-1), {center: [151.21, -33.86], zoom: 15, duration: 350});
     for (const invalid of ["", "42.36", "42.36,", "91, 0", "0, -181", "NaN, 0", "Infinity, 0", "0, 1e309", "0x10, 0", "0, 0, 0", "90, 0", "-85.05112879, 0"]) {
@@ -419,6 +442,25 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
     [...shell.querySelectorAll('.gis-search-result-title')].find(title => title.textContent === "River trail").closest('button').click();
     assert.deepEqual(fits, [[[[-71.2, 42.1], [-71, 42.4]], {padding: 80, maxZoom: 15, duration: 350}]]);
     assert.equal(flights.length, 4); assert.deepEqual(shell.__opengeoData.get(layer.layerId), geojson);
+    type("London");
+    assert.deepEqual(providerCalls, []);
+    [...shell.querySelectorAll("button")].find(button => button.textContent === "Search Wikidata places").click();
+    const locate = await waitFor(() => [...shell.querySelectorAll("button")].find(button => button.textContent === "Find coordinates for London"));
+    assert.equal(flights.length, 4);
+    locate.click();
+    const choose = await waitFor(() => [...shell.querySelectorAll("button")].find(button => button.textContent === "Go to London at 51.5, -0.12"));
+    assert.deepEqual(providerCalls, ["London", "Q84"]);
+    assert.equal(flights.length, 4);
+    choose.click();
+    assert.deepEqual(flights.at(-1).center, [-0.12, 51.5]);
+    addCoordinate().click();
+    const london = shell.getPrintContext().project.layers.find(item => item.sourceType === "kml-places")
+      .kmlDocument.children.find(item => item.name === "London");
+    assert.deepEqual(london.geometry.coordinates, [-0.12, 51.5]);
+    assert.match(london.description, /Q84.*revision 123.*Q84\$position/);
+    type("Paris");
+    choose.click();
+    assert.equal(flights.length, 5, "Detached provider results cannot navigate after the query changes");
   } finally {shell?.dispose?.(); shell?.remove(); globalThis.fetch = originalFetch; restore(); dom.window.close();}
 });
 

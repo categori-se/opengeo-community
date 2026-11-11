@@ -218,6 +218,7 @@ import {
   addNamedMapView,
   captureMapView,
   mapViewsForSave,
+  moveNamedMapView,
   normalizeMapView,
   normalizeProjection,
   projectionForProject,
@@ -544,6 +545,7 @@ function createWorkbenchView({
   restoreDraftScopeId = draftScopeId,
   restoreBrowserDraft = true,
   account = null,
+  placeSearch = null,
   canResumeRenderer = null,
   onPublicationMapExport = null,
   analysisRuntime = null
@@ -829,6 +831,7 @@ function createWorkbenchView({
 
   const context = {
     analysisRuntime,
+    placeSearch,
     canResumeRenderer,
     rendererAdapter,
     mapFontAttachments,
@@ -5114,6 +5117,7 @@ function savedViewsPanel(context) {
     state.restoredMapViews = next;
     state.savedViewsOpen = true;
     setStatus(context, `${message} Save the Project to retain the change.`);
+    if (saveLocalDraft(context)) setStatus(context, `${message} Save the Project to retain the change.`);
     context.render();
     const row = [...context.shell.querySelectorAll("[data-saved-view-id]")].find(item => item.dataset.savedViewId === focusId);
     (row?.querySelector("input") ?? context.shell.querySelector('input[data-saved-view="name"]'))?.focus();
@@ -5166,7 +5170,20 @@ function savedViewsPanel(context) {
       } catch (error) {setStatus(context, error.message);}
     });
     rename.disabled = remove.disabled = !editable;
-    row.append(title.wrapper, go, rename, remove);
+    row.append(title.wrapper, go, rename);
+    for (const [direction, label] of [[-1, "up"], [1, "down"]]) {
+      const move = actionButton(`Move ${view.title} ${label}`, () => {
+        if (!move.isConnected || !canOrganizeProject(context) || context.queryLocationScopeInvalid) return;
+        try {
+          const next = moveNamedMapView(state.restoredMapViews ?? context.project?.mapViews, view.id, direction);
+          apply(next, `Moved ${view.title} ${label}.`, view.id);
+        } catch (error) {setStatus(context, error.message);}
+      });
+      const index = views.findIndex(item => item.id === view.id);
+      move.disabled = !editable || index + direction < 1 || index + direction >= views.length;
+      row.append(move);
+    }
+    row.append(remove);
     disclosure.append(row);
   }
   return disclosure;
@@ -5754,6 +5771,8 @@ function searchPanel(context) {
     state.placeSearch = input.value;
     state.coordinateSearchMessage = "";
     state.coordinateSearchInvalid = false;
+    state.coordinateSearchResult = null;
+    state.coordinatePlaceName = "";
     context.render();
     if (focused) {
       const replacement = context.shell.querySelector(".gis-search input");
@@ -5800,6 +5819,8 @@ function searchPanel(context) {
       }
       const longitude = rawLongitude >= -180 && rawLongitude <= 180 ? rawLongitude
         : ((rawLongitude + 180) % 360 + 360) % 360 - 180;
+      state.coordinateSearchResult = null;
+      state.coordinatePlaceName = "";
       state.plusCodeReference = {latitude, longitude};
       state.plusCodeReferenceOpen = true;
       reportCoordinate(`Reference captured at WGS84 ${latitude}, ${longitude}. Choose Go to resolve the short code near this point.`);
@@ -5809,6 +5830,8 @@ function searchPanel(context) {
     capture.disabled = !state.map;
     if (!state.map) capture.title = "Wait for the map to load before capturing a reference.";
     const clear = actionButton("Clear reference", () => {
+      state.coordinateSearchResult = null;
+      state.coordinatePlaceName = "";
       state.plusCodeReference = null;
       reportCoordinate("Reference cleared. Enter a full Plus Code or capture a reference for a short code.");
       context.render();
@@ -5819,8 +5842,41 @@ function searchPanel(context) {
     reference.append(referenceBody);
     body.append(reference);
   }
+  const placeActions = document.createElement("div");
+  placeActions.className = "gis-search-body";
+  placeActions.hidden = !state.coordinateSearchResult;
+  const placeName = textInput("Place name", state.coordinatePlaceName ?? "");
+  placeName.input.maxLength = 256;
+  placeName.input.addEventListener("input", () => { state.coordinatePlaceName = placeName.input.value; });
+  const addPlace = actionButton("Add coordinate to Places", () => {
+    const result = state.coordinateSearchResult;
+    if (!placeActions.isConnected || !canOrganizeProject(context) || context.queryLocationScopeInvalid
+      || state.spatialBody.id !== "earth" || !result || result.query !== input.value.trim()) return;
+    try {
+      const document = state.kmlPlaces ?? createPlacesDocument();
+      const name = placeName.input.value.trim() || result.name;
+      const next = addKmlPlace(document, document.id, {
+        kind: "placemark", name, description: result.description,
+        geometry: {type: "Point", coordinates: [result.longitude, result.latitude]},
+        altitudeMode: "clampToGround"
+      });
+      state.selectedKmlPlaceId = findNewestKmlPlace(document, next)?.id ?? null;
+      state.coordinateSearchResult = null;
+      state.coordinatePlaceName = "";
+      applyKmlPlacesDocument(context, next, `Added ${name} to Places. Save the Project to retain this Place.`);
+      saveLocalDraft(context);
+    } catch (error) {
+      reportCoordinate(`Place could not be added (${error?.code ?? "invalid_place"}).`, true);
+    }
+  });
+  addPlace.disabled = !canOrganizeProject(context) || context.queryLocationScopeInvalid;
+  placeName.input.disabled = addPlace.disabled;
+  placeActions.append(placeName.wrapper, addPlace);
   const go = actionButton("Go to coordinate", () => {
     if (context.disposed || !earth || !state.map) return;
+    state.coordinateSearchResult = null;
+    state.coordinatePlaceName = "";
+    placeActions.hidden = true;
     const parts = input.value.trim().split(",").map(value => value.trim());
     const decimal = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/;
     let [latitude, longitude] = parts.map(Number);
@@ -5860,6 +5916,13 @@ function searchPanel(context) {
       state.map.flyTo({center: [longitude, latitude], zoom: Math.max(state.map.getZoom(), 12), duration: 350});
       reportCoordinate(`Going to WGS84 ${latitude}, ${longitude}.`);
     }
+    state.coordinateSearchResult = {
+      query: input.value.trim(), name: plusCode?.code ?? input.value.trim(),
+      latitude, longitude, description: state.coordinateSearchMessage
+    };
+    state.coordinatePlaceName = state.coordinateSearchResult.name;
+    placeName.input.value = state.coordinatePlaceName;
+    placeActions.hidden = false;
   });
   go.disabled = !earth || !state.map;
   if (earth && !state.map) go.title = "Wait for the map to load before going to coordinates.";
@@ -5869,7 +5932,7 @@ function searchPanel(context) {
       go.click();
     }
   });
-  body.append(go, feedback);
+  body.append(go, feedback, placeActions);
 
   const rankedHits = [[], [], [], []];
   const matchLabels = ["Exact name", "Name starts with", "Name contains", "Attribute contains"];
@@ -5923,6 +5986,77 @@ function searchPanel(context) {
     match.className = "gis-search-result-match";
     button.append(title, provenance, match);
     body.append(button);
+  }
+
+  if (earth && context.placeSearch) {
+    const provider = document.createElement("div");
+    provider.className = "gis-place-provider";
+    provider.append(textElement("small", "Search sends this name to Wikidata. Choose a reported position to navigate. Search runs when requested."));
+    const results = document.createElement("div");
+    results.setAttribute("aria-live", "polite");
+    const search = actionButton("Search Wikidata places", async () => {
+      const query = input.value.trim();
+      if (query.length < 2 || query.length > 120) {reportCoordinate("Enter a place name of 2–120 characters.", true); return;}
+      if (search.disabled || context.disposed || !search.isConnected || context.queryLocationScopeInvalid) return;
+      const current = () => !context.disposed && search.isConnected && !context.queryLocationScopeInvalid
+        && state.placeSearch?.trim() === query;
+      search.disabled = true;
+      results.replaceChildren(textElement("p", "Finding Wikidata places…"));
+      try {
+        const response = await context.placeSearch.search(query);
+        if (!current()) return;
+        if (response?.provider !== "Wikidata" || !Array.isArray(response.candidates) || response.candidates.length > 10) throw Error("Invalid place search response.");
+        results.replaceChildren(textElement("p", response.candidates.length
+          ? "Choose an item to inspect its reported coordinates." : "No matching items. Refine the place name."));
+        for (const candidate of response.candidates) {
+          if (!/^Q[1-9][0-9]{0,15}$/.test(candidate.id) || typeof candidate.label !== "string") throw Error("Invalid place identity.");
+          const row = document.createElement("div");
+          const positions = document.createElement("div");
+          row.append(textElement("p", `${candidate.label} (${candidate.id}) — ${candidate.description || "Description unavailable"}`));
+          const locate = actionButton(`Find coordinates for ${candidate.label}`, async () => {
+            if (!current() || !locate.isConnected || locate.disabled) return;
+            locate.disabled = true;
+            try {
+              const position = await context.placeSearch.locate(candidate.id);
+              if (!current() || !locate.isConnected) return;
+              if (position?.provider !== "Wikidata" || position.id !== candidate.id || !Array.isArray(position.positions) || position.positions.length > 10) throw Error("Invalid place coordinates.");
+              const choices = document.createElement("div");
+              choices.append(textElement("p", `Wikidata ${candidate.id}, revision ${position.revision ?? "unrecorded"}, retrieved ${position.retrievedAt}.`));
+              if (!position.positions.length) choices.append(textElement("p", "This item has no supported Earth coordinate."));
+              for (const point of position.positions) {
+                const {latitude, longitude} = point;
+                if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) throw Error("Invalid Earth coordinate.");
+                const choose = actionButton(`Go to ${candidate.label} at ${latitude}, ${longitude}`, () => {
+                  if (!current() || !choose.isConnected || !state.map || state.spatialBody.id !== "earth") return;
+                  const [, south, , north] = state.spatialBody.rendererBounds;
+                  if (latitude < south || latitude > north) {reportCoordinate("This position is outside the map's supported latitude range.", true); return;}
+                  state.map.flyTo({center: [longitude, latitude], zoom: Math.max(state.map.getZoom(), 12), duration: 350});
+                  const description = `Wikidata ${candidate.id}, revision ${position.revision ?? "unrecorded"}, statement ${point.statementId ?? "unrecorded"}, retrieved ${position.retrievedAt}. Reported Earth position ${latitude}, ${longitude}.`;
+                  state.coordinateSearchResult = {query, name: candidate.label, latitude, longitude, description};
+                  state.coordinatePlaceName = candidate.label;
+                  placeName.input.value = candidate.label;
+                  placeActions.hidden = false;
+                  reportCoordinate(description);
+                });
+                choices.append(textElement("p", `${point.rank} statement ${point.statementId ?? "unrecorded"}; reported precision ${point.precision ?? "unrecorded"} degrees.${Object.keys(point.qualifiers ?? {}).length ? " Coordinate qualifiers are present in the source statement." : ""}`), choose);
+              }
+              if (position.moreAvailable) choices.append(textElement("p", "Additional coordinates exist. Inspect the source item for the complete list."));
+              const source = document.createElement("a");
+              source.href = `https://www.wikidata.org/wiki/${candidate.id}`;
+              source.target = "_blank"; source.rel = "noopener noreferrer"; source.textContent = "Inspect source item";
+              choices.append(source);
+              positions.replaceChildren(choices);
+            } catch (error) {if (current()) reportCoordinate(error.message || "Place coordinates unavailable.", true);}
+            finally {if (current()) locate.disabled = false;}
+          });
+          row.append(locate, positions); results.append(row);
+        }
+        if (response.moreAvailable) results.append(textElement("p", "More matches exist. Refine the place name."));
+      } catch (error) {if (current()) {results.replaceChildren(); reportCoordinate(error.message || "Place search unavailable.", true);}}
+      finally {if (current()) search.disabled = false;}
+    });
+    provider.append(search, results);
+    body.append(provider);
   }
 
   section.append(body);

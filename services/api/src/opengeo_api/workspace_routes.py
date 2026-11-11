@@ -14,6 +14,7 @@ from opengeo_api.map_definitions import (
     MAP_DEFINITION_SCHEMA_VERSION,
     validate_map_definition,
 )
+from opengeo_api.place_context import PlaceContextResolver, PlaceContextUnavailable
 from opengeo_api.tenant_database import TenantContext
 from opengeo_api.workspaces import (
     Client,
@@ -61,6 +62,25 @@ ChangeMessage = Annotated[
 
 class RequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class NavigationPlaceRequest(RequestModel):
+    query: (
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True, min_length=2, max_length=120, pattern=r"^[^\x00-\x1f]+$"
+            ),
+        ]
+        | None
+    ) = None
+    item: Annotated[str, StringConstraints(pattern=r"^Q[1-9][0-9]{0,15}$")] | None = None
+
+    @model_validator(mode="after")
+    def one_lookup(self) -> "NavigationPlaceRequest":
+        if (self.query is None) == (self.item is None):
+            raise ValueError("Supply a place query or a selected item")
+        return self
 
 
 class OrganizationMemberResponse(BaseModel):
@@ -517,6 +537,31 @@ async def get_project(
 ) -> ProjectResponse:
     record = await execute_workspace(repository.get_project(tenant_context(session), project_id))
     return project_response(record)
+
+
+@router.post("/projects/{project_id}/place-search")
+async def search_navigation_places(
+    project_id: UUID,
+    draft: NavigationPlaceRequest,
+    request: Request,
+    response: Response,
+    session: Annotated[AuthSession, Depends(current_session)],
+    repository: Annotated[WorkspaceRepository, Depends(repository_from_request)],
+) -> dict[str, Any]:
+    await execute_workspace(repository.get_project(tenant_context(session), project_id))
+    resolver = getattr(request.app.state, "place_context_resolver", None)
+    if resolver is None:
+        resolver = PlaceContextResolver()
+        request.app.state.place_context_resolver = resolver
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        if draft.query is not None:
+            return await resolver.search(draft.query)
+        return await resolver.locate(cast(str, draft.item))
+    except PlaceContextUnavailable as error:
+        raise HTTPException(
+            status_code=503, detail="Place lookup unavailable; retry later"
+        ) from error
 
 
 @router.patch("/projects/{project_id}", response_model=ProjectResponse)

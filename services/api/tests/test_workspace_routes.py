@@ -642,3 +642,45 @@ def test_composition_listing_is_bounded_filtered_and_metadata_only() -> None:
     assert client.get("/compositions?limit=101", headers=headers()).status_code == 422
     assert client.get("/compositions?status=unknown", headers=headers()).status_code == 422
     assert len(repository.calls) == 1
+
+
+def test_navigation_places_checks_project_access_before_provider_and_keeps_read_access():
+    class Repository(FakeWorkspaceRepository):
+        denied = False
+
+        async def get_project(self, context, project_id):
+            assert context.organization_id == ORG_ID and project_id == PROJECT_ID
+            if self.denied:
+                raise WorkspaceAccessDenied("private project")
+            return {"caller_role": "viewer"}
+
+    class Resolver:
+        def __init__(self):
+            self.calls = []
+
+        async def search(self, query):
+            self.calls.append(query)
+            return {"provider": "Wikidata", "candidates": []}
+
+        async def locate(self, item):
+            self.calls.append(item)
+            return {"provider": "Wikidata", "id": item, "positions": []}
+
+    repository = Repository()
+    client = api_client(repository)
+    resolver = Resolver()
+    client.app.state.place_context_resolver = resolver
+    url = f"/projects/{PROJECT_ID}/place-search"
+    response = client.post(url, headers=headers(), json={"query": "London"})
+    assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
+    assert client.post(url, headers=headers(), json={"item": "Q84"}).status_code == 200
+    assert resolver.calls == ["London", "Q84"]
+    assert (
+        client.post(url, headers=headers(), json={"query": "London", "item": "Q84"}).status_code
+        == 422
+    )
+    assert client.post(url, headers=headers(), json={"item": "Q84\n"}).status_code == 422
+    assert client.post(url, headers=headers(), json={"query": "x"}).status_code == 422
+    repository.denied = True
+    assert client.post(url, headers=headers(), json={"query": "London"}).status_code == 403
+    assert resolver.calls == ["London", "Q84"]

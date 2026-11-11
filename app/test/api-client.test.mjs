@@ -9690,3 +9690,22 @@ describe("shared vertex client contract", () => {
     }
   });
 });
+
+
+it("navigation place lookups preserve selected project, organization and cancellation", async () => {
+  const calls = [];
+  const controller = new AbortController();
+  const client = new OpenGeoApiClient({tokenProvider: () => "test-token", organizationProvider: () => IDS.organization,
+    fetchImplementation: async (url, options) => {calls.push({url, options}); return jsonResponse({provider: "Wikidata", candidates: []});}});
+  await client.searchNavigationPlaces(IDS.project, "London", {signal: controller.signal});
+  await client.locateNavigationPlace(IDS.project, "Q84");
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, `/api/projects/${IDS.project}/place-search`);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {query: "London"});
+  assert.deepEqual(JSON.parse(calls[1].options.body), {item: "Q84"});
+  assert.equal(calls[0].options.headers.get("X-OpenGeo-Organization"), IDS.organization);
+  assert.equal(calls[0].options.signal, controller.signal);
+  assert.equal(calls[0].options.credentials, "omit");
+  await assert.rejects(client.locateNavigationPlace(IDS.project, "https://example.test/"));
+  assert.equal(calls.length, 2);
+});
