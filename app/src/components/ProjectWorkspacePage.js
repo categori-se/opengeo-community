@@ -641,6 +641,9 @@ export function ProjectWorkspacePage({
       placeSearch: adapter.kind === "api" && typeof adapter.searchNavigationPlaces === "function"
         && typeof adapter.locateNavigationPlace === "function" ? {
           search: query => archiveCall(() => adapter.searchNavigationPlaces(archiveScope[2], query, {signal: AbortSignal.timeout(15_000)})),
+          ...(typeof adapter.searchNavigationAddresses === "function" ? {
+            address: query => archiveCall(() => adapter.searchNavigationAddresses(archiveScope[2], query, {signal: AbortSignal.timeout(15_000)}))
+          } : {}),
           locate: item => archiveCall(() => adapter.locateNavigationPlace(archiveScope[2], item, {signal: AbortSignal.timeout(15_000)}))
         } : null,
       layerArchiveAccess: typeof adapter.listLayerArchives === "function" || typeof adapter.listManagedDisplays === "function" ? {

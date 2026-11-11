@@ -1572,6 +1572,12 @@ export class OpenGeoApiClient {
     });
   }
 
+  async searchNavigationAddresses(projectId, address, {signal} = {}) {
+    return this.request(`/projects/${pathUuid(projectId, "project id")}/place-search`, {
+      method: "POST", body: {address: boundedQuery(address, 120, "address")}, signal
+    });
+  }
+
   async locateNavigationPlace(projectId, item, {signal} = {}) {
     if (!/^Q[1-9][0-9]{0,15}$/.test(item)) contract("invalid Wikidata item identity");
     return this.request(`/projects/${pathUuid(projectId, "project id")}/place-search`, {

@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from opengeo_api.address_search import AddressSearchResolver, AddressSearchUnavailable
 from opengeo_api.auth_models import AuthSession, OrganizationRole
 from opengeo_api.auth_routes import current_session, require_organization
 from opengeo_api.logging import get_request_id
@@ -75,11 +76,20 @@ class NavigationPlaceRequest(RequestModel):
         | None
     ) = None
     item: Annotated[str, StringConstraints(pattern=r"^Q[1-9][0-9]{0,15}$")] | None = None
+    address: (
+        Annotated[
+            str,
+            StringConstraints(
+                strip_whitespace=True, min_length=2, max_length=120, pattern=r"^[^\x00-\x1f]+$"
+            ),
+        ]
+        | None
+    ) = None
 
     @model_validator(mode="after")
     def one_lookup(self) -> "NavigationPlaceRequest":
-        if (self.query is None) == (self.item is None):
-            raise ValueError("Supply a place query or a selected item")
+        if sum(value is not None for value in (self.query, self.item, self.address)) != 1:
+            raise ValueError("Supply one place query, selected item or address")
         return self
 
 
@@ -549,6 +559,18 @@ async def search_navigation_places(
     repository: Annotated[WorkspaceRepository, Depends(repository_from_request)],
 ) -> dict[str, Any]:
     await execute_workspace(repository.get_project(tenant_context(session), project_id))
+    if draft.address is not None:
+        resolver = getattr(request.app.state, "address_search_resolver", None)
+        if resolver is None:
+            resolver = AddressSearchResolver()
+            request.app.state.address_search_resolver = resolver
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return await resolver.search(draft.address)
+        except AddressSearchUnavailable as error:
+            raise HTTPException(
+                status_code=503, detail="Address lookup unavailable; retry later"
+            ) from error
     resolver = getattr(request.app.state, "place_context_resolver", None)
     if resolver is None:
         resolver = PlaceContextResolver()
