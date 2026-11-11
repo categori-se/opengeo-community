@@ -70,6 +70,37 @@ Notebook/Framework build, preview and publication journey still need acceptance;
 see the [release status](../RELEASE_NOTES.md). Existing local checks and
 our hosted outputs do not establish a fresh installation's complete journey.
 
+## Accept and hand over an independent installation
+
+The community distribution provides application source, deployment templates,
+lockfiles, instructions and included assets under their respective licenses.
+Your installation has its own configuration and resources. Distribution does not
+transfer OpenGeo's running main instance, hosted datasets, user accounts, domains,
+credentials or provider agreements. Import or migration of existing work needs
+its own authorized scope, data terms and preservation checks.
+
+Assign an operator before production use. An assisted installation hands these
+responsibilities to your operator; a managed service covers only those explicitly
+assigned to the service provider:
+
+| Responsibility | What the operator must retain and manage |
+| --- | --- |
+| Identity and access | Sign-in configuration, account administration, resource permissions, domains and HTTPS. |
+| Secrets and data | Credential and encryption-key custody, database and object storage, original files, versions and external data connections. |
+| Processing and delivery | Enabled workers and compilers, queue limits, private preview isolation and publication destinations. |
+| Continuing operation | Monitoring, security fixes, upgrades and migrations, retention, backups and tested recovery. |
+| Costs and obligations | Infrastructure/provider accounts, billing, usage limits, data rights, privacy and applicable compliance responsibilities. |
+
+Before accepting handover, retain the exact source commit, image digests,
+configuration references and named operators. With that installation's real
+sign-in and delivery configuration, check Studio opening, permitted Catalog
+inspection, Project save/reopen after restart, and the processing and publication
+paths actually commissioned. Verify private-resource isolation and a recoverable
+database/object backup. Record each result and any remaining exception; a local
+synthetic-sign-in check or a working main instance cannot stand in for these
+checks. This guide defines the handover scope; it does not report that a new
+installation has completed it.
+
 ## Commission or manage an organizational installation
 
 An assisted deployment can cover configuration, private integrations, training

@@ -55,6 +55,12 @@ scope, pricing and service commitments are agreed individually. The community
 edition provides the full suite of tools under Apache-2.0. These services help
 organizations use and operate the same software.
 
+The main [Studio instance](https://studio.opengeo.tools/) is an example of that
+operated application. Access to it and continuing managed operation are separate
+arrangements from receiving the source. Self-hosted installations remain usable
+without purchasing OpenGeo hosting or support; your infrastructure and optional
+provider services retain their own costs and terms.
+
 | Service | Scope to agree |
 | --- | --- |
 | Hosting | Discuss an operated installation, account and resource permissions, usage and retention. [Free beta access](#limited-free-cloud-beta) has its own approval and limits. |
@@ -69,6 +75,10 @@ destinations. Agree covered workflows, retention, recovery objectives, update
 approval and support hours, with usage limits based on expected storage,
 processing and delivery. The [deployment guide](docs/community-deployments.md)
 compares these choices and identifies current installation acceptance limits.
+Use its [operator handover](docs/community-deployments.md#accept-and-hand-over-an-independent-installation)
+to assign identity, secrets, storage, processing, updates, backup/recovery,
+security, billing and compliance responsibilities. Source distribution does not
+transfer the main instance, its accounts, data, domains or credentials.
 
 An inquiry does not activate a subscription or grant access. The software license
 does not establish a hosting entitlement or service guarantee.
