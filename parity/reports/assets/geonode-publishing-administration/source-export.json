@@ -1,0 +1,441 @@
+{
+  "sourceProduct": "opengeo",
+  "targetProduct": "geonode",
+  "targetVersion": "5.1.0",
+  "targetCommit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+  "resource": {
+    "source_fixture": {
+      "kind": "original_authored_local_acceptance",
+      "method": "Original narrative and identifiers in the native cascade/title/paragraph/column/text shape verified against the pinned upstream fixture. No upstream narrative text or media is copied.",
+      "content_creator": "OpenGeo.Tools acceptance fixture authors",
+      "content_license": "CC-BY-4.0",
+      "format_reference": {
+        "path": "parity/fixtures/geonode/mapstore-0f351873-sampleStory_1.json",
+        "commit": "0f3518737f29f4049b131247ce981e94519d9ab0",
+        "sha256": "b75dacd96e4e7173dac7a414eb92a05344532d6556f32b0abd22f842de40cf70",
+        "git_blob": "9beb011604ddea3888e1691b2dd34b035a120610",
+        "license_notice": "parity/fixtures/geonode/MapStore2-LICENSE.txt"
+      },
+      "content_license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "is_live_geonode_export": false
+    },
+    "links": [],
+    "pk": null,
+    "uuid": "93333333-3333-4333-8333-333333333352",
+    "resource_type": "geostory",
+    "title": "Field observations story",
+    "abstract": "Original authored acceptance narrative in the native GeoStory cascade title/text shape. This local package is not a live GeoNode export.",
+    "attribution": "OpenGeo.Tools acceptance fixture authors",
+    "language": "en",
+    "license": "CC-BY-4.0",
+    "keywords": [],
+    "temporal_extent_start": null,
+    "temporal_extent_end": null,
+    "extent": null,
+    "is_published": false,
+    "is_approved": false,
+    "advertised": false,
+    "_opengeo": {
+      "resourceId": "af8aa40c-4866-4ee2-a4ad-c06468752bca",
+      "projectId": "10000000-0000-4000-8000-000000000005",
+      "version": 2,
+      "visibility": "restricted",
+      "state": "draft",
+      "metadataProfile": "opengeo.core.v1",
+      "metadataExtensions": {
+        "geonode": {
+          "pk": null,
+          "data": {
+            "type": "cascade",
+            "sections": [
+              {
+                "id": "overview",
+                "type": "title",
+                "title": "Field observations",
+                "contents": [
+                  {
+                    "id": "overview-text",
+                    "html": "<p>Two sampling locations were inspected for this illustrative field report.</p>",
+                    "type": "text",
+                    "background": {}
+                  }
+                ]
+              },
+              {
+                "id": "findings",
+                "type": "paragraph",
+                "title": "Recorded findings",
+                "contents": [
+                  {
+                    "id": "findings-column",
+                    "size": "full",
+                    "type": "column",
+                    "align": "center",
+                    "contents": [
+                      {
+                        "id": "findings-text",
+                        "html": "<p>The observations are synthetic acceptance data and do not describe real environmental conditions.</p>",
+                        "type": "text",
+                        "background": {}
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "description": "Original local acceptance narrative. Text and headings are made available under CC-BY-4.0."
+          },
+          "uuid": "93333333-3333-4333-8333-333333333352",
+          "links": [],
+          "owner": null,
+          "styles": [],
+          "subtype": null,
+          "metadata": {},
+          "unmapped": {
+            "source_fixture": {
+              "kind": "original_authored_local_acceptance",
+              "method": "Original narrative and identifiers in the native cascade/title/paragraph/column/text shape verified against the pinned upstream fixture. No upstream narrative text or media is copied.",
+              "content_creator": "OpenGeo.Tools acceptance fixture authors",
+              "content_license": "CC-BY-4.0",
+              "format_reference": {
+                "path": "parity/fixtures/geonode/mapstore-0f351873-sampleStory_1.json",
+                "commit": "0f3518737f29f4049b131247ce981e94519d9ab0",
+                "sha256": "b75dacd96e4e7173dac7a414eb92a05344532d6556f32b0abd22f842de40cf70",
+                "git_blob": "9beb011604ddea3888e1691b2dd34b035a120610",
+                "license_notice": "parity/fixtures/geonode/MapStore2-LICENSE.txt"
+              },
+              "content_license_url": "https://creativecommons.org/licenses/by/4.0/",
+              "is_live_geonode_export": false
+            }
+          },
+          "detailUrl": null,
+          "permissions": null,
+          "publication": {
+            "advertised": false,
+            "isApproved": false,
+            "isPublished": false
+          },
+          "resourceType": "geostory",
+          "thumbnailUrl": null
+        }
+      },
+      "translations": {},
+      "content": {
+        "blocks": [
+          {
+            "id": "geonode-application",
+            "type": "preserved",
+            "label": "Preserved GeoNode application definition",
+            "namespace": "geonode.geoapp"
+          },
+          {
+            "id": "geonode-content-1",
+            "text": "Field observations",
+            "type": "heading",
+            "level": 2
+          },
+          {
+            "id": "geonode-content-2",
+            "type": "markdown",
+            "markdown": "Two sampling locations were inspected for this illustrative field report."
+          },
+          {
+            "id": "geonode-content-3",
+            "text": "Recorded findings",
+            "type": "heading",
+            "level": 2
+          },
+          {
+            "id": "geonode-content-4",
+            "type": "markdown",
+            "markdown": "The observations are synthetic acceptance data and do not describe real environmental conditions."
+          },
+          {
+            "id": "page",
+            "type": "markdown",
+            "markdown": "The original observation was reviewed and saved in OpenGeo Studio."
+          }
+        ]
+      },
+      "provenance": {
+        "sourceUrl": "https://geonode.example.test",
+        "sourceCommit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+        "sourceSystem": "geonode",
+        "sourceVersion": "5.1.0",
+        "externalIdentifier": "93333333-3333-4333-8333-333333333352"
+      },
+      "externalIdentifiers": [
+        {
+          "namespace": "geonode",
+          "identifier": "93333333-3333-4333-8333-333333333352",
+          "sourceUrl": "https://geonode.example.test",
+          "sourceVersion": "5.1.0",
+          "sourcePayloadSHA256": "900563b5b421299c5f3c566e633b1f903bf0b5541b1834ce485d78b02e746d4b",
+          "importedAt": "2026-11-11T11:52:35.424331+00:00"
+        }
+      ],
+      "relationships": []
+    }
+  },
+  "report": {
+    "schemaVersion": "1.0.0",
+    "target": {
+      "product": "geonode",
+      "version": "5.1.0",
+      "commit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9"
+    },
+    "summary": {
+      "mapped": 8,
+      "preservedExtensions": 23,
+      "preservedSourceFields": 2,
+      "editorialHints": 3,
+      "notPresent": 4,
+      "unsupported": 0
+    },
+    "fields": [
+      {
+        "path": "source_fixture",
+        "outcome": "preserved_source",
+        "target": "source_fixture",
+        "note": "Exact source representation retained."
+      },
+      {
+        "path": "links",
+        "outcome": "preserved_source",
+        "target": "links",
+        "note": "Exact source representation retained."
+      },
+      {
+        "path": "pk",
+        "outcome": "not_present",
+        "target": "pk",
+        "note": "No upstream PK is fabricated."
+      },
+      {
+        "path": "uuid",
+        "outcome": "mapped",
+        "target": "uuid",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "resource_type",
+        "outcome": "mapped",
+        "target": "resource_type",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "title",
+        "outcome": "mapped",
+        "target": "title",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "abstract",
+        "outcome": "mapped",
+        "target": "abstract",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "attribution",
+        "outcome": "mapped",
+        "target": "attribution",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "language",
+        "outcome": "mapped",
+        "target": "language",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "license",
+        "outcome": "mapped",
+        "target": "license",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "keywords",
+        "outcome": "mapped",
+        "target": "keywords",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "temporal_extent_start",
+        "outcome": "not_present",
+        "target": "temporal_extent_start",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "temporal_extent_end",
+        "outcome": "not_present",
+        "target": "temporal_extent_end",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "extent",
+        "outcome": "not_present",
+        "target": "extent",
+        "note": "Native metadata projection."
+      },
+      {
+        "path": "is_published",
+        "outcome": "editorial_hint",
+        "target": "is_published",
+        "note": "Editorial hint only; no grants."
+      },
+      {
+        "path": "is_approved",
+        "outcome": "editorial_hint",
+        "target": "is_approved",
+        "note": "Editorial hint only; no grants."
+      },
+      {
+        "path": "advertised",
+        "outcome": "editorial_hint",
+        "target": "advertised",
+        "note": "Editorial hint only; no grants."
+      },
+      {
+        "path": "_opengeo.resourceId",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.projectId",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.version",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.visibility",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.state",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.metadataProfile",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.pk",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.data",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.uuid",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.links",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.owner",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.styles",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.subtype",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.unmapped.source_fixture",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.detailUrl",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.permissions",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.publication",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.resourceType",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.metadataExtensions.geonode.thumbnailUrl",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable metadata",
+        "note": "Source value; no style, permission or profile authority."
+      },
+      {
+        "path": "_opengeo.content",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.provenance",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.externalIdentifiers",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      },
+      {
+        "path": "_opengeo.relationships",
+        "outcome": "preserved_extension",
+        "target": "OpenGeo portable source evidence",
+        "note": "Inert evidence; native identity/content/authority not restored."
+      }
+    ],
+    "warnings": [
+      "This portable resource document is not a claim that GeoNode will publish OpenGeo block content without an adapter."
+    ]
+  }
+}

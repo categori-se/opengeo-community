@@ -1,0 +1,277 @@
+{
+  "schemaVersion": "1.0.0",
+  "result": "pass",
+  "observedAt": "2026-11-11",
+  "rowId": "geonode.publishing-administration",
+  "profile": "geonode-5.1-native-title-text-publication-and-native-administration.1",
+  "acceptanceCriteria": [
+    {
+      "id": "C03",
+      "criterion": "A migrated GeoNode publication remains usable without GeoNode at runtime.",
+      "result": "pass",
+      "evidence": [
+        "compiled Studio native source-version save/reopen and idempotent reimport",
+        "exact original GeoNode source export alongside native authored edit",
+        "actual owner publication/public HTML/ZIP and isolated portable browser",
+        "actual owner revocation followed by public HTML/ZIP404"
+      ],
+      "scope": "Pinned GeoNode 5.1.0 native cascade title/paragraph/column/text profile; original local CC-BY acceptance narrative, not a live GeoNode export. Upstream fixture and BSD notice unchanged."
+    }
+  ],
+  "upstream": {
+    "geonodeVersion": "5.1.0",
+    "geonodeCommit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+    "mapstoreClientCommit": "7ca4822125b67999c97cb4aa1faa84b8a28eee9b",
+    "mapstoreCommit": "0f3518737f29f4049b131247ce981e94519d9ab0",
+    "upstreamFixtureGitBlob": "9beb011604ddea3888e1691b2dd34b035a120610",
+    "authoredFixtureIsLiveGeoNodeExport": false
+  },
+  "environment": {
+    "kind": "local",
+    "compiledStudioTreeDigest": "cf29822deb14d7b17bce985c56e6d6d3e4626d4bf15e35b998a9cc45a69870cd",
+    "apiImage": "e96f54edd237af0bb75f1803c9e444daa12b5f600dfe7229f0c79d398c52b5cb",
+    "apiArchitecture": "amd64",
+    "schemaMigrations": 193,
+    "database": {
+      "currentUser": "opengeo_runtime",
+      "sessionUser": "opengeo_runtime",
+      "rowSecurity": "on"
+    },
+    "identity": "Normal persisted PostgreSQL principals and memberships; local-only token verification substitute. Default authentication timeouts unchanged.",
+    "objectTransport": "Maintained local exact-byte transport substitutes for S3; exact upload/source-version persistence and checksums use normal API/repositories.",
+    "deployment": "Unchanged; no production authentication/deployment or standards conformance claim.",
+    "containersRemoved": true
+  },
+  "observations": {
+    "compiledStudioSteps": [
+      "studio-import",
+      "native-source-version-saved",
+      "native-source-fresh-reopen",
+      "native-edit-survives-idempotent-reimport",
+      "exact-original-source-export-with-native-edit",
+      "resource-reviewed-and-published",
+      "site-composed",
+      "site-theme-menu-saved-reopened",
+      "site-destination-reviewed",
+      "api-finished-publication-anonymous-html-zip-offline-browser-revocation"
+    ],
+    "resourceId": "af8aa40c-4866-4ee2-a4ad-c06468752bca",
+    "resourceVersion": 2,
+    "siteId": "3199a8ba-1147-4612-9d1b-b78d2ae70d1f",
+    "siteVersion": 2,
+    "committedMutationKeys": [
+      "import",
+      "sourceVersion",
+      "idempotentReimport",
+      "resourceReview",
+      "resourcePublish",
+      "siteCreate",
+      "siteEdit",
+      "destination",
+      "siteReview",
+      "sitePublish",
+      "siteRevoke"
+    ],
+    "finalOwnerAndAnonymousAPI": [
+      {
+        "path": "/projects/10000000-0000-4000-8000-000000000005/sites/3199a8ba-1147-4612-9d1b-b78d2ae70d1f/publish",
+        "method": "POST",
+        "status": 200,
+        "authenticated": true
+      },
+      {
+        "path": "/public/organizations/10000000-0000-4000-8000-000000000003/projects/10000000-0000-4000-8000-000000000005/sites/geonode-field-observations",
+        "method": "GET",
+        "status": 200,
+        "authenticated": false
+      },
+      {
+        "path": "/public/organizations/10000000-0000-4000-8000-000000000003/projects/10000000-0000-4000-8000-000000000005/sites/geonode-field-observations/export.zip",
+        "method": "GET",
+        "status": 200,
+        "authenticated": false
+      },
+      {
+        "path": "/projects/10000000-0000-4000-8000-000000000005/sites/3199a8ba-1147-4612-9d1b-b78d2ae70d1f/editions/5b4b1e05-6420-4ff8-b9b0-10cf7c0d9d98/revoke",
+        "method": "POST",
+        "status": 200,
+        "authenticated": true
+      },
+      {
+        "path": "/public/organizations/10000000-0000-4000-8000-000000000003/projects/10000000-0000-4000-8000-000000000005/sites/geonode-field-observations",
+        "method": "GET",
+        "status": 404,
+        "authenticated": false
+      },
+      {
+        "path": "/public/organizations/10000000-0000-4000-8000-000000000003/projects/10000000-0000-4000-8000-000000000005/sites/geonode-field-observations/export.zip",
+        "method": "GET",
+        "status": 404,
+        "authenticated": false
+      }
+    ],
+    "viewerPublishDenied403": true,
+    "freshPrincipalFailures": [],
+    "portableBrowserWithoutGeoNode": true,
+    "portableZipChecksums": "All12 manifest checksum entries independently verified",
+    "externalDataDependencies": [],
+    "publicDeliveryRevoked": true,
+    "downloadedCopiesCannotBeRecalled": true
+  },
+  "outputs": [
+    {
+      "path": "parity/reports/assets/geonode-publishing-administration/publication.zip",
+      "bytes": 7245,
+      "sha256": "5979eeab51fb93ea1923e5288a126d200956e9a00a89805741d0f7f46325b1b4"
+    },
+    {
+      "path": "parity/reports/assets/geonode-publishing-administration/portable-site.png",
+      "bytes": 99804,
+      "sha256": "c7414efdf4b49abc498e1bc14e890dc66ef3a7318ada1ae0cb7fb078716def22"
+    },
+    {
+      "path": "parity/reports/assets/geonode-publishing-administration/source-export.json",
+      "bytes": 15732,
+      "sha256": "b608e238d96790331d2578b5c68ef6c06a82e78c5cdd3aab379ffe20b049f353"
+    }
+  ],
+  "reuse": {
+    "evidenceIds": [
+      "portable-site-publication.local-contract",
+      "publish-001.integrated-current-workflow",
+      "native-backup-restore.local-operator-20261027"
+    ],
+    "unchangedAcceptanceNotRepeated": true,
+    "priorLocalConversionCasesPassed": 52,
+    "priorPartialReport": "parity/reports/geonode-publication-migration.json"
+  },
+  "review": {
+    "kind": "Independent read-only agent review of exact saved artifacts",
+    "result": "Retained approval proves the declared local migrated-publication profile. This release does not close the published broader missing-evidence inventory.",
+    "fullPriorReviewRetainedPrivately": true
+  },
+  "execution": {
+    "priorAcceptanceSeconds": 196.164,
+    "continuationWallSecondsIncludingBuild": 967.71,
+    "cumulativeAcceptanceSeconds": 1163.874,
+    "originalContinuationWallLimitSeconds": 900,
+    "continuationWallOverrunSeconds": 67.71,
+    "originalContinuationBrowserRequestLimit": 2200,
+    "observedBrowserRequestsLowerBoundIncludingOfflineFinisher": 2207,
+    "exactFinalBrowserRequestCount": "Unavailable after an uncaught budget guard; retained observations are a lower bound.",
+    "finishMethod": "Retain accepted compiled Studio stages; publish existing reviewed site through ordinary owner API, anonymous HTML/ZIP, isolated portable browser, revoke",
+    "finishSeconds": 1.166,
+    "finishAPIRequests": 6,
+    "finishWriteAttempts": 2,
+    "finishOfflineBrowserRequests": 6,
+    "continuationAPIRequestsIncludingEmulatedAttempt": 157,
+    "continuationWriteAttemptsIncludingEmulatedAttempt": 15,
+    "cumulativeAPIRequests": 174,
+    "cumulativeWriteAttempts": 26,
+    "budgetCompliance": "failed; overrun and partial attempts retained, no reset or invented savings",
+    "awsRequests": 0,
+    "kmsRequests": 0,
+    "githubActionsJobs": 0,
+    "imageBuilds": 0,
+    "studioBuilds": 1,
+    "studioBuildSeconds": 13.106,
+    "agentAndMonetaryUsage": "Unavailable; all prior agents, research and failures remain accounted for in the retained checkpoint"
+  },
+  "declaredLimits": [
+    "Native title/text conversion is bounded to64KiB application data, 32 nesting levels, 20,000 nodes, 22 converted blocks and 8,000 text characters per block; packages are limited to 256 KiB, 50 resources and 200 relationships.",
+    "Unsupported GeoStory media, maps, interactive sections, styling and other application types remain in exact source custody with explicit losses; no general MapStore or whole-GeoNode product parity claim.",
+    "Recovery acceptance is automated on the same host; human/clean-machine/production recovery, broader devices/AT/concurrency/scale remain unmeasured.",
+    "C1 document/print representations retain their existing bounded acceptance; full Office/layout/OCR/complex typography/custom-domain breadth is not asserted.",
+    "Actual compiled Studio import/edit/reopen/compose/review and actual API publication/revocation are distinguished; production delivery remains separate.",
+    "The preserved-definition notice discloses retained upstream presentation; converted content and the portable ZIP require no GeoNode/MapStore runtime."
+  ],
+  "retainedPriorState": {
+    "originalLocalAcceptanceSHA256": "1da10f964c985a850aafd656ce766ace55c12375fa6aeb22ad8cfc13577bfc83",
+    "broaderFamilyPassNotAsserted": true
+  },
+  "finalReceiptOwners": [
+    "Compiled Studio browser-progress plus finish-result; stopped API service is cleanup, not an unfinished workflow.",
+    "The older partial report and zero-write blocked Unix-socket probe remain superseded historical receipts."
+  ],
+  "verification": {
+    "retainedFocusedCasesPassed": 52,
+    "maintainedStudioBuild": "pass",
+    "compiledStudioNativePersistenceAndIdempotence": "pass",
+    "normalOwnerPublicEditionAndRevocation": "pass",
+    "isolatedPortableArchiveBrowser": "pass",
+    "independentOriginalCriteriaReview": "pass",
+    "foundationInventory": "pass",
+    "changedJavaScriptSyntaxAndWhitespace": "pass",
+    "newEvidencePacketStructuralErrors": 0,
+    "aggregateParityAudit": {
+      "status": "fails on retained historical evidence",
+      "hashMismatches": 252,
+      "missingHistoricalArtifacts": 10,
+      "historicalFileSizeErrors": 14,
+      "unrelatedSealsRefreshed": false
+    }
+  },
+  "scope": "Local GeoNode5.1 title/text migration, native source custody/editing and portable publication profile; published whole-family acceptance remains partial.",
+  "familyStatus": "partial",
+  "originalPublishedMissingEvidence": [
+    "Original-layout ODT/non-ODT Office, vector/text-level PDF fidelity, representative OCR accuracy/language/search/accessibility evidence and authoritative tagged reading order, live ClamAV signature freshness/corpus evidence, richer menus/themes and editorial collaboration, advanced complex-script/color typography and richer positioned shapes/text, custom domains, backup/restore, GeoNode 5.1.0 publication migration, and deployed concurrency/scale/touch/accessibility."
+  ],
+  "replayPolicy": "Reuse existing successful52focused cases/compiledStudio/postgres/archivebrowser receipts; execute only integration checks needed for this coherent source patch and required merge gates.",
+  "historicalProducingInputs": [
+    {
+      "path": "parity/fixtures/geonode/geonode-5.1-authored-publication.json",
+      "bytes": 2932,
+      "sha256": "32f03849044bf6507e6a3da9f78f654602745f4ee92d340802a8cbd2b5b15623"
+    },
+    {
+      "path": "parity/fixtures/geonode/geonode-5.1-publication.json",
+      "bytes": 3409,
+      "sha256": "566410e2eb392666396768d988983fe6f2550a0af73667f9d53387d72c588b87"
+    },
+    {
+      "path": "parity/fixtures/geonode/mapstore-0f351873-sampleStory_1.json",
+      "bytes": 4328,
+      "sha256": "b75dacd96e4e7173dac7a414eb92a05344532d6556f32b0abd22f842de40cf70"
+    },
+    {
+      "path": "parity/fixtures/geonode/MapStore2-LICENSE.txt",
+      "bytes": 1540,
+      "sha256": "11fa1f48ecca52099e110ac43793a3a8ac3a9970dea4cb3bcdcbef0c127a672b"
+    },
+    {
+      "path": "services/api/src/opengeo_api/geonode_publications.py",
+      "bytes": 8662,
+      "sha256": "47de30746c70885dde878c3e60558fa0ae50a703942b00f229df83798358b21d"
+    },
+    {
+      "path": "services/api/src/opengeo_api/geonode_adapter.py",
+      "bytes": 34333,
+      "sha256": "0d8ef58a0d241da622e4634368cf8a5bfac08170e9361314757d04c8edc1866b"
+    },
+    {
+      "path": "services/api/src/opengeo_api/resource_routes.py",
+      "bytes": 87544,
+      "sha256": "33944f1b7dc06ccb780e4b5990a7619ab2879d15ec870856e946f17db18a2681"
+    },
+    {
+      "path": "app/src/components/ProjectResources.js",
+      "bytes": 160369,
+      "sha256": "c4513c22a9b2d9070fabd2eaaf99e0b7fa8c1bdd91363817374e79473d2a9f31"
+    },
+    {
+      "path": "app/scripts/check-style-workbench-postgres.mjs",
+      "bytes": 60387,
+      "sha256": "33f0195799977234a2af450de52107eb5f620b06c021c1f1ea5ec1e3808c0a48"
+    },
+    {
+      "path": "app/scripts/geonode-publication-browser.mjs",
+      "bytes": 29947,
+      "sha256": "c69241ae17b473a1b47d537f0cf86b3d3e56fbdf512cb97a793010bca5583244"
+    }
+  ],
+  "sourceIntegration": {
+    "baseline": "Latest published edition main, preserving startup recovery and existing public-preview tests",
+    "helper": "Only GeoNode acceptance transport/scenario additions are carried; unrelated menu-selector edits are excluded. The original local producing-helper hash remains in historicalProducingInputs.",
+    "qualification": "Retained52focused and compiled/persistence/portable receipts; isolated integration checks pending; no renewed local or production acceptance claim."
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "source_product": "geonode",
+  "source_version": "5.1.0",
+  "source_commit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+  "source_url": "https://geonode.example.test",
+  "resources": [
+    {
+      "uuid": "93333333-3333-4333-8333-333333333352",
+      "resource_type": "geostory",
+      "title": "Field observations story",
+      "abstract": "Original authored acceptance narrative in the native GeoStory cascade title/text shape. This local package is not a live GeoNode export.",
+      "language": "en",
+      "license": "CC-BY-4.0",
+      "attribution": "OpenGeo.Tools acceptance fixture authors",
+      "is_published": false,
+      "is_approved": false,
+      "data": {
+        "type": "cascade",
+        "description": "Original local acceptance narrative. Text and headings are made available under CC-BY-4.0.",
+        "sections": [
+          {
+            "id": "overview",
+            "type": "title",
+            "title": "Field observations",
+            "contents": [
+              {
+                "id": "overview-text",
+                "type": "text",
+                "background": {},
+                "html": "<p>Two sampling locations were inspected for this illustrative field report.</p>"
+              }
+            ]
+          },
+          {
+            "id": "findings",
+            "type": "paragraph",
+            "title": "Recorded findings",
+            "contents": [
+              {
+                "id": "findings-column",
+                "type": "column",
+                "size": "full",
+                "align": "center",
+                "contents": [
+                  {
+                    "id": "findings-text",
+                    "type": "text",
+                    "background": {},
+                    "html": "<p>The observations are synthetic acceptance data and do not describe real environmental conditions.</p>"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "source_fixture": {
+        "kind": "original_authored_local_acceptance",
+        "is_live_geonode_export": false,
+        "content_creator": "OpenGeo.Tools acceptance fixture authors",
+        "content_license": "CC-BY-4.0",
+        "content_license_url": "https://creativecommons.org/licenses/by/4.0/",
+        "method": "Original narrative and identifiers in the native cascade/title/paragraph/column/text shape verified against the pinned upstream fixture. No upstream narrative text or media is copied.",
+        "format_reference": {
+          "path": "parity/fixtures/geonode/mapstore-0f351873-sampleStory_1.json",
+          "commit": "0f3518737f29f4049b131247ce981e94519d9ab0",
+          "git_blob": "9beb011604ddea3888e1691b2dd34b035a120610",
+          "sha256": "b75dacd96e4e7173dac7a414eb92a05344532d6556f32b0abd22f842de40cf70",
+          "license_notice": "parity/fixtures/geonode/MapStore2-LICENSE.txt"
+        }
+      }
+    }
+  ],
+  "relationships": []
+}
