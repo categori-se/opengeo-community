@@ -1,5 +1,8 @@
 # Contributing to OpenGeo Studio
 
+Start with the [documentation index](docs/index.md) for application, installation
+and developer guides.
+
 Contributions should improve a concrete user workflow or fix a demonstrated
 problem. Start with the [roadmap](ROADMAP.md), the affected source and its existing
 checks. Discuss large changes in an issue before building another subsystem.

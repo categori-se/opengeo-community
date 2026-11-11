@@ -22,3 +22,8 @@ access to another account.
 ## Restoring layers after a basemap change
 
 Studio restores already loaded layers if the new map style removes their sources or paint layers.
+
+## Exchange a camera tour
+
+Use the [KML camera tour guide](workbench-kml-tour.md) to import a bounded tour,
+review conversion differences and download the original and converted files.

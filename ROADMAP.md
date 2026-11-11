@@ -1,319 +1,35 @@
 # OpenGeo Studio roadmap
 
-Build maps you can reuse. Publish analysis others can inspect. We develop
-OpenGeo Studio for recurring spatial studies, so useful sources, maps and methods
-carry forward into the next report, notebook or website. Low idle infrastructure
-cost is a design goal; workload costs depend on storage, processing, traffic and
-deployment choices.
+Improve recurring tasks that make a study useful: inspect sources, save and
+reopen a map, explain findings, share an output and update it later. The
+[capability guide](docs/community-capabilities.md) owns available operations and
+limits. This roadmap identifies the next user outcomes.
 
-## Development status — November 11, 2026
-
-GIS authoring and inspection meets its unchanged C01–C03 criteria and is closed in [#11](https://github.com/categori-se/opengeo-community/issues/11). The [criterion report](parity/reports/geolibre-authoring-acceptance.json) distinguishes retained compiled/local-storage/native checks from real normal-owner production conflict/history and Style persistence.
-
-GeoNode metadata management also meets C01–C03. Administrator-defined profiles and revision-preserving metadata exchange are complemented by real production GeoNode 5.1.0 import/export, the explicit 40-field report, idempotent reimport and fresh readback. The sole private acceptance fixture is archived. See the [criterion report](parity/reports/geonode-metadata-acceptance.json) and [#20](https://github.com/categori-se/opengeo-community/issues/20). Full ISO/OGC certification and broader GeoNode migration remain separate.
-
-The private released ledger remains **31/18/1** pending its own update; the newer local review ledger records **38/11/1**. These are separate acceptance/source checkpoints, not interchangeable deployment claims. Current Studio delivers the scoped Canvas/accessibility fixes. Preserve that exact deployed source when combining the next notebook/interoperability release.
-
-Community comparison checkpoint: **33 pass / 16 partial / one conditional exclusion** across 50 families; this is not a product-completion percentage. GeoMoose print/responsive meets its original criteria in the declared desktop and 390px emulated-touch profile: reliable layout gestures, persistent conversion details, and source-pinned PDF/PNG with credits, scale and accessible HTML. Imported widthless titles/dates retain their text. Five pinned 3.15.2 layouts retain fourteen explicit element losses; full device coverage, WCAG certification and lossless native rendering are not claimed. See the [criterion report](parity/reports/geomoose-print-responsive.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/27) for exact acceptance and release identities.
-
-GeoNode Catalog/discovery meets its original three criteria in the declared profiles: authorized filtered search with stable identities, public previews and metadata disclosures, and collision-safe migration. Actual published Studio acceptance uses two synthetic CC0 points and one existing public Artifact; local two-tenant, Map/document and pinned GeoNode 5.1 evidence are explicitly distinguished. The added production Map-bound Artifact and document-sample methods remain unperformed. See the [criterion report](parity/reports/geonode-catalog-discovery.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/2). This acceptance is included in the aggregate checkpoint above.
-
-The [print family #14](https://github.com/categori-se/opengeo-community/issues/14)
-and [GeoLibre portable family #17](https://github.com/categori-se/opengeo-community/issues/17)
-meet their original C01–C03 criteria. Published Studio acceptance and exact native
-versions are recorded there. The [50-family matrix](docs/reference-applications.md#relative-parity-by-capability)
-reports Google Earth families separately and retains the optional GeoServer
-extension exclusion.
-
-Coordinate, name, address and Plus Code search, promotion to Places and named-view
-ordering have merged into both source editions; the coordinated private release
-is deployed. These increments contribute to [search/navigation #21](https://github.com/categori-se/opengeo-community/issues/21).
-The remaining hierarchy and input/accessibility criteria stay open. Independent-account
-installation and native publishing remain separate unfinished outcomes.
-
-The shared [Baseline tools](docs/community-baseline.md) now include source
-suitability, categorical inventory/comparison/patches, stratified reference review
-with conditional class-area uncertainty, mapped fields and raw confidence review,
-declared surface-minus-terrain height comparison, building agreement and receptor
-screening. Bounded external STAC search preserves reproducible analytical
-references; a declared JRC TMF 2025 legend supports forest-history interpretation.
-Focused/compiled checks and selected local account Catalog/Project/native-
-publication paths remain scoped. Source coverage, reference quality, unknown
-rights and real ecological/crop/change findings require their own evidence.
-These tools add no idle service. Current source preparation includes the new
-shared tools; public publication, independent installation and production delivery
-remain separate. Expert/private/managed work stays separately scoped.
-
-Catalog now opens eligible uploaded GeoJSON originals and saved governed Layer
-presentations through the existing exact-version authorized reader. The Resources
-path renders retained synthetic inputs individually without changing their saved
-Project. Listing stays metadata-only; no idle service is added. Broader formats,
-provider quality and production/public delivery remain separately scoped.
-
-The browser Demo now builds locally with its public credits page and local notices.
-Its source-package bundle uses the existing pure validation contracts directly,
-reducing unminified output from 96,953 to 38,353 bytes under the unchanged 64 KiB
-limit. The explicit Demo stage list includes the existing Workbench dependencies.
-The maintained browser check verifies anonymous credits, eight local notice links,
-375-pixel layout and the offline Demo shell, with provider requests blocked.
-The browser shell is included in the published community source; current acceptance and configured delivery are recorded by the family-specific reports and issues.
-
-The community edition contains the full suite of tools. Community installations,
-the public Demo and managed Studio use the same core with their own configuration,
-connections and operating policies. The Demo is a reference implementation;
-private account configuration is not part of the community source.
-
-Completed work stays completed when a later release or installation check is
-pending. We record implementation, acceptance and delivery separately:
-
-The API client's preview, authored Publication content and tile-cache contracts
-now live in focused modules. Map drawing/query interactions and guides also have
-their own module. Existing exports and behavior are preserved; the earlier 259
-selected cases cover content saves, map authoring, queries, local projects and
-printing. The latest tile-cache extraction passes all 154 existing client cases.
-Application build and delivery remain separate; broader frontend decomposition
-remains open. The capability guide now reflects accepted local native publishing.
-The full worker also builds from public source in an empty image cache, followed
-by its maintained nonroot/network-disabled/read-only toolchain check. Measured
-build/check attempts total 378 seconds on the maintainer's amd64 host, with no
-remaining temporary containers or AWS/Actions work. The worker guide includes
-the accepted rootless Podman scratch-mount form. Independent installation, native
-ARM64/release security gates and configured production delivery remain open.
-
-The opt-in fresh installation check passes three maintained source image builds,
-pinned database preparation and API checks, then stops at an obsolete Data access
-test selector. The fixtures now follow current navigation. The corrected compiled
-local journey completes authorization, uploads, saved-map styling/reopening,
-dedicated PMTiles v2 conversion, PNG rendering and both dataset publications. It
-preserves the governed map identity and exact saved-revision pins, then accepts a
-collaborator invitation and saves that editor's site changes. The editor cannot
-publish; the owner submits, reviews and publishes the exact edition. Anonymous
-pages and the portable ZIP carry the exact PNGs, with pixel checks proving both
-source Layers and their order. Later map-head changes preserve those outputs.
-Withdrawing a required source returns 404 for public delivery, and removing the
-collaborator returns the canonical Publication 404. Edition revocation is exercised
-after source withdrawal; it does not independently prove the readable-to-revoked transition.
-
-The cause-corrected retry passes in 183.347 seconds, reusing the sealed 884-file
-frontend and cached images through the real API, SQL and worker. Four containers
-and one database volume are removed. Identity and cloud transport are synthetic;
-the dedicated converter uses emulated ARM64. No source build, AWS, GitHub, Actions
-or deployment is used. Production, two-person, full-pilot and fresh-installation
-acceptance remain open. The existing fresh image stage includes the maintained
-converter; its 38 summed job-minute cap and ordinary checks remain. No further
-remote run is started. Independent operator, native ARM64/release security and
-configured identity/HTTPS/CDN/compiler delivery remain open. See the earlier
-[fresh run](https://github.com/categori-se/opengeo-community/actions/runs/39107327665).
-
-Ordinary local development now connects its processing action to the canonical
-native publisher. The real Berkshire study compiles, renders privately and
-publishes through normal controls while retaining the original source objects.
-The retained edition now also renders anonymously: 16 polygon paths and calculated
-tables of five and eleven rows. Bounded public-custody batches remove per-file
-startup overhead; all 41 requested files return 200, with no build or publication
-replayed. Independent installation and configured production delivery remain open.
-
-Independent private-preview configuration is now supported by the existing
-infrastructure constructs: account-local buckets and domains, matching API origin
-settings and exact Studio framing authority. Managed defaults and private delivery
-controls remain unchanged. The standalone installer now connects these settings
-through its existing entrypoint and an explicit optional preview phase. Local
-checks cover synthesis, exact shell origins and recovery after interrupted uploads.
-The optional on-demand publisher now connects through that installer using the
-retained API image, explicit delivery targets and a dedicated database role.
-Consumption defaults off; local checks cover activation ordering, safe continuation
-and protected Studio/private storage. An explicit origin-registration phase now
-checks existing hosting and account authority, preserves published state on reruns,
-and connects to the existing Studio address controls. Its installer/helper checks
-and actual SQL statements pass locally. The trusted GitHub runtime, build-only IAM
-and manual workflow now also accept independent account resources and immutable
-repository/owner/runtime pins. Local checks preserve managed defaults and compiler
-isolation; independent workflow admission requires verified free capacity. The
-standalone installer now connects the controller, dedicated coordinator login
-and verified account GitHub grant through an explicit phase. Local checks cover
-dormant provisioning, bounded role setup, secret encryption, existing administrator
-authority, tenant SQL and recovery without replaying completed setup. GitHub
-variables/trust remain explicit operator configuration. Independent installation,
-actual execution and identity/HTTPS/CDN acceptance remain open.
-
-| Workflow | Completed work | Remaining work |
+| Priority | Next useful outcome | Where to start |
 | --- | --- | --- |
-| Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. The current compiled local journey also accepts editor invitation/editing, separate owner publication, exact anonymous PNG/ZIP delivery and source/access withdrawal. | Broader portable round trips, independent two-person/full-pilot acceptance and configured production delivery. |
-| Local authoring and print | Personal device saves, editable Project exports, a dedicated Print Studio, figure/print packs and interactive HTML are delivered on configured Studio/Demo. Print opens directly from a map without requiring a Publication. | Optional enhancements beyond the accepted C01–C03 print-family criteria. |
-| Reuse on other websites | Native JavaScript delivery, developer bundles and an Observable Framework example are implemented. Local checks cover a separate origin, map events, filtering, selection, inherited styling and cleanup. | Independent installation acceptance and expanded content compatibility. Existing native delivery is not limited to the iframe helper. |
-| Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. Studio now delivers the 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides. Local checks cover navigation, rendering and memory save/reopen. | Hosted account save/reopen, individual-feature overrides and separate icon/label controls. |
-| Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. Studio and Demo deliver immediate Identify-panel opening, local feature attributes and Hide/Escape/reopening, verified on compiled artifacts and served files. Studio also preserves Results focus after native popups and governed-query completion. | Hosted persistence and visual paper-layout acceptance. |
-| External PostGIS Layers | The compiled local Services-to-Catalog journey registers one Layer and renders 100 of 123 real Points for owner and viewer, preserving exact bigint/decimal text and disclosed truncation. The viewer needs no connection management; removing its project grant through the authenticated API produces 404 without another secret read or query. No managed data copy or Project is created, and temporary resources are removed. | The path defaults off and supports ordinary tables with at most 64 columns, one supported 2D EPSG:4326 geometry and a stable unique key. Connection verification, identity, secrets and external DNS/TLS/cloud transport are synthetic in this local check. Configured-provider, AWS and deployment acceptance remain open. |
-| Native authored publications | Two saved revisions compile through the native runner, open signed previews and publish through actual review/approval controls. Current/earlier public editions and private Build history pass locally. Missing/cross-build cookies, replay, viewer revocation and real capability expiry are verified; signed-cookie expiry uses a qualified local verifier clock. Preview origins are installation-configured. | Clean independent installation, AWS identity/delivery and production activation. Issued cookies remain valid until their 15-minute expiry. [Readiness and scope](docs/community-capabilities.md). |
-| API and CKAN exchange | The API contract, authorization checks, bounded CKAN discovery/metadata registration and standalone STAC-to-CKAN dry-run exporter are included. The recovered exporter reproduces the selected payload byte-for-byte offline. The guide, fixture, tests and scoped historical CKAN 2.11.6 create/read/purge receipt are included. | The historical peer uses a disposable sysadmin. Ordinary-user/destination policy, connected-provider acceptance, harvesting, synchronization and update merging remain open. Fresh pytest was unavailable in the recovery environment; matching-source historical evidence is reused. |
-| Configurable PMTiles intake | The dedicated conversion lane, parameter review, preserved-original path and completed-display handoff are implemented locally. The pinned worker converts GeoJSON and rejects disguised VRT input. | Current security review, successful native ARM64 execution and real-data hosted acceptance before activation. The corrected native API probe passes; the worker remains unexecuted because the host rejects a launcher mount option. Both temporary stacks and containers are cleaned up. The large global KBA conversion has not completed. |
-| Analysis console | The docked JavaScript/Python/Bash editor, isolated browser JavaScript and opt-in local runners are implemented and accepted locally. Managed source connects private jobs, application storage, explicit queue/controller wake and a bounded host; local coordinator checks execute all three languages and cancellation. Current ASGI/native PostgreSQL checks also verify private jobs, idempotent submit, cancellation after access revocation, profile matching, the four-job cap and host-close fencing. | Managed activation stays disabled. Complete managed browser/API/execution, concurrent transaction interleavings, admitted AMI, fresh-boot rootless security, actual AWS cleanup and production delivery remain open. |
+| 1. Run an independent installation | An operator configures sign-in, storage, processing and delivery, then demonstrates permitted Catalog inspection, Project save/reopen and reviewed publication after restart. | [Installation and handover](docs/community-deployments.md#accept-and-hand-over-an-independent-installation), [local development](docs/community-development.md) and [AWS deployment](docs/community-aws.md). |
+| 2. Find and organize work reliably | Users search, navigate Places and Layers, and return to named views with clear keyboard and error-recovery behavior. | [Search and navigation #21](https://github.com/categori-se/opengeo-community/issues/21). Build on existing coordinate, name, address and Plus Code search. |
+| 3. Reuse shared inputs safely | Contributors and reviewers reuse Layer/Style identities in another study, refresh inputs and hand work to a colleague without losing permissions or earlier versions. | [Practitioner workflow](docs/community-workflow.md), [data stewardship](docs/community-data-lifecycle.md) and [source limits](docs/community-capabilities.md#source-operations). |
+| 4. Publish reproducible explanations | An author builds, privately previews, reviews and releases an exact source revision to an approved address on an independent installation. | [Publication destinations](docs/community-publication-destinations.md) and [small examples](docs/community-examples.md). Preserve source authority, attribution and earlier editions. |
+| 5. Extend useful analysis and exchange | Add a source, service operation or cartographic tool when it completes a named discovery-to-output workflow. Keep unsupported definitions and conversion losses visible. | [Processing](docs/community-capabilities.md#processing), [interoperability](docs/community-interoperability.md) and [versioned reference profiles](docs/reference-applications.md). |
 
-The [capability matrix](docs/community-capabilities.md) describes operation-level
-limits. The [workflow guide](docs/community-workflow.md),
-[development guide](docs/community-development.md) and
-[release record](COMMUNITY-RELEASE.json) retain the checks behind each claim.
-The [API contract](services/api/README.md),
-[authorization checks](services/api/tests/test_authorization.py) and
-[CKAN connector](services/api/src/opengeo_api/ckan.py) expose their supported scope.
-The [STAC-to-CKAN reproduction](docs/api/stac-ckan.md) includes preserved source,
-explicit mapping losses and the pinned peer receipt. Destination ownership,
-visibility, permissions and license selection remain deliberate separate decisions.
-The [capability guide](docs/community-capabilities.md) distinguishes implemented
-source from connected acceptance; the scoped peer does not establish harvesting
-or synchronization.
+Accessibility, understandable status and recoverable errors apply to every
+priority. Assess the actual interface and generated outputs with intended users
+and assistive technology; isolated checks do not establish whole-application
+conformance.
 
-The same local Studio candidate groups the desktop visibility controls and closes
-site/account menus on outside clicks or Escape, restoring keyboard focus. Site
-switcher links open each installation's home route. Its build, local browser
-checks and Studio production delivery pass. The existing phone toolbar is
-unchanged.
+Existing accepted profiles are the starting point. Governed authoring/inspection
+[#11](https://github.com/categori-se/opengeo-community/issues/11), GeoNode metadata
+[#20](https://github.com/categori-se/opengeo-community/issues/20), Print
+[#14](https://github.com/categori-se/opengeo-community/issues/14) and portable
+Projects [#17](https://github.com/categori-se/opengeo-community/issues/17) retain
+their recorded scope. The authoring profile includes conflict/history and Style
+persistence; metadata includes revision-preserving GeoNode 5.1.0 exchange.
+Additional input, device, certification or installation work must name its own
+outcome rather than treating these implementations as absent.
 
-A separate Demo/startup update is implemented and accepted locally. The compact
-Demo introduction keeps the map visible and its home route opens the map; About
-this map contains source details and secondary actions. Startup failures show one
-friendly retry/home state, and normal Studio entry does not request the fixture
-Catalog. Existing browser, parser and focused checks pass. Current local builds
-include this update; hosted delivery remains pending.
-
-Existing application checks use cached dependencies/images and explicit local
-substitutes; fresh installation, clean image builds and independent-account AWS
-acceptance remain separate work. The local native Framework publication journey now
-passes source save, compilation, private preview, publication and earlier-edition
-reopening for two revisions. The [capability guide](docs/community-capabilities.md)
-distinguishes this connected local acceptance from independent installation and
-production delivery.
-
-Frontend validation discovers both top-level and nested test suites. Community
-core CI passes. The broader application run stopped at a TIFF test deadline after
-2,457 passing tests. That workflow passes locally; its separate setup phase now
-cancels and disposes compiler contexts before cleanup. Ten lifecycle cases and
-the existing browser workflow pass without changing assertions or time limits.
-Consolidated release validation remains pending.
-
-The new Identify action opens Results directly. Source also restores keyboard
-focus after governed queries finish while preserving the user's choice to hide
-or switch panels. Its component regression and compiled feature-click, focus and Hide/Escape/reopen
-checks pass. Studio now delivers this action and stable focus; its served software
-matches the verified release. Demo remains live.
-
-Community core validation uses standard public runners and restores dependency
-caches without saving new entries or uploading artifacts. This keeps its execution
-and added storage within the [documented free scope](https://docs.github.com/en/billing/concepts/product-billing/github-actions).
-Private remaining minutes are unverified, so private main validation remains pending.
-Publication compiler execution retains its separate explicit admission controls.
-
-The connected local publication access journey now passes viewer opening, revoked
-grants and real capability expiry. Temporary memberships are removed and runtime
-is stopped. Shared API errors and response validators are extracted into a
-separate module, preserving their behavior; 154 existing client tests pass. Broader
-domain-parser and Workbench decomposition remain open. No AWS or Actions run was
-needed for this increment.
-
-A fresh app dependency directory now installs the current lockfile, runs esbuild's
-install script/native binary and passes 154 existing client tests. Its verified
-package cache needed 13 locked downloads; install/tests use network isolation.
-The seven-page frontend build and artifact check also pass with networking off.
-The current standalone API and compiler Dockerfiles build locally. Exact API
-package versions and nonroot HTTP startup pass; the compiler's existing real
-fixture passes with credentials excluded and networking disabled. OS-only API
-fixes now reuse the unchanged Python dependency layer. Runtime test containers
-are removed; current worker CI evidence is reused. A complete independent
-installation and production delivery remain open. Identify presentation is also
-separated from Workbench, with three existing interaction/focus checks passing.
-These source changes await release validation.
-
-A fresh public-source checkout also initializes an empty local database and opens
-Studio through Home and New Project. The real Berkshire study's Publication ZIP
-passes reviewed import, Save draft and reopening, with all four file hashes
-unchanged. Rights remain unreviewed and nothing is published. This reuses cached
-software and synthetic local sign-in; independent clean-machine/operator and
-production identity/delivery acceptance remain open. See the
-[development guide](docs/community-development.md) and [release record](COMMUNITY-RELEASE.json).
-
-## Planning and delivery
-
-Follow the [community GitHub project](https://github.com/orgs/categori-se/projects/2)
-for current work, the
-[community workspace planner](https://team-spaces.categori.se/projects/project?initiativeId=opengeo&projectId=coord-f01263fcef7e60d3704d5847286ccfba)
-for the corresponding project view, and the
-[issue tracker](https://github.com/categori-se/opengeo-community/issues)
-for individual changes. This roadmap summarizes outcomes; linked work items carry
-their current status, next action and completion evidence. A locally accepted
-change awaiting release is tracked as awaiting delivery rather than unfinished
-implementation. Historical notes retain their original date and are not current
-status reports.
-
-## Current priorities
-
-| Priority | Next useful outcome |
-| --- | --- |
-| 1. Finish selected delivery | Nepal's layer ordering, clustering and colors are saved and read back; the Berkshires update remains blocked by the current account's access. Print-family acceptance is complete. Finish the remaining hosted Style acceptance and PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
-| 2. Finish the shared-data journey | Reuse accepted local editorial publishing and connected PostGIS registration/preview. Complete independent contributor/reviewer acceptance and configured-provider checks, preserving identity, permissions and history when replacing data. |
-| 3. Accept managed analytical sessions | Preserve the accepted browser/local console and finish connected managed-runner acceptance and delivery. Opening the console must not allocate managed compute. |
-| 4. Verify installation and reuse | Reproduce the small reference workspace and the accepted two-revision Framework publication journey on an independent installation, then verify delivery to another website. |
-| 5. Extend proven workflows | Add service operations, source adapters and cartographic tools where a specific recurring task requires them. |
-
-We prioritize the time to a first useful map, dependable reopening, reuse in a
-second study and a clear handover to a colleague. Existing implementations are
-the starting point; a remaining acceptance task does not require rebuilding the
-feature.
-
-## Connect data and reuse maps
-
-Extend the working Catalog-to-Project path with broader portable round trips,
-source inspection and version recovery. Preserve Layer identities, references,
-Styles and geographic context. Keep personal device saves separate from
-resettable sample drafts and account storage.
-
-Complete configured-provider PostGIS checks and make source status and refresh
-trustworthy. A failed refresh must preserve the last successful version. Retained
-source definitions and metadata imports remain distinct from executable readers.
-
-## Publish maps and analysis
-
-Accept independent installation and hosted delivery for the locally verified
-Framework source, compilation, preview and publication workflow. Extend Notebook
-support and mixed map, chart, table and
-narrative layouts while preserving resource versions, attribution and citations.
-Reuse compiled Project Artifacts across Publications and retain earlier editions
-when an author revises an output.
-
-Build on the delivered Print Studio and native developer exports. Keep included,
-live and excluded dependencies explicit; expand their supported content without
-presenting existing output formats as missing.
-
-## Curate and collaborate
-
-Improve metadata review, invitations, discussions, Collections and publication
-audiences through the existing ownership and permission model. Keep source,
-normalized and curated knowledge distinct. Show changed inputs and pinned outputs
-so authors can choose which results to rebuild.
-
-The next acceptance journey uses contributors, reviewers and readers. It must
-show useful records, understandable decisions and preserved access throughout.
-
-## Connect the wider GIS ecosystem
-
-Verify selected service operations with independent GIS clients, including
-identify, legends, paging, CRS handling and authorization. Extend harvesting and
-source adapters as complete discovery-to-refresh workflows. Preserve styles,
-feature identities and metadata when handing work to other tools.
-
-The [reference application comparison](docs/reference-applications.md) records
-version-pinned feature families; the
-[foundation inventory](docs/open-source-foundations.md) records upstream software,
-contributors and licenses. Broader parity remains in progress and does not make
-completed core workflows unfinished.
-
-## Throughout development
-
-Security, resource isolation, data preservation, low idle cost and upstream credit
-remain part of each change. Builds and paid processing require deliberate actions.
-Keep the [AWS installation guide](docs/community-aws.md) aligned with maintained
-infrastructure and retain dependency, license and security review for binary
-releases.
-
-[Contribute a focused improvement](CONTRIBUTING.md),
-[share a reproducible GIS example](SUPPORT.md), or
-[propose a priority](https://github.com/categori-se/opengeo-community/issues).
+Use the [issue tracker](https://github.com/categori-se/opengeo-community/issues)
+and [community project](https://github.com/orgs/categori-se/projects/2) for current
+work items. [CONTRIBUTING.md](CONTRIBUTING.md) explains practitioner feedback,
+small contributions and existing checks. Choose a bounded task and describe its
+expected result, supported inputs and remaining limits.

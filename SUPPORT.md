@@ -1,5 +1,8 @@
 # OpenGeo Studio support
 
+Start with the [documentation index](docs/index.md) for application, installation
+and developer guides.
+
 ## Community help
 
 Use [GitHub Issues](https://github.com/categori-se/opengeo-community/issues) for
