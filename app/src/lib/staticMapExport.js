@@ -65,7 +65,7 @@ function packagedPatternImages(paints, boundStyle) {
   });
 }
 
-function publicTileOrigin(value) {
+export function publicTileOrigin(value) {
   const url = new URL(value);
   if (url.protocol !== "https:" || url.username || url.password || url.hash
     || /(?:^|\.)(?:localhost|local|internal)$/.test(url.hostname)
@@ -142,7 +142,7 @@ export function staticMapDocument(options) {
   return compileStaticMapDocument(options).html;
 }
 
-export function compileStaticMapDocument({title, view, candidates, selectedIds, mode = "offline", runtimeJs, runtimeCss, runtimeLicense}) {
+export function compileStaticMapDocument({title, view, candidates, selectedIds, mode = "offline", runtimeJs, runtimeCss, runtimeLicense, storyChapters = null}) {
   if (!["live", "offline"].includes(mode)) throw Error("Choose live or offline output.");
   const selected = candidates.filter(item => selectedIds.includes(item.id));
   if (!selected.length || selected.length !== new Set(selectedIds).size || selected.some(item => item.reason)) throw Error("Select supported layers before exporting.");
@@ -177,7 +177,25 @@ export function compileStaticMapDocument({title, view, candidates, selectedIds, 
     }
     imageIds.set(image.id, image);images.push(image);
   }
-  const payload = {title: String(title), mode, view: camera, style, controls, images};
+  let chapterViews = null;
+  if (storyChapters !== null) {
+    if (!Array.isArray(storyChapters) || !storyChapters.length) throw Error("Story chapters are invalid.");
+    const ids = new Set();
+    chapterViews = storyChapters.map(chapter => {
+      const location = chapter?.location;
+      if (typeof chapter?.id !== "string" || !chapter.id || ids.has(chapter.id)
+        || !["flyTo", "easeTo", "jumpTo"].includes(chapter.mapAnimation)
+        || !Array.isArray(location?.center) || location.center.length !== 2
+        || ![...location.center, location.zoom, location.pitch, location.bearing].every(Number.isFinite)
+        || Math.abs(location.center[0]) > 180 || Math.abs(location.center[1]) > 90
+        || location.zoom < 0 || location.zoom > 24 || location.pitch < 0 || location.pitch > 85) throw Error("Story chapter camera is invalid.");
+      ids.add(chapter.id);
+      return {id: chapter.id, mapAnimation: chapter.mapAnimation,
+        location: {center: [...location.center], zoom: location.zoom, pitch: location.pitch, bearing: location.bearing}};
+    });
+  }
+  const payload = {title: String(title), mode, view: camera, style, controls, images,
+    ...(chapterViews ? {storyChapters: chapterViews} : {})};
   if (JSON.stringify(payload).length > 20 * 1024 * 1024) throw Error("Selected map exceeds the 20 MB export limit.");
   const inlineRuntime = runtimeJs.replace(/<\/script/gi, match => match.replace('/', '\\/'));
   const policy = `default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; worker-src blob:; child-src blob:; img-src data: blob: ${[...origins].join(" ")}; connect-src blob: ${[...origins].join(" ")}; base-uri 'none'; form-action 'none'`;
@@ -198,6 +216,17 @@ try {
  for(const layer of publication.style.layers)if(layer.id!=='export-background')map.addLayer(layer);
  status.textContent=publication.mode==='offline'?'Offline edition · selected vector data included · labels use local fonts':'Live services · internet required · no archive fallback';
  for(const layer of publication.controls){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.checked=layer.visible;input.onchange=()=>layer.ids.forEach(id=>map.setLayoutProperty(id,'visibility',input.checked?'visible':'none'));label.append(input,document.createTextNode(' '+layer.title));document.getElementById('layers').append(label);}});
+ if(publication.storyChapters){
+ let chapter=publication.storyChapters[0];
+ const showChapter=()=>map[chapter.mapAnimation]({...chapter.location,essential:false});
+ window.addEventListener('message',event=>{
+ const value=event.data;
+ if(event.source!==window.parent||!value||typeof value!=='object'||Array.isArray(value)
+ ||value.schema!=='opengeo.story-chapter.1'||typeof value.id!=='string'
+ ||Object.keys(value).some(key=>!['schema','id'].includes(key)))return;
+ const next=publication.storyChapters.find(item=>item.id===value.id);if(!next)return;
+ chapter=next;if(map.getStyle())showChapter();});
+ map.once('load',showChapter);}
  map.on('error',()=>{status.textContent='A map resource could not load. No alternate data source was substituted.';});
 } catch(error){status.textContent='Map viewer unavailable. This browser needs WebGL support.';}
 </script></body></html>`;

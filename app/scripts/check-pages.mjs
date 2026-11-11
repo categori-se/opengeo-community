@@ -25,6 +25,7 @@ const kmlNetworkLinkMode = process.argv.includes("--kml-network-link")
   || process.argv.includes("--ux-002")
   || process.argv.includes("--without-ux-002")
   || process.argv.length === 2;
+const printCompositionMode = process.argv.includes("--print-composition");
 const geomooseQueryMode = process.argv.includes("--geomoose-query");
 const shellOnly = process.argv.includes("--shell-only");
 const reviewControlsMode = process.argv.includes("--review-controls");
@@ -57,7 +58,7 @@ if (!existsSync(distRoot) || !statSync(distRoot).isDirectory()) {
 }
 const artifactRoot = graphicsMode
   ? resolve(process.env.OPEN_GEO_GRAPHICS_ARTIFACT_ROOT ?? join(appRoot, "page-check-artifacts", graphicsFreshReopenMode ? "graphics-fresh-reopen" : "graphics-failure-recovery"))
-  : reviewControlsMode || tourLayerMode
+  : reviewControlsMode || tourLayerMode || printCompositionMode
   ? resolve(process.env.OPEN_GEO_BROWSER_ARTIFACT_ROOT ?? (() => {throw new Error("Scoped browser checks require an owned OPEN_GEO_BROWSER_ARTIFACT_ROOT");})())
   : resolve(appRoot, "page-check-artifacts");
 const tourLayerReceiptPath = join(artifactRoot, "camera-tour-layer-events.json");
@@ -626,6 +627,8 @@ try {
     await assertAuthenticationStates(browser, baseUrl);
   } else if (reviewControlsMode) {
     await assertReviewControls(browser, baseUrl);
+  } else if (printCompositionMode) {
+    await assertPrintComposition(browser, baseUrl);
   } else if (process.argv.includes("--workbench-interactions")) {
     await checkScreenshots(browser, baseUrl, [fixtureProjectRoute]);
   } else if (process.argv.includes("--studio-account")) {
@@ -710,6 +713,7 @@ try {
     await checkScreenshots(browser, baseUrl, screenshotRoutes);
     await assertResponsiveShells(browser, baseUrl);
     await assertPlatformStates(browser, baseUrl);
+    await assertPrintComposition(browser, baseUrl);
     if (!process.argv.includes("--without-ux-002")) {
       // Run the advanced interaction path in a new browser when explicitly
       // included in this matrix. The canonical gate uses a separate process
@@ -6795,6 +6799,214 @@ async function assertProjectPublishingWorkflow(page, baseUrl, route) {
   assert.deepEqual(newFailures, [], "Project publishing assertions failed");
 }
 
+// One normal-entrypoint case; the same local API peer owns save/reopen state.
+async function assertPrintComposition(browser, baseUrl) {
+  const route = `/workspaces?project=${IDS.projects[0]}&map=${IDS.maps[0]}`;
+  const key = `${IDS.projects[0]}:${IDS.maps[0]}`;
+  const previous = {map: browserMapOverrides.get(key), features: browserAuthoritativeFeatureState,
+    update: lastMapUpdate, links: new Set(projectDatasetIds(IDS.projects[0]))};
+  const layerId = "browser-access-road-presentation";
+  const original = mapPayloadForProject(IDS.projects[0]);
+  browserAuthoritativeFeatureState = {generation: 1,
+    createdAt: "2026-08-30T15:00:00Z", updatedAt: "2026-08-30T15:00:00Z",
+    features: browserFeaturePage().features.map((feature, index) => ({...feature,
+      properties: {...feature.properties, value: index + 1, other: (index + 1) * 2}}))};
+  projectDatasetIds(IDS.projects[0]).add(IDS.dataset);
+  browserMapOverrides.set(key, {...original, definition: {...original.definition,
+    projection: "mercator", terrain: null, basemaps: [],
+    mapViews: [{id: "default", center: [85.27, 27.64], zoom: 10, pitch: 0, bearing: 0}],
+    storymap: {title: "", chapters: [], retainedStory: "keep"}, widgets: [], dashboardColumns: 1,
+    layers: [{layerId, datasetId: IDS.dataset, title: "Access Road Network · saved presentation",
+      sourceType: "geojson-object", geometryType: "LineString", visible: true, opacity: 0.9,
+      order: 0, style: {stroke: "#2f80ed", strokeWidth: 3}, labels: {enabled: false, field: "name"}}]}});
+  try {
+    await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async page => {
+      await stubResponsiveMapRequests(page.context());
+      const mapState = () => page.locator(".opengeo-workbench").evaluate(shell => {
+        const map = shell.__opengeoMap, center = map.getCenter();
+        return {center: [center.lng, center.lat], zoom: map.getZoom(), pitch: map.getPitch(),
+          bearing: map.getBearing(), padding: map.getPadding()};
+      });
+      const assertCamera = (actual, expected) => {
+        for (const [index, value] of expected.center.entries()) assert.ok(Math.abs(actual.center[index] - value) < 1e-7);
+        for (const field of ["zoom", "pitch", "bearing"]) assert.ok(Math.abs(actual[field] - expected[field]) < 1e-7);
+        assert.deepEqual(actual.padding, expected.padding);
+      };
+      const change = async (control, value) => {await control.fill(String(value)); await control.press("Tab");};
+      const waitForLayer = () => page.waitForFunction(id => {
+        const shell = document.querySelector(".opengeo-workbench"), source = shell?.getPrintContext?.().getPrintDataSource?.(id);
+        return shell?.__opengeoMap?.loaded() && source?.geojson?.features?.length === 6;
+      }, layerId);
+      const openView = async name => {
+        await page.locator('.gis-menubar [data-menu="view"] > button').click();
+        await page.getByRole("menuitem", {name, exact: true}).click();
+      };
+      await visit(page, `${baseUrl}${route}`, route);
+      await waitForLayer();
+      await page.getByRole("button", {name: "Project", exact: true}).click();
+      await page.getByRole("menuitem", {name: "Open Print Studio", exact: true}).click();
+      const print = page.locator(".project-print-studio");
+      await print.waitFor();
+      const before = await mapState(), storedBefore = JSON.stringify(browserMapOverrides.get(key));
+      await page.locator(".opengeo-workbench").evaluate(shell => {
+        shell.__atlasObservedViews = [];
+        shell.__opengeoMap.on("moveend", () => {
+          const center = shell.__opengeoMap.getCenter();
+          shell.__atlasObservedViews.push([center.lng, center.lat]);
+        });
+      });
+      await print.locator(".print-atlas-controls > summary").click();
+      await print.getByLabel("Atlas coverage Layer", {exact: true}).selectOption(layerId);
+      await change(print.getByLabel("Atlas feature numbers", {exact: true}), "2,1");
+      await print.getByLabel("Atlas page label", {exact: true}).selectOption("name");
+      const [atlasDownload] = await Promise.all([page.waitForEvent("download", {timeout: 120_000}),
+        print.getByRole("button", {name: "Download atlas PDF", exact: true}).click()]);
+      const pdf = await readFile(await atlasDownload.path());
+      assert.match(atlasDownload.suggestedFilename(), /\.atlas\.pdf$/);
+      const pdfText = pdf.toString("latin1");
+      assert.ok(pdfText.startsWith("%PDF-1.4"));
+      assert.match(pdfText, /\/Type \/Pages \/Count 2\b/);
+      const images = [...pdfText.matchAll(/\/Subtype \/Image\b[^\n]*\/Filter \/DCTDecode \/Length (\d+) >>\nstream\n/g)]
+        .map(match => pdf.subarray(match.index + match[0].length, match.index + match[0].length + Number(match[1])));
+      assert.equal(images.length, 2, "atlas PDF contains two actual raster pages");
+      for (const image of images) {
+        assert.equal(image.readUInt16BE(0), 0xffd8);
+        assert.equal(image.readUInt16BE(image.length - 2), 0xffd9);
+      }
+      assert.notEqual(createHash("sha256").update(images[0]).digest("hex"), createHash("sha256").update(images[1]).digest("hex"));
+      const dimensions = await page.evaluate(async encoded => Promise.all(encoded.map(async value => {
+        const image = new Image(); image.src = `data:image/jpeg;base64,${value}`; await image.decode();
+        return [image.naturalWidth, image.naturalHeight];
+      })), images.map(image => image.toString("base64")));
+      assert.ok(dimensions.every(([width, height]) => width > 500 && height > 500));
+      await print.getByText("Atlas PDF prepared with 2 pages. The original map view was restored.", {exact: true}).waitFor();
+      assertCamera(await mapState(), before);
+      const views = await page.locator(".opengeo-workbench").evaluate(shell => shell.__atlasObservedViews);
+      const page2 = views.findIndex(([lng, lat]) => Math.abs(lng - 85.24) < 1e-4 && Math.abs(lat - 27.61) < 1e-4);
+      const page1 = views.findIndex(([lng, lat], index) => index > page2 && Math.abs(lng - 85.22) < 1e-4 && Math.abs(lat - 27.59) < 1e-4);
+      assert.ok(page2 >= 0 && page1 > page2, "atlas visits the selected feature extents in requested order");
+      assert.equal(JSON.stringify(browserMapOverrides.get(key)), storedBefore, "atlas export does not save the Project");
+      await writeFile(join(artifactRoot, "print-composition-atlas.pdf"), pdf);
+
+      await visit(page, `${baseUrl}${route}`, route);
+      await waitForLayer();
+      await openView("Project story");
+      const story = page.getByRole("region", {name: "Project story", exact: true});
+      await change(story.getByLabel("Story title", {exact: true}), "Access route story");
+      await change(story.getByLabel("Subtitle", {exact: true}), "Two saved map views");
+      await story.getByRole("button", {name: "Add chapter from current view", exact: true}).click();
+      const chapters = story.locator(".project-story-chapter");
+      await change(chapters.nth(0).getByLabel("Chapter title", {exact: true}), "First segment");
+      await change(chapters.nth(0).getByLabel("Chapter text", {exact: true}), "First segment description");
+      await change(chapters.nth(0).getByLabel("Longitude", {exact: true}), 85.22);
+      await change(chapters.nth(0).getByLabel("Latitude", {exact: true}), 27.59);
+      await change(chapters.nth(0).getByLabel("Zoom", {exact: true}), 13);
+      await chapters.nth(0).getByLabel("Camera transition", {exact: true}).selectOption("jumpTo");
+      await chapters.nth(0).getByRole("button", {name: "Preview chapter", exact: true}).click();
+      assert.ok(Math.abs((await mapState()).center[0] - 85.22) < 1e-7);
+      await story.getByRole("button", {name: "Add chapter from current view", exact: true}).click();
+      await change(chapters.nth(1).getByLabel("Chapter title", {exact: true}), "Second segment");
+      await change(chapters.nth(1).getByLabel("Chapter text", {exact: true}), "Second segment description");
+      await change(chapters.nth(1).getByLabel("Longitude", {exact: true}), 85.24);
+      await change(chapters.nth(1).getByLabel("Latitude", {exact: true}), 27.61);
+      await chapters.nth(1).getByLabel("Camera transition", {exact: true}).selectOption("jumpTo");
+      await chapters.nth(1).getByRole("button", {name: "Preview chapter", exact: true}).click();
+      assert.ok(Math.abs((await mapState()).center[0] - 85.24) < 1e-7);
+      await chapters.nth(1).getByRole("button", {name: "Move up", exact: true}).click();
+      await story.getByRole("button", {name: "Add chapter from current view", exact: true}).click();
+      await chapters.nth(2).getByRole("button", {name: "Remove", exact: true}).click();
+      assert.equal(await chapters.count(), 2);
+
+      await openView("Project dashboard");
+      const dashboard = page.getByRole("region", {name: "Project dashboard", exact: true});
+      await change(dashboard.getByLabel("Dashboard columns", {exact: true}), 2);
+      const widgets = dashboard.locator(".project-dashboard-widget");
+      await dashboard.getByRole("button", {name: "Add widget", exact: true}).click();
+      await change(widgets.nth(0).getByLabel("Widget title", {exact: true}), "Segment values");
+      await widgets.nth(0).getByLabel("Numeric field", {exact: true}).selectOption("value");
+      await change(widgets.nth(0).getByLabel("Histogram bins", {exact: true}), 3);
+      await dashboard.getByLabel("New widget type", {exact: true}).selectOption("bar");
+      await dashboard.getByRole("button", {name: "Add widget", exact: true}).click();
+      await change(widgets.nth(1).getByLabel("Widget title", {exact: true}), "Segments by name");
+      await widgets.nth(1).getByLabel("Category field", {exact: true}).selectOption("name");
+      await widgets.nth(1).getByLabel("Value field", {exact: true}).selectOption("value");
+      await widgets.nth(1).getByLabel("Aggregation", {exact: true}).selectOption("sum");
+      await widgets.nth(1).getByRole("button", {name: "Move up", exact: true}).click();
+      await dashboard.getByRole("button", {name: "Add widget", exact: true}).click();
+      await widgets.nth(2).getByRole("button", {name: "Remove", exact: true}).click();
+      assert.equal(await dashboard.locator('.project-dashboard-preview svg[role="img"]').count(), 2);
+      lastMapUpdate = null;
+      await page.getByRole("button", {name: "Save", exact: true}).click();
+      await page.locator('.opengeo-workbench[data-save-state="saved"]').waitFor();
+      const saved = structuredClone(lastMapUpdate?.definition);
+      assert.deepEqual(saved.storymap.chapters.map(chapter => chapter.title), ["Second segment", "First segment"]);
+      assert.deepEqual(saved.storymap.chapters.map(chapter => chapter.location.center), [[85.24, 27.61], [85.22, 27.59]]);
+      assert.equal(saved.storymap.retainedStory, "keep");
+      assert.equal(saved.dashboardColumns, 2);
+      assert.deepEqual(saved.widgets.map(widget => widget.title), ["Segments by name", "Segment values"]);
+      assert.equal(saved.widgets[0].aggregation, "sum");
+      assert.equal(saved.widgets[1].bins, 3);
+      await page.reload({waitUntil: "load"});
+      await waitForLayer();
+      await openView("Project dashboard");
+      assert.equal(await dashboard.getByLabel("Dashboard columns", {exact: true}).inputValue(), "2");
+      assert.deepEqual(await widgets.getByLabel("Widget title", {exact: true}).evaluateAll(nodes => nodes.map(node => node.value)), saved.widgets.map(widget => widget.title));
+      await page.waitForFunction(() => document.querySelectorAll('.project-dashboard-preview svg[role="img"]').length === 2);
+      await openView("Project story");
+      assert.equal(await story.getByLabel("Story title", {exact: true}).inputValue(), "Access route story");
+      assert.deepEqual(await chapters.getByLabel("Chapter title", {exact: true}).evaluateAll(nodes => nodes.map(node => node.value)), saved.storymap.chapters.map(chapter => chapter.title));
+      await chapters.nth(1).getByRole("button", {name: "Preview chapter", exact: true}).click();
+      assert.ok(Math.abs((await mapState()).center[0] - 85.22) < 1e-7);
+      await story.getByRole("button", {name: "Export story HTML", exact: true}).click();
+      const storyDialog = page.locator(".static-map-export-dialog");
+      await storyDialog.getByRole("heading", {name: "Export project story", exact: true}).waitFor();
+      await storyDialog.getByLabel(/I have reviewed these layers/).check();
+      const [storyDownload] = await Promise.all([page.waitForEvent("download"),
+        storyDialog.getByRole("button", {name: "Download story HTML", exact: true}).click()]);
+      const html = await readFile(await storyDownload.path(), "utf8");
+      assert.ok(html.startsWith("<!doctype html>"));
+      await storyDialog.getByRole("button", {name: "Close", exact: true}).click();
+      await page.getByRole("button", {name: "Project", exact: true}).click();
+      await page.getByRole("menuitem", {name: "Save as / export…", exact: true}).click();
+      const exportDialog = page.getByRole("dialog", {name: "Save as or export Project", exact: true});
+      await exportDialog.getByRole("combobox", {name: "Project export format"}).selectOption("geolibre");
+      const [projectDownload] = await Promise.all([page.waitForEvent("download"),
+        exportDialog.getByRole("button", {name: "Export file", exact: true}).click()]);
+      const portable = JSON.parse(await readFile(await projectDownload.path(), "utf8"));
+      assert.deepEqual(portable.storymap, saved.storymap);
+      assert.deepEqual(portable.widgets, saved.widgets);
+      assert.equal(portable.dashboardColumns, 2);
+      await writeFile(join(artifactRoot, "print-composition-story.html"), html);
+      await page.context().route(`${baseUrl}/print-composition-story.html`, route => route.fulfill({status: 200, contentType: "text/html", body: html}));
+      await page.goto(`${baseUrl}/print-composition-story.html`, {waitUntil: "load"});
+      const manifest = JSON.parse(await page.locator("#story-manifest").textContent());
+      assert.equal(manifest.schemaVersion, "opengeo.project-story.1.0.0");
+      assert.equal(manifest.mode, "offline");
+      assert.deepEqual(manifest.networkDependencies, []);
+      assert.deepEqual(manifest.mapArtifact.build.view.center, [85.24, 27.61]);
+      await page.frameLocator("#story-map").locator("canvas.maplibregl-canvas").waitFor();
+      await page.locator('[data-chapter="1"]').click();
+      assert.equal(await page.locator('[data-chapter="1"]').getAttribute("aria-pressed"), "true");
+      assert.deepEqual(await page.locator("article[data-section] h2").allTextContents(), ["Second segment", "First segment"]);
+      await assertNoRuntimeError(page, "print composition story export");
+      await writeFile(join(artifactRoot, "print-composition.json"), JSON.stringify({
+        schemaVersion: "opengeo.print-composition-ui.1", atlasPages: images.length, atlasCameraRestored: true,
+        atlasSha256: createHash("sha256").update(pdf).digest("hex"), atlasPageDimensions: dimensions,
+        storyChapters: saved.storymap.chapters.map(chapter => ({title: chapter.title, location: chapter.location})),
+        widgets: saved.widgets.map(({title, type}) => ({title, type})), dashboardColumns: saved.dashboardColumns,
+        storySha256: createHash("sha256").update(html).digest("hex"), normalSaveReopen: true,
+        nativeProjectExport: true, offlineStoryCanvasAndNavigation: true
+      }, null, 2));
+      browserProgress("PUBLISH-001: normal atlas PDF, native story/dashboard edit/save/reopen/export passed");
+    });
+  } finally {
+    if (previous.map) browserMapOverrides.set(key, previous.map); else browserMapOverrides.delete(key);
+    browserAuthoritativeFeatureState = previous.features;
+    lastMapUpdate = previous.update;
+    browserProjectDatasetLinks.set(IDS.projects[0], previous.links);
+  }
+}
+
 async function assertPlatformStates(browser, baseUrl) {
   if (process.env.OPEN_GEO_BROWSER_PLATFORM_FOCUS === "publishing") {
     await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async (page) => {
@@ -8829,12 +9041,13 @@ async function withPlatformPage(
   const offlineDirectory = process.argv.includes("--project-directory");
   const offlineWorkbench = process.argv.includes("--workbench-interactions");
   const offlinePlatform = process.argv.includes("--platform-states");
+  const offlinePrint = printCompositionMode;
   if (tourLayerMode) assert.ok(tourLayerReceipt.usage.contexts < 2, "Two cumulative browser contexts exhausted");
   const context = await browser.newContext({
     colorScheme, viewport, hasTouch, isMobile,
     ...(flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench ? {serviceWorkers: "block"} : {})
   });
-  if (offlinePlatform) {
+  if (offlinePlatform || offlinePrint) {
     // Playwright's context-wide block shim reads the serviceWorker getter in
     // opaque publication frames. Keep those frames isolated and block only the
     // top application's registration, as in check-browser-demo-release.mjs.
@@ -8866,14 +9079,14 @@ async function withPlatformPage(
       if (url.origin === baseUrl && /\/datasets\//.test(url.pathname) && request.method() === "GET") tourLayerReceipt.usage.datasetReads++;
     });
   }
-  if (flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench || offlinePlatform) {
+  if (flightOnly || cameraTourOnly || offlineDirectory || offlineWorkbench || offlinePlatform || offlinePrint) {
     // Register first so the existing explicit local/provider fixture routes take
     // precedence. Every remaining remote request fails before network access.
     await context.route("**/*", async (route) => {
       if (new URL(route.request().url()).origin === baseUrl) return route.continue();
       flightBrowserRequests.blockedUnexpected += 1;
       if (tourLayerMode) {tourLayerReceipt.usage.outboundBlocked++;tourLayerReceipt.status = "failed";tourLayerReceipt.error ??= "Unexpected outbound request blocked";}
-      failures.push(`${cameraTourOnly ? "camera tour" : offlineDirectory ? "project directory" : offlineWorkbench ? "workbench interactions" : offlinePlatform ? "platform states" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
+      failures.push(`${cameraTourOnly ? "camera tour" : offlineDirectory ? "project directory" : offlineWorkbench ? "workbench interactions" : offlinePlatform ? "platform states" : offlinePrint ? "print composition" : "flight simulator"}: unexpected external request blocked (${new URL(route.request().url()).origin})`);
       await route.abort("blockedbyclient");
     });
     context.on("request", (request) => {

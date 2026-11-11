@@ -1,14 +1,15 @@
 import {compilePortableMapArtifact} from "../lib/portableMapArtifact.js";
+import {compileProjectStoryHtml, storyImageReview} from "../lib/projectNarrative.js";
 import {inspectStaticMapLayers} from "../lib/staticMapExport.js";
 import {compileDeveloperMapBundle} from "../lib/developerMapBundle.js";
 import {compilePublicationMapHandoff} from "../lib/publicationMapHandoff.js";
 
-export function openStaticMapExport({map, layers, handles, title, download, initialMode = "offline", initialFormat = "html", onInsert = null, downloadManifest = null, downloadBundle = null, downloadPublication = null, publicationHref = null, savedProjectOrigin = null}) {
+export function openStaticMapExport({map, layers, handles, title, download, initialMode = "offline", initialFormat = "html", onInsert = null, downloadManifest = null, downloadBundle = null, downloadPublication = null, publicationHref = null, savedProjectOrigin = null, storymap = null}) {
   const origin = savedProjectOrigin ? structuredClone(savedProjectOrigin) : null;
   const dialog = document.createElement("dialog");
   dialog.className = "static-map-export-dialog";
   const heading = document.createElement("h2");
-  heading.textContent = "Export interactive map";
+  heading.textContent = storymap ? "Export project story" : "Export interactive map";
   const note = document.createElement("p");
   note.textContent = "Download one HTML file for a static site or iframe. Vector layers contain currently loaded features, not a complete service archive. Filters control display; hidden features remain in the embedded data. Text labels use local fonts. Basemaps, terrain and unsupported layers are excluded. Your Studio account is not included.";
   const modeLabel = document.createElement("label");
@@ -32,7 +33,7 @@ export function openStaticMapExport({map, layers, handles, title, download, init
   format.value = [...format.options].some(option => option.value === initialFormat) ? initialFormat : "html";
   format.onchange = () => {
     const developer = format.value === "developer", publication = format.value === "publication";
-    exportButton.textContent = publication ? "Download publishing ZIP" : developer ? "Download developer ZIP" : "Download HTML";
+    exportButton.textContent = storymap ? "Download story HTML" : publication ? "Download publishing ZIP" : developer ? "Download developer ZIP" : "Download HTML";
     note.textContent = publication ? "Prepare this reviewed map for account publishing. Download the source ZIP, then import it in Studio. Your draft starts private; choose when to publish after reviewing its sources and rights."
       : developer
       ? "Download a native map module, viewer assets, preview and Observable Framework example. The map can inherit your page's fonts and colors and exposes filters, selection events and cleanup. Only reviewed loaded data is packaged; filters do not remove hidden features."
@@ -46,7 +47,7 @@ export function openStaticMapExport({map, layers, handles, title, download, init
   const consentLabel = document.createElement("label");
   const consent = document.createElement("input");
   consent.type = "checkbox";
-  consentLabel.append(consent, " I have reviewed these layers and their Styles and attribution, and may distribute the included data and styling.");
+  consentLabel.append(consent, storymap ? " I have reviewed these layers, their Styles and attribution, and the chapter images listed below, and may distribute the included content." : " I have reviewed these layers and their Styles and attribution, and may distribute the included data and styling.");
   const status = document.createElement("p");
   status.setAttribute("role", "status");
   const exportButton = document.createElement("button");
@@ -94,6 +95,7 @@ export function openStaticMapExport({map, layers, handles, title, download, init
       }
       list.append(label); choices.push({input, item});
     }
+    if (storymap) for (const image of storyImageReview(storymap, mode.value)) {const detail = document.createElement("p"); detail.textContent = `Chapter image · ${image.title}: ${image.reason || (image.mode === "embedded" ? "embedded image" : image.url)}`; list.append(detail);}
     if (!candidates.length) list.append("Add a vector or public raster tile layer to the map first.");
     status.textContent = mode.value === "offline" ? "Only embedded vector data will be included. No network data is captured." : "Live tiles will be fetched from their providers without credentials. No archive fallback.";
     update();
@@ -113,6 +115,14 @@ export function openStaticMapExport({map, layers, handles, title, download, init
         if (!response.ok) throw Error("The export runtime is unavailable in this Studio release.");
         return response.text();
       }));
+      if (storymap) {
+        const html = await compileProjectStoryHtml(storymap, {title, candidates, selectedIds, mode: mode.value,
+          runtimeJs, runtimeCss, runtimeLicense, view, savedProjectOrigin: origin});
+        if (!dialog.isConnected) return;
+        download(html);
+        status.textContent = "Downloaded story HTML with the reviewed map, loaded features and chapter cameras. No hosted content was changed.";
+        return;
+      }
       compiled = await compilePortableMapArtifact({title, candidates, selectedIds, mode: mode.value,
         runtimeJs, runtimeCss, runtimeLicense, view, savedProjectOrigin: origin});
       const {html, manifest} = compiled;
