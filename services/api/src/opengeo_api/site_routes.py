@@ -767,8 +767,7 @@ async def public_primary_site_page(
         )
     )
     site_root = (
-        f"{_public_api_base_url(http_request)}"
-        f"/public/organizations/{organization_id}/publication"
+        f"{_public_api_base_url(http_request)}/public/organizations/{organization_id}/publication"
     )
     return await _public_site_page_response(
         publication,
