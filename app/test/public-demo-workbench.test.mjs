@@ -383,6 +383,10 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
       persistenceMode: "fixture", restoreBrowserDraft: false,
       placeSearch: {
         search: async query => {providerCalls.push(query); return {provider: "Wikidata", candidates: [{id: "Q84", label: "London", description: "city"}]};},
+        address: async query => {providerCalls.push(query); return {provider: "Photon/OpenStreetMap",
+          sourceSha256: "a".repeat(64), retrievedAt: "2026-11-11T00:00:00Z", candidates: [
+            {id: "W123", label: "1 Main Street", rank: 1, latitude: 42.36, longitude: -71.06}
+          ]};},
         locate: async id => {providerCalls.push(id); return {provider: "Wikidata", id, revision: 123,
           retrievedAt: "2026-11-11T00:00:00Z", positions: [{latitude: 51.5, longitude: -0.12, rank: "normal", statementId: "Q84$position", precision: 0.01}]};}
       },
@@ -461,6 +465,22 @@ it("Workbench coordinate search navigates only on Go or Enter, rejects invalid p
     type("Paris");
     choose.click();
     assert.equal(flights.length, 5, "Detached provider results cannot navigate after the query changes");
+    type("1 Main Street");
+    assert.deepEqual(providerCalls, ["London", "Q84"], "Typing never calls the address provider");
+    [...shell.querySelectorAll("button")].find(button => button.textContent === "Search addresses").click();
+    const address = await waitFor(() => [...shell.querySelectorAll("button")].find(button => button.textContent === "Go to address 1: 1 Main Street"));
+    assert.equal(flights.length, 5, "Provider results do not navigate until selected");
+    assert.equal(shell.querySelector('a[href="https://www.openstreetmap.org/way/123"]').textContent, "Inspect W123");
+    address.click();
+    assert.deepEqual(flights.at(-1), {center: [-71.06, 42.36], zoom: 16, duration: 350});
+    addCoordinate().click();
+    const savedAddress = shell.getPrintContext().project.layers.find(item => item.sourceType === "kml-places")
+      .kmlDocument.children.find(item => item.name === "1 Main Street");
+    assert.deepEqual(savedAddress.geometry.coordinates, [-71.06, 42.36]);
+    assert.match(savedAddress.description, /Photon\/OpenStreetMap W123.*provider rank 1.*SHA256 a{64}/);
+    assert.match(savedAddress.description, /OpenStreetMap contributors, ODbL/);
+    type("Other address"); address.click();
+    assert.equal(flights.length, 6, "Detached address results cannot navigate");
   } finally {shell?.dispose?.(); shell?.remove(); globalThis.fetch = originalFetch; restore(); dom.window.close();}
 });
 

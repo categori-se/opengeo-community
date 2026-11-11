@@ -6056,6 +6056,58 @@ function searchPanel(context) {
       finally {if (current()) search.disabled = false;}
     });
     provider.append(search, results);
+    if (typeof context.placeSearch.address === "function") {
+      const addressResults = document.createElement("div");
+      addressResults.setAttribute("aria-live", "polite");
+      provider.append(textElement("small", "Address search sends the entered text to Photon, using OpenStreetMap data. Results follow provider order; availability and coverage vary. Nothing is sent while typing."));
+      const addresses = actionButton("Search addresses", async () => {
+        const query = input.value.trim();
+        if (query.length < 2 || query.length > 120) {reportCoordinate("Enter an address of 2–120 characters.", true); return;}
+        if (addresses.disabled || context.disposed || !addresses.isConnected || context.queryLocationScopeInvalid) return;
+        const current = () => !context.disposed && addresses.isConnected && !context.queryLocationScopeInvalid
+          && state.placeSearch?.trim() === query;
+        addresses.disabled = true;
+        addressResults.replaceChildren(textElement("p", "Finding addresses…"));
+        try {
+          const response = await context.placeSearch.address(query);
+          if (!current()) return;
+          if (response?.provider !== "Photon/OpenStreetMap" || !Array.isArray(response.candidates) || response.candidates.length > 10
+            || !/^[a-f0-9]{64}$/.test(response.sourceSha256)) throw Error("Invalid address response.");
+          addressResults.replaceChildren(textElement("p", response.candidates.length
+            ? "Choose a result. Provider rank does not measure confidence; inspect its source before saving." : "No matching addresses. Refine the query."));
+          const rights = document.createElement("a");
+          rights.href = "https://www.openstreetmap.org/copyright";
+          rights.target = "_blank"; rights.rel = "noopener noreferrer"; rights.textContent = "© OpenStreetMap contributors · ODbL";
+          addressResults.append(rights);
+          for (const [index, candidate] of response.candidates.entries()) {
+            const {latitude, longitude} = candidate;
+            if (!/^[NWR][1-9][0-9]{0,18}$/.test(candidate.id) || typeof candidate.label !== "string"
+              || candidate.rank !== index + 1 || !Number.isFinite(latitude) || !Number.isFinite(longitude)
+              || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) throw Error("Invalid address candidate.");
+            const description = `Photon/OpenStreetMap ${candidate.id}, provider rank ${candidate.rank}, retrieved ${response.retrievedAt}, response SHA256 ${response.sourceSha256}. Source revision and accuracy are unreported. © OpenStreetMap contributors, ODbL, https://www.openstreetmap.org/copyright. WGS84 ${latitude}, ${longitude}.`;
+            const choose = actionButton(`Go to address ${candidate.rank}: ${candidate.label}`, () => {
+              if (!current() || !choose.isConnected || !state.map || state.spatialBody.id !== "earth") return;
+              const [, south, , north] = state.spatialBody.rendererBounds;
+              if (latitude < south || latitude > north) {reportCoordinate("This address is outside the map's supported latitude range.", true); return;}
+              state.map.flyTo({center: [longitude, latitude], zoom: Math.max(state.map.getZoom(), 16), duration: 350});
+              state.coordinateSearchResult = {query, name: candidate.label.slice(0, 256), latitude, longitude, description};
+              state.coordinatePlaceName = candidate.label.slice(0, 256);
+              placeName.input.value = state.coordinatePlaceName;
+              placeActions.hidden = false;
+              reportCoordinate(description);
+            });
+            const source = document.createElement("a");
+            const kind = {N: "node", W: "way", R: "relation"}[candidate.id[0]];
+            source.href = `https://www.openstreetmap.org/${kind}/${candidate.id.slice(1)}`;
+            source.target = "_blank"; source.rel = "noopener noreferrer"; source.textContent = `Inspect ${candidate.id}`;
+            const row = document.createElement("div");
+            row.append(choose, source); addressResults.append(row);
+          }
+        } catch (error) {if (current()) {addressResults.replaceChildren(); reportCoordinate(error.message || "Address search unavailable.", true);}}
+        finally {if (current()) addresses.disabled = false;}
+      });
+      provider.append(addresses, addressResults);
+    }
     body.append(provider);
   }
 
