@@ -1802,12 +1802,21 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   const map = state.map;
   const resizeMap = () => resizeWorkbenchMap(context, map);
   const fitMap = () => { resizeMap(); fitVisibleLayers(map, layers, dataByLayerId); };
-  let disposed = false, frame = null;
+  let disposed = false, frame = null, cachedLayerFrame = null;
   const timers = [], listeners = [];
   const on = (type, callback) => {
     const handler = (...args) => { if (!disposed && state.map === map) callback(...args); };
     map.on(type, handler); listeners.push({type, handler});
   };
+  const mapLibre = workbenchRenderer(map).id === "maplibre";
+  const scheduleCachedLayerInstall = () => {
+    if (!mapLibre || cachedLayerFrame !== null || context.printResolutionCapture) return;
+    cachedLayerFrame = requestAnimationFrame(() => {
+      cachedLayerFrame = null;
+      if (!disposed && state.map === map && !context.printResolutionCapture) installCachedDatasetLayers(context);
+    });
+  };
+  on("style.load", scheduleCachedLayerInstall);
   on("webglcontextlost", () => mapGraphicsUnavailable(context.mapSurface, context));
   on("cogstatus", event => setStatus(context, event.message));
   on("coglayerready", () => context.render());
@@ -2064,6 +2073,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   return () => {
     disposed = true;
     if (frame !== null) cancelAnimationFrame(frame);
+    if (cachedLayerFrame !== null) cancelAnimationFrame(cachedLayerFrame);
     for (const timer of timers) clearTimeout(timer);
     for (const {type, handler} of listeners) map.off(type, handler);
   };
@@ -9595,7 +9605,8 @@ function installCachedDatasetLayers(context) {
       layers: context.layers,
       dataByLayerId: context.dataByLayerId,
       layerHandles: context.state.layerHandles,
-      install: (layer, geojson) => addMapLayer(context.state, layer, geojson, context.datasets),
+      allowPendingSources: context.state.map != null && workbenchRenderer(context.state.map).id === "maplibre",
+      install: (layer, geojson, options) => addMapLayer(context.state, layer, geojson, context.datasets, options),
       syncOrder: () => syncLayerOrder(context)
     });
   } finally {
@@ -15016,9 +15027,9 @@ function bindLayerInteraction(state, map, layer, mapLayerId, datasets) {
   });
 }
 
-export function addMapLayer(state, layer, geojson, datasets) {
+export function addMapLayer(state, layer, geojson, datasets, options) {
   const map = state.map;
-  if (!map || isMapLayerHandleInstalled(map, state.layerHandles.get(layer.layerId))) return;
+  if (!map || isMapLayerHandleInstalled(map, state.layerHandles.get(layer.layerId), options)) return;
   // setStyle can discard sources/layers while a cached handle still exists.
   // Retire its listeners, images and overlays before reusing the loaded data.
   if (state.layerHandles.has(layer.layerId)) removeMapLayer(state, layer.layerId);

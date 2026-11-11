@@ -2628,7 +2628,8 @@ class PostgresSitePublicationRepository:
             INSERT INTO app.project_site_workflow_events
               (id, organization_id, project_id, site_id, site_version_id,
                site_version_number, source_state, target_state, reason, actor_user_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s,
+                    %s::app.project_site_state, %s::app.project_site_state, %s, %s)
             """,
             (
                 uuid4(),
