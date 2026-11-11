@@ -1695,8 +1695,8 @@ describe("public workbench demo source boundary", () => {
       assert.equal(map.__opengeoLayers.length, 0);review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
       await waitFor(() => map.__opengeoLayers.length === 1);
       const layer = map.__opengeoLayers[0], data = map.__opengeoData.get(layer.layerId);
-      assert.deepEqual(layer.style, {renderer: "single", circleColor: "#123456", circleRadius: 6, stroke: "#123456", strokeWidth: 2});
-      assert.deepEqual(layer.metadata.curated.pointPresentation, {mode: "single", color: "#123456", categoryField: null, paletteName: null});
+      assert.deepEqual(layer.style, {renderer: "single", circleColor: "#123456", circleRadius: 6, stroke: "#123456", strokeWidth: 2, pointSymbol: "circle"});
+      assert.deepEqual(layer.metadata.curated.pointPresentation, {mode: "single", color: "#123456", categoryField: null, paletteName: null, icon: "circle"});
       assert.deepEqual(data.features.map(feature => feature.properties.status), ["active", "planned"]);assert.equal(data.features[0].properties.identifier, "0001");
       assert.equal(Buffer.from(layer.metadata.source.originalFile.content, "base64").toString("utf8"), raw);
       assert.doesNotMatch(JSON.stringify(layer.metadata.source.report), /pointPresentation|paletteName|categoryField/);
@@ -1707,7 +1707,7 @@ describe("public workbench demo source boundary", () => {
 
   it("delimited Point colors preserve explicit Demo categories, review Cancel and managed temporary style without account Save", async () => {
     const raw = "longitude,latitude,risk class,identifier\n85.3,27.7,Low risk,0007\n85.31,27.71,High risk,0008\n";
-    const expected = {renderer: "category", circleColor: "#654321", circleRadius: 6, stroke: "#654321", strokeWidth: 2, categoryField: "risk class", paletteName: "water", palette: STYLE_PALETTES.find(([id]) => id === "water")[2]};
+    const expected = {renderer: "category", circleColor: "#654321", circleRadius: 6, stroke: "#654321", strokeWidth: 2, pointSymbol: "circle", categoryField: "risk class", paletteName: "water", palette: STYLE_PALETTES.find(([id]) => id === "water")[2]};
     for (const managed of [false, true]) {
       const dom = new JSDOM("<!doctype html><body></body>", {url: managed ? "https://studio.opengeo.tools/workspaces" : "https://demo.studio.opengeo.tools/"}), restore = installDomGlobals(dom.window);
       let root, map, saved, uploads = 0;
@@ -1735,7 +1735,7 @@ describe("public workbench demo source boundary", () => {
         } else assert(review.textContent.includes("excluded from account Save"));
         review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));await waitFor(() => map.__opengeoLayers.length === before + 1);
         const layer = map.__opengeoLayers.find(layer => layer.metadata?.source?.filename === "category-points.csv"), data = map.__opengeoData.get(layer.layerId);
-        assert.deepEqual(layer.style, expected);assert.deepEqual(layer.metadata.curated.pointPresentation, {mode: "category", color: "#654321", categoryField: "risk class", paletteName: "water"});
+        assert.deepEqual(layer.style, expected);assert.deepEqual(layer.metadata.curated.pointPresentation, {mode: "category", color: "#654321", categoryField: "risk class", paletteName: "water", icon: "circle"});
         assert.deepEqual(data.features.map(feature => feature.properties["risk class"]), ["Low risk", "High risk"]);assert.equal(data.features[0].properties.identifier, "0007");
         assert.equal(Buffer.from(layer.metadata.source.originalFile.content, "base64").toString("utf8"), raw);assert.doesNotMatch(JSON.stringify(layer.metadata.source.report), /pointPresentation|paletteName|categoryField/);
         if (managed) {
