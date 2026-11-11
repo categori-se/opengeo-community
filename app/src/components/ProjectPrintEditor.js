@@ -9,7 +9,8 @@ import {exportQgisPrintTemplate, importQgisPrintTemplate} from "../lib/qgisPrint
 import {mapGraticule} from "../lib/mapGraticule.js";
 import {graduatedLegendEntries, graduatedColorExpression, normalizeGraduatedStyle} from "../lib/thematicStyle.js";
 import {canonicalJson} from "../lib/artifactCanonicalJson.js";
-import {compileFigurePrintPack} from "../lib/figurePrintPack.js";
+import {compileFigurePrintPack, rasterPagesPdf} from "../lib/figurePrintPack.js";
+import {planPrintAtlas, capturePrintAtlas, PRINT_ATLAS_LIMITS} from "../lib/printAtlas.js";
 import {ensurePointSymbolAssets, normalizePointSymbolStyle, pointSymbolPreviewSvg} from "../lib/pointSymbols.js";
 import {capturePrintDataFrames, printDataSourceFields, assertPrintDataFrameSnapshot} from "../lib/printDataFrames.js";
 import {capturePrintVectorScene, assertPrintVectorScene} from "../lib/printVectorScene.js";
@@ -31,6 +32,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
   let fontGeneration = 0, fontController = null, fontPreviewWaiting = "";
   let captureController = null;
   let outputController = null;
+  let atlasLayerId = "", atlasFeatureNumbers = "1", atlasLabelField = "", atlasRunning = false;
   const captures = new Map(), undo = [], redo = [];
   const status = el("p");status.setAttribute("role", "status");
   root.append(el("h2", "Print Studio"), el("p", mapRecord.name),
@@ -267,9 +269,11 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         activeId = collection.layouts[0].id;frameId = collection.layouts[0].frames[0].id;dirty = false;captures.clear();undo.length = 0;redo.length = 0;render();status.textContent = "Saved layout settings reopened. Capture each map frame under current access before exporting.";
       }));
     renderOutputControls();
+    renderAtlasControls();
     controls.append(button("Export interactive web map…", () => workbench.openPublicationMapExport?.()));
     if (!canSave) controls.append(el("p", "Your current role can compose and export a temporary layout. Project edit access is required to save it."));
     if (busy || drag) for (const control of controls.querySelectorAll("button,input,select,textarea")) control.disabled = true;
+    if (atlasRunning) controls.append(button("Cancel atlas export", () => outputController?.abort(Error("Atlas export canceled."))));
     renderPage();
   }
   function renderTemplateControls() {
@@ -411,6 +415,76 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       button("Download paper SVG", () => output("svg"), Boolean(outputUnavailable("svg"))), button("Download page PNG", () => output("png"), Boolean(outputUnavailable("png"))),
       button("Download figure and print ZIP", () => output("pack"), Boolean(outputUnavailable("pack"))), button("Download static web page", () => output("html"), Boolean(outputUnavailable("html"))), button("Print / Save PDF", () => output("print"), Boolean(outputUnavailable("print"))));
     section.append(direct);controls.append(section);
+  }
+  function renderAtlasControls() {
+    const context = workbench.getPrintContext?.();
+    const sources = (context?.layers ?? []).filter(layer => {
+      const data = context.getPrintDataSource?.(layer.layerId)?.geojson;
+      return data?.type === "FeatureCollection" && data.features?.length && !data.opengeo?.mayBeTruncated;
+    });
+    const section = el("details"); section.className = "print-atlas-controls";
+    section.append(el("summary", "Feature atlas"));
+    if (!sources.length) {section.append(el("p", "Load a complete GeoJSON Layer to choose atlas coverage.")); controls.append(section); return;}
+    if (!sources.some(layer => layer.layerId === atlasLayerId)) {atlasLayerId = sources[0].layerId; atlasLabelField = "";}
+    const source = context.getPrintDataSource(atlasLayerId);
+    section.append(selectField("Atlas coverage Layer", atlasLayerId, sources.map(layer => [layer.layerId, layer.title]), id => {
+      atlasLayerId = id; atlasLabelField = ""; atlasFeatureNumbers = "1"; render(); controls.querySelector(".print-atlas-controls").open = true;
+    }), inputField("Atlas feature numbers", atlasFeatureNumbers, "text", value => {atlasFeatureNumbers = value;}),
+    selectField("Atlas page label", atlasLabelField, [["", "Feature number"], ...printDataSourceFields(context, atlasLayerId).map(field => [field, field])], value => {atlasLabelField = value;}),
+    el("p", `Choose up to 32 feature numbers from this Layer's ${source.geojson.features.length} loaded records, separated by commas. Each feature defines one page extent in the current layout. The PDF retains the page's source credits, legend and applicable scale. Up to 32 MiB; raster pages.`),
+    button("Download atlas PDF", atlas, mapFrame().id !== layout().frames[0].id));
+    if (mapFrame().id !== layout().frames[0].id) section.append(el("p", "Select and edit the main map frame before preparing atlas pages."));
+    controls.append(section);
+  }
+  async function atlas() {
+    if (busy || drag || !await current()) return;
+    if (busy || drag) return;
+    const context = workbench.getPrintContext?.(), selected = structuredClone(layout());
+    let priorInert = mapHost.inert;
+    try {
+      const plan = planPrintAtlas(context, {layerId: atlasLayerId, featureNumbers: atlasFeatureNumbers, labelField: atlasLabelField});
+      for (const inset of selected.frames.slice(1)) {
+        if (!captures.has(`${selected.id}:${inset.id}`)) throw Error("Capture the inset map before using it in atlas pages.");
+      }
+      validateProjectPrintLayouts(collection, mapRecord);
+      outputController = new AbortController(); busy = true; atlasRunning = true; mapHost.inert = true; render();
+      const signal = outputController.signal;
+      const timer = setTimeout(() => outputController?.abort(Error("Atlas export reached its two-minute limit.")), PRINT_ATLAS_LIMITS.milliseconds);
+      try {
+        if (hasPrintMath(selected)) await preparePrintMath();
+        const preparedFonts = await exactTextFonts(selected);
+        let bytes = 0;
+        const pages = await capturePrintAtlas(context, plan, {signal, isCurrent: current,
+          onProgress: (page, total, label) => {status.textContent = `Preparing atlas page ${page} of ${total}: ${label}`;},
+          capturePage: async page => {
+            const composed = structuredClone(selected), main = composed.frames[0];
+            const captured = await captureMap(context, mapRecord, {dataFrames: (composed.dataFrames ?? []).filter(item => item.mapFrameId === main.id),
+              outputFrame: {widthMm: main.widthMm, heightMm: main.heightMm, dpi: composed.dpi}, signal});
+            signal.throwIfAborted();
+            main.view = captured.view; main.presentation = captured.presentation; main.projection = captured.projection;
+            composed.title = `${selected.title} · ${page.label}`.slice(0, 200);
+            const pageCaptures = new Map(captures); pageCaptures.set(`${composed.id}:${main.id}`, captured);
+            const svg = printPageSvg(composed, pageCaptures, composed.id, {
+              ...(preparedFonts ? {fontFamily: preparedFonts.family, fontCss: preparedFonts.css} : {})
+            });
+            const serialized = new root.ownerDocument.defaultView.XMLSerializer().serializeToString(svg);
+            const image = await pageImages(serialized, composed);
+            signal.throwIfAborted();
+            const jpeg = new Uint8Array(await image.jpeg.arrayBuffer()); bytes += jpeg.length;
+            if (bytes > PRINT_ATLAS_LIMITS.bytes - 65536) throw Error("The atlas exceeds 32 MiB. Select fewer pages or a lower DPI.");
+            return {jpeg, width: image.width, height: image.height};
+          }});
+        signal.throwIfAborted();
+        if (!await current()) return;
+        const pdf = rasterPagesPdf(pages, selected.page);
+        download(new Blob([pdf], {type: "application/pdf"}), `${safeName(selected.title)}.atlas.pdf`);
+        status.textContent = `Atlas PDF prepared with ${pages.length} pages. The original map view was restored.`;
+      } finally {clearTimeout(timer);}
+    } catch (error) {if (!disposed) status.textContent = error.message;}
+    finally {
+      mapHost.inert = priorInert; busy = false; atlasRunning = false; outputController = null;
+      if (!disposed) render();
+    }
   }
   function restore(from, to) {
     if (!from.length || busy || uncertain || drag || disposed) return;to.push(structuredClone(collection));if (to.length > 20) to.shift();collection = from.pop();

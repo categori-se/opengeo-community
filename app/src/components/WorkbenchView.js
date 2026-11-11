@@ -42,6 +42,8 @@ import {resolveLayerStyle, referencedStylePaint, validateLayerStyleReference} fr
 import {maplibreAdapter, workbenchRenderer, registerArchiveProtocols} from "../lib/maplibreAdapter.js";
 import {createHistoricalComparisonView, historicalComparisonIdentity} from "../lib/historicalComparisonView.js";
 import {openStaticMapExport} from "./StaticMapExport.js";
+import {ProjectStoryEditor, ProjectDashboardEditor} from "./ProjectNarrativeEditor.js";
+import {projectNarrativeState, storyLocation} from "../lib/projectNarrative.js";
 import {studioNavigationItems, demoNavigationItems, MANAGED_STUDIO_URL} from "./StudioNavigation.js";
 import {mapServerTileUrl} from "../lib/mapServer.js";
 import {imageServerTileUrl, normalizeImageServerTileUrl} from "../lib/imageServer.js";
@@ -590,7 +592,7 @@ function createWorkbenchView({
     activeLayerId: project?.activeLayerId ?? workingLayers[0]?.layerId ?? null,
     activePanel: initialDatasetTarget
       ? "add"
-      : ["add", "catalog", "basemap", "processing", "query", "identify", "measure", "temporary", "history", "tour", "flight", "settings", "help"].includes(initialPanel)
+      : ["add", "catalog", "basemap", "processing", "query", "identify", "measure", "temporary", "history", "tour", "story", "dashboard", "flight", "settings", "help"].includes(initialPanel)
       ? initialPanel
       : storedUi?.activePanel ?? "style",
     activeMenu: null,
@@ -604,6 +606,7 @@ function createWorkbenchView({
       : project?.models?.[0]?.id ?? null,
     processingModels: normalizeProcessingModels(project?.models),
     processingHistory: normalizeProcessingHistory(project?.processingHistory),
+    ...projectNarrativeState(project),
     processingRunSequence: 0,
     pmtilesDerivativeDraft: null,
     pmtilesDerivativeBusy: false,
@@ -2769,6 +2772,8 @@ function toolbarMenus(context) {
           menuAction("Analysis console", () => toggleAnalysisConsole(context), {shortcut: "Ctrl+`"}),
           menuAction(state.mapOnly ? "Show panels and tools" : "Map only", () => setMapOnly(context, !state.mapOnly)),
           menuAction("Camera tour", () => openCameraTourPanel(context)),
+          menuAction("Project story", () => {state.activePanel = "story"; state.rightOpen = true; context.render();}),
+          menuAction("Project dashboard", () => {state.activePanel = "dashboard"; state.rightOpen = true; context.render();}),
           menuAction("Flight simulator", () => openFlightSimulatorPanel(context), {
             disabled: state.spatialBody.id !== "earth",
             title: state.spatialBody.id === "earth" ? "Open flight simulator" : "Flight simulator is available for Earth projects"
@@ -2917,6 +2922,8 @@ function toolbarMenus(context) {
           menuAction("Measure circle area", () => beginMeasurement(context, "circle")),
           menuAction("Imagery history", () => openHistoricalImageryPanel(context)),
           menuAction("Camera tour", () => openCameraTourPanel(context)),
+          menuAction("Project story", () => {state.activePanel = "story"; state.rightOpen = true; context.render();}),
+          menuAction("Project dashboard", () => {state.activePanel = "dashboard"; state.rightOpen = true; context.render();}),
           menuAction("Flight simulator", () => openFlightSimulatorPanel(context), {
             disabled: state.spatialBody.id !== "earth",
             title: state.spatialBody.id === "earth" ? "Open flight simulator" : "Flight simulator is available for Earth projects"
@@ -6231,6 +6238,8 @@ function panelTitle(panel) {
     temporary: "Temporary Work",
     history: "Historical Imagery",
     tour: "Camera Tour",
+    story: "Project Story",
+    dashboard: "Project Dashboard",
     flight: "Flight Simulator",
     controls: "Map Controls",
     catalog: "Data catalog",
@@ -6270,7 +6279,46 @@ function inspectorTab(label, active, action) {
   return button;
 }
 
+function projectNarrativePanel(context) {
+  const {state} = context;
+  const editable = !context.queryLocationScopeInvalid && canOrganizeProject(context);
+  const commit = patch => {
+    if (!editable || context.queryLocationScopeInvalid || !canOrganizeProject(context)) return;
+    Object.assign(state, patch);
+    saveLocalDraft(context);
+    setStatus(context, "Project narrative updated. Save the Project to retain these changes.");
+    context.render();
+  };
+  if (state.activePanel === "dashboard") return ProjectDashboardEditor({
+    widgets: state.widgets, dashboardColumns: state.dashboardColumns,
+    layers: context.layers, dataByLayerId: context.dataByLayerId, editable, onChange: commit
+  });
+  return ProjectStoryEditor({storymap: state.storymap, editable,
+    onChange: storymap => commit({storymap}),
+    captureView: () => {
+      const map = state.map;
+      if (!map || context.rendererAdapter.id !== "maplibre") throw Error("Use the MapLibre map to capture a chapter view.");
+      const center = map.getCenter();
+      return storyLocation({center: [center.lng, center.lat], zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing()});
+    },
+    previewView: (location, transition) => {
+      if (!state.map || context.rendererAdapter.id !== "maplibre") throw Error("Use the MapLibre map to preview a chapter.");
+      const method = ["flyTo", "easeTo", "jumpTo"].includes(transition) ? transition : "flyTo";
+      state.map[method]({...location, essential: false});
+    },
+    exportStory: storymap => {
+      const map = state.map;
+      if (!map || context.rendererAdapter.id !== "maplibre" || !map.getStyle()) throw Error("Wait for the MapLibre style before exporting.");
+      const title = storymap.title || context.project?.name || "Project story";
+      openStaticMapExport({map, title, storymap, initialMode: "offline",
+        savedProjectOrigin: context.savedProjectOrigin, layers: context.layers, handles: state.layerHandles,
+        download: html => downloadBlob(`${slug(title)}.story.html`, html, "text/html;charset=utf-8")});
+    }
+  });
+}
+
 function panelBody(context) {
+  if (["story", "dashboard"].includes(context.state.activePanel)) return projectNarrativePanel(context);
   if (context.state.activePanel === "assistant") return assistantPanel(context);
   if (context.state.activePanel === "renderer") {
     context.rendererPanel ??= RendererPanel({
@@ -17684,6 +17732,7 @@ function applyLocalDraft({
     state.historicalAvailability = reviewedHistoricalDates(state.historicalImagery.sourceId);
     state.historicalAvailabilityStatus = "reviewed-capability-receipt";
     state.historicalAvailabilityMessage = "Showing the last reviewed provider time-domain dates. Visible pixels can still contain gaps or clouds.";
+    Object.assign(state, projectNarrativeState({...project, ...draft}));
     state.cameraTour = cameraTourForProject(draft);
     state.cameraTourSelectedId = state.cameraTour?.keyframes?.[0]?.id ?? null;
     state.cameraTourElapsedMilliseconds = 0;
@@ -17874,6 +17923,9 @@ function createLocalDraft(context) {
     activeProcessingModelId: state.activeProcessingModelId ?? null,
     models: structuredClone(state.processingModels ?? []),
     processingHistory: structuredClone(state.processingHistory ?? []),
+    ...(state.storymap !== undefined ? {storymap: structuredClone(state.storymap)} : {}),
+    ...(state.widgets !== undefined ? {widgets: structuredClone(state.widgets)} : {}),
+    ...(state.dashboardColumns !== undefined ? {dashboardColumns: state.dashboardColumns} : {}),
     measurements: structuredClone(state.measurements ?? []),
     layers: persistentLayers.map((layer) => ({
       layerId: layer.layerId,
@@ -18066,6 +18118,9 @@ export function currentProjectDefinition(context) {
     activeProcessingModelId: state.activeProcessingModelId ?? null,
     models: structuredClone(state.processingModels ?? []),
     processingHistory: structuredClone(state.processingHistory ?? []),
+    ...(state.storymap !== undefined ? {storymap: structuredClone(state.storymap)} : {}),
+    ...(state.widgets !== undefined ? {widgets: structuredClone(state.widgets)} : {}),
+    ...(state.dashboardColumns !== undefined ? {dashboardColumns: state.dashboardColumns} : {}),
     measurements: structuredClone(state.measurements ?? []),
     spatialBody: structuredClone(state.spatialBody ?? spatialBodyDefinition()),
     projection: state.globe ? "globe" : "mercator",

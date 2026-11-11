@@ -11,19 +11,34 @@ const sha = async bytes => [...new Uint8Array(await crypto.subtle.digest("SHA-25
 // The same object/offset/xref structure as site_print.py, with one browser-encoded
 // RGB JPEG page. Furniture is rasterized with the page; this is not vector PDF.
 export function rasterPagePdf(jpeg, {width, height, widthMm, heightMm}) {
-  if (!(jpeg instanceof Uint8Array) || jpeg.length > LIMIT || jpeg[0] !== 255 || jpeg[1] !== 216
-    || jpeg.at(-2) !== 255 || jpeg.at(-1) !== 217
-    || ![width, height].every(value => Number.isSafeInteger(value) && value > 0) || width * height > 20_000_000
+  return rasterPagesPdf([{jpeg, width, height}], {widthMm, heightMm});
+}
+
+export function rasterPagesPdf(pages, {widthMm, heightMm}) {
+  if (!Array.isArray(pages) || pages.length < 1 || pages.length > 32
     || ![widthMm, heightMm].every(value => Number.isFinite(value) && value >= 50 && value <= 1189)) throw Error("The page image or paper dimensions are invalid.");
+  let imageBytes = 0;
+  for (const {jpeg, width, height} of pages) {
+    if (!(jpeg instanceof Uint8Array) || jpeg.length > LIMIT || jpeg[0] !== 255 || jpeg[1] !== 216
+      || jpeg.at(-2) !== 255 || jpeg.at(-1) !== 217
+      || ![width, height].every(value => Number.isSafeInteger(value) && value > 0) || width * height > 20_000_000) throw Error("The page image or paper dimensions are invalid.");
+    imageBytes += jpeg.length;
+  }
+  if (pages.length > 1 && imageBytes > LIMIT - 65536) throw Error("The atlas exceeds 32 MiB. Select fewer pages or a lower DPI.");
   const w = (widthMm * 72 / 25.4).toFixed(4), h = (heightMm * 72 / 25.4).toFixed(4);
   const content = `q\n${w} 0 0 ${h} 0 0 cm\n/PageImage Do\nQ\n`;
   const objects = [
     [strToU8("<< /Type /Catalog /Pages 2 0 R >>")],
-    [strToU8("<< /Type /Pages /Count 1 /Kids [3 0 R] >>")],
-    [strToU8(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /Resources << /XObject << /PageImage 5 0 R >> >> /Contents 4 0 R >>`)],
-    [strToU8(`<< /Length ${content.length} >>\nstream\n${content}endstream`)],
-    [strToU8(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`), jpeg, strToU8("\nendstream")]
+    [strToU8(`<< /Type /Pages /Count ${pages.length} /Kids [${pages.map((_, index) => `${3 + index * 3} 0 R`).join(" ")}] >>`)]
   ];
+  for (const [index, {jpeg, width, height}] of pages.entries()) {
+    const id = 3 + index * 3;
+    objects.push(
+      [strToU8(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /Resources << /XObject << /PageImage ${id + 2} 0 R >> >> /Contents ${id + 1} 0 R >>`)],
+      [strToU8(`<< /Length ${content.length} >>\nstream\n${content}endstream`)],
+      [strToU8(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`), jpeg, strToU8("\nendstream")]
+    );
+  }
   const chunks = [strToU8("%PDF-1.4\n%"), Uint8Array.of(226, 227, 207, 211, 10)], offsets = [0];
   let length = chunks.reduce((sum, bytes) => sum + bytes.length, 0);
   const append = bytes => {chunks.push(bytes);length += bytes.length;};
@@ -36,6 +51,7 @@ export function rasterPagePdf(jpeg, {width, height, widthMm, heightMm}) {
   append(strToU8(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
     + offsets.slice(1).map(value => `${String(value).padStart(10, "0")} 00000 n \n`).join("")
     + `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`));
+  if (pages.length > 1 && length > LIMIT) throw Error("The atlas exceeds 32 MiB. Select fewer pages or a lower DPI.");
   const result = new Uint8Array(length);let position = 0;
   for (const bytes of chunks) {result.set(bytes, position);position += bytes.length;}
   return result;

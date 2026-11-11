@@ -425,10 +425,14 @@ def api_client(
     repository: MemorySiteRepository,
     render_repository: MemoryRenderRepository | None = None,
     download_storage: MemoryDownloadStorage | None = None,
+    *,
+    public_api_base_url: str | None = None,
 ) -> TestClient:
     return TestClient(
         create_app(
-            settings=Settings(env="test", expose_docs=True),
+            settings=Settings(
+                env="test", expose_docs=True, public_api_base_url=public_api_base_url
+            ),
             readiness_probe=PassingProbe(),
             token_verifier=FakeVerifier(),
             principal_repository=FakePrincipalRepository(),
@@ -617,6 +621,53 @@ def test_shared_auth_editorial_publication_and_revocation_flow() -> None:
         client.get(f"/public/organizations/{ORG_ID}/publications/field-report").status_code == 404
     )
     assert client.get(f"/public/organizations/{ORG_ID}/publication").status_code == 404
+
+
+@pytest.mark.parametrize("public_api_base_url", [None, "https://studio.opengeo.tools/api"])
+def test_public_site_urls_preserve_configured_api_prefix(
+    public_api_base_url: str | None,
+) -> None:
+    release = replace(edition(), is_primary=True)
+    published = site(state="published", active_edition=release)
+    repository = MemorySiteRepository()
+    repository.record = published
+    repository.release = PublishedSite(published, release, (), ())
+    client = api_client(repository, public_api_base_url=public_api_base_url)
+    expected_base = public_api_base_url or "http://testserver"
+    project_root = f"/public/organizations/{ORG_ID}/projects/{PROJECT_ID}"
+    paths = [
+        f"{project_root}/sites/field-report",
+        f"/public/organizations/{ORG_ID}/publications/field-report",
+        f"/public/organizations/{ORG_ID}/publication",
+    ]
+    for path in paths:
+        response = client.get(path)
+        assert response.status_code == 200
+        assert f'href="{expected_base}/public/site-assets/site.css"' in response.text
+        assert f'src="{expected_base}/public/site-assets/site.js"' in response.text
+        assert f'href="{expected_base}{path}" aria-current="page"' in response.text
+
+    # An opaque unlisted edition uses the same canonical prefix without listing it.
+    token = "1" * 32
+    unlisted = replace(release, publication_reach="unlisted", unlisted_token=token)
+    repository.release = PublishedSite(published, unlisted, (), ())
+    unlisted_path = f"{project_root}/unlisted/{token}"
+    response = client.get(unlisted_path)
+    assert response.status_code == 200
+    assert f'href="{expected_base}{unlisted_path}" aria-current="page"' in response.text
+    assert f'href="{expected_base}/public/site-assets/site.css"' in response.text
+    assert f'src="{expected_base}/public/site-assets/site.js"' in response.text
+
+    repository.release = PublishedSite(published, release, (), ())
+    package = client.get(f"{project_root}/site-editions/{EDITION_ID}/export.zip")
+    assert package.status_code == 200
+    with ZipFile(BytesIO(package.content)) as archive:
+        document = archive.read("index.html").decode()
+        assert 'href="assets/site.css"' in document
+        assert 'src="assets/site.js"' in document
+        assert 'href="index.html" aria-current="page"' in document
+        assert archive.read("assets/site.css")
+        assert archive.read("assets/site.js")
 
 
 def test_site_request_rejects_ambiguous_home_and_unknown_theme_options() -> None:
