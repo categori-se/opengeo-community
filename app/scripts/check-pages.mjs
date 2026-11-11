@@ -6807,17 +6807,14 @@ async function assertPrintComposition(browser, baseUrl) {
     update: lastMapUpdate, links: new Set(projectDatasetIds(IDS.projects[0]))};
   const layerId = "browser-access-road-presentation";
   const original = mapPayloadForProject(IDS.projects[0]);
-  browserAuthoritativeFeatureState = {generation: 1,
-    createdAt: "2026-08-30T15:00:00Z", updatedAt: "2026-08-30T15:00:00Z",
-    features: browserFeaturePage().features.map((feature, index) => ({...feature,
-      properties: {...feature.properties, value: index + 1, other: (index + 1) * 2}}))};
+  browserAuthoritativeFeatureState = null;
   projectDatasetIds(IDS.projects[0]).add(IDS.dataset);
   browserMapOverrides.set(key, {...original, definition: {...original.definition,
     projection: "mercator", terrain: null, basemaps: [],
     mapViews: [{id: "default", center: [85.27, 27.64], zoom: 10, pitch: 0, bearing: 0}],
     storymap: {title: "", chapters: [], retainedStory: "keep"}, widgets: [], dashboardColumns: 1,
-    layers: [{layerId, datasetId: IDS.dataset, title: "Access Road Network · saved presentation",
-      sourceType: "geojson-object", geometryType: "LineString", visible: true, opacity: 0.9,
+    layers: [{layerId, datasetId: IDS.dataset, datasetVersionId: IDS.version, sourceVersion: 1,
+      title: "Access Road Network · saved presentation", sourceType: "governed-dataset", geometryType: "LineString", visible: true, opacity: 0.9,
       order: 0, style: {stroke: "#2f80ed", strokeWidth: 3}, labels: {enabled: false, field: "name"}}]}});
   try {
     await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async page => {
@@ -6847,6 +6844,9 @@ async function assertPrintComposition(browser, baseUrl) {
       await page.getByRole("menuitem", {name: "Open Print Studio", exact: true}).click();
       const print = page.locator(".project-print-studio");
       await print.waitFor();
+      await waitForLayer();
+      await print.getByRole("button", {name: "Capture map frame", exact: true}).click();
+      await print.locator(':scope > [role="status"]').filter({hasText: /^Captured /}).waitFor();
       const before = await mapState(), storedBefore = JSON.stringify(browserMapOverrides.get(key));
       await page.locator(".opengeo-workbench").evaluate(shell => {
         shell.__atlasObservedViews = [];
@@ -6921,16 +6921,15 @@ async function assertPrintComposition(browser, baseUrl) {
       const dashboard = page.getByRole("region", {name: "Project dashboard", exact: true});
       await change(dashboard.getByLabel("Dashboard columns", {exact: true}), 2);
       const widgets = dashboard.locator(".project-dashboard-widget");
-      await dashboard.getByRole("button", {name: "Add widget", exact: true}).click();
-      await change(widgets.nth(0).getByLabel("Widget title", {exact: true}), "Segment values");
-      await widgets.nth(0).getByLabel("Numeric field", {exact: true}).selectOption("value");
-      await change(widgets.nth(0).getByLabel("Histogram bins", {exact: true}), 3);
       await dashboard.getByLabel("New widget type", {exact: true}).selectOption("bar");
       await dashboard.getByRole("button", {name: "Add widget", exact: true}).click();
-      await change(widgets.nth(1).getByLabel("Widget title", {exact: true}), "Segments by name");
-      await widgets.nth(1).getByLabel("Category field", {exact: true}).selectOption("name");
-      await widgets.nth(1).getByLabel("Value field", {exact: true}).selectOption("value");
-      await widgets.nth(1).getByLabel("Aggregation", {exact: true}).selectOption("sum");
+      await change(widgets.nth(0).getByLabel("Widget title", {exact: true}), "Segment counts");
+      await widgets.nth(0).getByLabel("Category field", {exact: true}).selectOption("name");
+      await dashboard.getByLabel("New widget type", {exact: true}).selectOption("pie");
+      await dashboard.getByRole("button", {name: "Add widget", exact: true}).click();
+      await change(widgets.nth(1).getByLabel("Widget title", {exact: true}), "Segments by status");
+      await widgets.nth(1).getByLabel("Category field", {exact: true}).selectOption("status");
+      await widgets.nth(1).getByLabel("Aggregation", {exact: true}).selectOption("count");
       await widgets.nth(1).getByRole("button", {name: "Move up", exact: true}).click();
       await dashboard.getByRole("button", {name: "Add widget", exact: true}).click();
       await widgets.nth(2).getByRole("button", {name: "Remove", exact: true}).click();
@@ -6943,10 +6942,35 @@ async function assertPrintComposition(browser, baseUrl) {
       assert.deepEqual(saved.storymap.chapters.map(chapter => chapter.location.center), [[85.24, 27.61], [85.22, 27.59]]);
       assert.equal(saved.storymap.retainedStory, "keep");
       assert.equal(saved.dashboardColumns, 2);
-      assert.deepEqual(saved.widgets.map(widget => widget.title), ["Segments by name", "Segment values"]);
-      assert.equal(saved.widgets[0].aggregation, "sum");
-      assert.equal(saved.widgets[1].bins, 3);
+      assert.deepEqual(saved.widgets.map(widget => widget.title), ["Segments by status", "Segment counts"]);
+      assert.equal(saved.widgets[0].aggregation, "count");
+      assert.equal(saved.widgets[0].type, "pie");
+      assert.equal(saved.widgets[1].type, "bar");
       await page.reload({waitUntil: "load"});
+      await waitForLayer();
+      await openView("Project dashboard");
+      assert.equal(await dashboard.getByLabel("Dashboard columns", {exact: true}).inputValue(), "2");
+      assert.deepEqual(await widgets.getByLabel("Widget title", {exact: true}).evaluateAll(nodes => nodes.map(node => node.value)), saved.widgets.map(widget => widget.title));
+      await openView("Project story");
+      assert.deepEqual(await chapters.getByLabel("Chapter title", {exact: true}).evaluateAll(nodes => nodes.map(node => node.value)), saved.storymap.chapters.map(chapter => chapter.title));
+      await page.close();
+      await withPlatformPage(browser, baseUrl, {token: "browser.test.token"}, async page => {
+      await stubResponsiveMapRequests(page.context());
+      const mapState = () => page.locator(".opengeo-workbench").evaluate(shell => {
+        const map = shell.__opengeoMap, center = map.getCenter();
+        return {center: [center.lng, center.lat], zoom: map.getZoom(), pitch: map.getPitch(), bearing: map.getBearing(), padding: map.getPadding()};
+      });
+      const waitForLayer = () => page.waitForFunction(id => {
+        const shell = document.querySelector(".opengeo-workbench"), source = shell?.getPrintContext?.().getPrintDataSource?.(id);
+        return shell?.__opengeoMap?.loaded() && source?.geojson?.features?.length === 6;
+      }, layerId);
+      const openView = async name => {
+        await page.locator('.gis-menubar [data-menu="view"] > button').click();
+        await page.getByRole("menuitem", {name, exact: true}).click();
+      };
+      const dashboard = page.getByRole("region", {name: "Project dashboard", exact: true}), widgets = dashboard.locator(".project-dashboard-widget");
+      const story = page.getByRole("region", {name: "Project story", exact: true}), chapters = story.locator(".project-story-chapter");
+      await visit(page, `${baseUrl}${route}`, route);
       await waitForLayer();
       await openView("Project dashboard");
       assert.equal(await dashboard.getByLabel("Dashboard columns", {exact: true}).inputValue(), "2");
@@ -6964,10 +6988,10 @@ async function assertPrintComposition(browser, baseUrl) {
       const [storyDownload] = await Promise.all([page.waitForEvent("download"),
         storyDialog.getByRole("button", {name: "Download story HTML", exact: true}).click()]);
       const html = await readFile(await storyDownload.path(), "utf8");
+      await writeFile(join(artifactRoot, "print-composition-story.html"), html);
       assert.ok(html.startsWith("<!doctype html>"));
       await storyDialog.getByRole("button", {name: "Close", exact: true}).click();
-      await page.getByRole("button", {name: "Project", exact: true}).click();
-      await page.getByRole("menuitem", {name: "Save as / export…", exact: true}).click();
+      await page.getByRole("button", {name: "Save as", exact: true}).click();
       const exportDialog = page.getByRole("dialog", {name: "Save as or export Project", exact: true});
       await exportDialog.getByRole("combobox", {name: "Project export format"}).selectOption("geolibre");
       const [projectDownload] = await Promise.all([page.waitForEvent("download"),
@@ -6976,7 +7000,6 @@ async function assertPrintComposition(browser, baseUrl) {
       assert.deepEqual(portable.storymap, saved.storymap);
       assert.deepEqual(portable.widgets, saved.widgets);
       assert.equal(portable.dashboardColumns, 2);
-      await writeFile(join(artifactRoot, "print-composition-story.html"), html);
       await page.context().route(`${baseUrl}/print-composition-story.html`, route => route.fulfill({status: 200, contentType: "text/html", body: html}));
       await page.goto(`${baseUrl}/print-composition-story.html`, {waitUntil: "load"});
       const manifest = JSON.parse(await page.locator("#story-manifest").textContent());
@@ -6994,10 +7017,11 @@ async function assertPrintComposition(browser, baseUrl) {
         atlasSha256: createHash("sha256").update(pdf).digest("hex"), atlasPageDimensions: dimensions,
         storyChapters: saved.storymap.chapters.map(chapter => ({title: chapter.title, location: chapter.location})),
         widgets: saved.widgets.map(({title, type}) => ({title, type})), dashboardColumns: saved.dashboardColumns,
-        storySha256: createHash("sha256").update(html).digest("hex"), normalSaveReopen: true,
-        nativeProjectExport: true, offlineStoryCanvasAndNavigation: true
+        storySha256: createHash("sha256").update(html).digest("hex"), normalSaveReopen: true, sameProfileReload: true,
+        nativeProjectExport: true, offlineStoryCanvasAndNavigation: true, freshOwnerContexts: 2
       }, null, 2));
       browserProgress("PUBLISH-001: normal atlas PDF, native story/dashboard edit/save/reopen/export passed");
+      });
     });
   } finally {
     if (previous.map) browserMapOverrides.set(key, previous.map); else browserMapOverrides.delete(key);

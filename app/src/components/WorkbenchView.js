@@ -6285,6 +6285,7 @@ function projectNarrativePanel(context) {
   const commit = patch => {
     if (!editable || context.queryLocationScopeInvalid || !canOrganizeProject(context)) return;
     Object.assign(state, patch);
+    saveLocalDraft(context);
     setStatus(context, "Project narrative updated. Save the Project to retain these changes.");
     context.render();
   };

@@ -19,6 +19,7 @@ from pydantic import (
 
 from opengeo_api.auth_models import AuthSession
 from opengeo_api.auth_routes import current_session, require_organization
+from opengeo_api.config import Settings
 from opengeo_api.document_previews import (
     PDF_VISUAL_PRESENTATION_SCHEMAS,
     DocumentPreviewInvalid,
@@ -766,7 +767,7 @@ async def public_primary_site_page(
         )
     )
     site_root = (
-        f"{str(http_request.base_url).rstrip('/')}"
+        f"{_public_api_base_url(http_request)}"
         f"/public/organizations/{organization_id}/publication"
     )
     return await _public_site_page_response(
@@ -806,7 +807,7 @@ async def public_listed_site_page(
         )
     )
     site_root = (
-        f"{str(http_request.base_url).rstrip('/')}"
+        f"{_public_api_base_url(http_request)}"
         f"/public/organizations/{organization_id}/publications/{site_slug}"
     )
     return await _public_site_page_response(
@@ -1264,7 +1265,7 @@ async def public_site_page(
             public_tenant_context(organization_id), project_id, site_slug=site_slug
         )
     )
-    base_url = str(http_request.base_url).rstrip("/")
+    base_url = _public_api_base_url(http_request)
     site_root = (
         f"{base_url}/public/organizations/{organization_id}/projects/{project_id}"
         f"/sites/{publication.edition.listed_slug}"
@@ -1308,7 +1309,7 @@ async def public_unlisted_site_page(
             unlisted_token=unlisted_token,
         )
     )
-    base_url = str(http_request.base_url).rstrip("/")
+    base_url = _public_api_base_url(http_request)
     site_root = (
         f"{base_url}/public/organizations/{organization_id}/projects/{project_id}"
         f"/unlisted/{unlisted_token}"
@@ -1323,6 +1324,11 @@ async def public_unlisted_site_page(
         repository,
         download_storage,
     )
+
+
+def _public_api_base_url(request: Request) -> str:
+    settings = cast(Settings, request.app.state.settings)
+    return settings.public_api_base_url or str(request.base_url).rstrip("/")
 
 
 async def _public_site_page_response(
@@ -1345,7 +1351,7 @@ async def _public_site_page_response(
     )
     if page is None:
         raise HTTPException(status_code=404, detail="site_page_not_found")
-    base_url = str(http_request.base_url).rstrip("/")
+    base_url = _public_api_base_url(http_request)
     page_urls = {
         candidate.slug: (site_root if candidate.is_home else f"{site_root}/{candidate.slug}")
         for candidate in publication.site.pages
@@ -1420,7 +1426,7 @@ async def _package_response(
     render_repository: RenderRepository,
     download_storage: DownloadStorage,
 ) -> Response:
-    base_url = str(request.base_url).rstrip("/")
+    base_url = _public_api_base_url(request)
     package = build_static_package(
         publication,
         public_project_root=(
