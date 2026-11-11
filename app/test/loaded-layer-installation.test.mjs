@@ -60,6 +60,7 @@ describe("cached persisted map layer installation", () => {
     const sources = new Map(), paints = new Map(), handlers = new Set();
     let removedHandlers = 0, installations = 0;
     const map = {ready: true, isStyleLoaded() { return this.ready; },
+      getStyle() { return this.styleDocument; },
       getSource: id => sources.get(id), getLayer: id => paints.get(id),
       addSource(id, value) { sources.set(id, value); this.ready = false; },
       addLayer(value) { paints.set(value.id, value); },
@@ -72,8 +73,8 @@ describe("cached persisted map layer installation", () => {
       geometry: {type: "Point", coordinates: [-77.04, 38.91]}}]};
     const state = {map, layerHandles: new Map()};
     const options = {getMap: () => map, layers: [layer], dataByLayerId: new Map([[layer.layerId, data]]),
-      layerHandles: state.layerHandles,
-      install(current, cached) { assert.equal(cached, data); installations++; addMapLayer(state, current, cached, []); },
+      layerHandles: state.layerHandles, allowPendingSources: true,
+      install(current, cached, options) { assert.equal(cached, data); installations++; addMapLayer(state, current, cached, [], options); },
       syncOrder() {}};
     assert.equal(installLoadedMapLayers(options), 1);
     assert.equal(handlers.size, 3);
@@ -82,9 +83,10 @@ describe("cached persisted map layer installation", () => {
 
     sources.clear(); paints.clear(); // A replacement style discarded GL content, not the handle.
     map.ready = false;
-    assert.equal(installLoadedMapLayers(options), 0, "Do not retire handles during an in-flight style change");
-    map.ready = true;
-    assert.equal(installLoadedMapLayers(options), 1);
+    assert.equal(installLoadedMapLayers(options), 0, "Wait for the replacement style document");
+    map.styleDocument = {version: 8};
+    assert.equal(map.isStyleLoaded(), false, "Unrelated sources are still loading");
+    assert.equal(installLoadedMapLayers(options), 1, "Install from the cache as soon as the style is writable");
     assert.equal(removedHandlers, 3, "Normal disposal retires stale interaction handlers");
     assert.equal(sources.get("field-sites-source").data, data, "Reuse the same data without another read");
     assert(paints.has("field-sites-points"));
