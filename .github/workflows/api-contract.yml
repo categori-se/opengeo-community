@@ -221,6 +221,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
+      - name: Prepare the shared Canvas SDK
+        run: node app/scripts/build-openlayers-canvas-runtime.mjs
       - name: Check local runner boundaries without starting containers
         run: python -I -S scripts/test_integrated_local.py
       - name: Check Catalog save, map reopen, query authority and publication drafts

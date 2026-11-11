@@ -267,7 +267,9 @@ export function normalizeHistoricalImagery(value) {
     sunlight: {
       enabled: requested.sunlight?.enabled === true,
       dateTime: sunlightDateTime,
-      model: "opengeo-approximate-solar-position-1"
+      model: "opengeo-approximate-solar-position-1",
+      ...(Object.hasOwn(requested.sunlight ?? {}, "landscapeLighting") ? {landscapeLighting: requested.sunlight.landscapeLighting === true,
+        landscapeModel: "usno-approximate-geocentric-1"} : {})
     }
   };
 }

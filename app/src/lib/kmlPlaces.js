@@ -2,6 +2,7 @@ import {strFromU8, strToU8, unzipSync, zipSync} from "fflate";
 import {normalizeKmlNetworkLink} from "./kmlNetworkLink.js";
 import {isKmlTimeSpanReversed, isValidKmlTimeValue} from "./kmlTime.js";
 import {kmlColorPresentation, normalizeKmlHotSpot} from "./kmlStyle.js";
+import {normalizeKmlModel, parseKmlModelElement, writeKmlModel} from "./kmlModel.js";
 
 export const KML_PLACES_LIMITS = Object.freeze({
   maximumKmlBytes: 256 * 1024,
@@ -27,6 +28,7 @@ export const KML_PLACES_LIMITS = Object.freeze({
 
 const KML_NAMESPACE = "http://www.opengis.net/kml/2.2";
 const GX_NAMESPACE = "http://www.google.com/kml/ext/2.2";
+const OVERLAY_LINK_FIELDS = ["refreshMode", "refreshInterval", "viewRefreshMode", "viewRefreshTime", "viewBoundScale", "viewFormat", "httpQuery"];
 const STANDARD_ALTITUDE_MODES = new Set(["clampToGround", "relativeToGround", "absolute"]);
 const GX_ALTITUDE_MODES = new Set(["clampToSeaFloor", "relativeToSeaFloor"]);
 const KML_SCHEMA_TYPES = new Set(["string", "int", "uint", "short", "ushort", "float", "double", "bool"]);
@@ -35,7 +37,8 @@ const KML_RESOURCE_MEDIA = new Map([
   ["jpg", "image/jpeg"],
   ["jpeg", "image/jpeg"],
   ["gif", "image/gif"],
-  ["webp", "image/webp"]
+  ["webp", "image/webp"],
+  ["dae", "model/vnd.collada+xml"]
 ]);
 const OMITTED_FEATURES = new Set(["Tour"]);
 const OVERLAY_ELEMENTS = new Map([
@@ -95,7 +98,8 @@ export async function parseKmlFile(file, options = {}) {
   if (/\.kmz$/i.test(filename)) {
     const extracted = extractKmzKml(bytes);
     const parsed = parseKml(strFromU8(extracted.bytes), options);
-    const attached = attachKmzResources(parsed.document, bytes, extracted.entry);
+    const graph = resolveKmzLocalGraph(parsed, extracted, bytes, options);
+    const attached = graph ?? attachKmzResources(parsed.document, bytes, extracted.entry);
     parsed.document = normalizePlacesDocument(attached.document);
     parsed.geojson = placesToGeojson(parsed.document);
     parsed.report = finalizeReport([...parsed.report.entries, ...attached.report]);
@@ -108,7 +112,8 @@ export async function parseKmlFile(file, options = {}) {
       archiveEntries: extracted.archiveEntries,
       archiveUncompressedBytes: extracted.archiveUncompressedBytes,
       preservedResources: parsed.document.resources.length,
-      preservedResourceBytes: parsed.document.resources.reduce((sum, resource) => sum + resource.byteLength, 0)
+      preservedResourceBytes: parsed.document.resources.reduce((sum, resource) => sum + resource.byteLength, 0),
+      ...(graph ? {localGraph: graph.source} : {})
     };
     return parsed;
   }
@@ -199,6 +204,7 @@ export function addKmlPlace(document, parentId, value) {
         visibility: value?.visibility !== false,
         view: value?.view ?? null,
         geometry: value?.geometry ?? null,
+        ...(value?.model ? {model: value.model} : {}),
         altitudeMode: value?.altitudeMode ?? null,
         extrude: value?.extrude === true,
         tessellate: value?.tessellate === true,
@@ -230,7 +236,7 @@ export function updateKmlPlace(document, placeId, patch) {
   const place = findKmlPlace(draft, placeId);
   if (!place) throw kmlError("place_not_found");
   const allowed = place.kind === "placemark"
-    ? ["name", "description", "visibility", "view", "geometry", "altitudeMode", "extrude", "tessellate", "style", "styleUrl", "extendedData", "schemaData", "time", "region"]
+    ? ["name", "description", "visibility", "view", "geometry", "model", "altitudeMode", "extrude", "tessellate", "style", "styleUrl", "extendedData", "schemaData", "time", "region"]
     : place.kind === "folder" || place.kind === "document"
       ? ["name", "description", "visibility", "open", "view", "time", "region"]
       : place.kind === "network-link"
@@ -353,6 +359,7 @@ export function placesToGeojson(document) {
         schemaData: structuredClone(place.schemaData ?? []),
         kmlOverlayKind: place.kind.endsWith?.("-overlay") ? place.kind : null,
         kmlOverlayHref: place.icon?.href ?? null,
+        ...(place.model ? {kmlModel: structuredClone(place.model)} : {}),
         kmlRegions: structuredClone(inheritedRegions),
         kmlRegionActive: true,
         kmlRegionOpacity: 1,
@@ -385,6 +392,7 @@ function extractKmzKml(bytes) {
   if (bytes.byteLength > KML_PLACES_LIMITS.maximumKmzBytes) throw kmlError("kmz_too_large");
   let archiveEntries = 0;
   let archiveUncompressedBytes = 0;
+  const archivePaths = new Set();
   let files;
   try {
     files = unzipSync(bytes, {
@@ -396,6 +404,8 @@ function extractKmzKml(bytes) {
           throw kmlError("kmz_uncompressed_too_large");
         }
         if (unsafeArchivePath(info.name)) throw kmlError("kmz_unsafe_path");
+        if (archivePaths.has(info.name)) throw kmlError("kmz_duplicate_path");
+        archivePaths.add(info.name);
         return /\.kml$/i.test(info.name);
       }
     });
@@ -412,8 +422,185 @@ function extractKmzKml(bytes) {
     entry: selected[0],
     bytes: selected[1],
     archiveEntries,
-    archiveUncompressedBytes
+    archiveUncompressedBytes,
+    files
   };
+}
+
+// Local links are a bounded snapshot of this archive, never permission to fetch.
+// Keep ordinary one-document KMZ behavior unchanged. The merged native document
+// uses the existing folder model; source entry/edge lineage stays in the report.
+function resolveKmzLocalGraph(primary, extracted, archiveBytes, options) {
+  const hasLocalLink = (children) => children.some((child) => child.kind === "folder"
+    ? hasLocalLink(child.children)
+    : child.kind === "network-link" && !/^https:/i.test(child.link.href));
+  if (!hasLocalLink(primary.document.children)) return null;
+  const result = structuredClone(primary.document);
+  result.children = [];
+  result.styles = [];
+  result.schemas = [];
+  result.resources = [];
+  const reports = [], entries = [], edges = [], active = new Set(), visited = new Set(), styleScopes = [];
+  const definitions = {styles: new Map(), schemas: new Map(), resources: new Map()};
+  const ids = new Map([[result.id, {kind: "document"}]]), folders = new Map();
+  const sourceIds = new Set(), parsedEntries = new Map();
+  const counts = {places: 0, positions: 0};
+  let wrapperSequence = 0;
+  const addDefinitions = (document) => {
+    const scope = new Set(document.styles.map(({id}) => id));
+    const references = [];
+    for (const definition of document.styles) if (definition.kind === "StyleMap") {
+      for (const pair of definition.pairs) if (pair.styleUrl) references.push(pair.styleUrl);
+    }
+    walkPlaces(document.children, [], child => { if (child.styleUrl) references.push(child.styleUrl); });
+    styleScopes.push({scope, references});
+    for (const key of ["styles", "schemas", "resources"]) for (const value of document[key]) {
+      const id = key === "resources" ? value.path : value.id;
+      const previous = definitions[key].get(id);
+      if (previous && JSON.stringify(previous) !== JSON.stringify(value)) throw kmlError(`kmz_graph_conflicting_${key}`);
+      if (!previous) {
+        if (key !== "resources" && ids.has(id)) throw kmlError("kmz_graph_duplicate_id");
+        definitions[key].set(id, value);
+        if (key !== "resources") ids.set(id, {kind: key});
+        result[key].push(value);
+      }
+    }
+  };
+  const count = (document) => {
+    const visitGeometry = (geometry) => {
+      if (!geometry) return;
+      if (geometry.type === "GeometryCollection") return geometry.geometries.forEach(visitGeometry);
+      const visitCoordinates = coordinates => {
+        if (typeof coordinates?.[0] === "number") counts.positions += 1;
+        else coordinates?.forEach(visitCoordinates);
+      };
+      visitCoordinates(geometry.coordinates);
+    };
+    const visit = children => children.forEach(child => {
+      counts.places += 1;
+      if (child.kind === "folder") visit(child.children);
+      else if (child.kind === "placemark") visitGeometry(child.geometry);
+    });
+    visit(document.children);
+    enforcePlaceCount(counts);
+    if (counts.positions > KML_PLACES_LIMITS.maximumPositions) throw kmlError("kml_too_many_positions");
+  };
+  const localTarget = (entry, child) => {
+    const href = child.link.href;
+    if (!safeResourceReference(href) || /[?#%]/.test(href) || !/\.kml$/i.test(href)) throw kmlError("kmz_graph_reference_unsupported");
+    const target = resolveKmzResourcePath(entry, href);
+    if (!target || !Object.hasOwn(extracted.files, target)) throw kmlError("kmz_graph_entry_missing");
+    if (extracted.files[target].byteLength > KML_PLACES_LIMITS.maximumKmlBytes) throw kmlError("kml_too_large");
+    return target;
+  };
+  // Reserve every reachable original ID before allocating any presentation
+  // folder. A later child may itself contain folders from an earlier snapshot.
+  // Parse each reachable document once; unrelated archive entries stay inert.
+  const prepare = (entry, depth = 0) => {
+    if (depth > KML_PLACES_LIMITS.maximumDepth) throw kmlError("kml_nesting_too_deep");
+    if (active.has(entry)) throw kmlError("kmz_graph_cycle");
+    if (parsedEntries.has(entry)) throw kmlError("kmz_graph_repeated_entry");
+    active.add(entry);
+    const parsed = entry === extracted.entry ? primary : parseKml(strFromU8(extracted.files[entry]), options);
+    parsedEntries.set(entry, parsed);
+    count(parsed.document);
+    sourceIds.add(parsed.document.id);
+    for (const definition of [...parsed.document.styles, ...parsed.document.schemas]) sourceIds.add(definition.id);
+    const visit = (children, level) => {
+      if (level > KML_PLACES_LIMITS.maximumDepth) throw kmlError("kml_nesting_too_deep");
+      for (const child of children) {
+        sourceIds.add(child.id);
+        if (child.kind === "folder") visit(child.children, level + 1);
+        else if (child.kind === "network-link" && !/^https:/i.test(child.link.href)) prepare(localTarget(entry, child), level + 1);
+      }
+    };
+    visit(parsed.document.children, depth);
+    active.delete(entry);
+  };
+  const folderMetadata = ({children, ...metadata}) => metadata;
+  const insert = (parent, child, inheritedRegions, inheritedVisible) => {
+    if (child.kind === "folder") {
+      const existing = folders.get(child.id);
+      let folder;
+      if (existing) {
+        if (existing.parent !== parent || JSON.stringify(folderMetadata(existing.folder)) !== JSON.stringify(folderMetadata(child))) {
+          throw kmlError("kmz_graph_conflicting_folder");
+        }
+        folder = existing.folder;
+      } else {
+        if (ids.has(child.id)) throw kmlError("kmz_graph_duplicate_id");
+        folder = {...child, children: []};
+        parent.children.push(folder);
+        folders.set(child.id, {parent, folder});
+        ids.set(child.id, {kind: "folder"});
+      }
+      return folder;
+    }
+    if (ids.has(child.id)) throw kmlError("kmz_graph_duplicate_id");
+    ids.set(child.id, {kind: child.kind});
+    let leaf = {...child, visibility: child.visibility && inheritedVisible};
+    // A merged ancestor can be shared by several child documents. Preserve each
+    // link/root Region conjunction beside its leaf instead of overwriting it.
+    for (const region of [...inheritedRegions].reverse()) {
+      let id;
+      do { id = `opengeo-kmz-region-${++wrapperSequence}`; } while (ids.has(id) || sourceIds.has(id));
+      ids.set(id, {kind: "folder"});
+      leaf = {kind: "folder", id, name: "Imported region", description: null,
+        visibility: true, open: false, view: null, time: null, region, children: [leaf]};
+    }
+    parent.children.push(leaf);
+    return null;
+  };
+  const visitDocument = (entry, parsed, parent, inheritedRegions, inheritedVisible, depth) => {
+    if (depth > KML_PLACES_LIMITS.maximumDepth) throw kmlError("kml_nesting_too_deep");
+    if (active.has(entry)) throw kmlError("kmz_graph_cycle");
+    if (visited.has(entry)) throw kmlError("kmz_graph_repeated_entry");
+    active.add(entry);
+    visited.add(entry);
+    entries.push(entry);
+    const attached = attachKmzResources(parsed.document, archiveBytes, entry);
+    const document = attached.document;
+    addDefinitions(document);
+    reports.push(...parsed.report.entries.map(report => ({...report, path: `${entry}:${report.path}`})),
+      ...attached.report.map(report => ({...report, path: `${entry}:${report.path}`})));
+    const regions = entry === extracted.entry ? inheritedRegions
+      : document.region ? [...inheritedRegions, document.region] : inheritedRegions;
+    const visible = inheritedVisible && document.visibility;
+    const visitChildren = (children, target, currentRegions, currentVisible, level) => {
+      if (level > KML_PLACES_LIMITS.maximumDepth) throw kmlError("kml_nesting_too_deep");
+      for (const child of children) {
+        if (child.kind === "folder") {
+          const folder = insert(target, child);
+          visitChildren(child.children, folder, currentRegions, currentVisible && child.visibility, level + 1);
+          continue;
+        }
+        if (child.kind !== "network-link" || /^https:/i.test(child.link.href)) {
+          insert(target, child, currentRegions, currentVisible);
+          if (child.kind === "network-link") reports.push({path: `${entry}:#${child.id}`, status: "preserved", detail: "External NetworkLink remains inert; no resource was fetched or approved."});
+          continue;
+        }
+        const href = child.link.href, targetEntry = localTarget(entry, child);
+        edges.push({from: entry, linkId: child.id, href, to: targetEntry});
+        reports.push({path: `${entry}:#${child.id}`, status: "normalized", detail: `Materialized local child KML ${targetEntry}. Link/root visibility and Regions are applied to imported leaves; repeated identical folder ancestry and definitions are merged.`},
+          {path: `${entry}:#${child.id}`, status: "omitted", detail: "This local snapshot does not retain executable NetworkLink refresh, fly-to, link styling/data, or separate child-document title, camera and time semantics. Keep the original KMZ for the exact source graph."});
+        visitDocument(targetEntry, parsedEntries.get(targetEntry), target,
+          child.region ? [...currentRegions, child.region] : currentRegions, currentVisible && child.visibility, level + 1);
+      }
+    };
+    visitChildren(document.children, parent, regions, visible, depth);
+    active.delete(entry);
+  };
+  prepare(extracted.entry);
+  visitDocument(extracted.entry, primary, result, [], true, 0);
+  for (const {scope, references} of styleScopes) for (const reference of references) {
+    if (reference.startsWith("#") && !scope.has(reference.slice(1)) && definitions.styles.has(reference.slice(1))) {
+      throw kmlError("kmz_graph_definition_scope");
+    }
+  }
+  // The existing final normalizer enforces global IDs, geometry, byte, resource,
+  // definition and resulting hierarchy limits, including synthetic wrappers.
+  return {document: normalizePlacesDocument(result), report: reports.slice(primary.report.entries.length),
+    source: {entries, links: edges, materialized: true}};
 }
 
 function attachKmzResources(document, archiveBytes, kmlEntry) {
@@ -491,6 +678,7 @@ function resourceReferences(document) {
   }
   walkPlaces(document.children ?? [], [], (place) => {
     if (place.kind === "placemark" && place.style?.icon) output.push(place.style.icon);
+    if (place.kind === "placemark" && place.model?.link) output.push(place.model.link);
     if (place.kind.endsWith?.("-overlay") && place.icon) output.push(place.icon);
   });
   return output;
@@ -691,6 +879,12 @@ function parsePlacemark(element, path, counters, report, definitions) {
   const geometryElements = directChildren(element).filter((child) => (
     child.namespaceURI === KML_NAMESPACE && ["Point", "LineString", "Polygon", "MultiGeometry", "Model"].includes(child.localName)
   ));
+  const modelElement = geometryElements.find(element => element.localName === "Model");
+  let model = null;
+  if (modelElement && geometryElements.length === 1) {
+    try {model = parseKmlModelElement(modelElement);}
+    catch (error) {report.push({path: `${path}.Model`, status: "omitted", detail: `Model could not use the bounded local triangle profile (${error.code ?? "invalid_model"}). Preserve the original source.`});}
+  }
   const geometryControls = [];
   let geometry = null;
   if (geometryElements.length) {
@@ -701,7 +895,7 @@ function parsePlacemark(element, path, counters, report, definitions) {
         geometries: geometryElements.map((item, index) => parseGeometry(item, `${path}.geometry[${index}]`, counters, report, geometryControls)).filter(Boolean)
       };
     } else {
-      geometry = parseGeometry(geometryElements[0], `${path}.geometry`, counters, report, geometryControls);
+      geometry = parseGeometry(geometryElements[0], `${path}.geometry`, counters, report, geometryControls, model);
     }
   } else {
     report.push({path: `${path}.geometry`, status: "omitted", detail: "Placemark without a supported geometry retained in the Places tree without a map feature."});
@@ -730,6 +924,7 @@ function parsePlacemark(element, path, counters, report, definitions) {
     visibility: directBoolean(element, "visibility", true),
     view: parseView(element, `${path}.view`, report),
     geometry,
+    ...(model ? {model} : {}),
     altitudeMode: controls.altitudeMode,
     extrude: controls.extrude,
     tessellate: controls.tessellate,
@@ -745,7 +940,7 @@ function parsePlacemark(element, path, counters, report, definitions) {
 function parseOverlay(element, path, counters, report, definitions) {
   const kind = OVERLAY_ELEMENTS.get(element.localName);
   const iconElement = directChild(element, "Icon");
-  reportUnsupportedChildren(iconElement, new Set(["href"]), `${path}.icon`, report);
+  reportUnsupportedChildren(iconElement, new Set(["href", ...OVERLAY_LINK_FIELDS]), `${path}.icon`, report);
   const href = boundedOptionalText(directText(iconElement, "href"));
   if (href && !safeResourceReference(href)) {
     report.push({path: `${path}.icon.href`, status: "omitted", detail: "Unsafe or remote overlay reference is retained as inert text and never fetched."});
@@ -763,7 +958,10 @@ function parseOverlay(element, path, counters, report, definitions) {
     extendedData: extended.data,
     color: boundedOptionalText(directText(element, "color")) ?? "ffffffff",
     drawOrder: finiteOptionalNumber(directText(element, "drawOrder"), 0, `${path}.drawOrder`),
-    icon: href ? {href} : null
+    icon: href ? {href, ...Object.fromEntries(OVERLAY_LINK_FIELDS.flatMap(key => {
+      const text = boundedOptionalText(directText(iconElement, key));
+      return text === null ? [] : [[key, ["refreshInterval", "viewRefreshTime", "viewBoundScale"].includes(key) ? Number(text) : text]];
+    }))} : null
   };
   const featureChildren = new Set(["name", "description", "visibility", "open", "Camera", "LookAt", "TimeStamp", "TimeSpan", "Region", "ExtendedData", "color", "drawOrder", "Icon"]);
   if (kind === "ground-overlay") {
@@ -932,10 +1130,15 @@ function placemarkGeometryControls(leaves, path, report) {
   return first;
 }
 
-function parseGeometry(element, path, counters, report, controls) {
+function parseGeometry(element, path, counters, report, controls, model = null) {
   if (element.localName === "Model") {
-    report.push({path, status: "omitted", detail: "Model geometry is retained only as an explicit loss in this increment."});
-    return null;
+    if (!model) {
+      report.push({path, status: "omitted", detail: "Model geometry in a mixed collection or outside the bounded local Model profile is an explicit loss. Preserve the original source."});
+      return null;
+    }
+    controls.push({geometry: null, altitudeMode: model.altitudeMode, extrude: false, tessellate: false});
+    report.push({path, status: "preserved", detail: "Preserved the local Model resource, location, orientation, scale and altitude. The default map uses its anchor; explicit native 3D inspection uses the bounded static mesh profile."});
+    return {type: "Point", coordinates: [model.location.longitude, model.location.latitude, model.location.altitude]};
   }
   let geometry;
   if (element.localName === "Point") {
@@ -985,7 +1188,7 @@ function parseCoordinates(value, counters) {
   const tuples = String(value ?? "").trim().split(/\s+/).filter(Boolean);
   const positions = tuples.map((tuple) => {
     const values = tuple.split(",");
-    if (values.length < 2 || values.length > 3) throw kmlError("kml_coordinate_invalid");
+    if (values.length < 2 || values.length > 3 || values.some(value => !value.trim())) throw kmlError("kml_coordinate_invalid");
     const position = values.map(Number);
     if (!position.every(Number.isFinite)
       || position[0] < -180 || position[0] > 180
@@ -1246,6 +1449,10 @@ function normalizeNetworkLinkFeature(value, counters, definitions) {
 function normalizePlacemark(value, counters, definitions) {
   if (!value || value.kind !== "placemark") throw kmlError("place_kind_invalid");
   const geometry = normalizeGeometry(value.geometry, counters);
+  const model = value.model ? normalizeKmlModel(value.model) : null;
+  if (model && (geometry?.type !== "Point" || geometry.coordinates.length !== 3
+    || geometry.coordinates.some((coordinate, axis) => coordinate !== [model.location.longitude, model.location.latitude, model.location.altitude][axis])))
+    throw kmlError("kml_model_anchor_mismatch");
   return {
     kind: "placemark",
     id: uniqueNormalizedId(value.id, `placemark-${counters.places}`, counters),
@@ -1254,6 +1461,7 @@ function normalizePlacemark(value, counters, definitions) {
     visibility: value.visibility !== false,
     view: normalizeView(value.view),
     geometry,
+    ...(model ? {model} : {}),
     altitudeMode: normalizeAltitudeMode(value.altitudeMode),
     extrude: value.extrude === true,
     tessellate: value.tessellate === true,
@@ -1480,7 +1688,10 @@ function normalizeOverlayIcon(value) {
   if (value === null || value === undefined) return null;
   const href = boundedOptionalText(value?.href);
   if (!href) throw kmlError("kml_overlay_href_invalid");
-  return {href};
+  // Validate only the refresh/template metadata using the existing bounded
+  // contract. The real href remains inert resource text, not fetch permission.
+  const metadata = normalizeKmlNetworkLink({...value, href: "local-image.png"});
+  return {href, ...Object.fromEntries(OVERLAY_LINK_FIELDS.filter(key => Object.hasOwn(value, key)).map(key => [key, metadata[key]]))};
 }
 
 function normalizeKmlColor(value) {
@@ -1587,7 +1798,8 @@ function writePlacemark(place, depth) {
   if (Object.keys(place.extendedData).length || place.schemaData?.length) {
     lines.push(writeExtendedData(place.extendedData, place.schemaData, depth + 1));
   }
-  if (place.geometry) lines.push(writeGeometry(place.geometry, place, depth + 1));
+  if (place.model) lines.push(writeKmlModel(place.model, depth + 1));
+  else if (place.geometry) lines.push(writeGeometry(place.geometry, place, depth + 1));
   lines.push(`${indent}</Placemark>`);
   return lines.join("\n");
 }
@@ -1612,7 +1824,8 @@ function writeOverlay(overlay, depth) {
   if (Object.keys(overlay.extendedData).length) lines.push(writeExtendedData(overlay.extendedData, [], depth + 1));
   lines.push(`${indent}  <color>${overlay.color}</color>`);
   lines.push(`${indent}  <drawOrder>${overlay.drawOrder}</drawOrder>`);
-  if (overlay.icon) lines.push(`${indent}  <Icon><href>${escapeXml(overlay.icon.href)}</href></Icon>`);
+  if (overlay.icon) lines.push(`${indent}  <Icon><href>${escapeXml(overlay.icon.href)}</href>${OVERLAY_LINK_FIELDS.filter(key => Object.hasOwn(overlay.icon, key))
+    .map(key => `<${key}>${escapeXml(overlay.icon[key])}</${key}>`).join("")}</Icon>`);
   if (overlay.kind === "ground-overlay") {
     lines.push(`${indent}  <altitude>${overlay.altitude}</altitude>`);
     const altitude = altitudeModeXml(overlay.altitudeMode, depth + 1);
@@ -1959,10 +2172,7 @@ function normalizeKmzResources(value) {
   return value.map((resource) => {
     const path = boundedOptionalText(resource?.path);
     const mediaType = boundedOptionalText(resource?.mediaType);
-    const raw = resource?.dataBase64;
-    if (typeof raw !== "string") throw kmlError("kmz_resource_invalid");
-    const dataBase64 = raw.trim();
-    if (dataBase64.length > 4 * Math.ceil(KML_PLACES_LIMITS.maximumKmzResourceBytes / 3)) throw kmlError("kmz_resource_too_large");
+    const dataBase64 = boundedOptionalText(resource?.dataBase64);
     if (!path || unsafeArchivePath(path) || paths.has(path) || !KML_RESOURCE_MEDIA.has(extension(path))
       || KML_RESOURCE_MEDIA.get(extension(path)) !== mediaType || !dataBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(dataBase64)) {
       throw kmlError("kmz_resource_invalid");

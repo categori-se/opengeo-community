@@ -3,7 +3,7 @@ import {cesiumLayerCompatibility} from './cesiumLayers.js';
 import {mapboxCompatibility} from './mapboxAdapter.js';
 import {cesiumBasemapContent} from './cesiumBasemap.js';
 
-export const rendererTitle = id => ({maplibre:'MapLibre',mapbox:'Mapbox',cesium:'Cesium'}[id] ?? id);
+export const rendererTitle = id => ({maplibre:'MapLibre',mapbox:'Mapbox',cesium:'Cesium','openlayers-canvas':'2D compatibility (Canvas)','data-workspace':'Data workspace'}[id] ?? id);
 
 export function cesiumWorkbenchContent(context) {
   const {state,layers,dataByLayerId}=context;

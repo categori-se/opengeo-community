@@ -4,7 +4,8 @@ import {JSDOM} from "jsdom";
 
 import {WorkbenchView, applyCameraTourFrame} from "../src/components/WorkbenchView.js";
 import {syncFeatureHalo} from "../src/lib/featureHalo.js";
-import {CAMERA_TOUR_SCHEMA_VERSION, CAMERA_TOUR_LAYER_SCHEMA_VERSION} from "../src/lib/cameraTour.js";
+import {CAMERA_TOUR_SCHEMA_VERSION, CAMERA_TOUR_LAYER_SCHEMA_VERSION, createCameraTour, addCameraTourKeyframe, captureCameraTourScene, captureCameraTourLayerVisibility, cameraTourDurationMilliseconds} from "../src/lib/cameraTour.js";
+import {historicalImageryForSave} from "../src/lib/historicalImagery.js";
 
 let harness;
 
@@ -19,6 +20,45 @@ afterEach(async () => {
 });
 
 describe("camera tour workbench experience", () => {
+  it("a deferred historical style restoration cannot overwrite the camera after a reverse scene seek", async () => {
+    const firstCamera = {center: [-71.06, 42.36], zoom: 10, pitch: 0, bearing: 0, roll: 0}, secondCamera = {...firstCamera, center: [-71.05, 42.365], zoom: 15};
+    const firstHistory = historicalImageryForSave({enabled: true, selection: {requestedDate: "2024-07-03", displayedDate: "2024-07-03"}});
+    const secondHistory = historicalImageryForSave({...firstHistory, selection: {requestedDate: "2024-07-04", displayedDate: "2024-07-04"}});
+    let tour = createCameraTour({camera: firstCamera});tour = captureCameraTourScene(tour, "view-1", {historicalImagery: firstHistory});
+    tour = addCameraTourKeyframe(tour, secondCamera, {transitionMilliseconds: 100, holdMilliseconds: 100});tour = captureCameraTourScene(tour, "view-2", {historicalImagery: secondHistory});
+    const layer = tourLayers()[0], {layerId, datasetId, datasetVersionId, sourceVersion} = layer;
+    tour = captureCameraTourLayerVisibility(tour, "view-1", [{layerId, datasetId, datasetVersionId, sourceVersion, visible: true}]);
+    tour = captureCameraTourLayerVisibility(tour, "view-2", [{layerId, datasetId, datasetVersionId, sourceVersion, visible: false}]);
+    let camera = structuredClone(secondCamera), ready = false, styleChanges = 0;const listeners = new Map(), sources = new Map(), layers = [], jumps = [], canvas = document.createElement("canvas");
+    const map = {on(type, fn) {if (!listeners.has(type)) listeners.set(type, new Set());listeners.get(type).add(fn);}, off(type, fn) {listeners.get(type)?.delete(fn);}, resize() {},
+      isStyleLoaded: () => ready, loaded: () => true, getCanvas: () => canvas, getZoom: () => camera.zoom, getPitch: () => camera.pitch, getBearing: () => camera.bearing, getRoll: () => camera.roll,
+      getCenter: () => ({lng: camera.center[0], lat: camera.center[1]}), getStyle: () => ({version: 8, sources: Object.fromEntries(sources), layers}),
+      getSource: id => sources.get(id), addSource: (id, value) => sources.set(id, value), removeSource: id => sources.delete(id),
+      getLayer: id => layers.find(layer => layer.id === id), addLayer: value => layers.push(value), removeLayer: id => {const index = layers.findIndex(layer => layer.id === id);if (index >= 0) layers.splice(index, 1);},
+      setPaintProperty() {}, setLayoutProperty(id, key, value) {const item = map.getLayer(id);item.layout ??= {};item.layout[key] = value;},
+      getLayoutProperty: (id, key) => map.getLayer(id)?.layout?.[key], setProjection() {}, triggerRepaint() {}, setStyle() {styleChanges++;ready = false;sources.clear();layers.length = 0;},
+      jumpTo(value) {camera = {...camera, ...value, center: Array.isArray(value.center) ? [...value.center] : [value.center.lng, value.center.lat]};jumps.push(structuredClone(camera));}};
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    globalThis.requestAnimationFrame = callback => setTimeout(() => callback(performance.now()), 0);
+    globalThis.cancelAnimationFrame = clearTimeout;
+    const shell = mountWorkbench({initialPanel: "tour", restoreBrowserDraft: false, layers: [layer], geojsonByLayerId: residentTourData(),
+      project: project({mapViews: [{id: "primary", title: "Last view", ...secondCamera}], extensions: {cameraTour: tour, historicalImagery: secondHistory}}),
+      rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, createMap: ({container}) => {container.append(canvas);return map;}, disposeMap() {}}});
+    await waitFor(() => shell.getPrintContext().map === map);ready = true;for (const callback of [...listeners.get("load") ?? []]) callback();
+    await waitFor(() => shell.getPrintContext().handles.has(layerId));const originalHandle = shell.getPrintContext().handles.get(layerId);seek(shell, cameraTourDurationMilliseconds(tour));
+    await waitFor(() => shell.dataset.cameraTourElapsed === String(cameraTourDurationMilliseconds(tour)));assert.equal(camera.zoom, 15);
+    assert.equal(shell.__opengeoLayers[0].visible, false);
+    seek(shell, 0);await waitFor(() => styleChanges > 0);
+    ready = true;const queuedReady = [...listeners.get("style.load") ?? []];for (const callback of queuedReady) callback();
+    await waitFor(() => !listeners.get("style.load")?.size);
+    await waitFor(() => shell.dataset.cameraTourElapsed === "0");
+    assert.equal(camera.zoom, 10, `Deferred style restoration must keep the tour camera; actual jump sequence ${jumps.map(value => value.zoom)}`);
+    assert.deepEqual(camera.center, firstCamera.center);
+    const restored = shell.getPrintContext().handles.get(layerId);assert.notEqual(restored, originalHandle);assert.equal(shell.__opengeoLayers[0].visible, true);
+    for (const id of restored.layerIds) assert.equal(map.getLayoutProperty(id, "visibility"), "visible");
+    for (const callback of queuedReady) callback();await new Promise(resolve => setTimeout(resolve, 5));
+    assert.equal(shell.getPrintContext().handles.get(layerId), restored, "An already queued completion cannot reinstall and replace the restored resident handle");
+  });
   it("ignores late KML reads after newer KML, native JSON or cancellation and rejects detached Apply controls", async () => {
     const shell = mountWorkbench({initialPanel: "tour"});clickButton(shell, "Start camera tour");
     const source = name => `<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2"><gx:Tour><name>${name}</name><gx:Playlist><gx:FlyTo><LookAt><range>100000</range></LookAt></gx:FlyTo></gx:Playlist></gx:Tour></kml>`;
@@ -77,8 +117,10 @@ describe("camera tour workbench experience", () => {
     harness.dom.window.HTMLAnchorElement.prototype.click = function () {downloads.at(-1).name = this.download;};
     try {
       clickButton(shell, "Download KML tour");clickButton(shell, "Download KML conversion report");clickButton(shell, "Download tour JSON");
-      assert.match(await downloads[0].blob.text(), /<gx:Tour>/);
-      assert.ok(JSON.parse(await downloads[1].blob.text()).entries.some(entry => entry.code === "native_metadata_omitted"));
+      assert.equal(await downloads[0].blob.text(), source);
+      const report = JSON.parse(await downloads[1].blob.text());
+      assert.equal(report.hasLoss, false);
+      assert.ok(report.entries.some(entry => entry.code === "original_playlist_preserved"));
       assert.deepEqual(JSON.parse(await downloads[2].blob.text()), retained);
     } finally {URL.createObjectURL = oldCreate;URL.revokeObjectURL = oldRevoke;harness.dom.window.HTMLAnchorElement.prototype.click = oldClick;}
   });
@@ -93,8 +135,8 @@ describe("camera tour workbench experience", () => {
       }
     });
     assert.match(shell.textContent, /Camera tour/);
-    assert.match(shell.textContent, /silent visual tour/);
-    assert.match(shell.textContent, /KML gx:Tour exchanges camera views and waits/);
+    assert.match(shell.textContent, /Record scene changes and local narration/);
+    assert.match(shell.textContent, /KML exchange keeps original semantics/);
 
     clickButton(shell, "Start camera tour");
     clickButton(shell, "Add current view");

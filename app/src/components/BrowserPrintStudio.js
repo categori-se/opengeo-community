@@ -3,15 +3,20 @@ import {definitionForPrintFrame, projectPrintLayouts} from "../lib/printLayouts.
 
 // The snapshot contains local data, never an account identifier or a server save target.
 export function BrowserPrintStudio({definition, projectId, name, createWorkbench, saveDefinition, onClose = () => {}}) {
+  const returnFocus = document.activeElement;
   let record = {id: projectId, projectId, name, version: 1, definition: structuredClone(definition)};
   const layouts = projectPrintLayouts(record);
   const dialog = document.createElement("dialog");
   dialog.className = "browser-print-studio";
   dialog.setAttribute("aria-label", "Local Print Studio");
   const back = document.createElement("button");back.type = "button";back.className = "print-button secondary";back.textContent = "Back to map";
-  let workbench;
+  let workbench, finished = false;
+  const disposeWorkbench = () => {
+    const previous = workbench;workbench = null;
+    try {previous?.dispose?.();} catch {}
+  };
   const editFrame = frame => {
-    workbench?.dispose?.();
+    disposeWorkbench();
     workbench = createWorkbench(frame ? definitionForPrintFrame(record, frame) : structuredClone(record.definition));
     return workbench;
   };
@@ -28,12 +33,18 @@ export function BrowserPrintStudio({definition, projectId, name, createWorkbench
     }
   }};
   const editor = ProjectPrintEditor({state, workbench: editFrame(layouts.layouts[0]?.frames[0]), editFrame, canSave: true, persistence: "browser"});
-  const dispose = () => {try {editor.dispose?.();} finally {workbench?.dispose?.();}};
   const finish = notify => {
-    try {dispose();}
-    finally {try {dialog.close?.();} finally {dialog.remove();if (notify) onClose();}}
+    if (finished) return;
+    finished = true;
+    try {editor.dispose?.();} catch {}
+    disposeWorkbench();
+    try {dialog.close?.();} catch {}
+    dialog.remove();
+    try {if (notify) onClose();}
+    finally {if (returnFocus?.isConnected && !returnFocus.closest?.("[hidden],[inert]")) returnFocus.focus?.({preventScroll: true});}
   };
   const close = () => {
+    editor.cancelCapture?.();
     if (editor.shouldBlockNavigation?.()) {editor.checkDraft();return;}
     finish(true);
   };

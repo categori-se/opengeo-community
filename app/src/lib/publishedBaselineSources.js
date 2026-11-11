@@ -68,6 +68,34 @@ export const JRC_TMF_2025_MAIN_CLASSES = freeze({
   ]
 });
 
+// Loss-year codes are published interpretation evidence, not a verified source
+// identity. No legend, colors or source NoData convention is inferred here.
+export const HANSEN_GFC_2025_LOSSYEAR = freeze({
+  id: "hansen-gfc-2025-lossyear", title: "Hansen Global Forest Change 2025 v1.13 — annual tree-cover loss year",
+  product: "lossyear", version: "v1.13", releaseYear: 2025, mappingVersion: "1.0.0", band: 1,
+  nominalResolutionMeters: 30, nominalResolutionArcSeconds: 1,
+  historyPeriod: {start: "2000-01-01", end: "2025-12-31"},
+  reportingPeriod: {start: "2001-01-01", end: "2025-12-31"},
+  classMeanings: {0: "No recorded gross tree-cover loss code",
+    ...Object.fromEntries(Array.from({length: 25}, (_, index) => [index + 1, `Gross tree-cover loss in ${2001 + index}`]))},
+  evidenceUrls: ["https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/download.html",
+    "https://developers.google.com/earth-engine/datasets/catalog/UMD_hansen_global_forest_change_2025_v1_13"],
+  metadataLimitations: [
+    "The download page describes 2001–2025 loss but retains stale 1–20 encoding text. The Earth Engine catalog's lossyear band table corroborates codes 0–25, with years given by 2000 + code for codes 1–25. This does not verify the selected raster."
+  ],
+  license: "CC-BY-4.0", accessRights: null, attribution: "Source: Hansen/UMD/Google/USGS/NASA",
+  limitations: [
+    "This is an explicitly selected published interpretation profile. The raster's product identity, version, observation dates, coverage and class accuracy remain unverified.",
+    "History and reporting periods describe the declared product; they do not replace the raster's independently supplied source dates. Only loss-year codes 1–25 map to 2001–2025; code 0 is not a loss event in 2000.",
+    "Code 0 means no recorded gross tree-cover loss code. It does not prove forest, intact forest, absence of disturbance, regrowth or land rather than water. The separate datamask band is not loaded or applied by this profile.",
+    "Unknown codes remain counted without a published-profile meaning. Source NoData remains missing and is never reassigned to code 0 or a loss year.",
+    "Sensor changes, differences in data richness and algorithm updates limit direct comparison of annual loss totals. Pre-2011 data have not been reprocessed with the later updates.",
+    "Raw pixel counts are not definitive forest-loss area estimates. Cached-cell mean-sphere mapped areas are descriptive summaries, without validated area accuracy or annual comparability.",
+    "Gross tree-cover loss codes do not identify causes or establish permanent deforestation, regrowth, ecological condition, tenure or impacts.",
+    "The nominal one-arcsecond grid is approximately 30 m; ground dimensions vary with latitude, and cached overviews may be coarser. Profile licensing and credit do not verify the selected source's distribution terms or grant output permissions."
+  ]
+});
+
 export const FTW_GLOBAL = freeze({
   id: "fields-of-the-world-global", title: "Fields of the World global field predictions",
   observationPeriods: [{start: "2024-01-01", end: "2024-12-31"}, {start: "2025-01-01", end: "2025-12-31"}],

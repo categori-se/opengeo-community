@@ -70,6 +70,60 @@ export function mapDelimitedText(table, {xColumn, yColumn, sourceProjection, ele
   return result;
 }
 
+/** Provider reads happen only in the explicit wizard action. This mapper accepts
+ * individually selected results bound to the exact original row/query. */
+export function mapDelimitedAddresses(table, {addressColumn, resolutions = [], ...options} = {}) {
+  if (!table?.columns?.includes(addressColumn) || table.rows.length > 20 || !Array.isArray(resolutions) || resolutions.length > 20)
+    throw fail("delimited_address_limit", "Address import supports at most twenty source records and one explicit address column.");
+  const chosen = new Map();
+  for (const resolution of resolutions) {
+    const {record, query, latitude, longitude, id, label, provider, rank} = resolution ?? {};
+    if (!Number.isSafeInteger(record) || record < 2 || record > table.rows.length + 1 || chosen.has(record)
+      || typeof query !== "string" || query !== table.rows[record - 2][table.columns.indexOf(addressColumn)]?.trim()
+      || !query || query.length > 256 || !Number.isFinite(latitude) || Math.abs(latitude) > 90
+      || !Number.isFinite(longitude) || Math.abs(longitude) > 180 || typeof id !== "string" || !/^[NWR][0-9]{1,20}$/.test(id)
+      || typeof label !== "string" || !label || label.length > 512 || provider !== "Photon/OpenStreetMap"
+      || !Number.isSafeInteger(rank) || rank < 1 || rank > 20)
+      throw fail("delimited_address_selection", "An address choice is stale, duplicated or outside the governed Photon result contract.");
+    if (resolution.sourceSha256 != null && !/^[a-f0-9]{64}$/.test(resolution.sourceSha256))
+      throw fail("delimited_address_source", "An address response checksum is invalid.");
+    if (resolution.retrievedAt != null && (typeof resolution.retrievedAt !== "string" || resolution.retrievedAt.length > 40
+      || !Number.isFinite(Date.parse(resolution.retrievedAt))))
+      throw fail("delimited_address_source", "An address retrieval time is invalid.");
+    chosen.set(record, {record, query, latitude, longitude, id, label, provider, rank,
+      sourceSha256: resolution.sourceSha256 ?? null, retrievedAt: resolution.retrievedAt ?? null,
+      attribution: "© OpenStreetMap contributors", license: "ODbL", selected: true});
+  }
+  const internal = stem => {let name = stem;while (table.columns.includes(name)) name += "_";return name;};
+  const xColumn = internal("_opengeo_resolved_longitude"), yColumn = internal("_opengeo_resolved_latitude");
+  const columns = [...table.columns, xColumn, yColumn], rows = table.rows.map((row, index) => {
+    const selected = chosen.get(index + 2);return [...row, selected ? String(selected.longitude) : "", selected ? String(selected.latitude) : ""];
+  });
+  let result;
+  try {result = mapDelimitedText({...table, columns, rows}, {...options, xColumn, yColumn, sourceProjection: "EPSG:4326"});}
+  catch (error) {
+    if (error.report?.rejectedRecords) for (const row of error.report.rejectedRecords)
+      if (!chosen.has(row.record)) {row.code = "address-unselected";row.reason = "Choose an exact address result, or explicitly omit this source record.";}
+    throw error;
+  }
+  for (const feature of result.geojson.features) {
+    delete feature.properties[xColumn];delete feature.properties[yColumn];
+    const record = Number(String(feature.id).split("-").at(-1));
+    feature["opengeo:geocoding"] = structuredClone(chosen.get(record));
+  }
+  result.report.mapping = {...result.report.mapping, mode: "selected-address-results", addressColumn,
+    xColumn: null, yColumn: null, sourceProjection: null, resultProjection: "EPSG:4326"};
+  result.report.geocoding = {provider: "Photon/OpenStreetMap", policy: "one explicitly selected result per original row; provider rank is not confidence",
+    selected: result.geojson.features.map(feature => feature["opengeo:geocoding"]), maximumRecords: 20};
+  result.source.columns = [...table.columns];result.source.report = result.report;
+  for (const row of result.report.rejectedRecords) if (!chosen.has(row.record)) {
+    row.code = "address-unselected";row.reason = "No exact address result was selected for this source record.";
+  }
+  if (new TextEncoder().encode(JSON.stringify(result)).length > DELIMITED_IMPORT_LIMITS.outputBytes)
+    throw fail("delimited_output_limit", "The original file, selected address provenance and working points exceed the 1 MiB limit.");
+  return result;
+}
+
 export async function originalDelimitedFile(source) {
   const file = source?.originalFile;
   if (source?.format !== "delimited-text" || file?.encoding !== "base64" || typeof file.content !== "string" || file.content.length > 4 * Math.ceil(DELIMITED_IMPORT_LIMITS.inputBytes / 3)) throw fail("delimited_original", "The original delimited file is invalid.");

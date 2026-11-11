@@ -1,4 +1,6 @@
-import {CAMERA_TOUR_LIMITS, CAMERA_TOUR_SCHEMA_VERSION, normalizeCameraTour} from "./cameraTour.js";
+import {CAMERA_TOUR_LIMITS, CAMERA_TOUR_SCHEMA_VERSION, CAMERA_TOUR_EVENT_SCHEMA_VERSION, normalizeCameraTour} from "./cameraTour.js";
+import {tourMediaSha256, tourMediaBytes} from "./tourMedia.js";
+import {zipSync, strToU8} from "fflate";
 
 const KML = "http://www.opengis.net/kml/2.2", GX = "http://www.google.com/kml/ext/2.2";
 // Exchange uses an explicit reference viewport, not an assertion that KML metres
@@ -32,7 +34,8 @@ export function parseGxTour(text, {Parser = globalThis.DOMParser} = {}) {
   if (tours.length !== 1) throw fail("gx_tour_single_required", "Choose a KML document containing exactly one gx:Tour.");
   const tourNode = tours[0], playlists = children(tourNode).filter(node => is(node, "Playlist", GX));
   if (playlists.length !== 1) throw fail("gx_tour_playlist", "The tour needs exactly one gx:Playlist.");
-  const playlist = playlists[0], keyframes = [];
+  const playlist = playlists[0], keyframes = [], primitives = [];
+  if (children(playlist).length > 256) throw fail("gx_tour_primitive_limit", "Use at most 256 playlist primitives.");
   const note = (code, path, message) => report.push({code, path, message});
   const read = (node, name, fallback, ns = KML) => {
     const found = children(node).filter(child => is(child, name, ns));
@@ -50,7 +53,7 @@ export function parseGxTour(text, {Parser = globalThis.DOMParser} = {}) {
     return rounded;
   };
   const unknown = (node, allowed, path) => {
-    for (const child of children(node)) if (!allowed.some(([name, ns]) => is(child, name, ns))) note("unsupported_element", `${path}/${child.nodeName}`, "This element is omitted from the imported camera tour.");
+    for (const child of children(node)) if (!allowed.some(([name, ns]) => is(child, name, ns))) note("unsupported_element", `${path}/${child.nodeName}`, "This element has no native executable mapping; its exact XML remains in the retained original source.");
     for (const attr of Array.from(node.attributes ?? [])) if (!attr.name.startsWith("xmlns") && attr.name !== "id") note("unsupported_attribute", `${path}/@${attr.name}`, "This attribute is omitted from the imported camera tour.");
   };
   unknown(tourNode, [["name", KML], ["Playlist", GX]], "gx:Tour");
@@ -61,6 +64,10 @@ export function parseGxTour(text, {Parser = globalThis.DOMParser} = {}) {
   for (const node of elements) if (["Placemark", "GroundOverlay", "ScreenOverlay", "PhotoOverlay", "Style", "Schema"].some(name => is(node, name))) note("non_tour_content", node.nodeName, "This separate KML content is not imported by the camera tour reader.");
   for (const [index, primitive] of children(playlist).entries()) {
     const path = `gx:Playlist[${index + 1}]`;
+    const primitiveInfo = {kind: primitive.localName, namespace: primitive.namespaceURI, playlistIndex: index,
+      duration: children(primitive).find(child => is(child, "duration", GX))?.textContent.trim() ?? null,
+      delayedStart: children(primitive).find(child => is(child, "delayedStart", GX))?.textContent.trim() ?? null};
+    primitives.push(primitiveInfo);
     if (is(primitive, "Wait", GX)) {
       unknown(primitive, [["duration", GX]], path);
       if (!keyframes.length) throw fail("gx_tour_initial_wait", "A leading Wait has no starting camera. Begin the playlist with FlyTo.");
@@ -69,7 +76,33 @@ export function parseGxTour(text, {Parser = globalThis.DOMParser} = {}) {
       continue;
     }
     if (!is(primitive, "FlyTo", GX)) {
-      note("unsupported_primitive_timing", path, `${primitive.nodeName} execution, timing, audio, object updates and playback controls are not represented. The imported timeline includes only supported FlyTo and Wait primitives.`);
+      if (is(primitive, "SoundCue", GX)) {
+        primitiveInfo.href = read(primitive, "href", "");
+        note("audio_reference_preserved", `${path}/gx:SoundCue`, `SoundCue ${primitiveInfo.href || "(missing href)"}; delayedStart ${primitiveInfo.delayedStart ?? "0"} seconds. Original XML is retained. No remote audio is fetched or played; attach a reviewed local clip explicitly for native playback. SoundCue does not advance the camera playlist.`);
+      } else if (is(primitive, "AnimatedUpdate", GX)) {
+        const update = children(primitive).find(child => is(child, "Update"));
+        const target = update ? read(update, "targetHref", "") : "";
+        const changes = update && children(update).filter(child => is(child, "Change"));
+        const supported = keyframes.length && !target && Number(primitiveInfo.duration ?? 0) === 0 && Number(primitiveInfo.delayedStart ?? 0) === 0
+          && !keyframes.at(-1).holdMilliseconds && changes?.length === 1 && children(update).every(child => is(child, "Change") || is(child, "targetHref"));
+        const updates = [];let validUpdates = Boolean(supported);
+        if (supported) for (const object of children(changes[0])) {
+          const targetId = object.getAttribute("targetId");
+          if (object.namespaceURI !== KML || !["Placemark", "Folder", "Document", "GroundOverlay", "ScreenOverlay", "PhotoOverlay", "Model", "NetworkLink"].includes(object.localName)) validUpdates = false;
+          for (const field of children(object)) {
+            if (!targetId || !["visibility", "name", "description"].some(name => is(field, name)) || children(field).length) {validUpdates = false;break;}
+            const raw = field.textContent;
+            if (is(field, "visibility") && !["0", "1"].includes(raw.trim())) throw fail("gx_tour_update_visibility", "Visibility updates use literal 0 or 1.");
+            updates.push({targetId, targetType: object.localName, property: field.localName, value: is(field, "visibility") ? raw.trim() === "1" : raw});
+          }
+        }
+        if (!validUpdates) updates.length = 0;
+        if (updates.length) keyframes.at(-1).scene = {...keyframes.at(-1).scene, updates};
+        primitiveInfo.nativeUpdate = updates.length > 0;
+        note(updates.length ? "local_update_supported" : "update_preserved_only", `${path}/gx:AnimatedUpdate`,
+          `AnimatedUpdate duration ${primitiveInfo.duration ?? "0"}, delayedStart ${primitiveInfo.delayedStart ?? "0"} seconds, targetHref ${target || "current document"}. ${updates.length ? "Zero-duration arrival visibility/name/description changes are retained for explicit local object application." : "Interpolation, delayed/nonlocal/Create/Delete and other updates are retained as original XML, not executed."} AnimatedUpdate runs independently of camera playlist timing.`);
+      }
+      note("unsupported_primitive_timing", path, `${primitive.nodeName} is preserved verbatim in the retained source. Native timing contains FlyTo and Wait only; unrepresented audio, animated updates and playback controls are not silently executed.`);
       continue;
     }
     unknown(primitive, [["duration", GX], ["flyToMode", GX], ["LookAt", KML], ["Camera", KML]], path);
@@ -98,12 +131,23 @@ export function parseGxTour(text, {Parser = globalThis.DOMParser} = {}) {
     if (keyframes.length > CAMERA_TOUR_LIMITS.maximumKeyframes) throw fail("gx_tour_keyframe_limit", "A tour supports at most 64 views.");
   }
   if (!keyframes.length) throw fail("gx_tour_no_views", "The playlist contains no supported camera views.");
-  const tour = normalizeCameraTour({schemaVersion: CAMERA_TOUR_SCHEMA_VERSION, id: "primary-camera-tour", title: read(tourNode, "name", "Imported KML tour"), projection: "mercator", spatialBodyId: "earth", bindings: {}, keyframes});
+  let tour = normalizeCameraTour({schemaVersion: keyframes.some(frame => frame.scene) ? CAMERA_TOUR_EVENT_SCHEMA_VERSION : CAMERA_TOUR_SCHEMA_VERSION, id: "primary-camera-tour", title: read(tourNode, "name", "Imported KML tour"), projection: "mercator", spatialBodyId: "earth", bindings: {}, keyframes});
+  // Preserve complete original XML independently of its admitted native model.
+  // An unchanged export returns it byte for byte, including timing and unknowns.
+  tour = normalizeCameraTour({...tour, schemaVersion: CAMERA_TOUR_EVENT_SCHEMA_VERSION,
+    exchange: {originalKml: text, sourceSha256: tourMediaSha256(new TextEncoder().encode(text)),
+      modelSha256: modelSha256({...tour, schemaVersion: CAMERA_TOUR_EVENT_SCHEMA_VERSION}), primitives}});
   return {tour, report: {format: "kml-gx-tour", entries: report, hasLoss: report.length > 0}};
 }
 
 /** Standard FlyTo/Wait output; the report names all native semantics it cannot carry. */
 export function exportGxTour(value) {
+  const retained = normalizeCameraTour(value);
+  if (retained.exchange && retained.exchange.modelSha256 === modelSha256(retained)) return {
+    kml: retained.exchange.originalKml,
+    report: {format: "kml-gx-tour", hasLoss: false, entries: [{code: "original_playlist_preserved", path: "gx:Tour",
+      message: "Unedited admitted model: original KML bytes, timing, interpolation, SoundCue, AnimatedUpdate and unknown semantics are preserved exactly. Preservation does not claim native execution of unsupported primitives."}]}
+  };
   // Inspect these before normalization: the existing tour schema retains only
   // center/zoom/pitch/bearing, so normalization alone would erase the evidence.
   const extendedCameras = value?.keyframes?.filter(frame => frame?.camera && ["roll", "elevation", "centerClampedToGround"].some(key => Object.hasOwn(frame.camera, key))) ?? [];
@@ -121,15 +165,32 @@ export function exportGxTour(value) {
   ];
   if (extendedCameras.length) entries.push({code: "extended_camera_defaults_omitted", path: "gx:Tour", message: "Explicit default roll, target elevation and ground-clamping fields are not carried by the camera-only KML model."});
   if (tour.keyframes.some(frame => Object.hasOwn(frame, "layerVisibility"))) entries.push({code: "layer_events_omitted", path: "gx:Playlist", message: "Exact-version Layer visibility events are omitted; KML object updates do not provide the same access/version semantics. Retain tour JSON."});
+  if (tour.exchange) entries.push({code: "edited_source_semantics_preserved_separately", path: "gx:Playlist",
+    message: `Native edits require a regenerated playlist. Original ${tour.exchange.primitives.map(item => item.kind).join(", ")} primitives and exact timing remain in tour JSON exchange.originalKml; unrepresented semantics are omitted from this regenerated KML.`});
+  const resources = [];
   const playlist = tour.keyframes.map((frame, index) => {
     const c = frame.camera;
     const view = `<LookAt><longitude>${c.center[0]}</longitude><latitude>${c.center[1]}</latitude><altitude>0</altitude><heading>${c.bearing}</heading><tilt>${c.pitch}</tilt><range>${zoomToRange(c.zoom, c.center[1])}</range><altitudeMode>clampToGround</altitudeMode></LookAt>`;
-    return `<gx:FlyTo><gx:duration>${index ? frame.transitionMilliseconds / 1000 : 0}</gx:duration><gx:flyToMode>smooth</gx:flyToMode>${view}</gx:FlyTo>${frame.holdMilliseconds ? `<gx:Wait><gx:duration>${frame.holdMilliseconds / 1000}</gx:duration></gx:Wait>` : ""}`;
+    let events = "";
+    if (frame.scene?.audio?.action === "play") {
+      const audio = frame.scene.audio, extension = {"audio/wav": "wav", "audio/mpeg": "mp3", "audio/ogg": "ogg"}[audio.clip.mimeType] ?? "webm";
+      const path = `audio/${audio.clip.sha256}.${extension}`;
+      if (!resources.some(item => item.path === path)) resources.push({path, ...audio.clip});
+      events += `<gx:SoundCue><href>${path}</href></gx:SoundCue>`;
+      if (audio.offsetMilliseconds || audio.gain !== 1) entries.push({code: "audio_offset_gain_omitted", path, message: "KML SoundCue cannot represent the native clip offset/gain. Exact values and attribution remain in tour JSON."});
+    }
+    if (frame.scene?.updates?.length) events += `<gx:AnimatedUpdate><gx:duration>0</gx:duration><Update><targetHref></targetHref><Change>${frame.scene.updates.map(update => {const type = update.targetType ?? "Placemark";return `<${type} targetId="${escape(update.targetId)}"><${update.property}>${escape(update.property === "visibility" ? Number(update.value) : update.value)}</${update.property}></${type}>`;}).join("")}</Change></Update></gx:AnimatedUpdate>`;
+    if (frame.scene && ["place", "historicalImagery", "sunlight", "panorama"].some(key => Object.hasOwn(frame.scene, key))) entries.push({code: "native_scene_binding_omitted", path: `keyframe/${frame.id}`, message: "Native Place, imagery, sunlight and panorama access/version snapshots remain in tour JSON; KML has no equivalent governed scene binding."});
+    return `<gx:FlyTo><gx:duration>${index ? frame.transitionMilliseconds / 1000 : 0}</gx:duration><gx:flyToMode>smooth</gx:flyToMode>${view}</gx:FlyTo>${events}${frame.holdMilliseconds ? `<gx:Wait><gx:duration>${frame.holdMilliseconds / 1000}</gx:duration></gx:Wait>` : ""}`;
   }).join("\n");
   const kml = `<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="${KML}" xmlns:gx="${GX}"><Document><gx:Tour><name>${escape(tour.title)}</name><gx:Playlist>\n${playlist}\n</gx:Playlist></gx:Tour></Document></kml>\n`;
   if (bytes(kml) > CAMERA_TOUR_LIMITS.maximumSerializedBytes) throw fail("gx_tour_size", "The exported KML exceeds 256 KiB.");
-  return {kml, report: {format: "kml-gx-tour", entries, hasLoss: true}};
+  const files = {"doc.kml": strToU8(kml), "opengeo-tour.json": strToU8(JSON.stringify(tour))};
+  for (const resource of resources) files[resource.path] = tourMediaBytes(resource.dataBase64);
+  return {kml, resources, ...(resources.length ? {kmz: zipSync(files)} : {}), report: {format: "kml-gx-tour", entries, hasLoss: true}};
 }
+
+function modelSha256(value) {const {exchange, ...model} = value;return tourMediaSha256(new TextEncoder().encode(JSON.stringify(model)));}
 
 function rangeToZoom(range, latitude) {
   return Math.log2(WORLD_METRES * Math.cos(latitude * Math.PI / 180) * REFERENCE_HEIGHT / (1024 * Math.tan(FOV / 2) * range));

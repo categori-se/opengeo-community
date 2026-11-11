@@ -5913,6 +5913,8 @@ body:has(.opengeo-workbench) #observablehq-center {
 .gis-panel {
   min-width: 0;
   min-height: 0;
+  position: relative;
+  z-index: 1;
   overflow: auto;
   background: var(--gis-panel-bg);
   color: var(--gis-ink);
@@ -6533,6 +6535,11 @@ body:has(.opengeo-workbench) #observablehq-center {
   box-shadow: inset 0 0 0 1px var(--gis-blue);
 }
 
+.gis-empty-project-action:focus-visible {
+  outline: 2px solid var(--gis-blue);
+  outline-offset: -2px;
+}
+
 .gis-layer-row {
   display: grid;
   gap: 0.42rem;
@@ -6628,6 +6635,7 @@ body:has(.opengeo-workbench) #observablehq-center {
 
 .gis-map-column {
   position: relative;
+  isolation: isolate;
   display: grid;
   /* Status text must not widen the implicit map track beyond the viewport. */
   grid-template-columns: minmax(0, 1fr);
@@ -6651,6 +6659,20 @@ body:has(.opengeo-workbench) #observablehq-center {
   width: 100%;
   height: 100%;
 }
+
+.gis-canvas-surface { background: #eef1f4; color: #17212b; overflow: hidden; }
+.gis-canvas-surface > h2, .gis-canvas-surface > p { margin: 2rem; max-width: 42rem; }
+.gis-compatibility-badge { align-self: start; justify-self: start; padding: .5rem .75rem; border: 1px solid #64748b; border-radius: .4rem; background: #fff; color: #17212b; pointer-events: auto; }
+.gis-compatibility-controls, .gis-compatibility-panel { padding: 1rem; display: grid; gap: .8rem; overflow-wrap: anywhere; }
+.gis-compatibility-controls fieldset { min-width: 0; display: grid; gap: .6rem; }
+.gis-compatibility-controls label, .gis-compatibility-panel label { display: grid; gap: .3rem; }
+.gis-compatibility-controls input, .gis-compatibility-controls textarea, .gis-compatibility-controls select, .gis-compatibility-panel input, .gis-compatibility-panel select { max-width: 100%; box-sizing: border-box; }
+.gis-compatibility-controls textarea { min-height: 7rem; width: 100%; }
+.opengeo-workbench[data-workspace-mode] .gis-topbar > nav { display: flex; align-items: center; flex-wrap: wrap; gap: .35rem; }
+.opengeo-workbench[data-workspace-mode] button:focus-visible, .gis-compatibility-controls :focus-visible, .gis-compatibility-panel :focus-visible { outline: 3px solid #1260c4; outline-offset: 3px; }
+.opengeo-workbench[data-color-mode="dark"] .gis-canvas-surface { background: #18222d; color: #f1f5f9; }
+.opengeo-workbench[data-color-mode="dark"] .gis-compatibility-badge { background: #18222d; color: #f1f5f9; border-color: #94a3b8; }
+.opengeo-workbench[data-color-mode="dark"][data-workspace-mode] :focus-visible { outline-color: #8ac4ff; }
 
 .gis-renderer-surface[data-pending] {
   opacity: 0;
@@ -7880,17 +7902,30 @@ body:has(.opengeo-workbench) #observablehq-center {
 }
 
 .gis-attribute-table {
-  display: block;
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  table-layout: auto;
+}
+
+.gis-attribute-scroll {
+  min-width: 0;
+  max-width: 100%;
   max-height: 24rem;
   overflow: auto;
 }
 
-.gis-attribute-table thead,
-.gis-attribute-table tbody,
-.gis-attribute-table tr {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
+.gis-attribute-scroll:focus-visible {
+  outline: 2px solid var(--gis-blue);
+  outline-offset: -2px;
+}
+
+.gis-attribute-table th,
+.gis-attribute-table td {
+  min-width: 8rem;
+  max-width: 24rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .gis-attribute-table th,
@@ -7948,7 +7983,7 @@ body:has(.opengeo-workbench) #observablehq-center {
   box-shadow: var(--gis-shadow);
 }
 
-.gis-attributes-expanded .gis-attribute-table {
+.gis-attributes-expanded .gis-attribute-scroll {
   max-height: calc(100dvh - 12rem);
 }
 
@@ -8297,16 +8332,17 @@ body:has(.opengeo-start) {
 }
 
 .opengeo-start {
-  --start-bg: var(--theme-background);
-  --start-surface: var(--theme-background-alt);
-  --start-surface-soft: color-mix(in srgb, var(--theme-foreground) 5%, var(--theme-background-alt));
-  --start-text: var(--theme-foreground);
-  --start-muted: var(--theme-foreground-muted);
-  --start-line: var(--theme-foreground-faintest);
-  --start-accent: var(--theme-foreground);
-  --start-accent-soft: color-mix(in srgb, var(--theme-foreground) 7%, var(--theme-background-alt));
-  --start-focus: var(--theme-foreground-focus);
-  --start-green: var(--theme-green);
+  --start-bg: #1e1e1e;
+  --start-surface: #161616;
+  --start-surface-soft: #242424;
+  --start-text: #f0f0ea;
+  --start-muted: #b6b6af;
+  --start-line: #454542;
+  --start-control-line: #8999ad;
+  --start-accent: #b4ccff;
+  --start-accent-soft: #242a4a;
+  --start-focus: #9dbdff;
+  --start-green: #7cd9ac;
   --start-shadow: 0 14px 36px color-mix(in srgb, black 30%, transparent);
   color-scheme: dark;
   display: grid;
@@ -8527,6 +8563,11 @@ body:has(.opengeo-start) {
   transform: translateY(-2px);
   border-color: var(--start-muted);
   box-shadow: var(--start-shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .start-action-card { transition: none; }
+  .start-action-card:hover { transform: none; }
 }
 
 .start-action-card > .opengeo-icon:first-child {
@@ -10938,6 +10979,11 @@ a.platform-site-switcher-item:focus-visible {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--gis-blue) 62%, transparent);
 }
 
+.gis-primary-command:focus-visible {
+  outline: 2px solid var(--gis-blue);
+  outline-offset: -2px;
+}
+
 .gis-primary-command:disabled {
   cursor: not-allowed;
   opacity: 0.42;
@@ -11158,6 +11204,7 @@ a.platform-site-switcher-item:focus-visible {
   --start-text: #111827;
   --start-muted: #46546a;
   --start-line: #c5d0df;
+  --start-control-line: #68768a;
   --start-accent: #174ea6;
   --start-accent-soft: #e8f0ff;
   --start-focus: #2f74f5;
@@ -11198,6 +11245,12 @@ a.platform-site-switcher-item:focus-visible {
 }
 
 .start-map-dialog.start-main {
+  --theme-background: var(--start-surface);
+  --theme-background-alt: var(--start-surface-soft);
+  --theme-foreground: var(--start-text);
+  --theme-foreground-alt: var(--start-text);
+  --theme-foreground-muted: var(--start-muted);
+  --theme-foreground-focus: var(--start-focus);
   position: relative;
   width: min(62rem, 100%);
   max-height: min(48rem, calc(100vh - 2rem));
@@ -11210,6 +11263,10 @@ a.platform-site-switcher-item:focus-visible {
   background: color-mix(in srgb, var(--start-bg) 96%, transparent);
   color: var(--start-text);
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.52);
+}
+
+.start-map-dialog :is(h1, h2, h3, h4) {
+  color: var(--start-text);
 }
 
 .start-map-dialog .start-intro h1 {
@@ -11621,6 +11678,11 @@ a.platform-site-switcher-item:focus-visible {
   color: var(--gis-ink);
 }
 
+.gis-basemap-tree-row > button:focus-visible {
+  outline: 2px solid var(--gis-blue);
+  outline-offset: -2px;
+}
+
 /* The project-contents panel gives its height to one layer tree. KML content,
    feature search, bookmarks, and imported portal settings are compact
    disclosures in this same workflow; project navigation and source ingestion
@@ -11775,7 +11837,6 @@ a.platform-site-switcher-item:focus-visible {
   color: var(--gis-muted);
   font-weight: 400;
 }
-
 
 .gis-layer-support {
   min-height: 0;
@@ -12718,7 +12779,8 @@ a.platform-site-switcher-item:focus-visible {
 .gis-account-dialog-actions button { min-height: 44px; max-width: 100%; white-space: normal; overflow-wrap: anywhere; padding: 0.5rem 0.75rem; border: 1px solid var(--gis-line); border-radius: 5px; background: var(--gis-elevated); color: var(--gis-ink); font: inherit; cursor: pointer; }
 .gis-account-dialog button:focus-visible { outline: 2px solid var(--gis-blue); outline-offset: 2px; }
 .start-welcome-preference { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 1rem; }
-.start-welcome-preference select { max-width: 100%; min-width: 0; padding: 0.5rem; color: inherit; background: var(--theme-background); border: 1px solid var(--opengeo-line); border-radius: 5px; }
+.start-welcome-preference select { max-width: 100%; min-width: 0; padding: 0.5rem; color: var(--start-text); background: var(--start-surface); border: 1px solid var(--start-control-line); border-radius: 5px; font: inherit; }
+.start-welcome-preference select:focus-visible { outline: 2px solid var(--start-focus); outline-offset: 2px; }
 .instance-catalog nav { display: flex; flex-wrap: wrap; gap: 0.75rem; }
 .instance-catalog-results { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 0.75rem; }
 .instance-catalog-results article { min-width: 0; padding: 0.75rem; border: 1px solid var(--opengeo-line); border-radius: 6px; overflow-wrap: anywhere; }

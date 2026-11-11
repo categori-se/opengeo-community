@@ -1,3 +1,4 @@
+import {prepareOpenLayersCanvasRuntimeAsset} from "./build-openlayers-canvas-runtime.mjs";
 import {preparePrintMathRuntimeAsset} from "./build-print-math-runtime.mjs";
 import {prepareCesiumRuntime} from "./prepare-cesium-runtime.mjs";
 import {prepareMapboxRuntime} from "./prepare-mapbox-runtime.mjs";
@@ -26,6 +27,7 @@ const manifestPath = resolve(workspaceRoot, "dist/opengeo-studio-build.json");
 const studioOrigin = reviewedStudioOrigin();
 const expectedRoutes = canonicalStudioRoutes;
 
+await prepareOpenLayersCanvasRuntimeAsset(resolve(appRoot, "src"), {appRoot});
 await rm(distRoot, {recursive: true, force: true});
 await prepareMapWorkerAsset(resolve(appRoot, "src"));
 await preparePrintMathRuntimeAsset(resolve(appRoot, "src"));

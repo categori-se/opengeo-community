@@ -376,6 +376,68 @@ describe("exact dataset-to-map handoff", () => {
     assert.equal(queries[0].query.expectedGeneration ?? queries[0].query.expected_generation, 7);
   });
 
+  it("keeps an explicitly opened editable collection available across an immediate rerender", async () => {
+    const requests = [];
+    const shell = createWorkbench({
+      async loadDatasetFeatures(datasetId) {
+        requests.push(datasetId);
+        return {numberReturned: 1, numberMatched: 1, collection: {geometryType: "Polygon", generation: 7, fields: []},
+          features: featureCollection().features};
+      }
+    });
+    const disclosure = () => shell.querySelector(".gis-project-dataset-live-collection");
+    const render = () => shell.dispatchEvent(new harness.dom.window.Event("workbench:render"));
+    clickButton(shell, "Add data");
+    const oldDisclosure = disclosure();
+    oldDisclosure.querySelector("summary").click();
+    // Rerender before the browser's queued toggle event is delivered.
+    render();
+    assert.notEqual(disclosure(), oldDisclosure);
+    assert.equal(disclosure().open, true);
+    assert.deepEqual(requests, [], "Opening a disclosure must not read the collection");
+    oldDisclosure.open = false;
+    oldDisclosure.dispatchEvent(new harness.dom.window.Event("toggle"));
+    render();
+    assert.equal(disclosure().open, true, "A detached old disclosure cannot overwrite the current intent");
+    disclosure().querySelector("summary").click();
+    render();
+    assert.equal(disclosure().open, false, "An explicit close also survives rerender");
+    disclosure().querySelector("summary").click();
+    render();
+    clickButton(shell, "Add authoritative features");
+    await waitFor(() => shell.__opengeoLayers.length === 1);
+    assert.deepEqual(requests, [IDS.dataset]);
+    assert.equal(shell.__opengeoLayers[0].datasetId, IDS.dataset);
+    assert.equal(shell.__opengeoLayers[0].datasetVersionId, undefined);
+    assert.equal(shell.__opengeoLayers[0].featureGeneration, 7);
+    assert.deepEqual(shell.__opengeoData.get(shell.__opengeoLayers[0].layerId), featureCollection());
+  });
+
+  it("scopes editable collection disclosure state to its dataset, version and Workbench account context", () => {
+    const dataset = {datasetId: IDS.dataset, workspaceId: IDS.project, title: "Scoped collection", sourceType: "upload",
+      currentVersionId: IDS.version, currentVersionNumber: 3, status: "active", geometryType: "Polygon"};
+    const options = {datasets: [dataset], async loadDatasetFeatures() { assert.fail("Disclosure state must not load data"); }};
+    const shell = createWorkbench(options);
+    const disclosure = () => shell.querySelector(".gis-project-dataset-live-collection");
+    const render = () => shell.dispatchEvent(new harness.dom.window.Event("workbench:render"));
+    clickButton(shell, "Add data");
+    disclosure().querySelector("summary").click();
+    dataset.currentVersionId = IDS.staleVersion;
+    render();
+    assert.equal(disclosure().open, false, "A different exact version starts closed");
+    disclosure().querySelector("summary").click();
+    dataset.datasetId = "80000000-0000-4000-8000-000000000084";
+    render();
+    assert.equal(disclosure().open, false, "A different dataset starts closed");
+    disclosure().querySelector("summary").click();
+    const other = createWorkbench({...options, workspace: {workspaceId: "50000000-0000-4000-8000-000000000084"}});
+    clickButton(other, "Add data");
+    assert.equal(other.querySelector(".gis-project-dataset-live-collection").open, false, "Another Workbench does not inherit UI state");
+    harness.dom.window.dispatchEvent(new harness.dom.window.Event("opengeo:account-navigation"));
+    render();
+    assert.equal(disclosure().open, false, "Account navigation discards disclosure state");
+  });
+
   it("does not create or substitute a collection when the explicit live choice is unavailable", async () => {
     let previews = 0, collections = 0;
     const shell = createWorkbench({
@@ -711,11 +773,13 @@ describe("managed COG reopening", () => {
   it("resolves only visible exact originals without vector fallback or saved transport credentials", async () => {
     for (const visible of [false, true]) {
       let reads = 0, vector = 0; const saves = [];
-      const shell = createWorkbench({layers: [layer(visible)],
+      const shell = createWorkbench({layers: [layer(visible)], restoreBrowserDraft: false,
         async loadManagedCog(datasetId, versionId) {reads++; assert.deepEqual([datasetId, versionId], [IDS.dataset, IDS.version]); return binding();},
         async loadDatasetVersionPreview() {vector++; throw Error("No raster-to-vector fallback");},
         async saveProject(definition) {saves.push(definition); return {id: IDS.map, version: 3, definition};}});
-      await new Promise(resolve => setTimeout(resolve, 0));
+      assert.equal(shell.__opengeoLayers[0].visible, visible, "Independent fixture must not restore the prior iteration's acknowledged recovery draft");
+      if (visible) await waitFor(() => reads === 1);
+      else await new Promise(resolve => setTimeout(resolve, 0));
       assert.equal(reads, visible ? 1 : 0); assert.equal(vector, 0); assert.equal(shell.__opengeoData.size, 0);
       clickButton(shell, "Save"); await waitFor(() => saves.length);
       assert.equal(saves[0].layers[0].objectId, objectId);

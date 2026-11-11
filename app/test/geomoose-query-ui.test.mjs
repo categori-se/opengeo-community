@@ -483,19 +483,19 @@ describe("GeoMoose-comparable saved query browser workflow", () => {
     clickableButton(shell, "Replay exact query").click();
     await waitFor(() => shell.querySelector(".gis-query-result-table tbody tr"));
 
-    const headers = [...shell.querySelectorAll(".gis-query-result-table th")].map(({textContent}) => textContent);
-    assert.deepEqual(headers, ["#", "index", "feature", "status"]);
+    const headers = [...shell.querySelectorAll(".gis-query-result-table thead th")].map(({textContent}) => textContent);
+    assert.deepEqual(headers, ["Record", "index", "feature", "status"]);
     const row = shell.querySelector(".gis-query-result-table tbody tr");
     assert.match(row.textContent, /source-index/);
     assert.match(row.textContent, /source-feature/);
-    row.focus();
-    assert.equal(harness.dom.window.document.activeElement, row);
-    row.dispatchEvent(new harness.dom.window.KeyboardEvent("keydown", {key: "Enter", bubbles: true}));
+    row.querySelector("button").focus();
+    assert.equal(harness.dom.window.document.activeElement, row.querySelector("button"));
+    row.querySelector("button").click();
 
     const selected = shell.querySelector(".gis-query-result-table tbody tr.selected");
     assert.ok(selected);
-    assert.equal(selected.getAttribute("aria-selected"), "true");
-    assert.equal(harness.dom.window.document.activeElement, selected);
+    assert.equal(selected.querySelector("button").getAttribute("aria-pressed"), "true");
+    assert.equal(harness.dom.window.document.activeElement, selected.querySelector("button"));
 
     clickableButton(shell, "Replay exact query").click();
     await waitFor(() => requests === 2
@@ -503,8 +503,8 @@ describe("GeoMoose-comparable saved query browser workflow", () => {
     const replacement = shell.querySelector(".gis-query-result-table tbody tr");
     assert.ok(replacement);
     assert.equal(replacement.classList.contains("selected"), false);
-    assert.equal(replacement.getAttribute("aria-selected"), "false");
-    assert.equal(replacement.tabIndex, 0);
+    assert.equal(replacement.querySelector("button").getAttribute("aria-pressed"), "false");
+    assert.equal(replacement.querySelector("button").tabIndex, 0);
   });
 });
 

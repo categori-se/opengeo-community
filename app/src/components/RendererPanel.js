@@ -23,12 +23,18 @@ export function RendererPanel({session, current, preferred = current, report, st
     try {
       if (id === "mapbox" && input.value) { session.configure(input.value); input.value=""; }
       await onSwitch(id);
-    } catch { inputError = "Enter a valid public Mapbox token starting with pk. Secret tokens are not accepted."; }
+    } catch { inputError = id === "mapbox"
+      ? "Enter a valid public Mapbox token starting with pk. Secret tokens are not accepted."
+      : "The display could not be changed. Try again or choose another workspace mode."; }
     update();
   };
   const libre = button("Use MapLibre", () => run("maplibre"));
   const box = button("Use Mapbox", () => run("mapbox"));
   const globe = button("Use Cesium", () => run("cesium"));
+  const compatibilityMode = button("Use 2D compatibility", () => run("openlayers-canvas"));
+  const dataMode = button("Use data workspace", () => run("data-workspace"));
+  const modeNote = document.createElement("p");
+  const canvasIssues = document.createElement("ul");canvasIssues.setAttribute("aria-label", "2D compatibility differences and unavailable content");
   const globeLabel=document.createElement("label"),globeConsent=document.createElement("input");
   globeConsent.type="checkbox";globeConsent.onchange=()=>update();
   globeLabel.append(globeConsent,document.createTextNode("Use a plain globe in Cesium. My current basemap is retained for MapLibre/Mapbox."));
@@ -39,28 +45,40 @@ export function RendererPanel({session, current, preferred = current, report, st
   const cancel = button("Cancel switch", onCancel);
   const forget = button("Forget Mapbox token", () => {session.clear(); input.value=""; update();});
   function update() {
-    const value = status(), compatibility = report("mapbox"), cesium = report("cesium");
-    active.textContent = `Current: ${rendererTitle(current())}`;
+    const value = status(), compatibility = report("mapbox"), cesium = report("cesium"), canvas = report("openlayers-canvas");
+    const selected = current(), reduced = selected === "openlayers-canvas" || selected === "data-workspace";
+    active.textContent = `Current: ${rendererTitle(selected)}`;
+    modeNote.textContent = reduced
+      ? `${rendererTitle(selected)} is active. Use MapLibre to try full graphics before choosing Mapbox or Cesium.`
+      : "Use 2D compatibility for a map without full graphics, or use the data workspace to work with Layers and tables.";
     feedback.textContent = inputError || value.message || "";
+    canvasIssues.replaceChildren(...(canvas?.issues ?? []).map(issue => {
+      const item = document.createElement("li");
+      item.textContent = `2D compatibility · ${issue.title ? `${issue.title}: ` : ""}${issue.message}`;
+      return item;
+    }));
+    canvasIssues.hidden = !canvasIssues.children.length;
     issues.replaceChildren(...compatibility.issues.map(issue => {
       const item=document.createElement("li"); item.textContent=`${issue.title ? `${issue.title}: ` : ""}${issue.message}`; return item;
     }));
     const pending = value.pending === true || value.paused === true;
     libre.disabled = pending || (current() === "maplibre" && preferred() === "maplibre");
-    box.disabled = pending || (current() === "mapbox" && preferred() === "mapbox") || !compatibility.ready;
+    box.disabled = pending || reduced || (current() === "mapbox" && preferred() === "mapbox") || !compatibility.ready;
+    compatibilityMode.disabled = pending || selected === "openlayers-canvas";
+    dataMode.disabled = pending || selected === "data-workspace";
     globeIssues.replaceChildren(...cesium.issues.map(issue=>{
       const item=document.createElement("li");item.textContent=`Cesium · ${issue.title?issue.title+": ":""}${issue.message}`;return item;
     }));
     backgroundNote.textContent=cesium.message??'';
     globeLabel.hidden=Boolean(cesium.basemap);
-    globe.disabled=pending || !cesium.ready || (!cesium.basemap && !globeConsent.checked) || (current()==="cesium" && preferred()==="cesium");
-    globeConsent.disabled=pending;
-    input.disabled = pending;
+    globe.disabled=pending || reduced || !cesium.ready || (!cesium.basemap && !globeConsent.checked) || (current()==="cesium" && preferred()==="cesium");
+    globeConsent.disabled=pending || reduced;
+    input.disabled = pending || reduced;
     // An active SDK still holds its per-map token until disposal.
     forget.disabled = pending || current() === "mapbox" || !session.configured;
     cancel.hidden = !pending;
   }
-  root.append(heading, active, explanation, terms, label, note, issues, libre, box, forget, globeNote, backgroundNote, globeLabel, globeIssues, globe, cancel, feedback);
+  root.append(heading, active, modeNote, compatibilityMode, dataMode, canvasIssues, explanation, terms, label, note, issues, libre, box, forget, globeNote, backgroundNote, globeLabel, globeIssues, globe, cancel, feedback);
   root.clearCredentialInput = () => {input.value = ""; inputError = "";};
   root.update = update; update(); return root;
 }

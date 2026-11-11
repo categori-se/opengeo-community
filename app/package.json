@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "observable preview --host 0.0.0.0",
-    "build": "observable build",
+    "dev": "node scripts/build-openlayers-canvas-runtime.mjs && observable preview --host 0.0.0.0",
+    "build": "node scripts/build-openlayers-canvas-runtime.mjs && observable build",
     "build:studio": "node scripts/build-studio-site.mjs",
     "build:demo": "node scripts/build-demo-site.mjs",
     "build:demo:managed": "node scripts/build-managed-demo-site.mjs",
@@ -22,7 +22,8 @@
     "test": "node --test --test-concurrency=4 \"test/**/*.test.mjs\"",
     "check:pages": "npm test && npm run build:studio && node scripts/check-pages.mjs --without-ux-002 && node scripts/check-pages.mjs --ux-002",
     "check:demo:massgis": "node scripts/check-demo-massgis.mjs",
-    "check:open-3d-source": "node scripts/check-open-3d-scene-source.mjs"
+    "check:open-3d-source": "node scripts/check-open-3d-scene-source.mjs",
+    "pretest": "node scripts/build-openlayers-canvas-runtime.mjs"
   },
   "dependencies": {
     "@categori/workspace-contracts": "file:vendor/workspace-contracts",

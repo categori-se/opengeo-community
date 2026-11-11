@@ -1,10 +1,11 @@
 import {polygonMeasurementMetrics} from "./areaMeasurement.js";
 import {meanRadiusMeters,spatialBodyDefinition} from "./spatialBody.js";
-import {assessBaselinePeriod,worldCoverProfileForUrl,JRC_TMF_2025_MAIN_CLASSES} from "./publishedBaselineSources.js";
+import {assessBaselinePeriod,worldCoverProfileForUrl,JRC_TMF_2025_MAIN_CLASSES,HANSEN_GFC_2025_LOSSYEAR} from "./publishedBaselineSources.js";
 
 export const RASTER_BASELINE_LIMITS = Object.freeze({cells:1_048_576,classes:256,milliseconds:10_000,
   metadataBytes:16_384,exportBytes:262_144});
 const snapshots=new WeakMap();
+const publishedProfiles=new Map([JRC_TMF_2025_MAIN_CLASSES,HANSEN_GFC_2025_LOSSYEAR].map(profile=>[profile.id,profile]));
 const fail=code=>Object.assign(Error(code),{code});
 const text=(value,maximum=240)=>typeof value==="string"&&value.length<=maximum?value:null;
 const coordinates=value=>Array.isArray(value)&&value.length===2&&value.every(Number.isFinite)
@@ -29,11 +30,12 @@ export async function computeRasterBaseline({grid,band,categoricalConfirmed=fals
   const nativeProfile=band===1?worldCoverProfileForUrl(grid.metadata.source?.url):null;
   let publishedProfile=null;
   if(publishedProfileId!==null){
-    if(publishedProfileId!==JRC_TMF_2025_MAIN_CLASSES.id)throw fail("baseline_published_profile_invalid");
-    if(band!==JRC_TMF_2025_MAIN_CLASSES.band)throw fail("baseline_published_profile_band_required");
+    const selectedProfile=publishedProfiles.get(publishedProfileId);
+    if(!selectedProfile)throw fail("baseline_published_profile_invalid");
+    if(band!==selectedProfile.band)throw fail("baseline_published_profile_band_required");
     if(publishedProfileConfirmed!==true)throw fail("baseline_published_profile_confirmation_required");
     if(nativeProfile)throw fail("baseline_published_profile_incompatible");
-    publishedProfile={...structuredClone(JRC_TMF_2025_MAIN_CLASSES),identityAuthority:"user-declared-unverified"};
+    publishedProfile={...structuredClone(selectedProfile),identityAuthority:"user-declared-unverified"};
     if(new TextEncoder().encode(JSON.stringify({...declared,publishedProfile})).byteLength>RASTER_BASELINE_LIMITS.metadataBytes)
       throw fail("baseline_metadata_limit");
   }else if(publishedProfileConfirmed!==false)throw fail("baseline_published_profile_invalid");
@@ -149,6 +151,13 @@ function interpretation({periodStart,periodEnd,classification,classMeanings}) {
   return result;
 }
 function numericArray(value,length){return Array.isArray(value)&&value.length===length&&value.every(Number.isFinite)?[...value]:null;}
+function horizontalGridVector(value){
+  // GeoTIFF origin/resolution may include a Z coordinate. This inventory keeps
+  // its existing XY export shape, after validating the complete source vector.
+  if(!Array.isArray(value)||(value.length!==2&&value.length!==3)
+    ||!Array.from(value).every(Number.isFinite))return null;
+  return value.slice(0,2);
+}
 function sourceMetadata(metadata) {
   const source=metadata.source??{};
   // Registered public COGs are query-free HTTPS objects. Never export signed
@@ -158,7 +167,7 @@ function sourceMetadata(metadata) {
     if(parsed.protocol==="https:"&&!parsed.username&&!parsed.password&&!parsed.search&&!parsed.hash)url=candidate;}catch{}
   return {imageIndex:Number.isInteger(metadata.imageIndex)?metadata.imageIndex:null,projection:text(metadata.projection),
     scaleX:Number.isFinite(metadata.scaleX)?metadata.scaleX:null,scaleY:Number.isFinite(metadata.scaleY)?metadata.scaleY:null,
-    origin:numericArray(metadata.origin,2),resolution:numericArray(metadata.resolution,2),interpretation:metadata.interpretation,
+    origin:horizontalGridVector(metadata.origin),resolution:horizontalGridVector(metadata.resolution),interpretation:metadata.interpretation,
     noData:Number.isFinite(metadata.noData)||metadata.noData==="NaN"?metadata.noData:null,reference:{url,etag:text(source.etag,1024),
       size:Number.isFinite(source.size)?source.size:null,verified:source.verified===true,
       license:text(source.license,4096),attribution:text(source.attribution,4096)}};

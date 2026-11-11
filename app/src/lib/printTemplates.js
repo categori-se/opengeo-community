@@ -1,9 +1,10 @@
 // Portable templates contain paper configuration and explicit, unbound data slots.
 // Project cameras, Layer/source identities and presentation enter only on apply.
 import {PRINT_TEXT_FRAME_KEYS, validatePrintTextFrames} from "./printTextFrames.js";
+import {printDocumentLanguage} from "./printAccessibility.js";
 
 export const PRINT_TEMPLATE_SCHEMA = "opengeo.print-template.1";
-const templateKeys = ["schemaVersion", "id", "name", "page", "dpi", "legend", "legendFormat", "northArrow", "scaleBar", "graticule", "sourceNotes", "caption", "frames", "dataFrames", "textFrames"];
+const templateKeys = ["schemaVersion", "id", "name", "language", "page", "dpi", "legend", "legendFormat", "northArrow", "scaleBar", "graticule", "sourceNotes", "caption", "frames", "dataFrames", "textFrames"];
 const furnitureKeys = ["legend", "northArrow", "scaleBar", "graticule", "sourceNotes"];
 const frameKeys = ["id", "parentId", "title", "xMm", "yMm", "widthMm", "heightMm"];
 const dataKeys = ["id", "type", "title", "xMm", "yMm", "widthMm", "heightMm", "mapFrameId", "sourceSlot", "rowLimit"];
@@ -13,9 +14,10 @@ const sourceKeys = ["layerId", "datasetId", "datasetVersionId", "sourceVersion"]
 
 /** Admit only the closed source-free portable format and return detached values. */
 export function validatePrintTemplate(value) {
-  object(value, templateKeys, templateKeys.filter(key => !["legendFormat", "dataFrames", "textFrames"].includes(key)));
+  object(value, templateKeys, templateKeys.filter(key => !["language", "legendFormat", "dataFrames", "textFrames"].includes(key)));
   if (value.schemaVersion !== PRINT_TEMPLATE_SCHEMA) throw Error("Unsupported Print template format.");
   text(value.id, 100);text(value.name, 200);text(value.caption, 2000, true);
+  printDocumentLanguage(value);
   object(value.page, ["size", "orientation", "widthMm", "heightMm", "marginMm"]);
   const page = value.page;
   if (!paperSizes.has(page.size) || !["portrait", "landscape"].includes(page.orientation)) throw Error("Choose a supported template paper size and orientation.");
@@ -28,7 +30,8 @@ export function validatePrintTemplate(value) {
   array(value.frames, 1, 2);
   const ids = new Set();
   value.frames.forEach((frame, index) => {
-    object(frame, frameKeys);
+    object(frame, [...frameKeys, "description"], frameKeys);
+    if (Object.hasOwn(frame, "description")) text(frame.description, 4000, true);
     if (frame.id !== (index ? "inset" : "main") || frame.parentId !== (index ? "main" : null)) throw Error("Template maps must use local main/inset frame identities.");
     ids.add(frame.id);geometry(frame, page, 10);text(frame.title, 200);
   });
@@ -70,8 +73,9 @@ export function templateFromLayout(layout, name, id = crypto.randomUUID()) {
   if (frameIds.size !== layout.frames.length || layout.frames[0].parentId !== null
     || layout.frames.some((frame, index) => index && frame.parentId !== layout.frames[0].id)) throw Error("Invalid Print layout map frame relationships.");
   const result = {schemaVersion: PRINT_TEMPLATE_SCHEMA, id, name, ...pick(layout, ["page", "dpi", ...furnitureKeys, "caption"]),
+    ...(Object.hasOwn(layout, "language") ? {language: layout.language} : {}),
     ...(Object.hasOwn(layout, "legendFormat") ? {legendFormat: layout.legendFormat} : {}),
-    frames: layout.frames.map((frame, index) => ({...pick(frame, frameKeys), id: index ? "inset" : "main", parentId: index ? "main" : null}))};
+    frames: layout.frames.map((frame, index) => ({...pick(frame, frameKeys), ...(Object.hasOwn(frame, "description") ? {description: frame.description} : {}), id: index ? "inset" : "main", parentId: index ? "main" : null}))};
   if (Object.hasOwn(layout, "dataFrames")) {
     array(layout.dataFrames, 0, 4);
     result.dataFrames = layout.dataFrames.map((frame, index) => ({...pick(frame, [...dataKeys.filter(key => key !== "sourceSlot"), ...(frame.type === "table" ? tableKeys : chartKeys)]),
@@ -102,6 +106,7 @@ export function layoutFromTemplate(template, map, id = crypto.randomUUID(), bind
   const view = {center: structuredClone(camera.center ?? [0, 0]), zoom: camera.zoom ?? 2, pitch: camera.pitch ?? 0, bearing: camera.bearing ?? 0,
     ...Object.fromEntries(["roll", "elevation", "centerClampedToGround"].filter(key => Object.hasOwn(camera, key)).map(key => [key, camera[key]]))};
   const result = {id, title: value.name, ...pick(value, ["page", "dpi", ...furnitureKeys, "caption"]),
+    ...(Object.hasOwn(value, "language") ? {language: value.language} : {}),
     ...(Object.hasOwn(value, "legendFormat") ? {legendFormat: value.legendFormat} : {}),
     frames: value.frames.map(frame => ({...structuredClone(frame), view: structuredClone(view), projection: map?.definition?.projection ?? "mercator", presentation: layers.map(presentation)}))};
   if (Object.hasOwn(value, "dataFrames")) result.dataFrames = value.dataFrames.map(frame => {

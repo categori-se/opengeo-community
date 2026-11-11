@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import {createHash} from "node:crypto";
 import {readFile} from "node:fs/promises";
 import {WorkbenchView} from "../src/components/WorkbenchView.js";
 import {emptyMapDefinition} from "../src/lib/mapDefinition.js";
@@ -8,6 +9,12 @@ import {readBrowserProjectFile} from "../src/lib/browserProjectFile.js";
 import {originalNmeaFile} from "../src/lib/nmeaImport.js";
 import {originalOziFile} from "../src/lib/oziImport.js";
 import {originalDelimitedFile} from "../src/lib/delimitedTextImport.js";
+import {originalGarminTcxFile} from "../src/lib/gpxImport.js";
+import {LocalProjectStore} from "../src/lib/localProjectStore.js";
+import {serializeTemporaryWork, restoreTemporaryWork} from "../src/lib/temporaryAnnotations.js";
+import {panoramaFromImageFile} from "../src/lib/panorama.js";
+import {createBoxKmlModel} from "../src/lib/kmlModel.js";
+import {createPlacesDocument, normalizePlacesDocument} from "../src/lib/kmlPlaces.js";
 import {describe, it} from "node:test";
 import {JSDOM} from "jsdom";
 
@@ -30,6 +37,241 @@ const MASSGIS = JSON.parse(await readFile(
 ));
 
 if(process.env.OPEN_GEO_GPX_DIST){await checkGpxBrowser();process.exit(0);}
+
+it("original GIS C01/C02 and Places C01 Workbench imports and Model creation preserve personal sources and account authority", async t => {
+  const tcx = '<?xml version="1.0"?><TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"><Courses><Course><Name>Private field survey</Name><Track>' +
+    '<Trackpoint><Time>2026-11-11T12:34:56.123400+05:45</Time><Position><LatitudeDegrees>27</LatitudeDegrees><LongitudeDegrees>85</LongitudeDegrees></Position><AltitudeMeters>100</AltitudeMeters><HeartRateBpm><Value>123</Value></HeartRateBpm><Extensions><distance xmlns="urn:original:garmin">1.2000</distance></Extensions></Trackpoint>' +
+    '<Trackpoint><Position><LatitudeDegrees>27.1</LatitudeDegrees><LongitudeDegrees>85.1</LongitudeDegrees></Position></Trackpoint><Trackpoint><Time>2026-11-11T13:00:00</Time></Trackpoint>' +
+    '<Trackpoint><Position><LatitudeDegrees>28</LatitudeDegrees><LongitudeDegrees>86</LongitudeDegrees></Position><AltitudeMeters>200</AltitudeMeters></Trackpoint></Track></Course></Courses></TrainingCenterDatabase>';
+  // Only the IndexedDB transaction boundary is replaced. Save preparation,
+  // checksums, asset storage/hydration and the URL-driven fresh mount are real.
+  // This DOM test deliberately disables interactive rendering; it proves no GPU
+  // rendering, physical Garmin transfer or native IndexedDB implementation.
+  const environment = async callback => {
+    const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+    const restore = installDomGlobals(dom.window), shells = [], projects = new Map(), assets = new Map();
+    const originalTransaction = LocalProjectStore.prototype.transaction, originalFetch = globalThis.fetch;
+    LocalProjectStore.prototype.transaction = async function (mode, apply) {
+      const nextProjects = structuredClone(projects), nextAssets = structuredClone(assets);
+      const store = values => ({put: value => {assert.equal(mode, "readwrite");values.set(value.id ?? value.checksum, structuredClone(value));},
+        delete: key => {assert.equal(mode, "readwrite");values.delete(key);}});
+      const result = apply({projects: store(nextProjects), assets: store(nextAssets)}, [...nextProjects.values()], [...nextAssets.values()]);
+      if (mode === "readwrite") {projects.clear();assets.clear();for (const [key, value] of nextProjects) projects.set(key, value);for (const [key, value] of nextAssets) assets.set(key, value);}
+      return structuredClone(result);
+    };
+    globalThis.fetch = () => assert.fail("The DOM GIS check must not use provider, API or asset network requests");
+    const mount = (options = {}) => {
+      const shell = WorkbenchView({workspace: {workspaceId: "52000000-0000-4000-8000-000000000001", title: "GIS source review"},
+        role: "local", publicDemo: true, project: emptyMapDefinition(), layers: [], persistenceMode: "fixture",
+        restoreBrowserDraft: false, draftScopeId: "gis-original-criteria", ...options});
+      shells.push(shell);document.body.append(shell);return shell;
+    };
+    const button = (root, name) => {const found = [...root.querySelectorAll("button")].find(value => value.textContent.trim() === name);assert.ok(found, name);return found;};
+    const saveAndFresh = async (shell, {assetCount = 1} = {}) => {
+      const command = shell.querySelector(".gis-save-command");assert.equal(command.disabled, false);command.click();
+      const dialog = await waitFor(() => document.querySelector(".local-project-title"));
+      dialog.querySelector('[aria-label="Personal Project title"]').value = "Private GIS source";button(dialog, "Save Project").click();
+      await waitFor(() => shell.dataset.saveState === "saved");assert.equal(projects.size, 1);assert.equal(assets.size, assetCount);
+      assert.equal(shell.querySelector(".gis-content-tree-root > details > summary strong").textContent, "Private GIS source");
+      assert.equal(shell.querySelector(".gis-brand > span").textContent, "Private GIS source");
+      const id = new URL(location.href).searchParams.get("localProject");assert.ok(projects.has(id));
+      assert.equal(projects.get(id).definition.persistence.mode, "browser-personal");
+      shell.dispose();shell.remove();const restoring = mount();
+      const reopened = await waitFor(() => restoring.querySelector(".opengeo-workbench"));
+      assert.equal(reopened.querySelector(".gis-content-tree-root > details > summary strong").textContent, "Private GIS source");
+      assert.equal(reopened.querySelector(".gis-brand > span").textContent, "Private GIS source");
+      return reopened;
+    };
+    try {await callback({dom, mount, button, saveAndFresh, projects});}
+    finally {for (const shell of shells) {shell.dispose?.();shell.remove();}await Promise.resolve();LocalProjectStore.prototype.transaction = originalTransaction;globalThis.fetch = originalFetch;restore();dom.window.close();}
+  };
+  await t.test("C01 Garmin TCX Open file review, resident mixed geometry and normal personal Save/fresh preserve exact bytes and metadata", async () => environment(async ({dom, mount, button, saveAndFresh}) => {
+    const shell = mount();await waitFor(() => shell.__opengeoLayers);
+    const choose = () => chooseWorkbenchFile(shell, dom, new File([tcx], "private-survey.tcx", {type: "application/xml"}));
+    choose();let review = await waitFor(() => document.querySelector(".browser-layer-registration"));
+    assert.equal(shell.__opengeoLayers.length, 0);button(review, "Cancel").click();assert.equal(shell.__opengeoLayers.length, 0);
+    choose();review = await waitFor(() => document.querySelector(".browser-layer-registration"));
+    assert.match(review.textContent, /3 mapped positions.*2 separate segments.*1 records without usable positions/);
+    assert.match(review.textContent, /no-position-segment-break; original retained/);assert.match(review.textContent, /physical device transfer are not implemented/);
+    const acknowledge = review.querySelector('[data-source-confirmation="rejections"]');assert.ok(acknowledge);assert.equal(acknowledge.checked, false);
+    review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));assert.equal(shell.__opengeoLayers.length, 0);assert.ok(review.isConnected);
+    assert.match(review.querySelector('[role="status"]').textContent, /Confirm that only valid positions/);
+    const originalDownload = button(review, "Download original Garmin TCX"), blobs = [], anchors = [];
+    const createUrl = URL.createObjectURL, revokeUrl = URL.revokeObjectURL, clickAnchor = dom.window.HTMLAnchorElement.prototype.click;
+    try {
+      URL.createObjectURL = blob => {blobs.push(blob);return "blob:original-tcx";};URL.revokeObjectURL = () => {};
+      dom.window.HTMLAnchorElement.prototype.click = function () {anchors.push({filename: this.download, href: this.href});};
+      originalDownload.click();await waitFor(() => blobs.length && !originalDownload.disabled);
+      assert.equal(await blobs[0].text(), tcx);assert.equal(blobs[0].type, "application/xml");assert.equal(anchors[0].filename, "private-survey.tcx");
+      await new Promise(resolve => setTimeout(resolve, 0));
+    } finally {URL.createObjectURL = createUrl;URL.revokeObjectURL = revokeUrl;dom.window.HTMLAnchorElement.prototype.click = clickAnchor;}
+    acknowledge.checked = true;acknowledge.dispatchEvent(new dom.window.Event("change"));
+    review.querySelector('[aria-label="Attribution"]').value = "Private field team; no publication grant";
+    review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
+    await waitFor(() => shell.__opengeoLayers.length === 1);
+    const layer = structuredClone(shell.__opengeoLayers[0]), data = structuredClone(shell.__opengeoData.get(layer.layerId));
+    assert.equal(layer.sourceType, "geojson-object");assert.equal(layer.geometryType, "GeometryCollection");assert.equal(layer.metadata.source.format, "garmin-tcx");
+    assert.deepEqual(data.features.map(feature => feature.geometry), [{type: "LineString", coordinates: [[85, 27], [85.1, 27.1]]}, {type: "Point", coordinates: [86, 28, 200]}]);
+    const fields = data.features[0].properties.garminTcx;assert.equal(fields.points[0].time, "2026-11-11T12:34:56.123400+05:45");
+    assert.deepEqual(fields.points.map(point => point.elevation), [100, null]);assert.equal(fields.verticalDatum, null);
+    assert.ok(fields.points[0].fields.some(field => field.namespace === "urn:original:garmin" && field.text === "1.2000"));
+    assert.equal(layer.metadata.source.report.rejectedRecords[0].reason, "no-position-segment-break");
+    assert.equal(new TextDecoder().decode((await originalGarminTcxFile(layer.metadata.source)).bytes), tcx);
+    const fresh = await saveAndFresh(shell), restored = fresh.__opengeoLayers.find(value => value.layerId === layer.layerId);
+    assert.ok(restored);assert.deepEqual(restored.metadata, layer.metadata);assert.deepEqual(restored.metadata.source.report, layer.interchange);
+    assert.equal(restored.metadata.curated.rejectedRecordPolicy, "explicit-omit-original-retained");
+    assert.deepEqual(fresh.__opengeoData.get(layer.layerId), data);assert.equal(restored.metadata.curated.attribution, "Private field team; no publication grant");
+    assert.equal(new TextDecoder().decode((await originalGarminTcxFile(restored.metadata.source)).bytes), tcx);
+  }));
+  await t.test("C02 deliberate address matches, source fields, color/icon categories and explicit height units survive Layer review and personal Save/fresh", async () => environment(async ({dom, mount, button, saveAndFresh}) => {
+    const requests = [], csv = "address,height,site,icon,id\n1 Main Street,100,Clinic,hospital,0007\n1 Main Street,200,School,school,0008\n";
+    const shell = mount({placeSearch: {address: async query => {requests.push(query);return {provider: "Photon/OpenStreetMap", sourceSha256: "a".repeat(64),
+      retrievedAt: "2026-11-11T00:00:00Z", candidates: [{id: "W123", label: "1 Main Street", rank: 1, latitude: 42.36, longitude: -71.06}]};}}});
+    await waitFor(() => shell.__opengeoLayers);chooseWorkbenchFile(shell, dom, new File([csv], "address-survey.csv", {type: "text/csv"}));
+    const wizard = await waitFor(() => document.querySelector(".delimited-text-import"));
+    const choose = (label, value) => {const input = wizard.querySelector(`[aria-label="${label}"]`);assert.ok(input, label);input.value = value;input.dispatchEvent(new dom.window.Event("change"));return input;};
+    assert.equal(wizard.querySelector('[aria-label="Source coordinate system"]').value, "");assert.deepEqual(requests, []);
+    choose("Location method", "addresses");choose("Address column", "address");assert.deepEqual(requests, []);
+    button(wizard, "Find address candidates").click();await waitFor(() => wizard.querySelector('[aria-label="Address match record 3"]'));
+    assert.deepEqual(requests, ["1 Main Street"]);assert.equal(wizard.querySelector('[aria-label="Address match record 2"]').value, "");
+    wizard.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));assert.equal(shell.__opengeoLayers.length, 0);
+    assert.match(wizard.querySelector('[role="status"]').textContent, /2 of 2 records cannot be mapped/);
+    assert.match(wizard.querySelector('[aria-label="Records that cannot be mapped"]').textContent, /Choose an exact address result/);
+    choose("Address match record 2", "0");choose("Address match record 3", "0");choose("Elevation column", "height");choose("Elevation unit", "foot");
+    choose("Vertical datum (optional)", "Operator-declared survey datum");choose("Label column", "site");choose("Color category column", "icon");
+    choose("Point color", "#123456");choose("Point icon", "hospital");choose("Icon column", "icon");
+    wizard.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));
+    const review = await waitFor(() => document.querySelector(".browser-layer-registration:not(.delimited-text-import)"));assert.equal(shell.__opengeoLayers.length, 0);
+    review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));await waitFor(() => shell.__opengeoLayers.length === 1);
+    const layer = structuredClone(shell.__opengeoLayers[0]), data = structuredClone(shell.__opengeoData.get(layer.layerId));
+    assert.deepEqual(data.features.map(feature => feature.geometry.coordinates), [[-71.06, 42.36, 30.48], [-71.06, 42.36, 60.96]]);
+    assert.deepEqual(data.features.map(feature => feature.properties.id), ["0007", "0008"]);assert.equal(data.features[0]["opengeo:geocoding"].id, "W123");
+    assert.deepEqual(layer.labels, {enabled: true, field: "site"});assert.equal(layer.style.circleColor, "#123456");assert.equal(layer.style.categoryField, "icon");
+    assert.deepEqual(layer.style.categorySymbols, {hospital: "hospital", school: "school"});assert.equal(layer.style.pointSymbol, "hospital");
+    assert.equal(layer.metadata.source.report.mapping.mode, "selected-address-results");assert.equal(layer.metadata.source.report.mapping.sourceProjection, null);
+    assert.equal(layer.metadata.source.report.mapping.verticalDatum, "Operator-declared survey datum");assert.equal(layer.metadata.source.report.geocoding.selected.length, 2);
+    assert.equal(new TextDecoder().decode((await originalDelimitedFile(layer.metadata.source)).bytes), csv);
+    const fresh = await saveAndFresh(shell), restored = fresh.__opengeoLayers.find(value => value.layerId === layer.layerId);
+    assert.deepEqual(restored.metadata, layer.metadata);assert.deepEqual(restored.style, layer.style);assert.deepEqual(fresh.__opengeoData.get(layer.layerId), data);
+    assert.deepEqual(requests, ["1 Main Street"]);
+  }));
+  await t.test("C01 managed TCX remains temporary with no authority and normal account Save excludes its source and geometry", async () => environment(async ({dom, mount}) => {
+    let saved, uploads = 0;
+    const shell = mount({role: "owner", publicDemo: false, persistenceMode: "api", importLocalFile: async () => {uploads++;throw Error("No upload authorized by local inspection");},
+      saveProject: async definition => {saved = structuredClone(definition);return {id: "52000000-0000-4000-8000-000000000002", version: 1, definition};}});
+    await waitFor(() => shell.__opengeoLayers);chooseWorkbenchFile(shell, dom, new File([tcx], "private-survey.tcx"));
+    const review = await waitFor(() => document.querySelector(".browser-layer-registration"));assert.match(review.textContent, /excluded from account Save/);
+    const acknowledge = review.querySelector('[data-source-confirmation="rejections"]');assert.ok(acknowledge);acknowledge.checked = true;acknowledge.dispatchEvent(new dom.window.Event("change"));
+    review.querySelector("form").dispatchEvent(new dom.window.Event("submit", {cancelable: true}));await waitFor(() => shell.__opengeoLayers.length === 1);
+    const layer = shell.__opengeoLayers[0];assert.equal(layer.temporaryWork.authority, "none");assert.equal(layer.metadata.source.format, "garmin-tcx");
+    assert.equal(shell.__opengeoData.get(layer.layerId).features.length, 2);
+    const workspaceId = "52000000-0000-4000-8000-000000000001", scopeId = "tcx-temporary-recovery";
+    const raw = serializeTemporaryWork({workspaceId, scopeId, layers: shell.__opengeoLayers, dataByLayerId: shell.__opengeoData});
+    const recovered = restoreTemporaryWork(raw, {workspaceId, scopeId});assert.equal(recovered.rejected, 0);assert.equal(recovered.entries.length, 1);
+    assert.equal(recovered.entries[0].layer.geometryType, "GeometryCollection");assert.deepEqual(recovered.entries[0].layer.metadata, layer.metadata);
+    assert.deepEqual(recovered.entries[0].geojson, shell.__opengeoData.get(layer.layerId));assert.equal(recovered.entries[0].layer.temporaryWork.authority, "none");
+    shell.querySelector(".gis-save-command").click();await waitFor(() => saved);
+    assert.deepEqual(saved.layers, []);assert.equal(uploads, 0);assert.equal(JSON.stringify(saved).includes("TrainingCenterDatabase"), false);
+  }));
+  await t.test("Places C01 actual owner Model creation and edit preserve original COLLADA, pose and altitude through personal Save/fresh", async () => environment(async ({mount, button, saveAndFresh}) => {
+    const shell = mount({role: "owner", project: {...emptyMapDefinition(), kmlPlaces: createPlacesDocument({name: "Owned models"})}});
+    const controls = await waitFor(() => shell.querySelector(".gis-kml-advanced-controls"));
+    const field = (label, value) => {const input = controls.querySelector(`[aria-label="${label}"]`);assert.ok(input, label);assert.equal(input.disabled, false);input.value = String(value);};
+    for (const [label, value] of Object.entries({"Model name": "Owned field model", "Model longitude": 85, "Model latitude": 27, "Model altitude metres": 100,
+      "Model heading degrees": 30, "Model tilt degrees": 15, "Model roll degrees": -7, "Model scale x": 20, "Model scale y": 30, "Model scale z": 50, "Model altitude mode": "absolute"})) field(label, value);
+    button(controls, "Create box Model").click();
+    const layer = await waitFor(() => shell.__opengeoLayers?.find(layer => layer.kmlDocument?.children.some(place => place.model)));
+    const place = layer.kmlDocument.children.find(place => place.model), original = structuredClone(layer.kmlDocument.resources[0]);
+    const originalHash = createHash("sha256").update(Buffer.from(original.dataBase64, "base64")).digest("hex");
+    assert.equal(place.name, "Owned field model");assert.deepEqual(place.geometry.coordinates, [85, 27, 100]);assert.equal(place.model.altitudeMode, "absolute");
+    assert.deepEqual(place.model.orientation, {heading: 30, tilt: 15, roll: -7});assert.deepEqual(place.model.scale, {x: 20, y: 30, z: 50});
+    assert.match(Buffer.from(original.dataBase64, "base64").toString(), /COLLADA/);assert.equal(original.path, place.model.link.href);
+    field("Model longitude", 86);field("Model altitude metres", 120);button(controls, "Apply Model changes").click();
+    await waitFor(() => layer.kmlDocument.children.find(value => value.id === place.id)?.model.location.longitude === 86);
+    const authored = structuredClone(layer.kmlDocument);assert.deepEqual(authored.resources[0], original);assert.deepEqual(authored.children[0].geometry.coordinates, [86, 27, 120]);
+    const fresh = await saveAndFresh(shell, {assetCount: 0}), restored = fresh.__opengeoLayers.find(value => value.layerId === layer.layerId);
+    assert.deepEqual(restored.kmlDocument, authored);assert.deepEqual(restored.kmlDocument.resources[0], original);
+    assert.equal(createHash("sha256").update(Buffer.from(restored.kmlDocument.resources[0].dataBase64, "base64")).digest("hex"), originalHash);
+  }));
+});
+
+it("private panorama source custody and draft recovery preserve PhotoOverlay authority", async t => {
+  const image = await readFile(new URL("./fixtures/panorama-equirect.png", import.meta.url));
+  const rights = {attribution: "OpenGeo synthetic private source", license: "CC0-1.0", privacyReviewed: true, exportAllowed: true};
+  const scene = await panoramaFromImageFile(new File([image], "panorama-equirect.png", {type: "image/png"}), {
+    id: "private-scene", title: "Private source panorama", position: [-71.06, 42.36], rights});
+  const catalog = {schemaVersion: "opengeo.panorama.1.0.0", scenes: [scene]};
+  const seed = () => ({...emptyMapDefinition(), extensions: {panoramas: structuredClone(catalog), panoramaView: null}});
+  const environment = async callback => {
+    const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
+    const restore = installDomGlobals(dom.window), shells = [], submitted = [];
+    const mount = ({project = seed(), role = "owner", restoreBrowserDraft = false} = {}) => {
+      const value = structuredClone(project);
+      const shell = WorkbenchView({workspace: {workspaceId: "50000000-0000-4000-8000-000000000001", title: "Private panorama"},
+        project: value, layers: value.layers ?? [], role, persistenceMode: "api", initialPanel: "history",
+        draftScopeId: "private-panorama-regression", restoreBrowserDraft,
+        saveProject: async definition => {submitted.push(structuredClone(definition));return {
+          id: "51000000-0000-4000-8000-000000000001", version: submitted.length + 1,
+          updatedAt: "2026-11-11T12:00:00Z", definition: structuredClone(definition)};}});
+      document.body.append(shell);shells.push(shell);return shell;
+    };
+    const action = (shell, name) => [...shell.querySelectorAll("button")].find(button => button.textContent === name);
+    const definition = async shell => (await waitFor(() => shell.getPrintContext?.())).project;
+    try {await callback({dom, mount, action, definition, submitted});}
+    finally {for (const shell of shells) {shell.dispose?.();shell.remove();}await Promise.resolve();restore();dom.window.close();}
+  };
+  const assertScene = definition => {
+    assert.deepEqual(definition.extensions.panoramas, catalog);
+    assert.equal(definition.extensions.panoramas.scenes[0].asset.sha256, scene.asset.sha256);
+    assert.deepEqual(definition.extensions.panoramas.scenes[0].rights, rights);
+    assert.equal(definition.extensions.panoramas.scenes[0].asset.dataUrl, scene.asset.dataUrl);
+  };
+  await t.test("normal Save and fresh mount retain the private asset and original spherical PhotoOverlay image", async () => environment(async ({mount, action, definition, submitted}) => {
+    const shell = mount();await definition(shell);
+    const create = await waitFor(() => action(shell, "Create KML PhotoOverlay from panorama"));assert.equal(create.disabled, false);create.click();
+    const authored = await definition(shell), layer = authored.layers.find(layer => layer.sourceType === "kml-places");assert.ok(layer);
+    const overlay = layer.kmlDocument.children.find(place => place.kind === "photo-overlay");assert.equal(overlay.shape, "sphere");
+    assert.deepEqual(overlay.point, [...scene.position, 1.7]);assert.match(overlay.description, new RegExp(scene.asset.sha256));
+    const resource = layer.kmlDocument.resources.find(resource => resource.path === overlay.icon.href);
+    assert.deepEqual(Buffer.from(resource.dataBase64, "base64"), image);assert.equal(resource.byteLength, image.length);
+    assert.equal(overlay.viewVolume.leftFov, -180);assert.equal(overlay.viewVolume.rightFov, 180);
+    shell.querySelector(".gis-save-command").click();await waitFor(() => shell.dataset.saveState === "saved");
+    assert.equal(submitted.length, 1);assertScene(submitted[0]);
+    shell.dispose();shell.remove();const fresh = mount({project: submitted[0]});const reopened = await definition(fresh);assertScene(reopened);
+    const reopenedLayer = reopened.layers.find(candidate => candidate.layerId === layer.layerId);
+    assert.deepEqual(reopenedLayer.kmlDocument, layer.kmlDocument);
+  }));
+  await t.test("newer browser draft restores panorama state over an older private Project source", async () => environment(async ({mount, action, definition}) => {
+    const shell = mount();await definition(shell);(await waitFor(() => action(shell, "Create KML PhotoOverlay from panorama"))).click();
+    const draftKey = Object.keys(localStorage).find(key => key.startsWith("opengeo.project.") && key.endsWith("private-panorama-regression"));assert.ok(draftKey);
+    assertScene(JSON.parse(localStorage.getItem(draftKey)));shell.dispose();shell.remove();
+    const fresh = mount({project: emptyMapDefinition(), restoreBrowserDraft: true});assertScene(await definition(fresh));
+    assert.ok(await waitFor(() => action(fresh, "Create KML PhotoOverlay from panorama")), "Restored state supplies the actual panorama authoring control");
+  }));
+  await t.test("viewer import, PhotoOverlay creation and Model mutations remain disabled", async () => environment(async ({mount, action, definition}) => {
+    const box = createBoxKmlModel({location: {longitude: -71, latitude: 42, altitude: 10}});
+    const places = normalizePlacesDocument({...createPlacesDocument(), resources: [box.resource], children: [box.place]});
+    const shell = mount({role: "viewer", project: {...seed(), kmlPlaces: places}});const before = await definition(shell);
+    const panoramaFile = await waitFor(() => shell.querySelector('[aria-label="Equirectangular panorama image"]'));assert.equal(panoramaFile.disabled, true);
+    const photo = action(shell, "Create KML PhotoOverlay from panorama"), model = action(shell, "Create box Model");
+    assert.ok(photo);assert.ok(model);assert.equal(photo.disabled, true);assert.equal(model.disabled, true);
+    photo.click();model.click();await Promise.resolve();assert.deepEqual(await definition(shell), before);
+  }));
+  await t.test("private source without reviewed export permission cannot become a portable PhotoOverlay", async () => environment(async ({mount, action, definition}) => {
+    const project = seed();project.extensions.panoramas.scenes[0].rights.exportAllowed = false;
+    const shell = mount({project});const before = await definition(shell);
+    const photo = await waitFor(() => action(shell, "Create KML PhotoOverlay from panorama"));assert.equal(photo.disabled, true);
+    photo.click();await Promise.resolve();assert.deepEqual(await definition(shell), before);
+    assert.equal((await definition(shell)).extensions.panoramas.scenes[0].rights.exportAllowed, false);
+  }));
+  await t.test("malformed panorama extensions remain retained for repair instead of becoming an empty catalog", async () => environment(async ({mount, definition}) => {
+    const original = {panoramas: {schemaVersion: "unrecognized", sourceId: "retain-original", nested: {knowledge: null}}, panoramaView: {sceneId: "missing", source: "retain-view"}};
+    const shell = mount({project: {...emptyMapDefinition(), extensions: structuredClone(original)}});
+    assert.deepEqual((await definition(shell)).extensions.panoramas, original.panoramas);
+    assert.deepEqual((await definition(shell)).extensions.panoramaView, original.panoramaView);
+    assert.match(shell.textContent, /Saved panorama content is invalid.*retained/);
+  }));
+});
 
 it("terrain source recovery closes its guard without map idle and ignores unqualified events", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {url:"https://studio.opengeo.tools/"});
@@ -176,6 +418,86 @@ it("graphics display and camera-fit failures after Catalog add keep one committe
   } finally {shell?.dispose?.();shell?.remove();restore();dom.window.close();}
 });
 
+it("partial graphics setup and asynchronous context failures detach callbacks and release each map once", async () => {
+  const dom = new JSDOM("<!doctype html><body></body>",{url:"https://studio.opengeo.tools/"});
+  const restore = installDomGlobals(dom.window), maps = [], releases = [], changes = [];
+  let shell;
+  const makeMap = () => {
+    const listeners = new Map(), history = new Map();
+    const map = {listeners,history,on(type,callback){
+      listeners.set(type,callback);history.set(type,callback);
+      if (maps.length === 1 && type === "error") throw Error("incomplete graphics event setup");
+    },off(type){listeners.delete(type);if(type === "cogstatus")throw Error("incomplete SDK teardown");},resize(){},
+    isStyleLoaded:()=>false,getZoom:()=>2,getBearing:()=>0,getPitch:()=>0,getCenter:()=>({lng:3,lat:4}),
+    getStyle:()=>({version:8,sources:{},layers:[]}),getLayer:()=>null};
+    maps.push(map);return map;
+  };
+  try {
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+    shell = WorkbenchView({workspace:{workspaceId:"50000000-0000-4000-8000-000000000001",title:"Graphics lifecycle"},
+      project:emptyMapDefinition(),role:"local",publicDemo:true,restoreBrowserDraft:false,
+      rendererAdapter:{id:"maplibre",initialize(){},registerProtocol(){},createMap:makeMap,
+        disposeMap(map){releases.push(map);throw Error("SDK disposal failed");}}});
+    shell.addEventListener("print-context-change",()=>changes.push(shell.getPrintContext()?.unavailableReason));
+    document.body.append(shell);
+    await waitFor(()=>shell.querySelector(".gis-map-startup-error"));
+    assert.equal(maps.length,1);assert.deepEqual(releases,[maps[0]]);
+    assert.equal(maps[0].listeners.size,0,"partial event setup removes all attempted bindings even if one off throws");
+    assert.match(changes.at(-1),/Map graphics unavailable/);
+    shell.querySelector(".gis-map-startup-error button").click();
+    await waitFor(()=>maps[1]?.listeners.has("error"));
+    assert.equal(shell.getPrintContext().map,maps[1]);assert.equal(changes.at(-1),null);
+    maps[0].history.get("webglcontextlost")({});
+    assert.equal(shell.getPrintContext().map,maps[1],"callbacks retained by a failed SDK cannot retire its replacement");
+    maps[1].listeners.get("error")({sourceId:"ordinary-source",error:Error("HTTP 404")});
+    assert.equal(shell.getPrintContext().map,maps[1],"ordinary source errors do not retire graphics");
+    maps[1].listeners.get("error")({error:Error("Failed to create a WebGL2 context")});
+    assert.equal(shell.getPrintContext().map,null);
+    assert.match(shell.querySelector('[data-status-field="loading"]').textContent,/graphics unavailable/);
+    assert.deepEqual(releases,maps,"failed SDK disposal is attempted only once for each map");
+    assert.doesNotThrow(()=>shell.dispose());assert.doesNotThrow(()=>shell.dispose());
+    assert.deepEqual(releases,maps);
+  } finally {shell?.dispose?.();shell?.remove();restore();dom.window.close();}
+});
+
+it("graphics startup deadline ends loading without losing data and cannot retire a replacement or disposed map", async () => {
+  const dom=new JSDOM("<!doctype html><body></body>",{url:"https://studio.opengeo.tools/"});
+  const restore=installDomGlobals(dom.window), originalSetTimeout=globalThis.setTimeout, originalClearTimeout=globalThis.clearTimeout;
+  const deadlines=[], maps=[], releases=[];let shell;
+  const layer={layerId:"deadline-layer",datasetId:"retained-dataset",title:"Retained while loading",sourceType:"geojson-object",geometryType:"Point",visible:true,style:{},labels:{enabled:false}};
+  const data={type:"FeatureCollection",features:[{type:"Feature",id:"retained-feature",properties:{name:"Retained"},geometry:{type:"Point",coordinates:[3,4]}}]};
+  try {
+    globalThis.setTimeout=(callback,delay,...args)=>{
+      if(delay!==15000)return originalSetTimeout(callback,delay,...args);
+      const deadline={callback,cleared:false};deadlines.push(deadline);return deadline;
+    };
+    globalThis.clearTimeout=handle=>{if(deadlines.includes(handle))handle.cleared=true;else originalClearTimeout(handle);};
+    globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__=false;
+    shell=WorkbenchView({workspace:{workspaceId:"50000000-0000-4000-8000-000000000001",title:"Bounded graphics startup"},
+      project:emptyMapDefinition(),role:"local",publicDemo:true,restoreBrowserDraft:false,layers:[layer],geojsonByLayerId:new Map([[layer.layerId,data]]),
+      rendererAdapter:{id:"maplibre",initialize(){},registerProtocol(){},createMap(){
+        const listeners=new Map(),map={on(type,callback){listeners.set(type,callback);},off(type){listeners.delete(type);},resize(){},
+          isStyleLoaded:()=>false,getZoom:()=>2,getBearing:()=>0,getPitch:()=>0,getCenter:()=>({lng:3,lat:4}),
+          getStyle:()=>({version:8,sources:{},layers:[]}),getLayer:()=>null};maps.push(map);return map;
+      },disposeMap(map){releases.push(map);}}});
+    document.body.append(shell);await waitFor(()=>deadlines.length===1&&shell.getPrintContext().map===maps[0]);
+    assert.match(shell.querySelector('[data-status-field="loading"]').textContent,/Loading/);
+    deadlines[0].callback();
+    assert.equal(shell.getPrintContext().map,null);assert.equal(shell.getPrintContext().ready,false);
+    assert.match(shell.querySelector('[data-status-field="loading"]').textContent,/graphics unavailable/);
+    assert.equal(deadlines[0].cleared,true);assert.deepEqual(releases,[maps[0]]);
+    assert.equal(shell.__opengeoLayers.length,1);assert.equal(shell.__opengeoLayers[0].layerId,layer.layerId);
+    assert.equal(shell.__opengeoData.get(layer.layerId),data);assert.deepEqual(shell.getPrintContext().project.mapViews[0].center,[3,4]);
+    shell.querySelector(".gis-map-startup-error button").click();await waitFor(()=>deadlines.length===2&&shell.getPrintContext().map===maps[1]);
+    deadlines[0].callback();assert.equal(shell.getPrintContext().map,maps[1],"late deadline from the retired renderer cannot affect its replacement");
+    assert.equal(shell.querySelector(".gis-map-startup-error"),null);
+    shell.dispose();assert.equal(deadlines[1].cleared,true);assert.deepEqual(releases,maps);
+    assert.doesNotThrow(()=>deadlines[1].callback());assert.deepEqual(releases,maps);
+    assert.equal(shell.getPrintContext(),null);assert.equal(shell.querySelector(".gis-map-startup-error"),null);
+    assert.equal(shell.__opengeoData.get(layer.layerId),data);
+  } finally {shell?.dispose?.();globalThis.setTimeout=originalSetTimeout;globalThis.clearTimeout=originalClearTimeout;shell?.remove();restore();dom.window.close();}
+});
+
 it("browser Catalog cancellation ignores late reads and permits a deliberate retry without adding a Layer", async () => {
   const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/"});
   const restore = installDomGlobals(dom.window); let shell;
@@ -245,12 +567,12 @@ it("selected Processing controls come first while unrelated analysis stays colla
     assert.equal(shell.querySelector('.gis-processing-selected-tool [aria-label="Tool"]').value,"bounds");
     assert.equal(shell.querySelector(".gis-processing-other-tools").open,true);
     const menu=shell.querySelector('[data-menu="processing"]');menu.querySelector("button").click();
-    const toolbox = [...shell.querySelectorAll('[role="menuitem"]')].find(button => button.textContent === "Processing Toolbox");
+    const toolbox = [...shell.querySelectorAll(".gis-menu-item")].find(button => button.textContent === "Processing Toolbox");
     assert.ok(toolbox); toolbox.click(); shell.dispatchEvent(new dom.window.Event("workbench:render"));
     assert.equal(shell.querySelector('.gis-processing-selected-tool [aria-label="Tool"]').value,"bounds");
     assert.equal(shell.querySelector('.gis-processing-other-tools').open,true);
     shell.querySelector('[data-menu="processing"] button').click();
-    [...shell.querySelectorAll('[role="menuitem"]')].find(button=>button.textContent==="Compare surface and terrain heights…").click();
+    [...shell.querySelectorAll(".gis-menu-item")].find(button=>button.textContent==="Compare surface and terrain heights…").click();
     shell.dispatchEvent(new dom.window.Event("workbench:render"));
     const focused=shell.querySelector(".gis-processing-other-tools");
     assert.equal(focused.contains(shell.querySelector(".gis-processing-selected-tool")),true);
@@ -343,6 +665,92 @@ it("Workbench save shortcuts use the existing enabled command and respect modal,
     const listenersBeforeDispose = keyListeners.size; shell.dispose(); assert.equal(keyListeners.size, listenersBeforeDispose - 1);
     assert.equal(send(shell).defaultPrevented, false); assert.equal(saves, completedSaves);
   } finally {for (const shell of shells) {shell.dispose?.(); shell.remove();} restore(); dom.window.close();}
+});
+
+it("authoritative Save refreshes browser recovery camera without losing newer or external drafts", async t => {
+  for (const mode of ["late-camera", "pending-own-edit", "external-draft", "rejected-save", "storage-failure"]) await t.test(mode, async () => {
+    const dom = new JSDOM("<!doctype html><body></body>", {url: "https://studio.opengeo.tools/workspaces"});
+    const restore = installDomGlobals(dom.window), shells = [];
+    const workspaceId = "50000000-0000-4000-8000-000000000001", draftScopeId = `camera-save-${mode}`;
+    const key = `opengeo.project.${workspaceId}.${draftScopeId}`;
+    const old = {id: "primary", title: "Primary", center: [0, 20], zoom: 2, pitch: 0, bearing: 0, roll: 0};
+    const views = [old, {...old, id: "london", title: "London view", center: [-0.12, 51.5], zoom: 12},
+      {...old, id: "address", title: "Address view", center: [-71.06, 42.36], zoom: 16}];
+    let camera, submitted, complete, reject, originalSet;
+    const storagePrototype = Object.getPrototypeOf(dom.window.localStorage);
+    const readDraft = () => JSON.parse(dom.window.localStorage.getItem(key));
+    const click = (shell, label) => {
+      const control = [...shell.querySelectorAll("button")].find(node => node.textContent.trim() === label);
+      assert.ok(control, label);assert.equal(control.disabled, false, label);control.click();
+    };
+    const mount = (definition = emptyMapDefinition({mapViews: views}), restoreBrowserDraft = false) => {
+      const shell = WorkbenchView({workspace: {workspaceId, title: "Camera recovery"}, role: "owner", project: definition,
+        layers: definition.layers, persistenceMode: "api", draftScopeId, restoreBrowserDraft,
+        saveProject: async value => {
+          submitted = structuredClone(value);
+          await new Promise((resolve, fail) => {complete = resolve;reject = fail;});
+          return {id: "51000000-0000-4000-8000-000000000001", version: 2, definition: submitted};
+        },
+        rendererAdapter: {id: "maplibre", initialize() {}, registerProtocol() {}, disposeMap() {}, createMap(options) {
+          camera = {center: [...options.center], zoom: options.zoom, pitch: options.pitch, bearing: options.bearing, roll: options.roll};
+          return {on() {}, off() {}, resize() {}, isStyleLoaded: () => false, getStyle: () => ({version: 8, sources: {}, layers: []}),
+            getLayer: () => null, getCenter: () => ({lng: camera.center[0], lat: camera.center[1]}),
+            getZoom: () => camera.zoom, getPitch: () => camera.pitch, getBearing: () => camera.bearing, getRoll: () => camera.roll};
+        }}});
+      document.body.append(shell);shells.push(shell);return shell;
+    };
+    try {
+      globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = false;
+      const shell = mount();await waitFor(() => camera);
+      click(shell, "Move Address view up");
+      assert.deepEqual(readDraft().mapViews[0].center, old.center);
+      const before = dom.window.localStorage.getItem(key);
+      camera = {center: [-71.05, 42.35], zoom: 15, pitch: 25, bearing: 12, roll: 17};
+      if (mode === "storage-failure") {
+        originalSet = Object.getOwnPropertyDescriptor(storagePrototype, "setItem");
+        Object.defineProperty(storagePrototype, "setItem", {configurable: true, value(name, value) {
+          if (name === key) throw Error("Synthetic browser storage failure");
+          return originalSet.value.call(this, name, value);
+        }});
+      }
+      click(shell, "Save");await waitFor(() => submitted);
+      if (mode === "pending-own-edit") {
+        const input = shell.querySelector('[data-saved-view-id="london"] input');
+        input.value = "London edited while saving";input.dispatchEvent(new dom.window.Event("input"));
+        click(shell, "Rename London view");
+      }
+      let external;
+      if (mode === "external-draft") {
+        external = JSON.stringify({...readDraft(), mapViews: [{...old, center: [10, 30], roll: -15}, ...readDraft().mapViews.slice(1)]});
+        dom.window.localStorage.setItem(key, external);
+      }
+      if (mode === "rejected-save") {
+        reject(Error("Synthetic server failure"));await waitFor(() => shell.dataset.saveState === "error");
+        assert.equal(dom.window.localStorage.getItem(key), before, "A rejected server Save preserves the existing recovery draft");return;
+      }
+      complete();await waitFor(() => shell.dataset.saveState === "saved");
+      if (mode === "storage-failure") {
+        assert.equal(dom.window.localStorage.getItem(key), before);
+        assert.match(shell.querySelector('[data-status-field="message"]').textContent, /browser draft.*could not.*refreshed/i);
+        assert.equal(shell.dataset.saveState, "saved", "A recovery-storage failure does not undo the acknowledged server Save");return;
+      }
+      if (mode === "external-draft") {
+        assert.equal(dom.window.localStorage.getItem(key), external, "A different tab's recovery draft must survive this Save acknowledgement");return;
+      }
+      assert.deepEqual(readDraft().mapViews[0], submitted.mapViews[0], "Successful Save refreshes the late native camera including roll");
+      const expectedViews = mode === "pending-own-edit"
+        ? [...submitted.mapViews.slice(0, 2), {...submitted.mapViews[2], title: "London edited while saving"}] : submitted.mapViews;
+      assert.deepEqual(readDraft().mapViews, expectedViews, "Own edits made during Save remain recovery drafts");
+      shell.dispose();shell.remove();camera = null;
+      const reopened = mount(submitted, true);await waitFor(() => camera);
+      assert.deepEqual(reopened.getPrintContext().project.mapViews, expectedViews);
+      assert.equal(camera.roll, 17);assert.deepEqual(camera.center, [-71.05, 42.35]);
+    } finally {
+      if (originalSet) Object.defineProperty(storagePrototype, "setItem", originalSet);
+      for (const shell of shells) {shell.dispose?.();shell.remove();}
+      restore();dom.window.close();
+    }
+  });
 });
 
 it("invalid optional social baseline data does not prevent opening the Project", () => {
@@ -705,7 +1113,7 @@ describe("public workbench demo source boundary", () => {
       const project=()=>workbench.querySelector('.gis-menubar [data-menu="project"]');
       assert.equal(workbench.querySelector(".gis-toolstrip").firstElementChild.className,"gis-menubar");
       assert.equal(project(),workbench.querySelector(".gis-menubar").firstElementChild);
-      project().querySelector("button").click();const menu=project().querySelector('[role="menu"]');
+      project().querySelector("button").click();const menu=project().querySelector(".gis-menu-dropdown");
       for (const label of ["Demo home","Sample datasets","New empty demo map","Reset public demo","About demo privacy"]) assert.equal([...menu.querySelectorAll("button")].some(b=>b.textContent.includes(label)),demo,label);
       for (const label of ["Save on this device","Projects on this device","Open Project file…","Open Print Studio"]) assert.ok(menu.textContent.includes(label),label);
       if (!demo) {assert.ok(menu.textContent.includes("Open application home"));assert.ok(menu.textContent.includes("Browse projects"));assert.equal(workbench.querySelector('.gis-app-nav a[href="/?view=examples"]'),null);}

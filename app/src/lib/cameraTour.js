@@ -1,12 +1,15 @@
 import {captureMapView, normalizeMapView, normalizeProjection} from "./globeView.js";
+import {normalizeTourScene, normalizeTourExchange} from "./tourMedia.js";
 
 export const CAMERA_TOUR_SCHEMA_VERSION = "opengeo.camera-tour.1.0.0";
 export const CAMERA_TOUR_LAYER_SCHEMA_VERSION = "opengeo.camera-tour.1.1.0";
+export const CAMERA_TOUR_EVENT_SCHEMA_VERSION = "opengeo.camera-tour.1.2.0";
 
 export const CAMERA_TOUR_LIMITS = Object.freeze({
   maximumKeyframes: 64,
   maximumLayerVisibilityBindings: 64,
   maximumSerializedBytes: 256 * 1024,
+  maximumEventSerializedBytes: 16 * 1024 * 1024,
   maximumTitleCharacters: 240,
   maximumKeyframeTitleCharacters: 160,
   maximumTransitionMilliseconds: 60_000,
@@ -48,14 +51,15 @@ export function createCameraTour({
 
 export function normalizeCameraTour(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw tourError("camera_tour_invalid");
-  if (![CAMERA_TOUR_SCHEMA_VERSION, CAMERA_TOUR_LAYER_SCHEMA_VERSION].includes(value.schemaVersion)) {
+  if (![CAMERA_TOUR_SCHEMA_VERSION, CAMERA_TOUR_LAYER_SCHEMA_VERSION, CAMERA_TOUR_EVENT_SCHEMA_VERSION].includes(value.schemaVersion)) {
     throw tourError("camera_tour_version_unsupported");
   }
   if (!Array.isArray(value.keyframes) || !value.keyframes.length) throw tourError("camera_tour_keyframes_required");
   if (value.keyframes.length > CAMERA_TOUR_LIMITS.maximumKeyframes) throw tourError("camera_tour_keyframe_limit");
   const ids = new Set();
-  const layerEvents = value.schemaVersion === CAMERA_TOUR_LAYER_SCHEMA_VERSION;
-  const keyframes = value.keyframes.map((keyframe, index) => normalizeKeyframe(keyframe, index, ids, layerEvents));
+  const sceneEvents = value.schemaVersion === CAMERA_TOUR_EVENT_SCHEMA_VERSION;
+  const layerEvents = value.schemaVersion === CAMERA_TOUR_LAYER_SCHEMA_VERSION || sceneEvents && value.keyframes.some(frame => Object.hasOwn(frame, "layerVisibility"));
+  const keyframes = value.keyframes.map((keyframe, index) => normalizeKeyframe(keyframe, index, ids, layerEvents, sceneEvents));
   if (layerEvents) {
     if (!Object.hasOwn(keyframes[0], "layerVisibility")) throw tourError("camera_tour_layer_baseline_required");
     const baseline = keyframes[0].layerVisibility;
@@ -74,10 +78,11 @@ export function normalizeCameraTour(value) {
     bindings: normalizeBindings(value.bindings),
     keyframes
   };
+  if (sceneEvents && value.exchange) normalized.exchange = normalizeTourExchange(value.exchange);
   if (cameraTourDurationMilliseconds(normalized) > CAMERA_TOUR_LIMITS.maximumDurationMilliseconds) {
     throw tourError("camera_tour_duration_limit");
   }
-  if (utf8Length(JSON.stringify(normalized)) > CAMERA_TOUR_LIMITS.maximumSerializedBytes) {
+  if (utf8Length(JSON.stringify(normalized)) > (sceneEvents ? CAMERA_TOUR_LIMITS.maximumEventSerializedBytes : CAMERA_TOUR_LIMITS.maximumSerializedBytes)) {
     throw tourError("camera_tour_serialized_limit");
   }
   return normalized;
@@ -111,7 +116,17 @@ export function captureCameraTourLayerVisibility(tour, keyframeId, snapshot) {
   }
   const keyframes = structuredClone(normalized.keyframes);
   keyframes[index].layerVisibility = snapshot;
-  return normalizeCameraTour({...normalized, schemaVersion: CAMERA_TOUR_LAYER_SCHEMA_VERSION, keyframes});
+  return normalizeCameraTour({...normalized, schemaVersion: normalized.schemaVersion === CAMERA_TOUR_EVENT_SCHEMA_VERSION ? CAMERA_TOUR_EVENT_SCHEMA_VERSION : CAMERA_TOUR_LAYER_SCHEMA_VERSION, keyframes});
+}
+
+/** Record a complete portable scene at arrival; the preceding scene holds during travel. */
+export function captureCameraTourScene(tour, keyframeId, scene) {
+  const normalized = normalizeCameraTour(tour);
+  const index = normalized.keyframes.findIndex(frame => frame.id === keyframeId);
+  if (index < 0) throw tourError("camera_tour_keyframe_not_found");
+  const keyframes = structuredClone(normalized.keyframes);
+  keyframes[index].scene = normalizeTourScene(scene);
+  return normalizeCameraTour({...normalized, schemaVersion: CAMERA_TOUR_EVENT_SCHEMA_VERSION, keyframes});
 }
 
 export function addCameraTourKeyframe(tour, camera, {
@@ -145,7 +160,7 @@ export function updateCameraTourKeyframe(tour, keyframeId, patch = {}) {
   const index = normalized.keyframes.findIndex(({id}) => id === keyframeId);
   if (index < 0) throw tourError("camera_tour_keyframe_not_found");
   const keyframes = structuredClone(normalized.keyframes);
-  const allowed = ["title", "camera", "transitionMilliseconds", "holdMilliseconds", "easing"];
+  const allowed = ["title", "camera", "transitionMilliseconds", "holdMilliseconds", "easing", ...(normalized.schemaVersion === CAMERA_TOUR_EVENT_SCHEMA_VERSION ? ["scene"] : [])];
   for (const key of allowed) if (Object.hasOwn(patch, key)) keyframes[index][key] = structuredClone(patch[key]);
   return normalizeCameraTour({...normalized, keyframes});
 }
@@ -205,6 +220,7 @@ export function cameraTourFrameAt(value, requestedElapsedMilliseconds) {
         return {
           camera: interpolateCamera(previous.camera, current.camera, progress),
           ...layerVisibilityFrame(tour, index - 1),
+          ...sceneFrame(tour, index - 1),
           elapsedMilliseconds,
           durationMilliseconds,
           keyframeIndex: index,
@@ -220,6 +236,7 @@ export function cameraTourFrameAt(value, requestedElapsedMilliseconds) {
       return {
         camera: structuredClone(current.camera),
         ...layerVisibilityFrame(tour, index),
+        ...sceneFrame(tour, index),
         elapsedMilliseconds,
         durationMilliseconds,
         keyframeIndex: index,
@@ -234,6 +251,7 @@ export function cameraTourFrameAt(value, requestedElapsedMilliseconds) {
   return {
     camera: structuredClone(tour.keyframes[keyframeIndex].camera),
     ...layerVisibilityFrame(tour, keyframeIndex),
+    ...sceneFrame(tour, keyframeIndex),
     elapsedMilliseconds: durationMilliseconds,
     durationMilliseconds,
     keyframeIndex,
@@ -244,22 +262,28 @@ export function cameraTourFrameAt(value, requestedElapsedMilliseconds) {
 }
 
 export function exportCameraTour(value) {
-  return `${JSON.stringify(normalizeCameraTour(value), null, 2)}\n`;
+  const normalized = normalizeCameraTour(value), maximum = normalized.schemaVersion === CAMERA_TOUR_EVENT_SCHEMA_VERSION
+    ? CAMERA_TOUR_LIMITS.maximumEventSerializedBytes : CAMERA_TOUR_LIMITS.maximumSerializedBytes;
+  const pretty = `${JSON.stringify(normalized, null, 2)}\n`;
+  return utf8Length(pretty) <= maximum ? pretty : JSON.stringify(normalized);
 }
 
 export function parseCameraTour(text) {
   if (typeof text !== "string") throw tourError("camera_tour_text_required");
-  if (utf8Length(text) > CAMERA_TOUR_LIMITS.maximumSerializedBytes) throw tourError("camera_tour_serialized_limit");
+  const size = utf8Length(text);
+  if (size > CAMERA_TOUR_LIMITS.maximumEventSerializedBytes) throw tourError("camera_tour_serialized_limit");
   let value;
   try {
     value = JSON.parse(text);
   } catch {
     throw tourError("camera_tour_json_invalid");
   }
+  if (size > (value?.schemaVersion === CAMERA_TOUR_EVENT_SCHEMA_VERSION ? CAMERA_TOUR_LIMITS.maximumEventSerializedBytes : CAMERA_TOUR_LIMITS.maximumSerializedBytes))
+    throw tourError("camera_tour_serialized_limit");
   return normalizeCameraTour(value);
 }
 
-function normalizeKeyframe(value, index, ids, layerEvents) {
+function normalizeKeyframe(value, index, ids, layerEvents, sceneEvents) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw tourError("camera_tour_keyframe_invalid");
   const id = identifier(value.id, "camera_tour_keyframe_id_invalid");
   if (ids.has(id)) throw tourError("camera_tour_keyframe_id_duplicate");
@@ -270,7 +294,7 @@ function normalizeKeyframe(value, index, ids, layerEvents) {
   const keyframe = {
     id,
     title: boundedText(value.title, CAMERA_TOUR_LIMITS.maximumKeyframeTitleCharacters, "camera_tour_keyframe_title_invalid"),
-    camera: normalizeTourCamera(value.camera),
+    camera: normalizeTourCamera(value.camera, sceneEvents),
     transitionMilliseconds,
     holdMilliseconds: boundedDuration(value.holdMilliseconds, CAMERA_TOUR_LIMITS.maximumHoldMilliseconds, "camera_tour_hold_invalid"),
     easing: EASINGS.has(value.easing) ? value.easing : "smooth"
@@ -278,6 +302,10 @@ function normalizeKeyframe(value, index, ids, layerEvents) {
   if (Object.hasOwn(value, "layerVisibility")) {
     if (!layerEvents) throw tourError("camera_tour_layer_visibility_version_required");
     keyframe.layerVisibility = normalizeLayerVisibility(value.layerVisibility);
+  }
+  if (Object.hasOwn(value, "scene")) {
+    if (!sceneEvents) throw tourError("camera_tour_scene_version_required");
+    keyframe.scene = normalizeTourScene(value.scene);
   }
   return keyframe;
 }
@@ -326,7 +354,8 @@ function alignLayerVisibility(snapshot, baseline) {
 }
 
 function layerVisibilityFrame(tour, index) {
-  if (tour.schemaVersion !== CAMERA_TOUR_LAYER_SCHEMA_VERSION) return {};
+  if (![CAMERA_TOUR_LAYER_SCHEMA_VERSION, CAMERA_TOUR_EVENT_SCHEMA_VERSION].includes(tour.schemaVersion)
+    || !tour.keyframes.some(frame => Object.hasOwn(frame, "layerVisibility"))) return {};
   for (let current = index; current >= 0; current -= 1) {
     if (Object.hasOwn(tour.keyframes[current], "layerVisibility")) {
       return {layerVisibility: structuredClone(tour.keyframes[current].layerVisibility)};
@@ -335,7 +364,22 @@ function layerVisibilityFrame(tour, index) {
   throw tourError("camera_tour_layer_baseline_required");
 }
 
-function normalizeTourCamera(value) {
+function sceneFrame(tour, index) {
+  if (tour.schemaVersion !== CAMERA_TOUR_EVENT_SCHEMA_VERSION) return {};
+  const scene = {};let cursor = 0, sceneKeyframeId = null, sceneStartedMilliseconds = 0, audioStartedMilliseconds;
+  for (let current = 0; current <= index; current++) {
+    const frame = tour.keyframes[current];cursor += current ? frame.transitionMilliseconds : 0;
+    if (frame.scene) {
+      Object.assign(scene, structuredClone(frame.scene));sceneKeyframeId = frame.id;sceneStartedMilliseconds = cursor;
+      if (Object.hasOwn(frame.scene, "audio")) audioStartedMilliseconds = cursor;
+    }
+    cursor += frame.holdMilliseconds;
+  }
+  return sceneKeyframeId ? {scene, sceneKeyframeId, sceneStartedMilliseconds,
+    ...(audioStartedMilliseconds !== undefined ? {audioStartedMilliseconds} : {})} : {};
+}
+
+function normalizeTourCamera(value, extended = false) {
   if (!Array.isArray(value?.center)
     || value.center.length !== 2
     || !value.center.every(Number.isFinite)
@@ -360,7 +404,13 @@ function normalizeTourCamera(value) {
     pitch: value?.pitch,
     bearing: value?.bearing
   });
-  return {center: view.center, zoom: view.zoom, pitch: view.pitch, bearing: view.bearing};
+  const camera = {center: view.center, zoom: view.zoom, pitch: view.pitch, bearing: view.bearing};
+  if (extended) for (const field of ["roll", "elevation", "centerClampedToGround"]) if (Object.hasOwn(value, field)) {
+    if (field === "centerClampedToGround" ? typeof value[field] !== "boolean" : !Number.isFinite(value[field]) || field === "roll" && Math.abs(value[field]) > 180)
+      throw tourError("camera_tour_camera_invalid");
+    camera[field] = value[field];
+  }
+  return camera;
 }
 
 function normalizeBindings(value) {
@@ -379,7 +429,7 @@ function normalizeBindings(value) {
 }
 
 function interpolateCamera(start, end, progress) {
-  return {
+  const camera = {
     center: [
       normalizeLongitude(start.center[0] + shortestAngle(start.center[0], end.center[0]) * progress),
       round(start.center[1] + (end.center[1] - start.center[1]) * progress)
@@ -388,6 +438,10 @@ function interpolateCamera(start, end, progress) {
     pitch: round(start.pitch + (end.pitch - start.pitch) * progress),
     bearing: normalizeBearing(start.bearing + shortestAngle(start.bearing, end.bearing) * progress)
   };
+  if (Object.hasOwn(start, "roll") || Object.hasOwn(end, "roll")) camera.roll = normalizeBearing((start.roll ?? 0) + shortestAngle(start.roll ?? 0, end.roll ?? 0) * progress);
+  if (Object.hasOwn(start, "elevation") || Object.hasOwn(end, "elevation")) camera.elevation = round((start.elevation ?? 0) + ((end.elevation ?? 0) - (start.elevation ?? 0)) * progress);
+  if (Object.hasOwn(start, "centerClampedToGround") || Object.hasOwn(end, "centerClampedToGround")) camera.centerClampedToGround = start.centerClampedToGround ?? true;
+  return camera;
 }
 
 function shortestAngle(start, end) {

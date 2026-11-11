@@ -10,6 +10,7 @@ import {validatePrintTextFrames} from "./printTextFrames.js";
 import {historicalImageryForSave, historicalImageryBasemap} from "./historicalImagery.js";
 import {customBasemapDefinition, publicBasemapUrl} from "./basemapSource.js";
 import {BASEMAPS} from "./workbenchConfig.js";
+import {printDocumentLanguage} from "./printAccessibility.js";
 
 export const standardPageSizes = [
   {size: "Letter", orientation: "portrait", widthMm: 216, heightMm: 279},
@@ -78,7 +79,7 @@ export function printCaptureOutputSignature(frame, dpi) {
 
 export const PROJECT_PRINT_SCHEMA = "opengeo.project-print-layouts.1";
 export const PROJECT_PRINT_EXTENSION = "opengeoPrintLayouts";
-const frameKeys = ["id", "parentId", "title", "xMm", "yMm", "widthMm", "heightMm", "view", "projection", "presentation", "basemaps", "historicalImagery"];
+const frameKeys = ["id", "parentId", "title", "description", "xMm", "yMm", "widthMm", "heightMm", "view", "projection", "presentation", "basemaps", "historicalImagery"];
 const dataFrameKeys = ["id", "type", "title", "xMm", "yMm", "widthMm", "heightMm", "mapFrameId", "source", "rowLimit"];
 const dataSourceKeys = ["layerId", "datasetId", "datasetVersionId", "sourceVersion"];
 const presentationKeys = ["layerId", "datasetId", "datasetVersionId", "sourceVersion", "managedDisplayId", "visible", "opacity", "opacityMode", "style", "labels", "filter", "styleReference", "pointClustering"];
@@ -189,8 +190,9 @@ export function validateProjectPrintLayouts(value, map) {
   const layers = new Map((map.definition?.layers ?? []).map(layer => [layer.layerId, layer]));
   const ids = new Set();
   for (const layout of value.layouts) {
-    closedPrintObject(layout, ["id", "title", "page", "frames", "dataFrames", "textFrames", "dpi", "legend", "legendFormat", "northArrow", "scaleBar", "graticule", "sourceNotes", "caption"]);
+    closedPrintObject(layout, ["id", "title", "language", "page", "frames", "dataFrames", "textFrames", "dpi", "legend", "legendFormat", "northArrow", "scaleBar", "graticule", "sourceNotes", "caption"]);
     printText(layout.id, 100);printText(layout.title, 200);printText(layout.caption, 2000, true);
+    printDocumentLanguage(layout);
     if (ids.has(layout.id)) throw Error("Print layout identities must be unique.");ids.add(layout.id);
     closedPrintObject(layout.page, ["size", "orientation", "widthMm", "heightMm", "marginMm"]);
     const page = layout.page;
@@ -205,6 +207,7 @@ export function validateProjectPrintLayouts(value, map) {
     if (frameIds.size !== layout.frames.length || layout.frames[0].parentId !== null) throw Error("Invalid map frame identities.");
     for (const frame of layout.frames) {
       closedPrintObject(frame, frameKeys);printText(frame.id, 100);printText(frame.title, 200);
+      if (Object.hasOwn(frame, "description")) printText(frame.description, 4000, true);
       if (frame.parentId !== null && frame.parentId !== layout.frames[0].id) throw Error("An inset must name its main map frame.");
       printNumber(frame.xMm, 0, page.widthMm);printNumber(frame.yMm, 0, page.heightMm);
       printNumber(frame.widthMm, 10, page.widthMm);printNumber(frame.heightMm, 10, page.heightMm);

@@ -1,8 +1,9 @@
-import {readDelimitedFile, inspectDelimitedText, mapDelimitedText} from "../lib/delimitedTextImport.js";
+import {readDelimitedFile, inspectDelimitedText, mapDelimitedText, mapDelimitedAddresses} from "../lib/delimitedTextImport.js";
 import {STYLE_PALETTES} from "../lib/workbenchConfig.js";
+import {POINT_SYMBOLS, normalizePointSymbolStyle} from "../lib/pointSymbols.js";
 import {DELIMITED_TEMPLATE_SCHEMA, DELIMITED_TEMPLATE_MAX_BYTES, normalizeDelimitedImportTemplate, readDelimitedImportTemplate, writeDelimitedImportTemplate} from "../lib/delimitedImportTemplate.js";
 
-export async function DelimitedTextImport({file, shell, isCurrent = () => true, maximumFeatures = 5_000, onReview}) {
+export async function DelimitedTextImport({file, shell, isCurrent = () => true, maximumFeatures = 5_000, addressSearch = null, onReview}) {
   const source = await readDelimitedFile(file);
   if (!isCurrent()) return null;
   const dialog = document.createElement("dialog");dialog.className = "browser-layer-registration delimited-text-import";
@@ -17,10 +18,18 @@ export async function DelimitedTextImport({file, shell, isCurrent = () => true, 
   };
   const delimiter = select("Separator", [[",", "Comma"], ["\t", "Tab"], [";", "Semicolon"], ["|", "Pipe"]]);delimiter.input.value = /\.tsv$/i.test(file.name) ? "\t" : ",";
   const projection = select("Source coordinate system", [["", "Choose the source coordinate system"], ["EPSG:4326", "WGS 84 · longitude / latitude in degrees"], ["EPSG:3857", "Web Mercator · easting / northing in metres"]]);
+  const mode = select("Location method", [["coordinates", "Source coordinates"], ["addresses", "Select Photon address results"]]);
+  const address = select("Address column", [], false);
+  const addressNote = text("p", "Address lookup sends only the chosen column's address text to the governed Photon service after your explicit action. At most twenty records; every result needs a deliberate selection.");
+  const findAddresses = text("button", "Find address candidates");findAddresses.type = "button";
+  const addressResults = document.createElement("div");addressResults.setAttribute("aria-label", "Address result selections");
   const x = select("Longitude / easting column", []), y = select("Latitude / northing column", []), elevation = select("Elevation column", [], false), name = select("Label column", [], false);
   const units = select("Elevation unit", [["meter", "Metres"], ["foot", "International feet"], ["us-survey-foot", "US survey feet"]]);
   const colorLabel = text("label", "Point color"), color = document.createElement("input");color.type = "color";color.value = "#06b6d4";color.setAttribute("aria-label", "Point color");colorLabel.append(color);
   const category = select("Color category column", [], false);
+  const builtinSymbols = POINT_SYMBOLS.filter(symbol => symbol.collection === "builtin");
+  const icon = select("Point icon", builtinSymbols.map(symbol => [symbol.id, symbol.label]));
+  const iconColumn = select("Icon column", [], false);
   const categoryPalettes = STYLE_PALETTES.filter(([, , colors]) => colors.length);
   const colors = select("Category palette", categoryPalettes.map(([id, title]) => [id, title]));colors.input.value = "opengeo";colors.input.disabled = true;
   const colorNote = text("p", "One color applies to every point. Source values remain text.");
@@ -39,13 +48,18 @@ export async function DelimitedTextImport({file, shell, isCurrent = () => true, 
   const submit = text("button", "Review Layer");submit.type = "submit";
   const cancel = text("button", "Cancel");cancel.type = "button";
   let closed = false;
-  const close = () => {closed = true;dialog.close();dialog.remove();};cancel.onclick = close;
+  let addressGeneration = 0, selectedAddresses = new Map(), addressStarts = 0;
+  const cachedAddressResponses = new Map();
+  const clearAddresses = () => {addressGeneration++;selectedAddresses.clear();addressResults.replaceChildren();
+    submit.disabled = !table;findAddresses.disabled = typeof addressSearch !== "function";};
+  const close = () => {closed = true;clearAddresses();dialog.close();dialog.remove();};cancel.onclick = close;
   dialog.addEventListener("cancel", event => {event.preventDefault();close();});
   let table;
   const parse = () => {
     try {
       table = inspectDelimitedText(source, delimiter.input.value);status.textContent = `${table.rows.length} records · ${table.columns.length} columns · ${source.bytes} bytes. Source values remain text.`;issues.replaceChildren();
-      for (const field of [x, y, elevation, name, category]) {
+      clearAddresses();
+      for (const field of [x, y, elevation, name, category, address, iconColumn]) {
         field.input.replaceChildren();for (const [i, title] of ["Choose a column", ...table.columns].entries()) {const option = text("option", i ? title : field === category ? "One color" : field === elevation || field === name ? "None" : title);option.value = i ? title : "";field.input.append(option);}
       }
       updateColorChoice();
@@ -54,6 +68,50 @@ export async function DelimitedTextImport({file, shell, isCurrent = () => true, 
       const grid = document.createElement("table"), head = document.createElement("thead"), tr = document.createElement("tr");for (const title of table.columns) tr.append(text("th", title));head.append(tr);grid.append(head);
       const body = document.createElement("tbody");for (const row of table.rows.slice(0, 5)) {const tr = document.createElement("tr");for (const value of row) tr.append(text("td", value));body.append(tr);}grid.append(body);preview.replaceChildren(grid);submit.disabled = false;
     } catch (error) {table = null;status.textContent = error.message;preview.replaceChildren();submit.disabled = true;}
+  };
+  const updateLocationMethod = () => {
+    clearAddresses();const addresses = mode.input.value === "addresses";
+    for (const field of [projection, x, y]) {field.wrapper.hidden = addresses;field.input.disabled = addresses;}
+    for (const node of [address.wrapper, addressNote, findAddresses, addressResults]) node.hidden = !addresses;
+    findAddresses.disabled = !addresses || typeof addressSearch !== "function";
+    if (addresses && typeof addressSearch !== "function") status.textContent = "This workspace has no authorized address-search connection. Coordinate import remains available.";
+  };
+  mode.input.onchange = updateLocationMethod;address.input.onchange = clearAddresses;
+  findAddresses.onclick = async () => {
+    if (closed || !isCurrent() || !table || mode.input.value !== "addresses" || typeof addressSearch !== "function") return;
+    clearAddresses();const generation = addressGeneration;
+    if (!table.columns.includes(address.input.value) || table.rows.length > 20) {status.textContent = "Choose an address column with at most twenty source records.";return;}
+    const queries = table.rows.map(row => row[table.columns.indexOf(address.input.value)]?.trim() ?? "");
+    if (queries.some(query => !query || query.length > 256)) {status.textContent = "Each address must contain 1–256 characters; edit empty or longer source records first.";return;}
+    findAddresses.disabled = true;submit.disabled = true;status.textContent = "Finding address candidates…";
+    try {
+      const responses = new Map();
+      for (const query of new Set(queries)) {
+        if (closed || !isCurrent() || generation !== addressGeneration) return;
+        if (!cachedAddressResponses.has(query) && addressStarts >= 20) throw Error("This file reached its twenty-query address budget. Retain completed results and reduce the remaining source records.");
+        let response = cachedAddressResponses.get(query);
+        if (!response) {addressStarts++;response = await addressSearch(query);}
+        if (closed || !isCurrent() || generation !== addressGeneration) return;
+        if (response?.provider !== "Photon/OpenStreetMap" || !Array.isArray(response.candidates) || response.candidates.length > 20)
+          throw Error("The governed address response is outside its declared result limits.");
+        responses.set(query, response);
+        cachedAddressResponses.set(query, response);
+      }
+      for (const [index, query] of queries.entries()) {
+        const response = responses.get(query), record = index + 2;
+        const choices = select(`Address match record ${record}`, [["", "Choose an exact result"], ...response.candidates.map((candidate, i) => [String(i), `${candidate.rank}: ${candidate.label} · ${candidate.latitude}, ${candidate.longitude} · ${candidate.id}`])], false);
+        choices.input.onchange = () => {
+          if (closed || !isCurrent() || generation !== addressGeneration) return;
+          const candidate = choices.input.value === "" ? null : response.candidates[Number(choices.input.value)];
+          if (!candidate) selectedAddresses.delete(record);
+          else selectedAddresses.set(record, {...structuredClone(candidate), record, query, provider: response.provider,
+            sourceSha256: response.sourceSha256 ?? null, retrievedAt: response.retrievedAt ?? null});
+        };
+        addressResults.append(choices.wrapper);
+      }
+      status.textContent = "Choose each exact result. Provider rank is not confidence. Source rows, original bytes and attribution will remain in the review.";
+    } catch (error) {if (!closed && generation === addressGeneration) status.textContent = `Address lookup failed: ${error.message}`;}
+    finally {if (!closed && generation === addressGeneration) {findAddresses.disabled = false;submit.disabled = false;}}
   };
   delimiter.input.onchange = parse;
   const settings = () => normalizeDelimitedImportTemplate({schemaVersion: DELIMITED_TEMPLATE_SCHEMA,
@@ -99,20 +157,38 @@ export async function DelimitedTextImport({file, shell, isCurrent = () => true, 
     event.preventDefault();if (submit.disabled || !table) return;
     if (!isCurrent()) {status.textContent = "The Project has changed. Close this import and choose the file again.";submit.disabled = true;return;}
     try {
-      const parsed = mapDelimitedText(table, {xColumn: x.input.value, yColumn: y.input.value, sourceProjection: projection.input.value, elevationColumn: elevation.input.value || null, elevationUnit: units.input.value, verticalDatum: datum.value, skipInvalid: skip.checked, maximumFeatures});
+      const common = {elevationColumn: elevation.input.value || null, elevationUnit: units.input.value, verticalDatum: datum.value, skipInvalid: skip.checked, maximumFeatures};
+      const parsed = mode.input.value === "addresses"
+        ? mapDelimitedAddresses(table, {...common, addressColumn: address.input.value, resolutions: [...selectedAddresses.values()]})
+        : mapDelimitedText(table, {...common, xColumn: x.input.value, yColumn: y.input.value, sourceProjection: projection.input.value});
       if (!/^#[0-9a-f]{6}$/i.test(color.value)) throw new Error("Choose a valid Point color.");
-      const categoryField = category.input.value || null;
+      const iconField = iconColumn.input.value || null;
+      if (iconField && category.input.value && category.input.value !== iconField) throw Error("Use the same category column for icon and color mapping, or choose one uniform color.");
+      const categoryField = category.input.value || iconField;
       if (categoryField && !table.columns.includes(categoryField)) throw new Error("Choose an available color category column.");
       const selectedPalette = categoryPalettes.find(([id]) => id === colors.input.value);
       if (categoryField && !selectedPalette) throw new Error("Choose a category palette.");
-      const style = {renderer: categoryField ? "category" : "single", circleColor: color.value, circleRadius: 6, stroke: color.value, strokeWidth: 2,
-        ...(categoryField ? {categoryField, paletteName: selectedPalette[0], palette: [...selectedPalette[2]]} : {})};
-      const pointPresentation = {mode: style.renderer, color: color.value, categoryField, paletteName: categoryField ? selectedPalette[0] : null};
+      let categorySymbols;
+      if (iconField) {
+        categorySymbols = {};
+        for (const feature of parsed.geojson.features) {
+          const symbol = feature.properties[iconField];
+          if (!builtinSymbols.some(candidate => candidate.id === symbol)) throw Error(`Icon column values must be exact built-in identities: ${builtinSymbols.map(symbol => symbol.id).join(", ")}.`);
+          categorySymbols[symbol] = symbol;
+        }
+      }
+      const style = normalizePointSymbolStyle({renderer: categoryField ? "category" : "single", circleColor: color.value, circleRadius: 6, stroke: color.value, strokeWidth: 2,
+        pointSymbol: icon.input.value, ...(categorySymbols ? {categorySymbols} : {}),
+        ...(categoryField ? {categoryField, paletteName: selectedPalette[0], palette: category.input.value ? [...selectedPalette[2]] : [color.value]} : {})});
+      const pointPresentation = {mode: style.renderer, color: color.value, categoryField, paletteName: categoryField ? selectedPalette[0] : null,
+        icon: icon.input.value, ...(iconField ? {iconColumn: iconField, categorySymbols} : {})};
       const labelField = name.input.value || null;close();onReview({...parsed, labelField, style, pointPresentation});
     } catch (error) {
       status.textContent = error.message;issues.replaceChildren(...(error.report?.rejectedRecords ?? []).slice(0, 10).map(row => text("li", `Record ${row.record}: ${row.reason}`)));
     }
   };
-  form.append(text("h2", "Import delimited coordinates"), text("p", `${source.filename} · Choose columns and the source coordinate system. Preview changes nothing; the next step reviews the Layer. Local files stay in this browser.`), templates, delimiter.wrapper, projection.wrapper, x.wrapper, y.wrapper, elevation.wrapper, units.wrapper, datumLabel, name.wrapper, colorLabel, category.wrapper, colors.wrapper, colorNote, skipLabel, preview, status, issues, submit, cancel);
-  dialog.append(form);document.body.append(dialog);parse();dialog.showModal();projection.input.focus();return dialog;
+  form.append(text("h2", "Import delimited coordinates"), text("p", `${source.filename} · Choose columns and the source coordinate system. Preview changes nothing; the next step reviews the Layer. Original files stay in this browser; address lookup sends only deliberate queries.`), templates, delimiter.wrapper, mode.wrapper, projection.wrapper, x.wrapper, y.wrapper,
+    address.wrapper, addressNote, findAddresses, addressResults, elevation.wrapper, units.wrapper, datumLabel, name.wrapper, colorLabel, category.wrapper, colors.wrapper, colorNote,
+    icon.wrapper, iconColumn.wrapper, skipLabel, preview, status, issues, submit, cancel);
+  dialog.append(form);document.body.append(dialog);parse();updateLocationMethod();dialog.showModal();projection.input.focus();return dialog;
 }

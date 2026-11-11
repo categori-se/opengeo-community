@@ -18,7 +18,7 @@ test("expanded attributes reuse the table and retain filtering, selection, scrol
     table.scrollTop = 12;
     table.scrollLeft = 24;
     assert.equal(table.querySelectorAll("tbody tr").length, 1);
-    assert.equal(table.querySelector("tbody tr").getAttribute("aria-selected"), "true");
+    assert.equal(table.querySelector("tbody tr button").getAttribute("aria-pressed"), "true");
     const expand = button(panel, "Expand table");
     expand.click();
     assert.equal(panel.querySelector("table"), table);
@@ -43,7 +43,7 @@ test("expanded attributes reuse the table and retain filtering, selection, scrol
     panel = shell.querySelector(".gis-attributes-panel");
     assert.equal(panel.classList.contains("gis-attributes-expanded"), true);
     assert.equal(panel.querySelectorAll("tbody tr").length, 2);
-    assert.equal(panel.querySelector('tr[data-feature-index="1"]').getAttribute("aria-selected"), "true");
+    assert.equal(panel.querySelector('tr[data-feature-index="1"] button').getAttribute("aria-pressed"), "true");
   });
 });
 
