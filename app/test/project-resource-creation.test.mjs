@@ -45,6 +45,128 @@ afterEach(() => {
   harness = null;
 });
 
+describe("GeoNode package import", () => {
+  const migrationPackage = {
+    source_product: "geonode", source_version: "5.1.0",
+    source_commit: "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+    source_url: "https://geonode.example.test",
+    resources: [{uuid: "33333333-3333-4333-8333-333333333333", resource_type: "geoapp", subtype: "geostory", title: "Access story"}],
+    relationships: []
+  };
+
+  it("imports only on deliberate action, refreshes the catalog and exposes retained conversion losses as text", async () => {
+    const imported = resource({kind: "story", slug: "access-story", visibility: "restricted",
+      metadata: {title: "Access story"}, content: {blocks: []}, provenance: {source_product: "geonode"}});
+    imported.state = "review";
+    const calls = [];
+    const report = {summary: {convertedPublications: 1, publicationLosses: 1}, publications: [{
+      profile: "geonode-geostory", blocks: 2, offlineReady: false,
+      losses: [{path: "sections[1]", reason: "<img src=x onerror=alert(1)> retained map"}]
+    }]};
+    const adapter = {
+      async importGeoNodeResources(projectId, value) {calls.push({projectId, value}); return {resources: [imported], report, idempotent: false};},
+      async listResources() {return [imported];},
+      async getResource() {return imported;}
+    };
+    const state = projectState(adapter);
+    const root = ProjectResources({state});
+    const panel = root.querySelector(".project-resource-geonode-import");
+    const source = panel.querySelector('[aria-label="GeoNode package JSON"]');
+    source.value = JSON.stringify(migrationPackage);
+    source.dispatchEvent(new harness.dom.window.Event("input"));
+    assert.equal(calls.length, 0);
+    clickButton(panel, "Import GeoNode package");
+    await waitFor(() => panel.textContent.includes("1 publication conversion loss"));
+    assert.deepEqual(calls, [{projectId: IDS.project, value: migrationPackage}]);
+    assert.equal(state.resources[0].state, "review");
+    assert.equal(state.resources[0].visibility, "restricted");
+    assert.equal(root.querySelector(".project-resource-card").dataset.resourceId, imported.id);
+    assert.match(panel.textContent, /preserved without a usable local conversion/);
+    assert.match(panel.querySelector('[aria-label="GeoNode conversion report"]').textContent, /retained map/);
+    assert.equal(panel.querySelector('[role="status"]').querySelector("pre"), null);
+    assert.doesNotMatch(panel.querySelector('[role="status"]').textContent, /onerror/);
+    const conversionPanel = panel.querySelector("details");
+    assert.equal(conversionPanel.hidden, false);
+    assert.equal(conversionPanel.open, false);
+    assert.equal(panel.querySelector("img"), null);
+    assert.equal(source.value, JSON.stringify(migrationPackage));
+    clickButton(root, "Open resource");
+    await waitFor(() => root.querySelector(".project-resource-detail").textContent.includes("Access story"));
+  });
+
+  it("keeps every imported resource available for review beyond the bounded catalog page", async () => {
+    const imported = resource({kind: "story", slug: "z-access-story", visibility: "restricted",
+      metadata: {title: "Z access story"}, content: {blocks: []}, provenance: {}});
+    const firstPage = Array.from({length: 100}, (_, index) => ({...imported,
+      id: `90000000-0000-4000-8000-${String(index + 1000).padStart(12, "0")}`,
+      slug: `a-catalog-${index}`, title: `A catalog ${index}`
+    }));
+    const state = projectState({
+      async importGeoNodeResources() {return {resources: [imported], idempotent: false, report: {summary: {}, publications: []}};},
+      async listResources(_projectId, filters) {assert.equal(filters.limit, 100); return firstPage;},
+      async getResource(_projectId, resourceId) {assert.equal(resourceId, imported.id); return imported;}
+    });
+    const root = ProjectResources({state});
+    const panel = root.querySelector(".project-resource-geonode-import");
+    panel.querySelector("textarea").value = JSON.stringify(migrationPackage);
+    clickButton(panel, "Import GeoNode package");
+    await waitFor(() => panel.textContent.includes("Imported: 1 resource"));
+    assert.equal(state.resources.length, 101);
+    const importedCard = root.querySelector(`[data-resource-id="${imported.id}"]`);
+    assert.ok(importedCard);
+    clickButton(importedCard, "Open resource");
+    await waitFor(() => root.querySelector(".project-resource-detail").textContent.includes("Z access story"));
+  });
+
+  it("keeps committed imports when catalog readback fails and reuses their existing identity", async () => {
+    const imported = resource({kind: "document", slug: "existing-note", visibility: "restricted",
+      metadata: {title: "Existing note"}, content: {blocks: []}, provenance: {}});
+    let writes = 0, reads = 0;
+    const state = projectState({
+      async importGeoNodeResources() {writes++; return {resources: [imported], idempotent: true, report: {summary: {}, publications: []}};},
+      async listResources() {reads++; throw Error("catalog temporarily unavailable");}
+    });
+    state.resources = [imported];
+    const root = ProjectResources({state});
+    const panel = root.querySelector(".project-resource-geonode-import");
+    panel.querySelector("textarea").value = JSON.stringify(migrationPackage);
+    clickButton(panel, "Import GeoNode package");
+    await waitFor(() => panel.textContent.includes("Existing import reused"));
+    assert.equal(writes, 1); assert.equal(reads, 1);
+    assert.equal(state.resources.length, 1);
+    assert.equal(root.querySelectorAll(".project-resource-card").length, 1);
+    assert.doesNotMatch(panel.textContent, /was not imported/);
+  });
+
+  it("retains rejected source text, prevents invalid packages and hides import actions from readers/reviewers", async () => {
+    let writes = 0;
+    const adapter = {async importGeoNodeResources() {writes++; throw Object.assign(Error("denied"), {code: "http_403"});}};
+    const root = ProjectResources({state: projectState(adapter)});
+    const panel = root.querySelector(".project-resource-geonode-import");
+    const source = panel.querySelector("textarea");
+    for (const invalid of ["{", JSON.stringify({...migrationPackage, source_version: "5.0.0"}),
+      JSON.stringify({...migrationPackage, resources: []}), " ".repeat(262_145)]) {
+      source.value = invalid;
+      clickButton(panel, "Import GeoNode package");
+      await waitFor(() => !findButton(panel, "Import GeoNode package").disabled);
+      assert.equal(source.value, invalid);
+      assert.match(panel.textContent, /retained/);
+    }
+    assert.equal(writes, 0);
+    source.value = JSON.stringify(migrationPackage);
+    clickButton(panel, "Import GeoNode package");
+    await waitFor(() => panel.textContent.includes("http_403"));
+    assert.equal(writes, 1);
+    assert.equal(source.value, JSON.stringify(migrationPackage));
+    for (const role of ["viewer", "reviewer"]) {
+      const state = projectState(adapter); state.project.callerRole = role;
+      const restricted = ProjectResources({state}).querySelector(".project-resource-geonode-import");
+      assert.equal(findButton(restricted, "Import GeoNode package"), null);
+      assert.equal(restricted.querySelector("textarea"), null);
+    }
+  });
+});
+
 describe("resource discovery filters", () => {
   it("submits spatial and UTC temporal coverage filters with existing project facets and rejects invalid ranges before the API", async () => {
     const calls = [];

@@ -30,6 +30,7 @@ from opengeo_api.geonode_adapter import (
     assert_safe_geonode_tree,
     build_geonode_import_plan,
     export_geonode_resource,
+    geonode_import_readback_report,
     geonode_metadata_values,
 )
 from opengeo_api.ingestion import IngestionRepository
@@ -2114,7 +2115,7 @@ async def import_geonode(
     return GeoNodeImportResponse(
         idempotent=result.idempotent,
         resources=[resource_response(resource) for resource in result.resources],
-        report=result.report,
+        report=geonode_import_readback_report(plan, result.resources),
     )
 
 

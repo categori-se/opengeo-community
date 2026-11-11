@@ -1,0 +1,86 @@
+{
+  "source_product": "geonode",
+  "source_version": "5.1.0",
+  "source_commit": "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9",
+  "source_url": "https://github.com/GeoNode/geonode",
+  "resources": [
+    {
+      "uuid": "93333333-3333-4333-8333-333333333351",
+      "resource_type": "geostory",
+      "title": "MapStore GeoStory title and paragraph profile",
+      "abstract": "An extracted title and paragraph profile from the exact MapStore source bundled by GeoNode 5.1.0. The GeoNode request envelope is a local acceptance fixture, not a live GeoNode export.",
+      "language": "en",
+      "attribution": "MapStore2 upstream test fixture, geosolutions-it",
+      "detail_url": "https://github.com/geosolutions-it/MapStore2/blob/0f3518737f29f4049b131247ce981e94519d9ab0/web/client/test-resources/geostory/sampleStory_1.json",
+      "data": {
+        "type": "cascade",
+        "sections": [
+          {
+            "type": "title",
+            "id": "SomeID_title",
+            "title": "Abstract",
+            "contents": [
+              {
+                "id": "SomeID",
+                "type": "text",
+                "background": {},
+                "html": "<p>this is some <a>html</a> content</p>"
+              }
+            ]
+          },
+          {
+            "type": "paragraph",
+            "id": "SomeID",
+            "title": "Abstract",
+            "contents": [
+              {
+                "id": "b0c570d8-12e6-4b5d-be7f-67326e9f30de",
+                "type": "column",
+                "size": "full",
+                "align": "center",
+                "contents": [
+                  {
+                    "id": "SomeID",
+                    "type": "text",
+                    "background": {},
+                    "html": "<p>this is some html content</p>"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "source_fixture": {
+        "repository": "https://github.com/geosolutions-it/MapStore2",
+        "commit": "0f3518737f29f4049b131247ce981e94519d9ab0",
+        "path": "web/client/test-resources/geostory/sampleStory_1.json",
+        "url": "https://github.com/geosolutions-it/MapStore2/blob/0f3518737f29f4049b131247ce981e94519d9ab0/web/client/test-resources/geostory/sampleStory_1.json",
+        "git_blob": "9beb011604ddea3888e1691b2dd34b035a120610",
+        "sha256": "b75dacd96e4e7173dac7a414eb92a05344532d6556f32b0abd22f842de40cf70",
+        "bytes": 4328,
+        "retained_path": "parity/fixtures/geonode/mapstore-0f351873-sampleStory_1.json",
+        "profile": "Extracted native GeoStory title and paragraph text; local GeoNode import envelope.",
+        "extraction_paths": [
+          "$.type",
+          "$.sections[2]",
+          "$.sections[0]",
+          "$.sections[0].contents[0].contents[0]"
+        ],
+        "extraction_method": "Copy the title section verbatim. Copy the paragraph section and its first column wrapper, retaining only that column's first text content. Put the title section before the paragraph section.",
+        "omitted_paths": [
+          "$.description",
+          "$.sections[0].contents[0].contents[1]",
+          "$.sections[1]",
+          "$.sections[3]",
+          "$.sections[4]"
+        ],
+        "geonode_mapstore_client": {
+          "version": "5.1.0",
+          "commit": "7ca4822125b67999c97cb4aa1faa84b8a28eee9b"
+        }
+      }
+    }
+  ],
+  "relationships": []
+}

@@ -37,6 +37,7 @@ export function ProjectResources({state}) {
     recordCatalogPanel(state),
     metadataProfileManager(state),
     metadataImportPanel(state, catalog, count, detail),
+    geoNodeImportPanel(state, catalog, count, detail),
     resourceFilters(state, catalog, count, detail),
     catalog,
     detail
@@ -464,6 +465,106 @@ function metadataImportPanel(state, catalog, count, detail) {
     result
   );
   return panel;
+}
+
+function geoNodeImportPanel(state, catalog, count, detail) {
+  const panel = editorPanel("Import GeoNode package", "GeoNode 5.1.0");
+  panel.classList.add("project-resource-geonode-import");
+  const allowed = state.organization.callerRole === "admin"
+    || ["owner", "editor"].includes(state.project.callerRole);
+  if (!allowed || typeof state.adapter.importGeoNodeResources !== "function") {
+    panel.append(text(
+      "p",
+      "A project owner or editor can import a GeoNode package for review.",
+      "project-resource-feedback"
+    ));
+    return panel;
+  }
+  const source = labeledTextarea("GeoNode package JSON", "", 262_144);
+  source.control.placeholder = "Paste a GeoNode 5.1.0 resource package, including its source identity and relationships.";
+  const submit = text("button", "Import GeoNode package", "platform-button");
+  submit.type = "button";
+  const result = text(
+    "div",
+    "Imports up to 50 resources into restricted drafts or review. Source permissions are preserved for review; importing does not publish content or copy remote data.",
+    "project-resource-feedback"
+  );
+  result.setAttribute("role", "status");
+  result.ariaLive = "polite";
+  const conversionPanel = document.createElement("details");
+  conversionPanel.hidden = true;
+  const conversion = text("pre", "", "project-resource-metadata-export");
+  conversion.ariaLabel = "GeoNode conversion report";
+  conversionPanel.append(text("summary", "Conversion report"), conversion);
+  submit.addEventListener("click", async () => {
+    if (submit.disabled) return;
+    submit.disabled = true;
+    result.textContent = "Validating and importing the GeoNode package…";
+    conversionPanel.hidden = true;
+    conversion.textContent = "";
+    try {
+      const migrationPackage = geoNodePackage(source.control.value);
+      const imported = await state.adapter.importGeoNodeResources(state.project.id, migrationPackage);
+      // The import has committed. Keep its returned records if catalog readback
+      // fails so a failed follow-up read never invites replaying the write.
+      const records = new Map((state.resources ?? []).map((resource) => [resource.id, resource]));
+      for (const resource of imported.resources) records.set(resource.id, resource);
+      state.resources = [...records.values()];
+      const refreshed = new Map((await refreshedResources(state, null)).map((resource) => [resource.id, resource]));
+      // Catalog readback is bounded and title-sorted. Retain every imported ID
+      // even when its title places it beyond that page, preferring fresh rows.
+      for (const resource of imported.resources) {
+        if (!refreshed.has(resource.id)) refreshed.set(resource.id, resource);
+      }
+      state.resources = [...refreshed.values()];
+      catalog.replaceChildren(...resourceCatalog(state, state.resources, detail).childNodes);
+      count.textContent = resourceCount(state.resources);
+      const report = imported.report;
+      const summary = report.summary ?? {};
+      const converted = Number.isSafeInteger(summary.convertedPublications) ? summary.convertedPublications : 0;
+      const losses = Number.isSafeInteger(summary.publicationLosses) ? summary.publicationLosses : 0;
+      result.replaceChildren(text(
+        "p",
+        `${imported.idempotent ? "Existing import reused" : "Imported"}: ${imported.resources.length} resource${imported.resources.length === 1 ? "" : "s"}; ${converted} converted publication${converted === 1 ? "" : "s"}; ${losses} publication conversion ${losses === 1 ? "loss" : "losses"}. Review the imported resources below before publishing.`
+      ));
+      if (losses > 0 || (Array.isArray(report.publications)
+        && report.publications.some((publication) => !publication.offlineReady))) {
+        result.append(text(
+          "p",
+          "Some source elements remain preserved without a usable local conversion. Review the conversion report and complete those resources before publishing."
+        ));
+      }
+      conversion.textContent = JSON.stringify(report, null, 2);
+      conversionPanel.hidden = false;
+    } catch (error) {
+      result.textContent = error instanceof SyntaxError
+        ? "Enter a valid JSON package. Your source text has been retained."
+        : `GeoNode package was not imported (${error?.code ?? error?.message ?? "invalid_geonode_package"}). Your source text has been retained.`;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  panel.append(source.label, submit, result, conversionPanel);
+  return panel;
+}
+
+function geoNodePackage(source) {
+  if (new TextEncoder().encode(source).byteLength > 262_144) {
+    throw new Error("package exceeds 256 KiB");
+  }
+  const value = JSON.parse(source);
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("a package object is required");
+  }
+  if (value.source_product !== "geonode" || value.source_version !== "5.1.0"
+    || value.source_commit !== "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9") {
+    throw new Error("the package must identify the supported GeoNode 5.1.0 source");
+  }
+  if (!Array.isArray(value.resources) || value.resources.length < 1 || value.resources.length > 50
+    || (value.relationships !== undefined && (!Array.isArray(value.relationships) || value.relationships.length > 200))) {
+    throw new Error("a package requires 1–50 resources and at most 200 relationships");
+  }
+  return value;
 }
 
 function defaultStacImportDocument() {

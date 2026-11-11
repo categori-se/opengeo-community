@@ -9712,3 +9712,45 @@ it("navigation place lookups preserve selected project, organization and cancell
   await assert.rejects(client.locateNavigationPlace(IDS.project, "https://example.test/"));
   assert.equal(calls.length, 3);
 });
+
+describe("GeoNode package import adapter", () => {
+  const sourceCommit = "a1db97e81dfc26c16bb4ee1a5d2b408877af66c9";
+  const migrationPackage = {
+    source_product: "geonode", source_version: "5.1.0", source_commit: sourceCommit,
+    source_url: "https://geonode.example.test", resources: [{uuid: IDS.resource, resource_type: "geostory", title: "Energy access"}],
+    relationships: []
+  };
+
+  it("sends the pinned package through shared authentication and preserves native conversion losses", async () => {
+    const calls = [];
+    const report = {summary: {convertedPublications: 1, publicationLosses: 1}, publications: [{
+      profile: "geonode-geostory", blocks: 2, offlineReady: false,
+      losses: [{path: "sections[1].map", reason: "Source map retained without local data"}]
+    }]};
+    const client = new OpenGeoApiClient({tokenProvider: () => "owner-token", organizationProvider: () => IDS.organization,
+      fetchImplementation: async (url, options) => {
+        calls.push({url, options});
+        return jsonResponse({source_product: "geonode", source_version: "5.1.0", source_commit: sourceCommit,
+          idempotent: false, resources: [resourceDetailPayload({state: "review", visibility: "restricted"})], report});
+      }});
+    const result = await client.importGeoNodeResources(IDS.project, migrationPackage);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, `/api/projects/${IDS.project}/resources/imports/geonode`);
+    assert.equal(calls[0].options.method, "POST");
+    assert.equal(calls[0].options.headers.get("authorization"), "Bearer owner-token");
+    assert.equal(calls[0].options.headers.get("X-OpenGeo-Organization"), IDS.organization);
+    assert.equal(calls[0].options.credentials, "omit");
+    assert.deepEqual(JSON.parse(calls[0].options.body), migrationPackage);
+    assert.deepEqual(result.report, report);
+    assert.equal(result.resources[0].state, "review");
+    assert.equal(result.resources[0].visibility, "restricted");
+  });
+
+  it("never dispatches an anonymous package import", async () => {
+    let calls = 0;
+    const client = new OpenGeoApiClient({tokenProvider: () => null,
+      fetchImplementation: async () => {calls++; return jsonResponse({});}});
+    await assert.rejects(client.importGeoNodeResources(IDS.project, migrationPackage), error => error.code === "authentication_required");
+    assert.equal(calls, 0);
+  });
+});

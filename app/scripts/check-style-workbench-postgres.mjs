@@ -11,7 +11,18 @@ import {unzipSync, strFromU8} from "fflate";
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const config = JSON.parse(input);
-assert.ok(Number.isInteger(config.apiPort) && config.apiPort > 0 && config.apiPort < 65536);
+assert.ok(config.apiSocket ? typeof config.apiSocket === "string" && config.apiSocket.startsWith("/")
+  : Number.isInteger(config.apiPort) && config.apiPort > 0 && config.apiPort < 65536);
+const geonode = config.geonodePublication;
+const geonodeStarted = Date.now();
+const geonodeUsagePath = geonode ? resolve(geonode.artifactDirectory, geonode.finishOnly ? "finish-browser-transport-usage.json" : "browser-transport-usage.json") : null;
+const geonodePrior = geonode?.resume && !geonode.finishOnly ? JSON.parse(await readFile(geonodeUsagePath, "utf8")) : null;
+if (geonode) {
+  assert.ok(!config.artifact && !config.projectSnapshotOnly && !config.compositionGuestOnly && !config.accountMetadataOnly,
+    "GeoNode acceptance selects only its declared publication journey");
+  for (const field of ["maximumApiRequests", "maximumBrowserRequests", "maximumMilliseconds", "maximumWrites", "maximumBytes"])
+    assert.ok(Number.isSafeInteger(geonode[field]) && geonode[field] > 0, `GeoNode ${field} must be bounded`);
+}
 assert.ok(!config.projectSnapshotPaint || config.projectSnapshotOnly, 'Painting belongs to the selected snapshot journey');
 assert.ok(!config.projectSnapshotPaintOnly || config.projectSnapshotPaint, 'Minimal painting implies painting');
 assert.ok(!config.offlineExportOnly || config.projectSnapshotPaint, 'Offline export requires the normal painted map');
@@ -24,23 +35,29 @@ assert.ok(component && client && css);
 const workbenchFile = (await readdir(resolve(dist, "_import/components"))).find(name => /^WorkbenchView\.[a-f0-9]+\.js$/.test(name));
 const workbenchUrl = `/_import/components/${workbenchFile}`;
 const workbenchSource = await readFile(resolve(dist, "_import/components", workbenchFile), "utf8");
-const layoutOnlyJourney = config.compositionGuestOnly || config.projectSnapshotOnly;
+const layoutOnlyJourney = config.compositionGuestOnly || config.projectSnapshotOnly || geonode;
 const styleImport = layoutOnlyJourney ? null : workbenchSource.match(/from "([^"\n]*layerStyleReference[^"\n]*)"/)[1];
 const maplibreImport = layoutOnlyJourney ? null : workbenchSource.match(/import maplibregl from "([^"\n]*)"/)[1];
 const requests = [];
-let apiRequestsStarted = 0;
+let apiRequestsStarted = geonodePrior?.apiRequests ?? 0;
+let geonodeWrites = geonodePrior?.writes ?? 0, geonodeBrowserRequests = geonodePrior?.browserRequests ?? 0,
+  geonodeTransferredBytes = geonodePrior?.transferredBytes ?? 0;
+const localUploads = geonodePrior?.localUploads ?? [];
 const snapshotCreateAttempts = [];
 let loseSnapshotCreateResponse = Boolean(config.projectSnapshotOnly), snapshotCreateResponseLost = false;
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   if (url.pathname.startsWith("/api/")) {
-    if ((config.offlineExportOnly || config.publicationHistoryOnly || config.accountMetadataOnly) && apiRequestsStarted >= 60) {
+    if (((config.offlineExportOnly || config.publicationHistoryOnly || config.accountMetadataOnly) && apiRequestsStarted >= 60)
+      || (geonode && (apiRequestsStarted >= geonode.maximumApiRequests
+        || (!["GET", "HEAD", "OPTIONS"].includes(req.method) && geonodeWrites >= geonode.maximumWrites)))) {
       requests.push({method:req.method,path:url.pathname,status:429});
       res.writeHead(429,{"content-type":"application/json"});
       res.end(JSON.stringify({error:{code:'local_request_limit',message:'Offline export acceptance request ceiling reached'}}));
       return;
     }
     apiRequestsStarted++;
+    if (geonode && !["GET", "HEAD", "OPTIONS"].includes(req.method)) geonodeWrites++;
     const snapshotCreate = config.projectSnapshotOnly && req.method === "POST"
       && /^\/api\/projects\/[a-f0-9-]+\/maps$/.test(url.pathname);
     const attempt = snapshotCreate ? {path:url.pathname, actor:req.headers.authorization, body:""} : null;
@@ -48,10 +65,15 @@ const server = createServer(async (req, res) => {
       snapshotCreateAttempts.push(attempt);
       req.on("data", chunk => {attempt.body += chunk;});
     }
-    const upstream = request({hostname: "127.0.0.1", port: config.apiPort,
+    const upstream = request({...config.apiSocket ? {socketPath:config.apiSocket} : {hostname: "127.0.0.1", port: config.apiPort},
       path: req.url.slice(4), method: req.method, headers: req.headers}, response => {
       requests.push({method: req.method, path: url.pathname, status: response.statusCode,
+        ...(geonode ? {authenticated:Boolean(req.headers.authorization)} : {}),
         ...(config.offlineExportOnly || config.publicationHistoryOnly || config.accountMetadataOnly ? {query:url.search} : {})});
+      if (geonode) response.on("data", chunk => {
+        geonodeTransferredBytes += chunk.length;
+        if (geonodeTransferredBytes > geonode.maximumBytes) upstream.destroy(new Error("GeoNode byte ceiling reached"));
+      });
       if (snapshotCreate && loseSnapshotCreateResponse && response.statusCode === 201) {
         loseSnapshotCreateResponse = false;
         snapshotCreateResponseLost = true;
@@ -74,17 +96,24 @@ const server = createServer(async (req, res) => {
       import {ProjectWorkspacePage} from '/_import/components/${component}';
       import {OpenGeoApiClient} from '/_import/lib/${client}';
       globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__ = ${JSON.stringify(!config.projectSnapshotPaint)};
-      const adapter = new OpenGeoApiClient({tokenProvider:()=>${JSON.stringify(config.compositionGuestOnly ? "local-style-guest" : "local-style-editor")}, organizationProvider:()=>${JSON.stringify(config.organizationId)}});
-      adapter.kind = "api"; adapter.selectOrganization = () => {}; globalThis.__acceptanceAdapter = adapter;
       const params = new URLSearchParams(location.search);
-      document.querySelector('main').append(params.size ? ProjectWorkspacePage({adapter,projectId:params.get('project'),compositionId:params.get('composition'),publicationId:params.get('publication'),mapId:params.get('map'),managementTarget:params.get('view'),startPanel:'style'}) : PlatformDirectory({adapter}));
+      const actors = ${JSON.stringify(geonode?.actors ?? {})};
+      const actor = actors[params.get('acceptanceActor')] ?? {token:${JSON.stringify(geonode?.token ?? (config.compositionGuestOnly ? "local-style-guest" : "local-style-editor"))},organizationId:${JSON.stringify(config.organizationId)}};
+      const adapter = new OpenGeoApiClient({tokenProvider:()=>actor.token, organizationProvider:()=>actor.organizationId});
+      adapter.kind = "api"; adapter.selectOrganization = () => {}; globalThis.__acceptanceAdapter = adapter;
+      document.querySelector('main').append(params.size ? ProjectWorkspacePage({adapter,projectId:params.get('project'),compositionId:params.get('composition'),publicationId:params.get('publication'),mapId:params.get('map'),managementTarget:params.get('manage') ?? params.get('view'),startPanel:'style'}) : PlatformDirectory({adapter}));
     </script></body></html>`); return;
   }
   const file = resolve(dist, `.${decodeURIComponent(url.pathname)}`);
   if (!file.startsWith(dist + "/")) { res.writeHead(403).end(); return; }
   try {
     res.setHeader("Content-Type", ({".js":"text/javascript", ".mjs":"text/javascript", ".css":"text/css", ".json":"application/json", ".woff2":"font/woff2"})[extname(file)] ?? "application/octet-stream");
-    res.end(await readFile(file));
+    const bytes = await readFile(file);
+    if (geonode) {
+      geonodeTransferredBytes += bytes.length;
+      if (geonodeTransferredBytes > geonode.maximumBytes) return res.writeHead(429).end("GeoNode byte ceiling reached");
+    }
+    res.end(bytes);
   } catch { res.writeHead(404).end(); }
 });
 async function verifySnapshotPainting(page, requests, reopened, source) {
@@ -153,6 +182,7 @@ async function verifySnapshotPainting(page, requests, reopened, source) {
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 let browser, browserServer, page;
+let geonodeTimer;
 let metadataStep = "browser";
 try {
   const launchOptions = {headless:true, executablePath:["/usr/bin/chromium-browser","/usr/bin/chromium"].find(existsSync),
@@ -164,16 +194,38 @@ try {
     await writeFile(config.ownedBrowserFile,JSON.stringify({pid,startTicks:stat[19]}),{flag:'wx'});
     browser=await chromium.connect(browserServer.wsEndpoint());
   } else browser=await chromium.launch(launchOptions);
-  const context = await browser.newContext();
+  const context = await browser.newContext({acceptDownloads:true});
+  if (geonode) {
+    const remaining = geonode.maximumMilliseconds-(geonodePrior?.milliseconds ?? 0)-(Date.now()-geonodeStarted);
+    assert.ok(remaining > 0, "GeoNode cumulative browser time ceiling");
+    geonodeTimer = setTimeout(() => void browser.close(), remaining);
+    context.on("request", () => assert.ok(++geonodeBrowserRequests <= geonode.maximumBrowserRequests, "GeoNode browser request ceiling"));
+  }
   const blocked = [], errors = [];
-  await context.route("**/*", route => {
+  await context.route("**/*", async route => {
     if (route.request().url().startsWith(origin + "/")) return route.continue();
+    if (geonode && route.request().url() === geonode.localObjectUploadUrl && route.request().method() === "POST") {
+      const response = await route.fetch({url:`${origin}/api/__local_objects/upload`});
+      localUploads.push({status:response.status(), bytes:route.request().postDataBuffer()?.length ?? 0});
+      return route.fulfill({response, headers:{...response.headers(), "access-control-allow-origin":origin}});
+    }
     blocked.push(route.request().url()); return route.abort();
   });
   page = await context.newPage();
   page.setDefaultTimeout(10000);
   page.on("pageerror", error => errors.push(error.message));
-  if (config.artifact) {
+  if (geonode) {
+    const scenario = await import("./geonode-publication-browser.mjs");
+    const result = await (geonode.finishOnly ? scenario.finishGeoNodePublication : scenario.exerciseGeoNodePublication)({page,context,origin,config,requests});
+    assert.deepEqual(errors, []);
+    if (!geonode.finishOnly) {
+      assert.equal(localUploads.length, 1, "One exact native Markdown source upload");
+      assert.ok(localUploads[0].status >= 200 && localUploads[0].status < 300);
+    }
+    process.stdout.write(JSON.stringify({...result, apiRequests:apiRequestsStarted, writes:geonodeWrites,
+      browserRequests:geonodeBrowserRequests, transferredBytes:geonodeTransferredBytes, localUploads,
+      externalRequestsBlocked:blocked.map(url => {const parsed=new URL(url);return {origin:parsed.origin,path:parsed.pathname};})}));
+  } else if (config.artifact) {
     const fixture = config.artifact;
     const entry = `${origin}/workspaces?project=${fixture.projectId}&view=resources`;
     const open = async () => {
@@ -712,11 +764,20 @@ try {
   }
 } catch (error) {
   const safeErrorTypes = ['Error','TypeError','RangeError','ReferenceError','SyntaxError','URIError','EvalError','AggregateError','AssertionError','TimeoutError'];
-  console.error(JSON.stringify(config.accountMetadataOnly
+  console.error(JSON.stringify(geonode ? {errorType:error.name,message:String(error.message).slice(0,1200),
+    apiRequests:apiRequestsStarted,writes:geonodeWrites,browserRequests:geonodeBrowserRequests,
+    requests:requests.slice(-12),pageText:(await page?.locator("body").textContent().catch(() => ""))?.slice(-5000)} : config.accountMetadataOnly
     ? {step:metadataStep,errorType:safeErrorTypes.includes(error.name)?error.name:'Error',httpRequests:requests.length}
     : {requests, pageText: await page?.locator("body").textContent()}));
   throw error;
 } finally {
+  clearTimeout(geonodeTimer);
+  if (geonode) {
+    await mkdir(geonode.artifactDirectory, {recursive:true,mode:0o700});
+    await writeFile(geonodeUsagePath, JSON.stringify({apiRequests:apiRequestsStarted,writes:geonodeWrites,
+      browserRequests:geonodeBrowserRequests,transferredBytes:geonodeTransferredBytes,localUploads,
+      milliseconds:(geonodePrior?.milliseconds ?? 0)+Date.now()-geonodeStarted})+"\n", {mode:0o600});
+  }
   if (config.accountMetadataOnly) {
     const closures = await Promise.allSettled([browser?.close(), browserServer?.close(),
       new Promise((done, reject) => server.close(error => error ? reject(error) : done()))]);

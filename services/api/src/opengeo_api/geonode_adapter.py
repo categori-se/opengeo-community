@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Literal, cast
 from uuid import UUID
 
+from opengeo_api.geonode_publications import convert_publication, publication_data
 from opengeo_api.resources import (
     GovernedResource,
     ImportedRelationship,
@@ -93,6 +94,7 @@ def build_geonode_import_plan(
         raise ValueError("normalized GeoNode metadata must match the resource package")
     mapped: list[ImportedResource] = []
     fields: list[dict[str, str]] = []
+    publications: list[dict[str, Any]] = []
     identifiers: set[str] = set()
     for index, source in enumerate(resources):
         identifier = str(source["uuid"])
@@ -100,6 +102,11 @@ def build_geonode_import_plan(
             raise ValueError("GeoNode resource UUIDs must be unique")
         identifiers.add(identifier)
         kind = _resource_kind(source)
+        publication_blocks: list[dict[str, Any]] = []
+        if kind in {"story", "dashboard"} and source.get("data") is not None:
+            assert_safe_geonode_tree(publication_data(source["data"]))
+            publication_blocks, conversion = convert_publication(kind, source["data"])
+            publications.append({"resourceIdentifier": identifier, **conversion})
         extension = _extension(source)
         if source.get("_opengeo") is not None and normalized_metadata is None:
             raise ValueError("portable GeoNode metadata requires native request validation")
@@ -123,7 +130,7 @@ def build_geonode_import_plan(
         state: ResourceState = (
             "review" if source.get("is_approved") or source.get("is_published") else "draft"
         )
-        content = _content(kind, source)
+        content = _content(kind, source, publication_blocks)
         draft = ResourceDraft(
             kind=kind,
             slug=f"geonode-{identifier.lower()}",
@@ -186,7 +193,10 @@ def build_geonode_import_plan(
             ),
             "styleAttachmentsRequired": sum(_entry_count(item.get("styles")) for item in resources),
             "unsupported": 0,
+            "convertedPublications": sum(bool(item["blocks"]) for item in publications),
+            "publicationLosses": sum(len(item["losses"]) for item in publications),
         },
+        "publications": publications,
         "fields": fields,
         "warnings": [
             "Imported publication flags are held in restricted review state until "
@@ -199,6 +209,9 @@ def build_geonode_import_plan(
             "attachment to a versioned OpenGeo portable style asset.",
             "Portable source custody retains first and current evidence, not a full "
             "history of intermediate carrier edits.",
+            "The bounded GeoStory title/text profile becomes native reading content. "
+            "Unsupported application elements remain in source custody and the conversion "
+            "report; offlineReady applies only when that report has no losses.",
         ],
     }
     _bound_report(report)
@@ -212,9 +225,60 @@ def build_geonode_import_plan(
     )
 
 
+def geonode_import_readback_report(
+    plan: ResourceImportPlan, records: tuple[GovernedResource, ...]
+) -> dict[str, Any]:
+    """Describe committed content, including an unchanged pre-converter import.
+
+    Identical source imports intentionally reuse existing identities and revisions.
+    Never imply that a newly proposed conversion overwrote that authored content.
+    """
+    report = deepcopy(plan.report)
+    contents = {
+        candidate.identifier: (candidate.draft.content, records[index].content)
+        for index, candidate in enumerate(plan.resources)
+        if index < len(records)
+    }
+    for publication in report["publications"]:
+        proposed, committed = contents.get(publication["resourceIdentifier"], ({}, {}))
+        expected = {
+            block["id"]: block
+            for block in proposed.get("blocks", [])
+            if block["id"] in {item["blockId"] for item in publication["blocks"]}
+        }
+        actual = {block.get("id"): block for block in committed.get("blocks", [])}
+        applied = bool(expected) and all(
+            actual.get(key) == block for key, block in expected.items()
+        )
+        publication["conversionApplied"] = applied
+        publication["offlineReady"] = publication["offlineReady"] and applied
+        if expected and not applied:
+            publication["losses"].append(
+                {
+                    "path": "data",
+                    "code": "existing_content_preserved",
+                    "detail": "Existing authored content was preserved. Review the proposed "
+                    "conversion and save it deliberately before publishing.",
+                }
+            )
+    report["summary"]["convertedPublications"] = sum(
+        item["conversionApplied"] for item in report["publications"]
+    )
+    report["summary"]["publicationLosses"] = sum(
+        len(item["losses"]) for item in report["publications"]
+    )
+    return report
+
+
 def geonode_metadata_values(source: dict[str, Any]) -> dict[str, Any]:
     """Prepare inert portable metadata for the normal ResourceMetadataRequest validator."""
     assert_safe_geonode_tree(source)
+    kind = _resource_kind(source)
+    if kind in {"story", "dashboard"} and source.get("data") is not None:
+        assert_safe_geonode_tree(publication_data(source["data"]))
+        # Reject invalid/oversized generated content at the request boundary,
+        # before a repository can commit any resources in this package.
+        convert_publication(kind, source["data"])
     portable = source.get("_opengeo")
     if portable is not None and not isinstance(portable, dict):
         raise ValueError("portable OpenGeo metadata must be an object")
@@ -566,7 +630,9 @@ def _extension(source: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _content(kind: ResourceKind, source: dict[str, Any]) -> dict[str, Any]:
+def _content(
+    kind: ResourceKind, source: dict[str, Any], publication_blocks: list[dict[str, Any]]
+) -> dict[str, Any]:
     blocks: list[dict[str, Any]] = []
     detail_url = source.get("detail_url")
     if detail_url:
@@ -587,6 +653,7 @@ def _content(kind: ResourceKind, source: dict[str, Any]) -> dict[str, Any]:
                 "label": "Preserved GeoNode application definition",
             }
         )
+    blocks.extend(publication_blocks)
     return {"blocks": blocks}
 
 
