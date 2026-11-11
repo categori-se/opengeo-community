@@ -14,7 +14,7 @@ source fixtures preserve source references, audited versions and license evidenc
 | Reference | Capabilities that guide OpenGeo Studio | OpenGeo Studio implementation and continuing work |
 | --- | --- | --- |
 | [QGIS](https://qgis.org/) 3.44.12 | Desktop cartography, editing, processing, formats and service clients | Governed Layers/Styles, spatial jobs, common-format ingestion and service exchange; QGIS is an independent WFS/WMTS interoperability client in the retained fixtures. Desktop workflow breadth remains a continuing comparison. |
-| [GeoLibre](https://github.com/opengeos/GeoLibre) 2.6.0 baseline; 3.0.0 native portable acceptance | Browser GIS, portable projects, source inspection, analysis and layouts | Portable/native exchange and print families meet their declared criteria. GIS authoring/inspection remains partial; conversion losses stay explicit. |
+| [GeoLibre](https://github.com/opengeos/GeoLibre) 2.6.0 baseline; 3.0.0 native portable acceptance | Browser GIS, portable projects, source inspection, analysis and layouts | Portable/native exchange, GIS authoring/inspection and print meet their declared criteria; conversion and environment limits stay explicit. |
 | [GeoNode](https://github.com/GeoNode/geonode) 5.1.0 | Governed resources, catalog discovery, metadata, sharing, harvesting and publishing | Persistent resources, scoped permissions, catalog/metadata mappings and a bounded anonymous catalog federation adapter. Community workflows, migration and publishing breadth continue. |
 | [GeoServer](https://github.com/geoserver/geoserver) 3.0.1 | Stores, layer groups, styles, OGC services, service security and caching | Versioned service administration, governed stores/styles, private service controls and bounded cache management. Protocol operation/version coverage continues. |
 | [MapServer](https://github.com/MapServer/MapServer) 8.6.5 | Cartography, raster/vector formats, reprojection, OGC publication and tile delivery | Representative render/format peers, bounded Mapfile cartography translation and controlled tile generations. OGC publication coverage continues. |
@@ -30,7 +30,7 @@ the named comparison passed its checks; **Partial** means work remains within
 that scope. Production readiness and standards conformance require separate
 verification.
 
-The November 11, 2026 checkpoint records **31 passed, 18 partial and one
+The November 11, 2026 Community checkpoint records **33 passed, 16 partial and one
 conditional exclusion across 50 families**. Counts follow the retained
 criterion-level acceptance records; they are not a product-completion percentage. These scoped results
 do not establish full parity with the reference applications or cover the full
@@ -40,12 +40,12 @@ QGIS workflow scope.
 | --- | --- | --- |
 | GeoLibre | Portable projects and views | Pass — native 3.0.0 / format 0.2.0 and hosted persistence; [accepted criteria](https://github.com/categori-se/opengeo-community/issues/17) |
 | GeoLibre | Source and layer inventory | Pass — finite inventory, including explicitly preserved source definitions |
-| GeoLibre | GIS authoring and inspection | Partial |
+| GeoLibre | GIS authoring and inspection | Pass — [unchanged C01–C03 and declared environments](../parity/reports/geolibre-authoring-acceptance.json) |
 | GeoLibre | Analysis and automation | Pass — count, bounds, bbox, centroids, vector-to-PMTiles and raster-to-COG scope |
 | GeoLibre | Layout, story, dashboard and print | Pass — original C01–C03, including published output; [accepted criteria](https://github.com/categori-se/opengeo-community/issues/14) |
 | GeoNode | Governed resource types | Partial |
 | GeoNode | Catalog and discovery | Pass — [declared local and published profiles](../parity/reports/geonode-catalog-discovery.json) |
-| GeoNode | Metadata management | Partial |
+| GeoNode | Metadata management | Pass — [curated profiles, revisions and production GeoNode5.1 exchange](../parity/reports/geonode-metadata-acceptance.json) |
 | GeoNode | Sharing and community | Partial |
 | GeoNode | Upload, create, edit, style, version and download | Partial |
 | GeoNode | Federation and harvesting | Pass — anonymous 5.1.0 catalog metadata, manual activation |
