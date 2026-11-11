@@ -2869,7 +2869,6 @@ function publicationPngDownloadControl(state, site) {
   return group;
 }
 
-
 function hasPublicSiteDelivery(adapter, listed) {
   const shared = [
     "publicSiteEditionExportUrl",
@@ -3492,6 +3491,7 @@ function positionedLayoutEditor(rows, printControls, initialLayout = null) {
     conversionReport.hidden = false;
     conversionReport.open = true;
   };
+
   const richLayout = (layout) => ["opengeo.print-layout.1.1.0", "opengeo.print-layout.1.2.0", "opengeo.print-layout.1.3.0"].includes(layout.schemaVersion);
   const pagePoints = () => {
     const dimensions = {a4: [595.276, 841.89], letter: [612, 792], legal: [612, 1008],

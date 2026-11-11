@@ -1,3 +1,5 @@
+import {HANSEN_GFC_2025_LOSSYEAR} from "../lib/publishedBaselineSources.js";
+
 /** Inventory the selected band in the loaded window. Numerical code loads only
  * on Calculate; this component has no transport, provider or account API.
  * onDownload receives {text, filename, mimeType} for a deliberate JSON/CSV save.
@@ -13,9 +15,14 @@ export function RasterBaseline({getGrid,getAois=()=>[],onDownload}={}) {
   const confirm=checkbox("This band contains categorical class codes"),calculate=button("Calculate class inventory"),cancel=button("Cancel inventory");
   const publishedProfile=select("Published product interpretation"),profileConfirmed=checkbox("I checked this band against the selected product and release");
   publishedProfile.input.required=false;
-  for(const [value,title] of [["","None"],["jrc-tmf-2025-main-classes","JRC TMF 2025 — Transition Map main classes"]]){const option=node("option",title);option.value=value;publishedProfile.input.append(option);}
-  const profileNote=node("p","This interpretation applies to band 1. Nominal pixels are 30 m; the loaded window may be a coarser overview. History: 1982–2025. Reporting: 1990–2025. Class 50 retains the published label ‘Ongoing deforestation or degradation (2023-2025)’; this profile does not separate those processes. Selecting it does not verify the raster’s product identity, coverage, rights, forest condition or impact.");
-  const updateProfile=()=>{const selected=Boolean(publishedProfile.input.value);profileConfirmed.label.hidden=profileNote.hidden=!selected;profileConfirmed.input.disabled=!selected;};
+  for(const [value,title] of [["","None"],["jrc-tmf-2025-main-classes","JRC TMF 2025 — Transition Map main classes"],
+    [HANSEN_GFC_2025_LOSSYEAR.id,HANSEN_GFC_2025_LOSSYEAR.title]]){const option=node("option",title);option.value=value;publishedProfile.input.append(option);}
+  const profileNote=node("p"),profileNotes={
+    "jrc-tmf-2025-main-classes":"This interpretation applies to band 1. Nominal pixels are 30 m; the loaded window may be a coarser overview. History: 1982–2025. Reporting: 1990–2025. Class 50 retains the published label ‘Ongoing deforestation or degradation (2023-2025)’; this profile does not separate those processes. Selecting it does not verify the raster’s product identity, coverage, rights, forest condition or impact.",
+    [HANSEN_GFC_2025_LOSSYEAR.id]:"This interpretation applies to band 1 of the lossyear product. Codes 1–25 represent gross tree-cover loss in 2001–2025; code 0 means no recorded gross tree-cover loss code. Code 0 does not establish intact forest, regrowth, valid observations or land rather than water. The separate datamask is not loaded or applied. Nominal pixels are one arc-second (approximately 30 m); cached overviews may be coarser. History: 2000–2025. Annual reporting: 2001–2025. Sensor, coverage and algorithm changes can confound yearly comparisons. These areas describe mapped cached cells, not definitive forest-loss estimates. Selecting this profile does not verify the raster’s identity, dates, coverage, accuracy or rights."
+  };
+  const updateProfile=()=>{const selected=Boolean(publishedProfile.input.value);profileNote.textContent=profileNotes[publishedProfile.input.value]??"";
+    profileConfirmed.label.hidden=profileNote.hidden=!selected;profileConfirmed.input.disabled=!selected;};
   updateProfile();
   calculate.type="submit";cancel.disabled=true;
   form.append(area.label,areaNote,band.label,confirm.label,publishedProfile.label,profileConfirmed.label,profileNote,classification.label,start.label,end.label,requestedStart.label,requestedEnd.label,meanings.label,calculate,cancel);
@@ -109,15 +116,22 @@ export function RasterBaseline({getGrid,getAois=()=>[],onDownload}={}) {
       for(const [name,value] of Object.entries({"Published product interpretation":profile.title,"Product identity":"Declared by you; unverified",
         "Published release":profile.releaseYear,"Nominal source pixels":`${profile.nominalResolutionMeters} m; loaded ${result.scope.grid} cells remain the analysis resolution`,
         "Published history period":periodLabel(profile.historyPeriod),"Published reporting period":periodLabel(profile.reportingPeriod),
-        "Recent class 50 ambiguity":`${periodLabel(profile.recentAmbiguityPeriod)}: ongoing deforestation or degradation; these processes are not separated`,
-        "Interpretation rights":"Unknown; selecting the product grants no rights or access"}))facts.append(node("dt",name),node("dd",String(value)));
+        ...(profile.recentAmbiguityPeriod?{"Recent class 50 ambiguity":`${periodLabel(profile.recentAmbiguityPeriod)}: ongoing deforestation or degradation; these processes are not separated`}:{}),
+        ...(profile.id===HANSEN_GFC_2025_LOSSYEAR.id?{"Published version":profile.version,"Published band product":profile.product,
+          "Annual loss codes":"1–25 represent 2001–2025; code 0 means no recorded gross tree-cover loss code",
+          "Coverage mask":"Separate datamask not loaded or applied; code 0 does not establish valid coverage or land rather than water",
+          "Published product terms":profile.license,"Published attribution":profile.attribution,
+          "Interpretation rights":"Selecting the product grants no rights or access; review source and output terms"}
+          :{"Interpretation rights":"Unknown; selecting the product grants no rights or access"})}))facts.append(node("dt",name),node("dd",String(value)));
       const evidence=node("dd");
       for(const [index,href] of profile.evidenceUrls.entries()){const link=node("a",`Published evidence ${index+1}`);link.href=href;link.target="_blank";link.rel="noopener noreferrer";evidence.append(link,document.createTextNode(" "));}
-      facts.append(node("dt","Interpretation evidence"),evidence,node("dt","Legend SHA-256"));
-      const hash=node("dd",profile.legend.sha256);hash.style.overflowWrap="anywhere";facts.append(hash);
+      facts.append(node("dt","Interpretation evidence"),evidence);
+      if(profile.legend?.sha256){facts.append(node("dt","Legend SHA-256"));
+        const hash=node("dd",profile.legend.sha256);hash.style.overflowWrap="anywhere";facts.append(hash);}
     }
-    const table=node("table"),caption=node("caption",result.scope.aoiClipped?"Study-area class areas (mean sphere, partial cells)":"Class areas in the loaded window (mean sphere, whole cells)"),head=node("thead"),headers=node("tr");
-    for(const title of ["Source code",...(profile?["Published product meaning or coverage status","Source-identified meaning","User meaning"]:["Class meaning"]),"Cells touched","Area (m²)",result.scope.aoiClipped?"Study area share (%)":"Window share (%)"])headers.append(node("th",title));head.append(headers);
+    const hansen=profile?.id===HANSEN_GFC_2025_LOSSYEAR.id;
+    const table=node("table"),caption=node("caption",hansen?"Mapped cell footprints by loss-year code (descriptive)":result.scope.aoiClipped?"Study-area class areas (mean sphere, partial cells)":"Class areas in the loaded window (mean sphere, whole cells)"),head=node("thead"),headers=node("tr");
+    for(const title of ["Source code",...(profile?["Published product meaning or coverage status","Source-identified meaning","User meaning"]:["Class meaning"]),"Cells touched",hansen?"Mapped footprint area (m²)":"Area (m²)",result.scope.aoiClipped?"Study area share (%)":"Window share (%)"])headers.append(node("th",title));head.append(headers);
     const body=node("tbody");
     const row=(code,meaning,cells,area,share,entry=null)=>{const tr=node("tr"),meanings=profile?entry
       ?[entry.profileMeaning??"Unknown code",entry.sourceMeaning??"Not identified",result.interpretation.classMeanings[String(code)]??"Not declared"]:[meaning,"—","—"]:[meaning];

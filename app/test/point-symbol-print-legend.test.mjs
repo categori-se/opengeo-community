@@ -24,7 +24,11 @@ function fixture({pointSymbol = "hospital", renderer = "single", categorySymbols
     getProjection: () => ({type: "globe"}), getStyle: () => ({layers: [circle]})};
   const handle = {layerIds: [circle.id]}, handles = new Map([[layer.layerId, handle]]);
   const record = {id: "map", version: 2, name: "Care facilities", definition: {layers: [layer]}};
-  return {layer, circle, handle, record, context: {map, layers: [layer], handles, renderer: "maplibre", ready: true}};
+  const context = {map, layers: [layer], handles, renderer: "maplibre", ready: true};
+  // This component fixture exercises legend/data capture. The resolution
+  // adapter itself has owning renderer tests; retain its capture callback here.
+  context.withPrintResolution = async (_target, capture) => capture(context);
+  return {layer, circle, handle, record, context};
 }
 async function withPage(action) {
   const dom = new JSDOM("<!doctype html><body></body>"), previous = globalThis.document;
@@ -34,6 +38,9 @@ async function withPage(action) {
 function pageFor(value, capture, options = {}, rendering = {}) {
   const layout = newProjectPrintLayout(value.record, "layout");
   Object.assign(layout, {northArrow: false, scaleBar: false, graticule: false}, options);
+  // The editor commits the captured camera/projection before composing a page.
+  Object.assign(layout.frames[0], {view: structuredClone(capture.view),
+    projection: capture.projection, presentation: structuredClone(capture.presentation)});
   return printPageSvg(layout, new Map([["layout:main", capture]]), "layout", rendering);
 }
 
@@ -373,7 +380,7 @@ test("classed bar metadata is bounded, rejects unsafe colors and preserves exact
   const overlap=structuredClone(capture);overlap.numericLegends.push(structuredClone(overlap.numericLegends[0]));
   assert.throws(()=>pageFor(value,overlap,{legendFormat:'classed-bars'}),/Invalid captured numeric legends/);
   const short=newProjectPrintLayout(value.record,'layout');Object.assign(short,{legendFormat:'classed-bars',northArrow:false,scaleBar:false,graticule:false});short.frames[0].heightMm=30;
-  assert.throws(()=>printPageSvg(short,new Map([['layout:main',capture]]),'layout'),/legend overlaps source notes/);
+  assert.throws(()=>pageFor(value,capture,short),/legend overlaps source notes/);
   assert.throws(()=>pageFor(value,capture,{legendFormat:'continuous'}),/Invalid print legend format/);
   const small=pageFor(value,capture);assert.ok(small);
   assert.throws(()=>pageFor(value,capture,{legendFormat:'classed-bars',page:{widthMm:297,heightMm:60,marginMm:10}}),/legend is taller/);
@@ -486,7 +493,5 @@ test("cluster passes preserve point legend styling and disclose zoom-dependent c
   assert.deepEqual(capture.displayNotes, [capture.legend[1].label]);
   const page = pageFor(value, capture);
   assert.match(page.textContent, /Counts group points/);
-  const layout = newProjectPrintLayout(value.record, "layout");
-  Object.assign(layout, {legend: false, northArrow: false, scaleBar: false, graticule: false});
-  assert.match(printPageSvg(layout, new Map([["layout:main", capture]]), "layout").textContent, /44 screen pixels per Layer/);
+  assert.match(pageFor(value, capture, {legend: false}).textContent, /44 screen pixels per Layer/);
 }));

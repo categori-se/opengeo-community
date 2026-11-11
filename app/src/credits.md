@@ -74,7 +74,45 @@ data or service rights. Keep the
 selected map's attribution when sharing it, and review its terms before reuse.
 Synthetic examples remain identified as synthetic.
 
-## Project and infrastructure
+## Hosting and self-hosting
+
+[OpenGeo.Tools](https://opengeo.tools/) shares published studies and methods.
+[studio.opengeo.tools](https://studio.opengeo.tools/) is our primary operated
+Studio instance and working example of the application. Its accounts, Catalog
+content, connections and enabled services belong to that installation. Public
+examples demonstrate particular workflows; they do not grant access to private
+resources or establish that every feature has been assessed.
+
+The [community edition](https://github.com/categori-se/opengeo-community) includes
+the full Studio toolset, including Catalog, map composition, supported analysis,
+publishing and export. Security and accessibility fixes belong in the shared
+software. A managed account is not required to run your own installation.
+Supported operations and remaining acceptance limits are recorded in the
+[capabilities guide](https://github.com/categori-se/opengeo-community/blob/main/docs/community-capabilities.md).
+
+| Choose | What you operate or receive |
+| --- | --- |
+| Use this Studio instance | Work within this installation's account permissions, configured services and limits. |
+| Work locally in the browser | Use supported local map tools and download Project backups. Browser storage and an installed PWA do not provide a server, team accounts or managed backups. |
+| Run your own Studio | Deploy the shared source and configure your own identity, API, database, storage, processing and publication destinations. Your organization operates the resulting service. |
+| Arrange managed hosting | Pay for agreed deployment and operation of the same software, allocated storage and processing, maintenance and support. Capacity and commitments depend on the service agreement. |
+
+The self-hosting handover is the reviewed source, configuration templates,
+deployment instructions and their documented verification limits. Before inviting
+users, the operator must verify sign-in and access isolation, Catalog inspection,
+Project save and reopen, publishing, and backup restoration on their own instance.
+The operator owns credentials, domains, billing, updates, security, recovery and
+accessibility assessment of that deployment. Our accounts, private data,
+credentials and infrastructure are not transferred with the software.
+See the [deployment and handover guide](https://github.com/categori-se/opengeo-community/blob/main/docs/community-deployments.md).
+
+Paid managed hosting covers service operation and support. Core tools, ordinary
+collaboration, security and accessibility are part of the community software.
+Private customer content and internal operational credentials stay private;
+published examples retain their own data and reuse terms. No price, capacity,
+service level or compliance certification is promised by this page.
+
+## Development and recognition
 
 OpenGeo Studio is developed by Aaron Kyle Dennis for categori.se and OpenGeo.Tools.
 The [community source](https://github.com/categori-se/opengeo-community) is available

@@ -1,8 +1,19 @@
+import {exportRegionatedKmz} from "../lib/kmlRegionation.js";
+import {PanoramaViewer} from "./PanoramaViewer.js";
+import {KmlAdvancedControls} from "./KmlAdvancedControls.js";
+import {GeoTiffSuperOverlayExport} from "./GeoTiffSuperOverlayExport.js";
+import {TourMediaControls} from "./TourMediaControls.js";
+import {captureWorkbenchTourScene, validateWorkbenchTourScene, createWorkbenchTourSceneRuntime} from "../lib/workbenchTourSceneRuntime.js";
+import {normalizePanoramaCatalog, normalizePanoramaState, panoramaForProject, panoramaFromImageFile, verifyPanoramaScene} from "../lib/panorama.js";
+import {ACQUISITION_SOURCES, fetchAcquisitionAvailability, acquisitionEvidenceForProject} from "../lib/historicalAcquisitions.js";
+import {createSolarLightingSession, landscapeSunPosition, SOLAR_LIGHTING_MODEL} from "../lib/solarLighting.js";
+import {RasterSuperOverlayExport} from "./RasterSuperOverlayExport.js";
 import {cesiumWorkbenchContent, prepareCesiumWorkbench, cesiumWorkbenchAdapter, rendererTitle} from "../lib/cesiumWorkbench.js";
 import {cogDisplayOptions, isCogLayer} from "../lib/cogDisplay.js";
 import {isManagedCogIdentity} from "../lib/managedCogIdentity.js";
 import {AnalysisConsole} from "./AnalysisConsole.js";
 import {WorkbenchHelp} from "./WorkbenchHelp.js";
+import {activateModal} from "../lib/modalFocus.js";
 import {AssistantPanel} from "./AssistantPanel.js";
 import {wmsTileUrl} from "../lib/wmsSource.js";
 import {createLocalAnalysisRuntime} from "../lib/analysisLocalRuntime.js";
@@ -40,6 +51,8 @@ import {LayerStylePicker} from "./LayerStylePicker.js";
 import {POINT_SYMBOLS, hasPointSymbolStyle, normalizePointSymbolStyle, pointSymbolImages, pointSymbolStyleParts, pointSymbolPreviewSvg, ensurePointSymbolAssets} from "../lib/pointSymbols.js";
 import {resolveLayerStyle, referencedStylePaint, validateLayerStyleReference} from "../lib/layerStyleReference.js";
 import {maplibreAdapter, workbenchRenderer, registerArchiveProtocols} from "../lib/maplibreAdapter.js";
+import {createCompatibilityWorkspace} from "../lib/compatibilityWorkspace.js";
+import {canvasBasicPlacesIssue} from "../lib/openlayersCanvasContent.js";
 import {createHistoricalComparisonView, historicalComparisonIdentity} from "../lib/historicalComparisonView.js";
 import {openStaticMapExport} from "./StaticMapExport.js";
 import {ProjectStoryEditor, ProjectDashboardEditor} from "./ProjectNarrativeEditor.js";
@@ -84,6 +97,7 @@ import {StudioAccountControls} from "./StudioAccountControls.js";
 import {directoryHref, compositionHref} from "../lib/applicationRoutes.js";
 import {CameraControls} from "./CameraControls.js";
 import {OverviewControl} from "./OverviewControl.js";
+import {MapControllerControls} from "./MapControllerControls.js";
 import {EsriBasemapOptions} from "./EsriBasemapOptions.js";
 import {createEsriBasemapSession, esriTileConfiguration} from "../lib/esriBasemaps.js";
 import {
@@ -483,6 +497,7 @@ function createWorkbenchView({
   geojsonByLayerId = new Map(),
   mapFontAttachments = null,
   rendererAdapter = maplibreAdapter,
+  canvasRuntimeFactory = null,
   styleAdapter = null,
   layerArchiveAccess = null,
   saveProject = null,
@@ -584,6 +599,8 @@ function createWorkbenchView({
   const initialOpenScene3d = openScene3dForProject(project);
   const initialPortalConfiguration = portalConfigurationForProject(project);
   const initialHistoricalImagery = historicalImageryForProject(project);
+  const initialAcquisitions = acquisitionEvidenceForProject(project);
+  const initialPanorama = panoramaForProject(project);
   const initialCameraTour = cameraTourForProject(project);
   const mobileAtStart = isMobileWorkbenchViewport();
 
@@ -675,10 +692,18 @@ function createWorkbenchView({
     basemapCatalogMessage: null,
     basemapGovernanceSubjectId: null,
     historicalImagery: initialHistoricalImagery,
+    panoramaCatalog: initialPanorama.catalog,
+    panoramaView: initialPanorama.view,
+    panoramaError: initialPanorama.error,
+    solarLightingTimer: null,
+    solarLightingFrames: 0,
+    acquisitionAvailability: initialAcquisitions,
     historicalComparisonDateDraft: null,
-    historicalAvailability: reviewedHistoricalDates(initialHistoricalImagery.sourceId),
-    historicalAvailabilityStatus: "reviewed-capability-receipt",
-    historicalAvailabilityMessage: "Showing the last reviewed provider time-domain dates. Visible pixels can still contain gaps or clouds.",
+    historicalAvailability: initialAcquisitions?.sourceId === initialHistoricalImagery.sourceId ? initialAcquisitions.dates : reviewedHistoricalDates(initialHistoricalImagery.sourceId),
+    historicalAvailabilityStatus: initialAcquisitions?.sourceId === initialHistoricalImagery.sourceId ? "saved-spatial-acquisitions" : "reviewed-capability-receipt",
+    historicalAvailabilityMessage: initialAcquisitions?.sourceId === initialHistoricalImagery.sourceId
+      ? `Recorded acquisition footprints at ${initialAcquisitions.position[1]}, ${initialAcquisitions.position[0]}, observed ${initialAcquisitions.observedAt}. Visible pixels can still contain gaps or clouds.`
+      : "Showing the last reviewed provider time-domain dates. Visible pixels can still contain gaps or clouds.",
     historicalAvailabilityBusy: false,
     historicalAvailabilityAbortController: null,
     historicalPlaybackTimer: null,
@@ -834,6 +859,7 @@ function createWorkbenchView({
     placeSearch,
     canResumeRenderer,
     rendererAdapter,
+    canvasRuntimeFactory,
     mapFontAttachments,
     mapboxSession: createMapboxSession(),
     mapboxLoader: createMapboxLoader(),
@@ -993,7 +1019,7 @@ function createWorkbenchView({
   shell.__opengeoLayers = workingLayers;
   shell.__opengeoData = dataByLayerId;
   shell.openPublicationMapExport = () => exportInteractiveMap(context, "offline");
-  shell.getPrintContext = () => context.disposed ? null : ({
+  shell.getPrintContext = () => context.disposed ? null : context.workspaceMode ? context.compatibility.printContext() : ({
     map: state.map,
     renderer: context.rendererAdapter.id,
     layers: context.layers,
@@ -1004,8 +1030,8 @@ function createWorkbenchView({
     basemap: activeBasemap(context),
     project: currentProjectDefinition(context),
     savedProjectOrigin: context.savedProjectOrigin,
-    unavailableReason: state.mapInitializationFailed ? "Map graphics unavailable. Retry the map before capturing." : null,
-    ready: Boolean(state.map) && !state.mapInitializationFailed
+    unavailableReason: state.panoramaView || context.panoramaViewer ? "Exit the panorama before capturing a map." : state.mapInitializationFailed ? "Map graphics unavailable. Retry the map before capturing." : null,
+    ready: Boolean(state.map) && !state.mapInitializationFailed && !state.panoramaView && !context.panoramaViewer
       && !context.loadingDatasetLayerIds.size && !context.liveFeatureRequests.size && !context.pendingPointSymbolLayers.size
       && context.layers.every(layer => layer.visible === false || (
         !context.failedDatasetLayerIds.has(layer.layerId)
@@ -1042,6 +1068,13 @@ function createWorkbenchView({
     return !context.rendererSuspended && Boolean(state.map);
   };
   const accountNavigation = () => {
+    stopSunlightAnimation(context);context.solarLightingSession?.dispose();
+    context.panoramaViewer?.dispose();context.panoramaViewer = null;state.panoramaView = null;
+    context.kmlAdvancedControls?.dispose();context.kmlAdvancedControls = null;
+    context.rasterSuperOverlayExport?.dispose();context.rasterSuperOverlayExport = null;
+    context.geoTiffSuperOverlayExport?.dispose();context.geoTiffSuperOverlayExport = null;
+    context.tourMediaControls?.dispose();context.tourMediaControls = null;context.tourSceneRuntime?.dispose();context.tourSceneRuntime = null;
+    context.mapControllerControls?.stop();
     context.overviewControl?.dispose(); context.overviewControl = null;
     state.overviewOpen = false;
     state.projectDatasetLiveCollectionsOpen.clear();
@@ -1074,7 +1107,16 @@ function createWorkbenchView({
   shell.dispose = () => {
     if (context.disposed) return;
     context.disposed = true;
+    stopSunlightAnimation(context);context.solarLightingSession?.dispose();
+    context.panoramaViewer?.dispose();context.panoramaViewer = null;
+    context.kmlAdvancedControls?.dispose();context.rasterSuperOverlayExport?.dispose();
+    context.geoTiffSuperOverlayExport?.dispose();
+    context.tourMediaControls?.dispose();context.tourSceneRuntime?.dispose();
+    context.mapControllerControls?.dispose();
+    context.mapControllerControls = null;
     context.overviewControl?.dispose(); context.overviewControl = null;
+    context.compatibility?.dispose();
+    context.disposeAttributesModal?.({restoreFocus: false});
     disposeHistoricalComparison(context);
     context.disposeSaveShortcut?.();
     context.browserCatalogPanel?.dispose?.();
@@ -1155,6 +1197,74 @@ function createWorkbenchView({
   shell.append(topbar, leftPanel, mapColumn, rightPanel, mobileToolbar, modalLayer);
   context.modalLayer = modalLayer;
 
+  const hydratedKml = new Map();
+  context.compatibility = createCompatibilityWorkspace(context, {
+    status: message => setStatus(context, message),
+    telemetry: () => updateStatusbar(statusbar, context),
+    canEdit: () => !context.printFrame && canOrganizeProject(context),
+    retainFullCamera: () => {
+      if (!state.map) return;
+      try {state.restoredMapViews = mapViewsForSave(state.map, state.restoredMapViews ?? project?.mapViews);} catch { /* Retain the last canonical view. */ }
+    },
+    releaseGraphics: () => {
+      try {context.disposeResources?.();} catch { /* Keep data usable after SDK failure. */ }
+      context.disposeResources = null;state.map = null;shell.__opengeoMap = null;state.layerHandles.clear();
+      context.disconnectionObserver?.disconnect();
+      if (shell.isConnected) context.disconnectionObserver = observeDisconnection(shell, () => shell.dispose());
+    },
+    prepareFull: (surface, signal) => {
+      if (!nativeWebGL2Available()) throw Error("WebGL2 is unavailable");
+      const background = activeBasemap(context);
+      const style = basemapNetworkAllowed(background) && ["maplibre-style", "provider-style"].includes(background?.kind) && background.styleUrl
+        ? background.styleUrl : emptyMapStyle(state.globe ? "globe" : "mercator");
+      return prepareRendererMap({adapter: maplibreAdapter, container: surface, style, signal,
+        camera: normalizeMapView(state.restoredMapViews?.[0] ?? project?.mapViews?.[0]) ?? {center: [0, 0], zoom: 2},
+        transformRequest: (url, type) => state.mapFontSession.transformRequest(url, type, context.esriBasemapSession.transformRequest, "maplibre")});
+    },
+    adoptFull: (map, surface) => {
+      context.rendererAdapter = maplibreAdapter;
+      context.mapInitializationAttempted = true;initializeMap(surface, context, {preparedMap: map});
+      if (state.map !== map || state.mapInitializationFailed) throw Error("Full graphics setup failed");
+      context.rendererPreference = "maplibre";
+    },
+    disposeFull: map => {try {maplibreAdapter.disposeMap(map);} catch { /* Failed candidate. */ }},
+    hydrateData: () => {
+      for (const layer of context.layers) if (layer.kmlDocument && hydratedKml.get(layer.layerId) !== layer.kmlDocument) {
+        try {context.dataByLayerId.set(layer.layerId, placesToGeojson(layer.kmlDocument));hydratedKml.set(layer.layerId, layer.kmlDocument);} catch { /* Keep the original document and compatibility disclosure. */ }
+      }
+    },
+    geometry: ({feature}) => {
+      if (context.printFrame || !canOrganizeProject(context)) return;
+      const layerId = `canvas-${crypto.randomUUID()}`;
+      const name = feature.properties?.name || "Drawn geometry";
+      const document = addKmlPlace(createPlacesDocument({name}), null, {kind: "placemark", id: `${layerId}-shape`, name,
+        geometry: structuredClone(feature.geometry), visibility: true, altitudeMode: "clampToGround"});
+      context.addLayer({...kmlPlacesLayer(name), layerId, kmlDocument: document, kmlInterchangeReport: emptyKmlReport(), geometryType: feature.geometry.type,
+        visible: true, opacity: 1, style: {fill: "#4f8cff", stroke: "#17212b", strokeWidth: 2, circleRadius: 6},
+        labels: {enabled: false}, sourceConfiguration: {custody: "locally-created"}}, placesToGeojson(document), {panelAfterAdd: "compatibility"});
+      setStatus(context, "Geometry added as a Project Layer. Save the Project to retain it.");
+    },
+    measurement: measurement => {
+      if (!context.printFrame && canOrganizeProject(context) && state.measurements.length < 50) {
+        state.measurements.push(measurement);state.selectedMeasurementId = measurement.id;
+      }
+    },
+    identify: ({features, coordinate}) => {
+      const selected = features?.[0];if (!selected) return;
+      const layer = context.layers.find(item => item.layerId === selected.layerId);if (!layer) return;
+      state.activeLayerId = layer.layerId;state.selectedFeatureIndex = selected.featureIndex;
+      rememberPrintFeatureSelection(context, layer, selected.feature, selected.featureIndex);
+      state.identifyReport = {location: coordinate, bufferMeters: 0, omittedLayerCount: 0, layers: [{status: "ready", layerId: layer.layerId,
+        title: layer.title, displayOnly: true, result: {source: "displayed-preview", features: [selected.feature], numberReturned: 1}}]};
+      openIdentifyPanel(context);
+    },
+    definition: () => currentProjectDefinition(context),
+    printData: layerId => analysisInputLayers(context).find(item => item.id === layerId) ?? null,
+    printSelection: () => selectedPrintFeature(context)
+  });
+  shell.setWorkspaceMode = mode => context.compatibility.select(mode);
+  shell.getWorkspaceCapabilities = () => context.compatibility.report();
+
   context.addLayer = (layer, geojson, {panelAfterAdd = "style"} = {}) => addRuntimeLayer({
     ...context,
     layer,
@@ -1162,7 +1272,14 @@ function createWorkbenchView({
     panelAfterAdd
   });
   context.render = () => {
+    const restoreFocus = preserveWorkbenchFocus(shell);
+    context.disposeAttributesModal?.({restoreFocus: false});
+    context.disposeAttributesModal = null;
     context.assistantPanel?.updateContext();
+    if (context.workspaceMode) {
+      renderCompatibilityWorkbench(context, {topbar, leftPanel, mapChrome, rightPanel, mobileToolbar, modalLayer, statusbar});
+      restoreFocus();syncExpandedAttributesModal(context);return;
+    }
     syncHistoricalComparison(context);
     const cogCredits = context.rendererAdapter.id === "maplibre"
       ? context.layers.filter(layer => isCogLayer(layer) && layer.visible !== false)
@@ -1176,9 +1293,13 @@ function createWorkbenchView({
     const area = state.queryLocationState;
     if (area && (area.layer !== activeLayer(context) || area.draft !== state.queryDraft
       || state.activePanel !== "query")) cancelQueryLocationRequest(context);
-    if (context.rendererAdapter.id === "cesium") return renderCesiumWorkbench(context,
-      {topbar,leftPanel,mapChrome,rightPanel,mobileToolbar,modalLayer,statusbar});
-    shell.dataset.renderer=context.rendererAdapter.id;
+    if (context.rendererAdapter.id === "cesium") {
+      renderCesiumWorkbench(context, {topbar,leftPanel,mapChrome,rightPanel,mobileToolbar,modalLayer,statusbar});
+      restoreFocus();
+      syncExpandedAttributesModal(context);
+      return;
+    }
+    shell.dataset.renderer=context.rendererAdapter.id;delete shell.dataset.workspaceMode;
     syncKmlLayerContext(context);
     syncPinnedMapFonts(context);
     const kmlVisible = context.layers.some((layer) => layer.layerId === editingKmlLayerId(context) && layer.visible !== false);
@@ -1208,6 +1329,8 @@ function createWorkbenchView({
     shell.classList.toggle("left-collapsed", !state.leftOpen);
     shell.classList.toggle("right-collapsed", !state.rightOpen);
     updateProjectionPresentation(context);
+    syncPanoramaViewer(context);
+    syncLandscapeLighting(context);
     renderTopbar(topbar, context);
     renderLeftPanel(leftPanel, context);
     renderMapChrome(mapChrome, context);
@@ -1220,6 +1343,8 @@ function createWorkbenchView({
     syncGraticule(state);
     requestAnimationFrame(() => resizeWorkbenchMap(context));
     maybeRestoreSavedRenderer(context);
+    restoreFocus();
+    syncExpandedAttributesModal(context);
   };
 
   context.disposeCompactPanelTransitions = bindCompactPanelTransitions(context);
@@ -1284,10 +1409,51 @@ function createWorkbenchView({
   whenConnected(shell, () => {
     if (context.disposed) return;
     context.disconnectionObserver = observeDisconnection(shell, () => shell.dispose());
-    if (!globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__) initializeMap(rendererSurface, context);
+    if (context.compatibility.initialMode) void context.compatibility.select(context.compatibility.initialMode);
+    else if (!globalThis.__OPEN_GEO_DISABLE_INTERACTIVE_MAP_FOR_LAYOUT_TESTS__) initializeMap(rendererSurface, context);
   });
 
   return shell;
+}
+
+// Most workbench regions still render from state. Match the same named control
+// when replacement is necessary, without overriding a deliberate focus move.
+function preserveWorkbenchFocus(shell) {
+  const document = shell.ownerDocument;
+  const active = document.activeElement;
+  if (!shell.contains(active)) return () => {};
+  const region = [...shell.children].find(child => child.contains(active));
+  if (!region) return () => {};
+  const scope = active.closest("[data-place-id], [data-layer-id], [data-menu], [data-authoring]");
+  const scopeKey = scope && [...scope.attributes].find(attribute => ["data-place-id", "data-layer-id", "data-menu", "data-authoring"].includes(attribute.name));
+  const identity = element => {
+    const data = [...element.attributes].filter(attribute => attribute.name.startsWith("data-") && !attribute.name.endsWith("state"));
+    return JSON.stringify([element.tagName, element.id, element.getAttribute("aria-label"),
+      element.getAttribute("name"), element.getAttribute("type"), data.map(({name, value}) => [name, value]),
+      element.matches("button, a, summary") ? element.textContent.trim() : ""]);
+  };
+  const key = identity(active);
+  const index = [...(scope ?? region).querySelectorAll(active.tagName)].filter(element => identity(element) === key).indexOf(active);
+  const selection = typeof active.selectionStart === "number"
+    ? [active.selectionStart, active.selectionEnd, active.selectionDirection] : null;
+  const value = active.matches("textarea, input:not([type=checkbox]):not([type=radio]):not([type=file])") ? active.value : null;
+  return () => {
+    if (document.activeElement === active || (document.activeElement !== document.body && document.activeElement !== active)) return;
+    const nextScope = scopeKey
+      ? [...region.querySelectorAll(`[${scopeKey.name}]`)].find(element => element.getAttribute(scopeKey.name) === scopeKey.value)
+      : region;
+    const target = active.isConnected ? active : [...(nextScope?.querySelectorAll(active.tagName) ?? [])].filter(element => identity(element) === key)[index];
+    if (!target || target.disabled || target.closest('[hidden], [inert], [aria-hidden="true"]')) return;
+    for (let ancestor = target; ancestor; ancestor = ancestor.parentElement) {
+      if (ancestor.tagName === "DETAILS" && !ancestor.open && !ancestor.querySelector(":scope > summary")?.contains(target)) return;
+      const style = document.defaultView.getComputedStyle(ancestor);
+      if (style.display === "none" || style.visibility === "hidden" || style.visibility === "collapse") return;
+      if (ancestor === shell) break;
+    }
+    if (value !== null) target.value = value;
+    target.focus({preventScroll: true});
+    if (selection) target.setSelectionRange?.(...selection);
+  };
 }
 
 function renderCesiumWorkbench(context, {topbar,leftPanel,mapChrome,rightPanel,mobileToolbar,modalLayer,statusbar}) {
@@ -1320,6 +1486,34 @@ function renderCesiumWorkbench(context, {topbar,leftPanel,mapChrome,rightPanel,m
   requestAnimationFrame(()=>resizeWorkbenchMap(context));
 }
 
+function renderCompatibilityWorkbench(context, {topbar, leftPanel, mapChrome, rightPanel, mobileToolbar, modalLayer, statusbar}) {
+  const {state, shell} = context;
+  context.compatibility.sync();
+  context.compatibilityLayerReport = new Map(context.compatibility.report().layers.map(item => [item.layerId, item]));
+  shell.dataset.renderer = context.workspaceMode;shell.dataset.workspaceMode = context.workspaceMode;shell.dataset.colorMode = state.colorMode;
+  shell.classList.remove("gis-map-only", "gis-map-controls-hidden");
+  shell.classList.toggle("left-collapsed", !state.leftOpen);shell.classList.toggle("right-collapsed", !state.rightOpen);
+  const open = panel => {state.activePanel = panel;state.rightOpen = true;state.activeMenu = null;context.render();};
+  const tools = document.createElement("nav");tools.ariaLabel = "Workspace tools";
+  if (!context.printFrame) {
+    const save = actionButton(context.publicDemo ? "Save on this device" : "Save Project", () => context.publicDemo ? void savePersonalProject(context) : void saveAuthoritativeProject(context));
+    save.classList.add("gis-save-command");save.disabled = !canOrganizeProject(context);
+    const project = [menuAction("Open Project file…", () => openProjectFile(context)), menuAction("Save as / export…", () => openProjectExportDialog(context))];
+    if (context.publicDemo) project.push(menuAction("Projects on this device", () => void openPersonalProjects(context)), menuAction("Open Print Studio", () => void openBrowserPrintStudio(context)));
+    else project.push(...projectManagementActions(context));
+    tools.append(menuButton({id: "project", label: "Project", sections: [project]}, context), save);
+  }
+  for (const [label, panel] of [["Catalog", "catalog"], ["Add data", "add"], ["Table", "attributes"], ["Analysis", "processing"], ["2D tools", "compatibility"], ["Background & capabilities", "basemap"], ["Display mode", "renderer"]]) tools.append(actionButton(label, () => open(panel)));
+  if (context.workspaceMode === "openlayers-canvas") tools.append(actionButton("Download Canvas PNG", () => void exportCurrentMapImage(context)));
+  topbar.replaceChildren(tools);
+  renderLeftPanel(leftPanel, context);renderRightPanel(rightPanel, context);
+  const label = textElement("div", context.workspaceMode === "openlayers-canvas" ? "2D compatibility · Canvas" : "Data workspace · no interactive map");label.className = "gis-compatibility-badge";
+  mapChrome.replaceChildren(label);
+  mobileToolbar.replaceChildren(actionButton("Layers", () => {state.leftOpen = !state.leftOpen;context.render();}), actionButton("Table", () => open("attributes")), actionButton("Display mode", () => open("renderer")));
+  renderModalLayer(modalLayer, context);updateStatusbar(statusbar, context);
+  requestAnimationFrame(() => context.compatibility.resize());
+}
+
 function cesiumDetailsPanel(context) {
   const panel=panelShell(), selection=context.state.cesiumSelection;
   panel.append(textElement("p","Click a feature on the globe to inspect its recorded attributes."));
@@ -1350,7 +1544,7 @@ function cloneLayer(layer) {
 }
 
 function mapGraphicsUnavailable(container, context) {
-  if (context.disposed) return;
+  if (context.disposed || context.state.mapInitializationFailed) return;
   const map = context.state.map;
   const cleanup = context.disposeResources;
   context.disposeResources = null;
@@ -1358,12 +1552,12 @@ function mapGraphicsUnavailable(container, context) {
   context.publicationLayersInstalledMap = null;
   try { context.state.restoredMapViews = mapViewsForSave(map, context.state.restoredMapViews ?? context.project?.mapViews); }
   catch { /* An incomplete renderer may not have a readable camera. */ }
-  let released = false;
-  try { cleanup?.(); released = Boolean(cleanup); } catch { /* Continue closing a failed renderer. */ }
-  context.overviewControl?.dispose(); context.overviewControl = null;
+  try { cleanup?.(); } catch { /* Continue closing a failed renderer. */ }
+  try { context.overviewControl?.dispose(); } catch { /* Keep recovery available after control teardown. */ }
+  context.overviewControl = null;
   context.state.map = null;
   context.shell.__opengeoMap = null;
-  if (!released) try { context.rendererAdapter.disposeMap(map); } catch { /* Partial SDK setup. */ }
+  if (!cleanup && map) try { context.rendererAdapter.disposeMap(map); } catch { /* Partial SDK setup. */ }
   if (cleanup) context.disconnectionObserver = observeDisconnection(context.shell, () => context.shell.dispose());
   context.state.layerHandles.clear();
   container.replaceChildren();
@@ -1376,18 +1570,33 @@ function mapGraphicsUnavailable(container, context) {
   retry.addEventListener("click", () => initializeMap(container, context));
   notice.append(textElement("strong", "Map graphics unavailable"),
     textElement("p", "The browser could not run the map graphics renderer. Close unused map tabs, then retry. Check your browser’s graphics acceleration settings if this continues. Your Layers and draft remain available."), retry);
+  for (const [label, mode] of [["Use 2D compatibility", "openlayers-canvas"], ["Continue in data workspace", "data-workspace"]]) notice.append(actionButton(label, () => void context.compatibility.select(mode).catch(error => setStatus(context, error.message))));
   container.append(notice);
   setStatus(context, "Map graphics unavailable. Your Layers and draft are retained. Retry the map to continue.");
   context.render();
+  signalPrintContextChange(context);
+}
+
+function signalPrintContextChange(context) {
+  context.shell.dispatchEvent(new context.shell.ownerDocument.defaultView.Event("print-context-change", {bubbles: true}));
 }
 
 function resizeWorkbenchMap(context, map = context.state.map) {
+  if (context.workspaceMode) {context.compatibility.resize();return false;}
   if (context.disposed || !map || context.state.map !== map || context.state.mapInitializationFailed) return false;
   try { map.resize(); return true; }
   catch { mapGraphicsUnavailable(context.mapSurface, context); return false; }
 }
 
-function initializeMap(container, context) {
+function nativeWebGL2Available() {
+  try {
+    const canvas = document.createElement("canvas"), gl = canvas.getContext("webgl2");
+    if (!gl) return false;
+    gl.getExtension("WEBGL_lose_context")?.loseContext();return true;
+  } catch {return false;}
+}
+
+function initializeMap(container, context, {preparedMap = null} = {}) {
   if (context.disposed || !context.shell.isConnected) return;
   const initialStartup = !context.mapInitializationAttempted;
   context.mapInitializationAttempted = true;
@@ -1396,9 +1605,12 @@ function initializeMap(container, context) {
   const savedView = state.restoredMapViews?.[0] ?? project?.mapViews?.[0];
   const restoreSavedCamera = savedView && typeof savedView === "object";
   container.querySelector(".gis-map-startup-error")?.remove();
+  state.mapInitializationFailed = false;
+  signalPrintContextChange(context);
   try {
+    if (!preparedMap && context.rendererAdapter === maplibreAdapter && !nativeWebGL2Available()) throw Error("WebGL2 unavailable");
     context.rendererAdapter.initialize();
-    state.map = createMap(
+    state.map = preparedMap ?? createMap(
     context.rendererAdapter,
     container,
     savedView,
@@ -1406,7 +1618,6 @@ function initializeMap(container, context) {
     activeBasemap(context),
     (url, type) => state.mapFontSession.transformRequest(url, type, context.esriBasemapSession.transformRequest, context.rendererAdapter.id)
     );
-    state.mapInitializationFailed = false;
     context.render();
   } catch {
     mapGraphicsUnavailable(container, context);
@@ -1418,44 +1629,61 @@ function initializeMap(container, context) {
   if (initialStartup) context.localDraftBaseline = localDraftSignature(context);
 
   let resizeObserver = null;
-  const resizeMap = () => resizeWorkbenchMap(context);
+  const initializedMap = state.map;
+  const resizeMap = () => resizeWorkbenchMap(context, initializedMap);
 
   if (typeof ResizeObserver !== "undefined") {
     resizeObserver = new ResizeObserver(() => requestAnimationFrame(resizeMap));
     resizeObserver.observe(container);
   }
 
+  let resourcesDisposed = false;
   context.disposeResources = () => {
-    disposeHistoricalComparison(context);
-    context.cancelPrintResolution?.();
+    if (resourcesDisposed) return;
+    resourcesDisposed = true;
+    // Incomplete SDKs can throw during teardown; finish detaching all resources.
+    const safely = callback => {try {callback();} catch { /* Continue releasing the failed map. */ }};
+    safely(() => disposeHistoricalComparison(context));
+    safely(() => context.cancelPrintResolution?.());
     context.disconnectionObserver?.disconnect();
-    context.disposeMapEvents?.();
+    safely(() => context.disposeMapEvents?.());
+    context.disposeMapEvents = null;
+    safely(() => stopSunlightAnimation(context));safely(() => context.solarLightingSession?.dispose());
+    safely(() => context.panoramaViewer?.dispose());context.panoramaViewer = null;
+    safely(() => context.mapControllerControls?.dispose());
+    context.mapControllerControls = null;
     state.analysisPreviewController?.abort();
-    closeShapeEditor(context);
-    closeImageOverlayEditor(context);
+    safely(() => closeShapeEditor(context));
+    safely(() => closeImageOverlayEditor(context));
     resizeObserver?.disconnect();
     if (state.kmlRegionFrame) cancelAnimationFrame(state.kmlRegionFrame);
     state.cancelBasemapActivationProbe?.();
     state.historicalAvailabilityAbortController?.abort();
     for (const request of context.liveFeatureRequests.values()) request.controller.abort();
     context.liveFeatureRequests.clear();
-    for (const control of context.layerArchiveControls.values()) control.dispose();
+    for (const control of context.layerArchiveControls.values()) safely(() => control.dispose());
     context.layerArchiveControls.clear();
     context.layerArchiveModes.clear();
-    for (const session of state.archiveTileSessions.values()) session.dispose();
+    for (const session of state.archiveTileSessions.values()) safely(() => session.dispose());
     state.archiveTileSessions.clear();
     for (const queued of context.liveFeatureQueue.splice(0)) queued.resolve(null);
     if (state.historicalPlaybackTimer) clearTimeout(state.historicalPlaybackTimer);
-    stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
-    stopFlightLoop(context);
+    safely(() => stopCameraTourPlayback(context, {reset: false, render: false, announce: false}));
+    safely(() => stopFlightLoop(context));
     if (state.basemapRuntimeSwitchTimer) clearTimeout(state.basemapRuntimeSwitchTimer);
     const map = state.map;
     state.map = null;
     context.shell.__opengeoMap = null;
-    context.rendererAdapter.disposeMap(map);
+    if (map) safely(() => context.rendererAdapter.disposeMap(map));
   };
 
-  context.disposeMapEvents = bindMapEvents(context, {restoreSavedCamera});
+  try {
+    context.disposeMapEvents = bindMapEvents(context, {restoreSavedCamera});
+    // A prepared candidate has already emitted its initial load/idle. Install
+    // canonical Layers through the same initialization handler when adopted.
+    if (preparedMap) preparedMap.fire("load");
+    signalPrintContextChange(context);
+  } catch { mapGraphicsUnavailable(container, context); }
 }
 
 function rendererSnapshot(context, map) {
@@ -1807,12 +2035,32 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   const {state, layers, datasets, dataByLayerId} = context;
   const map = state.map;
   const resizeMap = () => resizeWorkbenchMap(context, map);
-  const fitMap = () => { resizeMap(); fitVisibleLayers(map, layers, dataByLayerId); };
-  let disposed = false, frame = null, cachedLayerFrame = null;
+  const fitMap = () => {
+    if (!resizeMap()) return;
+    try { fitVisibleLayers(map, layers, dataByLayerId); }
+    catch { mapGraphicsUnavailable(context.mapSurface, context); }
+  };
+  let disposed = false, frame = null, cachedLayerFrame = null, initialLoadReceived = false;
   const timers = [], listeners = [];
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (frame !== null) cancelAnimationFrame(frame);
+    if (cachedLayerFrame !== null) cancelAnimationFrame(cachedLayerFrame);
+    for (const timer of timers) clearTimeout(timer);
+    for (const {type, handler} of listeners) try { map.off(type, handler); } catch { /* Detach the remaining callbacks. */ }
+  };
+  context.disposeMapEvents = dispose;
+  timers.push(setTimeout(() => {
+    if (!disposed && !initialLoadReceived && state.map === map) mapGraphicsUnavailable(context.mapSurface, context);
+  }, 15000));
   const on = (type, callback) => {
-    const handler = (...args) => { if (!disposed && state.map === map) callback(...args); };
-    map.on(type, handler); listeners.push({type, handler});
+    const handler = (...args) => {
+      if (disposed || context.disposed || state.map !== map) return;
+      try { callback(...args); }
+      catch { mapGraphicsUnavailable(context.mapSurface, context); }
+    };
+    listeners.push({type, handler});map.on(type, handler);
   };
   const mapLibre = workbenchRenderer(map).id === "maplibre";
   const scheduleCachedLayerInstall = () => {
@@ -1841,6 +2089,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   frame = requestAnimationFrame(sampleAnimationFrame);
 
   on("load", () => {
+    initialLoadReceived = true;
     recordGlobeLoad(state.globeTelemetry);
     // Install the base before projection/terrain can make the loaded style busy.
     installRasterBasemap(state, activeBasemap(context));
@@ -1863,7 +2112,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
     if (terrain.fallback) cancelTerrainTiming(state.globeTelemetry);
     recordGlobeCamera(state.globeTelemetry, state.map);
     updateProjectionPresentation(context);
-    resizeMap();
+    if (!resizeMap()) return;
     const openScene3dActivation = currentOpenScene3dActivation(state);
     const openScene3d = applyOpenScene3d(
       state.map,
@@ -1884,7 +2133,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
     void loadPersistedDatasetLayers(context);
     if (context.publicDemo) void restoreBrowserCatalogLayers({
       layers: context.layers, catalog: context.browserCatalog, dataByLayerId,
-      isCurrent: layer => context.shell.isConnected && context.layers.includes(layer),
+      isCurrent: layer => !disposed && state.map === map && context.shell.isConnected && context.layers.includes(layer),
       onData: (layer, data) => {
         removeMapLayer(state, layer.layerId);
         addMapLayer(state, layer, data, datasets);
@@ -1979,6 +2228,12 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
   });
 
   on("error", (event) => {
+    // Source/network errors belong to their existing recovery paths. A failed
+    // graphics context cannot recover by waiting for source loading or map idle.
+    const message = String(event?.error?.message ?? event?.message ?? "");
+    if (/webgl(?:2)?(?:\s+rendering)?\s+context.{0,40}(?:lost|unavailable|fail)|(?:fail|unable|could not).{0,60}(?:webgl|graphics context)|webgl(?:2)?\s+(?:unavailable|not supported)/i.test(message)) {
+      mapGraphicsUnavailable(context.mapSurface, context);return;
+    }
     if (state.openScene3dEnabled && event?.sourceId === OPEN_3D_SCENE_SOURCE.sourceId) {
       const outage = state.openScene3dOutageGuard.recordFailure(event.sourceId);
       if (!outage.allowed) {
@@ -2076,13 +2331,7 @@ function bindMapEvents(context, {restoreSavedCamera = true} = {}) {
       void runDrillDownIdentify(context, event.lngLat, event.point);
     }
   });
-  return () => {
-    disposed = true;
-    if (frame !== null) cancelAnimationFrame(frame);
-    if (cachedLayerFrame !== null) cancelAnimationFrame(cachedLayerFrame);
-    for (const timer of timers) clearTimeout(timer);
-    for (const {type, handler} of listeners) map.off(type, handler);
-  };
+  return dispose;
 }
 
 function mapClickUsesLocalInteraction(context, event) {
@@ -2113,6 +2362,11 @@ function observeDisconnection(element, dispose) {
 }
 
 
+function currentProjectTitle(context) {
+  return context.localProjectRecord?.title ?? context.project?.name ?? context.project?.title
+    ?? context.workspace?.title ?? "Untitled project";
+}
+
 function renderTopbar(topbar, context) {
   const {workspace, workspaces, role, state, startBlank, publicDemo, landingMode} = context;
   topbar.replaceChildren();
@@ -2122,7 +2376,9 @@ function renderTopbar(topbar, context) {
   brand.href = publicDemo ? "/" : "/";
   brand.append(
     textElement("strong", "OpenGeo Studio"),
-    textElement("span", landingMode
+    textElement("span", context.localProjectRecord
+      ? currentProjectTitle(context)
+      : landingMode
       ? "Untitled local map"
       : publicDemo
         ? "Public workbench demo"
@@ -2613,7 +2869,9 @@ function bindCompactPanelTransitions(context) {
         rightOpen: context.state.rightOpen
       };
       context.state.leftOpen = false;
-      context.state.rightOpen = false;
+      // The expanded table owns modal focus. Keep its inspector mounted and
+      // visible when zoom or viewport changes enter the compact layout.
+      context.state.rightOpen = Boolean(context.state.attributesExpanded && context.state.activePanel === "attributes");
       context.render();
       return;
     }
@@ -3004,7 +3262,8 @@ function toolbarMenus(context) {
             setStatus(context, context.demoSurface
               ? "This public workbench demonstrates browser-native OpenGeo Studio GIS workflows without private data or credentials."
               : "OpenGeo Studio keeps desktop GIS-style workflows in a browser-native AWS workspace.");
-          })
+          }),
+          menuAction("Hosting and self-hosting", () => { location.href = "/credits#hosting-and-self-hosting"; })
         ]
       ]
     }
@@ -3202,9 +3461,9 @@ async function openBrowserPrintStudio(context) {
     const data = structuredClone(context.dataByLayerId);
     const dialog = BrowserPrintStudio({definition, projectId, name: definition.title ?? "Local map",
       createWorkbench: snapshot => WorkbenchView({
-        workspace: context.workspace, workspaces: [context.workspace], role: "local", project: snapshot,
+        workspace: context.workspace, workspaces: [context.workspace], role: "local", project: context.compatibility.frameDefinition(snapshot),
         layers: snapshot.layers, geojsonByLayerId: structuredClone(data),
-        mapFontAttachments: context.mapFontAttachments, rendererAdapter: context.rendererAdapter,
+        mapFontAttachments: context.mapFontAttachments, rendererAdapter: context.workspaceMode ? maplibreAdapter : context.rendererAdapter, canvasRuntimeFactory: context.canvasRuntimeFactory,
         browserCatalog: context.browserCatalog, registerSource: context.registerSource,
         publicDemo: true, demoSurface: context.demoSurface, landingMode: context.landingMode, printFrame: true,
         persistenceMode: "local", restoreBrowserDraft: false,
@@ -3248,9 +3507,9 @@ function menuButton(menu, context) {
   const button = actionButton(menu.label, () => {
     state.activeMenu = state.activeMenu === menu.id ? null : menu.id;
     context.render();
+    context.shell.querySelector(`.gis-menu-wrap[data-menu="${menu.id}"] > button`)?.focus();
   });
   button.classList.add("gis-menu-button");
-  button.setAttribute("aria-haspopup", "menu");
   button.setAttribute("aria-expanded", state.activeMenu === menu.id ? "true" : "false");
   button.classList.toggle("active", state.activeMenu === menu.id);
   wrapper.append(button);
@@ -3258,7 +3517,7 @@ function menuButton(menu, context) {
   if (state.activeMenu === menu.id) {
     const dropdown = document.createElement("div");
     dropdown.className = "gis-menu-dropdown";
-    dropdown.role = "menu";
+    dropdown.setAttribute("aria-label", `${menu.label} actions`);
     dropdown.append(textElement("strong", menu.label));
     for (const section of menu.sections) {
       const group = document.createElement("div");
@@ -3268,6 +3527,14 @@ function menuButton(menu, context) {
     }
     wrapper.append(dropdown);
   }
+  wrapper.addEventListener("keydown", event => {
+    if (event.key !== "Escape" || state.activeMenu !== menu.id) return;
+    event.preventDefault();
+    event.stopPropagation();
+    state.activeMenu = null;
+    context.render();
+    context.shell.querySelector(`.gis-menu-wrap[data-menu="${menu.id}"] > button`)?.focus();
+  });
 
   return wrapper;
 }
@@ -3278,7 +3545,6 @@ function menuAction(label, action, {shortcut = "", disabled = false, title = ""}
       const button = document.createElement("button");
       button.type = "button";
       button.className = "gis-menu-item";
-      button.role = "menuitem";
       button.disabled = disabled;
       if (title) button.title = title;
       button.append(textElement("span", label));
@@ -3287,11 +3553,23 @@ function menuAction(label, action, {shortcut = "", disabled = false, title = ""}
         button.append(hint);
       }
       button.addEventListener("click", () => {
+        const menuId = button.closest("[data-menu]")?.dataset.menu;
+        const previousPanel = context.state.activePanel;
         action();
         context.state.activeMenu = null;
         context.state.mobileCommandSheetOpen = false;
         context.state.mobileCommandReturnFocus = null;
         context.render();
+        if (context.modalLayer.querySelector('[role="dialog"]')) return;
+        // Actions may deliberately focus a new editor or a dialog outside the shell.
+        if (document.activeElement !== document.body && document.activeElement?.isConnected
+          && !document.activeElement.closest(".gis-menu-wrap")) return;
+        if (context.state.activePanel !== previousPanel) {
+          const heading = context.shell.querySelector(".gis-panel-right .gis-panel-header h2");
+          if (heading) { heading.tabIndex = -1; heading.focus(); }
+        } else if (menuId && !context.shell.contains(document.activeElement)) {
+          context.shell.querySelector(`.gis-menu-wrap[data-menu="${menuId}"] > button`)?.focus();
+        }
       });
       return button;
     }
@@ -3318,7 +3596,7 @@ function groupedTools() {
 }
 
 function renderLeftPanel(panel, context) {
-  if(context.rendererAdapter.id !== "cesium") syncFeatureHalo(context);
+  if(!context.workspaceMode && context.rendererAdapter.id !== "cesium") syncFeatureHalo(context);
   panel.replaceChildren();
 
   const header = document.createElement("div");
@@ -3354,6 +3632,9 @@ function kmlLayerEditor(context) {
       actionButton("Create KML layer", () => {
         state.kmlInterchangeReport = emptyKmlReport();
         applyKmlPlacesDocument(context, createPlacesDocument(), "Created a new bounded KML layer.");
+        const creator = context.shell.querySelector('.gis-place-authoring');
+        if (creator) creator.open = true;
+        creator?.querySelector('[data-kml-authoring-field="name"]')?.focus();
       })
     );
     return dock;
@@ -3398,6 +3679,18 @@ function kmlLayerEditor(context) {
       exportKmz(state.kmlPlaces),
       "application/vnd.google-earth.kmz"
     )),
+    actionButton("Download regionated KMZ", async event => {
+      const button = event.currentTarget;
+      button.disabled = true;
+      try {
+        const result = await exportRegionatedKmz(state.kmlPlaces);
+        downloadBlob(`${slug(state.kmlPlaces.name)}-regions.kmz`, result.bytes,
+          "application/vnd.google-earth.kmz");
+        setStatus(context, `Downloaded ${result.report.parts.length} local regions. The archive includes source references and a conversion report.`);
+      } catch (error) {
+        setStatus(context, error.message ?? "The document could not be regionated.");
+      } finally {button.disabled = false;}
+    }),
     actionButton("Download KML loss report", () => downloadBlob(
       `${slug(state.kmlPlaces.name)}-kml-loss-report.json`,
       JSON.stringify(state.kmlInterchangeReport ?? {result: "restored", counts: {}, entries: []}, null, 2),
@@ -3408,6 +3701,12 @@ function kmlLayerEditor(context) {
   if (state.kmlPlaces.view) dock.append(kmlNavigationButton(context, state.kmlPlaces));
   dock.append(kmlPlaceCreator(context));
   dock.append(kmlOverlayCreator(context));
+  context.kmlAdvancedControls ??= KmlAdvancedControls({getDocument: () => state.kmlPlaces,
+    getSelectedId: () => state.selectedKmlPlaceId, canEdit: () => canOrganizeProject(context),
+    assertScope: () => {if (context.disposed || context.queryLocationScopeInvalid) throw Error("The current Project changed.");},
+    replaceDocument: (next, {selectId, message}) => {state.selectedKmlPlaceId = selectId;applyKmlPlacesDocument(context, next, message);saveLocalDraft(context);},
+    onOpenPhoto: (place, document) => {state.pendingPhotoPanorama = {place, document};openHistoricalImageryPanel(context);}, onStatus: message => setStatus(context, message)});
+  context.kmlAdvancedControls.update();dock.append(context.kmlAdvancedControls.element);
 
   const sort = document.createElement("div");
   sort.className = "gis-form-grid";
@@ -3428,7 +3727,6 @@ function kmlLayerEditor(context) {
 
   const tree = document.createElement("ul");
   tree.className = "gis-places-tree";
-  tree.role = "tree";
   tree.setAttribute("aria-label", "KML layer hierarchy");
   if (canOrganizeProject(context)) {
     dock.append(textElement("p", "Drag Move to reorder places. Drop in the middle of a folder to move inside it. Select Move for Parent and up/down controls."));
@@ -3486,10 +3784,12 @@ function appendPlaceNodes(parent, children, context) {
       bindKmlPlaceDrop(summary, context, child.id);
       details.append(summary);
       if (child.view) details.append(kmlNavigationButton(context, child));
-      details.append(actionButton(`Edit ${child.name}`, () => {
+      const edit = actionButton(`Edit ${child.name}`, () => {
         context.state.selectedKmlPlaceId = child.id;
         context.render();
-      }));
+      });
+      if (context.state.selectedKmlPlaceId === child.id) edit.setAttribute("aria-current", "true");
+      details.append(edit);
       const nested = document.createElement("ul");
       appendPlaceNodes(nested, child.children, context);
       details.append(nested);
@@ -3509,6 +3809,7 @@ function appendPlaceNodes(parent, children, context) {
         context.state.selectedKmlPlaceId = child.id;
         context.render();
       });
+      if (context.state.selectedKmlPlaceId === child.id) edit.setAttribute("aria-current", "true");
       const actions = document.createElement("div");
       actions.className = "gis-place-actions";
       actions.append(edit, kmlPlaceDragHandle(context, child));
@@ -3631,19 +3932,22 @@ function bindKmlPlaceDrop(target, context, targetId, root = false) {
 }
 
 function kmlPlaceCreator(context) {
+  const drafts = context.state.kmlCreationDrafts ??= new Map();
+  const layerId = editingKmlLayerId(context);
+  const draft = drafts.get(layerId) ?? {};
   const details = document.createElement("details");
   details.className = "gis-places-authoring gis-place-authoring";
   details.dataset.authoring = "place";
-  const requestedKind = ["Point", "LineString", "Polygon"].includes(context.state.primaryAuthoringKind)
+  const requestedKind = draft.kind ?? (["Point", "LineString", "Polygon"].includes(context.state.primaryAuthoringKind)
     ? context.state.primaryAuthoringKind
-    : "Point";
-  details.open = ["Point", "LineString", "Polygon"].includes(context.state.primaryAuthoringKind);
+    : "Point");
+  details.open = draft.open ?? ["Point", "LineString", "Polygon"].includes(context.state.primaryAuthoringKind);
   const summary = document.createElement("summary");
   summary.textContent = "Create place or folder";
   details.append(summary);
   const form = document.createElement("div");
   form.className = "gis-form-grid";
-  const name = textInput("Name", "New place");
+  const name = textInput("Name", draft.name ?? "New place");
   name.input.dataset.kmlAuthoringField = "name";
   const kind = selectInput("Kind", requestedKind, [
     ["Point", "Placemark point"],
@@ -3652,23 +3956,43 @@ function kmlPlaceCreator(context) {
     ["folder", "Folder"]
   ]);
   kind.input.dataset.kmlAuthoringField = "kind";
-  const parent = selectInput("Parent", context.state.kmlPlaces.id, kmlContainerOptions(context.state.kmlPlaces));
+  const parent = selectInput("Parent", draft.parent ?? context.state.kmlPlaces.id, kmlContainerOptions(context.state.kmlPlaces));
   parent.input.dataset.kmlAuthoringField = "parent";
   const coordinates = textAreaInput(
     "Coordinates",
-    authoringCoordinateTemplate(context, requestedKind),
+    draft.coordinates ?? authoringCoordinateTemplate(context, requestedKind),
     "lon,lat[,alt] separated by spaces"
   );
   coordinates.input.dataset.kmlAuthoringField = "coordinates";
-  const altitude = selectInput("Altitude mode", "clampToGround", [
+  const altitude = selectInput("Altitude mode", draft.altitude ?? "clampToGround", [
     ["clampToGround", "Clamp to ground"],
     ["relativeToGround", "Relative to ground"],
     ["absolute", "Absolute"]
   ]);
   altitude.input.dataset.kmlAuthoringField = "altitude";
-  const color = textInput("KML color (aabbggrr)", "ff00a5f5");
+  const color = textInput("KML color (aabbggrr)", draft.color ?? "ff00a5f5");
   color.input.dataset.kmlAuthoringField = "color";
+  const feedback = textElement("p", draft.error ?? "");
+  feedback.id = `kml-coordinate-feedback-${crypto.randomUUID()}`;
+  feedback.setAttribute("role", "alert");
+  const guidance = textElement("small", "Enter longitude,latitude in decimal degrees, for example -71.06,42.36. Separate positions with spaces; an optional third value is altitude.");
+  guidance.id = `${feedback.id}-guidance`;
+  coordinates.input.setAttribute("aria-describedby", `${guidance.id} ${feedback.id}`);
+  if (draft.coordinateInvalid) coordinates.input.setAttribute("aria-invalid", "true");
+  const saveDraft = () => {
+    Object.assign(draft, {open: details.open, name: name.input.value, kind: kind.input.value,
+      parent: parent.input.value, coordinates: coordinates.input.value, altitude: altitude.input.value, color: color.input.value});
+    drafts.set(layerId, draft);
+  };
+  details.addEventListener("toggle", () => {if (details.isConnected) saveDraft();});
+  form.addEventListener("input", saveDraft);
+  form.addEventListener("change", saveDraft);
+  coordinates.input.addEventListener("input", () => {
+    delete draft.error; delete draft.coordinateInvalid;
+    coordinates.input.removeAttribute("aria-invalid"); feedback.textContent = "";
+  });
   const create = actionButton("Add to KML layer", () => {
+    saveDraft();
     try {
       const requestedKind = kind.input.value;
       const value = requestedKind === "folder"
@@ -3687,13 +4011,29 @@ function kmlPlaceCreator(context) {
       context.state.mapAuthoringCreatedKmlPlaces = false;
       context.state.primaryAuthoringKind = null;
       context.state.authoringCoordinateDraft = null;
+      drafts.delete(layerId);
       applyKmlPlacesDocument(context, next, `Added ${name.input.value || "feature"} to the KML layer.`);
+      context.shell.querySelector('.gis-places-editor input[aria-label="Name"]')?.focus();
     } catch (error) {
-      setStatus(context, `Place creation failed safely (${error?.code ?? "invalid_place"}).`);
+      const coordinateError = /coordinate|positions|kml_number|polygon_ring/.test(error?.code ?? "");
+      const hints = {
+        kml_point_coordinate_required: "A point needs exactly one longitude,latitude position.",
+        kml_line_requires_two_positions: "A path needs at least two longitude,latitude positions separated by spaces.",
+        kml_polygon_requires_three_positions: "A polygon needs at least three longitude,latitude positions separated by spaces.",
+        kml_coordinate_out_of_bounds: "Use a longitude from -180 to 180 and a latitude from -90 to 90. Optional altitude must be a finite number within ±10,000,000."
+      };
+      draft.error = hints[error?.code] ?? (coordinateError
+        ? "Enter each position as longitude,latitude, for example -71.06,42.36. Separate positions with spaces and use numbers for every coordinate."
+        : "The place could not be added. Check its name, parent folder and KML color, then try again.");
+      draft.coordinateInvalid = coordinateError;
+      feedback.textContent = draft.error;
+      coordinates.input.setAttribute("aria-invalid", String(coordinateError));
+      if (coordinateError) coordinates.input.focus();
+      setStatus(context, draft.error);
     }
   });
   create.dataset.kmlAuthoringAction = "create";
-  form.append(name.wrapper, kind.wrapper, parent.wrapper, coordinates.wrapper, altitude.wrapper, color.wrapper, create);
+  form.append(name.wrapper, kind.wrapper, parent.wrapper, coordinates.wrapper, guidance, feedback, altitude.wrapper, color.wrapper, create);
   details.append(form);
   return details;
 }
@@ -3706,13 +4046,15 @@ function kmlPlaceEditor(context, selected) {
   const editingDocument = context.state.kmlPlaces;
   const details = document.createElement("details");
   details.className = "gis-places-authoring gis-places-editor";
+  details.dataset.authoring = `edit-place-${selected.id}`;
   details.open = true;
   const summary = document.createElement("summary");
   summary.textContent = `Edit ${selected.name}`;
   details.append(summary);
-  if (selected.kind === "placemark" && selected.geometry) {
+  if (selected.kind === "placemark" && selected.geometry && !selected.model) {
     details.append(actionButton("Edit shape on map", () => editKmlShape(context, selected.id)));
   }
+  if (selected.model) details.append(textElement("p", "Use Models and photo overlays to change this Model's location, orientation or scale. Its Point anchor and model location are kept together."));
   if (String(selected.kind).endsWith("-overlay")) {
     if (selected.kind === "ground-overlay") {
       details.append(actionButton("Adjust image on map", () => editImageOverlay(context, selected.id)));
@@ -3722,7 +4064,7 @@ function kmlPlaceEditor(context, selected) {
       "Overlay kind": selected.kind,
       "Resource": selected.icon?.href ?? "missing",
       "Region/LOD": selected.region ? `${selected.region.lod.minPixels}…${selected.region.lod.maxPixels}` : "always",
-      "Rendering": selected.kind === "photo-overlay" ? "bounded static preview anchor" : "local image"
+      "Rendering": selected.kind === "photo-overlay" ? "Map anchor; review embedded spheres in Models and photo overlays" : "local image"
     }));
     if (resource) {
       const preview = document.createElement("img");
@@ -3771,6 +4113,7 @@ function kmlPlaceEditor(context, selected) {
       applyKmlPlacesDocument(context, next, `Updated ${name.input.value || selected.name}.`);
     } catch (error) {
       const message = view.reportError(error) ?? time.reportError(error) ?? geometry?.reportError(error);
+      remember();
       setStatus(context, message ?? `Place edit failed safely (${error?.code ?? "invalid_place"}).`);
     }
   });
@@ -4023,6 +4366,21 @@ function kmlPlaceViewEditor(value, editable) {
   ]);
   altitudeMode.input.dataset.kmlViewField = "altitudeMode";
   grid.append(altitudeMode.wrapper);
+  let errorField = value?.errorField ?? null;
+  const feedback = textElement("p", value?.errorMessage ?? "");
+  feedback.id = `kml-view-feedback-${crypto.randomUUID()}`;
+  feedback.setAttribute("role", "alert");
+  feedback.hidden = !feedback.textContent;
+  for (const [key, field] of fields) {
+    field.input.setAttribute("aria-describedby", feedback.id);
+    if (key === errorField) field.input.setAttribute("aria-invalid", "true");
+  }
+  const clearError = () => {
+    errorField = null;feedback.textContent = "";feedback.hidden = true;
+    for (const field of fields.values()) field.input.removeAttribute("aria-invalid");
+  };
+  element.addEventListener("input", clearError);
+  element.addEventListener("change", clearError);
   const applicable = key => type.input.value !== "none"
     && (key !== "roll" || type.input.value === "Camera") && (key !== "range" || type.input.value === "LookAt");
   const sync = () => {
@@ -4035,13 +4393,13 @@ function kmlPlaceViewEditor(value, editable) {
   };
   type.input.addEventListener("change", sync);
   sync();
-  element.append(grid);
+  element.append(grid, feedback);
   return {
     element,
-    capture: () => ({type: type.input.value, altitudeMode: altitudeMode.input.value,
+    capture: () => ({type: type.input.value, altitudeMode: altitudeMode.input.value, errorField, errorMessage: feedback.textContent,
       ...Object.fromEntries([...fields].map(([key, field]) => [key, field.input.value]))}),
     read() {
-      for (const field of fields.values()) field.input.removeAttribute("aria-invalid");
+      clearError();
       if (type.input.value === "none") return null;
       const view = {type: type.input.value, altitudeMode: altitudeMode.input.value || null};
       for (const [key, field] of fields) {
@@ -4064,7 +4422,10 @@ function kmlPlaceViewEditor(value, editable) {
       field.input.focus();
       const ranges = {longitude: "-180 to 180 degrees", latitude: "-90 to 90 degrees", heading: "-360 to 360 degrees",
         roll: "-180 to 180 degrees", tilt: `0 to ${type.input.value === "LookAt" ? 90 : 180} degrees`, range: "0 metres or greater"};
-      return error.viewField ? error.message : `KML view ${key} must be ${ranges[key]}. Correct it and apply again.`;
+      errorField = key;
+      feedback.hidden = false;
+      feedback.textContent = error.viewField ? error.message : `KML view ${key} must be ${ranges[key]}. Correct it and apply again.`;
+      return feedback.textContent;
     }
   };
 }
@@ -4077,6 +4438,7 @@ function closeShapeEditor(context) {
 
 function editKmlShape(context, id) {
   const selected = findKmlPlaceForUi(context.state.kmlPlaces, id);
+  if (selected?.model) {setStatus(context, "Use Model controls to keep the model location and Point anchor together.");return;}
   if (!selected?.geometry || !context.state.map) return;
   closeShapeEditor(context);
   closeImageOverlayEditor(context);
@@ -4958,7 +5320,7 @@ function layerDock(context) {
   const visibleLayerCount = layers.filter(({visible}) => visible !== false).length;
   projectSummary.append(
     treeIcon("project"),
-    textElement("strong", context.project?.name ?? context.workspace?.title ?? "Untitled project"),
+    textElement("strong", currentProjectTitle(context)),
     textElement("small", `${visibleLayerCount}/${layers.length} visible`)
   );
   const children = document.createElement("ul");
@@ -4985,9 +5347,11 @@ function layerDock(context) {
   if (context.projectNavigation && !context.projectNavigation.workspaceOptions?.length) {
     layerList.append(projectNavigationTree(context));
   }
-  if (!layers.length) layerList.append(
-    context.landingMode ? emptyProjectTreeNote() : emptyProjectActions(context)
-  );
+  if (!layers.length) {
+    const emptyItem = context.landingMode ? emptyProjectTreeNote() : document.createElement("li");
+    if (!context.landingMode) emptyItem.append(emptyProjectActions(context));
+    layerList.append(emptyItem);
+  }
 
   const support = document.createElement("div");
   support.className = "gis-layer-support";
@@ -5439,6 +5803,11 @@ function treeIcon(kind) {
 
 function basemapTreeRow(context) {
   const item = document.createElement("li");
+  if (context.workspaceMode) {
+    item.append(actionButton(context.workspaceMode === "data-workspace" ? "Background · no map" : "Canvas background & permissions", () => {
+      context.state.activePanel = "basemap";context.state.rightOpen = true;context.render();
+    }));return item;
+  }
   item.className = "gis-basemap-tree-row";
   const basemap = activeBasemap(context);
   if(context.rendererAdapter.id === "cesium") {
@@ -5528,7 +5897,10 @@ function layerRow({context, layer, dataset}) {
 
   const swatch = document.createElement("span");
   swatch.className = "gis-style-swatch-slot";
-  const styleButton = iconButton(`Style ${layer.title}`, "", () => openLayerSymbology(context, layer));
+  const styleButton = iconButton(`Style ${layer.title}`, "", () => {
+    if (context.workspaceMode) {state.activeLayerId = layer.layerId;state.activePanel = "style";state.rightOpen = true;context.render();}
+    else openLayerSymbology(context, layer);
+  });
   styleButton.className = "gis-swatch gis-style-swatch";
   styleButton.title = `Change symbols, colors and sizes for ${layer.title}`;
   styleButton.style.background = layerColor(layer);
@@ -5585,7 +5957,7 @@ function layerRow({context, layer, dataset}) {
     }),
     toolsMoveUp,
     toolsMoveDown,
-    iconButton("Zoom to layer", "Zoom", () => fitLayer(state.map, layer, context.dataByLayerId))
+    iconButton("Zoom to layer", "Zoom", () => context.workspaceMode ? context.compatibility.runtime?.fitGeoJSON(context.dataByLayerId.get(layer.layerId)) : fitLayer(state.map, layer, context.dataByLayerId))
   );
   if (layer.geometryType === "Point") tools.append(iconButton("Point clustering display settings", "Clustering", () => {
     state.activeLayerId = layer.layerId;state.activePanel = "style";state.rightOpen = true;context.render();
@@ -5724,6 +6096,7 @@ function layerRow({context, layer, dataset}) {
   opacity.addEventListener("input", () => {
     layer.opacity = Number(opacity.value);
     setLayerOpacity(state, layer.layerId, layer.opacity);
+    if (context.workspaceMode) context.compatibility.sync();
   });
 
   const opacityField = document.createElement("label");
@@ -5742,6 +6115,13 @@ function layerRow({context, layer, dataset}) {
     popover.append(disclosure);
   }
   row.append(top, info.content);
+  if (context.workspaceMode) {
+    const report = context.compatibilityLayerReport?.get(layer.layerId);
+    const description = context.workspaceMode === "data-workspace" ? "Map display disabled; data and definition retained."
+      : report?.status === "unavailable" ? `Unavailable in Canvas: ${(report.issues ?? []).map(issue => issue.message).join(" ")}`
+      : report?.status === "different" ? `Canvas display differs: ${(report.issues ?? []).map(issue => issue.message).join(" ")}` : "Canvas supported";
+    const note = textElement("small", description);note.className = "gis-compatibility-layer-status";row.append(note);
+  }
   if (state.rendererLayerIssues?.has(layer.layerId)) {
     const notice = textElement("small", `${state.rendererLayerIssues.get(layer.layerId)}${context.rendererAdapter.id !== "maplibre" ? " Switch to MapLibre to display this Layer." : ""}`);
     notice.className = "gis-layer-renderer-notice";
@@ -5783,10 +6163,14 @@ function searchPanel(context) {
   body.append(input);
 
   const earth = state.spatialBody.id === "earth";
-  body.append(textElement("small", earth
+  const guidance = textElement("small", earth
     ? "Coordinates: WGS84 latitude, longitude in decimal degrees, for example 42.36, -71.06, or a full Plus Code such as 8FVC9G8F+6W. Plus Codes decode offline; layer search uses loaded attributes."
-    : "WGS84 coordinate navigation is available for Earth maps. Layer search uses loaded attributes."));
+    : "WGS84 coordinate navigation is available for Earth maps. Layer search uses loaded attributes.");
+  guidance.id = `gis-coordinate-search-guidance-${crypto.randomUUID()}`;
+  body.append(guidance);
   const feedback = textElement("small", state.coordinateSearchMessage ?? "");
+  feedback.id = `${guidance.id}-feedback`;
+  input.setAttribute("aria-describedby", `${guidance.id} ${feedback.id}`);
   feedback.setAttribute("role", "status");
   feedback.hidden = !state.coordinateSearchMessage;
   const reportCoordinate = (message, invalid = false) => {
@@ -6117,7 +6501,8 @@ function searchPanel(context) {
 
 function analysisInputLayers(context) {
   const completeTypes = new Set(["geojson-object", "geojson-archive", "governed-dataset", "arcgis-feature-layer-snapshot"]);
-  return context.layers.filter(layer => completeTypes.has(layer.sourceType)
+  return context.layers.filter(layer => (completeTypes.has(layer.sourceType)
+      || layer.sourceType === "kml-places" && !canvasBasicPlacesIssue(layer, context.dataByLayerId.get(layer.layerId)))
     && !layer.managedDisplayId && !context.layerArchiveModes.has(layer.layerId)
     && !context.loadingDatasetLayerIds.has(layer.layerId)
     && !context.failedDatasetLayerIds.has(layer.layerId)
@@ -6295,6 +6680,14 @@ function renderMapChrome(chrome, context) {
   if (!terrain.allowed || !buildings.allowed) viewHelp.querySelector("summary").textContent = "3D availability";
   right.append(viewHelp);
 
+  if (context.rendererAdapter.id === "maplibre") {
+    context.mapControllerControls ??= MapControllerControls(() => state.map, {available: () => (
+      context.rendererAdapter.id === "maplibre" && !state.flightSession && !state.cameraTourPlaybackTimer && !context.tourMovieActive
+      && !state.mapAuthoring && !state.queryDrawing && !state.measureMode && !state.temporaryEdit
+    )});
+    right.append(context.mapControllerControls.element);
+  }
+
   const plugins = activePluginOverlay(context);
   chrome.append(right);
   context.overviewControl?.update();
@@ -6395,6 +6788,12 @@ function activePluginOverlay(context) {
 
 function renderRightPanel(panel, context) {
   const {state} = context;
+  const cached = context.attributesView;
+  if (state.activePanel === "attributes" && cached?.panel.parentElement === panel
+    && cached.layer === activeLayer(context) && cached.geojson === context.dataByLayerId.get(cached.layer.layerId)) {
+    cached.refresh();
+    return;
+  }
   panel.replaceChildren();
 
   const header = document.createElement("div");
@@ -6431,6 +6830,7 @@ function panelTitle(panel) {
     catalog: "Data catalog",
     sql: "SQL Workspace",
     renderer: "Rendering engine",
+    compatibility: "2D compatibility tools",
     settings: "Settings",
     assistant: "Assistant",
     help: "Help"
@@ -6452,7 +6852,7 @@ function inspectorSwitcher(context) {
       state.activePanel = "attributes";
       context.render();
     }),
-    actionButton("Zoom", () => fitLayer(state.map, layer, context.dataByLayerId)),
+    actionButton("Zoom", () => context.workspaceMode ? context.compatibility.runtime?.fitGeoJSON(context.dataByLayerId.get(layer?.layerId)) : fitLayer(state.map, layer, context.dataByLayerId)),
     actionButton("Remove", () => removeLayer(context, layer))
   );
   tabs.lastElementChild?.classList.add("danger");
@@ -6509,16 +6909,25 @@ function panelBody(context) {
   if (context.state.activePanel === "renderer") {
     context.rendererPanel ??= RendererPanel({
       session: context.mapboxSession,
-      current: () => context.rendererAdapter.id,
-      preferred: () => context.rendererPreference ?? context.project?.extensions?.opengeoRenderer?.id ?? "maplibre",
+      current: () => context.workspaceMode ?? context.rendererAdapter.id,
+      preferred: () => context.workspaceMode ?? context.rendererPreference ?? context.project?.extensions?.opengeoRenderer?.id ?? "maplibre",
       report: (id="mapbox") => id === "cesium" ? cesiumWorkbenchContent(context)
+        : id === "openlayers-canvas" ? context.compatibility.report()
         : mapboxCompatibility({layers:context.layers, state:context.state, style:context.state.map?.getStyle?.()}),
       status: () => ({...context.rendererSwitchStatus, paused:Boolean(context.rendererSuspended)}),
-      onSwitch: id => switchRenderingEngine(context, id),
-      onCancel: () => context.cancelRendererSwitch?.()
+      onSwitch: id => ["openlayers-canvas", "data-workspace"].includes(id) || context.workspaceMode ? context.compatibility.select(id) : switchRenderingEngine(context, id),
+      onCancel: () => {context.compatibility.cancelSwitch();context.cancelRendererSwitch?.();}
     });
     context.rendererPanel.update();
     return context.rendererPanel;
+  }
+  if (context.workspaceMode) {
+    if (context.state.activePanel === "compatibility" || context.state.activePanel === "measure") return context.compatibility.mapControls();
+    if (["basemap", "controls"].includes(context.state.activePanel)) return context.compatibility.modePanel();
+    if (context.state.activePanel === "style") return context.compatibility.stylePanel();
+    if (["history", "tour", "flight"].includes(context.state.activePanel)) {
+      const panel = panelShell();panel.append(textElement("p", "This tool requires full graphics. Your saved configuration is retained."), context.compatibility.modePanel());return panel;
+    }
   }
   if(context.rendererAdapter.id === "cesium") return cesiumDetailsPanel(context);
   if (context.state.activePanel === "attributes") return attributesPanel(context);
@@ -7384,6 +7793,10 @@ function attributesPanel(context) {
     panel.classList.toggle("gis-attributes-expanded", expanded);
     expand.textContent = expanded ? "Back to map" : "Expand table";
     expand.setAttribute("aria-expanded", String(expanded));
+    if (panel.isConnected) {
+      syncExpandedAttributesModal(context);
+      if (!expanded) expand.focus();
+    }
   };
   setExpanded(Boolean(state.attributesExpanded));
   panel.addEventListener("keydown", event => {
@@ -7401,15 +7814,57 @@ function attributesPanel(context) {
   input.value = state.filterText;
   input.addEventListener("input", () => {
     state.filterText = input.value;
-    context.render();
+    refresh();
   });
   const filter = fieldWrap("Filter rows", input);
 
-  const rows = featureRows(geojson, state.filterText);
-  panel.append(filter, attributeSummary(rows, geojson.features.length), attributeTable(rows, context, layer));
-  const area = selectedBoundaryQuerySection(context, layer, geojson);
-  if (area) panel.append(area);
+  const results = document.createElement("div");
+  const refresh = () => {
+    const restoreFocus = preserveWorkbenchFocus(context.shell);
+    panel.setAttribute("aria-label", `${layer.title} attributes`);
+    if (input.value !== state.filterText) input.value = state.filterText;
+    const scroll = results.querySelector(".gis-attribute-scroll");
+    const rows = featureRows(geojson, state.filterText);
+    const summary = attributeSummary(rows, geojson.features.length);
+    summary.setAttribute("role", "status");
+    const nextScroll = document.createElement("div");
+    nextScroll.className = "gis-attribute-scroll";
+    nextScroll.tabIndex = 0;
+    nextScroll.setAttribute("role", "region");
+    nextScroll.setAttribute("aria-label", `${layer.title} attribute rows; scroll horizontally for more columns`);
+    nextScroll.append(attributeTable(rows, context, layer));
+    results.replaceChildren(summary, nextScroll);
+    nextScroll.scrollTop = scroll?.scrollTop ?? 0;
+    nextScroll.scrollLeft = scroll?.scrollLeft ?? 0;
+    const area = selectedBoundaryQuerySection(context, layer, geojson);
+    if (area) results.append(area);
+    restoreFocus();
+  };
+  panel.append(filter, results);
+  context.attributesView = {panel, layer, geojson, refresh};
+  refresh();
   return panel;
+}
+
+function syncExpandedAttributesModal(context) {
+  context.disposeAttributesModal?.({restoreFocus: false});
+  context.disposeAttributesModal = null;
+  const panel = context.shell.querySelector(".gis-attributes-panel");
+  const expanded = Boolean(context.state.attributesExpanded && panel?.isConnected && context.state.activePanel === "attributes"
+    && !context.modalLayer.querySelector('[role="dialog"]'));
+  if (!expanded) {
+    panel?.setAttribute("role", "region");
+    panel?.removeAttribute("aria-modal");
+    return;
+  }
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-modal", "true");
+  const active = panel.ownerDocument.activeElement;
+  context.disposeAttributesModal = activateModal(panel, {
+    initialFocus: panel.contains(active) ? active : panel.querySelector(".gis-attributes-expand"),
+    returnFocus: () => context.shell.querySelector(".gis-attributes-expand"),
+    onDismiss: () => panel.querySelector(".gis-attributes-expand")?.click()
+  });
 }
 
 function selectedBoundaryQuerySection(context, layer, geojson) {
@@ -8500,14 +8955,14 @@ function addDataPanel(context) {
   const file = document.createElement("input");
   file.type = "file";
   file.accept = context.publicDemo
-    ? ".geojson,.json,.csv,.tsv,.txt,.wkt,.wkb,.ewkb,.kml,.kmz,.gpx,.nmea,.nme,.wpt,.plt,application/gpx+xml,application/geo+json,application/json,text/csv,text/plain,application/octet-stream,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz"
-    : `${MANAGED_FILE_ACCEPT},.tsv,.txt,.wkt,.wkb,.ewkb,.kml,.kmz,.gpx,.nmea,.nme,.wpt,.plt,application/gpx+xml,text/plain,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz`;
+    ? ".geojson,.json,.csv,.tsv,.txt,.wkt,.wkb,.ewkb,.kml,.kmz,.gpx,.tcx,.nmea,.nme,.wpt,.plt,application/gpx+xml,application/geo+json,application/json,text/csv,text/plain,application/octet-stream,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz"
+    : `${MANAGED_FILE_ACCEPT},.tsv,.txt,.wkt,.wkb,.ewkb,.kml,.kmz,.gpx,.tcx,.nmea,.nme,.wpt,.plt,application/gpx+xml,text/plain,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz`;
   file.addEventListener("change", async () => {
     const selected = file.files?.[0];
     if (!selected) return;
     const reviewBrowserLayer = browserLayerReviewForProject(context);
     try {
-      if (/\.(gpx|nmea|nme|wpt|plt|rte|pnt|evt)$/i.test(selected.name)) {await openGpsLayer(context, selected);return;}
+      if (/\.(gpx|tcx|nmea|nme|wpt|plt|rte|pnt|evt)$/i.test(selected.name)) {await openGpsLayer(context, selected);return;}
       if (/\.(csv|tsv|txt)$/i.test(selected.name) && (context.publicDemo || state.activeAddSource === "csv")) {await openDelimitedLayer(context, selected);return;}
       if (/\.(kml|kmz)$/i.test(selected.name)) {
         const parsed = await parseKmlFile(selected);
@@ -8572,17 +9027,56 @@ function addDataPanel(context) {
       : "WKT/WKB normalize to governed GeoJSON; KML/KMZ attach to the map; other files hash, upload, verify, and queue")
   );
   panel.append(fileLabel);
+  context.rasterSuperOverlayExport ??= RasterSuperOverlayExport({available: () => !context.disposed && !context.queryLocationScopeInvalid,
+    assertScope: () => {if (context.disposed || context.queryLocationScopeInvalid) throw Error("The current Project changed.");},
+    onStatus: message => setStatus(context, message)});
+  context.rasterSuperOverlayExport.update();panel.append(context.rasterSuperOverlayExport.element);
+  context.geoTiffSuperOverlayExport ??= GeoTiffSuperOverlayExport({download: downloadBlob,
+    available: () => !context.disposed && !context.queryLocationScopeInvalid,
+    assertScope: () => {if (context.disposed || context.queryLocationScopeInvalid) throw Error("The current Project changed.");}});
+  context.geoTiffSuperOverlayExport.update();panel.append(context.geoTiffSuperOverlayExport.element);
 
-  if (state.activeAddSource === "xyz") panel.append(xyzForm(context));
-  else if (state.activeAddSource === "wms") panel.append(wmsForm(context));
-  else if (state.activeAddSource === "mapserver") panel.append(mapServerForm(context));
-  else if (state.activeAddSource === "imageserver") panel.append(imageServerForm(context));
+  let connectionForm;
+  if (state.activeAddSource === "xyz") connectionForm = xyzForm(context);
+  else if (state.activeAddSource === "wms") connectionForm = wmsForm(context);
+  else if (state.activeAddSource === "mapserver") connectionForm = mapServerForm(context);
+  else if (state.activeAddSource === "imageserver") connectionForm = imageServerForm(context);
   else if (state.activeAddSource === "arcgis") panel.append(discoverableFeatureForm(context, "arcgis"));
   else if (state.activeAddSource === "wfs") panel.append(discoverableFeatureForm(context, "wfs"));
-  else if (state.activeAddSource === "pmtiles") panel.append(pmtilesLayerForm(context));
+  else if (state.activeAddSource === "pmtiles") connectionForm = pmtilesLayerForm(context);
   else panel.append(awsRegistrationForm(context, source));
+  if (connectionForm) {
+    retainConnectionDraft(context, connectionForm, state.activeAddSource);
+    panel.append(connectionForm);
+  }
 
   return panel;
+}
+
+// These connection forms submit their current controls directly. Keep every
+// edited field when background state changes or another source type is inspected.
+function retainConnectionDraft(context, form, key) {
+  const drafts = context.state.connectionFormDrafts ??= new Map();
+  const draft = drafts.get(key) ?? new Map();
+  const occurrences = new Map();
+  for (const input of form.querySelectorAll('input:not([type="file"]):not([type="password"]), select, textarea')) {
+    const name = input.getAttribute("aria-label") ?? input.name;
+    if (!name) continue;
+    const index = occurrences.get(name) ?? 0;
+    occurrences.set(name, index + 1);
+    const fieldKey = `${name}:${index}`;
+    const checkable = input.matches('[type="checkbox"], [type="radio"]');
+    if (draft.has(fieldKey)) {
+      if (checkable) input.checked = draft.get(fieldKey);
+      else input.value = draft.get(fieldKey);
+    }
+    const remember = () => {
+      draft.set(fieldKey, checkable ? input.checked : input.value);
+      drafts.set(key, draft);
+    };
+    input.addEventListener("input", remember);
+    input.addEventListener("change", remember);
+  }
 }
 
 function addSourceSelector(context) {
@@ -8636,8 +9130,9 @@ function temporaryWorkPanel(context) {
         try {
           if (context.layers.filter(isTemporaryLayer).length >= TEMPORARY_WORK_LIMITS.maximumLayers) throw new Error("Remove a temporary layer first.");
           const source = layer.metadata?.source;
-          const format = ["gpx", "nmea", "ozi", "delimited-text"].includes(source?.format) ? source.format : "geojson";
+          const format = ["gpx", "garmin-tcx", "nmea", "ozi", "delimited-text"].includes(source?.format) ? source.format : "geojson";
           const extension = format === "ozi" ? (source.variant === "plt" ? "plt" : "wpt")
+            : format === "garmin-tcx" ? "tcx"
             : format === "delimited-text" ? (String(source.filename ?? "").match(/\.(csv|tsv|txt)$/i)?.[1].toLowerCase() ?? "csv")
             : format;
           const suffix = ` — editable copy.${extension}`;
@@ -8735,6 +9230,10 @@ function temporaryWorkPanel(context) {
     remove.classList.add("danger");
     actions.append(edit, promote, remove);
     if (layer.metadata?.source?.format === "gpx") actions.append(workingGpxDownloadButton(context, layer));
+    if (layer.metadata?.source?.format === "garmin-tcx") actions.append(actionButton("Download original Garmin TCX", async () => {
+      try {const {downloadOriginalGarminTcx} = await import("../lib/gpxImport.js");await downloadOriginalGarminTcx(layer.metadata.source);}
+      catch (error) {setStatus(context, error.message);}
+    }));
     if (layer.metadata?.source?.format === "gpx") actions.append(actionButton("Download original GPX", async () => {
       try {const {downloadOriginalGpx} = await import("../lib/gpxImport.js");await downloadOriginalGpx(layer.metadata.source);}
       catch (error) {setStatus(context, error.message);}
@@ -10014,8 +10513,15 @@ function discoverableFeatureForm(context, sourceType) {
 
   const manual = document.createElement("details");
   manual.className = "gis-source-manual-registration";
+  manual.open = context.state.manualSourceFormsOpen?.has(sourceType) ?? false;
+  manual.addEventListener("toggle", () => {
+    if (!manual.isConnected) return;
+    const openForms = context.state.manualSourceFormsOpen ??= new Set();
+    if (manual.open) openForms.add(sourceType); else openForms.delete(sourceType);
+  });
   manual.append(textElement("summary", "Enter an already reviewed layer manually"));
   manual.append(sourceType === "arcgis" ? arcgisFeatureForm(context) : wfsFeatureForm(context));
+  retainConnectionDraft(context, manual, `${sourceType}:manual`);
   container.append(manual);
   return container;
 }
@@ -11917,7 +12423,7 @@ function cameraTourPanel(context) {
   );
   intro.append(textElement(
     "p",
-    "This is a silent visual tour. KML gx:Tour exchanges camera views and waits with a visible conversion report. Narration and movie encoding remain follow-up work."
+    "Record scene changes and local narration with the controls below. Tours retain exact source bindings; missing or changed content stops playback. KML exchange keeps original semantics and reports edited conversions. Movie export is deliberate and bounded."
   ));
   panel.append(intro, cameraTourImportControl(context), cameraTourKmlControl(context));
   if (!state.cameraTour) {
@@ -12010,13 +12516,31 @@ function cameraTourPanel(context) {
   );
   playback.append(time, slider, playbackActions);
   panel.append(playback);
+  context.tourMediaControls ??= TourMediaControls({getTour: () => state.cameraTour, getKeyframeId: () => state.cameraTourSelectedId,
+    getMap: () => state.map, captureScene: () => captureWorkbenchTourScene(context), validateScene: scene => validateWorkbenchTourScene(context, scene),
+    replaceTour: (tour, selectedId) => {updateCameraTour(context, tour, selectedId);saveLocalDraft(context);}, canEdit: () => canOrganizeProject(context),
+    assertScope: () => {if (context.disposed || context.queryLocationScopeInvalid || !canOrganizeProject(context)) throw Error("The Project or edit authority changed.");},
+    stopPlayback: () => stopCameraTourPlayback(context, {reset: false, render: false, announce: false}),
+    disposePlayer: () => context.tourSceneRuntime?.dispose(),
+    renderFrame: async (frame, canvas, signal) => {
+      if (!context.tourMovieActive) {context.tourMovieActive = true;context.tourMoviePriorInert = context.mapColumn.inert;context.mapColumn.inert = true;context.mapControllerControls?.stop();}
+      await workbenchTourRuntime(context).renderMovieFrame(frame, {canvas, signal});
+    },
+    restoreAfterMovie: async () => {
+      try {await context.tourSceneRuntime?.restoreMovie();}
+      finally {if (context.tourMovieActive) context.mapColumn.inert = context.tourMoviePriorInert;context.tourMovieActive = false;}
+    }, download: (name, bytes, type) => downloadBlob(name, bytes, type),
+    getAttribution: () => [...new Set([activeBasemap(context)?.attribution, ...(state.terrainEnabled ? [OPEN_TERRAIN_SOURCE.attribution] : []),
+      ...context.layers.filter(layer => layer.visible !== false).map(layer => layer.attribution),
+      ...state.panoramaCatalog.scenes.filter(scene => scene.rights.exportAllowed).map(scene => `${scene.rights.attribution} · ${scene.rights.license}`)].filter(Boolean))].join(" · ").replace(/<[^>]*>/g, "")});
+  context.tourMediaControls.update();panel.append(context.tourMediaControls.element);
   return panel;
 }
 
 function cameraTourImportControl(context) {
   const section = editorSection(
     "OpenGeo Studio tour file",
-    `Import one bounded .json tour file up to ${Math.floor(CAMERA_TOUR_LIMITS.maximumSerializedBytes / 1024)} KiB. Opening it performs no network requests.`
+    "Import native tour JSON: up to 16 MiB for scene/audio tours (1.2), or 256 KiB for earlier formats. Account Project Save is limited to 256 KiB including media; larger tours stay local and can be preserved in portable tour files. Opening performs no network requests."
   );
   const label = document.createElement("label");
   label.className = "gis-file-drop";
@@ -12028,7 +12552,7 @@ function cameraTourImportControl(context) {
     if (!file) return;
     const operation = beginCameraTourExchange(context);
     try {
-      if (file.size > CAMERA_TOUR_LIMITS.maximumSerializedBytes) throw Object.assign(new Error("camera_tour_serialized_limit"), {code: "camera_tour_serialized_limit"});
+      if (file.size > CAMERA_TOUR_LIMITS.maximumEventSerializedBytes) throw Object.assign(new Error("camera_tour_serialized_limit"), {code: "camera_tour_serialized_limit"});
       const tour = parseCameraTour(await file.text());
       if (!operation.current()) return;
       context.state.cameraTourExchange = null;
@@ -12234,13 +12758,14 @@ function removeCurrentCameraTourView(context, keyframeId) {
   }
 }
 
-function selectCameraTourKeyframe(context, keyframeId) {
+async function selectCameraTourKeyframe(context, keyframeId) {
   const tour = context.state.cameraTour;
   const keyframe = tour?.keyframes.find(({id}) => id === keyframeId);
   if (!keyframe) return;
   stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
   const frame = cameraTourKeyframeFrame(tour, tour.keyframes.indexOf(keyframe));
-  if (!applyCameraTourFrame(context, frame)) return;
+  const controller = new AbortController();context.tourPlaybackAbort = controller;
+  if (!await applyTourSceneAndCamera(context, frame, {signal: controller.signal})) return;
   context.state.cameraTourSelectedId = keyframeId;
   context.render();
 }
@@ -12261,9 +12786,9 @@ function recordCameraTourLayerVisibility(context, keyframeId) {
 }
 
 function cameraTourKeyframeFrame(tour, index) {
-  const snapshot = tour.keyframes.slice(0, index + 1).findLast(view => view.layerVisibility)?.layerVisibility;
-  return {camera: tour.keyframes[index].camera, keyframeIndex: index,
-    ...(snapshot ? {layerVisibility: snapshot} : {})};
+  const prefix = {...tour, keyframes: tour.keyframes.slice(0, index + 1)};
+  return {...cameraTourFrameAt(prefix, cameraTourDurationMilliseconds(prefix)),
+    keyframeIndex: index, durationMilliseconds: cameraTourDurationMilliseconds(tour)};
 }
 
 function updateCameraTour(context, value, selectedId) {
@@ -12292,24 +12817,28 @@ function captureCurrentCameraTourView(context) {
   );
 }
 
-function playCameraTour(context) {
+async function playCameraTour(context) {
   const {state} = context;
   if (!state.cameraTour || state.cameraTourPlaybackTimer) return;
+  const controller = new AbortController();context.tourPlaybackAbort?.abort();context.tourPlaybackAbort = controller;
+  state.cameraTourPlaybackTimer = -1;
+  context.render();
   const duration = cameraTourDurationMilliseconds(state.cameraTour);
-  if (!applyCameraTourFrame(context, cameraTourFrameAt(state.cameraTour,
-    state.cameraTourElapsedMilliseconds >= duration ? 0 : state.cameraTourElapsedMilliseconds))) return;
+  if (!await applyTourSceneAndCamera(context, cameraTourFrameAt(state.cameraTour,
+    state.cameraTourElapsedMilliseconds >= duration ? 0 : state.cameraTourElapsedMilliseconds), {playing: true, signal: controller.signal})) return;
   if (state.cameraTourElapsedMilliseconds >= duration) state.cameraTourElapsedMilliseconds = 0;
   state.cameraTourPlaybackStartElapsedMilliseconds = state.cameraTourElapsedMilliseconds;
   state.cameraTourPlaybackStartedAt = monotonicNow();
-  const tick = () => {
-    if (!state.cameraTourPlaybackTimer || !state.cameraTour) return;
+  const tick = async () => {
+    if (!state.cameraTourPlaybackTimer || !state.cameraTour || controller.signal.aborted) return;
     const elapsed = state.cameraTourPlaybackStartElapsedMilliseconds + monotonicNow() - state.cameraTourPlaybackStartedAt;
     const frame = cameraTourFrameAt(state.cameraTour, elapsed);
-    if (!applyCameraTourFrame(context, frame)) return;
+    if (!await applyTourSceneAndCamera(context, frame, {playing: true, signal: controller.signal})) return;
     state.cameraTourElapsedMilliseconds = frame.elapsedMilliseconds;
     state.cameraTourSelectedId = state.cameraTour.keyframes[frame.keyframeIndex].id;
     updateCameraTourPlaybackPresentation(context, frame);
     if (frame.done) {
+      context.tourSceneRuntime?.pause();
       clearTimeout(state.cameraTourPlaybackTimer);
       state.cameraTourPlaybackTimer = null;
       state.cameraTourPlaybackStartedAt = null;
@@ -12331,6 +12860,8 @@ function pauseCameraTour(context) {
 
 function stopCameraTourPlayback(context, {reset = true, render = true, announce = true} = {}) {
   const {state} = context;
+  context.tourPlaybackAbort?.abort();context.tourPlaybackAbort = null;
+  context.tourSceneRuntime?.stop();
   if (state.cameraTourPlaybackTimer) clearTimeout(state.cameraTourPlaybackTimer);
   state.cameraTourPlaybackTimer = null;
   state.cameraTourPlaybackStartedAt = null;
@@ -12338,7 +12869,10 @@ function stopCameraTourPlayback(context, {reset = true, render = true, announce 
   if (reset) {
     if (state.cameraTour) {
       const frame = cameraTourKeyframeFrame(state.cameraTour, 0);
-      if (!applyCameraTourFrame(context, frame)) return;
+      if (frame.scene) {
+        const controller = new AbortController();context.tourPlaybackAbort = controller;
+        void applyTourSceneAndCamera(context, frame, {signal: controller.signal});
+      } else if (!applyCameraTourFrame(context, frame)) return;
       state.cameraTourSelectedId = state.cameraTour.keyframes[frame.keyframeIndex].id;
     }
     state.cameraTourElapsedMilliseconds = 0;
@@ -12347,12 +12881,13 @@ function stopCameraTourPlayback(context, {reset = true, render = true, announce 
   if (render) context.render();
 }
 
-function seekCameraTour(context, elapsedMilliseconds) {
+async function seekCameraTour(context, elapsedMilliseconds) {
   const {state} = context;
   if (!state.cameraTour) return;
   stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
   const frame = cameraTourFrameAt(state.cameraTour, elapsedMilliseconds);
-  if (!applyCameraTourFrame(context, frame)) return;
+  const controller = new AbortController();context.tourPlaybackAbort = controller;
+  if (!await applyTourSceneAndCamera(context, frame, {signal: controller.signal})) return;
   state.cameraTourElapsedMilliseconds = frame.elapsedMilliseconds;
   state.cameraTourSelectedId = state.cameraTour.keyframes[frame.keyframeIndex].id;
   updateCameraTourPlaybackPresentation(context, frame);
@@ -12434,11 +12969,14 @@ export function applyCameraTourFrame(context, frame) {
 }
 
 function applyCameraTourCamera(map, camera) {
+  map?.setCenterClampedToGround?.(camera.centerClampedToGround ?? true);
   map?.jumpTo?.({
     center: camera.center,
     zoom: camera.zoom,
     pitch: camera.pitch,
-    bearing: camera.bearing
+    bearing: camera.bearing,
+    ...(typeof map.getRoll === "function" ? {roll: camera.roll ?? 0} : {}),
+    ...(typeof map.getCenterElevation === "function" ? {elevation: camera.elevation ?? 0} : {})
   });
 }
 
@@ -13062,7 +13600,7 @@ function historicalImageryPanel(context) {
     state.historicalAvailabilityMessage
   );
   timeline.dataset.availabilityStatus = state.historicalAvailabilityStatus;
-  const dateReadout = textElement("output", currentDate);
+  const dateReadout = textElement("output", state.acquisitionAvailability && currentIndex < 0 ? "Choose an available acquisition date" : currentDate);
   dateReadout.className = "gis-history-selected-date";
   dateReadout.setAttribute("aria-live", "polite");
   timeline.append(dateReadout);
@@ -13151,6 +13689,17 @@ function historicalImageryPanel(context) {
   );
   refresh.disabled = state.historicalAvailabilityBusy;
   timeline.append(refresh);
+  if (ACQUISITION_SOURCES[source.sourceId]) {
+    const start = document.createElement("input"), end = document.createElement("input");start.type = end.type = "date";
+    start.value = state.historicalAcquisitionStart ?? state.acquisitionAvailability?.startDate ?? dates[0] ?? source.defaultDate;
+    end.value = state.historicalAcquisitionEnd ?? state.acquisitionAvailability?.endDate ?? dates.at(-1) ?? source.defaultDate;
+    start.setAttribute("aria-label", "Acquisition window start");end.setAttribute("aria-label", "Acquisition window end");
+    start.addEventListener("input", () => {state.historicalAcquisitionStart = start.value;});end.addEventListener("input", () => {state.historicalAcquisitionEnd = end.value;});
+    timeline.append(fieldWrap("Acquisition window start", start), fieldWrap("Acquisition window end", end));
+    const spatial = actionButton(state.historicalAvailabilityBusy ? "Checking acquisitions…" : "Check acquisition dates at map center", () => void refreshHistoricalAcquisitions(context));
+    spatial.disabled = state.historicalAvailabilityBusy || !state.map;
+    timeline.append(spatial, textElement("small", "Sends the captured map center and this date window to NASA CMR only when requested. Dates require a reported granule footprint at that point; cloud-free pixels are not guaranteed."));
+  }
   panel.append(timeline, sourceDetails);
 
   const compare = editorSection(
@@ -13209,11 +13758,32 @@ function historicalImageryPanel(context) {
     fieldWrap("UTC date and time", sunlightTime),
     sunlightFacts(state)
   );
+  sunlight.append(checkField("Light terrain and buildings", configuration.sunlight.landscapeLighting === true, checked => {
+    configuration.sunlight.landscapeLighting = checked;
+    if (!checked) {stopSunlightAnimation(context);context.solarLightingSession?.stop();}
+    syncLandscapeLighting(context);saveLocalDraft(context);context.render();
+  }), textElement("small", "Enable terrain in Map controls first. Uses geometric solar position for 1800–2200 (declared 0.1° model accuracy), terrain slope shading and building light; hillshade azimuth rounds to 1°. Refraction, cast shadows and irradiance are not modeled."),
+  actionButton(state.solarLightingTimer ? "Pause sunlight animation" : "Animate sunlight", () => {
+    if (state.solarLightingTimer) {stopSunlightAnimation(context);context.render();return;}
+    configuration.sunlight.landscapeLighting = true;
+    if (!syncLandscapeLighting(context)) return;
+    state.solarLightingFrames = 0;
+    state.solarLightingTimer = setInterval(() => {
+      if (context.disposed || context.queryLocationScopeInvalid || document.visibilityState === "hidden" || ++state.solarLightingFrames > 96) {stopSunlightAnimation(context);if (!context.disposed) context.render();return;}
+      configuration.sunlight.dateTime = new Date(Date.parse(configuration.sunlight.dateTime) + 15 * 60000).toISOString();
+      syncLandscapeLighting(context);syncSunlightGuide(state);context.render();
+    }, 1000);context.render();
+  }));
+  if (state.landscapeLightingResult) sunlight.append(compactKeyValues({"Solar azimuth": `${state.landscapeLightingResult.azimuth.toFixed(3)}°`,
+    "Solar elevation": `${state.landscapeLightingResult.elevation.toFixed(3)}°`, "Lighting time": state.landscapeLightingResult.dateTime, "Astronomical model": SOLAR_LIGHTING_MODEL.id}));
   panel.append(sunlight);
+  panel.append(panoramaPanel(context));
 
   const provenance = editorSection(
     "Source and coverage",
-    "The dates above are provider time-domain dates. Spatial pixel availability is not confirmed: a date does not prove a cloud-free or populated pixel at the current map location, and catalog or granule metadata is required for that confirmation."
+    state.acquisitionAvailability?.sourceId === source.sourceId
+      ? state.acquisitionAvailability.coverageMeaning
+      : "The dates above are provider time-domain dates. Spatial pixel availability is not confirmed: a date does not prove a cloud-free or populated pixel at the current map location. Check acquisition metadata for a captured point using an HLS source."
   );
   provenance.classList.add("gis-history-provenance");
   provenance.append(compactKeyValues({
@@ -13230,6 +13800,14 @@ function historicalImageryPanel(context) {
   sourceLink.rel = "noopener noreferrer";
   sourceLink.textContent = "Open provider record";
   provenance.append(sourceLink, textElement("small", `${source.attribution}. Use is governed by the linked NASA data-use guidance.`));
+  if (state.acquisitionAvailability?.sourceId === source.sourceId) {
+    const evidence = state.acquisitionAvailability;
+    provenance.append(textElement("small", `Acquisition metadata observed ${evidence.observedAt}; response SHA256 ${evidence.responseSha256}.`));
+    for (const granule of evidence.granules.filter(item => item.acquiredAt.startsWith(currentDate)).slice(0, 8)) {
+      const link = document.createElement("a");link.href = granule.recordUrl;link.target = "_blank";link.rel = "noopener noreferrer";
+      link.textContent = `${granule.id} · acquisition ${granule.acquiredAt}`;provenance.append(link);
+    }
+  }
   panel.append(provenance);
   return panel;
 }
@@ -13355,7 +13933,7 @@ function applyHistoricalImageryDate(context, requestedDate, policy = "exact", {t
   return displayHistoricalImagerySelection(context, selection, target);
 }
 
-function displayHistoricalImagerySelection(context, selection, target = "primary") {
+function displayHistoricalImagerySelection(context, selection, target = "primary", {preserveCamera = true} = {}) {
   const {state} = context;
   state.historicalImagery.enabled = true;
   state.historicalImagery.compareShowing = target;
@@ -13369,7 +13947,7 @@ function displayHistoricalImagerySelection(context, selection, target = "primary
     ...state.customBasemaps.filter(({kind}) => kind !== "temporal-raster"),
     basemap
   ];
-  const switched = switchBasemap(context, basemap.basemapId);
+  const switched = switchBasemap(context, basemap.basemapId, {preserveCamera});
   if (!switched) return false;
   const adjustment = selection.reason === "exact" ? "" : ` Requested ${selection.requestedDate}; ${selection.reason}.`;
   setStatus(context, `${source.title} for ${selection.displayedDate} displayed.${adjustment}`);
@@ -13438,6 +14016,7 @@ async function refreshHistoricalAvailability(context) {
     });
     if (state.historicalAvailabilityAbortController !== controller) return;
     state.historicalAvailability = result.dates;
+    state.acquisitionAvailability = null;
     state.historicalAvailabilityStatus = "live-provider-time-domain";
     state.historicalAvailabilityMessage = `${result.dates.length} provider dates checked at ${result.observedAt}. Spatial pixel availability is not confirmed.`;
     setStatus(context, "Historical imagery dates refreshed from NASA GIBS.");
@@ -14839,7 +15418,7 @@ function canSwitchBasemap(context, basemap) {
   return true;
 }
 
-function switchBasemap(context, basemapId, {runtimeRecovery = false} = {}) {
+function switchBasemap(context, basemapId, {runtimeRecovery = false, preserveCamera = true} = {}) {
   const {state} = context;
   const basemap = allBasemaps(context).find((candidate) => candidate.basemapId === basemapId);
   if (!canSwitchBasemap(context, basemap)) return false;
@@ -14889,7 +15468,7 @@ function switchBasemap(context, basemapId, {runtimeRecovery = false} = {}) {
     restorationRetryTimer = null;
   };
   const restoreComposition = () => {
-    if (state.map !== map || state.basemapSwitchRevision !== switchRevision) {
+    if (state.map !== map || state.basemapSwitchRevision !== switchRevision || !state.basemapRuntimeSwitchPending) {
       stopWaiting();
       return;
     }
@@ -14929,7 +15508,7 @@ function switchBasemap(context, basemapId, {runtimeRecovery = false} = {}) {
     syncGraticule(state);
     syncSunlightGuide(state);
     syncTemporaryEditLayer(state, {styleReady: true});
-    map.jumpTo(camera);
+    if (preserveCamera) map.jumpTo(camera);
     state.basemapRuntimeSwitchPending = false;
     state.basemapRuntimeManagedSourceIds = null;
     if (state.basemapRuntimeSwitchTimer) clearTimeout(state.basemapRuntimeSwitchTimer);
@@ -15844,7 +16423,7 @@ function paintForLayer(layer, geojson) {
 }
 
 function featurePaintForLayer(layer, geojson) {
-  if (layer.geometryType === "GeometryCollection" && ["gpx", "ozi"].includes(layer.metadata?.source?.format)) {
+  if (layer.geometryType === "GeometryCollection" && ["gpx", "garmin-tcx", "ozi"].includes(layer.metadata?.source?.format)) {
     return ["Point", "LineString"].flatMap(type => featurePaintForLayer({...layer, geometryType: type}, geojson)
       .map(part => ({...part, id: `${part.id}-${type}`, filter: part.filter
         ? ["all", part.filter, ["==", ["geometry-type"], type]] : ["==", ["geometry-type"], type]})));
@@ -17330,11 +17909,14 @@ function updateStatusbar(statusbar, context) {
   });
   const values = {
     coords: `Coords: ${state.coordinateText}`,
-    zoom: `Zoom: ${state.map?.getZoom().toFixed(2) ?? "—"}`,
-    bearing: `Bearing: ${state.map?.getBearing().toFixed(1) ?? "—"}°`,
-    pitch: `Tilt: ${state.map?.getPitch().toFixed(1) ?? "—"}°`,
+    zoom: `Zoom: ${context.workspaceMode === "openlayers-canvas" ? context.compatibility.view.zoom.toFixed(2) : state.map?.getZoom().toFixed(2) ?? "—"}`,
+    bearing: `Bearing: ${context.workspaceMode === "openlayers-canvas" ? context.compatibility.view.bearing.toFixed(1) : state.map?.getBearing().toFixed(1) ?? "—"}°`,
+    pitch: `Tilt: ${context.workspaceMode === "openlayers-canvas" ? "0.0" : state.map?.getPitch().toFixed(1) ?? "—"}°`,
     layers: `${visible}/${layers.length} layers`,
-    loading: state.mapInitializationFailed ? "Map graphics unavailable."
+    loading: context.workspaceMode ? context.rendererSwitchStatus?.pending ? "Opening display mode…"
+      : context.loadingDatasetLayerIds.size ? `Loading ${context.loadingDatasetLayerIds.size} Layer sources…`
+      : context.workspaceMode === "data-workspace" ? "Data workspace ready." : context.compatibility.runtime ? "Canvas map ready." : "Opening Canvas map…"
+      : state.mapInitializationFailed ? "Map graphics unavailable."
       : !state.map ? "Starting map…"
       : !state.map.isStyleLoaded() ? "Loading background map…"
       : layers.some(layer => layer.visible !== false && context.failedDatasetLayerIds.has(layer.layerId))
@@ -17350,7 +17932,7 @@ function updateStatusbar(statusbar, context) {
     if (fields[key].textContent !== value) fields[key].textContent = value;
     fields[key].title = value;
   }
-  fields.loading.dataset.pending = `${loading.pending}`;
+  fields.loading.dataset.pending = `${context.workspaceMode ? context.loadingDatasetLayerIds.size : loading.pending}`;
   fields.loading.dataset.failed = `${loading.failed}`;
   fields.projection.replaceChildren(projectionDisclosure(context));
 }
@@ -17388,6 +17970,10 @@ async function layerFromFile(file) {
     const {readGpxFile} = await import("../lib/gpxImport.js");
     const parsed = await readGpxFile(file);geojson = parsed.geojson;source = parsed.source;
     sourceFormat = "gpx";interchangeReport = parsed.report;
+  } else if (/\.tcx$/i.test(file.name)) {
+    const {readGarminTcxFile} = await import("../lib/gpxImport.js");
+    const parsed = await readGarminTcxFile(file);geojson = parsed.geojson;source = parsed.source;
+    sourceFormat = "garmin-tcx";interchangeReport = parsed.report;
   } else if (/\.(nmea|nme)$/i.test(file.name)) {
     const {readNmeaFile} = await import("../lib/nmeaImport.js");
     const parsed = await readNmeaFile(file);geojson = parsed.geojson;source = parsed.source;
@@ -17412,7 +17998,7 @@ async function layerFromFile(file) {
       layerId: id,
       datasetId: id,
       title: file.name.replace(/\.[^.]+$/, ""),
-      sourceType: ["gpx", "nmea", "ozi"].includes(sourceFormat) ? "geojson-object" : `${sourceFormat}-object`,
+      sourceType: ["gpx", "garmin-tcx", "nmea", "ozi"].includes(sourceFormat) ? "geojson-object" : `${sourceFormat}-object`,
       geometryType,
       visible: true,
       opacity: 0.9,
@@ -17426,7 +18012,7 @@ async function layerFromFile(file) {
 }
 
 async function openGpsLayer(context, file) {
-  const format = /\.gpx$/i.test(file.name) ? "gpx" : /\.(nmea|nme)$/i.test(file.name) ? "nmea" : "ozi";
+  const format = /\.gpx$/i.test(file.name) ? "gpx" : /\.tcx$/i.test(file.name) ? "garmin-tcx" : /\.(nmea|nme)$/i.test(file.name) ? "nmea" : "ozi";
   const label = format === "ozi" ? "OziExplorer" : format.toUpperCase();
   const review = browserLayerReviewForProject(context);
   try {
@@ -17451,13 +18037,14 @@ async function openGpsLayer(context, file) {
 
 async function openDelimitedLayer(context, file) {
   const project = context.project;
-  const isCurrent = () => !context.disposed && context.shell.isConnected && context.project === project;
+  const isCurrent = () => !context.disposed && !context.queryLocationScopeInvalid && context.shell.isConnected && context.project === project;
   const review = browserLayerReviewForProject(context);
   try {
     if (context.state.spatialBody.id !== "earth") throw new Error("Delimited Earth coordinates require an Earth map.");
     const {DelimitedTextImport} = await import("./DelimitedTextImport.js");
     if (!isCurrent()) return;
-    await DelimitedTextImport({file, shell: context.shell, isCurrent, maximumFeatures: context.publicDemo ? 5000 : 1000, onReview: ({geojson, source, report, labelField, style, pointPresentation}) => {
+    await DelimitedTextImport({file, shell: context.shell, isCurrent, addressSearch: context.placeSearch?.address ? query => context.placeSearch.address(query) : null,
+      maximumFeatures: context.publicDemo ? 5000 : 1000, onReview: ({geojson, source, report, labelField, style, pointPresentation}) => {
       const id = `local_${crypto.randomUUID()}`, layer = {layerId: id, datasetId: id, title: file.name.replace(/\.[^.]+$/, "").slice(0, 160) || "Imported points", sourceType: "geojson-object", geometryType: "Point", visible: true, opacity: 0.9, order: 900,
         style, labels: {enabled: Boolean(labelField), field: labelField},
         metadata: {source: structuredClone(source), normalized: {crs: "OGC:CRS84", featureCount: geojson.features.length, elevationUnit: report.elevations ? "meter" : null, verticalDatum: report.mapping.verticalDatum}, curated: {pointPresentation}, inferred: {}}, interchange: report};
@@ -17914,6 +18501,17 @@ function applyLocalDraft({
     state.editingMeasurementId = null;
     state.customBasemaps = projectBasemapChoices(draft);
     state.historicalImagery = historicalImageryForProject(draft);
+    const panoramaDraft = panoramaForProject(draft);
+    state.panoramaCatalog = panoramaDraft.catalog;state.panoramaView = panoramaDraft.view;state.panoramaError = panoramaDraft.error;
+    state.acquisitionAvailability = acquisitionEvidenceForProject(draft);
+    state.historicalComparisonDateDraft = null;
+    state.historicalAvailability = reviewedHistoricalDates(state.historicalImagery.sourceId);
+    state.historicalAvailabilityStatus = "reviewed-capability-receipt";
+    state.historicalAvailabilityMessage = "Showing the last reviewed provider time-domain dates. Visible pixels can still contain gaps or clouds.";
+    if (state.acquisitionAvailability?.sourceId === state.historicalImagery.sourceId) {
+      state.historicalAvailability = state.acquisitionAvailability.dates;state.historicalAvailabilityStatus = "saved-spatial-acquisitions";
+      state.historicalAvailabilityMessage = `Recorded acquisition footprints at ${state.acquisitionAvailability.position.join(", ")}, observed ${state.acquisitionAvailability.observedAt}. Pixel coverage is not guaranteed.`;
+    }
     state.historicalComparisonDateDraft = null;
     state.historicalAvailability = reviewedHistoricalDates(state.historicalImagery.sourceId);
     state.historicalAvailabilityStatus = "reviewed-capability-receipt";
@@ -18190,6 +18788,7 @@ function saveLocalDraft(context) {
     setStatus(context, "The browser could not save this local draft. Export the project before leaving the page.");
     return;
   }
+  context.lastBrowserDraftValue = serialized;
   setStatus(context, context.landingMode
     ? "Local scratch map saved in this browser. It never changes a shared project."
     : context.publicDemo
@@ -18380,14 +18979,20 @@ function mapExtensionsForSave(context) {
     };
   }
   if (context.state.historicalImagery?.enabled
-    || context.state.historicalImagery?.sunlight?.enabled
+    || context.state.historicalImagery?.sunlight?.enabled || context.state.historicalImagery?.sunlight?.landscapeLighting
     || context.project?.extensions?.historicalImagery) {
     extensions.historicalImagery = historicalImageryForSave(context.state.historicalImagery);
   }
   if (context.state.cameraTour) {
     extensions.cameraTour = cameraTourForSave(context.state.cameraTour);
   }
-  return extensions;
+  if (context.state.acquisitionAvailability) extensions.historicalAcquisitionEvidence = structuredClone(context.state.acquisitionAvailability);
+  const panoramaCatalog = context.state.panoramaCatalog ?? extensions.panoramas;
+  if (!context.state.panoramaError && (panoramaCatalog?.scenes?.length || extensions.panoramas)) {
+    extensions.panoramas = normalizePanoramaCatalog(panoramaCatalog);
+    extensions.panoramaView = normalizePanoramaState(context.state.panoramaView ?? extensions.panoramaView, panoramaCatalog);
+  }
+  return context.compatibility?.extensions(extensions) ?? extensions;
 }
 
 function portalReportForProject(project) {
@@ -18410,6 +19015,14 @@ async function saveAuthoritativeProject(context, {assertCurrentScope = null} = {
     setStatus(context, "Your current role cannot update this map.");
     return;
   }
+  let browserDraftBeforeSave = null;
+  try {
+    const key = draftStorageKey(context.workspace, context.publicDemo, context.draftScopeId);
+    const storage = browserLocalStorage();
+    if (storage) browserDraftBeforeSave = {key, value: storage.getItem(key)};
+  } catch {
+    // Preserve recovery data when this browser cannot inspect its current draft.
+  }
   context.shell.dataset.saveState = "saving";
   setStatus(context, "Saving authoritative map…");
   context.render();
@@ -18422,9 +19035,29 @@ async function saveAuthoritativeProject(context, {assertCurrentScope = null} = {
     context.savedProjectOrigin = saved.definition ? {id: saved.id, version: saved.version, definition: structuredClone(saved.definition)} : null;
     if (context.project) context.project.updatedAt = saved.updatedAt;
     context.onProjectSaved?.(saved);
+    let draftNotice = "";
+    if (!context.disposed && !context.queryLocationScopeInvalid) {
+      let refreshed = false, changedElsewhere = false;
+      try {
+        const storage = browserLocalStorage();
+        if (storage && browserDraftBeforeSave
+          && draftStorageKey(context.workspace, context.publicDemo, context.draftScopeId) === browserDraftBeforeSave.key) {
+          const stored = storage.getItem(browserDraftBeforeSave.key);
+          changedElsewhere = stored !== browserDraftBeforeSave.value && stored !== context.lastBrowserDraftValue;
+          // Capture live state so edits made while Save awaited acknowledgement
+          // remain local. The account baseline above stays at the saved revision.
+          if (!changedElsewhere) refreshed = saveLocalDraft(context) === true;
+        }
+      } catch {
+        // The server Save succeeded even if browser recovery storage failed.
+      }
+      if (!refreshed) draftNotice = changedElsewhere
+        ? " Another browser draft changed during Save and was preserved. Export this Project before reopening."
+        : " This browser draft could not be refreshed; reopening here may restore an older view. Export the current Project before leaving.";
+    }
     context.shell.dataset.saveState = "saved";
     const prefix = context.persistenceMode === "fixture" ? "Fixture save simulated" : "Authoritative map saved";
-    setStatus(context, `${prefix} at version ${saved.version}.`);
+    setStatus(context, `${prefix} at version ${saved.version}.${draftNotice}`);
   } catch (error) {
     if (error?.code === "map_style_reference_unavailable") {
       context.shell.dataset.saveState = "error";
@@ -19625,7 +20258,7 @@ function renderModalLayer(layer, context) {
 function openProjectFile(context) {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = ".json,.xml,.wmc,.cml,.gpx,.nmea,.nme,.wpt,.plt,.csv,.tsv,.txt,application/gpx+xml,text/csv,text/tab-separated-values,text/plain,application/json,application/xml,text/xml";
+  input.accept = ".json,.xml,.wmc,.cml,.gpx,.tcx,.nmea,.nme,.wpt,.plt,.csv,.tsv,.txt,application/gpx+xml,text/csv,text/tab-separated-values,text/plain,application/json,application/xml,text/xml";
   input.className = "opengeo-project-file-input";
   input.hidden = true;
   input.oncancel = () => input.remove();
@@ -19634,7 +20267,7 @@ function openProjectFile(context) {
     const reviewGeneration = context.projectFileReviewGeneration = (context.projectFileReviewGeneration ?? 0) + 1;
     try {
       if (!file) return;
-      if (/\.(gpx|nmea|nme|wpt|plt|rte|pnt|evt)$/i.test(file.name)) {await openGpsLayer(context, file);return;}
+      if (/\.(gpx|tcx|nmea|nme|wpt|plt|rte|pnt|evt)$/i.test(file.name)) {await openGpsLayer(context, file);return;}
       if (/\.(csv|tsv|txt)$/i.test(file.name)) {await openDelimitedLayer(context, file);return;}
       if (file.size > BROWSER_PROJECT_FILE_BYTES) throw new TypeError("Project file exceeds the 2 MB open limit.");
       const sourceText = await file.text();
@@ -20359,6 +20992,18 @@ function exportInteractiveMap(context, initialMode = "live", initialFormat = "ht
 }
 
 async function exportCurrentMapImage(context, format = "png") {
+  if (context.workspaceMode) {
+    try {
+      if (format !== "png") throw Error("Canvas currently exports PNG. Choose PNG or use full graphics for other image formats.");
+      const image = await context.compatibility.exportImage(format);
+      const bytes = Uint8Array.from(atob(image.dataUrl.split(",")[1]), value => value.charCodeAt(0));
+      const name = slug(context.project?.name ?? context.workspace?.title ?? "opengeo-map");
+      downloadBlob(`${name}.png`, new Blob([bytes], {type: "image/png"}), "image/png");
+      downloadBlob(`${name}-canvas-receipt.json`, JSON.stringify(image.metadata, null, 2), "application/json");
+      setStatus(context, "Canvas PNG and its display, credit and source-rights receipt downloaded.");
+    } catch (error) {setStatus(context, `Map image unavailable: ${error.message}`);}
+    return;
+  }
   const jpeg = format === "jpeg", name = jpeg ? "JPEG" : "PNG";
   if (context.rendererAdapter.id !== "maplibre") {setStatus(context, `Switch to MapLibre for verified ${name} export.`); return;}
   const {state} = context;
@@ -20484,26 +21129,26 @@ function featureRows(geojson, filterText) {
   const needle = filterText.trim().toLowerCase();
   return (geojson.features ?? [])
     .map((feature, index) => ({index, feature, values: feature.properties ?? {}}))
-    .filter((row) => !needle || Object.values(row.values).some((value) => String(value).toLowerCase().includes(needle)))
+    .filter((row) => !needle || Object.values(row.values).some((value) => attributeValue(value).toLowerCase().includes(needle)))
     .slice(0, 100);
 }
 
 function attributeTable(rows, context, layer, {onSelect = null} = {}) {
   const table = document.createElement("table");
   table.className = "gis-attribute-table";
-  table.setAttribute("role", "grid");
-  table.setAttribute("aria-label", `${layer?.title ?? "Layer"} attribute table`);
+  table.append(textElement("caption", `${layer?.title ?? "Layer"} attributes`));
   if (!rows.length) {
     table.append(document.createElement("tbody"));
     table.tBodies[0].append(document.createElement("tr"));
     table.tBodies[0].rows[0].append(textElement("td", "No matching records."));
     return table;
   }
-  const fields = Object.keys(rows[0].values).slice(0, 7);
+  const fields = [...new Set(rows.flatMap(row => Object.keys(row.values)))].slice(0, 7);
   const thead = document.createElement("thead");
   const headRow = document.createElement("tr");
-  headRow.append(textElement("th", "#"));
+  headRow.append(textElement("th", "Record"));
   for (const field of fields) headRow.append(textElement("th", field));
+  for (const heading of headRow.children) heading.setAttribute("scope", "col");
   thead.append(headRow);
   const tbody = document.createElement("tbody");
   for (const row of rows) {
@@ -20514,8 +21159,12 @@ function attributeTable(rows, context, layer, {onSelect = null} = {}) {
     if (row.feature?.id !== undefined && row.feature?.id !== null) {
       tr.dataset.featureId = String(row.feature.id);
     }
-    tr.tabIndex = selected || (context.state.selectedFeatureIndex === null && row === rows[0]) ? 0 : -1;
-    tr.setAttribute("aria-selected", selected ? "true" : "false");
+    const record = textElement("th", "");
+    record.scope = "row";
+    const select = actionButton(String(row.index + 1), () => {});
+    select.setAttribute("aria-label", `Select record ${row.index + 1}: ${featureTitle(row.feature, layer)}`);
+    select.setAttribute("aria-pressed", String(selected));
+    record.append(select);
     const selectRow = () => {
       context.state.selectedFeatureIndex = row.index;
       onSelect?.(row);
@@ -20523,31 +21172,34 @@ function attributeTable(rows, context, layer, {onSelect = null} = {}) {
         onSelect ? context.state.queryResult : context.dataByLayerId.get(layer.layerId));
       zoomToFeature(context, layer, row.feature);
       context.render();
-      requestAnimationFrame(() => context.shell
-        .querySelector(`.gis-attribute-table tbody tr[data-feature-index="${row.index}"]`)
-        ?.focus());
+      context.shell.querySelector(`.gis-attribute-table tbody tr[data-feature-index="${row.index}"] button`)?.focus();
     };
     tr.addEventListener("click", selectRow);
     tr.addEventListener("keydown", (event) => {
-      if (["Enter", " "].includes(event.key)) {
+      if (event.target === tr && ["Enter", " "].includes(event.key)) {
         event.preventDefault();
         selectRow();
         return;
       }
-      if (!["ArrowDown", "ArrowUp"].includes(event.key)) return;
-      const sibling = event.key === "ArrowDown" ? tr.nextElementSibling : tr.previousElementSibling;
+      if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+      const sibling = event.key === "Home" ? tr.parentElement.firstElementChild
+        : event.key === "End" ? tr.parentElement.lastElementChild
+        : event.key === "ArrowDown" ? tr.nextElementSibling : tr.previousElementSibling;
       if (!(sibling instanceof HTMLElement)) return;
       event.preventDefault();
-      tr.tabIndex = -1;
-      sibling.tabIndex = 0;
-      sibling.focus();
+      sibling.querySelector("button")?.focus();
     });
-    tr.append(textElement("td", row.index + 1));
-    for (const field of fields) tr.append(textElement("td", row.values[field]));
+    tr.append(record);
+    for (const field of fields) tr.append(textElement("td", attributeValue(row.values[field])));
     tbody.append(tr);
   }
   table.append(thead, tbody);
   return table;
+}
+
+function attributeValue(value) {
+  if (value === null || value === undefined) return "";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
 function attributeSummary(rows, total) {
@@ -21176,4 +21828,222 @@ async function loadBoundLayerStyle(context, layer) {
     setStatus(context, state.layerStyleErrors.get(layer.layerId));
   }
   context.render();
+}
+
+
+function workbenchTourRuntime(context) {
+  context.tourSceneRuntime ??= createWorkbenchTourSceneRuntime(context, {
+    applyHistory: async (value, {signal} = {}) => {
+      const next = historicalImageryForSave(value);
+      if (JSON.stringify(next) === JSON.stringify(context.state.historicalImagery)) return;
+      context.state.historicalImagery = next;
+      const target = next.compareShowing === "comparison" ? "comparison" : "primary";
+      const selection = target === "comparison" ? next.comparison : next.selection;
+      const source = historicalImagerySource(next.sourceId);
+      const basemapId = next.enabled && historicalImageryBasemap({sourceId: source.sourceId,
+        sourceRevision: source.sourceRevision, selection}).basemapId;
+      if (next.enabled && activeBasemap(context)?.basemapId !== basemapId) {
+        if (!displayHistoricalImagerySelection(context, selection, target, {preserveCamera: false})) throw Error("tour_history_unavailable");
+      } else {syncSunlightGuide(context.state);context.render();}
+      await waitForTourComposition(context, signal);
+    },
+    applySunlight: value => {context.state.historicalImagery.sunlight = structuredClone(value);syncSunlightGuide(context.state);syncLandscapeLighting(context);},
+    applyPanorama: view => {
+      context.state.panoramaView = view;syncPanoramaViewer(context);
+      if (view && context.panoramaViewer) context.panoramaViewer.setPose(view);
+    }, onStatus: message => setStatus(context, message)
+  });return context.tourSceneRuntime;
+}
+
+
+async function applyTourSceneAndCamera(context, frame, {playing = false, signal} = {}) {
+  if (!frame.scene) return applyCameraTourFrame(context, frame);
+  try {
+    if (frame.layerVisibility) validateCameraTourLayers(context, frame.layerVisibility);
+    await workbenchTourRuntime(context).apply(frame, {playing, signal});
+    signal?.throwIfAborted();
+    if (context.disposed || context.queryLocationScopeInvalid) return false;
+    return applyCameraTourFrame(context, frame);
+  } catch (error) {
+    if (signal?.aborted || context.disposed) return false;
+    stopCameraTourPlayback(context, {reset: false, render: false, announce: false});
+    setStatus(context, `Tour stopped before the requested view could be applied (${error.code ?? error.message}).`);context.render();return false;
+  }
+}
+
+
+async function refreshHistoricalAcquisitions(context) {
+  const {state} = context, sourceId = state.historicalImagery.sourceId;
+  if (context.disposed || context.queryLocationScopeInvalid || state.historicalAvailabilityBusy || !state.map || !ACQUISITION_SOURCES[sourceId]) return;
+  const center = state.map.getCenter(), position = [((center.lng + 180) % 360 + 360) % 360 - 180, center.lat];
+  const dates = reviewedHistoricalDates(sourceId), controller = new AbortController();
+  state.historicalAvailabilityAbortController?.abort();state.historicalAvailabilityAbortController = controller;
+  state.historicalAvailabilityBusy = true;state.historicalAvailabilityMessage = "Checking acquisition footprints at the captured map center…";context.render();
+  try {
+    const result = await fetchAcquisitionAvailability(sourceId, {position,
+      startDate: state.historicalAcquisitionStart ?? dates[0], endDate: state.historicalAcquisitionEnd ?? dates.at(-1), signal: controller.signal});
+    if (context.disposed || context.queryLocationScopeInvalid || state.historicalAvailabilityAbortController !== controller || state.historicalImagery.sourceId !== sourceId) return;
+    state.acquisitionAvailability = result;state.historicalAvailability = result.dates;state.historicalAvailabilityStatus = "spatial-acquisition-metadata";
+    state.historicalAvailabilityMessage = `${result.dates.length} acquisition dates with metadata footprints at ${position[1].toFixed(5)}, ${position[0].toFixed(5)}. ${result.complete ? "Reported search page complete." : "Bounded result page is incomplete; absence is not evidence of no coverage."} ${result.unknownFootprints} returned records lack an accepted footprint. Camera movements do not change this captured point.`;
+    saveLocalDraft(context);setStatus(context, "Acquisition dates checked at the captured map center.");
+  } catch (error) {
+    if (controller.signal.aborted || context.disposed) return;
+    state.historicalAvailabilityMessage = `Acquisition check unavailable (${error.code ?? "provider_unavailable"}). Previous dates and their stated coverage scope remain.`;
+    setStatus(context, "Acquisition metadata could not be checked; no coverage was inferred.");
+  } finally {if (state.historicalAvailabilityAbortController === controller) {state.historicalAvailabilityBusy = false;state.historicalAvailabilityAbortController = null;if (!context.disposed) context.render();}}
+}
+
+
+function stopSunlightAnimation(context) {
+  if (context.state.solarLightingTimer) clearInterval(context.state.solarLightingTimer);
+  context.state.solarLightingTimer = null;
+}
+
+
+function syncLandscapeLighting(context) {
+  const {state} = context;
+  if (!state.historicalImagery.sunlight.landscapeLighting || context.rendererAdapter.id !== "maplibre") {context.solarLightingSession?.stop();return false;}
+  if (!state.map?.isStyleLoaded?.()) return false;
+  try {
+    if (!state.terrainEnabled || state.terrainFallback) throw Error("sunlight_terrain_required");
+    context.solarLightingSession ??= createSolarLightingSession(() => state.map);
+    state.landscapeLightingResult = context.solarLightingSession.apply(state.historicalImagery.sunlight.dateTime);return true;
+  } catch (error) {
+    context.solarLightingSession?.stop();stopSunlightAnimation(context);state.historicalImagery.sunlight.landscapeLighting = false;
+    state.landscapeLightingResult = null;setStatus(context, error.message === "sunlight_terrain_required" ? "Enable terrain in Map controls before lighting the landscape." : "Landscape lighting is unavailable at this view or time.");return false;
+  }
+}
+
+
+function panoramaPanel(context) {
+  const {state} = context;
+  const panel = editorSection("Panoramic imagery", "Open reviewed equirectangular PNG/JPEG images stored privately in this Project. No street-imagery provider, remote image request or location tracking is enabled.");
+  panel.classList.add("gis-panorama-panel");
+  if (state.panoramaError) {panel.append(textElement("p", `Saved panorama content is invalid (${state.panoramaError}) and retained. Export the Project before repairing that source.`));return panel;}
+  const scenes = state.panoramaCatalog.scenes;
+  state.panoramaSelectedId ??= scenes[0]?.id;
+  if (scenes.length) {
+    panel.append(selectField("Panorama scene", state.panoramaSelectedId, scenes.map(scene => [scene.id, scene.title]), value => {state.panoramaSelectedId = value;context.render();}));
+    const selected = scenes.find(scene => scene.id === state.panoramaSelectedId) ?? scenes[0];
+    panel.append(compactKeyValues({"Attribution": selected.rights.attribution, "License": selected.rights.license,
+      "Captured position": `${selected.position[1]}, ${selected.position[0]}`, "Asset SHA256": selected.asset.sha256,
+      "Privacy": "Reviewed by importer", "Export": selected.rights.exportAllowed ? "Permitted by importer" : "Disabled"}),
+    actionButton("Enter panorama", () => {state.panoramaView = {sceneId: selected.id, ...selected.initialPose};syncPanoramaViewer(context);saveLocalDraft(context);}));
+    const photo = actionButton("Create KML PhotoOverlay from panorama", () => {
+      if (!canOrganizeProject(context) || context.disposed || context.queryLocationScopeInvalid) return;
+      if (!selected.rights.exportAllowed) {setStatus(context, "Review and permit panorama export before creating a portable PhotoOverlay.");return;}
+      try {
+        const document = structuredClone(state.kmlPlaces ?? createPlacesDocument());
+        const path = `panoramas/${selected.id}.${selected.asset.mediaType === "image/png" ? "png" : "jpg"}`;
+        const dataBase64 = selected.asset.dataUrl.split(",")[1];
+        if (!document.resources.some(resource => resource.path === path)) document.resources.push({path, mediaType: selected.asset.mediaType,
+          byteLength: atob(dataBase64).length, dataBase64});
+        const next = addKmlPlace(document, document.id, {kind: "photo-overlay", name: selected.title,
+          description: `${selected.rights.attribution} · ${selected.rights.license} · reviewed private source SHA256 ${selected.asset.sha256}`,
+          icon: {href: path}, point: [...selected.position, 1.7], altitudeMode: "relativeToGround", shape: "sphere", rotation: 0,
+          viewVolume: {leftFov: -180, rightFov: 180, bottomFov: -90, topFov: 90, near: 1},
+          imagePyramid: {tileSize: 256, maxWidth: selected.asset.width, maxHeight: selected.asset.height, gridOrigin: "lowerLeft"},
+          view: {type: "Camera", longitude: selected.position[0], latitude: selected.position[1], altitude: 1.7,
+            heading: selected.initialPose.heading, tilt: 90 - selected.initialPose.pitch, roll: 0, altitudeMode: "relativeToGround"}});
+        state.selectedKmlPlaceId = findNewestKmlPlace(document, next)?.id ?? null;
+        applyKmlPlacesDocument(context, next, "Created a portable spherical PhotoOverlay with its original image. Save the Project to retain it.");saveLocalDraft(context);
+      } catch (error) {setStatus(context, `PhotoOverlay was not created (${error.code ?? "resource_limit"}). The original panorama is retained.`);}
+    });photo.disabled = !canOrganizeProject(context) || !selected.rights.exportAllowed;panel.append(photo);
+    if (scenes.length > 1) {
+      const destination = selectField("Linked panorama", scenes.find(scene => scene.id !== selected.id)?.id,
+        scenes.filter(scene => scene.id !== selected.id).map(scene => [scene.id, scene.title]), () => {});
+      const linkButton = actionButton("Add panorama movement link", () => {
+        if (!canOrganizeProject(context) || context.disposed || context.queryLocationScopeInvalid) return;
+        const target = destination.querySelector("select").value;
+        if (!selected.links.some(link => link.sceneId === target)) selected.links.push({sceneId: target, heading: 0});
+        try {state.panoramaCatalog = normalizePanoramaCatalog(state.panoramaCatalog);saveLocalDraft(context);context.render();}
+        catch (error) {selected.links = selected.links.filter(link => link.sceneId !== target);setStatus(context, `Panorama link not added (${error.code}).`);}
+      });linkButton.disabled = !canOrganizeProject(context);panel.append(destination, linkButton);
+    }
+  } else panel.append(textElement("p", "No panoramic coverage is registered. Import a reviewed image; missing coverage never redirects to another location."));
+  if (state.pendingPhotoPanorama) {
+    const {place, document: sourceDocument} = state.pendingPhotoPanorama;
+    const review = editorSection(`Review PhotoOverlay: ${place.name}`, "Only a complete, unrotated equirectangular sphere with an embedded PNG/JPEG is admitted to this viewer. Other KML content remains preserved and disclosed.");
+    const credit = textInput("PhotoOverlay attribution", ""), terms = textInput("PhotoOverlay license or permission", "");let privacy = false;
+    review.append(credit.wrapper, terms.wrapper, checkField("I reviewed this PhotoOverlay image and its identifying details", false, value => {privacy = value;}),
+      actionButton("Open reviewed PhotoOverlay", async () => {
+        if (context.disposed || context.queryLocationScopeInvalid) return;
+        try {
+          if (place.shape !== "sphere" || (place.rotation ?? 0) !== 0 || place.viewVolume?.leftFov !== -180
+            || place.viewVolume?.rightFov !== 180 || place.viewVolume?.bottomFov !== -90 || place.viewVolume?.topFov !== 90) throw Error("photo_projection_outside_profile");
+          const resource = sourceDocument.resources.find(item => item.path === place.icon?.href);
+          if (!resource || !["image/png", "image/jpeg"].includes(resource.mediaType)) throw Error("photo_embedded_image_required");
+          const bytes = Uint8Array.from(atob(resource.dataBase64), character => character.charCodeAt(0));
+          const scene = await panoramaFromImageFile(new File([bytes], resource.path, {type: resource.mediaType}),
+            {id: `photo-${crypto.randomUUID()}`, title: place.name, position: place.point.slice(0, 2),
+              initialPose: {heading: place.view?.heading ?? 0, pitch: 90 - (place.view?.tilt ?? 90), fov: 75},
+              rights: {attribution: credit.input.value, license: terms.input.value, privacyReviewed: privacy, exportAllowed: false}});
+          if (context.disposed || context.queryLocationScopeInvalid) return;
+          context.panoramaViewer?.dispose();
+          const viewer = PanoramaViewer({scene, available: () => !context.disposed && !context.queryLocationScopeInvalid,
+            onExit: () => {viewer.dispose();context.panoramaViewer = null;state.pendingPhotoPanorama = null;context.render();}});
+          context.panoramaViewer = viewer;context.mapColumn.append(viewer.element);
+        } catch (error) {setStatus(context, `PhotoOverlay remains retained; immersive viewing is unavailable (${error.code ?? error.message}).`);}
+      }), actionButton("Cancel PhotoOverlay review", () => {state.pendingPhotoPanorama = null;context.render();}));panel.append(review);
+  }
+  const add = document.createElement("details");add.append(textElement("summary", "Import private panorama"));
+  const title = textInput("Panorama title", ""), attribution = textInput("Panorama attribution", ""), license = textInput("Panorama license or permission", "");
+  const center = state.map?.getCenter?.();
+  const longitude = textInput("Panorama longitude", String(center?.lng ?? 0)), latitude = textInput("Panorama latitude", String(center?.lat ?? 0));
+  let reviewed = false, exportAllowed = false;
+  const file = document.createElement("input");file.type = "file";file.accept = "image/png,image/jpeg";file.setAttribute("aria-label", "Equirectangular panorama image");
+  file.disabled = !canOrganizeProject(context);
+  file.addEventListener("change", async () => {
+    const image = file.files?.[0];if (!image || context.disposed || context.queryLocationScopeInvalid || !canOrganizeProject(context)) return;
+    try {
+      const scene = await panoramaFromImageFile(image, {id: `panorama-${crypto.randomUUID()}`, title: title.input.value,
+        position: [Number(longitude.input.value), Number(latitude.input.value)], rights: {attribution: attribution.input.value, license: license.input.value, privacyReviewed: reviewed, exportAllowed}});
+      if (context.disposed || context.queryLocationScopeInvalid || !file.isConnected || !canOrganizeProject(context)) return;
+      state.panoramaCatalog = normalizePanoramaCatalog({...state.panoramaCatalog, scenes: [...scenes, scene]});state.panoramaSelectedId = scene.id;
+      saveLocalDraft(context);setStatus(context, "Private panorama retained. Choose Enter panorama to view it; Save the Project to keep it.");context.render();
+    } catch (error) {setStatus(context, `Panorama was not imported (${error.code ?? "invalid_image"}). Existing content is retained.`);file.value = "";}
+  });
+  add.append(title.wrapper, attribution.wrapper, license.wrapper, longitude.wrapper, latitude.wrapper,
+    checkField("I reviewed faces, identifying details, location and permission to retain this image", false, value => {reviewed = value;}),
+    checkField("The image may be included in exported tours and movies", false, value => {exportAllowed = value;}),
+    textElement("small", "PNG/JPEG, exact 2:1 equirectangular image, at most 4096×2048 pixels and 1 MiB; local catalog total at most 4 MiB. Account Project Save is limited to 256 KiB including media; larger sources stay local and can be preserved in portable files. Embedded source bytes retain their hash and privacy/rights review."), file);
+  panel.append(add);return panel;
+}
+
+
+function syncPanoramaViewer(context) {
+  const {state} = context;
+  if (!state.panoramaView || context.disposed || context.queryLocationScopeInvalid) {context.panoramaViewer?.dispose();context.panoramaViewer = null;return;}
+  const scene = state.panoramaCatalog.scenes.find(scene => scene.id === state.panoramaView.sceneId);
+  if (!scene) {context.panoramaViewer?.dispose();context.panoramaViewer = null;state.panoramaView = null;setStatus(context, "Panoramic coverage is missing. The map is retained.");return;}
+  if (context.panoramaViewer?.sceneId === scene.id) return;
+  context.panoramaViewer?.dispose();context.mapControllerControls?.stop();
+  const viewer = PanoramaViewer({scene, pose: state.panoramaView, available: () => !context.disposed && !context.queryLocationScopeInvalid,
+    onChange: pose => {state.panoramaView = {sceneId: scene.id, ...pose};},
+    onMove: (sceneId, heading) => {state.panoramaView = {sceneId, heading, pitch: 0, fov: 75};syncPanoramaViewer(context);},
+    onExit: () => {viewer.dispose();context.panoramaViewer = null;state.panoramaView = null;saveLocalDraft(context);context.render();state.map?.getCanvas?.().focus();}});
+  viewer.sceneId = scene.id;context.panoramaViewer = viewer;context.mapColumn.append(viewer.element);
+}
+
+
+function waitForTourComposition(context, signal) {
+  signal?.throwIfAborted();
+  if (!context.state.basemapRuntimeSwitchPending) return Promise.resolve();
+  const map = context.state.map, revision = context.state.basemapSwitchRevision;
+  return new Promise((resolve, reject) => {
+    let timer, deadline, finished = false;
+    const finish = error => {
+      if (finished) return;finished = true;clearTimeout(timer);clearTimeout(deadline);
+      signal?.removeEventListener("abort", aborted);if (error) reject(error);else resolve();
+    };
+    const aborted = () => finish(signal.reason ?? Error("tour_scene_cancelled"));
+    const check = () => {
+      if (context.disposed || context.queryLocationScopeInvalid || context.state.map !== map
+        || context.state.basemapSwitchRevision !== revision) return finish(Error("tour_history_scope_changed"));
+      if (!context.state.basemapRuntimeSwitchPending) return finish();
+      timer = setTimeout(check, 16);
+    };
+    deadline = setTimeout(() => finish(Error("tour_history_readiness_timeout")), BASEMAP_ACTIVATION_LIMITS.timeoutMilliseconds);
+    signal?.addEventListener("abort", aborted, {once: true});check();
+  });
 }

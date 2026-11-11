@@ -502,8 +502,8 @@ for (const [kind, evaluated] of [["comparison", false], ["comparison", true], ["
       assert.deepEqual(record.data, original, "Catalog registration does not rewrite the temporary Layer");
       const completed = baselineLayerRegistrationPanel(view);
       assert.match(completed.textContent, /Processing is queued\. Open Catalog to check when the Layer is ready to add/);
-      assert.match(completed.textContent, /add the saved Layer from Catalog/);
-      assert.match(completed.textContent, /then save the account Project/);
+      assert.match(completed.textContent, /Open Catalog for saved raster Layer/);
+      assert.match(completed.textContent, /Check readiness before adding its exact saved version/);
     } finally {globalThis.document = prior; dom.window.close();}
   });
 }

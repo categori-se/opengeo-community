@@ -1,3 +1,4 @@
+import {prepareOpenLayersCanvasRuntimeAsset} from "./build-openlayers-canvas-runtime.mjs";
 import {preparePrintMathRuntimeAsset} from "./build-print-math-runtime.mjs";
 import {isRendererHostHtml, canonicalBrowserDemoRoutes} from "./application-route-inventory.mjs";
 import {prepareCesiumRuntime} from "./prepare-cesium-runtime.mjs";
@@ -40,6 +41,7 @@ await copyDirectoryStructure(sharedCacheRoot, demoCacheRoot);
 await copyTree(sharedCacheRoot, demoCacheRoot);
 await prepareMapWorkerAsset(sourceRoot);
 await preparePrintMathRuntimeAsset(sourceRoot, {appRoot});
+await prepareOpenLayersCanvasRuntimeAsset(sourceRoot, {appRoot});
 try {
   runObservableBuild();
 } finally {
@@ -409,6 +411,34 @@ async function stageDemoSource() {
     ["lib/delimitedTextImport.js", "lib/delimitedTextImport.js"],
     ["components/DelimitedTextImport.js", "components/DelimitedTextImport.js"],
     ["lib/archiveLayerExport.js", "lib/archiveLayerExport.js"],
+    ["lib/kmlModel.js", "lib/kmlModel.js"],
+    ["lib/tourMedia.js", "lib/tourMedia.js"],
+    ["lib/projectNarrative.js", "lib/projectNarrative.js"],
+    ["lib/printAccessibility.js", "lib/printAccessibility.js"],
+    ["lib/printFontFaces.js", "lib/printFontFaces.js"],
+    ["lib/printAtlas.js", "lib/printAtlas.js"],
+    ["lib/kmlRegionation.js", "lib/kmlRegionation.js"],
+    ["components/PanoramaViewer.js", "components/PanoramaViewer.js"],
+    ["components/KmlAdvancedControls.js", "components/KmlAdvancedControls.js"],
+    ["components/GeoTiffSuperOverlayExport.js", "components/GeoTiffSuperOverlayExport.js"],
+    ["components/TourMediaControls.js", "components/TourMediaControls.js"],
+    ["lib/workbenchTourSceneRuntime.js", "lib/workbenchTourSceneRuntime.js"],
+    ["lib/panorama.js", "lib/panorama.js"],
+    ["lib/historicalAcquisitions.js", "lib/historicalAcquisitions.js"],
+    ["lib/solarLighting.js", "lib/solarLighting.js"],
+    ["components/RasterSuperOverlayExport.js", "components/RasterSuperOverlayExport.js"],
+    ["lib/modalFocus.js", "lib/modalFocus.js"],
+    ["lib/compatibilityWorkspace.js", "lib/compatibilityWorkspace.js"],
+    ["lib/openlayersCanvasContent.js", "lib/openlayersCanvasContent.js"],
+    ["components/ProjectNarrativeEditor.js", "components/ProjectNarrativeEditor.js"],
+    ["components/MapControllerControls.js", "components/MapControllerControls.js"],
+    ["lib/mapController.js", "lib/mapController.js"],
+    ["components/CompatibilityMapControls.js", "components/CompatibilityMapControls.js"],
+    ["lib/workspaceMode.js", "lib/workspaceMode.js"],
+    ["lib/openlayersCanvasWorkbench.js", "lib/openlayersCanvasWorkbench.js"],
+    ["lib/openlayersCanvasControls.js", "lib/openlayersCanvasControls.js"],
+    ["lib/tourMovie.js", "lib/tourMovie.js"],
+    ["lib/kmlRasterSuperOverlay.js", "lib/kmlRasterSuperOverlay.js"],
     ["data/massgis-enviroscreen.json", "data/massgis-enviroscreen.json"],
     ["data/public-demo-catalog.json", "data/public-demo-catalog.json"],
     ["data/sample-public-facilities.geojson", "data/sample-public-facilities.geojson"]
@@ -451,6 +481,9 @@ async function stageDemoSource() {
   const fontDestination = resolve(sourceRoot, "assets/render-fonts");
   await mkdir(fontDestination, {recursive: true});
   await copyTree(fontSource, fontDestination);
+  const printFontDestination = resolve(sourceRoot, "assets/print-fonts");
+  await mkdir(printFontDestination, {recursive: true});
+  await copyTree(resolve(appRoot, "src/assets/print-fonts"), printFontDestination);
 }
 
 async function copyDirectoryStructure(source, destination) {

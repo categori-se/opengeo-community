@@ -69,6 +69,8 @@ import {
   parsePublicDatasetDocumentPreview,
   parsePublicDocumentPreview,
   parsePublicMapPreview,
+  parsePublicMapArtifactPreview,
+  publicMapArtifactPreviewUrl,
   parsePublicSpatialPreview,
   parsePublicSiteDirectoryPage,
   parsePublicSiteDirectoryRecord,
@@ -5736,6 +5738,40 @@ describe("OpenGeo API client", () => {
     );
   });
 
+  it("loads a sealed public map Artifact descriptor anonymously and rejects widened release authority", async () => {
+    const calls = [], controller = new AbortController(); let tokenReads = 0;
+    const releaseId = "91000000-0000-4000-8000-000000000001";
+    const payload = {schema_version: "opengeo.public-map-artifact-preview.1.0.0", resource_id: IDS.resource,
+      resource_version_number: 3, map_version: 7, status: "available", artifact: {
+        artifact_id: "92000000-0000-4000-8000-000000000001", release_id: releaseId, version_number: 2,
+        representation: "saved-map-image", media_type: "image/png", size_bytes: 1234, checksum_sha256: "a".repeat(64),
+        preview_href: `/public/organizations/${IDS.organization}/artifact-releases/${releaseId}/image`,
+        license: "CC-BY-4.0", attribution: "Public Lab"}};
+    const client = new OpenGeoApiClient({tokenProvider: () => {tokenReads++; return "private-owner-token";},
+      organizationProvider: () => {assert.fail("Anonymous descriptor must not obtain selected account authority");},
+      fetchImplementation: async (url, options) => {calls.push({url, options}); return jsonResponse(payload);}});
+    const value = await client.getPublicMapArtifactPreview(IDS.organization, IDS.project, IDS.resource, {signal: controller.signal});
+    assert.equal(tokenReads, 0); assert.equal(value.mapVersion, 7); assert.equal(value.artifact.releaseId, releaseId);
+    assert.equal(calls[0].url, `/api/public/organizations/${IDS.organization}/projects/${IDS.project}/resources/${IDS.resource}/map-artifact-preview`);
+    assert.equal(calls[0].options.headers.has("Authorization"), false); assert.equal(calls[0].options.headers.has("X-OpenGeo-Organization"), false);
+    assert.equal(publicMapArtifactPreviewUrl("/api", value.artifact, IDS.organization), `/api${payload.artifact.preview_href}`);
+    assert.equal(parsePublicMapArtifactPreview({...payload, status: "unavailable", artifact: null}, IDS.organization).artifact, null);
+    const html = {...payload, artifact: {...payload.artifact, representation: "portable-map-html", media_type: "text/html", preview_href: payload.artifact.preview_href.replace(/image$/, "map")}};
+    assert.equal(parsePublicMapArtifactPreview(html, IDS.organization).artifact.mediaType, "text/html");
+    for (const item of [
+      {...payload, status: "unavailable"}, {...payload, artifact: null}, {...payload, owner_user_id: IDS.user},
+      {...payload, artifact: {...payload.artifact, bucket: "private"}},
+      {...payload, artifact: {...payload.artifact, checksum_sha256: "not-a-checksum"}},
+      {...payload, artifact: {...payload.artifact, license: null}},
+      {...payload, artifact: {...payload.artifact, attribution: " "}},
+      {...payload, artifact: {...payload.artifact, preview_href: payload.artifact.preview_href + "?token=private"}},
+      {...payload, artifact: {...payload.artifact, preview_href: payload.artifact.preview_href.replace(IDS.organization, IDS.project)}},
+      {...payload, artifact: {...payload.artifact, media_type: "text/html"}},
+      {...payload, artifact: {...payload.artifact, size_bytes: 16 * 1024 * 1024 + 1}},
+      {...html, artifact: {...html.artifact, size_bytes: 4 * 1024 * 1024 + 1}}
+    ]) assert.throws(() => parsePublicMapArtifactPreview(item, IDS.organization), ApiContractError);
+  });
+
   it("rejects widened, leaking, or internally inconsistent public catalog responses", () => {
     const item = publicCatalogRecordPayload();
     assert.equal(parsePublicCatalogRecord(item).preview.kind, "dataset");
@@ -9621,6 +9657,41 @@ it('attaches reviewed input approval to the final output review without creating
   await client.reviewFrameworkPublication(IDS.project,IDS.sourceProject,{...request,distributionApprovalId:IDS.idempotency});
   assert.equal(calls[1].body.distribution_approval_id,IDS.idempotency);
   assert(calls.every(call=>call.url.endsWith('/publications/reviews')));
+});
+
+it('requests withdrawal of one exact Framework edition and preserves pending delivery status', async () => {
+  const calls = [];
+  let state = 'pending';
+  const client = new OpenGeoApiClient({tokenProvider: () => 'owner', organizationProvider: () => IDS.organization,
+    fetchImplementation: async (url, options) => {
+      calls.push({url, method: options.method, body: JSON.parse(options.body)});
+      return jsonResponse({id: IDS.idempotency, state, revoked: state === 'revoked'}, {status: state === 'revoked' ? 200 : 202});
+    }});
+  for (state of ['pending', 'needs_attention', 'revoked']) {
+    assert.deepEqual(await client.revokeFrameworkPublication(IDS.project, IDS.sourceProject, IDS.idempotency),
+      {id: IDS.idempotency, state, revoked: state === 'revoked'});
+  }
+  assert.equal(calls.length, 3);
+  assert(calls.every(call => call.url.endsWith(`/projects/${IDS.project}/source-projects/${IDS.sourceProject}/publications/reviews/${IDS.idempotency}/revoke`)));
+  assert(calls.every(call => call.method === 'POST'));
+  assert(calls.every(call => JSON.stringify(call.body) === JSON.stringify({acknowledgment: 'revoke-exact-publication-edition'})));
+});
+
+it('rejects malformed Framework edition withdrawal identity, state and scope', async () => {
+  const client = new OpenGeoApiClient({tokenProvider: () => 'owner'});
+  let response = {id: IDS.idempotency, state: 'pending', revoked: false};
+  let calls = 0;
+  client.request = async () => {calls++; return response;};
+  for (const scope of [['invalid', IDS.sourceProject, IDS.idempotency],
+    [IDS.project, 'invalid', IDS.idempotency], [IDS.project, IDS.sourceProject, 'invalid']]) {
+    await assert.rejects(client.revokeFrameworkPublication(...scope));
+  }
+  assert.equal(calls, 0);
+  for (const change of [{id: IDS.site}, {state: 'pending', revoked: true}, {state: 'revoked', revoked: false},
+    {state: 'queued'}, {revoked: 0}, {unexpected: true}]) {
+    response = {id: IDS.idempotency, state: 'pending', revoked: false, ...change};
+    await assert.rejects(client.revokeFrameworkPublication(IDS.project, IDS.sourceProject, IDS.idempotency));
+  }
 });
 
 describe("shared vertex client contract", () => {

@@ -102,6 +102,97 @@ export async function readGpxFile(file, {Parser = globalThis.DOMParser} = {}) {
   return result;
 }
 
+/** Garmin Training Center export, read locally without device access. Missing
+ * positions divide segments; time/heart-rate/extensions remain exact source data. */
+export async function readGarminTcxFile(file, {Parser = globalThis.DOMParser} = {}) {
+  const reject = (code, message, details = {}) => Object.assign(error(code, message), {
+    report: {schemaVersion: "opengeo.garmin-tcx-import.1", operation: "reject", ...details}
+  });
+  if (!file || typeof file.arrayBuffer !== "function" || file.size > GPX_IMPORT_LIMITS.inputBytes)
+    throw reject("tcx_input_limit", "Choose a Garmin TCX export of at most 256 KiB.");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!bytes.length || bytes.length > GPX_IMPORT_LIMITS.inputBytes || typeof Parser !== "function")
+    throw reject("tcx_input_limit", "A bounded TCX file and XML parser are required.");
+  let xml;
+  try {xml = new TextDecoder("utf-8", {fatal: true}).decode(bytes);} catch {throw reject("tcx_encoding", "Save the Garmin export as UTF-8.");}
+  const encoding = xml.match(/^\s*<\?xml[^?]*\bencoding\s*=\s*["']([^"']+)["']/i)?.[1];
+  if (encoding && !/^utf-?8$/i.test(encoding) || /<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml))
+    throw reject("tcx_active_xml", "TCX must be UTF-8 without document types or entity declarations.");
+  const doc = new Parser().parseFromString(xml, "application/xml"), root = doc.documentElement;
+  const namespaces = ["http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v1", "http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2"];
+  if (!root || doc.getElementsByTagName("parsererror").length || root.localName !== "TrainingCenterDatabase" || !namespaces.includes(root.namespaceURI))
+    throw reject("tcx_namespace", "Choose Garmin TrainingCenterDatabase v1 or v2 with its declared namespace.");
+  inspectTree(root);
+  const ns = root.namespaceURI, children = (node, name) => [...node.children].filter(node => node.namespaceURI === ns && node.localName === name);
+  const text = (node, name) => children(node, name)[0]?.textContent ?? null;
+  const sha256 = await digest(bytes), tracks = [...root.getElementsByTagNameNS(ns, "Track")], features = [], rejectedRecords = [];
+  const counts = {tracks: tracks.length, segments: 0, positions: 0, unpositionedRecords: 0, elevations: 0, timestamps: 0};
+  if (!tracks.length || tracks.length > GPX_IMPORT_LIMITS.features) throw reject("tcx_tracks", "TCX needs 1–1000 local Track elements.");
+  const numeric = (raw, limit, field) => {
+    if (raw === null || !decimal.test(raw.trim()) || !Number.isFinite(Number(raw)) || Math.abs(Number(raw)) > limit)
+      throw reject("tcx_coordinate", `A TCX ${field} is invalid.`);
+    return Number(raw);
+  };
+  let totalRecords = 0;
+  for (const [trackIndex, track] of tracks.entries()) {
+    let run = [], segmentIndex = 0;
+    const flush = () => {
+      if (!run.length) return;
+      if (features.length >= GPX_IMPORT_LIMITS.features) throw reject("tcx_feature_limit", "The Garmin export exceeds 1000 working segments.");
+      const allHeights = run.every(point => point.elevation !== null);
+      const coordinates = run.map(point => allHeights ? [point.longitude, point.latitude, point.elevation] : [point.longitude, point.latitude]);
+      features.push({type: "Feature", id: `tcx-${sha256.slice(0, 12)}-${trackIndex}-${segmentIndex}`,
+        properties: {name: `Garmin track ${trackIndex + 1} · segment ${segmentIndex + 1}`, garminTcx: {
+          trackIndex, segmentIndex, coordinateDimensions: allHeights ? "XYZ" : "XY", verticalDatum: null,
+          container: fields(track.parentElement, new Set(["Track"])),
+          points: run.map(({elevation, time, source}) => ({elevation, time, fields: source}))}},
+        geometry: {type: coordinates.length === 1 ? "Point" : "LineString", coordinates: coordinates.length === 1 ? coordinates[0] : coordinates}});
+      run = [];segmentIndex++;counts.segments++;
+    };
+    for (const [pointIndex, point] of children(track, "Trackpoint").entries()) {
+      if (++totalRecords > GPX_IMPORT_LIMITS.positions) throw reject("tcx_position_limit", "Garmin TCX imports support at most 5000 source positions.");
+      const position = children(point, "Position")[0];
+      if (!position) {flush();counts.unpositionedRecords++;rejectedRecords.push({trackIndex, pointIndex, reason: "no-position-segment-break", originalPreserved: true});continue;}
+      let longitude, latitude, elevation;
+      try {
+        longitude = numeric(text(position, "LongitudeDegrees"), 180, "longitude");latitude = numeric(text(position, "LatitudeDegrees"), 90, "latitude");
+        const height = text(point, "AltitudeMeters");elevation = height === null ? null : numeric(height, 100_000, "altitude in metres");
+      } catch (error) {flush();rejectedRecords.push({trackIndex, pointIndex, reason: error.code ?? "invalid-position", originalPreserved: true});continue;}
+      const time = text(point, "Time");
+      if (time !== null) counts.timestamps++;
+      if (elevation !== null) counts.elevations++;
+      counts.positions++;run.push({longitude, latitude, elevation, time, source: fields(point)});
+    }
+    flush();
+  }
+  if (!features.length) throw reject("tcx_no_positions", "The Garmin export has no supported valid positions.", {counts, rejectedRecords});
+  const report = {schemaVersion: "opengeo.garmin-tcx-import.1", operation: "parse", format: "garmin-tcx", counts, rejectedRecords,
+    originalPreserved: true, coordinates: "WGS84 LongitudeDegrees/LatitudeDegrees; explicit AltitudeMeters only; vertical datum unknown",
+    segmentPolicy: "separate-Tracks-and-missing-invalid-position-gaps", timePolicy: "original-lexical-values-no-timezone-guess",
+    extensionPolicy: "flat-field-and-original-byte-preservation; no external links, schemas or extensions executed",
+    limits: GPX_IMPORT_LIMITS, limitations: ["This is a local Garmin Training Center file profile; binary GDB/MPS and physical device transfer are not implemented.",
+      "Working geometry edits retain the untouched original TCX; an edited TCX serializer is not supplied."]};
+  const source = {format: "garmin-tcx", filename: String(file.name ?? "track.tcx").slice(0, 240), bytes: bytes.length, sha256,
+    namespace: ns, metadata: fields(root, new Set(["Activities", "Courses"])),
+    originalFile: {encoding: "base64", mediaType: "application/xml", bytes: bytes.length, sha256, content: base64(bytes)}, report};
+  const result = {geojson: {type: "FeatureCollection", features}, source, report};
+  if (bytesOf(JSON.stringify(result)).length > GPX_IMPORT_LIMITS.outputBytes) throw reject("tcx_output_limit", "The original Garmin export, fields and working geometry exceed 1 MiB.");
+  return result;
+}
+
+export async function originalGarminTcxFile(source) {
+  if (source?.format !== "garmin-tcx") throw error("tcx_original_invalid", "The source is not a retained Garmin TCX export.");
+  let result;
+  try {result = await originalGpxFile({...source, format: "gpx"});}
+  catch (cause) {throw Object.assign(Error("The original Garmin TCX encoding, size or checksum does not match."), {code: String(cause.code ?? "tcx_original_invalid").replace(/^gpx_/, "tcx_")});}
+  return {...result, filename: result.filename.replace(/\.gpx$/i, ".tcx"), mediaType: "application/xml"};
+}
+
+export async function downloadOriginalGarminTcx(source) {
+  const file = await originalGarminTcxFile(source), url = URL.createObjectURL(new Blob([file.bytes], {type: file.mediaType}));
+  const link = document.createElement("a");link.href = url;link.download = file.filename;link.click();setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 /** Verify the retained source before returning an original-file download. */
 export async function originalGpxFile(source) {
   const original = source?.originalFile;

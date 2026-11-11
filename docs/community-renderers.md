@@ -10,6 +10,27 @@ See the [capability matrix](community-capabilities.md) for supported operations
 and the [release notes](../RELEASE_NOTES.md) for installation and acceptance
 limits.
 
+## Choose a workspace view
+
+Use **Workspace view** to select how the same Project is displayed:
+
+| View | Use it for | Display limits |
+| --- | --- | --- |
+| Full graphics | The default MapLibre map and compatible optional engines below. | Requires working graphics support; source and engine limits still apply. |
+| 2D compatibility | Work without WebGL: inspect loaded GeoJSON, draw, measure, label and capture a supported flat map. | Simple supported Styles and optional raster backgrounds; existing-feature editing, vector tiles/PMTiles, terrain, globe and custom graphics effects are unavailable. |
+| Data workspace | Inspect tables, prepare analysis and save work without a map renderer. | No map-image capture. Stored-data operations still require their normal inputs, access and services. |
+
+Changing views retains the canonical Project, Layers, Styles and source
+references. Unsupported content stays saved and is listed in the capability
+report. Check that report before capture or publication; supported labels and
+appearance can differ between views. A plain compatibility background makes no
+provider requests.
+
+Open **Help** to see the loaded interface fingerprint and its module URL. Compare
+that identity across Studio, Demo and an independent installation when reporting
+a deployment difference. API and deployment versions are separate. A changed
+server release does not change the code already loaded in an open browser tab.
+
 ## What each engine does
 
 | Engine | Available route | Requirements and limits |
@@ -17,7 +38,7 @@ limits.
 | MapLibre GL JS 6.4.1 | Default browser map, with source, style and camera handling and the application's archive protocols. | Supported source and style profiles still apply; default does not mean every GIS format or tool is supported. |
 | Mapbox GL JS 3.30.0 | Optional GL adapter selected in **Rendering engine**. | Supply a public `pk.` token for the workspace session. Provider account, terms and possible charges apply. Compatibility checks can refuse archive protocols, composite opacity, KML presentation, unsupported fonts and active tools. |
 | CesiumJS 1.145.0 | Separate native globe scene for admitted, loaded WGS84 vector Layers. | Supports navigation, picking, Layer visibility and ordering, selected styles and pinned labels. Compatible public raster backgrounds can transfer; otherwise explicitly choose a plain globe. Switch back for unmapped editing and styling tools. This route does not establish general terrain or 3D Tiles support. |
-| OpenLayers 10.10.0 | Geometry, projection and exchange utilities; independent interoperability/reference checks. | It is not a selectable Studio renderer. `spatialInterchange.js` uses WKT, WKB and WFS utilities; Cesium label anchors use OpenLayers polygon/projection utilities. |
+| OpenLayers 10.10.0 | Canvas display for **2D compatibility**, plus geometry, projection and exchange utilities. | The compatibility workspace has the bounded flat-map profile above. WKT/WKB/WFS and label-anchor utilities retain their separate roles; this does not expose every OpenLayers operation as a selectable engine. |
 
 The [renderer controls](../app/src/components/RendererPanel.js) explain the
 active engine and show compatibility issues before a switch. The default

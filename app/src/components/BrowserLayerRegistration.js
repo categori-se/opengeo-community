@@ -46,6 +46,17 @@ export function BrowserLayerRegistration({layer, geojson, source = {}, onAdd, st
       text("dt", "Original file"), text("dd", `${source.bytes} bytes · SHA-256 ${source.sha256}`));
     if (source.report.rejectedRecords?.length) facts.append(text("dt", "Records without positions"), text("dd", `${source.report.rejectedRecords.length} retained in the original file`));
   }
+  if (source.format === "garmin-tcx" && source.report?.counts) {
+    const {counts, rejectedRecords = [], limitations = []} = source.report;
+    facts.append(text("dt", "Garmin TCX records"), text("dd", `${counts.positions} mapped positions · ${counts.tracks} tracks · ${counts.segments} separate segments · ${rejectedRecords.length} records without usable positions`),
+      text("dt", "Heights and time"), text("dd", `${counts.elevations} source heights in metres · ${counts.timestamps} timestamps. Missing heights and the unknown vertical datum remain explicit; original time text and fields are retained.`),
+      text("dt", "Track gaps"), text("dd", "Records without usable positions end a segment; separate runs are never joined. These records remain in the original file."),
+      text("dt", "Original file"), text("dd", `${source.bytes} bytes · SHA-256 ${source.sha256}`));
+    const details = document.createElement("details"), list = document.createElement("ul");
+    for (const row of rejectedRecords.slice(0, 10)) list.append(text("li", `Track ${row.trackIndex + 1}, point ${row.pointIndex + 1}: ${row.reason}; original retained`));
+    for (const limitation of limitations) list.append(text("li", limitation));
+    details.append(text("summary", "Garmin TCX preservation and rejection report"), list);form.append(details);
+  }
   if (source.format === "nmea" && source.report?.counts) {
     const {counts, rejectedRecords = [], preservedRecords = []} = source.report;
     facts.append(text("dt", "NMEA observations"), text("dd", `${features?.length ?? 0} mapped observations · ${counts.records} source records · ${rejectedRecords.length} rejected · ${preservedRecords.length} other records preserved`),
@@ -105,11 +116,21 @@ export function BrowserLayerRegistration({layer, geojson, source = {}, onAdd, st
   if (source.format === "ozi" && source.report?.rejectedRecords?.length) {
     confirm("Add the valid positions and retain rejected records in the original file.", "rejections");
   }
+  if (source.format === "garmin-tcx" && source.report?.rejectedRecords?.length) {
+    confirm("Add only usable Garmin positions; retain omitted records and track gaps in the original file.", "rejections");
+  }
   const status = text("p", ""); status.setAttribute("role", "status");
   if (source.format === "gpx" && source.originalFile) {
     const original = text("button", "Download original GPX");original.type = "button";
     original.onclick = async () => {original.disabled = true;try {
       const {downloadOriginalGpx} = await import("../lib/gpxImport.js");await downloadOriginalGpx(source);
+    } catch (error) {status.textContent = error.message;} finally {original.disabled = false;}};
+    form.append(original);
+  }
+  if (source.format === "garmin-tcx" && source.originalFile) {
+    const original = text("button", "Download original Garmin TCX");original.type = "button";
+    original.onclick = async () => {original.disabled = true;try {
+      const {downloadOriginalGarminTcx} = await import("../lib/gpxImport.js");await downloadOriginalGarminTcx(source);
     } catch (error) {status.textContent = error.message;} finally {original.disabled = false;}};
     form.append(original);
   }
@@ -142,7 +163,7 @@ export function BrowserLayerRegistration({layer, geojson, source = {}, onAdd, st
   form.onsubmit = async event => {
     event.preventDefault(); if (add.disabled || !title.value.trim()) return;
     if (confirmations.some(input => !input.checked)) {
-      status.textContent = source.format === "ozi" ? "Confirm that only valid positions will be added; rejected records remain in the original file." : "Confirm the coordinate reference and any rejected records before adding these observations.";
+      status.textContent = ["ozi", "garmin-tcx"].includes(source.format) ? "Confirm that only valid positions will be added; rejected records remain in the original file." : "Confirm the coordinate reference and any rejected records before adding these observations.";
       return;
     }
     if (!isCurrent()) {
@@ -161,7 +182,8 @@ export function BrowserLayerRegistration({layer, geojson, source = {}, onAdd, st
         curated: {...prior.curated, title: title.value.trim(), description: description.value.trim() || null,
           license: license.value.trim() || null, attribution: attribution.value.trim() || null,
           ...(source.format === "nmea" ? {sourceProjection: "EPSG:4326", coordinateReferenceMethod: "user-confirmed", rejectedRecordPolicy: "explicit-omit-original-retained"} : {}),
-          ...(source.format === "ozi" ? {sourceProjection: "EPSG:4326", coordinateReferenceMethod: "source-header", rejectedRecordPolicy: source.report?.rejectedRecords?.length ? "explicit-omit-original-retained" : "all-valid-records"} : {})},
+          ...(source.format === "ozi" ? {sourceProjection: "EPSG:4326", coordinateReferenceMethod: "source-header", rejectedRecordPolicy: source.report?.rejectedRecords?.length ? "explicit-omit-original-retained" : "all-valid-records"} : {}),
+          ...(source.format === "garmin-tcx" ? {sourceProjection: "EPSG:4326", coordinateReferenceMethod: "declared-tcx-schema", rejectedRecordPolicy: source.report?.rejectedRecords?.length ? "explicit-omit-original-retained" : "all-valid-records"} : {})},
         inferred: prior.inferred ?? {}
       };
       await onAdd({...layer, title: title.value.trim(), metadata}, geojson); close();

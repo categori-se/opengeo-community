@@ -5,6 +5,7 @@ import {createCognitoBrowserAuth} from "../lib/cognitoAuth.js";
 import {browserSessionState} from "../lib/auth.js";
 import {browserStartupPreference, WELCOME_CHOICES} from "../lib/startupPreference.js";
 import {retainStudioAreas} from "../lib/retainedStudioAreas.js";
+import {activateModal} from "../lib/modalFocus.js";
 
 const FIXTURE_PROJECT_ROUTES = Object.freeze({
   "workspace-nepal-energy": "50000000-0000-4000-8000-000000000001",
@@ -114,8 +115,14 @@ function startWorkbench(projects, defaultRoute, library, adapterKind, state, map
     publicDemo: true,
     landingMode: true
   });
-  frame.dispose = () => workbench.dispose();
-  workbench.inert = true;
+  let releaseWelcome = null;
+  let welcomeTrigger = null;
+  let disposed = false;
+  frame.dispose = () => {
+    disposed = true;
+    releaseWelcome?.({restoreFocus: false});
+    workbench.dispose();
+  };
 
   const overlay = document.createElement("div");
   overlay.className = "start-map-overlay";
@@ -159,15 +166,12 @@ function startWorkbench(projects, defaultRoute, library, adapterKind, state, map
   const dismiss = () => {
     startup.remember();
     overlay.hidden = true;
-    workbench.inert = false;
-    workbench.querySelector('[data-primary-command="point"]')?.focus();
+    releaseWelcome?.();
+    releaseWelcome = null;
     workbench.querySelector(".gis-map")?.dispatchEvent(new Event("workbench:resize"));
   };
   close.addEventListener("click", dismiss);
   continueEmpty.addEventListener("click", dismiss);
-  dialog.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") dismiss();
-  });
   const openFile = dialog.querySelector(".start-action-card:nth-child(2)");
   openFile?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -177,12 +181,30 @@ function startWorkbench(projects, defaultRoute, library, adapterKind, state, map
 
   overlay.append(dialog);
   frame.append(workbench, overlay);
-  workbench.addEventListener("workbench:welcome", () => {
+  const openWelcome = () => {
+    if (disposed || releaseWelcome || !dialog.isConnected) return;
+    welcomeTrigger = document.activeElement;
     overlay.hidden = false;
-    workbench.inert = true;
     selector.value = startup.mode();
-    close.focus();
-  });
+    releaseWelcome = activateModal(dialog, {
+      initialFocus: close,
+      returnFocus: () => {
+        const candidates = [welcomeTrigger, workbench.querySelector('[data-primary-command="point"]'),
+          ...workbench.querySelectorAll("button")];
+        return candidates.find(element => {
+          if (!element?.isConnected || !workbench.contains(element) || element.disabled
+            || element.closest('[hidden], [inert]')) return false;
+          for (let current = element; current; current = current.parentElement) {
+            const style = document.defaultView.getComputedStyle(current);
+            if (style.display === "none" || style.visibility === "hidden") return false;
+          }
+          return true;
+        });
+      },
+      onDismiss: dismiss
+    });
+  };
+  workbench.addEventListener("workbench:welcome", openWelcome);
   // Retain only the last active time, never project content or authentication.
   let lastRemembered = 0;
   const rememberActivity = () => {
@@ -193,10 +215,9 @@ function startWorkbench(projects, defaultRoute, library, adapterKind, state, map
   frame.addEventListener("pointerdown", rememberActivity, {passive: true});
   frame.addEventListener("keydown", rememberActivity);
   frame.addEventListener("wheel", rememberActivity, {passive: true});
-  if (showWelcome) requestAnimationFrame(() => close.focus());
+  if (showWelcome) requestAnimationFrame(() => {if (!overlay.hidden) openWelcome();});
   else {
     overlay.hidden = true;
-    workbench.inert = false;
     startup.remember();
   }
   return frame;
@@ -299,7 +320,8 @@ function startMain(workspaces, defaultRoute, library, adapterKind, state) {
     compactLink(directoryHref({view: "data", adapterKind}), "data", "Data catalog", "Find reusable datasets and services; adding data does not require an upload"),
     compactLink(directoryHref({view: "sources", adapterKind}), "data", "Sources", "Manage connections to supported remote services and storage"),
     compactLink(adapterKind === "fixture" ? "/admin?adapter=fixture" : "/admin", "settings", "Team administration", "Memberships, roles, and invitations"),
-    compactLink(`${PUBLICATION_ORIGIN}/methods/index.html`, "learn", "Methods and tutorials", "Published on OpenGeo.Tools")
+    compactLink(`${PUBLICATION_ORIGIN}/methods/index.html`, "learn", "Methods and tutorials", "Published on OpenGeo.Tools"),
+    compactLink("/credits#hosting-and-self-hosting", "settings", "Hosting and self-hosting", "Choose managed hosting or run Studio on your own infrastructure")
   );
   more.append(summary, moreGrid);
 

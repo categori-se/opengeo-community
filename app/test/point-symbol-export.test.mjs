@@ -126,7 +126,7 @@ test("developer ZIP and local print retain the same Point representation and cap
     let render;
     const canvas = {width: 64, height: 64, clientWidth: 64, clientHeight: 64, toDataURL: type => {assert.equal(type, "image/png");return png;}};
     const map = {isStyleLoaded: () => true, areTilesLoaded: () => true, isMoving: () => false,
-      getCanvas: () => canvas, once: (type, callback) => {assert.equal(type, "render");render = callback;},
+      getCanvas: () => canvas, once: (type, callback) => {if (type === "render") render = callback; else assert.equal(type, "remove");}, off: () => {},
       triggerRepaint: () => queueMicrotask(render), getStyle: () => value.style, getCenter: () => ({lng: 85, lat: 27}),
       getZoom: () => 4, getPitch: () => 0, getBearing: () => 0, getProjection: () => ({type: "globe"})};
     const record = {id: uuid, version: 3, name: "Care facilities", definition: {layers: value.layers}};
@@ -134,6 +134,8 @@ test("developer ZIP and local print retain the same Point representation and cap
     assert.equal(capture.dataUrl, png);assert.deepEqual(capture.presentation[0].style, value.layers[0].style);
     const layout = newProjectPrintLayout(record, "care");
     Object.assign(layout, {northArrow: false, scaleBar: false, graticule: false, legend: false});
+    Object.assign(layout.frames[0], {view: structuredClone(capture.view),
+      projection: capture.projection, presentation: structuredClone(capture.presentation)});
     const page = printPageSvg(layout, new Map([["care:main", capture]]), "care");
     assert.equal(page.querySelector("image").getAttribute("href"), png);
     assert.deepEqual(layout.frames[0].presentation[0].style, value.layers[0].style);

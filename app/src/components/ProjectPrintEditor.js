@@ -19,21 +19,27 @@ import {appendPrintTextFrames} from "../lib/printTextSvg.js";
 import {hasPrintMath, preparePrintMath, printMathReady} from "../lib/printMathSvg.js";
 import {selectedFeaturePrintText} from "../lib/printTextFrames.js";
 import {assertPrintFontFaceCoverage} from "../lib/printFontFaces.js";
+import {printDocumentLanguage, printDataReadingCell, printMapDescriptionStatus, printMapReadingContext, printPageAlternative} from "../lib/printAccessibility.js";
 
 // Layout metadata is saved explicitly. Map images remain an authorized browser capture.
 export function ProjectPrintEditor({state, workbench: initialWorkbench, editFrame, canSave = false, onSaved = () => {}, captureMap = capturePrintMap, persistence = "account", prepareTextFonts}) {
   const root = el("section");root.className = "project-print-studio project-print-editor";root.id = "project-print-studio";
   let mapRecord = state.selectedMap, workbench = initialWorkbench, collection, activeId, frameId;
   let dirty = false, busy = false, disposed = false, uncertain = false, guides = true;
+  let renderedControlScope = null;
+  let changingControl = null, lastControlFocus = null, controlChangeReset = null, deferredControlRender = null;
   let units = "mm", snapping = true, drag = null;
   let templateId = "", templateName = "", templateBindings = {}, outputFormat = "svg", outputRunning = false;
   let pendingQgisImport = null, mathLoadStarted = false;
   let fontState = null, fontStateKey = "", fontPromise = null, fontRequestKey = "", fontFailure = null;
   let fontGeneration = 0, fontController = null, fontPreviewWaiting = "";
   let captureController = null;
+  let captureGeneration = 0;
   let outputController = null;
   let atlasLayerId = "", atlasFeatureNumbers = "1", atlasLabelField = "", atlasRunning = false;
   const captures = new Map(), undo = [], redo = [];
+  const authoredDrafts = new Map(), authoredFieldId = `print-authored-${crypto.randomUUID()}`;
+  const authoredDraftMessage = "Finish editing or correcting the document language and map description before saving or exporting. Your text is retained.";
   const status = el("p");status.setAttribute("role", "status");
   root.append(el("h2", "Print Studio"), el("p", mapRecord.name),
     el("p", persistence === "browser"
@@ -42,6 +48,14 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
   root.append(el("p", "Captured frames retain their background and imagery date. Older frames inherit the Project background and imagery until captured again."));
   const shell = el("div");shell.className = "print-studio-shell";
   const controls = el("aside");controls.className = "print-studio-controls";
+  controls.addEventListener("focusin", event => {lastControlFocus = event.target;});
+  controls.addEventListener("change", event => {
+    changingControl = event.target;
+    // A native event can run a microtask checkpoint between capture and the
+    // target handler. Retain this context until the complete focus move ends.
+    clearTimeout(controlChangeReset);
+    controlChangeReset = setTimeout(() => {controlChangeReset = null;if (changingControl === event.target) changingControl = null;}, 0);
+  }, true);
   const stage = el("div");stage.className = "print-stage";
   stage.tabIndex = 0;stage.setAttribute("role", "group");stage.setAttribute("aria-label", "Print layout canvas");
   const help = el("p", "Select a frame on the page. Drag to move; drag its lower-right handle to resize. Arrow keys move 1 mm; Shift moves 10 mm; Alt moves 0.1 mm. With the resize handle focused, arrows resize instead. Hold Alt while dragging to bypass snapping. Escape cancels a drag. Ctrl/Cmd+Z undoes; Shift+Z redoes.");
@@ -62,10 +76,35 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
   const key = item => `${activeId}:${item.id}`;
   const current = async () => !disposed && root.isConnected
     && (typeof state.adapter.organizationProvider !== "function" || await state.adapter.organizationProvider() === state.organization.id);
-  root.hasUnsavedChanges = () => dirty;
-  root.shouldBlockNavigation = () => dirty || busy || uncertain || Boolean(drag);
+  root.hasUnsavedChanges = () => dirty || authoredDrafts.size > 0;
+  root.shouldBlockNavigation = () => dirty || authoredDrafts.size > 0 || busy || uncertain || Boolean(drag);
   root.checkDraft = () => {status.textContent = "Save the layout or discard its changes before leaving Print Studio.";root.scrollIntoView?.({block: "start"});return true;};
-  root.dispose = () => {finishDrag(false, false);disposed = true;captureController?.abort();outputController?.abort();fontController?.abort();fontState?.dispose();captures.clear();};
+  root.cancelCapture = (message = "Map capture canceled. Your layout changes are retained.") => {
+    if (!captureController) return false;
+    const controller = captureController;captureController = null;captureGeneration++;busy = false;
+    try {controller.abort();} catch {}
+    if (!disposed) {render();status.textContent = message;}
+    return true;
+  };
+  const graphicsUnavailable = () => workbench?.getPrintContext?.()?.unavailableReason ?? null;
+  const contextChanged = () => {
+    if (disposed) return;
+    const unavailable = graphicsUnavailable();
+    if (unavailable) {
+      if (!root.cancelCapture(unavailable)) {render();status.textContent = unavailable;}
+    } else render();
+  };
+  mapHost.addEventListener("print-context-change", contextChanged);
+  root.dispose = () => {
+    if (disposed) return;
+    disposed = true;captureGeneration++;
+    clearTimeout(controlChangeReset);clearTimeout(deferredControlRender);controlChangeReset = null;deferredControlRender = null;
+    mapHost.removeEventListener("print-context-change", contextChanged);
+    const cleanup = [() => finishDrag(false, false), () => captureController?.abort(), () => outputController?.abort(),
+      () => fontController?.abort(), () => fontState?.dispose(), () => captures.clear()];
+    for (const action of cleanup) {try {action();} catch {}}
+    captureController = null;outputController = null;fontController = null;fontState = null;
+  };
   const styledFaceKey = selected => [...new Set((selected.textFrames ?? [])
     .filter(item => item.type === "text" && item.fontFace && item.fontFace !== "regular")
     .map(item => item.fontFace))].sort().join(",");
@@ -114,17 +153,54 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     } catch (error) {collection = previous;activeId = previousActive;frameId = previousFrame;
       ({templateId, templateName, templateBindings, pendingQgisImport} = previousTemplate);render();status.textContent = error.message;}
   }
+  function authoredField(property, label, helpText) {
+    const selectedLayout = layout(), selectedMap = mapFrame(), description = property === "description";
+    const draftKey = JSON.stringify([selectedLayout.id, property, description ? selectedMap.id : null]);
+    const saved = description ? selectedMap.description ?? "" : selectedLayout.language ?? "en";
+    const draft = authoredDrafts.get(draftKey), field = el("div"), heading = el("label", description ? `${label} · ${selectedMap.title}` : label);
+    field.className = "print-field";
+    const input = el(description ? "textarea" : "input"), help = el("small", helpText), error = el("p", draft?.error ?? "");
+    input.id = `${authoredFieldId}-${property}`;heading.htmlFor = input.id;
+    input.value = draft?.value ?? saved;input.setAttribute("aria-label", label);input.dataset.printAuthoredField = draftKey;
+    if (description) {input.maxLength = 4000;input.rows = 4;} else input.type = "text";
+    help.id = `${input.id}-help`;error.id = `${input.id}-error`;error.hidden = !draft?.error;
+    input.setAttribute("aria-describedby", `${help.id} ${error.id}`);input.setAttribute("aria-errormessage", error.id);
+    input.setAttribute("aria-invalid", String(Boolean(draft?.error)));
+    input.oninput = () => authoredDrafts.set(draftKey, {value: input.value, error: authoredDrafts.get(draftKey)?.error ?? ""});
+    input.onchange = () => {
+      if (busy || uncertain || disposed || drag) return;
+      const value = input.value, candidate = structuredClone(collection), nextLayout = candidate.layouts.find(item => item.id === selectedLayout.id);
+      try {
+        if (description && value.length > 4000) throw Error("Use 4,000 characters or fewer. Shorten this description and try again.");
+        if (!description) printDocumentLanguage({language: value.trim()});
+        (description ? nextLayout.frames.find(item => item.id === selectedMap.id) : nextLayout)[property] = description ? value : value.trim();
+        validateProjectPrintLayouts(candidate, mapRecord);
+        authoredDrafts.delete(draftKey);
+        change(() => {(description ? layout().frames.find(item => item.id === selectedMap.id) : layout())[property] = description ? value : value.trim();});
+        // Clearing an error can be the only change when the saved value is restored.
+        if (input.isConnected) {render();status.textContent = dirty ? "Layout changes are unsaved." : `${label} accepted.`;}
+      } catch (failure) {
+        const message = /32 KiB/.test(failure.message)
+          ? "These layouts exceed the saved-text limit. Shorten this description or other layout text, then try again."
+          : failure.message;
+        authoredDrafts.set(draftKey, {value, error: message});render();status.textContent = `${label}: ${message} Your text is retained.`;
+      }
+    };
+    field.append(heading, input, help, error);return field;
+  }
   async function capture() {
     if (busy || drag || !await current()) return;
-    captureController = new AbortController();
+    const unavailable = graphicsUnavailable();
+    if (unavailable) {render();status.textContent = unavailable;return;}
+    const generation = ++captureGeneration, controller = new AbortController();captureController = controller;
     busy = true;render();status.textContent = "Rendering the map at Print resolution…";
     const selected = mapFrame(), selectedKey = key(selected), previous = structuredClone(collection);
     try {
       const context = workbench.getPrintContext?.();
       const captured = await captureMap(context, mapRecord, {dataFrames: (layout().dataFrames ?? []).filter(item => item.mapFrameId === selected.id),
-        outputFrame: {widthMm: selected.widthMm, heightMm: selected.heightMm, dpi: layout().dpi}, signal: captureController.signal,
-        onPhase: message => {if (!disposed) status.textContent = ({rendering: "Rendering the map at Print resolution…", capturing: "Reading rendered map pixels…", restoring: "Restoring the map display…"})[message] ?? message;}});
-      if (!await current() || key(mapFrame()) !== selectedKey) return;
+        outputFrame: {widthMm: selected.widthMm, heightMm: selected.heightMm, dpi: layout().dpi}, signal: controller.signal,
+        onPhase: message => {if (!disposed && generation === captureGeneration) status.textContent = ({rendering: "Rendering the map at Print resolution…", capturing: "Reading rendered map pixels…", restoring: "Restoring the map display…"})[message] ?? message;}});
+      if (generation !== captureGeneration || !await current() || key(mapFrame()) !== selectedKey) return;
       if ((captured.sceneSignature ?? null) !== printFrameSceneSignature(printFrameScene(workbench.getPrintContext?.()?.project))) {
         throw Error("The map background or imagery changed during capture. Wait for it to settle, then capture again.");
       }
@@ -135,11 +211,12 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       captured.outputSignature = printCaptureOutputSignature(selected, layout().dpi);
       remember(previous);captures.set(selectedKey, captured);
       status.textContent = `Captured ${selected.title}: ${captured.width} × ${captured.height} map pixels at ${layout().dpi} DPI within its frame. ${captured.flat === false ? "3D view: compass, measured scale and grid are omitted. " : ""}Capture again after changing its view, styling, dimensions or DPI.`;
-    } catch (error) {collection = previous;status.textContent = error.message;}
-    finally {captureController = null;busy = false;if (!disposed) render();}
+    } catch (error) {if (!disposed && generation === captureGeneration) {collection = previous;status.textContent = graphicsUnavailable() ?? error.message;}}
+    finally {if (generation === captureGeneration) {captureController = null;busy = false;if (!disposed) render();}}
   }
   async function save() {
     if (busy || drag || uncertain || !canSave || !await current()) return;
+    if (authoredDrafts.size) {status.textContent = authoredDraftMessage;return;}
     busy = true;render();status.textContent = "Saving layout…";
     try {
       const definition = definitionWithPrintLayouts(mapRecord, collection);
@@ -160,12 +237,30 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
   }
   function render() {
     if (disposed) return;
+    // Native text changes fire while focus is moving. Keep both the edited
+    // field and its next Tab/click target mounted until that move completes.
+    if (changingControl?.isConnected && changingControl === lastControlFocus && controls.contains(changingControl) && document.activeElement === document.body) {
+      if (deferredControlRender === null) deferredControlRender = setTimeout(() => {deferredControlRender = null;if (!disposed) render();}, 0);
+      return;
+    }
+    const focused = document.activeElement;
+    const controlIdentity = node => JSON.stringify(node.dataset.printAuthoredField
+      ? ["authored", node.dataset.printAuthoredField]
+      : [node.tagName, node.getAttribute("type"), node.getAttribute("aria-label") ?? node.getAttribute("name")
+        ?? (node.matches("button,summary,a") ? node.textContent.trim() : node.closest("label")?.textContent.trim())]);
+    const focusableControls = () => [...controls.querySelectorAll("input,select,textarea,button,summary,a[href]")];
+    const controlFocus = controls.contains(focused) && focused.matches("input,select,textarea,button,summary,a[href]") ? {
+      key: controlIdentity(focused), index: focusableControls().filter(node => controlIdentity(node) === controlIdentity(focused)).indexOf(focused),
+      scope: renderedControlScope,
+      value: focused.matches('textarea,input[type="text"],input[type="search"],input[type="url"]') ? focused.value : null,
+      selection: typeof focused.selectionStart === "number" ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null
+    } : null;
     const retained = new Map(collection.layouts.flatMap(item => item.frames.map(frame => [`${item.id}:${frame.id}`, {frame, dpi: item.dpi}])));
     for (const [id, captured] of captures) {
       const saved = retained.get(id), savedFrame = saved?.frame;
       if (!savedFrame || captured.signature !== canonicalJson({view: savedFrame.view, presentation: savedFrame.presentation})
-        || (captured.sceneSignature ?? null) !== printFrameSceneSignature(savedFrame)
         || (captured.projection ?? "mercator") !== (savedFrame.projection ?? "mercator")
+        || (captured.sceneSignature ?? null) !== printFrameSceneSignature(savedFrame)
         || captured.outputSignature !== printCaptureOutputSignature(savedFrame, saved.dpi)) captures.delete(id);
     }
     const selected = layout(), selectedFrame = frame();
@@ -177,6 +272,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     }), button("New layout", () => change(() => {
       const added = newProjectPrintLayout(mapRecord);collection.layouts.push(added);activeId = added.id;frameId = added.frames[0].id;
     })), inputField("Layout title", selected.title, "text", value => change(() => {layout().title = value;})));
+    controls.append(authoredField("language", "Document language", "Language of the exported document, such as en, fr or pt-BR."));
     renderTemplateControls();
     controls.querySelector(".print-templates").open = templateSectionOpen;
     const paperChoices = [...new Set(standardPageSizes.map(page => page.size))].map(size => [size, size]);
@@ -200,6 +296,7 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     controls.append(el("small", "Tilted, rolled, globe and terrain views export as captured images. Their compass, measured scale and grid are omitted with a visible note; vector and geospatial PDF need a flat Earth Mercator view."));
     controls.append(inputField("Caption", selected.caption, "text", value => change(() => {layout().caption = value;})),
       selectField("Map frame", mapFrame().id, selected.frames.map(item => [item.id, item.title]), id => {frameId = id;render();}));
+    controls.append(authoredField("description", "Map description", "Describe this map's purpose, geography, key spatial findings and interpretation limits. The description is saved with this frame and included in HTML and downloaded PDF alternatives."));
     if (selected.dataFrames?.length || selected.textFrames?.length) controls.append(selectField("Arrange item", selectedFrame.id,
       editableFrames().map(item => [item.id, `${item.type === "math" ? "Equation" : item.type === "text" ? "Text" : item.type === "table" ? "Table" : item.type === "chart" ? "Chart" : "Map"} · ${item.title}`]), id => {frameId = id;render();}));
     for (const [label, property] of [["Frame left", "xMm"], ["Frame top", "yMm"], ["Frame width", "widthMm"], ["Frame height", "heightMm"]]) controls.append(dimensionField(label, selectedFrame[property], value => change(() => {frame()[property] = value;})));
@@ -210,11 +307,12 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       if (busy || uncertain || disposed) return;
       workbench = editFrame(structuredClone(mapFrame()));mapHost.replaceChildren(workbench);mapEditor.open = true;
       status.textContent = "Adjust this frame's map, then Capture map frame to retain its view and styling.";
-    }), button("Capture map frame", capture), button("Add inset map", () => change(() => {
+    }), button("Capture map frame", capture, Boolean(graphicsUnavailable())), button("Add inset map", () => change(() => {
       if (layout().frames.length === 2) throw Error("This layout already has an inset.");
       const main = layout().frames[0], inset = structuredClone(main);
       Object.assign(inset, {id: "inset", parentId: main.id, title: "Inset map", xMm: main.xMm + main.widthMm * 0.65,
         yMm: main.yMm + 5, widthMm: main.widthMm * 0.3, heightMm: main.heightMm * 0.3});
+      delete inset.description;
       inset.view.zoom = Math.max(-2, main.view.zoom - 3);layout().frames.push(inset);frameId = inset.id;
     })));
     controls.append(button("Add source table", () => addDataFrame("table")), button("Add source chart", () => addDataFrame("chart")));
@@ -261,20 +359,34 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     const snap = el("label"), snapInput = el("input");snapInput.type = "checkbox";snapInput.checked = snapping;
     snapInput.onchange = () => {snapping = snapInput.checked;};snap.append(snapInput, " Snap to page and frame guides");controls.append(snap);
     controls.append(button("Undo layout change", () => restore(undo, redo), !undo.length || busy || uncertain), button("Redo layout change", () => restore(redo, undo), !redo.length || busy || uncertain),
-      button("Save layout", save, !canSave || busy || uncertain),
-      button("Download layout JSON", () => download(new Blob([JSON.stringify(collection, null, 2)], {type: "application/json"}), `${safeName(selected.title)}.layout.json`)),
+      button("Save layout", save, !canSave || busy || uncertain || [...authoredDrafts.values()].some(item => item.error)),
+      button("Download layout JSON", () => {
+        if (authoredDrafts.size) {status.textContent = authoredDraftMessage;return;}
+        download(new Blob([JSON.stringify(collection, null, 2)], {type: "application/json"}), `${safeName(selected.title)}.layout.json`);
+      }, authoredDrafts.size > 0),
       button("Discard layout changes", () => {
         if (busy || uncertain) return;
         collection = projectPrintLayouts(mapRecord);if (!collection.layouts.length) collection.layouts.push(newProjectPrintLayout(mapRecord));
-        activeId = collection.layouts[0].id;frameId = collection.layouts[0].frames[0].id;dirty = false;captures.clear();undo.length = 0;redo.length = 0;render();status.textContent = "Saved layout settings reopened. Capture each map frame under current access before exporting.";
+        activeId = collection.layouts[0].id;frameId = collection.layouts[0].frames[0].id;dirty = false;authoredDrafts.clear();captures.clear();undo.length = 0;redo.length = 0;render();status.textContent = "Saved layout settings reopened. Capture each map frame under current access before exporting.";
       }));
     renderOutputControls();
     renderAtlasControls();
     controls.append(button("Export interactive web map…", () => workbench.openPublicationMapExport?.()));
     if (!canSave) controls.append(el("p", "Your current role can compose and export a temporary layout. Project edit access is required to save it."));
     if (busy || drag) for (const control of controls.querySelectorAll("button,input,select,textarea")) control.disabled = true;
+    if (captureController) controls.append(button("Cancel map capture", () => root.cancelCapture()));
     if (atlasRunning) controls.append(button("Cancel atlas export", () => outputController?.abort(Error("Atlas export canceled."))));
     renderPage();
+    renderedControlScope = JSON.stringify([activeId, frameId]);
+    if (controlFocus && (document.activeElement === document.body || document.activeElement === focused)) {
+      const replacement = focusableControls().filter(node => controlIdentity(node) === controlFocus.key)[controlFocus.index];
+      const closed = replacement?.closest("details:not([open])");
+      if (replacement && !replacement.disabled && !replacement.closest("[hidden],[inert]") && (!closed || closed.querySelector("summary")?.contains(replacement))) {
+        if (controlFocus.value !== null && controlFocus.scope === renderedControlScope) replacement.value = controlFocus.value;
+        replacement.focus({preventScroll: true});
+        if (controlFocus.selection && controlFocus.scope === renderedControlScope) replacement.setSelectionRange(...controlFocus.selection);
+      } else {status.tabIndex = -1;status.focus({preventScroll: true});}
+    }
   }
   function renderTemplateControls() {
     const section = el("details");section.className = "print-templates";
@@ -286,9 +398,10 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       controls.querySelector(".print-templates").open = true;controls.querySelector('[aria-label="Print template"]').focus();
     }), inputField("Template name", templateName, "text", value => {templateName = value;}),
       button("Save layout as template", () => {
+        if (authoredDrafts.size) {status.textContent = authoredDraftMessage;return;}
         change(() => {const added = templateFromLayout(layout(), templateName);(collection.templates ??= []).push(added);templateId = added.id;});
         controls.querySelector(".print-templates").open = true;
-      }, templates.length >= 8));
+      }, templates.length >= 8 || authoredDrafts.size > 0));
     if (selected) {
       for (const [index, slot] of (selected.dataFrames ?? []).entries()) {
         section.append(selectField(`Template source ${index + 1}`, templateBindings[slot.sourceSlot] ?? "",
@@ -363,12 +476,15 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     return `${selected.page.widthMm} × ${selected.page.heightMm} mm; ${mmToPx(selected.page.widthMm, selected.dpi)} × ${mmToPx(selected.page.heightMm, selected.dpi)} page pixels at ${selected.dpi} DPI`;
   }
   function outputUnavailable(format) {
+    const unavailable = graphicsUnavailable();
+    if (unavailable) return unavailable;
+    if (authoredDrafts.size) return authoredDraftMessage;
     for (const item of layout().frames) {
       const capture = captures.get(key(item));
       if (!capture) return `Capture every map frame before exporting this layout. ${item.title} still needs a capture.`;
       if (capture.signature !== canonicalJson({view: item.view, presentation: item.presentation})
-        || (capture.sceneSignature ?? null) !== printFrameSceneSignature(item)
         || (capture.projection ?? "mercator") !== (item.projection ?? "mercator")
+        || (capture.sceneSignature ?? null) !== printFrameSceneSignature(item)
         || capture.outputSignature !== undefined && capture.outputSignature !== printCaptureOutputSignature(item, layout().dpi)) {
         return `${item.title}: capture again after changing its view, styling, dimensions or DPI.`;
       }
@@ -399,16 +515,18 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
       "geospatial-pdf": "Download the vector PDF with separate geographic registration for each captured Mercator map, including its inset. Capture every frame again to retain its geographic control points.",
       png: "One raster page at the dimensions and resolution shown above.",
       pack: "Offline ZIP with PNG, JPEG, raster paper PDF, SVG, HTML, settings, source metadata and file hashes.",
-      html: "Self-contained paper-sized HTML. Map frames retain captured pixels.",
+      html: "Self-contained paper-sized HTML with reading notes and captured data tables. Map frames retain captured pixels.",
       print: "Open the browser print dialog. Choose the matching paper size and scale; the browser controls PDF settings and completion."
     };
-    const unavailable = outputUnavailable(outputFormat), readiness = el("p", unavailable ?? "Captured map frames are ready. Prepare the output, then inspect it before sharing.");
+    const missingDescriptions = printMapDescriptionStatus(layout()).filter(item => !item.supplied).map(item => layout().frames.find(frame => frame.id === item.frameId).title);
+    const unavailable = outputUnavailable(outputFormat), readiness = el("p", unavailable ?? `Captured map frames are ready. ${missingDescriptions.length ? `Map descriptions still needed: ${missingDescriptions.join(", ")}. ` : ""}Prepare the output, then inspect it before sharing.`);
     readiness.id = `${help.id}-output-readiness`;readiness.setAttribute("aria-label", "Output readiness");readiness.setAttribute("aria-live", "polite");
     const prepare = button("Prepare selected output", () => output(outputFormat), Boolean(unavailable));
     prepare.setAttribute("aria-describedby", readiness.id);
     section.append(detail, el("small", "Capture again after changing frame dimensions or DPI. Capture preserves the map's aspect ratio; raster imagery retains its source resolution."),
       selectField("Output format", outputFormat, [["svg", "Paper SVG"], ["vector-svg", "Vector map SVG"], ["vector-pdf", "Vector PDF"], ["geospatial-pdf", "Geospatial PDF"], ["vector-print", "Vector Print / Save PDF"], ["png", "Page PNG"], ["pack", "Figure and print ZIP"], ["html", "Static web page"], ["print", "Print / Save PDF"]], value => {outputFormat = value;render();controls.querySelector('[aria-label="Output format"]').focus();}),
-      el("p", descriptions[outputFormat]), readiness, prepare);
+      el("p", descriptions[outputFormat]),
+      el("p", "Write a description for each map frame and include source tables where useful. HTML provides headings and captured data tables; downloaded PDFs retain authored map alternatives. The figure ZIP's PDF keeps fixed page pixels with a whole-page Figure alternative. Review descriptions and actual exported files before sharing; tags alone do not establish accessibility conformance. Browser Save PDF depends on your browser."), readiness, prepare);
     if (outputRunning) {const progress = el("progress");progress.setAttribute("aria-label", "Preparing Print output");section.append(progress);}
     if (captureController) {const progress = el("progress");progress.setAttribute("aria-label", "Capturing Print map");section.append(progress);}
     const direct = el("details");direct.append(el("summary", "Direct output shortcuts"),
@@ -432,11 +550,14 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     }), inputField("Atlas feature numbers", atlasFeatureNumbers, "text", value => {atlasFeatureNumbers = value;}),
     selectField("Atlas page label", atlasLabelField, [["", "Feature number"], ...printDataSourceFields(context, atlasLayerId).map(field => [field, field])], value => {atlasLabelField = value;}),
     el("p", `Choose up to 32 feature numbers from this Layer's ${source.geojson.features.length} loaded records, separated by commas. Each feature defines one page extent in the current layout. The PDF retains the page's source credits, legend and applicable scale. Up to 32 MiB; raster pages.`),
-    button("Download atlas PDF", atlas, mapFrame().id !== layout().frames[0].id));
+    button("Download atlas PDF", atlas, mapFrame().id !== layout().frames[0].id || Boolean(graphicsUnavailable()) || context?.renderer !== "maplibre"));
+    if (context?.renderer !== "maplibre") section.append(el("p", "Feature atlas needs full graphics. Use the page outputs for this captured map."));
     if (mapFrame().id !== layout().frames[0].id) section.append(el("p", "Select and edit the main map frame before preparing atlas pages."));
     controls.append(section);
   }
   async function atlas() {
+    if (authoredDrafts.size) {status.textContent = authoredDraftMessage;return;}
+    const unavailable = graphicsUnavailable();if (unavailable) {status.textContent = unavailable;return;}
     if (busy || drag || !await current()) return;
     if (busy || drag) return;
     const context = workbench.getPrintContext?.(), selected = structuredClone(layout());
@@ -716,6 +837,9 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
   };
   async function output(format) {
     if (busy || drag || !await current()) return;
+    const unavailable = graphicsUnavailable();
+    if (unavailable) {status.textContent = unavailable;return;}
+    if (authoredDrafts.size) {status.textContent = authoredDraftMessage;return;}
     busy = true;outputRunning = true;render();status.textContent = "Checking current map captures and page bounds…";
     try {
       const selected = structuredClone(layout());validateProjectPrintLayouts(collection, mapRecord);
@@ -755,12 +879,12 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
         if (!await current()) return;
         status.textContent = "Packaging page images, paper PDF, source metadata and file hashes…";
         const {blob} = await compileFigurePrintPack({layout: selected, layoutId: activeId, captures: new Map(captures),
-          svg: serialized, html: paperHtml(selected, serialized), ...page});
+          svg: serialized, html: printPageHtml(selected, serialized, captures), ...page});
         if (!await current()) return;
         download(blob, `${name}.figure-print.zip`);
       }
       else if (format === "html" || print) {
-        const html = paperHtml(selected, serialized);
+        const html = printPageHtml(selected, serialized, captures);
         if (format === "html") download(new Blob([html], {type: "text/html"}), `${name}.html`);
         else {
           const frame = el("iframe");frame.title = "Print layout";frame.style.cssText = "position:fixed;width:1px;height:1px;left:-10000px";
@@ -777,11 +901,18 @@ export function ProjectPrintEditor({state, workbench: initialWorkbench, editFram
     } catch (error) {status.textContent = error.message;}
     finally {busy = false;outputRunning = false;outputController = null;if (!disposed) render();}
   }
-  render();status.textContent = "Capture each map frame to compose this page. Opening Print Studio does not save a layout or start a render job.";
+  render();status.textContent = graphicsUnavailable() ?? "Capture each map frame to compose this page. Opening Print Studio does not save a layout or start a render job.";
   return root;
 }
 
 export async function capturePrintMap(context, mapRecord, {dataFrames = [], outputFrame, signal, onPhase} = {}) {
+  if (signal?.aborted) throw Error("Map capture canceled.");
+  if (context?.unavailableReason) throw Error(context.unavailableReason);
+  if (context?.renderer === "openlayers-canvas") {
+    const captured = await capturePrintCanvasMap(context, mapRecord, dataFrames, {signal, onPhase});
+    if (outputFrame) captured.outputSignature = printCaptureOutputSignature(outputFrame, outputFrame.dpi);
+    return captured;
+  }
   let captured;
   if (outputFrame) {
     const target = printCaptureTarget(outputFrame, outputFrame.dpi);
@@ -792,15 +923,72 @@ export async function capturePrintMap(context, mapRecord, {dataFrames = [], outp
   return captured;
 }
 
+async function capturePrintCanvasMap(context, mapRecord, requestedDataFrames, {signal, onPhase}) {
+  if (!context.ready || typeof context.captureCanvas !== "function") throw Error("Wait for the compatibility map and its visible Layers to finish loading before capture.");
+  const layers = structuredClone(context.layers), presentation = layers.map(printLayerPresentation);
+  const snapshot = await context.captureCanvas({signal, onPhase});
+  if (signal?.aborted) throw Error("Map capture canceled.");
+  if (context.unavailableReason) throw Error(context.unavailableReason);
+  if (canonicalJson(context.layers.map(printLayerPresentation)) !== canonicalJson(presentation)) throw Error("The map changed while capturing. Capture the frame again with its current Layers and styling.");
+  const {dataUrl, width, height, cssWidth = width, cssHeight = height, view, metadata = {}} = snapshot;
+  if (![width, height].every(value => Number.isSafeInteger(value) && value > 0) || width * height > 20_000_000
+    || ![cssWidth, cssHeight].every(value => Number.isFinite(value) && value > 0)) throw Error("Map capture exceeds its 20 megapixel limit.");
+  if (!/^data:image\/png;base64,/.test(dataUrl) || dataUrl.length > 11_184_836) throw Error("The map image exceeds its 8 MiB capture allowance.");
+  if (!Array.isArray(view?.center) || view.center.length !== 2 || !view.center.every(Number.isFinite)
+    || ![view.zoom, view.bearing].every(Number.isFinite) || view.pitch !== 0) throw Error("The compatibility map camera cannot be preserved in this Print frame.");
+  const visible = layers.filter(layer => layer.visible !== false), plainList = values => [...new Set(values.filter(value => typeof value === "string" && value.trim()).map(plainText))];
+  const attribution = plainList([...(metadata.attribution ?? []), context.basemap?.attribution,
+    ...visible.flatMap(layer => [layer.attribution ?? layer.sourceConfiguration?.attribution, layer.metadata?.curated?.attribution])]);
+  const sourceRights = new Map((metadata.sourceRights ?? []).map(rights => [rights.layerId, rights]));
+  const sourceMetadata = visible.map(layer => ({layerId: layer.layerId, datasetId: layer.datasetId ?? null,
+    datasetVersionId: layer.datasetVersionId ?? null, sourceVersion: layer.sourceVersion ?? null, title: layer.title,
+    license: typeof layer.license === "string" ? layer.license : null,
+    sourceAttribution: typeof layer.attribution === "string" ? plainText(layer.attribution) : null,
+    curatedAttribution: typeof layer.metadata?.curated?.attribution === "string" ? plainText(layer.metadata.curated.attribution) : null,
+    ...(sourceRights.has(layer.layerId) ? {sourceRights: structuredClone(sourceRights.get(layer.layerId))} : {})}));
+  if (metadata.basemapRights) sourceMetadata.push({kind: "basemap", id: metadata.basemapRights.id,
+    title: context.basemap?.title ?? "Raster background", license: typeof context.basemap?.license === "string" ? context.basemap.license : null,
+    sourceRights: structuredClone(metadata.basemapRights)});
+  const legend = Array.isArray(snapshot.legend) ? snapshot.legend : [];
+  if (legend.length > 40) throw Error("The legend exceeds 40 rows. Reduce the included Layers or classes for this layout.");
+  const displayNotes = plainList(["Compatibility map captured at its current display resolution.",
+    ...(legend.length ? [] : ["Legend symbols are unavailable for this compatibility capture."]),
+    "Coordinate grid is unavailable for this compatibility capture.", ...(metadata.differences ?? []).map(issue => typeof issue === "string" ? issue
+      : typeof issue?.message === "string" ? `${issue.title ? `${issue.title}: ` : ""}${issue.message}` : null)]);
+  const dataFrames = capturePrintDataFrames({...context, map: {getZoom: () => view.zoom}}, mapRecord, requestedDataFrames, presentation);
+  const bytes = Uint8Array.from(atob(dataUrl.split(",")[1]), char => char.charCodeAt(0));
+  const imageSha256 = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
+  if (signal?.aborted) throw Error("Map capture canceled.");
+  const scene = printFrameScene(context.project);
+  return {dataUrl, width, height, cssWidth, cssHeight, view: structuredClone(view), projection: "mercator", renderer: "openlayers-canvas", ...scene, sceneSignature: printFrameSceneSignature(scene),
+    rendererVersion: metadata.rendererVersion, presentation, signature: canonicalJson({view, presentation}), imageSha256,
+    legend, displayNotes, attribution, sourceMetadata, dataFrames, lines: [], flat: true,
+    metresPerPixel: snapshot.metresPerPixel ?? null,
+    vectorUnavailable: "Compatibility map captures contain raster pixels. Choose a raster output for this frame",
+    projectId: mapRecord.id, projectVersion: mapRecord.version};
+}
+
 async function capturePrintCanvas(context, mapRecord, dataFrames, signal) {
   const map = context?.map;
   if (signal?.aborted) throw Error("Map capture canceled.");
+  if (context?.unavailableReason) throw Error(context.unavailableReason);
   if (context?.renderer !== "maplibre" || !context.ready || !map?.isStyleLoaded?.() || map.areTilesLoaded?.() === false || map.isMoving?.()) throw Error("Wait for the MapLibre map and its visible Layers and Styles to finish loading and moving before capture.");
   const canvas = map.getCanvas(), width = canvas.width, height = canvas.height;
   if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 || width * height > 20_000_000) throw Error("Map capture exceeds its 20 megapixel limit.");
   const captured = await new Promise((resolve, reject) => {
-    const finish = (error, value) => {clearTimeout(timer);map.off?.("render", capture);signal?.removeEventListener("abort", cancel);error ? reject(error) : resolve(value);};
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;clearTimeout(timer);
+      for (const cleanup of [() => map.off?.("render", capture), () => map.off?.("remove", removed),
+        () => canvas.removeEventListener?.("webglcontextlost", lost), () => signal?.removeEventListener("abort", cancel)]) {
+        try {cleanup();} catch {}
+      }
+      error ? reject(error) : resolve(value);
+    };
     const cancel = () => finish(Error("Map capture canceled."));
+    const removed = () => finish(Error("The map closed during capture. Reopen its map frame, then capture again."));
+    const lost = () => finish(Error("Map graphics unavailable. Retry the map before capturing."));
     const timer = setTimeout(() => finish(Error("The map did not produce a capture frame. Try Capture again after it is ready.")), 3000);
     function capture() {
       try {
@@ -809,7 +997,9 @@ async function capturePrintCanvas(context, mapRecord, dataFrames, signal) {
       } catch (error) {finish(error);}
     }
     signal?.addEventListener("abort", cancel, {once: true});
-    map.once("render", capture);map.triggerRepaint();
+    canvas.addEventListener?.("webglcontextlost", lost, {once: true});
+    try {map.once("remove", removed);map.once("render", capture);map.triggerRepaint();}
+    catch (error) {finish(error);}
   });
   await Promise.all(captured.legend.filter(row => row.pointStyle).map(row => ensurePointSymbolAssets(row.pointStyle)));
   const bytes = Uint8Array.from(atob(captured.dataUrl.split(",")[1]), char => char.charCodeAt(0));
@@ -888,7 +1078,7 @@ function collectPrintSnapshot(context, mapRecord, canvas, requestedDataFrames) {
     }
   }
   if (legend.length > 40) throw Error("The legend exceeds 40 rows. Reduce the included Layers or classes for this layout.");
-  const attribution = [...new Set([context.basemap?.attribution, context.basemap?.kind === "temporal-raster" ? context.basemap.title : null,
+  const attribution = [...new Set([context.basemap?.attribution,
     ...context.layers.filter(item => item.visible !== false).flatMap(item => [item.attribution ?? item.sourceConfiguration?.attribution, item.metadata?.curated?.attribution])]
     .filter(value => typeof value === "string" && value.trim()))].map(plainText);
   const lines = [];
@@ -1217,12 +1407,14 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   if (!preview) for (const frame of layout.frames) {
     const captured = captures.get(`${layoutId}:${frame.id}`);
     if (captured && (captured.signature !== canonicalJson({view: frame.view, presentation: frame.presentation})
-      || (captured.sceneSignature ?? null) !== printFrameSceneSignature(frame)
       || (captured.projection ?? "mercator") !== (frame.projection ?? "mercator")
+      || (captured.sceneSignature ?? null) !== printFrameSceneSignature(frame)
       || captured.outputSignature !== undefined && captured.outputSignature !== printCaptureOutputSignature(frame, layout.dpi)))
       throw Error("Capture every map frame again after changing its view, styling, dimensions or DPI.");
   }
-  const page = layout.page, svg = svgNode("svg", {width: `${page.widthMm}mm`, height: `${page.heightMm}mm`, viewBox: `0 0 ${page.widthMm} ${page.heightMm}`, role: "img", "aria-label": layout.title});
+  const language = printDocumentLanguage(layout);
+  const alternative = [layout.title, layout.caption, ...layout.frames.map(frame => frame.description)].filter(Boolean).join("\n");
+  const page = layout.page, svg = svgNode("svg", {width: `${page.widthMm}mm`, height: `${page.heightMm}mm`, viewBox: `0 0 ${page.widthMm} ${page.heightMm}`, role: "img", lang: language, "xml:lang": language, "aria-label": alternative});
   svg.style.cssText = "background:white;color:#17212b;max-width:none";
   if (fontCss) {
     const definitions = svgNode("defs", {}), style = svgNode("style", {type: "text/css"});
@@ -1233,7 +1425,9 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
     captures: layout.frames.map(frame => {const captured = captures.get(`${layoutId}:${frame.id}`);return captured ? {frameId: frame.id, projectId: captured.projectId, projectVersion: captured.projectVersion, imageSha256: captured.imageSha256, width: captured.width, height: captured.height,
       ...(captured.sceneSignature != null ? {sceneSignature: captured.sceneSignature} : {}),
       ...Object.fromEntries(["basemaps", "historicalImagery"].filter(key => Object.hasOwn(captured, key)).map(key => [key, structuredClone(captured[key])])),
-      ...(captured.projection !== undefined ? {renderer: "maplibre", projection: captured.projection, view: captured.view, flat: captured.flat} : {}),
+      ...(captured.projection !== undefined ? {renderer: captured.renderer ?? "maplibre", projection: captured.projection, view: captured.view, flat: captured.flat} : {}),
+      ...(captured.rendererVersion ? {rendererVersion: captured.rendererVersion} : {}),
+      ...(captured.renderer === "openlayers-canvas" ? {sourceMetadata: captured.sourceMetadata, displayNotes: captured.displayNotes} : {}),
       ...(captured.outputSignature !== undefined ? {outputSignature: captured.outputSignature} : {}),
       ...(mapRepresentation === "vector" ? {vectorMap: vectorSceneMetadata(captured)} : {}),
       continuousLegends: [...continuousLegendGroups(captured).values()],
@@ -1413,6 +1607,7 @@ export function printPageSvg(layout, captures, layoutId, {guides = false, previe
   if (rows.length && legendBottom !== null && legendBottom > top - 2) throw Error("The legend overlaps source notes. Widen the legend area or reduce its included Layers/classes.");
   if (rows.length && top + rows.length * 3 > page.heightMm - 2) throw Error("Source notes need more page space. Reduce map height or use a larger page.");
   rows.forEach((line, index) => svg.append(svgText(line, page.marginMm, top + index * 3, 2.2)));
+  if (!preview) svg.setAttribute("aria-label", printPageAlternative(layout, captures));
   return svg;
 }
 
@@ -1450,8 +1645,35 @@ function vectorSceneSvg(captured, {x, y, width, height}) {
   return group;
 }
 
-function paperHtml(layout, svg) {
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:;${(layout.textFrames ?? []).some(item => item.type === 'text' && item.fontFace && item.fontFace !== 'regular') ? ' font-src data:;' : ''} style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeText(layout.title)}</title><style>@page{size:${layout.page.widthMm}mm ${layout.page.heightMm}mm;margin:0}html,body{margin:0;background:white}svg{display:block}@media screen{body{overflow:auto}}</style>${svg}</html>`;
+export function printPageHtml(layout, svg, captures) {
+  const language = printDocumentLanguage(layout);
+  const paragraph = value => `<p>${escapeText(String(value))}</p>`;
+  const list = values => values.length ? `<ul>${values.map(value => `<li>${escapeText(String(value))}</li>`).join("")}</ul>` : "";
+  const maps = layout.frames.map(frame => {
+    const capture = captures.get(`${layout.id}:${frame.id}`);
+    if (!capture) throw Error("Capture every map frame before exporting reading notes.");
+    return `<section><h3>${escapeText(frame.title)}</h3>`
+      + paragraph(frame.description?.trim() ? frame.description : "No description has been supplied for this map frame. Describe the spatial information needed to understand it.")
+      + list(printMapReadingContext(layout, capture))
+      + list((capture.legend ?? []).map(row => row.label))
+      + list(capture.attribution ?? []) + list((capture.sourceMetadata ?? []).map(source =>
+        `${source.title ?? "Layer"} · License: ${source.license || "not recorded"}`)) + "</section>";
+  }).join("");
+  const data = (layout.dataFrames ?? []).map(frame => {
+    const capture = captures.get(`${layout.id}:${frame.mapFrameId}`);
+    const snapshot = assertPrintDataFrameSnapshot(frame, capture?.dataFrames?.find(item => item.frameId === frame.id), capture?.presentation);
+    const source = capture.sourceMetadata?.find(item => item.layerId === frame.source.layerId);
+    return `<section><h3>${escapeText(frame.title)}</h3>${frame.altText ? paragraph(frame.altText) : ""}${paragraph(`Source: ${source?.title ?? frame.source.layerId}. Map filter applies; map extent does not limit these rows.`)}${paragraph(snapshot.scopeText)}${list(snapshot.notices)}`
+      + `<div class="reading-table" role="region" aria-label="${escapeText(frame.title)} data" tabindex="0"><table><caption>${escapeText(frame.title)}${frame.type === "chart" ? " — chart values" : ""}</caption>`
+      + `<thead><tr>${snapshot.columns.map(column => `<th scope="col">${escapeText(column)}</th>`).join("")}</tr></thead>`
+      + `<tbody>${snapshot.rows.map((row, rowIndex) => `<tr>${row.map((value, column) => `<td>${escapeText(printDataReadingCell(frame, snapshot, rowIndex, column))}</td>`).join("")}</tr>`).join("")}</tbody></table></div></section>`;
+  }).join("");
+  const notes = `<section class="reading-notes" aria-label="Figure reading notes"><h1>${escapeText(layout.title)}</h1>`
+    + paragraph(layout.caption || "No map explanation has been supplied. Spatial findings require an authored description.")
+    + (layout.textFrames ?? []).map(item => `<section><h2>${escapeText(item.title)}</h2>${item.type === "math" ? paragraph("Equation source (LaTeX)") : ""}${paragraph(item.text)}</section>`).join("")
+    + `<h2>Map frames and sources</h2>${maps}${data ? `<h2>Captured data</h2>${data}` : ""}`
+    + paragraph("These notes retain the supplied explanation and captured values. They do not establish complete spatial equivalence or accessibility conformance. Review the output in its intended reading environment.") + "</section>";
+  return `<!doctype html><html lang="${escapeText(language)}"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="description" content="${escapeText(layout.caption || layout.frames.map(frame => frame.description).filter(Boolean).join(' ' ))}"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:;${(layout.textFrames ?? []).some(item => item.type === 'text' && item.fontFace && item.fontFace !== 'regular') ? ' font-src data:;' : ''} style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"><title>${escapeText(layout.title)}</title><style>@page{size:${layout.page.widthMm}mm ${layout.page.heightMm}mm;margin:0}html,body{margin:0;background:white;color:#17212b}svg{display:block}.reading-notes{padding:1.5rem;max-width:75ch;font:1rem/1.5 system-ui}.reading-notes p{white-space:pre-wrap}.reading-table{overflow:auto}.reading-table:focus-visible{outline:3px solid #174ea6}th,td{padding:.5rem;border:1px solid #64748b;text-align:left;vertical-align:top;overflow-wrap:anywhere}table{border-collapse:collapse}a{color:#174ea6}@media print{.reading-notes{display:none}}@media screen{body{overflow:auto}}</style><body><main>${notes}<div class="paper-page">${svg}</div></main></body></html>`;
 }
 async function pagePng(svg, layout) {
   return (await pageImages(svg, layout, false)).png;

@@ -4,14 +4,56 @@ import {assertPrintDataFrameSnapshot} from "./printDataFrames.js";
 import {continuousLegendGroups} from "./printContinuousLegend.js";
 import {rasterLegendGroups} from "./printRasterLegend.js";
 import {printCaptureOutputSignature} from "./printLayouts.js";
+import {printDocumentLanguage, printPageAlternative, printPdfUnicode, printMapDescriptionStatus} from "./printAccessibility.js";
 
 const LIMIT = 32 * 1024 * 1024;
 const sha = async bytes => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
 
 // The same object/offset/xref structure as site_print.py, with one browser-encoded
-// RGB JPEG page. Furniture is rasterized with the page; this is not vector PDF.
-export function rasterPagePdf(jpeg, {width, height, widthMm, heightMm}) {
-  return rasterPagesPdf([{jpeg, width, height}], {widthMm, heightMm});
+// RGB JPEG page. The Figure owns that actual image paint and its authored
+// alternative; tags do not change the fixed pixels or imply PDF/UA conformance.
+export function rasterPagePdf(jpeg, {width, height, widthMm, heightMm, title, language, alternative}) {
+  // Existing atlas consumers retain their exact legacy page bytes. Figure packs
+  // deliberately supply authored metadata and use the accessible writer below.
+  if (title === undefined && language === undefined && alternative === undefined) return rasterPagesPdf([{jpeg, width, height}], {widthMm, heightMm});
+  if (title === undefined) title = "Map page";
+  if (language === undefined) language = "en";
+  if (alternative === undefined) alternative = "No map description supplied.";
+  if (!(jpeg instanceof Uint8Array) || jpeg.length > LIMIT || jpeg[0] !== 255 || jpeg[1] !== 216
+    || jpeg.at(-2) !== 255 || jpeg.at(-1) !== 217
+    || ![width, height].every(value => Number.isSafeInteger(value) && value > 0) || width * height > 20_000_000
+    || ![widthMm, heightMm].every(value => Number.isFinite(value) && value >= 50 && value <= 1189)
+    || typeof title !== "string" || title.length > 200 || typeof alternative !== "string" || !alternative.trim() || alternative.length > 131072) throw Error("The page image or paper dimensions are invalid.");
+  language = printDocumentLanguage({language});
+  const w = (widthMm * 72 / 25.4).toFixed(4), h = (heightMm * 72 / 25.4).toFixed(4);
+  const content = `/Figure << /MCID 0 >> BDC\nq\n${w} 0 0 ${h} 0 0 cm\n/PageImage Do\nQ\nEMC\n`;
+  const objects = [
+    [strToU8(`<< /Type /Catalog /Pages 2 0 R /Lang ${printPdfUnicode(language)} /StructTreeRoot 6 0 R /MarkInfo << /Marked true >> /ViewerPreferences << /DisplayDocTitle true >> >>`)],
+    [strToU8("<< /Type /Pages /Count 1 /Kids [3 0 R] >>")],
+    [strToU8(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${h}] /StructParents 0 /Tabs /S /Resources << /XObject << /PageImage 5 0 R >> >> /Contents 4 0 R >>`)],
+    [strToU8(`<< /Length ${content.length} >>\nstream\n${content}endstream`)],
+    [strToU8(`<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`), jpeg, strToU8("\nendstream")],
+    [strToU8("<< /Type /StructTreeRoot /K [7 0 R] /ParentTree 9 0 R /ParentTreeNextKey 1 >>")],
+    [strToU8("<< /Type /StructElem /S /Document /P 6 0 R /K [8 0 R] >>")],
+    [strToU8(`<< /Type /StructElem /S /Figure /P 7 0 R /Pg 3 0 R /K [0] /Alt ${printPdfUnicode(alternative)} >>`)],
+    [strToU8("<< /Nums [0 [8 0 R]] >>")],
+    [strToU8(`<< /Title ${printPdfUnicode(title)} /Creator (OpenGeo.Tools) /Subject (Captured map figure with authored alternative) >>`)]
+  ];
+  const chunks = [strToU8("%PDF-1.7\n%"), Uint8Array.of(226, 227, 207, 211, 10)], offsets = [0];
+  let length = chunks.reduce((sum, bytes) => sum + bytes.length, 0);
+  const append = bytes => {chunks.push(bytes);length += bytes.length;};
+  for (const [index, parts] of objects.entries()) {
+    offsets.push(length);append(strToU8(`${index + 1} 0 obj\n`));
+    for (const bytes of parts) append(bytes);
+    append(strToU8("\nendobj\n"));
+  }
+  const xref = length;
+  append(strToU8(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
+    + offsets.slice(1).map(value => `${String(value).padStart(10, "0")} 00000 n \n`).join("")
+    + `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R /Info 10 0 R >>\nstartxref\n${xref}\n%%EOF\n`));
+  const result = new Uint8Array(length);let position = 0;
+  for (const bytes of chunks) {result.set(bytes, position);position += bytes.length;}
+  return result;
 }
 
 export function rasterPagesPdf(pages, {widthMm, heightMm}) {
@@ -63,7 +105,8 @@ export async function compileFigurePrintPack({layout, layoutId, captures, svg, h
   const image = new Uint8Array(await jpeg.arrayBuffer());
   const files = {"page.svg": strToU8(svg), "print.html": strToU8(html),
     "page.png": new Uint8Array(await png.arrayBuffer()), "page.jpg": image,
-    "page.pdf": rasterPagePdf(image, {width, height, widthMm: layout.page.widthMm, heightMm: layout.page.heightMm}),
+    "page.pdf": rasterPagePdf(image, {width, height, widthMm: layout.page.widthMm, heightMm: layout.page.heightMm,
+      title: layout.title, language: printDocumentLanguage(layout), alternative: printPageAlternative(layout, captures)}),
     "layout.json": strToU8(JSON.stringify(layout, null, 2))};
   const frames = [];
   for (const [index, frame] of layout.frames.entries()) {
@@ -90,11 +133,19 @@ export async function compileFigurePrintPack({layout, layoutId, captures, svg, h
   files["README.txt"] = strToU8(`OpenGeo figure and print pack
 
 page.png and page.jpg are the composed page. page.pdf places the same JPEG at
-the layout's exact paper dimensions. It is a raster PDF, without selectable text,
-vector geometry or geographic registration. DPI sets page dimensions; captured
+the layout's exact paper dimensions. It is a raster PDF with a tagged whole-page
+Figure and an alternative containing authored map descriptions, page text and
+captured table/chart values. Document title and language are retained. It has no
+selectable text, table navigation, vector geometry or geographic registration.
+Tags alone do not establish an equivalent explanation or PDF/UA conformance.
+DPI sets page dimensions; captured
 map detail remains limited to its original pixels. JPEG uses quality0.92.
 
-Open print.html locally to view or print the self-contained SVG page. page.svg,
+Open print.html locally to read the authored explanation and captured table/chart
+values, or print the self-contained SVG page. Reading notes do not print on the
+paper page. Review whether the authored explanation communicates the map's
+substantive information; these notes alone do not establish an equivalent
+accessible alternative or conformance. page.svg,
 layout.json, map-context.json and frames/ retain the layout, frame pixels, camera,
 presentation, source metadata, captured table/chart values and attribution needed
 to reproduce this captured figure. System fonts may differ between devices; the supplied PNG/JPEG/PDF have
@@ -109,7 +160,9 @@ outputs work offline. manifest.json records file hashes and dependency scope.
   if (bytes > LIMIT - 65536) throw Error("This figure pack exceeds 32 MiB. Choose a lower output DPI.");
   const manifest = {schemaVersion: "opengeo.figure-print-pack.1.0.0", title: layout.title, layoutId,
     page: {...layout.page, dpi: layout.dpi, widthPixels: width, heightPixels: height}, fullyOffline: true,
-    pdf: {path: "page.pdf", representation: "raster-page", image: "page.jpg", selectableText: false, georeferenced: false},
+    mapDescriptions: printMapDescriptionStatus(layout),
+    pdf: {path: "page.pdf", representation: "raster-page", image: "page.jpg", selectableText: false, tagged: true,
+      structure: "single-figure-alternative", language: printDocumentLanguage(layout), georeferenced: false},
     dependencies: {included: frames.map(frame => ({kind: "captured-map-image", path: frame.path, checksumSha256: frame.imageSha256})), live: [],
       excluded: ["original-source-data", "editable-project", "upstream-services", "private-configuration"], environment: ["system-fonts-for-SVG-and-HTML"]},
     rights: {license: null, redistributionAllowed: null},

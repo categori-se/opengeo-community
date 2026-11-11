@@ -1504,6 +1504,88 @@ describe("project directory interaction", () => {
     assert.doesNotMatch(root.querySelector(".platform-catalog-search").textContent, /dataset id|object key|bucket|connection/i);
   });
 
+  it("opens an existing public Artifact preview only by explicit action and releases its sandbox", async () => {
+    const {state, record, preview} = publicArtifactFixture(); const calls = []; let authorityReads = 0;
+    state.adapter.tokenProvider = state.adapter.organizationProvider = () => {authorityReads++; throw Error('Public discovery must not invoke private authentication');};
+    state.adapter.getPublicMapArtifactPreview = async (...args) => {calls.push(args); return preview;};
+    state.adapter.createMap = () => assert.fail("Preview must not create a Project");
+    const root = mountPublicArtifact(state, record); document.body.append(root); await publicTick();
+    assert.equal(calls.length, 0); assert.ok(root.querySelector('.platform-public-resource-preview svg'));
+    const button = [...root.querySelectorAll('button')].find(button => button.textContent === 'Preview published map'); assert.ok(button);
+    button.click(); await publicTick();
+    assert.equal(calls.length, 1); assert.equal(calls[0][0], record.community.organizationId); assert.equal(calls[0][2], record.id);
+    assert(calls[0][3].signal instanceof AbortSignal);
+    const image = root.querySelector('.platform-public-map-artifact-preview img');
+    assert.equal(image.getAttribute('src'), `/api${preview.artifact.previewHref}`); assert.equal(image.crossOrigin, 'anonymous'); assert.equal(image.referrerPolicy, 'no-referrer');
+    assert.match(root.querySelector('.platform-public-map-artifact-preview figcaption').textContent, /map v4.*Artifact v2.*CC-BY-4.0.*Public Lab/);
+    const close = [...root.querySelectorAll('button')].find(button => button.textContent === 'Close published preview'); close.click();
+    assert.equal(root.querySelector('.platform-public-map-artifact-preview img'), null); assert.equal(document.activeElement, button);
+    preview.artifact = {...preview.artifact, representation: 'portable-map-html', mediaType: 'text/html', previewHref: preview.artifact.previewHref.replace(/image$/, 'map')};
+    button.click(); await publicTick(); const frame = root.querySelector('.platform-public-map-artifact-preview iframe');
+    assert.equal(frame.getAttribute('sandbox'), 'allow-scripts'); assert(frame.hasAttribute('credentialless')); assert.equal(frame.referrerPolicy, 'no-referrer');
+    assert.equal(frame.getAttribute('src'), `/api${preview.artifact.previewHref}`);
+    root.querySelector('.platform-catalog-search').dispose(); assert.equal(frame.getAttribute('src'), null); assert.equal(authorityReads, 0);
+  });
+
+  it("keeps vector fallback for an unavailable public Artifact preview and rejects changed exact versions", async () => {
+    const {state, record, preview} = publicArtifactFixture();
+    state.adapter.getPublicMapArtifactPreview = async () => ({...preview, status: 'unavailable', artifact: null});
+    const root = mountPublicArtifact(state, record); await publicTick();
+    const open = [...root.querySelectorAll('button')].find(button => button.textContent === 'Preview published map'); open.click(); await publicTick();
+    assert.match(root.querySelector('.platform-public-map-artifact-preview').textContent, /No published Artifact.*exact map version/);
+    assert.ok(root.querySelector('.platform-public-resource-preview svg')); assert.equal(root.querySelector('.platform-public-map-artifact-preview iframe, .platform-public-map-artifact-preview img'), null);
+    state.adapter.getPublicMapArtifactPreview = async () => ({...preview, mapVersion: 5}); open.click(); await publicTick();
+    assert.match(root.querySelector('.platform-public-map-artifact-preview').textContent, /could not be verified/);
+    assert.equal(root.querySelector('.platform-public-map-artifact-preview img'), null);
+    const second = publicArtifactFixture(); second.state.adapter.getPublicMapPreview = async () => {throw Object.assign(Error('No vector derivative'), {status:409});};
+    second.state.adapter.getPublicMapArtifactPreview = async () => second.preview;
+    const raster = mountPublicArtifact(second.state, second.record); await publicTick();
+    [...raster.querySelectorAll('button')].find(button => button.textContent === 'Preview published map').click(); await publicTick();
+    assert.ok(raster.querySelector('.platform-public-map-artifact-preview img'), 'An independently sealed Artifact remains usable when the vector-only endpoint rejects a map');
+  });
+
+  it("ignores stale public Artifact preview responses after account change, cancel and disposal", async () => {
+    for (const change of ['account', 'baseUrl', 'target', 'provider', 'cancel', 'dispose']) {
+      const {state, record, preview} = publicArtifactFixture(); let resolve, requestSignal;
+      state.adapter.tokenProvider = state.adapter.organizationProvider = () => {assert.fail('Public context checks must not invoke private providers');};
+      const target = {projectId: record.community.projectId, resourceId: record.id};
+      state.adapter.getPublicMapArtifactPreview = (...args) => {requestSignal = args[3].signal; return new Promise(done => {resolve = done;});};
+      const root = mountPublicArtifact(state, record, target); await publicTick();
+      [...root.querySelectorAll('button')].find(button => button.textContent === 'Preview published map').click(); await publicTick();
+      if (change === 'account') state.organization = {...state.organization, id: '10000000-0000-4000-8000-000000000099'};
+      else if (change === 'baseUrl') state.adapter.baseUrl = 'https://other.example.test/api';
+      else if (change === 'target') target.resourceId = '90000000-0000-4000-8000-000000000099';
+      else if (change === 'provider') state.adapter.tokenProvider = () => assert.fail('Do not invoke a replacement provider');
+      else if (change === 'cancel') [...root.querySelectorAll('button')].find(button => button.textContent === 'Close published preview').click();
+      else root.querySelector('.platform-catalog-search').dispose();
+      const oldHTML = root.querySelector('.platform-public-map-artifact-preview').outerHTML;
+      resolve(preview); await publicTick();
+      if (!['cancel', 'dispose'].includes(change)) assert.equal(root.querySelector('.platform-public-map-artifact-preview').outerHTML, oldHTML, 'A stale action must not update status, controls or content');
+      assert.equal(root.querySelector('.platform-public-map-artifact-preview iframe, .platform-public-map-artifact-preview img'), null);
+      if (['cancel', 'dispose'].includes(change)) assert.equal(requestSignal.aborted, true);
+    }
+  });
+
+  it("stops stale public resource reads before preview fetches or detail allocation", async () => {
+    const {state, record} = publicArtifactFixture(); let resolve, previewReads = 0;
+    state.adapter.getPublicResource = () => new Promise(done => {resolve = done;});
+    state.adapter.getPublicMapPreview = () => {previewReads++; assert.fail('Disposed detail must not fetch a preview');};
+    const root = mountPublicArtifact(state, record); await publicTick(); root.querySelector('.platform-catalog-search').dispose();
+    resolve(record); await publicTick(); assert.equal(previewReads, 0); assert.equal(root.querySelector('.platform-public-resource-detail'), null);
+  });
+
+  it("renders canonical graduated public map colors and inline presentation above generic SVG CSS", async () => {
+    const {state, record} = publicArtifactFixture();
+    state.adapter.getPublicMapPreview = async () => ({resourceId: record.id, resourceVersionNumber: record.versionNumber, mapVersion: 4, layers: [{layerId: 'points', title: 'Point bins', visible: true, opacity: 0.7, order: 0,
+      style: {renderer: 'graduated', circleRadius: 9, strokeWidth: 3, graduated: {field: 'value'}}, labels: {},
+      numberReturned: 5, numberMatched: 5, mayBeTruncated: false, geojson: {type: 'FeatureCollection', features: [0, 20, 40, null, '25'].map((value, i) => ({type: 'Feature', geometry: {type: 'Point', coordinates: [i, i]}, properties: {value}}))}}]});
+    const root = mountPublicArtifact(state, record); await publicTick();
+    const paths = [...root.querySelectorAll('.platform-public-resource-preview svg path')];
+    assert.deepEqual(paths.map(path => path.style.fill), ['#440154', '#3b528b', '#21918c', '#9ca3af']);
+    assert(paths.every(path => path.style.strokeWidth === '3' && path.getAttribute('d').includes('a9,9')));
+    assert.equal(root.querySelector('svg g').getAttribute('opacity'), '0.7');
+  });
+
   it("presents a published PDF dataset with visual pages and semantic text", async () => {
     const state = directoryState();
     const projectId = state.projects[0].id;
@@ -2248,3 +2330,18 @@ it("keeps a Collection draft across directory links, Back navigation and sign-ou
     assert.match(root.collectionDirectory.querySelector('[role="status"]').textContent,/before signing out/);
   } finally {root.dispose();}
 });
+
+function publicArtifactFixture() {
+  const state = directoryState(), projectId = state.projects[0].id, resourceId = '90000000-0000-4000-8000-000000000068';
+  state.adapter.baseUrl = '/api';
+  const href = `/public/organizations/${state.organization.id}/projects/${projectId}/resources/${resourceId}`;
+  const record = {id: resourceId, kind: 'map', slug: 'public-preview', versionNumber: 8, title: 'Sealed public map', abstract: 'Exact map presentation', language: 'en', license: 'CC-BY-4.0', attribution: 'Public Lab', keywords: [], spatialExtent: [-73,40,-69,44], temporalStart: null, temporalEnd: null, createdAt: '2026-09-01T00:00:00Z',
+    community: {organizationId: state.organization.id, organizationName: 'Public Lab', projectId, projectName: state.projects[0].name}, preview: {kind: 'map', href: href+'/map-preview'}, freshness: {catalogUpdatedAt: '2026-09-01T00:00:00Z', sourceObservedAt: null, sourceVersion: null}, provenance: {namespace: null, identifier: null}, relationships: {publicCount: 0, detailHref: href}, ratings: {count:0,average:null}};
+  state.adapter.getPublicResource = async () => record;
+  state.adapter.getPublicMapPreview = async () => ({resourceId, resourceVersionNumber: 8, mapVersion: 4, layers: [{layerId:'roads',title:'Roads',visible:true,opacity:1,order:0,style:{stroke:'#123456',strokeWidth:4},labels:{},numberReturned:1,numberMatched:1,mayBeTruncated:false,geojson:{type:'FeatureCollection',features:[{type:'Feature',geometry:{type:'LineString',coordinates:[[-72,41],[-70,43]]},properties:{}}]}}]});
+  const releaseId = '91000000-0000-4000-8000-000000000001';
+  const preview = {resourceId, resourceVersionNumber: 8, mapVersion: 4, status:'available', artifact:{artifactId:'92000000-0000-4000-8000-000000000001',releaseId,versionNumber:2,representation:'saved-map-image',mediaType:'image/png',sizeBytes:1234,checksumSha256:'a'.repeat(64),license:'CC-BY-4.0',attribution:'Public Lab',previewHref:`/public/organizations/${state.organization.id}/artifact-releases/${releaseId}/image`}};
+  return {state, record, preview};
+}
+function mountPublicArtifact(state, record, target = {projectId:record.community.projectId,resourceId:record.id}) {const root=document.createElement('section');renderDirectoryState(root,state,()=>{},null,{view:'data',publicResourceTarget:target});return root;}
+const publicTick = () => new Promise(resolve => setTimeout(resolve,0));
