@@ -113,6 +113,17 @@ export function renameNamedMapView(existing, id, title) {
   return views;
 }
 
+export function moveNamedMapView(existing, id, direction) {
+  const views = mapViewsForSave(null, existing);
+  const index = views.findIndex(view => view.id === id);
+  if (index < 1) throw Error("Choose a named view to move.");
+  if (direction !== -1 && direction !== 1) throw Error("Choose an adjacent position for the view.");
+  const destination = index + direction;
+  if (destination < 1 || destination >= views.length) throw Error("This view is already at the end of the list.");
+  [views[index], views[destination]] = [views[destination], views[index]];
+  return views;
+}
+
 export function removeNamedMapView(existing, id) {
   const views = mapViewsForSave(null, existing);
   const index = views.findIndex(view => view.id === id);

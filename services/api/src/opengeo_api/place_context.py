@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import math
 import re
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -151,6 +152,93 @@ class PlaceContextResolver:
                 self.cache.popitem(last=False)
             return result
 
+    async def locate(self, item: str) -> dict[str, Any]:
+        if not ITEM.fullmatch(item):
+            raise ValueError("Expected a Wikidata item ID")
+        key = "position:" + item
+        async with self.lock:
+            cached = self.cache.get(key)
+            if cached and monotonic() - cached[0] < 3600:
+                self.cache.move_to_end(key)
+                return {**deepcopy(cached[1]), "cached": True}
+            if monotonic() < self.retry_after:
+                raise PlaceContextUnavailable("Provider lookup is cooling down")
+            try:
+                async with asyncio.timeout(8):
+                    raw = await self.fetch([item])
+                if len(raw.encode()) > MAX_BYTES:
+                    raise ValueError("Provider response too large")
+                payload = json.loads(raw)
+                entity = payload.get("entities", {}).get(item)
+                if "error" in payload or not isinstance(entity, dict) or entity.get("id") != item:
+                    raise ValueError("Provider returned a different identity")
+                statements = entity.get("claims", {}).get("P625", [])
+                if not isinstance(statements, list) or len(statements) > 100:
+                    raise ValueError("Invalid coordinate statements")
+                positions = []
+                for statement in statements:
+                    rank = statement.get("rank")
+                    snak = statement.get("mainsnak", {})
+                    value = snak.get("datavalue", {})
+                    if (
+                        rank not in {"normal", "preferred"}
+                        or snak.get("snaktype") != "value"
+                        or value.get("type") != "globecoordinate"
+                    ):
+                        continue
+                    coordinate = value.get("value", {})
+                    if coordinate.get("globe") not in {
+                        "http://www.wikidata.org/entity/Q2",
+                        "https://www.wikidata.org/entity/Q2",
+                        "http://wikidata.org/entity/Q2",
+                        "https://wikidata.org/entity/Q2",
+                    }:
+                        continue
+                    latitude = coordinate_number(coordinate.get("latitude"), -90, 90)
+                    longitude = coordinate_number(coordinate.get("longitude"), -180, 180)
+                    precision = coordinate.get("precision")
+                    if precision is not None:
+                        precision = coordinate_number(precision, 0, 360)
+                    positions.append(
+                        {
+                            "latitude": latitude,
+                            "longitude": longitude,
+                            "precision": precision,
+                            "statementId": statement.get("id"),
+                            "rank": rank,
+                            "qualifiers": deepcopy(statement.get("qualifiers", {})),
+                        }
+                    )
+                positions.sort(key=lambda position: position["rank"] != "preferred")
+                result = {
+                    "provider": "Wikidata",
+                    "id": item,
+                    "uri": "http://www.wikidata.org/entity/" + item,
+                    "revision": entity.get("lastrevid"),
+                    "modified": entity.get("modified"),
+                    "positions": positions[:10],
+                    "moreAvailable": len(positions) > 10,
+                    "retrievedAt": datetime.now(UTC).isoformat(),
+                    "cached": False,
+                    "sourceSha256": hashlib.sha256(raw.encode()).hexdigest(),
+                }
+            except (
+                httpx2.HTTPError,
+                OSError,
+                ValueError,
+                OverflowError,
+                TypeError,
+                AttributeError,
+                TimeoutError,
+                PlaceContextUnavailable,
+            ) as error:
+                self.retry_after = monotonic() + 30
+                raise PlaceContextUnavailable("Place coordinates unavailable") from error
+            self.cache[key] = (monotonic(), deepcopy(result))
+            while len(self.cache) > 64:
+                self.cache.popitem(last=False)
+            return result
+
     async def resolve(self, item: str) -> dict[str, Any]:
         if not ITEM.fullmatch(item):
             raise ValueError("Expected a Wikidata item ID")
@@ -271,3 +359,12 @@ class PlaceContextResolver:
                 "Context exceeds the metadata budget; nothing was truncated"
             )
         return result
+
+
+def coordinate_number(value: Any, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ValueError("Invalid coordinate number")
+    number = float(value)
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise ValueError("Coordinate outside supported range")
+    return number

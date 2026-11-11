@@ -103,3 +103,110 @@ def test_name_search_is_bounded_and_retains_disambiguation():
             await resolver.search("  ")
 
     asyncio.run(run())
+
+
+def test_navigation_coordinates_keep_earth_statement_identity_and_cache():
+    async def run():
+        calls = []
+
+        async def fetch(ids):
+            calls.append(ids)
+            earth = {
+                "id": "Q84$earth",
+                "rank": "preferred",
+                "qualifiers": {"P580": []},
+                "mainsnak": {
+                    "snaktype": "value",
+                    "datavalue": {
+                        "type": "globecoordinate",
+                        "value": {
+                            "latitude": "51.5",
+                            "longitude": "-0.12",
+                            "precision": "0.01",
+                            "globe": "http://www.wikidata.org/entity/Q2",
+                        },
+                    },
+                },
+            }
+            moon = {
+                **earth,
+                "mainsnak": {
+                    "snaktype": "value",
+                    "datavalue": {
+                        "type": "globecoordinate",
+                        "value": {
+                            "latitude": 10,
+                            "longitude": 20,
+                            "globe": "http://www.wikidata.org/entity/Q405",
+                        },
+                    },
+                },
+            }
+            return json.dumps(
+                {
+                    "entities": {
+                        "Q84": {
+                            "id": "Q84",
+                            "lastrevid": 123,
+                            "claims": {"P625": [moon, {**earth, "rank": "deprecated"}, earth]},
+                        }
+                    }
+                }
+            )
+
+        resolver = PlaceContextResolver(fetch)
+        result = await resolver.locate("Q84")
+        assert result["revision"] == 123 and len(result["sourceSha256"]) == 64
+        assert result["positions"] == [
+            {
+                "latitude": 51.5,
+                "longitude": -0.12,
+                "precision": 0.01,
+                "rank": "preferred",
+                "statementId": "Q84$earth",
+                "qualifiers": {"P580": []},
+            }
+        ]
+        result["positions"].clear()
+        assert len((await resolver.locate("Q84"))["positions"]) == 1
+        assert calls == [["Q84"]]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("latitude", [True, "nan", "inf", 91, None, 10**400])
+def test_navigation_rejects_invalid_provider_coordinates(latitude):
+    async def run():
+        async def fetch(ids):
+            return json.dumps(
+                {
+                    "entities": {
+                        "Q84": {
+                            "id": "Q84",
+                            "claims": {
+                                "P625": [
+                                    {
+                                        "rank": "normal",
+                                        "mainsnak": {
+                                            "snaktype": "value",
+                                            "datavalue": {
+                                                "type": "globecoordinate",
+                                                "value": {
+                                                    "latitude": latitude,
+                                                    "longitude": 0,
+                                                    "globe": "http://www.wikidata.org/entity/Q2",
+                                                },
+                                            },
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    }
+                }
+            )
+
+        with pytest.raises(PlaceContextUnavailable):
+            await PlaceContextResolver(fetch).locate("Q84")
+
+    asyncio.run(run())
