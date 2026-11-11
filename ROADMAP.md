@@ -6,11 +6,24 @@ carry forward into the next report, notebook or website. Low idle infrastructure
 cost is a design goal; workload costs depend on storage, processing, traffic and
 deployment choices.
 
-## Development status — November 3, 2026
+## Development status — November 11, 2026
 
-Last recorded aggregate checkpoint: **28 pass / 21 partial / one conditional exclusion** across 50 families; this is not a product-completion percentage. GeoMoose print/responsive meets its original criteria in the declared desktop and 390px emulated-touch profile: reliable layout gestures, persistent conversion details, and source-pinned PDF/PNG with credits, scale and accessible HTML. Imported widthless titles/dates retain their text. Five pinned 3.15.2 layouts retain fourteen explicit element losses; full device coverage, WCAG certification and lossless native rendering are not claimed. See the [criterion report](parity/reports/geomoose-print-responsive.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/27) for exact acceptance and release identities.
+Last recorded aggregate checkpoint: **31 pass / 18 partial / one conditional exclusion** across 50 families; this is not a product-completion percentage. GeoMoose print/responsive meets its original criteria in the declared desktop and 390px emulated-touch profile: reliable layout gestures, persistent conversion details, and source-pinned PDF/PNG with credits, scale and accessible HTML. Imported widthless titles/dates retain their text. Five pinned 3.15.2 layouts retain fourteen explicit element losses; full device coverage, WCAG certification and lossless native rendering are not claimed. See the [criterion report](parity/reports/geomoose-print-responsive.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/27) for exact acceptance and release identities.
 
-GeoNode Catalog/discovery meets its original three criteria in the declared profiles: authorized filtered search with stable identities, public previews and metadata disclosures, and collision-safe migration. Actual published Studio acceptance uses two synthetic CC0 points and one existing public Artifact; local two-tenant, Map/document and pinned GeoNode 5.1 evidence are explicitly distinguished. The added production Map-bound Artifact and document-sample methods remain unperformed. See the [criterion report](parity/reports/geonode-catalog-discovery.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/2). The aggregate count remains at its last private checkpoint; the selected baseline update is queued for the next coordinated private release.
+GeoNode Catalog/discovery meets its original three criteria in the declared profiles: authorized filtered search with stable identities, public previews and metadata disclosures, and collision-safe migration. Actual published Studio acceptance uses two synthetic CC0 points and one existing public Artifact; local two-tenant, Map/document and pinned GeoNode 5.1 evidence are explicitly distinguished. The added production Map-bound Artifact and document-sample methods remain unperformed. See the [criterion report](parity/reports/geonode-catalog-discovery.json) and [delivery issue](https://github.com/categori-se/opengeo-community/issues/2). This acceptance is included in the aggregate checkpoint above.
+
+The [print family #14](https://github.com/categori-se/opengeo-community/issues/14)
+and [GeoLibre portable family #17](https://github.com/categori-se/opengeo-community/issues/17)
+meet their original C01–C03 criteria. Published Studio acceptance and exact native
+versions are recorded there. The [50-family matrix](docs/reference-applications.md#relative-parity-by-capability)
+reports Google Earth families separately and retains the optional GeoServer
+extension exclusion.
+
+Coordinate, name, address and Plus Code search, promotion to Places and named-view
+ordering have merged into both source editions; the coordinated private release
+is deployed. These increments contribute to [search/navigation #21](https://github.com/categori-se/opengeo-community/issues/21).
+The remaining hierarchy and input/accessibility criteria stay open. Independent-account
+installation and native publishing remain separate unfinished outcomes.
 
 The shared [Baseline tools](docs/community-baseline.md) now include source
 suitability, categorical inventory/comparison/patches, stratified reference review
@@ -120,7 +133,7 @@ actual execution and identity/HTTPS/CDN acceptance remain open.
 | Workflow | Completed work | Remaining work |
 | --- | --- | --- |
 | Catalog and Project composition | Persistent Layer identities, Catalog inspection, map composition, reusable versioned Styles and save/reopen are implemented. The built Studio check verifies upload, color/opacity changes, UI Save and exact reopening after restarting the same database. The current compiled local journey also accepts editor invitation/editing, separate owner publication, exact anonymous PNG/ZIP delivery and source/access withdrawal. | Broader portable round trips, independent two-person/full-pilot acceptance and configured production delivery. |
-| Local authoring and print | Personal device saves, editable Project exports, a dedicated Print Studio, figure/print packs and interactive HTML are delivered on configured Studio/Demo. Print opens directly from a map without requiring a Publication. | Additional cartographic layout tools and higher-fidelity vector/georeferenced output. |
+| Local authoring and print | Personal device saves, editable Project exports, a dedicated Print Studio, figure/print packs and interactive HTML are delivered on configured Studio/Demo. Print opens directly from a map without requiring a Publication. | Optional enhancements beyond the accepted C01–C03 print-family criteria. |
 | Reuse on other websites | Native JavaScript delivery, developer bundles and an Observable Framework example are implemented. Local checks cover a separate origin, map events, filtering, selection, inherited styling and cleanup. | Independent installation acceptance and expanded content compatibility. Existing native delivery is not limited to the iframe helper. |
 | Point symbology | Layer/category symbols, deliberate batch styling, versioned Point Styles and Styles navigation are delivered. Studio now delivers the 1,289-entry gallery, complete pinned Maki/OSM artwork, collection shortcuts and USGS/OSM guides. Local checks cover navigation, rendering and memory save/reopen. | Hosted account save/reopen, individual-feature overrides and separate icon/label controls. |
 | Identify and Point clustering | Studio delivers the hidden-popup correction and per-Layer/batch clustering. Counts, filtering, save/reopen and Print-frame preferences pass compiled local checks. Studio and Demo deliver immediate Identify-panel opening, local feature attributes and Hide/Escape/reopening, verified on compiled artifacts and served files. Studio also preserves Results focus after native popups and governed-query completion. | Hosted persistence and visual paper-layout acceptance. |
@@ -229,7 +242,7 @@ status reports.
 
 | Priority | Next useful outcome |
 | --- | --- |
-| 1. Finish selected delivery | Nepal's layer ordering, clustering and colors are saved and read back; the Berkshires update remains blocked by the current account's access. Complete hosted Style/Print acceptance and the outstanding PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
+| 1. Finish selected delivery | Nepal's layer ordering, clustering and colors are saved and read back; the Berkshires update remains blocked by the current account's access. Print-family acceptance is complete. Finish the remaining hosted Style acceptance and PMTiles security, native-runtime and hosted-data checks before enabling the new worker lane. |
 | 2. Finish the shared-data journey | Reuse accepted local editorial publishing and connected PostGIS registration/preview. Complete independent contributor/reviewer acceptance and configured-provider checks, preserving identity, permissions and history when replacing data. |
 | 3. Accept managed analytical sessions | Preserve the accepted browser/local console and finish connected managed-runner acceptance and delivery. Opening the console must not allocate managed compute. |
 | 4. Verify installation and reuse | Reproduce the small reference workspace and the accepted two-revision Framework publication journey on an independent installation, then verify delivery to another website. |
