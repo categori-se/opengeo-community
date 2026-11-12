@@ -6,7 +6,7 @@ export const DEFAULT_PUBLICATION_PREVIEW_ORIGINS = Object.freeze({
 
 export function resolvePublicationPreviewOrigins(configured, studioOrigin = globalThis.location?.origin) {
   if (configured !== undefined && (!configured || typeof configured !== "object" || Array.isArray(configured)
-    || Object.keys(configured).some(key => !Object.hasOwn(DEFAULT_PUBLICATION_PREVIEW_ORIGINS, key)))) {
+    || Object.keys(configured).some(key => key !== "public_birds_v1" && !Object.hasOwn(DEFAULT_PUBLICATION_PREVIEW_ORIGINS, key)))) {
     throw new TypeError("Publication preview origins are invalid");
   }
   let studio;
@@ -28,7 +28,7 @@ export function resolvePublicationPreviewOrigins(configured, studioOrigin = glob
       throw new TypeError("Publication preview origin must be a separate canonical HTTPS origin or explicit local loopback port");
     }
   }
-  if (result.local_only === result.public_maps_v1) {
+  if (new Set(Object.values(result)).size !== Object.keys(result).length) {
     throw new TypeError("Publication preview profiles require distinct origins");
   }
   return Object.freeze(result);

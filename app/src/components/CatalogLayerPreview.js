@@ -1,7 +1,9 @@
+import {LayerArchiveControl} from "./LayerArchiveControl.js";
 import {CatalogProjectSave} from "./CatalogProjectSave.js";
 import {sourceLinks} from "./SourceDetails.js";
 import {LayerStylePicker} from "./LayerStylePicker.js";
 import {resolveLayerStyle} from "../lib/layerStyleReference.js";
+import {canPreviewCatalogManagedVector} from "../lib/catalogLayerPreview.js";
 export async function CatalogLayerPreview({record, load, adapter = null, interactive = false, signal, renderMap = async options => {
   const {MapView} = await import("./MapView.js"); return MapView(options);
 }}) {
@@ -14,7 +16,7 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
   signal?.throwIfAborted();
   const panel = node("section", "", "catalog-layer-preview");
   const layer = result.layer ? structuredClone(result.layer) : null;
-  let renderedMap = null, disposed = false, initialStyleTimer = null, stylePicker = null;
+  let renderedMap = null, disposed = false, initialStyleTimer = null, stylePicker = null, archiveControl = null;
   const current = () => !disposed && !signal?.aborted && panel.isConnected && styleContextCurrent(adapter, context);
   const guardNow = () => {if (!current()) throw new DOMException("Catalog account or Layer changed", "AbortError");};
   const guard = async () => {
@@ -33,7 +35,7 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
         beforeDispatchNow: () => {guardNow(); options.beforeDispatchNow?.(); guardNow();}});
       await guard(); return response;
     };
-    for (const method of [...styleMethods, "listCompositions", "listProjects", "getComposition", "attachDataset", "createMap", "updateMap"]) {
+    for (const method of [...styleMethods, "listCompositions", "listProjects", "getComposition", "attachDataset", "createMap", "updateMap", "getDataset", "listManagedDisplays", "readManagedDisplay"]) {
       if (typeof adapter[method] === "function") scopedAdapter[method] = async (...args) => {
         await guard(); const value = await adapter[method].apply(scopedAdapter, args); await guard(); return value;
       };
@@ -42,7 +44,7 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
   panel.dispose = () => {
     if (disposed) return;
     disposed = true; clearTimeout(initialStyleTimer); signal?.removeEventListener("abort", panel.dispose);
-    stylePicker?.dispose?.();
+    stylePicker?.dispose?.(); archiveControl?.dispose?.();
     renderedMap?.dispose?.(); renderedMap = null;
   };
   signal?.addEventListener("abort", panel.dispose, {once: true});
@@ -55,7 +57,42 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
   };
   panel.append(node("h4", `${record.title} · ${result.managedArchive ? "archived data preview" : result.referencedArchive ? "referenced archive preview" : "live source preview"}`));
   if (interactive) panel.append(node("p", "Temporary Layer view. Exploring this map does not change a saved Project."));
-  if (result.kind === "wms") {
+  if (result.kind === "managed-tiles") {
+    const output = node("div", "", "catalog-reviewed-tile-map");
+    const notice = message => {output.replaceChildren(node("p", message, "map-preview-status"));};
+    let selection = 0;
+    const clear = message => {selection++; renderedMap?.dispose?.(); renderedMap = null; notice(message);};
+    const authorize = async () => {
+      await guard();
+      const latest = await scopedAdapter.getDataset(record.projectId, record.datasetId);
+      await guard();
+      if (latest.id !== record.datasetId || latest.currentVersionId !== result.datasetVersionId
+        || !canPreviewCatalogManagedVector(latest, scopedAdapter)) {
+        throw Error("The current Catalog Layer version or access changed. Reopen its map.");
+      }
+    };
+    archiveControl = LayerArchiveControl({layer, temporary: true, returnLabel: "Close tiled display",
+      access: {assertScope: guard, authorize,
+        list: async (_, readSignal) => {await authorize(); return scopedAdapter.listManagedDisplays(
+          record.projectId, record.datasetId, result.datasetVersionId, {signal: readSignal});},
+        read: async (_, id, readSignal) => {await authorize(); return scopedAdapter.readManagedDisplay(
+          record.projectId, record.datasetId, result.datasetVersionId, id, {signal: readSignal});}},
+      onStart: () => clear("Loading the selected reviewed tiled display…"),
+      onLoaded: (session, display) => {
+        const currentSelection = selection;
+        layer.managedDisplayId = display.id;
+        void (async () => {
+          await guard();
+          const map = await render({reviewedTiles: session, height: interactive ? "60vh" : "20rem"});
+          if (disposed || currentSelection !== selection) {map.dispose?.(); return;}
+          await guard(); output.replaceChildren(map);
+        })().catch(() => {session.dispose(); if (!disposed) clear("The reviewed tiled display could not load. No original-data fallback was used.");});
+      },
+      onReturn: () => {clear("Choose a reviewed display to load this temporary map."); return {message: "Tiled display closed. Original data and saved Projects are unchanged."};},
+      onError: () => clear("The reviewed tiled display is unavailable or its session ended. No original-data fallback was used.")});
+    notice("Open Map display to select a reviewed copy and acknowledge its storage download cost.");
+    panel.append(archiveControl, output);
+  } else if (result.kind === "wms") {
     panel.append(await render({wms: {endpoint: result.endpoint, configuration: result.layer.sourceConfiguration}, height: interactive ? "60vh" : "20rem"}));
     panel.append(node("p", "Live WMS map images for the selected layers and current area. No archived images are requested. This display does not provide source features or establish reuse rights."));
   } else if (result.kind === "xyz") {
@@ -137,7 +174,7 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
       }, 0);
     }
   }
-  if (interactive && typeof adapter?.createMap === "function" && layer) {
+  if (interactive && typeof adapter?.createMap === "function" && layer && result.originalReadable !== false) {
     saveControls = node("fieldset", "", "catalog-project-save-controls");
     Object.assign(saveControls.style, {border: "0", padding: "0", margin: "0"});
     saveControls.append(CatalogProjectSave({adapter: scopedAdapter, record, layer, getView: () => renderedMap?.__view?.()}));
@@ -150,7 +187,7 @@ export async function CatalogLayerPreview({record, load, adapter = null, interac
   const access = node("section", "", "catalog-layer-access");
   if (result.managedArchive) {
     access.append(node("h4", "Archived source"),
-      node("p", `Dataset version ${result.managedArchive.datasetVersionId}. This temporary view reads the authorized original without changing a saved Project.`));
+      node("p", `Dataset version ${result.managedArchive.datasetVersionId}. ${result.kind === "managed-tiles" ? "This temporary map uses an explicitly selected reviewed tiled display; original records remain preserved." : "This temporary view reads the authorized original without changing a saved Project."}`));
     panel.append(access);
     return panel;
   }

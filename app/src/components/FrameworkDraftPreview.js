@@ -57,7 +57,7 @@ export function createFrameworkDraftPreview(frame) {
         else if (data?.kind === 'error') session.finish(Error('Draft preview was rejected. Use Saved build.'));
       };
       frame.removeAttribute('srcdoc');
-      frame.setAttribute('sandbox', 'allow-scripts');
+      frame.setAttribute('sandbox', 'allow-scripts allow-downloads');
       frame.referrerPolicy = 'no-referrer';
       frame.addEventListener('load', onLoad, {once: true});
       frame.src = FRAMEWORK_DRAFT_URL;
