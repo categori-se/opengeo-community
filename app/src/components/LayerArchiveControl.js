@@ -2,7 +2,7 @@ import {loadLayerArchive} from "../lib/layerArchiveRead.js";
 import {loadReviewedArchiveTiles} from "../lib/reviewedArchiveTiles.js";
 import {matchesReviewedDisplay} from "../lib/reviewedDisplayIdentity.js";
 
-export function LayerArchiveControl({layer, access, onStart, onLoaded, onReturn, onError, returnLabel = null}) {
+export function LayerArchiveControl({layer, access, onStart, onLoaded, onReturn, onError, returnLabel = null, temporary = false}) {
   const managed = layer.sourceType === "governed-dataset";
   const root = document.createElement("div"); root.className = "gis-layer-archive-control";
   const dialog = document.createElement("dialog"); dialog.className = "gis-layer-archive-dialog";
@@ -11,7 +11,9 @@ export function LayerArchiveControl({layer, access, onStart, onLoaded, onReturn,
   const summary = document.createElement("button"); summary.type = "button"; summary.textContent = managed ? "Map display" : "Live / archived copy";
   summary.addEventListener("click", () => dialog.showModal());
   const status = document.createElement("p"); status.setAttribute("role", "status");
-  status.textContent = managed ? "Choose a reviewed tiled display of this saved dataset version. Save the Project to retain the selection; reopening always requires fresh download consent. Original records stay preserved."
+  status.textContent = managed ? (temporary
+    ? "Choose a reviewed tiled display of this saved dataset version. This temporary map does not create or change a Project. Reopening requires fresh download consent; original records stay preserved."
+    : "Choose a reviewed tiled display of this saved dataset version. Save the Project to retain the selection; reopening always requires fresh download consent. Original records stay preserved.")
     : "Live connection is the default. Archive use applies only to this open map.";
   const choice = document.createElement("select"); choice.setAttribute("aria-label", `Archived copy for ${layer.title}`);
   const facts = document.createElement("p");

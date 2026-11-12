@@ -35,8 +35,27 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
   publicSourcesLabel.append(publicSourcesInput, ' Use public map sources');
   publicSources.append(publicSourcesLabel, element('p',
     'Allow supported public libraries and map tile requests for this saved preview. The draft stays private; nothing is published.'));
+  // A bird profile is offered only when its separate delivery origin has been
+  // configured by the operator. No hosted fallback borrows the map profile.
+  const birdSources = previewOrigins.public_birds_v1
+    ? element('div', '', 'framework-preview-bird-sources') : null;
+  const birdSourcesInput = birdSources ? document.createElement('input') : null;
+  if (birdSourcesInput) {
+    birdSourcesInput.type = 'checkbox';
+    const label = element('label', '');
+    label.append(birdSourcesInput, ' Use public bird observations and media');
+    birdSources.append(label, element('p',
+      'Allow supported bird observation maps, photographs and user-initiated recordings for this saved preview. Bird previews open in a separate tab for their private session. The draft stays private; nothing is published.'));
+    birdSourcesInput.addEventListener('change', () => {
+      if (!canManage || sourceProject.rightsStatus !== 'approved') birdSourcesInput.checked = false;
+      if (birdSourcesInput.checked) publicSourcesInput.checked = false;
+      clearPreview(); reflect();
+      status.textContent = 'Preview sources changed. Open the saved preview when ready. Nothing is published.';
+    });
+  }
   publicSourcesInput.addEventListener('change', () => {
     if (!canManage || sourceProject.rightsStatus !== 'approved') publicSourcesInput.checked = false;
+    if (publicSourcesInput.checked && birdSourcesInput) birdSourcesInput.checked = false;
     clearPreview();
     reflect();
     status.textContent = 'Preview sources changed. Open the saved preview when ready. Nothing is published.';
@@ -112,7 +131,12 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
       job = validateJob(created); uncertain = false; reflect();
     } catch (error) {uncertain = true; throw error;}
   }));
-  const show = button('Show preview', () => perform(async () => {
+  const fallback = element('a', 'Open private bird preview in a new tab', 'platform-button secondary');
+  fallback.hidden = true; fallback.target = '_blank'; fallback.rel = 'noopener noreferrer';
+  fallback.referrerPolicy = 'no-referrer';
+  const show = button('Show preview', () => {
+    if (runtimeProfile() === 'public_birds_v1') {openSeparatePreview(); return;}
+    void perform(async () => {
     if (job?.state !== 'succeeded') return;
     const profile = runtimeProfile(), selection = previewSelection;
     const capability = await adapter.createObservablePreviewCapability(projectId, job.id, {runtimeProfile:profile});
@@ -120,35 +144,51 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
     const url = selectedCapabilityUrl(capability, profile, selection);
     frame.hidden = false; frame.src = url;
     status.textContent = `Opening saved revision ${job.sourceRevisionNumber} in the preview pane…`;
-  }));
-  const separate = button('Open in new window', () => {
+    });
+  });
+  function openSeparatePreview() {
     if (busy || job?.state !== 'succeeded') return;
+    const profile = runtimeProfile(), selection = previewSelection;
+    fallback.hidden = true; fallback.removeAttribute('href');
     // Open synchronously within the user gesture, then sever the opener before
     // obtaining authorization. Preview code cannot navigate the editor window.
     const popup = globalThis.open('about:blank', '_blank');
-    if (!popup) {status.textContent = 'Allow a new window for the private preview, then try again.'; return;}
-    popup.opener = null;
+    if (!popup && profile !== 'public_birds_v1') {status.textContent = 'Allow a new window for the private preview, then try again.'; return;}
+    try {if (popup) popup.opener = null;}
+    catch {popup.close(); status.textContent = 'The private preview window could not be isolated. Try opening it again.'; return;}
     void perform(async () => {
       try {
-        const profile = runtimeProfile(), selection = previewSelection;
         const capability = await adapter.createObservablePreviewCapability(projectId, job.id, {runtimeProfile:profile});
-        if (disposed) {popup.close(); return;}
-        popup.location.replace(selectedCapabilityUrl(capability, profile, selection));
-        status.textContent = 'Saved preview opened. Your editor remains here.';
-      } catch (error) {popup.close(); throw error;}
+        if (disposed) {popup?.close(); return;}
+        const url = selectedCapabilityUrl(capability, profile, selection);
+        if (popup) {
+          if (popup.closed) throw Error('The private preview window was closed');
+          popup.location.replace(url);
+          status.textContent = 'Saved preview opened. Your editor remains here.';
+        } else {
+          fallback.href = url; fallback.hidden = false;
+          status.textContent = 'Open the private bird preview with the link below. Your editor remains here.';
+        }
+      } catch (error) {popup?.close(); throw error;}
     });
-  });
-  controls.append(outputFormatLabel, outputFormatNote, prepare, refresh, older, build, show, separate); root.append(note, publicSources, inputDistribution, selectionNote, controls, status, frame);
+  }
+  const separate = button('Open in new window', openSeparatePreview);
+  controls.append(outputFormatLabel, outputFormatNote, prepare, refresh, older, build, show, separate); root.append(note, publicSources);
+  if (birdSources) root.append(birdSources);
+  root.append(inputDistribution, selectionNote, controls, status, fallback, frame);
   let job = null, terminalJob = null, busy = false, uncertain = false, everMounted = false, disposed = false;
   let requestKey = globalThis.crypto.randomUUID(), historyKnown = false, historyOffset = 0, hasOlder = false;
   let operationRevision = null;
   let previewSelection = 0;
   function runtimeProfile() {
-    return canManage && sourceProject.rightsStatus === 'approved' && publicSourcesInput.checked ? 'public_maps_v1' : 'local_only';
+    if (!canManage || sourceProject.rightsStatus !== 'approved') return 'local_only';
+    if (birdSourcesInput?.checked) return 'public_birds_v1';
+    return publicSourcesInput.checked ? 'public_maps_v1' : 'local_only';
   }
   function clearPreview() {
     previewSelection++;
     frame.hidden = true; frame.removeAttribute('src');
+    fallback.hidden = true; fallback.removeAttribute('href');
   }
   // A consumed authorization URL must not be reopened after changing modes.
   // The next deliberate Show preview action requests a fresh capability.
@@ -175,7 +215,9 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
     job = terminalJob = artifactInputs = null;
     selectionKnown = historyKnown = uncertain = hasOlder = false;
     historyOffset = 0; requestKey = globalThis.crypto.randomUUID();
-    publicSourcesInput.checked = false; clearPreview(); selectionNote.textContent = '';
+    publicSourcesInput.checked = false;
+    if (birdSourcesInput) birdSourcesInput.checked = false;
+    clearPreview(); selectionNote.textContent = '';
     selectedOutputProfile = 'default-32m'; pendingBuildOptions = null;
     selectedOutputRepresentation = currentEntryPath = null; entryMetadataRead = hasArtifactReferences = false;
     selectedCompilerDigest = sourceProject.buildPolicy?.compilerImageDigest ?? null;
@@ -207,6 +249,10 @@ export function FrameworkProjectPreview({adapter, projectId, sourceProject, canM
         : 'Choose the format for the next saved build.';
     publicSources.hidden = !canManage || sourceProject.rightsStatus !== 'approved';
     publicSourcesInput.disabled = busy || !ready || publicSources.hidden;
+    if (birdSources) {
+      birdSources.hidden = !canManage || sourceProject.rightsStatus !== 'approved';
+      birdSourcesInput.disabled = busy || !ready || birdSources.hidden;
+    }
     prepare.hidden = !supportsArtifacts || !canManage;
     prepare.disabled = busy || uncertain || !sourceProject.currentRevisionId || !!job && ['pending','running'].includes(job.state);
     refresh.disabled = busy || !ready;

@@ -7,6 +7,65 @@ import {initializeIntegratedStudioSession} from "./integrated-studio-built-shell
 const extension = "opengeoPrintLayouts";
 const digest = bytes => createHash("sha256").update(bytes).digest("hex");
 
+// Continue from retained successful compiled pixels; never launch a browser or
+// repeat capture merely because a later harness assertion failed.
+export async function composeRetainedMixedPrint(work) {
+  const {resolve} = await import("node:path"), {spawnSync} = await import("node:child_process");
+  const {JSDOM} = await import("jsdom");
+  const archive=resolve(work),proofPath=join(archive,"mixed-offline.json"),outputPath=join(archive,"mixed-page.svg");
+  assert.equal(existsSync(proofPath),false);assert.equal(existsSync(outputPath),false);
+  const scene=JSON.parse(readFileSync(join(archive,"mixed-scene.json"))),capture=JSON.parse(readFileSync(join(archive,"mixed-capture.json")));
+  const png=readFileSync(join(archive,"mixed-capture.png"));assert.equal(digest(png),capture.imageSha256);
+  const sourcePaths=["app/scripts/integrated-studio-print.mjs","app/src/components/ProjectPrintEditor.js","app/src/lib/printLayouts.js","app/src/lib/printRasterLegend.js"];
+  const sourcePins=sourcePaths.map(path=>({path,sha256:digest(readFileSync(path))}));
+  const started=performance.now();let proof={status:"running",sourcePins,compiledCapture:"mixed-capture.json",newBrowserRuns:0,newCaptures:0};
+  const previous=globalThis.document,dom=new JSDOM("<!doctype html><body></body>");globalThis.document=dom.window.document;
+  try {
+    const {printPageSvg}=await import("../src/components/ProjectPrintEditor.js");
+    assert.deepEqual(scene.order.map(pass=>pass.type),["fill","line","raster"]);
+    assert.deepEqual(capture.presentation.map(layer=>layer.layerId),["scalar","local-vector"]);
+    assert.deepEqual(capture.view,scene.view);assert.deepEqual([capture.width,capture.height,capture.cssWidth,capture.cssHeight],[813,496,720,440]);
+    const pixelScript="import json,sys;from PIL import Image;i=Image.open(sys.argv[1]);s=json.loads(sys.argv[2]);r=[]\nfor c in s['coordinates']:\n x=round(c['x']*i.width/s['canvas'][0]);y=round(c['y']*i.height/s['canvas'][1]);r.append({'coordinate':c['coordinate'],'pixel':[x,y],'rgba':list(i.getpixel((x,y)))})\nprint(json.dumps(r))";
+    const decoded=spawnSync("python3",["-c",pixelScript,join(archive,"mixed-capture.png"),JSON.stringify(scene)],{encoding:"utf8",timeout:5000,maxBuffer:16_384});
+    assert.equal(decoded.status,0,decoded.stderr);const pixels=JSON.parse(decoded.stdout);
+    assert.deepEqual(pixels.map(pixel=>pixel.rgba),[[104,107,110,255],[107,113,122,255],[6,21,38,255]]);
+    const vectorOpacity=scene.order[0].paint["fill-opacity"];assert.equal(vectorOpacity,0.65*0.45);
+    const expectedOverlap=[59,130,246].map((value,index)=>Math.round(128*0.8+(value*vectorOpacity+pixels[2].rgba[index]*(1-vectorOpacity))*0.2));
+    assert.ok(pixels[1].rgba.slice(0,3).every((value,index)=>Math.abs(value-expectedOverlap[index])<=2));
+    capture.dataUrl=`data:image/png;base64,${png.toString("base64")}`;
+    const page=printPageSvg(scene.layout,new Map([[`${scene.layout.id}:main`,capture]]),scene.layout.id);
+    assert.equal(page.getAttribute("width"),"297mm");assert.equal(page.getAttribute("height"),"210mm");
+    assert.equal(page.getAttribute("viewBox"),"0 0 297 210");assert.equal(scene.layout.dpi,96);
+    const image=page.querySelector("g[clip-path] > image"),frame=scene.layout.frames[0];assert.ok(image);
+    assert.equal(page.querySelectorAll("image").length,1);assert.equal(image.getAttribute("href"),capture.dataUrl);
+    const [x,y,w,h]=["x","y","width","height"].map(name=>Number(image.getAttribute(name)));
+    assert.ok(x>=frame.xMm-1e-7&&y>=frame.yMm-1e-7&&x+w<=frame.xMm+frame.widthMm+1e-7&&y+h<=frame.yMm+frame.heightMm+1e-7);
+    const clipId=image.parentElement.getAttribute("clip-path").slice(5,-1),clip=page.querySelector(`[id="${clipId}"] rect`);
+    assert.deepEqual(["x","y","width","height"].map(name=>Number(clip.getAttribute(name))),[x,y,w,h]);
+    const text=[...page.querySelectorAll("text")].map(node=>node.textContent).join(" ").replace(/\s+/g," ");
+    for(const value of ["Scientific raster","Local vector polygons","CC0-1.0","Synthetic local scientific raster","Synthetic local vector capture fixture"])
+      assert.ok(text.includes(value),value);
+    assert.ok(text.indexOf("Scientific raster")<text.indexOf("Local vector polygons"));
+    assert.equal(page.querySelectorAll('[data-raster-color-bar="scalar"]').length,1);
+    const metadata=JSON.parse(page.querySelector("metadata").textContent);assert.deepEqual(metadata.layout.frames[0].presentation,capture.presentation);
+    const svg=new dom.window.XMLSerializer().serializeToString(page);writeFileSync(outputPath,svg);
+    proof={...proof,status:"passed",representation:"Paper SVG with retained rasterized mixed map and vector furniture",output:{path:outputPath,bytes:Buffer.byteLength(svg),sha256:digest(svg)},
+      page:{widthMm:297,heightMm:210,dpi:96,widthPixels:1123,heightPixels:794},installedOrder:scene.order,pixels,expectedOverlap,
+      clipping:[x,y,w,h],legendOrder:["Scientific raster","Local vector polygons"],sourceMetadata:capture.sourceMetadata,
+      inlineStylePins:capture.presentation.map(layer=>({layerId:layer.layerId,sha256:digest(JSON.stringify(layer.style))})),
+      missingSourceAcceptance:"Owning source-level capture refusal test; no compiled missing-source UI claim.",
+      persistence:"Read-only mixed fixture; prior actual API/SQL Print proof remains separate.",
+      delivery:"Current source compositor output from retained compiled capture; no new compiled download acceptance claimed.",seconds:(performance.now()-started)/1000};
+  } catch(error) {proof={...proof,status:"failed-stop",error:error.stack,seconds:(performance.now()-started)/1000};process.exitCode=1;}
+  finally {globalThis.document=previous;dom.window.close();writeFileSync(proofPath,JSON.stringify(proof,null,2)+"\n");}
+  return {status:proof.status,proofPath,output:proof.output,seconds:proof.seconds,error:proof.error};
+}
+
+if (process.argv[1]?.endsWith("/integrated-studio-print.mjs") && process.argv[2] === "--retained-mixed-raster-vector") {
+  assert.equal(process.argv.length,4,"Retained mixed Print needs its exact capture directory");
+  console.log(JSON.stringify(await composeRetainedMixedPrint(process.argv[3])));
+}
+
 // The existing development profile owns the real local API, retained SQL rows,
 // browser, request/time ceilings and single permitted UI PATCH. No fixture adapter
 // or transport substitution is installed here.
@@ -85,7 +144,7 @@ export async function exerciseDevelopmentPrint({page, context, origin, work, org
       await renderedFrame(page, layer, names, false);
       const workbench = page.locator(".opengeo-workbench");
       await workbench.locator('.gis-menubar [data-menu="project"] > button').click();
-      await workbench.getByRole("menuitem", {name: "Open Print Studio", exact: true}).click();
+      await workbench.locator(".gis-menu-section").getByRole("button", {name: "Open Print Studio", exact: true}).click();
       await page.locator(".project-print-editor").waitFor();
       const selectedRoute = new URL(page.url());
       assert.equal(selectedRoute.searchParams.get("composition"), mapId);

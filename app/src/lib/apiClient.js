@@ -4403,12 +4403,15 @@ export class OpenGeoApiClient {
 
   /** @returns {Promise<ObservablePreviewCapability>} */
   async createObservablePreviewCapability(projectId, buildJobId, {runtimeProfile = "local_only"} = {}) {
-    if (!["local_only", "public_maps_v1"].includes(runtimeProfile)) {
+    if (!["local_only", "public_maps_v1", "public_birds_v1"].includes(runtimeProfile)) {
       contract("Observable preview runtime profile is invalid");
+    }
+    if (runtimeProfile === "public_birds_v1" && !this.previewOrigins?.public_birds_v1) {
+      contract("Observable public bird preview origin is not configured");
     }
     return parseObservablePreviewCapability(await this.request(
       `/projects/${pathUuid(projectId, "project id")}/observable-build-jobs/${pathUuid(buildJobId, "Observable build job id")}/preview-capabilities`,
-      {method: "POST", ...(runtimeProfile === "public_maps_v1" ? {body: {runtime_profile: runtimeProfile}} : {})}
+      {method: "POST", ...(runtimeProfile !== "local_only" ? {body: {runtime_profile: runtimeProfile}} : {})}
     ), {previewOrigins: this.studioOrigin === undefined ? undefined : this.previewOrigins,
       studioOrigin: this.studioOrigin, runtimeProfile});
   }

@@ -3,6 +3,38 @@ import {NotebookCellEditor} from './NotebookCellEditor.js';
 import {createFrameworkDraftPreview} from './FrameworkDraftPreview.js';
 import {frameworkDraftPreviewEnabled} from '../lib/publicationDrafts.js';
 
+
+/** Host-owned links from already-open Markdown only; no fetch or preview bridge. */
+export function publicationReferenceLinks(sources) {
+  const links = [], seen = new Set();
+  let remaining = 64 * 1024;
+  for (const value of sources) {
+    if (!remaining || links.length === 8) break;
+    const bytes = new TextEncoder().encode(String(value).slice(0, remaining)).slice(0, remaining);
+    remaining -= bytes.byteLength;
+    const prefix = new TextDecoder().decode(bytes), prose = [];
+    let fence = null;
+    for (const line of prefix.split(/\r?\n/)) {
+      const marker = line.match(/^ {0,3}(`{3,}|~{3,})/);
+      if (marker && (!fence || marker[1][0] === fence[0] && marker[1].length >= fence.length)) {
+        fence = fence ? null : marker[1]; continue;
+      }
+      if (!fence) prose.push(line);
+    }
+    const text = prose.join('\n').replace(/`+[^`]*`+/g, '');
+    for (const match of text.matchAll(/\[([^\]\r\n]{1,200})\]\(([^)\s]+)\)/g)) {
+      if (text[match.index - 1] === '!') continue;
+      const target = match[2].match(/^https:\/\/studio\.opengeo\.tools\/workspaces\?publication=([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/);
+      if (!target || seen.has(target[1].toLowerCase())) continue;
+      seen.add(target[1].toLowerCase());
+      links.push({label: match[1].replace(/\\([\[\]()])/g, '$1').trim() || 'Open publication', href: match[2]});
+      if (links.length === 8) break;
+    }
+    if (!remaining || links.length === 8) break;
+  }
+  return links;
+}
+
 let runtime;
 let frameworkCompiler;
 async function loadFrameworkCompiler() {
@@ -45,13 +77,15 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
   const status = document.createElement('div'); status.className = 'publication-editor-status'; status.setAttribute('role', 'status');
   const tabs = document.createElement('div'); tabs.className = 'publication-file-tabs'; tabs.setAttribute('aria-label', 'Open files');
   const preview = document.createElement('section');
+  const previewToolbar = document.createElement('header'); previewToolbar.className = 'publication-preview-toolbar';
+  preview.append(previewToolbar);
   const modeLabel = document.createElement('label'); modeLabel.className = 'publication-preview-mode'; modeLabel.textContent = 'Preview '; modeLabel.hidden = true;
   const mode = document.createElement('select'); mode.ariaLabel = 'Preview mode';
   for (const [value, label] of [['draft','Live draft'],['saved','Saved build']]) {
     const option = document.createElement('option'); option.value = value; option.textContent = label; mode.append(option);
   }
   mode.value = 'draft';
-  modeLabel.append(mode); preview.append(modeLabel);
+  modeLabel.append(mode);
   mode.addEventListener('change', () => {void renderPreview();});
   const localPreview = document.createElement('section'); localPreview.className = 'publication-document-preview';
   // Construct saved-build controls only when deliberately selected. Opening a
@@ -60,17 +94,29 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
   if (savedPreview) {preview.append(savedPreview); savedPreview.hidden = true;}
   preview.append(localPreview);
   const previewPath = document.createElement('p'); previewPath.className = 'source-editor-path';
-  preview.prepend(previewPath);
-  const heading = document.createElement('h4'); heading.textContent = 'Document preview';
+  const referenceLinks = document.createElement('nav'); referenceLinks.className = 'publication-reference-links';
+  referenceLinks.setAttribute('aria-label', 'Reference publications'); referenceLinks.hidden = true;
+  previewToolbar.append(previewPath, modeLabel);
+  preview.insertBefore(referenceLinks, localPreview);
+  const heading = document.createElement('h4'); heading.className = 'publication-preview-heading'; heading.textContent = 'Document preview';
   const note = document.createElement('p'); note.textContent = 'Open a page to preview its current draft.';
   note.setAttribute('role', 'status');
   const download = document.createElement('button'); download.type = 'button'; download.textContent = 'Download HTML'; download.hidden = true;
-  const downloadOptions = document.createElement('label'); downloadOptions.className = 'publication-preview-mode'; downloadOptions.hidden = true;
+  const previewActions = document.createElement('div'); previewActions.className = 'publication-preview-actions';
+  const downloadOptions = document.createElement('details'); downloadOptions.className = 'publication-preview-options'; downloadOptions.hidden = true;
+  const optionsSummary = document.createElement('summary'); optionsSummary.textContent = 'Options';
+  optionsSummary.ariaLabel = 'HTML download options';
+  const largeHtmlLabel = document.createElement('label');
+  downloadOptions.append(optionsSummary, largeHtmlLabel);
+  downloadOptions.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && downloadOptions.open) {event.preventDefault(); downloadOptions.open = false; optionsSummary.focus();}
+  });
   const allowLargeHtml = document.createElement('input'); allowLargeHtml.type = 'checkbox'; allowLargeHtml.name = 'allow-up-to-96-mib-standalone-html';
-  downloadOptions.append(allowLargeHtml, document.createTextNode('Allow HTML up to 96 MiB'));
+  largeHtmlLabel.append(allowLargeHtml, document.createTextNode('Allow HTML up to 96 MiB'));
   downloadOptions.title = 'Includes selected file bytes. Larger exports use more browser memory and download/storage space.';
   const frame = document.createElement('iframe'); frame.title = 'Local document preview'; frame.setAttribute('sandbox', ''); frame.referrerPolicy = 'no-referrer';
-  localPreview.append(heading, download, downloadOptions, note, frame);
+  previewActions.append(download, downloadOptions); previewToolbar.append(previewActions);
+  localPreview.append(heading, note, frame);
   const notebookPreview = createObservableNotebookPreview(frame);
   const draftPreview = createFrameworkDraftPreview(frame);
   const notebookPaths = new Set();
@@ -115,6 +161,21 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
       if (isCurrent()) note.textContent = `Download unavailable: ${error.message}`;
     } finally {downloading = false; download.disabled = false; allowLargeHtml.disabled = false;}
   };
+  function updateReferences() {
+    if (disposed) {referenceLinks.replaceChildren(); referenceLinks.hidden = true; return;}
+    function* openMarkdown() {
+      for (const [path, record] of models) if (/\.md$/i.test(path)) yield path === currentPath ? textarea.value : record.model.getValue();
+      if (/\.md$/i.test(currentPath ?? '') && !models.has(currentPath)) yield textarea.value;
+    }
+    const links = publicationReferenceLinks(openMarkdown());
+    referenceLinks.replaceChildren(); referenceLinks.hidden = !links.length;
+    if (!links.length) return;
+    const label = document.createElement('span'); label.textContent = 'Reference publications'; referenceLinks.append(label);
+    for (const link of links) {
+      const anchor = document.createElement('a'); anchor.textContent = link.label; anchor.href = link.href;
+      anchor.target = '_blank'; anchor.rel = 'noopener noreferrer'; referenceLinks.append(anchor);
+    }
+  }
   const emit = () => {textarea.dispatchEvent(new textarea.ownerDocument.defaultView.Event('input', {bubbles: true}));};
   function renderTabs() {
     tabs.replaceChildren();
@@ -134,6 +195,7 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
     const context = language === 'markdown' ? (getSourceContext ?? getFrameworkContext)?.() : null;
     modeLabel.hidden = !previewOverride || !path;
     const saved = Boolean(previewOverride && mode.value === 'saved');
+    previewActions.hidden = saved;
     if (saved && !savedPreview) {
       savedPreview = previewOverride();
       preview.insertBefore(savedPreview, localPreview);
@@ -141,7 +203,7 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
     download.hidden = !(notebook || context);
     downloadOptions.hidden = !context;
     const nextDownloadSource = path + '\n' + value;
-    if (downloadSource !== nextDownloadSource) {allowLargeHtml.checked = false; downloadSource = nextDownloadSource;}
+    if (downloadSource !== nextDownloadSource) {allowLargeHtml.checked = false; downloadOptions.open = false; downloadSource = nextDownloadSource;}
     if (notebook) notebookPaths.add(path);
     localPreview.hidden = saved;
     if (savedPreview) {
@@ -255,9 +317,10 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
     cells.dispose();
     observer?.disconnect(); themeObserver?.disconnect(); view?.dispose();
     for (const record of models.values()) record.model.dispose(); models.clear();
-    textarea.style.removeProperty('display');
+    textarea.style.removeProperty('display'); updateReferences();
   }
   textarea.addEventListener('input', () => {
+    updateReferences();
     if (view?.getModel() && !changing && view.getValue() !== textarea.value) {
       view.executeEdits('source-input', [{range: view.getModel().getFullModelRange(), text: textarea.value}]);
     }
@@ -266,6 +329,7 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
     if (!changing) {previewEpoch++; clearTimeout(timer); timer = setTimeout(renderPreview, 250);}
   });
   return {element, tabs, status, preview, cells: cells.element, dispose,
+    layout() {if (!disposed && !element.hidden) view?.layout();},
     refreshPreview() {previewEpoch++; void renderPreview();},
     onSelect(callback) {selectFile = callback;},
     showDraft() {
@@ -280,8 +344,8 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
       localPreview.hidden = false; previewPath.textContent = path ?? '';
       note.textContent = `Opening ${path ?? 'page'}…`;
     },
-    reset() {epoch++; previewEpoch++; clearTimeout(timer); allowLargeHtml.checked = false; downloadSource = null; download.hidden = true; downloadOptions.hidden = true; currentPath = null; previewPath.textContent = ''; cells.hide(); notebookPreview.dispose(); draftPreview.dispose(); savedPreview?.closePreview?.(); notebookPaths.clear(); view?.setModel(null); for (const record of models.values()) record.model.dispose(); models.clear(); tabs.replaceChildren(); frame.removeAttribute('srcdoc');},
-    hide() {epoch++; previewEpoch++; clearTimeout(timer); allowLargeHtml.checked = false; downloadSource = null; download.hidden = true; downloadOptions.hidden = true; currentPath = null; previewPath.textContent = ''; cells.hide(); notebookPreview.dispose(); draftPreview.dispose(); savedPreview?.closePreview?.(); element.hidden = true; frame.removeAttribute('srcdoc'); note.textContent = 'Choose a Markdown, HTML or notebook page in the Explorer to preview it.';},
+    reset() {epoch++; previewEpoch++; clearTimeout(timer); allowLargeHtml.checked = false; downloadSource = null; download.hidden = true; downloadOptions.hidden = true; currentPath = null; previewPath.textContent = ''; cells.hide(); notebookPreview.dispose(); draftPreview.dispose(); savedPreview?.closePreview?.(); notebookPaths.clear(); view?.setModel(null); for (const record of models.values()) record.model.dispose(); models.clear(); tabs.replaceChildren(); frame.removeAttribute('srcdoc'); updateReferences();},
+    hide() {epoch++; previewEpoch++; clearTimeout(timer); allowLargeHtml.checked = false; downloadSource = null; download.hidden = true; downloadOptions.hidden = true; currentPath = null; previewPath.textContent = ''; cells.hide(); notebookPreview.dispose(); draftPreview.dispose(); savedPreview?.closePreview?.(); element.hidden = true; frame.removeAttribute('srcdoc'); note.textContent = 'Choose a Markdown, HTML or notebook page in the Explorer to preview it.'; updateReferences();},
     insert(text, offset) {
       if (textarea.disabled || textarea.hidden) throw Error('Open an editable page first');
       if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0 || offset > textarea.value.length)) throw Error('Invalid insertion position');
@@ -293,7 +357,7 @@ export function PublicationCodeEditor({textarea, onSave, getFrameworkContext, ge
     },
     async open(path, value) {
       const token = ++epoch; previewEpoch++; currentPath = path;
-      previewPath.textContent = path;
+      previewPath.textContent = path; updateReferences();
       if (!observer && textarea.isConnected) {
         observer = new MutationObserver(changes => {if (!textarea.isConnected) dispose(); else if (changes.some(change => change.target === textarea)) lock();});
         observer.observe(document.body, {childList: true, subtree: true});

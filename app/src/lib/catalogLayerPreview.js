@@ -12,10 +12,16 @@ const VECTOR_GEOMETRIES = new Set(["Point", "MultiPoint", "LineString", "MultiLi
 const vectorFamily = value => String(value ?? "").replace(/^3D /, "").replace(/ ?Z$/, "");
 
 export function canPreviewCatalogManagedVector(dataset, adapter) {
-  return dataset.status === "active" && dataset.capabilities?.read === true && dataset.sourceType === "upload"
-    && dataset.format === "geojson" && dataset.currentVersionState === "active"
+  const original = dataset.status === "active" && dataset.currentVersionState === "active"
+    && VECTOR_GEOMETRIES.has(vectorFamily(dataset.geometryType));
+  // Preserving an original does not validate its geometry. A deliberate Open map
+  // may inspect an admitted display; this case can never read the raw original.
+  const preserved = ["draft", "active"].includes(dataset.status) && dataset.currentVersionState === "preserved"
+    && dataset.geometryType == null && typeof adapter?.listManagedDisplays === "function"
+    && typeof adapter?.readManagedDisplay === "function";
+  return (original || preserved) && dataset.capabilities?.read === true && dataset.sourceType === "upload"
+    && dataset.format === "geojson"
     && UUID.test(dataset.id) && UUID.test(dataset.projectId) && UUID.test(dataset.currentVersionId)
-    && VECTOR_GEOMETRIES.has(vectorFamily(dataset.geometryType))
     && ["getDataset", "listDatasetVersions", "requestDatasetDownload", "tokenProvider", "organizationProvider", "assertCollectionContext"]
       .every(method => typeof adapter?.[method] === "function");
 }
@@ -146,8 +152,10 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
   return load;
 
   async function managedPreview(record, versionId, geometryType, attribution, requestSignal, savedLayer = null) {
+    const displayCandidate = record.resourcePreview && !record.mapId
+      && typeof adapter.listManagedDisplays === "function" && typeof adapter.readManagedDisplay === "function";
     if (!UUID.test(record.projectId) || !UUID.test(record.datasetId) || !UUID.test(versionId)
-      || !VECTOR_GEOMETRIES.has(vectorFamily(geometryType))) {
+      || !displayCandidate && !VECTOR_GEOMETRIES.has(vectorFamily(geometryType))) {
       throw Error("The selected Layer needs an exact vector dataset version. Reload its Catalog record.");
     }
     managedScope ??= await captureExternalDatabaseScope(adapter);
@@ -159,12 +167,40 @@ export function createCatalogPreviewLoader({adapter, fetchImplementation = globa
     await assertScope();
     const dataset = await adapter.getDataset(record.projectId, record.datasetId);
     await assertScope();
-    if (dataset.id !== record.datasetId || dataset.projectId !== record.projectId || dataset.status !== "active"
+    if (dataset.id !== record.datasetId || dataset.projectId !== record.projectId
       || dataset.capabilities?.read !== true || dataset.sourceType !== "upload" || dataset.format !== "geojson"
-      || vectorFamily(dataset.geometryType) !== vectorFamily(geometryType)
-      || !record.mapId && (dataset.currentVersionId !== versionId || dataset.currentVersionState !== "active")) {
+      || (displayCandidate ? !canPreviewCatalogManagedVector(dataset, adapter) || dataset.currentVersionId !== versionId
+        : dataset.status !== "active" || vectorFamily(dataset.geometryType) !== vectorFamily(geometryType)
+          || !record.mapId && (dataset.currentVersionId !== versionId || dataset.currentVersionState !== "active"))) {
       throw Error("The selected Layer changed or is unavailable. Reload its Catalog record.");
     }
+    const originalReadable = dataset.status === "active" && dataset.currentVersionState === "active"
+      && VECTOR_GEOMETRIES.has(vectorFamily(geometryType)) && vectorFamily(dataset.geometryType) === vectorFamily(geometryType);
+    if (displayCandidate) {
+      const displays = await bounded(20_000, signal => adapter.listManagedDisplays(
+        record.projectId, record.datasetId, versionId, {signal}), requestSignal);
+      await assertScope();
+      if (displays.dataset_id !== record.datasetId || displays.dataset_version_id !== versionId
+        || !Array.isArray(displays.archives) || displays.archives.length > 20
+        || displays.archives.some(display => !UUID.test(display.id) || display.format !== "pmtiles")) {
+        throw Error("The reviewed tiled display no longer matches this Catalog Layer.");
+      }
+      if (displays.archives.length) {
+        const versions = await adapter.listDatasetVersions(record.projectId, record.datasetId);
+        await assertScope();
+        const version = versions.find(item => item.id === versionId && item.state === dataset.currentVersionState);
+        if (!version) throw Error("The selected dataset version is unavailable.");
+        const layer = originalReadable ? managedPreviewLayer(dataset, version, record.title)
+          : {layerId: `dataset_${dataset.id}_version_${version.id}`, datasetId: dataset.id,
+            datasetVersionId: version.id, sourceVersion: version.versionNumber, sourceType: "governed-dataset",
+            title: record.title || dataset.name, visible: true, opacity: 1, order: 0, style: {}, labels: {enabled: false, field: null}};
+        return {kind: "managed-tiles", layer, originalReadable,
+          managedArchive: {datasetId: record.datasetId, datasetVersionId: versionId},
+          projectId: record.projectId, datasetVersionId: versionId,
+          attribution: attribution || "Attribution is recorded separately for each reviewed display."};
+      }
+    }
+    if (displayCandidate && !originalReadable) throw Error("No reviewed tiled display is available for this preserved original. No raw-data fallback was used.");
     let exactVersion = null;
     const result = await bounded(90_000, signal => loadManagedVectorData({
       adapter: {

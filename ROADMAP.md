@@ -1,5 +1,7 @@
 # OpenGeo Studio roadmap
 
+November 12 source update: Publication headers and preview controls are compact, with download options available from one toolbar. Explorer resizing, reference links, current preview state and HTML downloads are preserved. This is source availability, not a hosted deployment or a new parity certification; the comparison summary remains **45 Pass / 4 Partial**.
+
 Improve recurring tasks that make a study useful: inspect sources, save and
 reopen a map, explain findings, share an output and update it later. The
 [capability guide](docs/community-capabilities.md) owns available operations and

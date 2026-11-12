@@ -1,3 +1,5 @@
+import {registerArchiveProtocols, workbenchRenderer} from "../lib/maplibreAdapter.js";
+import {archivePaintLayers} from "../lib/reviewedArchivePresentation.js";
 import {OverviewControl} from "./OverviewControl.js";
 import {mapServerTileUrl} from "../lib/mapServer.js";
 import {imageServerTileUrl} from "../lib/imageServer.js";
@@ -10,8 +12,8 @@ import {RasterViewshed} from "./RasterViewshed.js";
 import {wmsTileUrl} from "../lib/wmsSource.js";
 import {referencedStylePaint} from "../lib/layerStyleReference.js";
 
-export function MapView({geojson, geometryType, height, graduated, imageServer, cog, xyz, wms} = {}) {
-  if (!imageServer && !cog && !xyz && !wms && !geojson?.features?.length) return emptyMap();
+export function MapView({geojson, geometryType, height, graduated, imageServer, cog, xyz, wms, reviewedTiles} = {}) {
+  if (!reviewedTiles && !imageServer && !cog && !xyz && !wms && !geojson?.features?.length) return emptyMap();
   const tiled = wms ? {endpoint: wmsTileUrl(wms.endpoint, wms.configuration),
     configuration: {...wms.configuration, minZoom: 0, maxZoom: 22, scheme: "xyz"}} : xyz;
   const chooseArea = wms ? "Choose an area to load WMS imagery." : "Choose an area to load provider tiles.";
@@ -35,7 +37,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
   ready.catch(() => {});
   const staleStyle = () => new DOMException("Style application is no longer current", "AbortError");
   container.applyLayerStyle = async (resolved, layer, {isCurrent = () => true} = {}) => {
-    if (imageServer || cog || xyz || wms) throw Error("Reusable Styles require a vector Layer");
+    if (imageServer || cog || xyz || wms || reviewedTiles) throw Error("Reusable Styles require a vector Layer");
     const generation = ++styleGeneration;
     const check = () => {if (disposed || generation !== styleGeneration || !isCurrent()) throw staleStyle();};
     check();
@@ -79,6 +81,7 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
     disposed = true; styleGeneration++; clearTimeout(initialization); observer?.disconnect();
     rejectReady(staleStyle());
     delete container.__opengeoMap; delete container.__resize; delete container.__view;
+    delete container.__reviewedArchiveStats; reviewedTiles?.dispose();
     container.__cogSession?.dispose(); delete container.__cogSession;
     overview?.dispose(); overview = null;
     renderer?.remove(); renderer = null;
@@ -231,6 +234,36 @@ export function MapView({geojson, geometryType, height, graduated, imageServer, 
             const link=document.createElement("a");link.href=url;link.download="viewshed.geojson";link.click();URL.revokeObjectURL(url);}});
         controls.append(viewshed);map.on("remove",()=>viewshed.dispose());
         container.__cogSession = session; void read(false);
+        return;
+      }
+      if (reviewedTiles) {
+        try {
+          if (reviewedTiles.kind !== "reviewed-archive-tiles" || reviewedTiles.source.stats().closed
+            || !registerArchiveProtocols(workbenchRenderer(map))) throw Error("Reviewed tile session is unavailable.");
+          if (reviewedTiles.raster) throw Error("This Catalog preview requires a reviewed vector display.");
+          container.__reviewedArchiveStats = () => reviewedTiles.source.stats();
+          const ranges = reviewedTiles.layerRanges ?? reviewedTiles.record.tile_layers.map(item => ({
+            sourceLayer: item.source_layer, minZoom: reviewedTiles.header.minZoom, maxZoom: reviewedTiles.header.maxZoom}));
+          for (const [index, item] of reviewedTiles.record.tile_layers.entries()) {
+            const range = ranges.find(range => range.sourceLayer === item.source_layer);
+            if (!range) throw Error("The reviewed tile layer range is unavailable.");
+            const source = `preview-archive-${index}`;
+            map.addSource(source, {type: "vector", url: reviewedTiles.layerRanges
+              ? `${reviewedTiles.url}?source_layer=${encodeURIComponent(item.source_layer)}` : reviewedTiles.url,
+              attribution: reviewedTiles.record.attribution});
+            for (const part of archivePaintLayers(geometryPaint(item.geometry_type), reviewedTiles.overview, item.source_layer)) {
+              const id = `${source}-${part.id}`;
+              map.addLayer({...part, id, source, "source-layer": item.source_layer,
+                minzoom: Math.max(part.minzoom ?? 0, range.minZoom), maxzoom: Math.min(part.maxzoom ?? 24, range.maxZoom + 1)});
+              paintLayerIds.push(id);
+            }
+          }
+          const h = reviewedTiles.header;
+          map.fitBounds([[h.minLon, h.minLat], [h.maxLon, h.maxLat]], {padding: 40, maxZoom: 14, duration: 0});
+          resolveReady(map);
+        } catch (error) {
+          reviewedTiles.dispose(); setStatus("The reviewed tiled display could not load. No original-data fallback was used."); rejectReady(error);
+        }
         return;
       }
       if (imageServer) {

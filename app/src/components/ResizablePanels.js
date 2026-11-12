@@ -108,3 +108,147 @@ export function bindResizablePanels({shell, leftPanel, rightPanel, mapColumn, st
   layout();
   return () => { observer?.disconnect(); mutations?.disconnect(); root.remove(); };
 }
+
+// Shared column sizing for the publication Source explorer, editor and preview.
+// These are local presentation preferences, never document or account writes.
+export function sourcePanelWidths(total, requested = {}, {explorer = true, editor = true} = {}) {
+  const grip = 12, leftMin = explorer ? 160 : 0, rightMin = 240, centerMin = editor ? 280 : 0;
+  const grips = Number(explorer) + Number(editor), available = Math.max(0, total - grip * grips);
+  const stacked = available < leftMin + rightMin + centerMin;
+  if (stacked) return {stacked, left: 0, right: 0, center: 0, grip};
+  const numeric = (value, fallback) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  let left = explorer ? Math.max(leftMin, Math.min(480, available - rightMin - centerMin, numeric(requested.left, 220))) : 0;
+  let right = editor ? Math.max(rightMin, Math.min(available - leftMin - centerMin, numeric(requested.right, 360))) : Math.max(rightMin, available - left);
+  const excess = left + right + centerMin - available;
+  if (excess > 0) {
+    const flexible = left - leftMin + right - rightMin;
+    if (flexible > 0) {
+      left -= excess * (left - leftMin) / flexible;
+      right -= excess * (right - rightMin) / flexible;
+    }
+  }
+  left = Math.floor(Math.max(leftMin, left));
+  right = Math.floor(Math.max(rightMin, right));
+  return {stacked, left, right, center: available - left - right, grip};
+}
+
+export function bindResizableSourcePanels({shell, explorer, editor, preview,
+  storageKey = "opengeo.publication-source-panel-widths.v1", onResize = () => {}}) {
+  const doc = shell.ownerDocument, win = doc.defaultView;
+  const requestFrame = win.requestAnimationFrame?.bind(win) ?? (callback => win.setTimeout(callback, 0));
+  const cancelFrame = win.cancelAnimationFrame?.bind(win) ?? win.clearTimeout.bind(win);
+  let saved;
+  try { saved = JSON.parse(win.sessionStorage.getItem(storageKey) ?? "{}"); } catch { /* optional preference */ }
+  const finite = value => typeof value === "number" && Number.isFinite(value);
+  const requested = {left: finite(saved?.left) ? saved.left : 220, right: finite(saved?.right) ? saved.right : 360};
+  const defaults = {left: 220, right: 360};
+  let drag = null, disposed = false, resizeFrame = null, connected = shell.isConnected, signature;
+  const shield = doc.createElement("div"); shield.className = "source-panel-resize-shield"; shield.hidden = true;
+  shell.classList.add("source-editor-resizable");
+  const grips = ["left", "right"].map(side => {
+    const grip = doc.createElement("div");
+    grip.className = `source-panel-resizer source-panel-resizer-${side}`;
+    grip.tabIndex = 0; grip.setAttribute("role", "separator"); grip.setAttribute("aria-orientation", "vertical");
+    const label = side === "left" ? "Resize Explorer panel" : "Resize preview panel";
+    grip.setAttribute("aria-label", label); grip.title = `${label}. Drag, or use Left and Right arrow keys. Home and End use the limits.`;
+    const panel = side === "left" ? explorer : preview;
+    if (!panel.id) panel.id = `publication-source-${side}-${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)}`;
+    grip.setAttribute("aria-controls", panel.id);
+    grip.addEventListener("pointerdown", event => {
+      if (disposed || event.button !== 0 || drag || grip.hidden) return;
+      event.preventDefault(); grip.focus({preventScroll: true});
+      const widths = layout();
+      drag = {side, id: event.pointerId, x: event.clientX, size: widths[side], before: {...requested}};
+      if (!explorer.hidden) requested.left = widths.left;
+      if (!editor.hidden) requested.right = widths.right;
+      shield.hidden = false; shell.classList.add("source-panels-resizing");
+      grip.setPointerCapture?.(event.pointerId);
+      doc.addEventListener("pointermove", move); doc.addEventListener("pointerup", finishPointer); doc.addEventListener("pointercancel", cancelPointer);
+    });
+    grip.addEventListener("lostpointercapture", () => end(true));
+    grip.addEventListener("keydown", event => {
+      if (event.key === "Escape" && drag) {event.preventDefault(); end(true); return;}
+      if (grip.hidden || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const widths = layout();
+      if (!explorer.hidden) requested.left = widths.left;
+      if (!editor.hidden) requested.right = widths.right;
+      const direction = (event.key === "ArrowRight" ? 1 : -1) * (side === "left" ? 1 : -1);
+      const min = Number(grip.getAttribute("aria-valuemin")), max = Number(grip.getAttribute("aria-valuemax"));
+      requested[side] = event.key === "Home" ? min : event.key === "End" ? max
+        : Math.max(min, Math.min(max, widths[side] + direction * (event.shiftKey ? 40 : 10)));
+      layout(); persist();
+    });
+    grip.addEventListener("dblclick", () => {requested[side] = defaults[side]; layout(); persist();});
+    shell.insertBefore(grip, side === "left" ? editor : preview);
+    return {side, grip};
+  });
+  shell.append(shield);
+  function persist() {
+    try { win.sessionStorage.setItem(storageKey, JSON.stringify(requested)); } catch { /* resizing still works */ }
+  }
+  function notify() {
+    if (resizeFrame !== null || disposed) return;
+    resizeFrame = requestFrame(() => {resizeFrame = null; if (!disposed) onResize();});
+  }
+  function layout() {
+    const bounds = shell.getBoundingClientRect(), width = shell.clientWidth || bounds.width, explorerOpen = !explorer.hidden, editorOpen = !editor.hidden;
+    const widths = sourcePanelWidths(width, requested, {explorer: explorerOpen, editor: editorOpen});
+    const mode = widths.stacked ? "stacked" : editorOpen ? explorerOpen ? "columns" : "editor-preview" : explorerOpen ? "explorer-preview" : "preview";
+    if (drag && (widths.stacked || (drag.side === "left" ? !explorerOpen : !editorOpen))) end(true);
+    shell.dataset.resizeLayout = mode;
+    shell.style.setProperty("--source-explorer-width", `${widths.left}px`);
+    shell.style.setProperty("--source-preview-width", `${widths.right}px`);
+    for (const {side, grip} of grips) {
+      grip.hidden = widths.stacked || (side === "left" ? !explorerOpen : !editorOpen);
+      const min = side === "left" ? 160 : 240;
+      const max = side === "left" ? Math.max(min, Math.min(480, width - (editorOpen ? 280 : 0) - (editorOpen ? widths.right : 240) - widths.grip * (Number(explorerOpen) + Number(editorOpen))))
+        : Math.max(min, width - widths.left - 280 - widths.grip * (Number(explorerOpen) + Number(editorOpen)));
+      grip.setAttribute("aria-valuemin", String(min)); grip.setAttribute("aria-valuemax", String(Math.floor(max)));
+      grip.setAttribute("aria-valuenow", String(widths[side])); grip.setAttribute("aria-valuetext", `${widths[side]} pixels`);
+    }
+    const next = [bounds.width, bounds.height, mode, widths.left, widths.right].join(":");
+    if (signature !== next) {signature = next; notify();}
+    return widths;
+  }
+  function move(event) {
+    if (!drag || event.pointerId !== drag.id) return;
+    event.preventDefault();
+    const grip = grips.find(item => item.side === drag.side).grip;
+    requested[drag.side] = Math.max(Number(grip.getAttribute("aria-valuemin")), Math.min(Number(grip.getAttribute("aria-valuemax")),
+      drag.size + (event.clientX - drag.x) * (drag.side === "left" ? 1 : -1)));
+    layout();
+  }
+  function end(cancel = false) {
+    if (!drag) return;
+    const previous = drag; drag = null;
+    if (cancel) Object.assign(requested, previous.before);
+    doc.removeEventListener("pointermove", move); doc.removeEventListener("pointerup", finishPointer); doc.removeEventListener("pointercancel", cancelPointer);
+    const grip = grips.find(item => item.side === previous.side).grip;
+    if (grip.hasPointerCapture?.(previous.id)) grip.releasePointerCapture(previous.id);
+    shield.hidden = true; shell.classList.remove("source-panels-resizing"); layout();
+    if (!cancel) persist();
+  }
+  const finishPointer = event => {if (drag?.id === event.pointerId) end();};
+  const cancelPointer = event => {if (drag?.id === event.pointerId) end(true);};
+  const resizeObserver = typeof win.ResizeObserver === "function" ? new win.ResizeObserver(layout) : null;
+  resizeObserver?.observe(shell);
+  const mutationObserver = new win.MutationObserver(() => layout());
+  mutationObserver.observe(shell, {attributes: true, attributeFilter: ["class"]});
+  for (const panel of [explorer, editor]) mutationObserver.observe(panel, {attributes: true, attributeFilter: ["hidden"]});
+  const removalObserver = new win.MutationObserver(() => {
+    if (!shell.isConnected && connected) dispose();
+    else if (shell.isConnected && !connected) {connected = true; layout();}
+  });
+  removalObserver.observe(doc.body, {childList: true, subtree: true});
+  win.addEventListener("resize", layout); layout();
+  function dispose() {
+    if (disposed) return;
+    end(true); disposed = true;
+    if (resizeFrame !== null) cancelFrame(resizeFrame);
+    resizeObserver?.disconnect(); mutationObserver.disconnect(); removalObserver.disconnect(); win.removeEventListener("resize", layout);
+    grips.forEach(({grip}) => grip.remove()); shield.remove(); shell.classList.remove("source-editor-resizable", "source-panels-resizing");
+    shell.removeAttribute("data-resize-layout"); shell.style.removeProperty("--source-explorer-width"); shell.style.removeProperty("--source-preview-width");
+  }
+  return {layout, dispose};
+}

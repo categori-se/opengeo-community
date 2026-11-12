@@ -15,6 +15,7 @@ import {PublicationCommands} from "./PublicationCommands.js";
 import {PublicationSourceHistory} from "./PublicationSourceHistory.js";
 import {FrameworkProjectPreview} from "./FrameworkProjectPreview.js";
 import {PublicationCodeEditor} from "./PublicationCodeEditor.js";
+import {bindResizableSourcePanels} from "./ResizablePanels.js";
 import {NotebookImportReview} from "./NotebookImportReview.js";
 import {convertLegacyNotebook} from "./ObservableNotebookPreview.js";
 import {publicationMapInsert} from "../lib/publicationMapInsert.js";
@@ -144,7 +145,7 @@ export function ProjectPublishingWorkspace({state, refresh, initialResourceTarge
     {label: 'Settings', commands: [{label: 'Public addresses…',
       enabled: () => Boolean(selectedCard()?.runPublicationCommand), run: () => command('addresses')}]}
   ]});
-  root.append(commands);
+  heading.append(commands);
   root.append(content);
   if (canManage(state) || canPublish(state)) {
     const collaborators = document.createElement('details'); collaborators.className = 'publication-collaborators';
@@ -416,7 +417,10 @@ function observableSourceProjectCard(state, refresh, site, sourceProject, legacy
   card.className = "project-site-card observable-source-project";
   card.dataset.rightsStatus = sourceProject.rightsStatus;
   const versionNote = text("p", `Draft version ${sourceProject.currentRevisionNumber}`, "project-resource-feedback");
-  card.append(text("h3", sourceProject.title), versionNote);
+  const header = document.createElement("header"); header.className = "publication-source-header";
+  const identity = document.createElement("div"); identity.className = "publication-source-identity";
+  identity.append(text("h3", sourceProject.title), versionNote); header.append(identity);
+  card.append(header);
   card.addEventListener('opengeo-publication-draft-saved', () => {
     versionNote.textContent = `Draft version ${sourceProject.currentRevisionNumber}`;
     for (const preview of card.querySelectorAll('.framework-project-preview')) preview.sourceDraftSaved?.();
@@ -480,6 +484,7 @@ function observableSourceProjectCard(state, refresh, site, sourceProject, legacy
     else if (canManage(state)) {panels.selectPanel('files'); sourceEditor.runPublicationCommand(name);}
   };
   card.addEventListener('opengeo-publication-destinations-changed', event => publicationReleases?.refreshStatus(event.detail));
+  header.append(panels.querySelector(".publication-panel-tabs"));
   card.append(panels);
   return card;
 }
@@ -579,8 +584,9 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   sourceText.spellcheck = false;
   sourceText.ariaLabel = "Framework source editor";
   sourceText.hidden = true;
+  let sourcePanels;
   const codeEditor = PublicationCodeEditor({textarea: sourceText, onSave: () => submit.click(),
-    onDispose: () => attachmentReader.dispose(),
+    onDispose: () => {sourcePanels?.dispose(); attachmentReader.dispose();},
     preview: () => frameworkPreviewWorkspace(state, sourceProject),
     getSourceContext: () => {
       const records = new Map(workingFiles.map(record => [record.relativePath, record]));
@@ -1686,6 +1692,7 @@ function observableRevisionEditor(state, refresh, sourceProject, legacyConverter
   const editor = document.createElement("div"); editor.className = "source-editor-main";
   editor.append(codeEditor.tabs, breadcrumb, sourceFile, sourceText, codeEditor.cells, codeEditor.element, codeEditor.status, editorFeedback, notebookReview.element);
   layout.append(sidebar, editor, codeEditor.preview);
+  sourcePanels = bindResizableSourcePanels({shell: layout, explorer: sidebar, editor, preview: codeEditor.preview, onResize: () => codeEditor.layout()});
   fieldset.append(toolbar, mapInsert, selected, layout, trays, feedback);
   let previewOnly = false, mapInsertHidden = mapInsert.hidden;
   fieldset.setPreviewOnly = value => {
